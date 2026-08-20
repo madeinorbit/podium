@@ -1,6 +1,8 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": ["//"],
+  "extends": [
+    "//"
+  ],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -576,6 +578,7 @@
         "src/store/server-secrets.ts",
         "src/store/session-attribution.test.ts",
         "src/store/session-by-resume-value.test.ts",
+        "src/store/session-oom-death.test.ts",
         "src/store/session-upsert-arity.test.ts",
         "src/store/sessions.ts",
         "src/store/settings-audit.ts",

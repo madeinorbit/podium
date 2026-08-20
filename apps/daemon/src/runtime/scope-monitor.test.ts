@@ -199,6 +199,12 @@ describe('the scope monitor', () => {
     // rather than a zero, because this kernel reported none.
     expect(monitor.sessionsMemory()).toEqual({ currentBytes: 1000, highBytes: 1000 })
 
+    /**
+     * FULL, NOT SOME. `some avg10` is high here and `full avg10` is low —
+     * exactly the shape a healthy parallel build produces (measured: `some`
+     * firing on 40 of 114 samples through an ordinary typecheck). Reporting
+     * `some` would call that memory pressure and park a session for it.
+     */
     writeFileSync(
       join(sliceDir, 'memory.pressure'),
       'some avg10=42.13 avg60=8.00 avg300=1.00 total=1\nfull avg10=3.00 avg60=0.00 avg300=0.00 total=1\n',
@@ -206,7 +212,7 @@ describe('the scope monitor', () => {
     expect(monitor.sessionsMemory()).toEqual({
       currentBytes: 1000,
       highBytes: 1000,
-      stalledPct: 42.13,
+      stalledPct: 3,
     })
   })
 

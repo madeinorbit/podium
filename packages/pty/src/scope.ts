@@ -26,19 +26,26 @@
  * supervisor must never share an OOM fate with what it supervises.
  *
  * TWO POLICY TRAPS, both measured on a live user manager (systemd 259, cgroup
- * v2) before these defaults were chosen — the numbers are in
+ * v2) — the three-arm measurement is in
  * `docs/architecture/pod-2413-resource-isolation.md`:
  *
- *  1. `MemoryHigh` DOES NOT KILL, it throttles reclaim. Set well below what a
- *     session actually wants, it turns a runaway into a permanent crawl: the
- *     probe logged ~1000 `high` events in four seconds while the workload made
- *     essentially no progress and never reached `MemoryMax`. A wedged agent is
- *     worse than a killed one, so `MemoryHigh` here is a narrow warning band
- *     just under `MemoryMax` ({@link HIGH_BAND}), not a low throttle point.
+ *  1. `MemoryHigh` DOES NOT KILL — it throttles reclaim, and ANY high below max
+ *     can wedge a runaway instead of ending it. The first cut of this file set
+ *     it to 90% of `MemoryMax` on the theory that a narrow band was safe; it is
+ *     not. Measured: high at 90% with swap allowed produced NO KILL and
+ *     thousands of reclaim-throttle events, because a workload whose demand
+ *     exceeds the ceiling never escapes throttling at the high line to reach
+ *     the max line where the kill lives. So the default sets NO high at all:
+ *     `MemoryMax` is the kill line, and `MemoryHigh` remains available as an
+ *     explicit reclaim-only policy for an operator who wants throttling instead
+ *     of killing.
  *  2. `MemoryMax` alone does not bound a runaway on a host with swap — the
- *     kernel simply pages it out. This host carries 40 GiB of swap, which is
- *     exactly how "the box stopped responding" happens without a single OOM
- *     kill. `MemorySwapMax` bounds that too.
+ *     kernel simply pages it out (a probe allocated 1.6 GiB under a 64 MiB cap
+ *     and finished normally, on a host with 40 GiB of swap). And swap is a
+ *     SEPARATE cgroup v2 limit, so `MemorySwapMax=MemoryMax` does not bound the
+ *     total at max — it doubles it, which on a small host is more than the RAM
+ *     the budget was derived from. The default is therefore `MemorySwapMax=0`:
+ *     one number, and it means what it says.
  */
 
 import { totalmem } from 'node:os'
@@ -61,8 +68,14 @@ export interface ScopeBudget {
   tasksMax?: number
 }
 
-/** `MemoryHigh` as a fraction of `MemoryMax` — the warning band, see trap 1. */
-const HIGH_BAND = 0.9
+/**
+ * Swap allowed to a session scope, as a fraction of its memory ceiling.
+ *
+ * ZERO, so `MemoryMax` is the whole bound. Swap is an independent cgroup v2
+ * limit, so anything above zero ADDS to the ceiling rather than fitting inside
+ * it; an operator who wants an allowance sets one explicitly.
+ */
+const SWAP_FRACTION = 0
 
 /** Per-session share of host RAM, and the floor/ceiling it is clamped into. */
 const SESSION_MEMORY_SHARE = 0.5
@@ -103,7 +116,10 @@ export interface ScopeBudgetEnv {
  * as unbounded". The two are different answers and a single `undefined` for
  * both would silently turn an operator's `infinity` into the derived default.
  */
-export function parseByteSize(value: string | undefined): number | null | undefined {
+export function parseByteSize(
+  value: string | undefined,
+  options: { allowZero?: boolean } = {},
+): number | null | undefined {
   const raw = value?.trim()
   if (!raw) return undefined
   const lowered = raw.toLowerCase()
@@ -114,7 +130,12 @@ export function parseByteSize(value: string | undefined): number | null | undefi
   const bytes = match?.[1]
     ? Number.parseFloat(match[1]) * (unit ? (scale[unit] ?? 1) : 1)
     : Number.NaN
-  if (Number.isFinite(bytes) && bytes > 0) return Math.floor(bytes)
+  // `0` IS A VALUE on the axis where it can mean something. "No swap at all"
+  // must be expressible; a memory ceiling of zero never is, so only the caller
+  // that can mean it opts in.
+  if (Number.isFinite(bytes) && (bytes > 0 || (options.allowZero === true && bytes === 0))) {
+    return Math.floor(bytes)
+  }
   // SAY SO. A typo'd override is indistinguishable from "not configured" and
   // silently restores the derived default — so the operator who raised the cap
   // for a 40 GiB build gets the 16 GiB ceiling and an OOM kill with no evidence
@@ -183,27 +204,32 @@ export function resolveScopeBudget(
         ? undefined
         : (configuredMax ?? derivedMax)
 
-  const derivedHigh =
-    memoryMaxBytes === undefined ? undefined : Math.floor(memoryMaxBytes * HIGH_BAND)
+  /**
+   * NO DERIVED HIGH. There is no safe default band below the ceiling: a runaway
+   * throttles there indefinitely instead of reaching the kill line (trap 1). An
+   * explicit `PODIUM_SESSION_MEMORY_HIGH` is honoured as exactly what it is — a
+   * reclaim-only policy the operator chose — and for an attach scope it is
+   * clamped under the hard cap so it can never sit above its own limit.
+   */
   const configuredHigh = parseByteSize(env.PODIUM_SESSION_MEMORY_HIGH)
   const memoryHighBytes =
     role === 'attach'
-      ? derivedHigh === undefined
+      ? memoryMaxBytes === undefined || configuredHigh == null
         ? undefined
-        : clampToAttach(configuredHigh, derivedHigh)
-      : configuredHigh === null
-        ? undefined
-        : (configuredHigh ?? derivedHigh)
+        : Math.min(memoryMaxBytes, configuredHigh)
+      : (configuredHigh ?? undefined)
 
-  const configuredSwap = parseByteSize(env.PODIUM_SESSION_MEMORY_SWAP_MAX)
+  const derivedSwap =
+    memoryMaxBytes === undefined ? undefined : Math.floor(memoryMaxBytes * SWAP_FRACTION)
+  const configuredSwap = parseByteSize(env.PODIUM_SESSION_MEMORY_SWAP_MAX, { allowZero: true })
   const memorySwapMaxBytes =
     role === 'attach'
-      ? memoryMaxBytes === undefined
+      ? derivedSwap === undefined
         ? undefined
-        : clampToAttach(configuredSwap, memoryMaxBytes)
+        : clampToAttach(configuredSwap, derivedSwap)
       : configuredSwap === null
         ? undefined
-        : (configuredSwap ?? memoryMaxBytes)
+        : (configuredSwap ?? derivedSwap)
 
   const configuredTasks = parseTaskCount(env.PODIUM_SESSION_TASKS_MAX)
   const derivedTasks = role === 'attach' ? ATTACH_TASKS_MAX : SESSION_TASKS_MAX

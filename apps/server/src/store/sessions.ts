@@ -134,7 +134,7 @@ export class SessionsRepository {
                 resume_value, selected_driver_id, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
                 terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-                spawned_by, headless, issue_id, stopped_at, stop_reason, deleted_at, deletion_source,
+                spawned_by, headless, issue_id, stopped_at, stop_reason, oom_killed_at, deleted_at, deletion_source,
                 deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
                 ref_issue_id, ref_letter, ref_draft,
                 created_by_actor_kind, created_by_actor_id, created_by_on_behalf_of
@@ -236,10 +236,10 @@ export class SessionsRepository {
         r.stop_reason === 'self' ||
         r.stop_reason === 'parent' ||
         r.stop_reason === 'forced' ||
-        r.stop_reason === 'exited' ||
-        r.stop_reason === 'oom'
+        r.stop_reason === 'exited'
           ? r.stop_reason
           : null,
+      oomKilledAt: (r.oom_killed_at as string | null) ?? null,
       workflowRunId: (r.workflow_run_id as string | null) ?? null,
       workflowStepId: (r.workflow_step_id as string | null) ?? null,
       executionProfileId: (r.execution_profile_id as string | null) ?? null,
@@ -269,11 +269,11 @@ export class SessionsRepository {
             resume_value, selected_driver_id, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
             terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-            spawned_by, headless, issue_id, stopped_at, stop_reason, deleted_at, deletion_source,
+            spawned_by, headless, issue_id, stopped_at, stop_reason, oom_killed_at, deleted_at, deletion_source,
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
             ref_issue_id, ref_letter, ref_draft,
             created_by_actor_kind, created_by_actor_id, created_by_on_behalf_of)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            model = excluded.model,
@@ -309,6 +309,7 @@ export class SessionsRepository {
            issue_id = excluded.issue_id,
            stopped_at = excluded.stopped_at,
            stop_reason = excluded.stop_reason,
+           oom_killed_at = excluded.oom_killed_at,
            deleted_at = excluded.deleted_at,
            deletion_source = excluded.deletion_source,
            deleted_by_issue_id = excluded.deleted_by_issue_id,
@@ -370,7 +371,17 @@ export class SessionsRepository {
         row.headless ? 1 : 0,
         row.issueId ?? null,
         row.stoppedAt ?? null,
-        row.stopReason ?? null,
+        /**
+         * `stop_reason` KEEPS ITS FOUR-VALUE VOCABULARY, and `oom` is not one
+         * of them: `sessions_stop_reason_check` admits only self/parent/
+         * forced/exited, and widening it means a SQLite table rebuild the
+         * expand-only gate refuses. So the DEATH persists as `exited` and the
+         * CAUSE persists beside it as a timestamp; `Session.hydrate` re-derives
+         * `oom` from the pair. Without this the whole write threw on the CHECK
+         * and took the durable `oomKilled` event append down with it.
+         */
+        row.stopReason === 'oom' ? 'exited' : (row.stopReason ?? null),
+        row.oomKilledAt ?? null,
         row.deletedAt ?? null,
         row.deletionSource ?? null,
         row.deletedByIssueId ?? null,

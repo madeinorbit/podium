@@ -40,8 +40,8 @@ All four spawn paths — the abduco master, `codex app-server`, `grok agent stdi
 budget land in one place and cannot drift per family.
 
 Defaults are derived from host RAM, because the same daemon runs on an 8 GiB VPS and
-a 128 GiB workstation: `MemoryMax` is 50% of RAM clamped to 2–16 GiB, `MemoryHigh` is
-90% of that, `MemorySwapMax` equals the max, `TasksMax` is 4096. Every axis is
+a 128 GiB workstation: `MemoryMax` is 50% of RAM clamped to 2–16 GiB, `MemorySwapMax`
+is 0, `TasksMax` is 4096, and **no `MemoryHigh` is set** — see trap 1. Every axis is
 overridable (`PODIUM_SESSION_MEMORY_MAX`, … see the env table in
 `packages/runtime/src/config.ts`), and `PODIUM_NO_SESSION_BUDGET` keeps the tree
 while dropping every limit — an operator who needs a 40 GiB build is a real person,
@@ -53,20 +53,38 @@ Measured on this host (systemd 259, cgroup v2 with `memory`+`pids` delegated to 
 user manager, 11.9 GiB RAM, 40 GiB swap) before the defaults were chosen. Each is
 reproducible with `systemd-run --user --scope --slice=… --property=…`.
 
-**1. `MemoryHigh` does not kill — it throttles, and a low one is a livelock.**
-A scope with `MemoryHigh=200M` against a workload wanting 1.6 GiB logged 967
-reclaim-throttle events in four seconds, sat pinned just above the limit, made
-essentially no progress, and never reached `MemoryMax` at all. A wedged agent is
-worse than a killed one, so `MemoryHigh` here is a narrow warning band under
-`MemoryMax` rather than a low throttle point — and `memory.events`' `high` counter
-is surfaced as `throttleEvents` so the band being wrong is visible rather than
+**1. `MemoryHigh` does not kill — it throttles, and ANY high below max can wedge a
+runaway instead of ending it.** The first cut of this work set the high band to 90%
+of `MemoryMax`, reasoning that a *narrow* band was safe. It is not. Four arms, same
+128 MiB ceiling, same workload wanting 1.6 GiB, ~24s each:
+
+| arm | `MemoryHigh` | `MemorySwapMax` | `oom_kill` | `high` events | child |
+|---|---|---|---|---:|---|
+| A (as first shipped) | 90% of max | = max | 0 | 1885 | still running — **wedged** |
+| B (**the default now**) | unset | 0 | 1 | 0 | `EXIT=137` |
+| C | = max | 0 | 1 | 0 | `EXIT=137` |
+| D | 90% of max | 0 | 0 | 1759 | still running — **wedged** |
+
+D is the one that settles it: with swap off, the 90% band *still* wedges, so the
+band alone is the cause and swap is a separate problem. A workload whose demand
+exceeds the ceiling never escapes reclaim-throttling at the high line to reach the
+max line where the kill lives, so it crawls forever — and a wedged agent is worse
+than a killed one, because nothing reports it. The default therefore sets **no
+`MemoryHigh` at all**: `MemoryMax` is the kill line. The knob remains for an
+operator who explicitly wants reclaim-only throttling, and `memory.events`' `high`
+counter is surfaced as `throttleEvents` so choosing it is visible rather than
 mysterious.
 
-**2. `MemoryMax` alone does not bound anything on a host with swap.**
-The first probe allocated 1.6 GiB under `MemoryMax=64M` and finished normally: the
-kernel simply paged it out. With 40 GiB of swap on this box, that is precisely the
-"machine stopped responding" failure — no OOM kill anywhere in it. `MemorySwapMax`
-is therefore part of the budget, not an extra.
+**2. `MemoryMax` alone does not bound anything on a host with swap — and equal swap
+doubles the bound.** The first probe allocated 1.6 GiB under `MemoryMax=64M` and
+finished normally: the kernel simply paged it out. With 40 GiB of swap on this box,
+that is precisely the "machine stopped responding" failure, with no OOM kill
+anywhere in it. But `MemorySwapMax` is an *independent* cgroup v2 limit, so setting
+it equal to `MemoryMax` (the first cut again) does not cap the total at max — it
+makes the real ceiling 2×, which on a small host is more than the RAM the budget was
+derived from. The default is `MemorySwapMax=0`, so `MemoryMax` is the whole bound
+and means what it says; `PODIUM_SESSION_MEMORY_SWAP_MAX` takes an explicit
+allowance, `0` included.
 
 **3. `OOMPolicy=continue` is what makes a budget survivable.**
 `MemoryMax=128M`, `MemorySwapMax=0`, a hog under a shell: the kernel killed the hog
@@ -120,10 +138,20 @@ The server correlates rather than assumes. `process.oomKilled` is **not** a deat
 with `OOMPolicy=continue` the usual victim is a build the agent started, and the
 session keeps serving. What it changes is what a *nearby* exit is allowed to be
 called: a session whose tree died within 60s of a kernel kill exited because the box
-ran out of memory, and its row says `stopReason: 'oom'` instead of `exited`
-(surfaced as "out of memory" in the sidebar). Both orderings are handled — the
-daemon samples on a timer, so the evidence routinely lands after the exit frame and
-upgrades a row already stamped.
+ran out of memory, and its row reads `oom` instead of `exited` (surfaced as "out of
+memory" in the sidebar, in the failure colour rather than the finished one). Both
+orderings are handled — the daemon samples on a timer, so the evidence routinely
+lands after the exit frame and upgrades a row already stamped.
+
+**What persists is the evidence, not the verdict.** `sessions.stop_reason` has a
+CHECK admitting exactly self/parent/forced/exited, and widening it means a SQLite
+table rebuild the expand-only migration gate refuses — the first cut ignored that
+and every OOM death threw at the database, rolling back the durable `oomKilled`
+append with it. So the kill persists as its own additive, nullable column
+(`oom_killed_at`), the row stays an ordinary `exited`, and `Session` re-derives
+`oom` on hydrate with the same window check it applies live. That is also the better
+shape: an OOM kill is a timestamped fact that may or may not explain a later exit,
+which is not what a terminal-reason enum is for.
 
 ## Reclaim, on attributable evidence
 
@@ -137,9 +165,11 @@ slice is at or over its `MemoryHigh`" — is wrong in a way worth writing down:
 `memory.current` counts reclaimable page cache and the kernel only reclaims *at*
 the high line, so a build-heavy instance settles pinned at its watermark with
 memory genuinely free. That test would be chronically true and would park a
-session every cooldown on a host under no pressure at all. PSI's `some avg10`
-for the slice — the share of the last ten seconds in which a session task
-actually waited for memory — says what the bytes cannot. The daemon reports it
+session every cooldown on a host under no pressure at all. PSI's `full avg10` for the slice — the share of the last ten seconds in which
+*every* runnable session task was blocked on memory at once — says what the bytes
+cannot. Not `some`: any-task-waiting is what an ordinary parallel build looks
+like (measured firing on 40 of 114 samples through a perfectly healthy
+typecheck), so `some` is a busyness signal and `full` is the shortage one. The daemon reports it
 with the two byte counts as context (`HostMetricsWire.sessionsMemory`), and the
 server treats sustained stalling as a trigger alongside the host-wide one.
 Client terminals carry the attach budget and are still reclaimed first.

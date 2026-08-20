@@ -227,7 +227,13 @@ export interface SessionRow {
   refDraft?: number | null
   /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
   stoppedAt?: string | null
+  /** The four-value column vocabulary. `oom` is NOT one of them — it is derived
+   *  from {@link SessionRow.oomKilledAt} on the way back in, because widening
+   *  the CHECK would mean a table rebuild (see the store's write path). */
   stopReason?: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | null
+  /** Event time of the last kernel OOM kill observed in this session's scope
+   *  (POD-2413), or null where none was. */
+  oomKilledAt?: string | null
   /** OPTIONAL workflow-coordination pass-through metadata (#285 via #237
    *  [spec:SP-34d7 cross-harness]): stamped at spawn/assignment by an external
    *  coordinator, never interpreted by the substrate. Parent linkage rides

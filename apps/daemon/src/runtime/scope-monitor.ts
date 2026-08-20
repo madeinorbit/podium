@@ -98,10 +98,14 @@ export interface ScopeMonitor {
    * `memory.current` counts reclaimable page cache and the kernel only reclaims
    * at the high line, so a build-heavy slice sits pinned at its watermark with
    * memory genuinely free — "current >= high" would be chronically true and
-   * would park sessions on a host under no pressure at all. PSI's `some avg10`
-   * measures the share of the last ten seconds in which a task actually stalled
-   * on memory. `undefined` where there is no slice to read — no cgroups, or no
-   * session has ever been scoped on this machine.
+   * would park sessions on a host under no pressure at all.
+   *
+   * It is PSI's `full avg10`, not `some`. `some` counts any task waiting, which
+   * an ordinary parallel build does constantly (measured: 40 of 114 samples
+   * during a healthy typecheck, 54 seconds continuous) — that is busyness, not
+   * shortage. `full` is every runnable task blocked on memory at once, which is
+   * the state worth reclaiming for. `undefined` where there is no slice to read
+   * — no cgroups, or no session has ever been scoped on this machine.
    */
   sessionsMemory(): { currentBytes: number; highBytes: number; stalledPct?: number } | undefined
   /** One sampling pass. Exposed for tests and for callers that want a reading
@@ -281,7 +285,7 @@ export function createScopeMonitor(deps: ScopeMonitorDeps): ScopeMonitor {
       if (sample?.memoryBytes === undefined || sample.memoryHighBytes === undefined) {
         return undefined
       }
-      const stalled = readCgroupPressure(path)?.some10
+      const stalled = readCgroupPressure(path)?.full10
       return {
         currentBytes: sample.memoryBytes,
         highBytes: sample.memoryHighBytes,

@@ -53,6 +53,10 @@ const SessionContextMenu = lazy(() =>
 )
 
 
+/** The terminal-outcome word for a session the kernel killed for memory, and
+ *  the value the chip's failure styling keys on (POD-2413). */
+export const OOM_OUTCOME = 'out of memory'
+
 /** The one aside shell the sidebar renders into. The aside itself never scrolls —
  *  only the work list inside it — so the footer stays pinned. */
 export const SIDEBAR_ASIDE_CLASS =
@@ -672,7 +676,7 @@ export function PanelRow({
           // (POD-2413). "finished" would be the row quietly agreeing with a
           // death it can name.
           session.stopReason === 'oom'
-          ? 'out of memory'
+          ? OOM_OUTCOME
           : 'finished'
     : (idleDone && session.status === 'hibernated') ||
         session.agentState?.phase === 'ended' ||
@@ -888,7 +892,17 @@ export function PanelRow({
           )}
           {terminalOutcome && (
             <span
-              className="shell-type-micro flex-none rounded border border-emerald-500/35 px-1 uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+              className={cn(
+                'shell-type-micro flex-none rounded border px-1 uppercase tracking-wide',
+                // A DEATH DOES NOT WEAR THE FINISHED COLOUR. Every other outcome
+                // here ended on purpose; a session the kernel killed for memory
+                // did not, and rendering it in the same emerald as "finished"
+                // reads as a clean ending at a glance — which is the one thing
+                // this chip must not say (POD-2413).
+                terminalOutcome === OOM_OUTCOME
+                  ? 'border-destructive/35 text-destructive'
+                  : 'border-emerald-500/35 text-emerald-600 dark:text-emerald-400',
+              )}
               data-testid="session-outcome-chip"
             >
               {terminalOutcome}

@@ -13,20 +13,50 @@ const GIB = 1024 ** 3
 const HOST = 16 * GIB
 
 describe('scope budgets', () => {
-  it('derives a per-session memory budget from host RAM, with the high band under the max', () => {
+  it('derives a per-session memory ceiling from host RAM and sets NO high band', () => {
     const budget = resolveScopeBudget('session', {}, HOST)
     expect(budget.memoryMaxBytes).toBe(8 * GIB)
-    // The band is NARROW on purpose: `MemoryHigh` throttles reclaim rather than
-    // killing, so a low one turns a runaway into a permanent crawl (measured:
-    // ~1000 throttle events in four seconds with no progress).
-    expect(budget.memoryHighBytes).toBe(Math.floor(8 * GIB * 0.9))
-    expect(budget.memoryHighBytes as number).toBeLessThan(budget.memoryMaxBytes as number)
+    /**
+     * NO `MemoryHigh`, and that is the whole finding. It throttles reclaim
+     * rather than killing, so ANY band below the ceiling can wedge a runaway
+     * that never escapes the high line to reach the max line — measured with
+     * swap off, a 90% band produced 1759 throttle events, zero kills, and a
+     * workload still crawling when the arm ended. A wedged agent is worse than
+     * a killed one because nothing reports it.
+     */
+    expect(budget).not.toHaveProperty('memoryHighBytes')
   })
 
-  it('bounds swap as well as memory — a cap the kernel can page around is not a cap', () => {
-    // The host this was written on carries 40 GiB of swap. MemoryMax alone lets
-    // a runaway page into it and take the machine down without one OOM kill.
-    expect(resolveScopeBudget('session', {}, HOST).memorySwapMaxBytes).toBe(8 * GIB)
+  it('gives a session no swap, so the ceiling is the whole bound', () => {
+    // MemoryMax alone lets a runaway page into this host's 40 GiB of swap and
+    // take the machine down without one OOM kill — but swap is an INDEPENDENT
+    // cgroup v2 limit, so an equal MemorySwapMax (the first cut) doubles the
+    // real ceiling instead of fitting inside it.
+    expect(resolveScopeBudget('session', {}, HOST).memorySwapMaxBytes).toBe(0)
+  })
+
+  it('takes an explicit swap allowance, including a literal zero', () => {
+    expect(
+      resolveScopeBudget('session', { PODIUM_SESSION_MEMORY_SWAP_MAX: '2G' }, HOST)
+        .memorySwapMaxBytes,
+    ).toBe(2 * GIB)
+    // "No swap" must be expressible as the number it is, not only as a default.
+    expect(
+      resolveScopeBudget('session', { PODIUM_SESSION_MEMORY_SWAP_MAX: '0' }, HOST)
+        .memorySwapMaxBytes,
+    ).toBe(0)
+    // …and unbounded is still its own answer.
+    expect(
+      resolveScopeBudget('session', { PODIUM_SESSION_MEMORY_SWAP_MAX: 'infinity' }, HOST),
+    ).not.toHaveProperty('memorySwapMaxBytes')
+  })
+
+  it('honours an explicit high band as the reclaim-only policy it is', () => {
+    // The knob stays for an operator who wants throttling instead of killing —
+    // it is just never the default.
+    expect(
+      resolveScopeBudget('session', { PODIUM_SESSION_MEMORY_HIGH: '3G' }, HOST).memoryHighBytes,
+    ).toBe(3 * GIB)
   })
 
   it('clamps the derived budget so a tiny VPS and a huge workstation both get a usable one', () => {
@@ -54,6 +84,7 @@ describe('scope budgets', () => {
     )
     expect(attach.memoryMaxBytes).toBe(1 * GIB)
     expect(attach.memoryHighBytes as number).toBeLessThanOrEqual(attach.memoryMaxBytes as number)
+    expect(attach.memorySwapMaxBytes).toBe(0)
     expect(resolveScopeBudget('attach', { PODIUM_SESSION_TASKS_MAX: 'off' }, HOST).tasksMax).toBe(
       256,
     )

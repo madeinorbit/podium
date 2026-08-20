@@ -271,6 +271,12 @@ export function sessionScopeCgroupPath(
  * avg10` instead measures the share of the last ten seconds in which at least
  * one task STALLED waiting for memory, which is the thing worth acting on.
  *
+ * `some` vs `full` is the difference between "someone waited" and "nothing could
+ * run": a healthy parallel build stalls SOME task constantly (measured: 40 of
+ * 114 samples during an ordinary typecheck, 54 seconds continuous), so `some` is
+ * a busyness signal, not a shortage one. `full` — every runnable task blocked on
+ * memory at once — is the one that means the workload is starved.
+ *
  * `undefined` where the kernel was built without PSI: absent is honest, and a
  * zero would read as "measured, and there is no pressure".
  */

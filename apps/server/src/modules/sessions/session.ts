@@ -117,6 +117,8 @@ export interface SessionInit {
   executionProfileId?: string
   stoppedAt?: string | null
   stopReason?: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | null
+  /** Event time of the last kernel OOM kill observed in this session's scope. */
+  oomKilledAt?: string | null
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
@@ -151,6 +153,7 @@ export interface SessionDurableState {
   archived: boolean
   stoppedAt: string | undefined
   stopReason: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | undefined
+  oomKilledAt: string | undefined
   workState: WorkState | undefined
   cmd: string
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
@@ -236,9 +239,14 @@ export class Session {
   /** Set only by the explicit stop lifecycle, not ordinary hibernation/exits. [spec:SP-6144] */
   stoppedAt: string | undefined
   stopReason: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | undefined
-  /** Event-time of the last kernel OOM kill observed in this session's scope.
-   *  In memory only: it exists to explain an exit, and the explanation is what
-   *  gets persisted (`stopReason`), not the evidence. */
+  /**
+   * Event time of the last kernel OOM kill observed in this session's scope.
+   *
+   * DURABLE, and it is the evidence rather than the conclusion. `stop_reason`
+   * cannot hold `oom` — its CHECK admits four values and widening it means a
+   * table rebuild — so what survives a restart is the kill's TIME, and the
+   * conclusion is re-derived from it on hydrate exactly as it was live.
+   */
   private lastOomKillAt: string | undefined
   workState: WorkState | undefined
   cmd = ''
@@ -380,6 +388,10 @@ export class Session {
     if (init.archived) this.archived = init.archived
     this.stoppedAt = init.stoppedAt ?? undefined
     this.stopReason = init.stopReason ?? undefined
+    this.lastOomKillAt = init.oomKilledAt ?? undefined
+    // A row read back as `exited` with a kill beside it is an OOM death; the
+    // window check is the same one the live path applies.
+    if (this.lastOomKillAt) this.recordOomKill(this.lastOomKillAt)
     if (init.workState) this.workState = init.workState
     this.onUnreadRearm = init.onUnreadRearm
   }
@@ -634,6 +646,7 @@ export class Session {
       archived: this.archived,
       stoppedAt: this.stoppedAt,
       stopReason: this.stopReason,
+      oomKilledAt: this.lastOomKillAt,
       workState: this.workState,
       cmd: this.cmd,
       status: this.status,
@@ -675,6 +688,7 @@ export class Session {
     this.archived = state.archived
     this.stoppedAt = state.stoppedAt
     this.stopReason = state.stopReason
+    this.lastOomKillAt = state.oomKilledAt
     this.workState = state.workState
     this.cmd = state.cmd
     if (!preserve.has('status')) this.status = state.status
@@ -745,6 +759,7 @@ export class Session {
       refDraft: this.refDraft,
       stoppedAt: this.stoppedAt ?? null,
       stopReason: this.stopReason ?? null,
+      oomKilledAt: this.lastOomKillAt ?? null,
       workflowRunId: this.workflowRunId ?? null,
       workflowStepId: this.workflowStepId ?? null,
       executionProfileId: this.executionProfileId ?? null,

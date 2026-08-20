@@ -265,15 +265,17 @@ export const HostMetricsWire = z.object({
       currentBytes: byteCount,
       highBytes: byteCount,
       /**
-       * PSI `some avg10` for the slice: the share of the last ten seconds in
-       * which at least one session task STALLED waiting for memory.
+       * PSI `full avg10` for the slice: the share of the last ten seconds in
+       * which EVERY runnable session task was blocked on memory at once.
        *
        * THIS is the pressure signal; the two byte counts are context. cgroup
        * `memory.current` counts reclaimable page cache and the kernel only
        * reclaims at the high line, so a build-heavy slice sits pinned at its
        * watermark with memory genuinely free — acting on "current >= high"
-       * would park sessions on a host under no pressure at all. Optional: a
-       * kernel without PSI reports nothing rather than a zero.
+       * would park sessions on a host under no pressure at all. `full` rather
+       * than `some` for the same reason at one remove: some-stalling is what an
+       * ordinary parallel build does all the time. Optional: a kernel without
+       * PSI reports nothing rather than a zero.
        */
       stalledPct: z.number().nonnegative().optional(),
     })

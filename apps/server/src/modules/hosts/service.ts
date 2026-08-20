@@ -111,12 +111,14 @@ export interface HostsDeps {
 /**
  * How much stall time makes the sessions slice "the pressure" (POD-2413).
  *
- * PSI `some avg10` in percent. Well clear of the noise a healthy build makes,
- * and well under the 60% systemd-oomd defaults to before it KILLS — the action
- * here is reclaiming a warm terminal or parking one idle session, so it can
- * afford to be more eager than that and still not be trigger-happy.
+ * PSI `full avg10` in percent: every runnable session task blocked on memory at
+ * once, a tenth of the time. `some` was measured stalling 40 of 114 samples
+ * during an ordinary typecheck — that is a busy build, not a shortage — so the
+ * signal is `full`, where a tenth is already a workload that cannot proceed.
+ * Still well under the 60% systemd-oomd defaults to before it KILLS; the action
+ * here is only reclaiming a warm terminal or parking one idle session.
  */
-const SESSIONS_STALL_PCT = 25
+const SESSIONS_STALL_PCT = 10
 
 export class HostsService {
   // Latest health sample per daemon host, keyed by machineId — each connected
@@ -211,9 +213,10 @@ export class HostsService {
      * line, so a build-heavy instance sits pinned at its watermark with memory
      * genuinely free; "over its budget" would then be chronically true and
      * would park a session every cooldown on a host under no pressure at all.
-     * PSI's `some avg10` is the share of the last ten seconds in which a
-     * session task actually WAITED for memory, which is the thing worth acting
-     * on. Reported only by daemons with cgroups and PSI; absent leaves the
+     * PSI's `full avg10` — the share of the last ten seconds in which EVERY
+     * runnable session task was blocked on memory at once — is the thing worth
+     * acting on. (`some` was measured firing through a perfectly healthy
+     * typecheck; any-task-waiting is what a parallel build looks like.) Reported only by daemons with cgroups and PSI; absent leaves the
      * host-wide trigger exactly as it was.
      *
      * An OR, not a replacement: a host genuinely out of memory still reclaims

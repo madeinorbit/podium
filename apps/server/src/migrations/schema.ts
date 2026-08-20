@@ -146,6 +146,22 @@ export const sessions = sqliteTable(
     issueId: text('issue_id').$type<IssueId>(),
     stoppedAt: text('stopped_at'),
     stopReason: text('stop_reason'),
+    /**
+     * WHEN THE KERNEL LAST OOM-KILLED SOMETHING IN THIS SESSION'S SCOPE
+     * (POD-2413), as an event time.
+     *
+     * ITS OWN COLUMN RATHER THAN A FIFTH `stop_reason` (which is what the first
+     * cut tried, and it never persisted): widening that CHECK means a SQLite
+     * table rebuild, which the expand-only gate refuses for good reason — and
+     * the enum is the wrong home anyway. `OOMPolicy=continue` means the usual
+     * victim is a build the agent started and the session keeps serving, so an
+     * OOM kill is a FACT WITH A TIME that may or may not explain a later exit,
+     * not a terminal reason. The correlation stays in the domain: `Session`
+     * reads this back on hydrate and re-derives `stopReason: 'oom'` when the
+     * death was close enough to the kill. Additive and nullable — a row written
+     * before this column genuinely has no kill recorded, and NULL says so.
+     */
+    oomKilledAt: text('oom_killed_at'),
     deletedAt: text('deleted_at'),
     deletedByIssueId: text('deleted_by_issue_id').$type<IssueId>(),
     deletionSource: text('deletion_source'),
