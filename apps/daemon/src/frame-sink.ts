@@ -17,9 +17,17 @@
  * So the sink is a function with ports and a test of its own. The ports are
  * THUNKS, not values, because the bootstrap builds this before the two things it
  * reads: the runtime and the context both close their wiring cycle later, and
- * reading them per-frame is what lets the sink exist first. Both may answer
- * `undefined` during that window and the sink stays fail-open — a frame is never
- * held back because an observer is not up yet.
+ * reading them PER FRAME is what lets the sink exist first. Hoisting either read
+ * out of the returned function would leave it `undefined` for the process's whole
+ * life and silently kill the tap — the exact failure this file was extracted to
+ * make testable, so `frame-sink.test.ts` pins the per-frame read directly.
+ *
+ * Both ports may answer `undefined` during that window, and the sink stays open
+ * across it: a frame is never held back because an observer is not up yet. That
+ * is a statement about ABSENT observers, not about failing ones — a tap that
+ * throws propagates, and the frame does not reach `upstream`. No tap on this path
+ * can throw today, and pretending otherwise by swallowing would hide a real
+ * defect rather than tolerate a missing one.
  */
 
 import type { DaemonMessage } from '@podium/protocol/daemon'

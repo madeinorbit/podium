@@ -92,6 +92,17 @@ const TRANSIENT_ATTACH_REFUSALS: ReadonlySet<RefusalReason> = new Set(['busy', '
  * pacing — it is what stops a session flapping between idle and working from
  * re-attempting the handoff forever. Leaving Native clears the count (see the
  * release arm below), so the user's own toggle is always a fresh start.
+ *
+ * THE CAP IS SCOPED TO THE HAZARD IT NAMES, and getting that wrong is the one
+ * regression this fix shipped and had to take back. Answered asks were charged
+ * against the same three, and codex's own driver says answering an approval is
+ * the moment a turn RESUMES — so every answered-triggered attach is refused
+ * `busy` and cost an attempt. A three-approval turn is ordinary, and it emptied
+ * the budget BEFORE the idle frame that would have succeeded: the user was left
+ * exactly where this issue started, on a path the pre-fix daemon handled. So an
+ * answered ask ATTEMPTS WITHOUT SPENDING (`spendBudget: false`), and only state
+ * frames are rationed. Answered events cannot flap — each one is a real human,
+ * policy or superagent action, bounded by the asks in the turn.
  */
 const NATIVE_ATTACH_RETRY_LIMIT = 3
 
@@ -111,14 +122,17 @@ const NATIVE_ATTACH_RETRY_LIMIT = 3
  *   phase is `idle`, and the retry fires. This is the path the bug report
  *   describes and the one the tests drive.
  *
- *   `needs_user` — NOT reachable from a state frame, and this is a real limit
- *   rather than an oversight. A session with an open ask reports the phase
- *   `needs_user`, which is the refusal restated and is dropped here; and codex's
- *   `closeAsk()` emits no state event at all, so the ask-being-answered — the very
- *   transition that would let the take-over win — produces no frame to observe
- *   (POD-2494, pre-existing). That arm is re-armed by
- *   {@link nativeClientInteractionAnswered} instead, off the causal `answered`
- *   event — which the driver DOES emit, and which reaches the same sink.
+ *   `needs_user` — reaches `idle` LATE, and in one case not at all. A session
+ *   with an open ask reports the phase `needs_user`, which is the refusal
+ *   restated and is dropped here, so nothing fires at the moment the ask is
+ *   answered: codex's `closeAsk()` folds the phase without emitting a state
+ *   event. What does arrive is the turn's own end — answering an approval
+ *   resumes the turn, and `closeTurn()` emits `idle` — so the take-over lands at
+ *   turn end rather than at the answer. The case with NO frame at all is
+ *   narrower: a turn that ENDS with an ask still open (`closeTurn` sets `idle`
+ *   unconditionally), after which answering emits nothing (POD-2494).
+ *   {@link nativeClientInteractionAnswered} covers both — it makes the common
+ *   case prompt instead of late, and the narrow one possible at all.
  *
  * `working` and `compacting` are likewise the refusal restated: spending one of a
  * small budget on either would burn it before the session reached the phase that
@@ -156,9 +170,12 @@ export function nativeClientStateObserved(
  *
  * Opening Native to answer a prompt is the most natural thing a person does with
  * the native TUI, and it is exactly the request codex refuses — `needs_user`,
- * because an unanswered ask blocks the single-writer handoff. Left to state
- * frames alone that arm was inert: the phase while the ask is open IS
- * `needs_user`, and the STATE transition out of it emits nothing (POD-2494).
+ * because an unanswered ask blocks the single-writer handoff. State frames alone
+ * get there LATE rather than never: the phase while the ask is open IS
+ * `needs_user`, which the observer drops, and `closeAsk()` folds the phase
+ * without emitting a state event — so the attach used to wait for the turn that
+ * the answer restarted to finish. In the narrow POD-2494 case, a turn that ENDS
+ * with an ask still open, it never got there at all.
  *
  * THE CAUSAL STREAM CARRIES WHAT THE STATE STREAM DROPPED. `closeAsk()` does emit
  * `{t:'interaction', ev:'answered'}`, and that event crosses the same outbound
@@ -167,14 +184,37 @@ export function nativeClientStateObserved(
  * daemon's own `answer` verb also covers the answers the daemon never issued: a
  * policy or the superagent resolving an ask clears the block just as well.
  *
- * Costs one map lookup for a session that is owed nothing.
+ * IT DOES NOT SPEND THE RETRY BUDGET, and that is not a detail — see
+ * {@link NATIVE_ATTACH_RETRY_LIMIT}. Answering an approval RESUMES the turn, so
+ * this attach is usually refused `busy`; and `closeAsk()` emits `answered`
+ * before its own "another ask is still open" return, so answering one of two
+ * fires here while the session is still blocked on the other. Charged, an
+ * ordinary three-approval turn emptied the budget before the idle frame that
+ * would have worked.
+ *
+ * THE GUARD IS LOAD-BEARING, not a fast path: without an owed retry this
+ * session never asked for Native, and the reconcile would take its RELEASE arm —
+ * closing a client terminal and dropping a lease for every answered ask on every
+ * server session.
  */
 export function nativeClientInteractionAnswered(ctx: DaemonContext, sessionId: SessionId): void {
-  if (ctx.nativeClientRetries?.has(sessionId)) reconcileNativeClientTerminal(ctx, sessionId)
+  if (!ctx.nativeClientRetries?.has(sessionId)) return
+  reconcileNativeClientTerminal(ctx, sessionId, { spendBudget: false })
 }
 
-/** Reconcile one server-family session's on-demand original harness TUI. */
-export function reconcileNativeClientTerminal(ctx: DaemonContext, sessionId: SessionId): void {
+/**
+ * Reconcile one server-family session's on-demand original harness TUI.
+ *
+ * `spendBudget` IS WHAT KEEPS TWO DIFFERENT HAZARDS FROM SHARING ONE COUNTER.
+ * See {@link NATIVE_ATTACH_RETRY_LIMIT}: state frames can flap and must be
+ * capped; an answered ask cannot, and charging it the same way spent the whole
+ * budget before the frame that would have worked ever arrived.
+ */
+export function reconcileNativeClientTerminal(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  { spendBudget = true }: { spendBudget?: boolean } = {},
+): void {
   const requests = (ctx.nativeClientRequests ??= new Set<SessionId>())
   const transitions = (ctx.nativeClientTransitions ??= new Map<SessionId, Promise<void>>())
   if (transitions.has(sessionId)) return
@@ -199,9 +239,13 @@ export function reconcileNativeClientTerminal(ctx: DaemonContext, sessionId: Ses
         })
         if ('reason' in result) {
           const retries = (ctx.nativeClientRetries ??= new Map<SessionId, number>())
-          const spent = (retries.get(sessionId) ?? 0) + 1
-          const rearmed =
-            TRANSIENT_ATTACH_REFUSALS.has(result.reason) && spent <= NATIVE_ATTACH_RETRY_LIMIT
+          const held = retries.get(sessionId) ?? 0
+          const transient = TRANSIENT_ATTACH_REFUSALS.has(result.reason)
+          // A free attempt still leaves the request armed at the count it had:
+          // an answered ask neither proves the session unreachable nor costs one
+          // of the three tries the flapping cap is there to ration.
+          const spent = spendBudget ? held + 1 : held
+          const rearmed = transient && spent <= NATIVE_ATTACH_RETRY_LIMIT
           if (rearmed) retries.set(sessionId, spent)
           else retries.delete(sessionId)
           log.warn('could not attach the native client terminal', {
@@ -212,7 +256,7 @@ export function reconcileNativeClientTerminal(ctx: DaemonContext, sessionId: Ses
             // change re-runs this reconcile. `false` is the old behaviour and
             // now means what it says — nobody is coming back for this one.
             rearmed,
-            ...(rearmed ? { attempt: spent } : {}),
+            ...(rearmed ? { attempt: spent, charged: spendBudget } : {}),
           })
           return
         }

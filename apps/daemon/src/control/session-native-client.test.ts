@@ -252,13 +252,88 @@ describe('a native attach the session refused', () => {
   })
 
   it('ignores an answer for a session that never asked for Native', async () => {
-    const { ctx, attach } = world(CODEX)
+    const { ctx, attach, release, clientTerminals } = world(CODEX)
     ctx.nativeClientRequests?.delete(SESSION)
 
-    // No refused request, nothing owed: an answer is just an answer.
+    // No refused request, nothing owed: an answer is just an answer. WITHOUT the
+    // guard the reconcile would take its RELEASE arm instead of returning —
+    // closing a client terminal and dropping a lease for every answered ask on
+    // every server session, which is why `attach` alone does not pin this.
     nativeClientInteractionAnswered(ctx, SESSION)
     await settled(ctx)
     expect(attach).not.toHaveBeenCalled()
+    expect(clientTerminals.close).not.toHaveBeenCalled()
+    expect(release).not.toHaveBeenCalled()
+  })
+
+  /**
+   * THE REGRESSION ROUND TWO SHIPPED AND ROUND THREE TOOK BACK.
+   *
+   * Answering an approval RESUMES the turn — codex's own driver says so — so the
+   * attach fired off an answer is refused `busy`. Charged against the same three
+   * attempts as a flapping state frame, an ordinary three-approval turn emptied
+   * the budget before the idle frame that would have succeeded, leaving the user
+   * exactly where this issue started.
+   */
+  it('does not spend the budget on answers, so the idle frame still lands', async () => {
+    const { ctx, attach } = world(CODEX)
+    attach.mockResolvedValue({ reason: 'needs_user' } as never)
+
+    openNative(ctx)
+    await settled(ctx)
+    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+
+    // Three approvals answered, three attaches refused `busy` because each answer
+    // restarted the turn. None of them may cost an attempt.
+    attach.mockResolvedValue({ reason: 'busy' } as never)
+    for (let i = 0; i < 3; i += 1) {
+      nativeClientInteractionAnswered(ctx, SESSION)
+      await settled(ctx)
+    }
+    expect(attach).toHaveBeenCalledTimes(4)
+    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+
+    // The turn ends. This is the frame the whole issue is about.
+    attach.mockResolvedValue({ kind: 'client', stream: { id: SESSION } } as never)
+    nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
+    await settled(ctx)
+    expect(attach).toHaveBeenCalledTimes(5)
+    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+  })
+
+  it('still caps the state frames an answer did not pay for', async () => {
+    const { ctx, attach } = world(CODEX)
+    attach.mockResolvedValue({ reason: 'busy' } as never)
+
+    openNative(ctx)
+    await settled(ctx)
+    // A free attempt leaves the count where it was rather than resetting it, so
+    // the flapping cap the answers bypassed is still exactly three deep.
+    nativeClientInteractionAnswered(ctx, SESSION)
+    await settled(ctx)
+    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+
+    for (let i = 0; i < 5; i += 1) {
+      nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
+      await settled(ctx)
+    }
+    // 1 open + 1 free answer + 3 charged state frames, then the entry is gone.
+    expect(attach).toHaveBeenCalledTimes(5)
+    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+  })
+
+  it('revokes the codex writer when Native is closed', async () => {
+    const { ctx, clientTerminals } = world(CODEX)
+
+    openNative(ctx)
+    await settled(ctx)
+    openNative(ctx, false)
+    await settled(ctx)
+
+    // The kind is what revokes the stock TUI's direct WebSocket writer, so
+    // queued keystrokes cannot bypass the daemon's lease gate. The opencode arm
+    // asserts the `undefined` side in the first test of this file.
+    expect(clientTerminals.close).toHaveBeenCalledWith(SESSION, 'codex')
   })
 
   it('forgets a request whose session ended before it could be honoured', async () => {

@@ -142,6 +142,50 @@ describe('the daemon outbound frame sink', () => {
     expect(attach).not.toHaveBeenCalled()
   })
 
+  /**
+   * THE PROPERTY THE WHOLE SEAM RESTS ON, and the mutant that proves it needed a
+   * test: hoisting `ports.context()` to a single read at build time leaves every
+   * other test in this file green — while in the daemon it is fatal, because the
+   * context is assigned hundreds of lines after the sink is built, so the read
+   * would be `undefined` forever and the native tap dead in production. The
+   * fail-open test above cannot catch it: it never lets a context appear.
+   */
+  it('reads its ports per frame, not once at build time', async () => {
+    const { ctx, attach } = world()
+    let context: DaemonContext | undefined
+    const sink = createFrameSink({
+      upstream: vi.fn(),
+      runtime: () => undefined,
+      context: () => context,
+    })
+
+    sink(agentState('idle'))
+    await settled(ctx)
+    expect(attach).not.toHaveBeenCalled()
+
+    // The bootstrap closes its wiring cycle. A sink that captured `undefined`
+    // stays deaf from here on.
+    context = ctx
+    sink(agentState('idle'))
+    await settled(ctx)
+    expect(attach).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-arms off the coarse stream only', async () => {
+    const { sink, ctx, attach } = world()
+
+    // The fine stream is token deltas. Nothing carries an interaction there
+    // today, and the re-arm should not start reading it if something ever does.
+    sink({
+      type: 'runtimeFineEvent',
+      sessionId: SESSION,
+      event: { t: 'interaction', ev: { ev: 'answered', id: 'ask-1', answeredBy: 'human' } },
+    } as unknown as DaemonMessage)
+    await settled(ctx)
+
+    expect(attach).not.toHaveBeenCalled()
+  })
+
   it('never feeds the driver its own output', () => {
     const { sink, observe, upstream } = world()
 
