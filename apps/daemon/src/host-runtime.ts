@@ -538,6 +538,8 @@ export async function createDaemonHostRuntime(args: {
     ...daemonHarnessLoginContext(homeDir),
     bridges,
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
+    nativeClientRequests: new Set<SessionId>(),
+    nativeClientTransitions: new Map<SessionId, Promise<void>>(),
     composerEngine,
     outputScheduler,
     observers,
@@ -584,10 +586,8 @@ export async function createDaemonHostRuntime(args: {
    * wording.
    */
   const clientTerminals = createOpencodeClientTerminals({
-    // The frames path this daemon already runs, keyed by the stream id exactly
-    // as the engine variant's endpoint is keyed by the session id — one relay,
-    // two kinds of terminal. (What the SERVER does with an id it has no row for
-    // is the gap `opencode-attach.ts` declares.)
+    // One session-addressed relay for engine terminals and on-demand harness
+    // client terminals. The latter intentionally returns the parent session id.
     frames: (streamId, frame) => ctx.outputScheduler.enqueue(asSessionId(streamId), frame),
     releaseStream: (streamId) => ctx.outputScheduler.remove(asSessionId(streamId)),
     ...(homeDir ? { homeDir } : {}),
@@ -654,6 +654,18 @@ export async function createDaemonHostRuntime(args: {
           [],
           { selfPid: process.pid },
         ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+      attachClient: async ({ sessionId, threadId, workdir }) => {
+        try {
+          return await clientTerminals.attach({
+            sessionId,
+            target: { kind: 'codex', threadId, workdir },
+          })
+        } catch (err) {
+          log.warn('could not host a Codex client terminal', { err, sessionId })
+          return undefined
+        }
+      },
+      detachClient: ({ sessionId }) => clientTerminals.close(sessionId, 'codex'),
       // Same instance-home rule as the opencode host above (POD-2247).
       ...(homeDir ? { homeDir } : {}),
     }),
@@ -669,6 +681,17 @@ export async function createDaemonHostRuntime(args: {
           [],
           { selfPid: process.pid },
         ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+      attachClient: async ({ sessionId, grokSessionId, workdir }) => {
+        try {
+          return await clientTerminals.attach({
+            sessionId,
+            target: { kind: 'grok', grokSessionId, workdir },
+          })
+        } catch (err) {
+          log.warn('could not host a Grok client terminal', { err, sessionId })
+          return undefined
+        }
+      },
       // Same instance-home rule as the opencode host above (POD-2247).
       ...(homeDir ? { homeDir } : {}),
     }),

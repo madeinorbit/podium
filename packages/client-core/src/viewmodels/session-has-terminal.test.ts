@@ -9,16 +9,13 @@ import { sessionHasTerminal, sessionTerminalOutlook } from './session-status'
 // ---------------------------------------------------------------------------
 
 describe('sessionHasTerminal', () => {
-  it('says no for the families that have no PTY', () => {
-    // A server-driven session runs its agent as a server child and an embedded
-    // one as an in-process loop. Neither ever gets a PTY, so the native pane
-    // would attach to nothing and spin forever.
-    expect(sessionHasTerminal({ driverFamily: 'server' })).toBe(false)
+  it('says no for the embedded family', () => {
     expect(sessionHasTerminal({ driverFamily: 'embedded' })).toBe(false)
   })
 
-  it('says yes for the terminal family', () => {
+  it('says yes for engine terminals and server-family client terminals', () => {
     expect(sessionHasTerminal({ driverFamily: 'terminal' })).toBe(true)
+    expect(sessionHasTerminal({ driverFamily: 'server' })).toBe(true)
   })
 
   it('READS UNKNOWN AS A TERMINAL — the direction the whole fix depends on', () => {
@@ -53,9 +50,9 @@ describe('sessionTerminalOutlook', () => {
     expect(sessionTerminalOutlook({ driverFamily: undefined })).toBe('unknown')
   })
 
-  it('answers the two known families', () => {
+  it('answers the known families', () => {
     expect(sessionTerminalOutlook({ driverFamily: 'terminal' })).toBe('terminal')
-    expect(sessionTerminalOutlook({ driverFamily: 'server' })).toBe('none')
+    expect(sessionTerminalOutlook({ driverFamily: 'server' })).toBe('terminal')
     expect(sessionTerminalOutlook({ driverFamily: 'embedded' })).toBe('none')
   })
 

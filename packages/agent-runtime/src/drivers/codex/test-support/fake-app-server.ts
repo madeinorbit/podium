@@ -91,6 +91,8 @@ export interface FakeAppServer {
   alive: boolean
   /** The thread this server started or resumed, once it has. */
   threadId: string | undefined
+  /** Names written through Codex's non-turn persistence method. */
+  threadNames: string[]
   /**
    * How many `turn/start` calls have been ACCEPTED.
    *
@@ -184,6 +186,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     },
     alive: true,
     threadId: undefined,
+    threadNames: [],
     turnStarts: 0,
     steers: 0,
     answers: new Map(),
@@ -420,6 +423,10 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         notify('thread/started', { thread: threadPayload(threadId) })
         return
       }
+      case 'thread/name/set':
+        server.threadNames.push(String(params.name))
+        respond(id, {})
+        return
       case 'thread/read':
         respond(id, { thread: { turns: [] } })
         return

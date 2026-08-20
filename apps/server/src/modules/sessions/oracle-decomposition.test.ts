@@ -304,8 +304,8 @@ describe('oracle: priority pushes', () => {
     o.reg.clientGateway.routeClientFrame(clientId, viewState)
     expect(priorities(o.daemon)).toEqual(
       expect.arrayContaining([
-        { type: 'sessionPriority', sessionId: first, priority: 1 },
-        { type: 'sessionPriority', sessionId: second, priority: 0 },
+        { type: 'sessionPriority', sessionId: first, priority: 1, nativeView: true },
+        { type: 'sessionPriority', sessionId: second, priority: 0, nativeView: true },
       ]),
     )
     o.daemon.length = 0
@@ -319,8 +319,8 @@ describe('oracle: priority pushes', () => {
     )
     expect(priorities(reconnected)).toEqual(
       expect.arrayContaining([
-        { type: 'sessionPriority', sessionId: first, priority: 1 },
-        { type: 'sessionPriority', sessionId: second, priority: 0 },
+        { type: 'sessionPriority', sessionId: first, priority: 1, nativeView: true },
+        { type: 'sessionPriority', sessionId: second, priority: 0, nativeView: true },
       ]),
     )
   })

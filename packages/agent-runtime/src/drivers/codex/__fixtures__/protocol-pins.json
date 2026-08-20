@@ -8,6 +8,7 @@
       "getAuthStatus",
       "thread/start",
       "thread/resume",
+      "thread/name/set",
       "thread/fork",
       "thread/read",
       "turn/start",

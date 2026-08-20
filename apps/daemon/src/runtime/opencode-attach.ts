@@ -7,11 +7,10 @@
  *
  * A terminal-family session IS a terminal: `attach()` there is a typed
  * description of a frames path that already exists. A server-family session has
- * no PTY at all — it is an HTTP server the driver talks to — so `attach()` has to
- * PRODUCE the terminal. opencode ships exactly the one this needs
- * (`opencode attach <url>`), so the interactive surface for one of these sessions
- * is that client, run beside the session and pointed at the session's own
- * loopback server.
+ * no PTY at all, so `attach()` has to PRODUCE the terminal. Each supported
+ * harness ships the original UI this needs: `opencode attach`, `codex resume`,
+ * and `grok --resume`. The client runs beside the headless engine and opens the
+ * same native conversation.
  *
  * Beside, never inside. The client is a convenience the user opened and closed;
  * the session is the work. Spec §5 makes that structural: the client runs under
@@ -42,13 +41,11 @@
  * and a later attach reconnects to it (`spawnAbducoAgent` adopts a live master
  * that already owns the label).
  *
- * IDLE MEANS "NOBODY IS WATCHING", AND THE DAEMON CAN SEE THAT. An attachment
- * belongs to a session, and the server already tells this machine when a
- * session's viewers come and go: `sessionPriority` (0 focused … 3 unwatched) is
- * computed from the live client set and sent on every change. So the clock here
- * is armed while the session is UNWATCHED and held off while a viewer has it
- * open — {@link OpencodeClientTerminals.viewers}, called from the daemon's
- * `sessionPriority` handler.
+ * IDLE MEANS "NOBODY IS RENDERING NATIVE", AND THE DAEMON CAN SEE THAT.
+ * `sessionPriority.nativeView` is aggregated from the live clients' visible
+ * mode. So the clock is armed on Chat and held off while any visible pane
+ * renders the attachment — {@link OpencodeClientTerminals.viewers}, called from
+ * the daemon's `sessionPriority` handler.
  *
  * It is remembered per SESSION, not just per attachment, and a new attachment is
  * SEEDED from it. The frame is sent only on change, so a session already on
@@ -57,47 +54,25 @@
  * somebody is looking at it. Unwatched stays the default for a session nobody
  * has ever mentioned, which is the honest reading of silence.
  *
- * The signal is an association, not a subscription: it says a viewer has the
- * SESSION open, not that anything is rendering this attachment's stream (see the
- * gap below). It is the right clock anyway — the alternative, a timer from the
- * last `attach()`, kills a terminal out from under someone who has watched it
- * for thirty minutes.
+ * The signal is the attachment subscription: Chat may keep the parent session
+ * open without keeping its sibling TUI hot. A timer from the last `attach()`
+ * would instead kill a terminal under someone who used Native for thirty
+ * minutes.
  *
  * ---------------------------------------------------------------------------
- * THE GAP THIS DELIBERATELY LEAVES: THE STREAM IS DEAD IN BOTH DIRECTIONS
+ * THE STREAM ID IS THE PARENT SESSION ID
  * ---------------------------------------------------------------------------
  *
- * Say it plainly, because "it streams" is the wrong picture: NOTHING RENDERS
- * THIS TERMINAL TODAY, and nothing types into it.
- *
- * OUT: `ports.frames` hands each frame to the daemon's relay under this
- * attachment's stream id. The server's handler looks the id up in its session
- * table (`sessions.get(msg.sessionId)`) and drops the batch when there is no row
- * — and there is no row, because a stream id is not a session id and nothing
- * anywhere resolves a `TerminalStreamRef`. The frames leave this machine and are
- * discarded one hop later.
- *
- * IN: the daemon's `input`/`resize` handlers are keyed by session id off
- * `ctx.bridges`, and this attachment is deliberately NOT registered there — a
- * bridge entry is also a memory-attribution hint (`control/discovery.ts`), so
- * registering one would publish a phantom agent row for a "session" the server
- * has never heard of. No viewer could reach it anyway, for the same missing
- * resolution.
- *
- * Why relay at all, then? Because the alternative is a stream ref that names
- * nothing at all: this is the daemon's half of the frames path, complete and
- * exercised, waiting on the registration that makes an id resolvable. What is
- * NOT claimed is that a picture arrives.
- *
- * And it is not cosmetic — `opencode-attach.live.test.ts` records why: opencode's
- * TUI is opentui, which INTERROGATES the terminal (mode/capability queries) and
- * waits for the answers before it draws. With no way back, a live client
- * completes its handshake and then holds. The process, the scope, the warm
- * window and this side of the relay are real; a rendered terminal is not.
- * Resolving a stream ref in the viewer plane — BOTH directions — is POD-2108.
+ * Terminal transport is already keyed by Podium session id at the browser,
+ * server, and daemon boundaries. Giving the client endpoint that same opaque id
+ * makes its frames resolve through the existing session row, while the daemon's
+ * input/resize/redraw handlers route the reverse direction here without
+ * registering a phantom engine bridge. `sessionPriority.nativeView` creates the
+ * client only while a browser renders Native and releases its control lease on
+ * a switch back to Chat.
  */
 
-import { randomUUID } from 'node:crypto'
+import { agentLaunchCommand } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
 import {
@@ -107,7 +82,8 @@ import {
   killAbducoSession,
   spawnAbducoAgent,
 } from '@podium/pty'
-import { spawnEnv } from '../control/session-env'
+import { harnessCompatEnv, spawnEnv } from '../control/session-env'
+import { STRIPPED_CODEX_CREDENTIALS } from './codex-app-server'
 import { STRIPPED_PROVIDER_KEYS } from './opencode-server'
 
 const log = createLogger('daemon:opencode-attach')
@@ -121,19 +97,23 @@ export const WARM_TTL_MS = 30 * 60_000
  * The size the client is BORN at, not the size it stays.
  *
  * No viewer has told us its grid: the attach request carries no geometry, and
- * the viewer signal this module does receive (`sessionPriority`) carries none
- * either. So this is a readable default a TUI renders sanely at, and the first
- * `resize` routed to an attachment stream reflows it — POD-2108.
+ * the viewer signal that creates the client may arrive before its resize. So
+ * this is a readable birth size; the daemon applies the latest pending geometry
+ * immediately after attach.
  */
 const DEFAULT_GEOMETRY: Geometry = { cols: 120, rows: 40 }
 
 /** The durable label of a session's client terminal. See the header: the session's
  *  own label must NOT be a substring of it. */
-export const opencodeAttachLabel = (sessionId: SessionId): string =>
-  `podium-oc-attach-${sessionId}`
+export const opencodeAttachLabel = (sessionId: SessionId): string => `podium-oc-attach-${sessionId}`
+export const codexAttachLabel = (sessionId: SessionId): string => `podium-cx-attach-${sessionId}`
+export const grokAttachLabel = (sessionId: SessionId): string => `podium-gk-attach-${sessionId}`
+
+export type ClientTerminalKind = 'opencode' | 'codex' | 'grok'
 
 /** Everything the client needs to open the RIGHT conversation on the RIGHT server. */
 export interface OpencodeClientTerminalTarget {
+  kind?: 'opencode'
   /** The session's own loopback server. */
   url: string
   username: string
@@ -143,6 +123,23 @@ export interface OpencodeClientTerminalTarget {
   opencodeSessionId: string
   workdir: string
 }
+
+export interface CodexClientTerminalTarget {
+  kind: 'codex'
+  threadId: string
+  workdir: string
+}
+
+export interface GrokClientTerminalTarget {
+  kind: 'grok'
+  grokSessionId: string
+  workdir: string
+}
+
+export type ClientTerminalTarget =
+  | OpencodeClientTerminalTarget
+  | CodexClientTerminalTarget
+  | GrokClientTerminalTarget
 
 export interface OpencodeClientTerminals {
   /**
@@ -157,7 +154,7 @@ export interface OpencodeClientTerminals {
    */
   attach(input: {
     sessionId: SessionId
-    target: OpencodeClientTerminalTarget
+    target: ClientTerminalTarget
   }): Promise<{ streamId: string; warmTtlMs: number }>
   /**
    * Take responsibility for a client terminal that outlived this daemon.
@@ -166,10 +163,10 @@ export interface OpencodeClientTerminals {
    * nobody holding its idle clock. Adopting it puts it back under the reaper;
    * without this it would sit resident until the machine rebooted.
    */
-  adopt(sessionId: SessionId): void
+  adopt(sessionId: SessionId, kind?: ClientTerminalKind): void
   /** The session is going away, or the idle window closed. Attachments are
    *  strictly subordinate: stop/hibernate/kill the session and its client dies. */
-  close(sessionId: SessionId): Promise<void>
+  close(sessionId: SessionId, kind?: ClientTerminalKind): Promise<void>
   /**
    * A session's viewers arrived or left — the idle clock this module runs on.
    *
@@ -178,6 +175,10 @@ export interface OpencodeClientTerminals {
    * session open, unwatched when the last one leaves.
    */
   viewers(sessionId: SessionId, watched: boolean): void
+  /** Route the browser terminal transport to the attached harness client. */
+  input(sessionId: SessionId, dataBase64: string): boolean
+  resize(sessionId: SessionId, cols: number, rows: number): boolean
+  redraw(sessionId: SessionId): boolean
   /**
    * What could be reclaimed right now WITHOUT touching a session (spec §5:
    * attachments are the first thing reclaimed under pressure, because they are
@@ -195,20 +196,14 @@ export interface OpencodeClientTerminals {
 
 export interface OpencodeClientTerminalPorts {
   /**
-   * Where the client's frames go: the daemon's own relay, keyed by the stream id
-   * this module minted — the same path and the same sink the engine variant's
-   * endpoint names.
-   *
-   * THIS SIDE IS COMPLETE; THE OTHER END IS NOT. The server drops a batch whose
-   * id matches no session row, and a stream id matches none, so today these
-   * frames are relayed and discarded (see the header's gap note). Keeping the
-   * daemon's half real, rather than buffering into a sink of our own, is what
-   * makes POD-2108 a registration rather than a rewrite.
+   * Where the client's frames go: the daemon's existing session-addressed relay.
+   * The endpoint's stream id equals the parent Podium session id, so the server
+   * resolves the same row its browser terminal is already attached to.
    */
   frames(streamId: string, frameBase64: string): void
   /** Drop this stream's coalescing state when the attachment ends. Without it a
    *  daemon accumulates one pending entry per attachment for its whole life, and
-   *  every close/adopt cycle mints a fresh id. */
+   *  every live session. */
   releaseStream?(streamId: string): void
   /**
    * The instance agent home (`ctx.homeDir`), overriding the client's `HOME`
@@ -241,6 +236,16 @@ interface Attachment {
   /** Does a client have this session open? Drives the idle clock, and keeps a
    *  watched terminal out of the reclaim inventory. */
   watched?: boolean
+}
+
+function targetKind(target: ClientTerminalTarget): ClientTerminalKind {
+  return target.kind ?? 'opencode'
+}
+
+function attachLabel(sessionId: SessionId, kind: ClientTerminalKind): string {
+  if (kind === 'codex') return codexAttachLabel(sessionId)
+  if (kind === 'grok') return grokAttachLabel(sessionId)
+  return opencodeAttachLabel(sessionId)
 }
 
 export function createOpencodeClientTerminals(
@@ -313,17 +318,40 @@ export function createOpencodeClientTerminals(
     }, warmTtlMs)
   }
 
-  async function start(
-    record: Attachment,
-    target: OpencodeClientTerminalTarget,
-  ): Promise<AgentSession> {
+  async function start(record: Attachment, target: ClientTerminalTarget): Promise<AgentSession> {
+    const kind = targetKind(target)
+    const launch =
+      target.kind === 'codex'
+        ? agentLaunchCommand('codex', {
+            cwd: target.workdir,
+            resume: { kind: 'codex-thread', value: target.threadId },
+          })
+        : target.kind === 'grok'
+          ? agentLaunchCommand('grok', {
+              cwd: target.workdir,
+              resume: { kind: 'grok-session', value: target.grokSessionId },
+            })
+          : {
+              cmd: 'opencode',
+              args: ['attach', target.url, '--session', target.opencodeSessionId],
+              cwd: target.workdir,
+            }
+    const podiumEnv = {
+      ...(launch.env ?? {}),
+      ...harnessCompatEnv(kind),
+      ...(target.kind !== 'codex' && target.kind !== 'grok'
+        ? {
+            OPENCODE_SERVER_USERNAME: target.username,
+            OPENCODE_SERVER_PASSWORD: target.secret,
+          }
+        : {}),
+      ...(ports.homeDir ? { HOME: ports.homeDir } : {}),
+    }
     const session = await spawn({
       label: record.label,
-      cmd: 'opencode',
-      // The session id is NOT a secret and belongs in argv — an operator reading
-      // `ps` should be able to see which conversation this TUI is showing.
-      args: ['attach', target.url, '--session', target.opencodeSessionId],
-      cwd: target.workdir,
+      cmd: launch.cmd,
+      args: launch.args,
+      cwd: launch.cwd,
       cols: geometry.cols,
       rows: geometry.rows,
       /**
@@ -336,22 +364,17 @@ export function createOpencodeClientTerminals(
        * asymmetry would go unnoticed: two processes of one binary, opposite
        * treatment, for no stated reason.
        */
-      stripEnv: STRIPPED_PROVIDER_KEYS,
+      stripEnv:
+        kind === 'codex'
+          ? STRIPPED_CODEX_CREDENTIALS
+          : kind === 'grok'
+            ? ['XAI_API_KEY']
+            : STRIPPED_PROVIDER_KEYS,
       // The overlay abduco layers over the daemon env — composed through the
       // same `spawnEnv` the PTY path uses, so an instance home overrides HOME
       // (and prepends its bin roots to PATH) here exactly as it does for the
       // serve half (POD-2247).
-      env: spawnEnv({
-        podiumEnv: {
-          // THE SECRET RIDES THE ENV, NEVER ARGV — the same rule, for the same
-          // reason, as the server it is connecting to (see `opencode-server.ts`
-          // §6 rule 2): `/proc/<pid>/cmdline` is world-readable and this credential
-          // fronts an agent with a shell. `opencode attach` reads both of these.
-          OPENCODE_SERVER_USERNAME: target.username,
-          OPENCODE_SERVER_PASSWORD: target.secret,
-          ...(ports.homeDir ? { HOME: ports.homeDir } : {}),
-        },
-      }),
+      env: spawnEnv({ podiumEnv }),
     })
     record.session = session
     session.onFrame((frame) => ports.frames(record.streamId, frame.data))
@@ -365,34 +388,42 @@ export function createOpencodeClientTerminals(
     return session
   }
 
-  async function close(sessionId: SessionId): Promise<void> {
+  async function close(sessionId: SessionId, kind?: ClientTerminalKind): Promise<void> {
     const record = attachments.get(sessionId)
-    const label = record?.label ?? opencodeAttachLabel(sessionId)
     attachments.delete(sessionId)
     if (record) {
       disarm(record)
-      // The relay keeps a coalescing entry per stream id, and every attachment
-      // mints a new one. Nothing else would ever drop it.
+      // The relay keeps a coalescing entry per session stream. Nothing else
+      // would ever drop the attachment's pending output after teardown.
       ports.releaseStream?.(record.streamId)
     }
     // Nothing of ours, and no master holding the label: do not pay three process
     // spawns per session teardown to reclaim something that was never started.
-    if (!record && !hasMaster(label)) return
+    const labels = record
+      ? [record.label]
+      : (kind ? [kind] : (['opencode', 'codex', 'grok'] as const))
+          .map((kind) => attachLabel(sessionId, kind))
+          .filter(hasMaster)
+    if (labels.length === 0) return
     try {
       record?.session?.dispose()
     } catch {
       // the client is already gone; the master below is the reclaim that matters
     }
-    await reclaim(label)
+    for (const label of labels) await reclaim(label)
   }
 
   return {
     async attach({ sessionId, target }) {
       let record = attachments.get(sessionId)
       if (!record) {
+        const kind = targetKind(target)
         record = {
-          streamId: randomUUID(),
-          label: opencodeAttachLabel(sessionId),
+          // The terminal relay is session-addressed in both directions. The
+          // stream ref remains typed, but its resolvable wire identity is the
+          // parent Podium session rather than an orphan UUID (POD-2108).
+          streamId: sessionId,
+          label: attachLabel(sessionId, kind),
           // Born knowing whether anyone is looking: see `watchedSessions`.
           watched: watchedSessions.has(sessionId),
         }
@@ -438,12 +469,12 @@ export function createOpencodeClientTerminals(
       return { streamId: record.streamId, warmTtlMs }
     },
 
-    adopt(sessionId) {
+    adopt(sessionId, kind = 'opencode') {
       if (attachments.has(sessionId)) return
-      const label = opencodeAttachLabel(sessionId)
+      const label = attachLabel(sessionId, kind)
       if (!hasMaster(label)) return
       const record: Attachment = {
-        streamId: randomUUID(),
+        streamId: sessionId,
         label,
         watched: watchedSessions.has(sessionId),
       }
@@ -467,6 +498,27 @@ export function createOpencodeClientTerminals(
       // Both directions run through `arm`, which knows that watched means no
       // timer: arriving holds the window off, leaving starts it from now.
       arm(sessionId, record)
+    },
+
+    input(sessionId, dataBase64) {
+      const session = attachments.get(sessionId)?.session
+      if (!session) return false
+      session.write(dataBase64)
+      return true
+    },
+
+    resize(sessionId, cols, rows) {
+      const session = attachments.get(sessionId)?.session
+      if (!session) return false
+      session.resize(cols, rows)
+      return true
+    },
+
+    redraw(sessionId) {
+      const session = attachments.get(sessionId)?.session
+      if (!session) return false
+      session.redraw()
+      return true
     },
 
     reclaimable() {

@@ -78,6 +78,7 @@ export const CODEX_METHODS = {
   getAuthStatus: 'getAuthStatus',
   threadStart: 'thread/start',
   threadResume: 'thread/resume',
+  threadSetName: 'thread/name/set',
   threadFork: 'thread/fork',
   threadRead: 'thread/read',
   turnStart: 'turn/start',

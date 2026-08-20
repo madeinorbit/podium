@@ -153,6 +153,11 @@ export interface CodexRuntimeHost {
    *  gone — an archive that silently shipped zero bytes would be worse. */
   readRollout?(path: string): Promise<Uint8Array | undefined>
 
+  /** Does the rollout path returned by `thread/start` exist yet? Codex does not
+   *  write a brand-new thread until its first turn or metadata mutation, while
+   *  `codex resume <id>` requires that file. The host owns this disk fact. */
+  rolloutExists?(path: string): Promise<boolean>
+
   /**
    * Report which credential Codex actually chose for a session.
    *
@@ -179,6 +184,9 @@ export interface CodexRuntimeHost {
     threadId: CodexThreadId
     mode: AttachRequest['mode']
   }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
+  /** Stop the stock TUI before the app-server resumes the thread. Codex permits
+   *  one writer per thread, so its native takeover is serialized, not warm. */
+  detachClient?(input: { sessionId: SessionId }): Promise<void>
 
   journal: CodexJournal
   now(): number
@@ -300,6 +308,8 @@ interface DriverSession {
   /** An upgrade is mid-flight. Guards against two viewers each spawning a
    *  child — see `upgradeToFine`. */
   upgrading: boolean
+  /** The stock TUI owns Codex's single thread-writer slot while true. */
+  nativeParked: boolean
   log: { seq: number; event: RuntimeEvent }[]
   wakers: Set<() => void>
   state: AgentRuntimeState
@@ -896,6 +906,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       // ---- lifecycle ----
       async stop() {
         session.disposed = true
+        if (session.nativeParked) await host.detachClient?.({ sessionId: session.sessionId })
         session.client.close()
         await session.endpoint.stop()
         handles.delete(session.sessionId)
@@ -910,6 +921,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         // server-family session cheap to park.
         if (!session.binding.resume) return { reason: 'no_resume_ref' as const }
         session.disposed = true
+        if (session.nativeParked) await host.detachClient?.({ sessionId: session.sessionId })
         session.client.close()
         await session.endpoint.stop()
         handles.delete(session.sessionId)
@@ -919,6 +931,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
 
       async kill() {
         session.disposed = true
+        if (session.nativeParked) await host.detachClient?.({ sessionId: session.sessionId })
         session.client.close()
         await session.endpoint.kill()
         host.journal.clear(session.sessionId)
@@ -1327,26 +1340,76 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         if (req.mode === 'takeover' && session.lease && session.lease.holder !== req.holder) {
           return { reason: 'lease_held', detail: `held by ${session.lease.holder}` }
         }
-        const client = await host.attachClient?.({
-          sessionId: session.sessionId,
-          threadId: session.threadId,
-          mode: req.mode,
-        })
-        if (!client) {
+        if (req.mode === 'takeover' && (busy(session) || session.asks.size > 0)) {
           return {
-            reason: 'unsupported',
-            detail: 'this machine cannot host a client terminal for the session',
+            reason: busy(session) ? 'busy' : 'needs_user',
+            detail: 'Codex can hand its single writer to the native TUI only while idle',
           }
         }
-        if (req.mode === 'takeover') {
-          // A re-attach by the SAME holder keeps their original acquisition time
-          // rather than resetting it: the lease is the same lease, and restamping
-          // it would make a reconnect look like a fresh take-over to anything
-          // reading `acquiredAt`.
-          session.lease = session.lease ?? {
+        const previousLease = session.lease
+        const acquired = req.mode === 'takeover' && previousLease == null
+        if (acquired) {
+          session.lease = {
             holder: req.holder,
             kind: 'human-controller',
             acquiredAt: iso(),
+          }
+        }
+        let client: Awaited<ReturnType<NonNullable<typeof host.attachClient>>>
+        try {
+          /**
+           * A BLANK CODEX THREAD IS NOT RESUMABLE YET.
+           *
+           * `thread/start` returns a persistent thread id and rollout path, but
+           * pinned Codex 0.147 does not create the rollout until the first turn
+           * or a metadata write. Native-first sessions therefore used to launch
+           * the stock TUI as `codex resume <id>` and immediately die with "No
+           * saved session found". Naming the thread is Codex's own non-turn
+           * persistence operation: it creates the rollout without inventing a
+           * user/model message. Do it only when the host proves the rollout is
+           * absent, so Chat-first sessions keep Codex's normal inferred name.
+           */
+          if (
+            session.rolloutPath &&
+            host.rolloutExists &&
+            !(await host.rolloutExists(session.rolloutPath))
+          ) {
+            await session.client.call(CODEX_METHODS.threadSetName, {
+              threadId: session.threadId,
+              name: `Podium ${session.sessionId.slice(0, 8)}`,
+            })
+          }
+          if (req.mode === 'takeover' && !session.nativeParked) {
+            // `codex resume` and app-server cannot hold the same thread writer.
+            // The lease keeps every headless send queued while the app-server
+            // is parked, so no words can cross this transfer boundary.
+            session.nativeParked = true
+            session.client.close()
+            await session.endpoint.stop()
+          }
+          client = await host.attachClient?.({
+            sessionId: session.sessionId,
+            threadId: session.threadId,
+            mode: req.mode,
+          })
+        } catch (err) {
+          let restoreError: unknown
+          if (session.nativeParked) {
+            try {
+              await restoreAfterNative(session)
+            } catch (restoreErr) {
+              restoreError = restoreErr
+            }
+          }
+          if (acquired && session.lease?.holder === req.holder) session.lease = previousLease
+          throw restoreError ?? err
+        }
+        if (!client) {
+          if (session.nativeParked) await restoreAfterNative(session)
+          if (acquired && session.lease?.holder === req.holder) session.lease = previousLease
+          return {
+            reason: 'unsupported',
+            detail: 'this machine cannot host a client terminal for the session',
           }
         }
         return {
@@ -1369,6 +1432,10 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         },
         async release(holder) {
           if (session.lease?.holder !== holder) return
+          if (session.nativeParked) {
+            await host.detachClient?.({ sessionId: session.sessionId })
+            await restoreAfterNative(session)
+          }
           session.lease = null
           /**
            * RELEASING THE LEASE IS A DRAIN EDGE — the same bug the opencode
@@ -1474,6 +1541,51 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     }
   }
 
+  /** Reclaim Codex's single writer from the stock TUI without replacing the
+   *  runtime handle that owns queued sends, watchers, event cursors and lease. */
+  async function restoreAfterNative(session: DriverSession): Promise<void> {
+    if (!session.nativeParked) return
+    let endpoint: CodexServerEndpoint | undefined
+    let connection: CodexConnection | undefined
+    try {
+      endpoint = await host.launch({
+        sessionId: session.sessionId,
+        workdir: session.spec.workdir,
+        ...(session.spec.env ? { env: session.spec.env } : {}),
+        ...mcpOf(session.spec),
+      })
+      connection = await connect(endpoint, session.connectedLevel)
+      const resumed = await connection.client.call<{
+        thread?: { id?: string; path?: string | null }
+      }>(CODEX_METHODS.threadResume, { threadId: session.threadId })
+
+      session.endpoint = endpoint
+      session.connection = connection
+      session.client = connection.client
+      session.threadId = resumed.thread?.id ?? session.threadId
+      session.rolloutPath = resumed.thread?.path ?? session.rolloutPath
+      session.binding = {
+        ...session.binding,
+        process: endpoint.process,
+        resume: { kind: 'codex-thread', value: session.threadId },
+        bindingVersion: session.binding.bindingVersion + 1,
+      }
+      session.observerGeneration += 1
+      session.nativeParked = false
+      wire(session, connection)
+      persist(session)
+      emit(
+        session,
+        { t: 'process', ev: { ev: 'adopted', bindingVersion: session.binding.bindingVersion } },
+        iso(),
+      )
+    } catch (err) {
+      connection?.client.close()
+      await endpoint?.stop().catch(() => undefined)
+      throw err
+    }
+  }
+
   /**
    * Re-handshake this session's connection at `fine`, when it is safe to.
    *
@@ -1508,7 +1620,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
      * meantime keeps the connection it has — the freshly-launched child is
      * stopped rather than adopted.
      */
-    if (session.disposed || session.upgrading) return
+    if (session.disposed || session.upgrading || session.nativeParked) return
     if (busy(session) || session.asks.size > 0) return
     if (session.connectedLevel === 'fine') return
     session.upgrading = true
@@ -1662,7 +1774,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
        * while Podium still held the session is not a clean exit from the
        * session's point of view whatever its status line said.
        */
-      if (session.disposed) return
+      if (session.disposed || session.nativeParked) return
       const ev: ProcessEvent = {
         ev: 'exited',
         code: null,
@@ -1723,6 +1835,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       watchers: { coarse: 0, fine: 0 },
       connectedLevel: input.level,
       upgrading: false,
+      nativeParked: false,
       log: [],
       wakers: new Set(),
       state: { phase: 'idle', since: iso(), nativeSubagentCount: 0 },

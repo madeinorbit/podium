@@ -31,7 +31,7 @@ interface World {
   handle: AgentSessionHandle
   server: FakeAppServer
   /** Children the host was asked to start, and to stop. */
-  counts(): { launches: number; stopped: number }
+  counts(): { launches: number; stopped: number; detached: number }
   /** Hold the NEXT launch open until `releaseLaunch()` is called, so a test can
    *  act INSIDE the window between "an upgrade started" and "it finished". */
   gateNextLaunch(): void
@@ -48,6 +48,7 @@ async function world(): Promise<World> {
   let seq = 0
   let launches = 0
   let stopped = 0
+  let detached = 0
   let gate: Promise<void> | undefined
   let openGate: (() => void) | undefined
   const journal: CodexJournal = {
@@ -88,6 +89,14 @@ async function world(): Promise<World> {
     },
     reportAuthMode: (report) =>
       void authReports.push({ authMethod: report.authMethod, subscription: report.subscription }),
+    rolloutExists: async () => false,
+    attachClient: async ({ sessionId }) => ({
+      streamId: `cx-attach-${sessionId}`,
+      warmTtlMs: 300_000,
+    }),
+    detachClient: async () => {
+      detached += 1
+    },
   }
   const runtime = createCodexRuntime(host)
   const handle = await runtime.driver.create({
@@ -111,7 +120,7 @@ async function world(): Promise<World> {
   return {
     handle,
     server,
-    counts: () => ({ launches, stopped }),
+    counts: () => ({ launches, stopped, detached }),
     gateNextLaunch: () => {
       gate = new Promise<void>((resolve) => {
         openGate = resolve
@@ -350,6 +359,20 @@ describe('the watch levels, negotiated rather than filtered', () => {
 })
 
 describe('the human take-over lease', () => {
+  it('materializes a blank thread without a model turn before starting the stock TUI', async () => {
+    const w = await world()
+
+    const endpoint = await w.handle.attach({ holder: 'human-1', mode: 'takeover' })
+
+    expect(endpoint).toMatchObject({ kind: 'client', placement: 'on-machine' })
+    expect(w.server.threadNames).toEqual(['Podium cx-1'])
+    expect(w.server.turnStarts).toBe(0)
+
+    await w.handle.lease.release('human-1')
+    expect(w.counts()).toMatchObject({ launches: 2, stopped: 1, detached: 1 })
+    w.dispose()
+  })
+
   it('DELIVERS a turn parked behind a takeover the moment the lease is released', async () => {
     /**
      * RELEASING THE LEASE IS A DRAIN EDGE. A `queue` that arrives while a human

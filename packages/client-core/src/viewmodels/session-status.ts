@@ -64,12 +64,10 @@ const DEFAULT_CHAT_CAPABLE: Record<AgentKind, boolean> = {
 /**
  * IS THERE A TERMINAL BEHIND THIS SESSION'S NATIVE VIEW (POD-2290)?
  *
- * The chat/native pair is not a pair for every session. A `server`- or
- * `embedded`-family session runs its agent as a server child or an in-process
- * loop; nothing ever attaches a PTY, so the native pane's attach never confirms
- * and its "Starting <Harness>…" spinner runs forever while the chat view
- * converses perfectly well. Asking THIS question — rather than "is it a server
- * driver" — is what keeps the answer right when the first embedded driver binds.
+ * The chat/native pair is not a pair for every session. An `embedded`-family
+ * session has no external terminal. A `server`-family session does: its native
+ * surface is the harness's original resume/attach TUI, launched on demand while
+ * the headless engine remains the session driver.
  *
  * ABSENT READS AS A TERMINAL, deliberately and in one place. `driverFamily` is
  * transient (it rides `driverId`, re-established on bind), so it is legitimately
@@ -94,7 +92,7 @@ export function sessionTerminalOutlook(
 ): TerminalOutlook {
   const family = session?.driverFamily
   if (family === undefined) return 'unknown'
-  return family === 'terminal' ? 'terminal' : 'none'
+  return family === 'embedded' ? 'none' : 'terminal'
 }
 
 /**

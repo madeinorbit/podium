@@ -1090,22 +1090,31 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         ) {
           return { reason: 'lease_held', detail: `control is held by ${session.lease.holder}` }
         }
-        const endpoint = await host.attachClient?.({
-          sessionId: session.sessionId,
-          grokSessionId: session.grokSessionId,
-          mode: req.mode,
-        })
-        if (!endpoint) {
-          return {
-            reason: 'unsupported',
-            detail: 'this machine cannot host a Grok ACP client terminal',
-          }
-        }
-        if (req.mode === 'takeover') {
+        const previousLease = session.lease
+        const acquired = req.mode === 'takeover' && previousLease == null
+        if (acquired) {
           session.lease = {
             holder: req.holder,
             kind: 'human-controller',
             acquiredAt: iso(),
+          }
+        }
+        let endpoint: Awaited<ReturnType<NonNullable<typeof host.attachClient>>>
+        try {
+          endpoint = await host.attachClient?.({
+            sessionId: session.sessionId,
+            grokSessionId: session.grokSessionId,
+            mode: req.mode,
+          })
+        } catch (err) {
+          if (acquired && session.lease?.holder === req.holder) session.lease = previousLease
+          throw err
+        }
+        if (!endpoint) {
+          if (acquired && session.lease?.holder === req.holder) session.lease = previousLease
+          return {
+            reason: 'unsupported',
+            detail: 'this machine cannot host a Grok ACP client terminal',
           }
         }
         return {

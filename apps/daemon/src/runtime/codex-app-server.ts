@@ -41,7 +41,7 @@
 
 import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
   CodexJournal,
@@ -313,8 +313,11 @@ export interface CodexHostDeps {
   attachClient?(input: {
     sessionId: SessionId
     threadId: string
+    workdir: string
     mode: 'takeover' | 'peek'
   }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
+  /** Stop Codex's stock TUI so the app-server can reclaim the thread writer. */
+  detachClient?(input: { sessionId: SessionId }): Promise<void>
   /**
    * The instance agent home (`ctx.homeDir`), overriding the child's `HOME` the
    * same way the PTY path does (POD-2247). Absent = default instance, daemon
@@ -596,6 +599,15 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       }
     },
 
+    async rolloutExists(path) {
+      try {
+        await access(path)
+        return true
+      } catch {
+        return false
+      }
+    },
+
     reportAuthMode({ sessionId, authMethod, subscription }) {
       if (subscription) {
         log.info('codex session is on the ChatGPT subscription', { sessionId, authMethod })
@@ -614,13 +626,20 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
     },
 
     async attachClient(input) {
+      const entry = journal.read(input.sessionId)
+      if (!entry) return undefined
       return (
         (await deps.attachClient?.({
           sessionId: input.sessionId,
           threadId: input.threadId,
+          workdir: entry.workdir,
           mode: input.mode,
         })) ?? undefined
       )
+    },
+
+    async detachClient(input) {
+      await deps.detachClient?.(input)
     },
   }
 }

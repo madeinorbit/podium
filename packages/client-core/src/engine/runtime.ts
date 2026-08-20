@@ -910,7 +910,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
     // View-state report to the server. `workspaces`/`splitEnabled` are triggers
     // in their own right: a third pane's active tab, or the flag hiding a pane,
-    // changes what is on screen without moving `paneA`/`paneB`.
+    // changes what is on screen without moving `paneA`/`paneB`. `panelMode` is
+    // equally live: switching Native → Chat must release the client terminal's
+    // takeover lease before a Chat turn can reach the headless engine.
     if (
       any(
         'paneA',
@@ -920,6 +922,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         'workspaces',
         'splitEnabled',
         'dockVisibleSession',
+        'panelMode',
       )
     )
       this.reactions.reportViewState()

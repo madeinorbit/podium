@@ -14,7 +14,8 @@ import {
   runHeadlessTurn,
 } from '../headless-drivers.js'
 import type { ControlHandlers, DaemonContext } from './context'
-import { sessionRelayEnv, spawnEnv } from './session'
+import { sessionRelayEnv } from './session'
+import { spawnEnv } from './session-env'
 
 const log = createLogger('daemon:headless')
 

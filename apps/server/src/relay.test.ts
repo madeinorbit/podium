@@ -1773,9 +1773,9 @@ describe('SessionRegistry', () => {
       sessionId,
       message: "explicit codex-app-server request cannot be honoured",
     })
-
     expect(store1.sessions.loadSessions().at(0)?.selectedDriverId).toBeNull()
     store1.close()
+
 
     const store2 = new SessionStore(file, TEST_MACHINE)
     const reg2 = new SessionRegistry(store2, undefined, { instanceId: 'default' })
@@ -1995,6 +1995,7 @@ describe('memory breakdown relay', () => {
       vi.useRealTimers()
     }
   })
+
 })
 
 describe('agent state', () => {
@@ -4154,7 +4155,6 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
       vi.useRealTimers()
     }
   })
-
 })
 
 /**
@@ -4738,12 +4738,18 @@ describe('output-relay priority + frame batch', () => {
       focused: sessionId,
     })
     // Focused beats visible/attached: tier 0.
-    expect(priorities(daemon)).toContainEqual({ type: 'sessionPriority', sessionId, priority: 0 })
+    expect(priorities(daemon)).toContainEqual({
+      type: 'sessionPriority',
+      sessionId,
+      priority: 0,
+      nativeView: true,
+    })
   })
 
-  it('stores the rendered-mode map from a viewState message on the client (available, not used for scheduling)', () => {
+  it('stores the rendered-mode map and signals chat without changing relay priority', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -4755,10 +4761,23 @@ describe('output-relay priority + frame batch', () => {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
+      modes: { [sessionId]: 'native' },
+    })
+    daemon.length = 0
+    reg.clientGateway.routeClientFrame(id, {
+      type: 'viewState',
+      visible: [sessionId],
+      focused: sessionId,
       modes: { [sessionId]: 'chat' },
     })
     const client = (reg as any).modules.sessions.clients.get(id)
     expect(client.viewModes).toEqual({ [sessionId]: 'chat' })
+    expect(priorities(daemon)).toContainEqual({
+      type: 'sessionPriority',
+      sessionId,
+      priority: 0,
+      nativeView: false,
+    })
   })
 
   it('defaults viewModes to {} when a viewState omits modes (backward compatible)', () => {
@@ -4810,8 +4829,18 @@ describe('output-relay priority + frame batch', () => {
 
     reg.clientGateway.routeClientFrame(id, { type: 'viewState', visible: [s1, s2], focused: s2 })
     const sent = priorities(daemon)
-    expect(sent).toContainEqual({ type: 'sessionPriority', sessionId: s1, priority: 1 }) // visible
-    expect(sent).toContainEqual({ type: 'sessionPriority', sessionId: s2, priority: 0 }) // focused
+    expect(sent).toContainEqual({
+      type: 'sessionPriority',
+      sessionId: s1,
+      priority: 1,
+      nativeView: true,
+    }) // visible
+    expect(sent).toContainEqual({
+      type: 'sessionPriority',
+      sessionId: s2,
+      priority: 0,
+      nativeView: true,
+    }) // focused
   })
 
   it('only CHANGED sessions are re-pushed (deltas, not the whole map every time)', () => {
@@ -4863,6 +4892,7 @@ describe('output-relay priority + frame batch', () => {
       type: 'sessionPriority',
       sessionId,
       priority: 0,
+      nativeView: true,
     })
   })
 

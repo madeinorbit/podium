@@ -91,6 +91,10 @@ export interface DaemonContext {
    * private deps to answer a machine-wide frame would be the wrong shape.
    */
   clientTerminals?: OpencodeClientTerminals
+  /** Sessions whose currently visible browser surface is the native harness TUI. */
+  nativeClientRequests?: Set<SessionId>
+  /** Per-session serialization for attach/release transitions. */
+  nativeClientTransitions?: Map<SessionId, Promise<void>>
   /** Agent-state trackers, transcript tails, per-harness observers. */
   observers: SessionObservers
   /**

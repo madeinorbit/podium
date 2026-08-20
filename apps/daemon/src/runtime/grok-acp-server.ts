@@ -124,6 +124,13 @@ function defaultVersionProbe(): Promise<{ output: string; ok: boolean }> {
 
 export interface GrokAcpHostDeps {
   memoryBytes(input: { sessionId: SessionId; label: string; pid?: number }): number | undefined
+  /** Start Grok's original TUI against the native session for `attach()`. */
+  attachClient?(input: {
+    sessionId: SessionId
+    grokSessionId: string
+    workdir: string
+    mode: 'takeover' | 'peek'
+  }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
   /**
    * The instance agent home (`ctx.homeDir`), overriding the child's `HOME` the
    * same way the PTY path does (POD-2247). Absent = default instance, daemon
@@ -286,6 +293,17 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
         }
       }
       return files.length > 0 ? files : undefined
+    },
+
+    async attachClient(input) {
+      const entry = journal.read(input.sessionId)
+      if (!entry) return undefined
+      return deps.attachClient?.({
+        sessionId: input.sessionId,
+        grokSessionId: input.grokSessionId,
+        workdir: entry.workdir,
+        mode: input.mode,
+      })
     },
   }
 }

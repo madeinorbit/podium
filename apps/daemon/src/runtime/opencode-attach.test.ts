@@ -19,7 +19,9 @@ import { scopeUnitName } from '@podium/pty'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { attributeMemory, type ProcSample } from '../memory-breakdown'
 import {
+  codexAttachLabel,
   createOpencodeClientTerminals,
+  grokAttachLabel,
   opencodeAttachLabel,
   WARM_TTL_MS,
 } from './opencode-attach'
@@ -42,12 +44,21 @@ const target = {
 }
 
 /** A stand-in for the abduco client PTY: records what was wired to it. */
-function fakeClient(): AgentSession & { emit(data: string): void; disposed: boolean } {
+function fakeClient(): AgentSession & {
+  emit(data: string): void
+  disposed: boolean
+  writes: string[]
+  sizes: { cols: number; rows: number }[]
+  redraws: number
+} {
   const frameCbs: ((f: AgentFrame) => void)[] = []
   let seq = 0
   const client = {
     pid: 4242,
     disposed: false,
+    writes: [] as string[],
+    sizes: [] as { cols: number; rows: number }[],
+    redraws: 0,
     onFrame(cb: (f: AgentFrame) => void) {
       frameCbs.push(cb)
       return () => {}
@@ -58,9 +69,15 @@ function fakeClient(): AgentSession & { emit(data: string): void; disposed: bool
     onExit() {
       return () => {}
     },
-    write() {},
-    resize() {},
-    redraw() {},
+    write(data: string) {
+      client.writes.push(data)
+    },
+    resize(cols: number, rows: number) {
+      client.sizes.push({ cols, rows })
+    },
+    redraw() {
+      client.redraws += 1
+    },
     geometry: () => ({ cols: 120, rows: 40 }),
     dispose() {
       client.disposed = true
@@ -212,6 +229,52 @@ describe('the client terminal a server-family attach produces', () => {
     const endpoint = await terminals.attach({ sessionId: SESSION, target })
     state.clients[0]?.emit('ZnJhbWU=')
     expect(state.frames).toEqual([{ streamId: endpoint.streamId, data: 'ZnJhbWU=' }])
+    expect(endpoint.streamId).toBe(SESSION)
+  })
+
+  it('routes browser input, geometry, and redraw back to the attached TUI', async () => {
+    const { terminals, state } = harness()
+    await terminals.attach({ sessionId: SESSION, target })
+    expect(terminals.input(SESSION, 'aGVsbG8=')).toBe(true)
+    expect(terminals.resize(SESSION, 101, 37)).toBe(true)
+    expect(terminals.redraw(SESSION)).toBe(true)
+    expect(state.clients[0]?.writes).toEqual(['aGVsbG8='])
+    expect(state.clients[0]?.sizes).toEqual([{ cols: 101, rows: 37 }])
+    expect(state.clients[0]?.redraws).toBe(1)
+    expect(terminals.input(asSessionId('not-attached'), 'eA==')).toBe(false)
+  })
+
+  it('launches Codex and Grok original resume TUIs under sibling labels', async () => {
+    const codex = harness()
+    await codex.terminals.attach({
+      sessionId: SESSION,
+      target: { kind: 'codex', threadId: 'thread-9', workdir: '/work/codex' },
+    })
+    expect(codex.state.spawns[0]).toMatchObject({
+      label: codexAttachLabel(SESSION),
+      cmd: 'codex',
+      env: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
+      args: [
+        'resume',
+        '-C',
+        '/work/codex',
+        'thread-9',
+        '-c',
+        'sandbox_workspace_write.network_access=true',
+      ],
+    })
+
+    const grok = harness()
+    await grok.terminals.attach({
+      sessionId: SESSION,
+      target: { kind: 'grok', grokSessionId: 'grok-9', workdir: '/work/grok' },
+    })
+    expect(grok.state.spawns[0]).toMatchObject({
+      label: grokAttachLabel(SESSION),
+      cmd: 'grok',
+      args: ['--resume', 'grok-9'],
+      stripEnv: ['XAI_API_KEY'],
+    })
   })
 })
 
@@ -507,6 +570,9 @@ describe('the daemon’s answer to “host a client terminal”', () => {
         adopt: () => {},
         close: async () => {},
         viewers: () => {},
+        input: () => false,
+        resize: () => false,
+        redraw: () => false,
         reclaimable: () => 0,
         reclaimUnwatched: async () => 0,
       },

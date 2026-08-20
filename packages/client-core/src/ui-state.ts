@@ -459,8 +459,8 @@ export type PanelMode = 'native' | 'chat'
  *
  * RULE 0 OUTRANKS THE PERSISTED PICK, AND THAT IS THE POINT (POD-2290). Rules
  * 2–4 answer "which of two views did this operator want"; rule 0 says there is
- * only ONE view, so there is no preference to honour. A server- or
- * embedded-driven session has no PTY, and a remembered `native` — a per-device
+ * only ONE view, so there is no preference to honour. An embedded-driven
+ * session has no terminal, and a remembered `native` — a per-device
  * default, or a per-session pick made when the same harness still ran under a
  * terminal — would put the operator back on a pane whose attach can never
  * confirm. The mirror of rule 1, which has always overridden the same saved
@@ -470,8 +470,8 @@ export function effectivePanelMode(input: {
   startScreen: 'native' | 'chat' | 'auto'
   chatCapable: boolean
   isMobile: boolean
-  /** There is a PTY behind the native view — false for the server and embedded
-   *  driver families. Required rather than defaulted so a new caller has to
+  /** There is an engine or harness-client terminal behind the native view —
+   *  false for the embedded driver family. Required so a new caller has to
    *  answer it; `sessionHasTerminal` is the one place "unknown" becomes true. */
   terminalCapable: boolean
   /** Persisted per-session mode when known. */

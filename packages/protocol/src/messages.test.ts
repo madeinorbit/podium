@@ -1223,7 +1223,12 @@ describe('output-scheduling protocol', () => {
     expect((parsed as { modes?: unknown }).modes).toBeUndefined()
   })
   it('round-trips sessionPriority (server→daemon)', () => {
-    const m = { type: 'sessionPriority' as const, sessionId: asSessionId('s1'), priority: 0 }
+    const m = {
+      type: 'sessionPriority' as const,
+      sessionId: asSessionId('s1'),
+      priority: 0,
+      nativeView: true,
+    }
     expect(parseControlMessage(encode(m))).toEqual(m)
   })
   it('rejects out-of-range / non-int sessionPriority', () => {

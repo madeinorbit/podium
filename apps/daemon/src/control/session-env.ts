@@ -11,6 +11,15 @@ import { delimiter, dirname, join } from 'node:path'
 import { manifestFor } from '@podium/harness'
 import type { AgentKind } from '@podium/model'
 
+const HARNESS_COMPAT_ENV: Partial<Record<AgentKind, Record<string, string>>> = {
+  codex: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
+}
+
+/** Terminal-protocol compatibility required by both primary and attach TUIs. */
+export function harnessCompatEnv(agentKind: AgentKind): Record<string, string> {
+  return HARNESS_COMPAT_ENV[agentKind] ?? {}
+}
+
 /**
  * The credential vars this spawn must DELETE, not merely leave unset (POD-2296).
  *

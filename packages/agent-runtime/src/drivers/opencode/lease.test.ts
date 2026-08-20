@@ -93,6 +93,35 @@ describe('a refused takeover leaves nothing running behind it', () => {
       runtime.dispose()
     }
   })
+
+  it('reserves the lease before awaiting client startup, so racing holders cannot both win', async () => {
+    let finishStart: (() => void) | undefined
+    const startGate = new Promise<void>((resolve) => {
+      finishStart = resolve
+    })
+    const host = makeOpencodeTestHost()
+    host.attachClient = async ({ sessionId }) => {
+      await startGate
+      return { streamId: `test-attach-${sessionId}`, warmTtlMs: 60_000 }
+    }
+    const runtime = createOpencodeRuntime(host)
+    try {
+      const handle = await runtime.driver.create(spec())
+      const first = handle.attach({ mode: 'takeover', holder: 'first' })
+      await Promise.resolve()
+      await expect(handle.attach({ mode: 'takeover', holder: 'second' })).resolves.toMatchObject({
+        reason: 'lease_held',
+      })
+      finishStart?.()
+      await expect(first).resolves.toMatchObject({ kind: 'client' })
+      await expect(handle.lease.acquire('second', 'human-controller')).resolves.toMatchObject({
+        reason: 'lease_held',
+      })
+    } finally {
+      finishStart?.()
+      runtime.dispose()
+    }
+  })
 })
 
 describe('releasing the lease drains what was queued behind it', () => {

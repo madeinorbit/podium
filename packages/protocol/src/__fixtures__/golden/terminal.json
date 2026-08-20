@@ -1502,12 +1502,13 @@
       "wire": {
         "type": "sessionPriority",
         "sessionId": "sessionId",
-        "priority": 1
+        "priority": 1,
+        "nativeView": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"sessionPriority\",\"sessionId\":\"sessionId\",\"priority\":1}"
+      "encoded": "{\"type\":\"sessionPriority\",\"sessionId\":\"sessionId\",\"priority\":1,\"nativeView\":true}"
     },
     {
       "schema": "SessionResumeRefAckMessage",

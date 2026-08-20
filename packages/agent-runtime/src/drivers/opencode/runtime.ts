@@ -1306,22 +1306,31 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
             detail: `the control lease is held by ${session.lease.holder}`,
           }
         }
-        const client = await host.attachClient({
-          sessionId: session.sessionId,
-          url: session.endpoint.baseUrl,
-          mode: req.mode,
-        })
-        if (!client) {
-          return {
-            reason: 'unsupported',
-            detail: 'this machine cannot host a client terminal for the session',
-          }
-        }
-        if (req.mode === 'takeover') {
+        const previousLease = session.lease
+        const acquired = req.mode === 'takeover' && previousLease == null
+        if (acquired) {
           session.lease = {
             holder: req.holder,
             kind: 'human-controller',
             acquiredAt: iso(),
+          }
+        }
+        let client: Awaited<ReturnType<typeof host.attachClient>>
+        try {
+          client = await host.attachClient({
+            sessionId: session.sessionId,
+            url: session.endpoint.baseUrl,
+            mode: req.mode,
+          })
+        } catch (err) {
+          if (acquired && session.lease?.holder === req.holder) session.lease = previousLease
+          throw err
+        }
+        if (!client) {
+          if (acquired && session.lease?.holder === req.holder) session.lease = previousLease
+          return {
+            reason: 'unsupported',
+            detail: 'this machine cannot host a client terminal for the session',
           }
         }
         return {

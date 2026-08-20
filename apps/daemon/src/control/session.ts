@@ -33,7 +33,7 @@ import type { Tier } from '../output-scheduler'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { runtimeContractEnabledFor, runtimeDriverByEnv } from '../runtime/flag'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
-import { runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
+import { handleFor, runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
 import { opencodeVersionProbe } from '../runtime/opencode-server'
 import {
   availableDriverIds,
@@ -51,10 +51,59 @@ import { beginServerDriverReap } from '../runtime/server-reap'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
-import { foreignCredentialEnv, spawnEnv } from './session-env'
+import { foreignCredentialEnv, harnessCompatEnv, spawnEnv } from './session-env'
+export { harnessCompatEnv } from './session-env'
 import { sourceForRead } from './transcripts'
 
 const log = createLogger('daemon:session')
+
+const nativeClientHolder = (sessionId: SessionId): string => `podium-native:${sessionId}`
+
+/** Reconcile one server-family session's on-demand original harness TUI. */
+export function reconcileNativeClientTerminal(ctx: DaemonContext, sessionId: SessionId): void {
+  const requests = (ctx.nativeClientRequests ??= new Set<SessionId>())
+  const transitions = (ctx.nativeClientTransitions ??= new Map<SessionId, Promise<void>>())
+  if (transitions.has(sessionId)) return
+  let applied: boolean | undefined
+  const transition = (async () => {
+    for (;;) {
+      const wanted = requests.has(sessionId)
+      const handle = handleFor(ctx, sessionId)
+      if (!handle || handle.binding.family !== 'server') return
+      if (wanted) {
+        const result = await handle.attach({
+          mode: 'takeover',
+          holder: nativeClientHolder(sessionId),
+        })
+        if ('reason' in result) {
+          log.warn('could not attach the native client terminal', {
+            sessionId,
+            reason: result.reason,
+            detail: result.detail,
+          })
+          return
+        }
+        const pending = ctx.pendingResizes.get(sessionId)
+        if (pending && ctx.clientTerminals?.resize(sessionId, pending.cols, pending.rows)) {
+          ctx.pendingResizes.delete(sessionId)
+        }
+      } else {
+        await handle.lease.release(nativeClientHolder(sessionId))
+      }
+      applied = wanted
+      if (wanted === requests.has(sessionId)) return
+    }
+  })()
+    .catch((err) => log.warn('native client terminal transition failed', { err, sessionId }))
+    .finally(() => {
+      transitions.delete(sessionId)
+      // A request can change after the final equality check but before cleanup.
+      // Re-run once the slot is free; attach and release are both idempotent.
+      if (applied !== undefined && requests.has(sessionId) !== applied)
+        reconcileNativeClientTerminal(ctx, sessionId)
+    })
+  transitions.set(sessionId, transition)
+}
 
 /**
  * Per-harness env every session of that kind needs to be driven through Podium's
@@ -71,16 +120,6 @@ const log = createLogger('daemon:session')
  * Spawn-time only — a session already running with enhancement on keeps it until
  * it is relaunched.
  */
-const HARNESS_COMPAT_ENV: Partial<Record<AgentKind, Record<string, string>>> = {
-  codex: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
-}
-
-/** The compatibility env for a harness ({} for kinds that need none). Pure so the
- *  floor is asserted without standing up a spawn. */
-export function harnessCompatEnv(agentKind: AgentKind): Record<string, string> {
-  return HARNESS_COMPAT_ENV[agentKind] ?? {}
-}
-
 /**
  * Env vars bound into EVERY spawned session so its `podium` CLI can reach the
  * daemon's loopback relay for this exact session. PODIUM_SESSION_ID is bound at
@@ -687,6 +726,7 @@ async function adoptServerDriverSession(
       sessionId: msg.sessionId,
       driver: handle.binding.driver,
     })
+    reconcileNativeClientTerminal(ctx, msg.sessionId)
     return true
   } catch (err) {
     ctx.send({
@@ -1015,6 +1055,7 @@ export async function launchServerDriverSession(
        * spawn-frame field is POD-1761's to schedule.
        */
     })
+    reconcileNativeClientTerminal(ctx, msg.sessionId)
   } catch (err) {
     // A server that would not start is a SPAWN ERROR, reported on the frame the
     // UI already renders. The alternative — falling back to a PTY — would hide
@@ -1303,6 +1344,8 @@ export function stopSessionProcess(
   ctx.observers.clearSession(msg.sessionId)
   ctx.runtime?.clear(msg.sessionId)
   ctx.pendingResizes.delete(msg.sessionId)
+  ctx.nativeClientRequests?.delete(msg.sessionId)
+  void ctx.clientTerminals?.close(msg.sessionId)
   if (session) {
     session.dispose()
     ctx.bridges.delete(msg.sessionId)
@@ -1446,11 +1489,14 @@ export const sessionHandlers: Pick<
       ctx.observers.recordInputOrigin(msg.sessionId, msg.inputOrigin)
     }
     const bridge = ctx.bridges.get(msg.sessionId)
+    if (!bridge && ctx.clientTerminals?.input(msg.sessionId, msg.data)) {
+      ctx.composerEngine.onInputByte(msg.sessionId)
+      return
+    }
     if (!bridge && sessionIsBehindContract(ctx, msg.sessionId)) {
-      // A server-family session has no PTY bridge, so these bytes have nowhere
-      // to go — the server side must route sends through `runtimeSendRequest`
-      // instead. Said out loud because the silent version of this line is how a
-      // chat prompt vanished with no transcript row and no error (POD-2291).
+      // Chat sends for a server-family session use `runtimeSendRequest`; Native
+      // bytes reach the client terminal above. Anything arriving here has
+      // neither surface and is malformed/stale rather than silently accepted.
       log.warn('discarding input bytes for a bridgeless contract session', {
         sessionId: msg.sessionId,
         bytes: msg.data.length,
@@ -1469,7 +1515,8 @@ export const sessionHandlers: Pick<
     // PTY at 80x24 under a client rendering a fitted grid (POD-628). Last one wins
     // — an in-flight session has no screen to reflow, only a size to be born at.
     if (bridge) bridge.resize(msg.cols, msg.rows)
-    else ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
+    else if (!ctx.clientTerminals?.resize(msg.sessionId, msg.cols, msg.rows))
+      ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
     ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
   },
   draftTarget: (ctx, msg) => {
@@ -1477,7 +1524,7 @@ export const sessionHandlers: Pick<
     ctx.composerEngine.setTarget(msg.sessionId, msg.text)
   },
   redraw: (ctx, msg) => {
-    ctx.bridges.get(msg.sessionId)?.redraw()
+    if (!ctx.clientTerminals?.redraw(msg.sessionId)) ctx.bridges.get(msg.sessionId)?.redraw()
   },
   agentObservationAck: (ctx, msg) => {
     ctx.observers.onObservationAck(msg)
@@ -1500,11 +1547,16 @@ export const sessionHandlers: Pick<
      * belongs to a session, so that is the association: hold the warm window off
      * while the session is watched, start it when it is not.
      *
-     * Not a subscription to the attachment's own stream, which does not exist
-     * yet (POD-2108) — but the session is what a user opens and closes, and it
-     * is the signal that keeps a 30-minute idle TTL from behaving as a lifetime.
+     * `nativeView` is also the exact subscription signal for the attachment:
+     * switching to Chat parks it and starts the warm TTL even though the session
+     * remains visible.
      */
-    ctx.clientTerminals?.viewers(msg.sessionId, msg.priority < 3)
+    const nativeView = msg.nativeView === true
+    ctx.clientTerminals?.viewers(msg.sessionId, nativeView)
+    const requests = (ctx.nativeClientRequests ??= new Set<SessionId>())
+    if (nativeView) requests.add(msg.sessionId)
+    else requests.delete(msg.sessionId)
+    reconcileNativeClientTerminal(ctx, msg.sessionId)
   },
   reclaimAttachments: (ctx) => {
     // Host pressure, decided by the server that owns the threshold. Attachments

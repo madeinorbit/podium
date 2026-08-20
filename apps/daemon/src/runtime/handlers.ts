@@ -37,7 +37,10 @@ import type { ControlHandlers, DaemonContext } from '../control/context'
  * chooses a driver once and registers there — so the order below is a lookup,
  * not a precedence.
  */
-function handleFor(ctx: DaemonContext, sessionId: SessionId): AgentSessionHandle | undefined {
+export function handleFor(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+): AgentSessionHandle | undefined {
   return (
     ctx.runtime?.handleFor(sessionId) ??
     ctx.opencodeRuntime?.handleFor(sessionId) ??

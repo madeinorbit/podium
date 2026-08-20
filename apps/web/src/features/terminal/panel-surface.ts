@@ -171,8 +171,8 @@ export function panelGates(
     /** The server has reconciled the optimistically-spawned session (#119). */
     readonly spawnConfirmed: boolean
     readonly chatCapable: boolean
-    /** There is a PTY behind the native view — `sessionHasTerminal`, false for
-     *  the server and embedded driver families (POD-2290). */
+    /** There is an engine or harness-client terminal behind the native view —
+     *  `sessionHasTerminal`, false for embedded drivers (POD-2290). */
     readonly terminalCapable: boolean
     /**
      * The switcher has ALREADY been offered for this session at least once

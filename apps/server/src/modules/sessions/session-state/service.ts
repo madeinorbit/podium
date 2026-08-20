@@ -163,7 +163,7 @@ export class SessionStateService {
   private readonly draftSendSuppressUntil = new Map<SessionId, number>()
   private draftSyncEnabled_ = false
 
-  private readonly lastPriority = new Map<SessionId, number>()
+  private readonly lastPriority = new Map<SessionId, string>()
 
   constructor(private readonly ports: SessionStatePorts) {}
 
@@ -446,16 +446,28 @@ export class SessionStateService {
   }
 
   pushPriorities(): void {
-    const priorities = computePriorities([...this.ports.clients()], this.ports.sessionIds())
+    const clients = [...this.ports.clients()]
+    const priorities = computePriorities(clients, this.ports.sessionIds())
     for (const [sessionId, priority] of priorities) {
-      if (this.lastPriority.get(sessionId) === priority) continue
-      this.lastPriority.set(sessionId, priority)
+      const nativeView = clients.some(
+        (client) =>
+          client.viewVisible.has(sessionId) &&
+          (client.viewModes[sessionId] ?? 'native') === 'native',
+      )
+      const state = `${priority}:${nativeView ? 1 : 0}`
+      if (this.lastPriority.get(sessionId) === state) continue
+      this.lastPriority.set(sessionId, state)
       // No live session means no machine to prioritise on. This used to fall back to
       // the placeholder, which sent the frame to a queue keyed by a name no daemon
       // answers to — a message that could only ever be dropped, pretending to be sent.
       const machineId = this.ports.getSession(sessionId)?.machineId
       if (machineId === undefined) continue
-      this.ports.toMachine(machineId, { type: 'sessionPriority', sessionId, priority })
+      this.ports.toMachine(machineId, {
+        type: 'sessionPriority',
+        sessionId,
+        priority,
+        nativeView,
+      })
     }
   }
 

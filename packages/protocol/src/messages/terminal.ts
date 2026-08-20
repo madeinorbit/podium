@@ -539,11 +539,13 @@ export const SessionBindingRetireMessage = z.object({
   durableLabel: z.string().optional(),
 })
 // Server→daemon: relay priority for one session (0=focused,1=visible,2=attached,
-// 3=unwatched). Drives the daemon's output scheduler.
+// 3=unwatched), plus whether any visible client is rendering its native surface.
+// The latter activates an on-demand harness TUI for server-family sessions.
 export const SessionPriorityMessage = z.object({
   type: z.literal('sessionPriority'),
   sessionId: SessionIdField,
   priority: z.number().int().min(0).max(3),
+  nativeView: z.boolean().optional(),
 })
 export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: SessionIdField })
 

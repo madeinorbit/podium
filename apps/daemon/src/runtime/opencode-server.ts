@@ -413,7 +413,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
     // the session (spec §5): a client left alive against a server that just died
     // shows a frozen screen and holds its memory for the warm TTL, for a session
     // nobody can reach any more.
-    await deps.clientTerminals?.close(sessionId)
+    await deps.clientTerminals?.close(sessionId, 'opencode')
     // AND THE SCOPE. Signalling the direct child leaves its cgroup — and any
     // grandchild the agent spawned — behind, which is exactly the state that
     // squats the deterministic unit name and pushes the NEXT spawn into the
@@ -457,7 +457,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       // server that is about to be replaced by one on a different port. It cannot
       // be re-used and would sit warm showing a dead connection, so it goes now
       // rather than at its TTL.
-      await deps.clientTerminals?.close(input.sessionId)
+      await deps.clientTerminals?.close(input.sessionId, 'opencode')
 
       const port = await freeLoopbackPort()
       const baseUrl = `http://127.0.0.1:${port}`
@@ -565,7 +565,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
        * there is nothing there — it asks `hasMaster` before spending a signal.
        */
       const abandon = async (): Promise<undefined> => {
-        await deps.clientTerminals?.close(binding.sessionId)
+        await deps.clientTerminals?.close(binding.sessionId, 'opencode')
         return undefined
       }
       const entry = journal.read(binding.sessionId)
@@ -638,6 +638,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         return await terminals.attach({
           sessionId: input.sessionId,
           target: {
+            kind: 'opencode',
             url: input.url,
             username: entry.username,
             secret: entry.secret,

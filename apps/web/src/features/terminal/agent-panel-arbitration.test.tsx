@@ -342,29 +342,36 @@ describe('AgentPanel mount gating', () => {
   })
 })
 
-describe('AgentPanel on a session with no terminal (POD-2290)', () => {
-  // The operator's report, as a render: an opencode/codex/grok session bound to
-  // a server driver opened on the NATIVE pane and sat behind a "Starting
-  // <Harness>…" spinner that could never resolve, because nothing will ever
-  // attach a PTY to it — while the chat view was conversing perfectly well.
+describe('AgentPanel on a server-family client terminal', () => {
   const serverDriven = () =>
     meta({ agentKind: 'opencode', driverId: 'opencode-server', driverFamily: 'server' })
 
-  it('opens on chat even with `native` saved for this very session', async () => {
-    // `storePanelMode` is seeded to native for s1 in beforeEach — the persisted
-    // pick that used to win. There is no second view for it to be a preference
-    // between, so it must not.
+  it('native-default mounts the original harness terminal and offers both modes', async () => {
     storeSessions = [serverDriven()]
     await render({ active: true })
-    expect(container.querySelector('[data-testid="terminal-startup-overlay"]')).toBeNull()
-    expect(mountSessionMock).not.toHaveBeenCalled()
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('[data-testid="mode-native"]')?.getAttribute('aria-selected')).toBe(
+      'true',
+    )
+    expect(container.querySelector('[data-testid="mode-chat"]')).toBeTruthy()
   })
 
-  it('offers no switch to a view that cannot exist', async () => {
+  it('chat-default keeps chat selected while retaining the warm terminal transport', async () => {
+    storePanelMode = { s1: 'chat' }
     storeSessions = [serverDriven()]
     await render({ active: true })
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('[data-testid="mode-native"]')).toBeTruthy()
+    expect(container.querySelector('[data-testid="mode-chat"]')?.getAttribute('aria-selected')).toBe(
+      'true',
+    )
+  })
+
+  it('keeps an embedded session chat-only', async () => {
+    storeSessions = [meta({ driverFamily: 'embedded' })]
+    await render({ active: true })
+    expect(mountSessionMock).not.toHaveBeenCalled()
     expect(container.querySelector('[data-testid="mode-native"]')).toBeNull()
-    expect(container.querySelector('[data-testid="mode-chat"]')).toBeNull()
   })
 
   it('leaves a PTY session with the same harness completely alone', async () => {
