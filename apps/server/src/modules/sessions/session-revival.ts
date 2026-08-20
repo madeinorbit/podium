@@ -36,7 +36,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { IssueId, ResumeRef, SessionId, SessionMeta, UserId, MachineId } from '@podium/model'
+import type { IssueId, MachineId, ResumeRef, SessionId, SessionMeta, UserId } from '@podium/model'
 import { type AgentKind, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { SessionBindingAdoptLaunchInstruction } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -292,7 +292,28 @@ export class SessionRevival {
     // A shell has no conversation to lose — a fresh spawn in the same cwd IS
     // full recovery, so it never needs a resume ref. Agents do: respawning one
     // without its ref would silently discard the conversation.
-    if (session.agentKind !== 'shell' && !session.resume) {
+    //
+    // …UNLESS THERE IS PROVABLY NO CONVERSATION (POD-2392). An agent that dies
+    // during startup — Codex showing its own updater prompt before it opens a
+    // thread, and failing the install — leaves a row with no ref and nothing to
+    // resume INTO, so the safeguard above was refusing to protect anything while
+    // the panel's only remaining offer was to delete the row. `neverBound` is
+    // the durable proof that this launch never had a conversation; on it, and
+    // only on it, the spawn below goes out without a resume ref, which for a
+    // never-bound launch is not a discarded conversation but the same start
+    // over again.
+    //
+    // The safeguard is UNCHANGED for everything else, and that includes every
+    // ambiguous case: a session whose ref was taken away by identity
+    // arbitration, a harness whose id we never learned, and any row written
+    // before the proof existed all still refuse. "No ref" never became the
+    // condition; "proven never bound" is a strictly narrower one.
+    //
+    // The message-wake path (`SessionInbox.queueText`) deliberately keeps
+    // refusing on `!resume` alone: an addressed message wants an agent primed
+    // with it, which is what spawn-on-wake already builds. This verb is the
+    // operator's retry, not that one.
+    if (session.agentKind !== 'shell' && !session.resume && !session.neverBound) {
       return Promise.resolve({ ok: false, reason: 'no resume ref' })
     }
 

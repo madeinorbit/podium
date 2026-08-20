@@ -1,17 +1,17 @@
-import {
-  asUserId,
-  asThreadId,
-  FIRST_ADMIN_USER_ID,
-  SOLE_USER_ID,
-  asAccountId,
-  asIssueId,
-  asMachineId,
-  asSessionId,
-} from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import {
+  asAccountId,
+  asIssueId,
+  asMachineId,
+  asSessionId,
+  asThreadId,
+  asUserId,
+  FIRST_ADMIN_USER_ID,
+  SOLE_USER_ID,
+} from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -187,6 +187,9 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     conversationId: null,
     resumeKind: null,
     resumeValue: null,
+    // Whether the launch ever had a conversation (POD-2392): always projected,
+    // null = the row makes no claim (which is what a pre-column row reads as).
+    conversationBinding: null,
     name: null,
     // WHO named the session (#490): always projected; null = nobody named it.
     nameSource: null,
@@ -446,6 +449,45 @@ describe('SessionStore sessions', () => {
       }),
     )
     expect(store.sessions.loadSessions()[0]?.loginHarness).toBe('codex')
+    store.close()
+  })
+
+  // POD-2392: `conversation_binding` is what lets a dead, ref-less agent be
+  // started again instead of only deleted, so its write rules ARE the safety
+  // property — a stale writer must not be able to un-prove a conversation, and a
+  // row from before the column must not read as proof of anything.
+  it('round-trips the conversation-binding claim', () => {
+    const store = new SessionStore(':memory:')
+    store.sessions.upsertSession(
+      row({ id: asSessionId('s1'), durableLabel: 'podium-s1', conversationBinding: 'never' }),
+    )
+    expect(store.sessions.loadSessions()[0]?.conversationBinding).toBe('never')
+    store.close()
+  })
+
+  it('refuses to walk a bound conversation back to never', () => {
+    const store = new SessionStore(':memory:')
+    const base = row({ id: asSessionId('s1'), durableLabel: 'podium-s1' })
+    store.sessions.upsertSession({ ...base, conversationBinding: 'bound' })
+    // A later writer holding a stale copy of the session — a status flush, a
+    // rename, a reattach — persists the whole row, `never` and all.
+    store.sessions.upsertSession({ ...base, conversationBinding: 'never' })
+    store.sessions.upsertSession({ ...base, conversationBinding: null })
+    expect(store.sessions.loadSessions()[0]?.conversationBinding).toBe('bound')
+    store.close()
+  })
+
+  it('reads a rogue conversation-binding value as no claim, not as proof', () => {
+    const store = new SessionStore(':memory:')
+    store.sessions.upsertSession(
+      row({
+        id: asSessionId('s1'),
+        durableLabel: 'podium-s1',
+        // Not in the union: an older/newer writer, or a hand-edited row.
+        conversationBinding: 'maybe' as never,
+      }),
+    )
+    expect(store.sessions.loadSessions()[0]?.conversationBinding).toBeNull()
     store.close()
   })
 

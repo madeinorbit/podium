@@ -398,6 +398,14 @@ export class SessionStart {
         this.ports.broadcastSessions()
       },
       ...(input.resume ? { resume: input.resume } : {}),
+      // THE MINT SITE STATES THE CLAIM (POD-2392). This is the one moment the
+      // server can honestly say a launch has never had a conversation — it is
+      // creating it — so every row born here carries the proof, and `undefined`
+      // downstream can only ever mean "written before the fact existed".
+      // A resume-origin spawn is bound by construction; `Session` promotes it
+      // off `input.resume` regardless, and stating it here would be a second
+      // place for the same rule to drift.
+      conversationBinding: 'never',
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(input.createdBy ? { createdBy: input.createdBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),

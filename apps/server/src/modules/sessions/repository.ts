@@ -1,4 +1,4 @@
-import type { SessionId, SessionMeta, MachineId } from '@podium/model'
+import type { MachineId, SessionId, SessionMeta } from '@podium/model'
 import { AgentKind } from '@podium/model'
 
 /**
@@ -456,6 +456,10 @@ export class SessionRepository {
       ...(r.resumeKind && r.resumeValue
         ? { resume: { kind: r.resumeKind, value: r.resumeValue } }
         : {}),
+      // Passed through, never defaulted: a row from before this column exists
+      // makes no claim about whether its launch ever had a conversation, and
+      // inventing `'never'` for it would authorize discarding one.
+      ...(r.conversationBinding ? { conversationBinding: r.conversationBinding } : {}),
     })
     return session
   }

@@ -22,7 +22,7 @@ import {
 } from '@podium/model'
 import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import type { SessionRow } from '../../store'
+import type { ConversationBinding, SessionRow } from '../../store'
 import { SessionTerminal, type SessionTerminalState } from './terminal'
 
 const log = createLogger('server:sessions')
@@ -62,6 +62,12 @@ export interface SessionInit {
    *  supply and no placeholder to adopt away from later. */
   machineId: MachineId
   resume?: ResumeRef
+  /** Did this launch EVER have a native conversation ({@link ConversationBinding})?
+   *  A MINT states `'never'`; a hydrate passes the stored value through, which is
+   *  `undefined` for a row written before the fact existed. Defaulting to
+   *  `undefined` rather than `'never'` is deliberate: a caller that forgets to
+   *  state it gets "no claim", never a false proof. */
+  conversationBinding?: ConversationBinding
   /** Resolved by process composition; never derived from ambient env here. */
   durableLabel: string
   lastActiveAt?: string
@@ -129,6 +135,7 @@ export interface SessionDurableState {
   refDraft: number | null
   machineId: MachineId
   resume: ResumeRef | undefined
+  conversationBinding: ConversationBinding | undefined
   lastActiveAt: string
   title: string
   titleLocked: boolean
@@ -202,8 +209,39 @@ export class Session {
    *  a session between machines — never because it starts out unattributed. */
   machineId: MachineId
   /** How to bring this session back after its process is gone (hibernate→resume).
-   *  Set at spawn for resumes; learned later from the daemon for fresh spawns. */
-  resume?: ResumeRef
+   *  Set at spawn for resumes; learned later from the daemon for fresh spawns.
+   *
+   *  AN ACCESSOR, not a field, for one reason: every assignment of a real ref is
+   *  also the moment this launch stops being relaunchable, and that has to be
+   *  impossible to forget. See {@link conversationBinding}. */
+  get resume(): ResumeRef | undefined {
+    return this.resumeRef
+  }
+  set resume(next: ResumeRef | undefined) {
+    this.resumeRef = next
+    // Losing a ref is NOT losing the conversation — identity-collision
+    // arbitration clears the loser's ref while its transcript goes on existing —
+    // so this promotes and never demotes.
+    if (next) this.markConversationBound()
+  }
+  private resumeRef: ResumeRef | undefined
+  /**
+   * DID THIS LAUNCH EVER HAVE A NATIVE CONVERSATION (POD-2392) — the fact that
+   * lets a dead, ref-less agent be started again instead of only removed.
+   *
+   * `resume` cannot answer it. It says whether a ref is known NOW, and the two
+   * diverge in both directions: a harness that dies at its own updater prompt
+   * never acquires one, and a session that loses identity arbitration has its
+   * one taken away. Relaunching the second discards a real conversation, so
+   * "no ref" is not, and must never become, the condition for relaunching.
+   *
+   * `'never'` is a claim the server has to have EARNED: it is stamped at mint
+   * and promoted to `'bound'` at the first evidence of a conversation — a
+   * resume ref (above), a transcript item, or a provider-bound observation
+   * checkpoint. `undefined` means the row predates the fact and is read as
+   * unknown, which keeps the pre-POD-2392 refusal exactly as it was.
+   */
+  conversationBinding: ConversationBinding | undefined
   lastActiveAt: string
   title: string
   /** Live heuristic (not persisted): a real title — the agent's own summary, or
@@ -311,10 +349,16 @@ export class Session {
       },
       onTranscriptAvailable: () => {
         this.transcriptAvailable = true
+        // A transcript item is a conversation, whether or not anyone has told
+        // us its native id yet.
+        this.markConversationBound()
       },
     })
     this.machineId = init.machineId
     this.durableLabel = init.durableLabel
+    // BEFORE `resume`, which promotes: a stated ref is itself the proof of a
+    // conversation, and must not be overwritten by the stored claim.
+    this.conversationBinding = init.conversationBinding
     this.resume = init.resume
     this.lastActiveAt = init.lastActiveAt ?? init.createdAt
     this.workingMsTotal = init.workingMsTotal
@@ -328,6 +372,29 @@ export class Session {
     this.stopReason = init.stopReason ?? undefined
     if (init.workState) this.workState = init.workState
     this.onUnreadRearm = init.onUnreadRearm
+  }
+
+  /**
+   * Record that this launch has a native conversation. ONE-WAY: nothing here
+   * ever writes `'never'`, so the proof can only be lost, never invented. The
+   * `sessions` upsert restates the same rule in SQL, because the in-memory
+   * object is not the only thing that can write the row.
+   */
+  markConversationBound(): void {
+    this.conversationBinding = 'bound'
+  }
+
+  /**
+   * PROOF that a fresh relaunch of this session would discard nothing.
+   *
+   * Two conditions for one fact, deliberately: the durable claim that nothing
+   * was ever bound, and the live check that nothing is bound now. The second is
+   * redundant while {@link resume}'s setter holds — which is the point. It is
+   * the assertion that the setter still holds, sited where being wrong costs a
+   * conversation.
+   */
+  get neverBound(): boolean {
+    return this.conversationBinding === 'never' && this.resume === undefined
   }
 
   /**
@@ -387,6 +454,10 @@ export class Session {
     this.agentState = state
     const providerAt = checkpoint.providerAt
     if (providerAt && providerAt > this.lastActiveAt) this.lastActiveAt = providerAt
+    // An observer bound to a concrete provider thread is a conversation, even
+    // if no `sessionResumeRef` ever reached us — this is the arm that closes the
+    // gap for a harness whose id we learn only through the observation plane.
+    if (checkpoint.providerSessionId) this.markConversationBound()
   }
 
   /**
@@ -519,6 +590,7 @@ export class Session {
       refDraft: this.refDraft,
       machineId: this.machineId,
       resume: this.resume ? { ...this.resume } : undefined,
+      conversationBinding: this.conversationBinding,
       lastActiveAt: this.lastActiveAt,
       title: this.title,
       titleLocked: this.titleLocked,
@@ -560,6 +632,10 @@ export class Session {
     this.refDraft = state.refDraft
     if (!preserve.has('machineId')) this.machineId = state.machineId
     this.resume = state.resume ? { ...state.resume } : undefined
+    // AFTER `resume`, whose setter would otherwise re-promote past this restore.
+    // A rolled-back append never reached the row, so the captured claim is what
+    // the row still says.
+    this.conversationBinding = state.conversationBinding
     this.lastActiveAt = state.lastActiveAt
     this.title = state.title
     this.titleLocked = state.titleLocked
@@ -609,6 +685,7 @@ export class Session {
       conversationId: this.origin.kind === 'resume' ? this.origin.conversationId : null,
       resumeKind: this.resume?.kind ?? null,
       resumeValue: this.resume?.value ?? null,
+      conversationBinding: this.conversationBinding ?? null,
       status: this.status,
       exitCode: this.exitCode ?? null,
       spawnFailure: this.spawnFailure ?? null,
@@ -699,6 +776,10 @@ export class Session {
       machineName: '',
       ...(this.workState ? { workState: this.workState } : {}),
       ...(this.resume ? { resumable: true, resume: this.resume } : {}),
+      // ONLY when proven. A recovery surface reads this to offer starting the
+      // agent again instead of removing the row, so its absence has to stay the
+      // safe answer for every session whose history we cannot vouch for.
+      ...(this.neverBound ? { neverBound: true as const } : {}),
       ...(this.transcriptAvailable ? { transcriptAvailable: true } : {}),
       ...(this.terminal.busy ? { busy: true } : {}),
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),

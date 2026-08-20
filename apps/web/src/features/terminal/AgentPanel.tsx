@@ -58,8 +58,8 @@ import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
 import { isKnownRefPrefix } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
-import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { SnoozeControl } from '@/lib/SnoozeControl'
+import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
@@ -1001,6 +1001,7 @@ export function AgentPanel({
               spawnFailure={session.spawnFailure}
               isShell={session.agentKind === 'shell'}
               resumable={session.resumable === true}
+              {...(session.neverBound ? { neverBound: true as const } : {})}
               waking={sessionWaking(session)}
             />
             <ChatView sessionId={sessionId} active={active} />
@@ -1012,6 +1013,7 @@ export function AgentPanel({
             spawnFailure={session.spawnFailure}
             isShell={session.agentKind === 'shell'}
             resumable={session.resumable === true}
+            {...(session.neverBound ? { neverBound: true as const } : {})}
           />
         )
       ) : (

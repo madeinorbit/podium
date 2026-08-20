@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `conversation_binding` text;
