@@ -27,7 +27,8 @@ To the user every machine just runs "Podium"; component names below are internal
 (`podium-update.json`, desktop `latest.json`) and all three channels resolve through
 `resolveReleaseTarget`. The publisher-push path, the `dev` exclusion in
 `target-refresh.ts`, and the `bundle`/`git` delivery kinds are retired. Dev versions
-become orderable: `X.Y.Z-dev.<epoch>+<sha>` replaces `dev+<sha>`, so `isProvablyNewer`,
+become orderable: `<base>.dev.<N>+<sha>` (publisher-owned monotonic base and counter —
+§8 disposition 23 and §8c decision 13 are authoritative) replaces `dev+<sha>`, so `isProvablyNewer`,
 drift refusal, and `critical` behave identically on every channel.
 
 ## 2. Component update matrix
