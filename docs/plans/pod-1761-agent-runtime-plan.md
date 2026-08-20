@@ -410,3 +410,14 @@ Addendum to the rule above, stated plainly because the tooling defaults the WRON
 worktree. Isolation is not something you get by default — it exists only if the spawn
 brief orders the delegate into its own detached checkout. Every reviewer spawn brief
 must carry that instruction explicitly.
+
+### Lesson: audit the invariant, not the syntax that usually implements it
+POD-2297 claimed "one endSession() choke point" after grepping every `disposed = true`
+assignment — and the audit was right about the flag and wrong about the invariant:
+adopt() overwrote live sessions without ever touching `disposed`, silently collecting
+their queues on the hot reattach path. Same shape as the W6 lesson (missing CALLERS,
+not wrong code). When you claim "every path goes through X", enumerate the ways the
+INVARIANT can be reached or broken — object replacement, map overwrite, process death —
+not the places the usual flag is set. The fix pattern that closes it: make the
+registration point itself enforce the invariant (registerSession ends whatever it
+displaces), so unknown future callers are covered too.
