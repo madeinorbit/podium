@@ -28,6 +28,17 @@ import { SessionTerminal, type SessionTerminalState } from './terminal'
 
 const log = createLogger('server:sessions')
 
+/**
+ * How close a kernel OOM kill has to be to a process death to be called its
+ * cause (POD-2413).
+ *
+ * Wide enough for the supervisor's sampling lag in one direction and a slow
+ * death in the other; narrow enough that a build OOM-killed inside a session
+ * that keeps working for another few minutes never renames that session's
+ * eventual, unrelated exit.
+ */
+const OOM_ATTRIBUTION_WINDOW_MS = 60_000
+
 export type Send<T> = (msg: T) => void
 
 /**
@@ -105,7 +116,7 @@ export interface SessionInit {
   workflowStepId?: string
   executionProfileId?: string
   stoppedAt?: string | null
-  stopReason?: 'self' | 'parent' | 'forced' | 'exited' | null
+  stopReason?: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | null
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
@@ -139,7 +150,7 @@ export interface SessionDurableState {
   nameSource: 'user' | 'agent' | undefined
   archived: boolean
   stoppedAt: string | undefined
-  stopReason: 'self' | 'parent' | 'forced' | 'exited' | undefined
+  stopReason: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | undefined
   workState: WorkState | undefined
   cmd: string
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
@@ -224,7 +235,11 @@ export class Session {
   private onUnreadRearm: (() => void) | undefined
   /** Set only by the explicit stop lifecycle, not ordinary hibernation/exits. [spec:SP-6144] */
   stoppedAt: string | undefined
-  stopReason: 'self' | 'parent' | 'forced' | 'exited' | undefined
+  stopReason: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | undefined
+  /** Event-time of the last kernel OOM kill observed in this session's scope.
+   *  In memory only: it exists to explain an exit, and the explanation is what
+   *  gets persisted (`stopReason`), not the evidence. */
+  private lastOomKillAt: string | undefined
   workState: WorkState | undefined
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
@@ -381,6 +396,38 @@ export class Session {
     this.terminal.recordResumeActivity()
   }
 
+  /**
+   * THE KERNEL OOM-KILLED SOMETHING IN THIS SESSION'S SCOPE (POD-2413).
+   *
+   * Arrives as a durable `process.oomKilled` runtime event, and is NOT by
+   * itself a death: `OOMPolicy=continue` means the usual victim is a build or a
+   * test run the agent started, and the session keeps serving. What it changes
+   * is what a LATER (or just-passed) exit is allowed to be called — a session
+   * whose process tree died within {@link OOM_ATTRIBUTION_WINDOW_MS} of a
+   * kernel kill exited because the box ran out of memory, and "exited" is the
+   * wrong word for that.
+   *
+   * BOTH ORDERINGS ARE REAL. The daemon samples cgroups on a timer, so the kill
+   * can be observed after the exit frame has already landed; and a session can
+   * be killed and take another second to die. So this upgrades an exit that has
+   * already been stamped, and `onExit` consults what this recorded.
+   */
+  recordOomKill(at: string): void {
+    const observed = Date.parse(at)
+    this.lastOomKillAt = Number.isFinite(observed) ? at : new Date().toISOString()
+    if (this.status !== 'exited' || this.stopReason !== 'exited') return
+    if (this.oomExplainsExit(Date.parse(this.stoppedAt ?? ''))) this.stopReason = 'oom'
+  }
+
+  /** Was a kernel OOM kill observed close enough to `exitedAtMs` to be its
+   *  cause? Absorbing in both directions — see {@link recordOomKill}. */
+  private oomExplainsExit(exitedAtMs: number): boolean {
+    if (!this.lastOomKillAt) return false
+    const killed = Date.parse(this.lastOomKillAt)
+    if (!Number.isFinite(killed) || !Number.isFinite(exitedAtMs)) return false
+    return Math.abs(exitedAtMs - killed) <= OOM_ATTRIBUTION_WINDOW_MS
+  }
+
   onExit(code: number): void {
     // The PTY is gone — no more output, so it can't be "busy".
     this.terminal.stopOutput()
@@ -394,7 +441,11 @@ export class Session {
     // The explicit-stop path may already have stamped a richer reason; keep it.
     // [spec:SP-6144]
     this.stoppedAt ??= new Date().toISOString()
-    this.stopReason ??= 'exited'
+    // 'oom' when the supervisor saw the kernel kill something here moments ago
+    // (POD-2413) — a stated cause beats a bare "exited" for the one death an
+    // operator can actually act on. `??=` still holds: an explicit stop already
+    // stamped its own richer reason and keeps it.
+    this.stopReason ??= this.oomExplainsExit(Date.parse(this.stoppedAt)) ? 'oom' : 'exited'
     // Re-arm unread for every reader (POD-1076): the registry owns the rows.
     this.onUnreadRearm?.()
     // Preserve the final turn diagnosis; lifecycle status owns liveness while

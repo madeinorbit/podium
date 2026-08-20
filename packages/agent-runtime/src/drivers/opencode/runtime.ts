@@ -41,10 +41,16 @@ import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@p
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type { ProcessIdentity, SessionArchive, SessionBinding, SessionSnapshot } from '../../binding.js'
-import type { ConfigureRequest, SessionHealth, UsageSnapshot } from '../../capabilities.js'
+import type {
+  ConfigureRequest,
+  ScopeResources,
+  SessionHealth,
+  UsageSnapshot,
+} from '../../capabilities.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
 import type { ProcessEvent } from '../../errors.js'
 import type { EventStreamStart, RuntimeEvent, RuntimeEventBody, WatchLevel } from '../../events.js'
+import { sessionHealth } from '../../health.js'
 import type {
   InteractionAnswer,
   InteractionAnswerOutcome,
@@ -84,8 +90,9 @@ export interface OpencodeServerEndpoint {
   /** Graceful shutdown of the server process and its scope. */
   stop(): Promise<void>
   kill(): Promise<void>
-  /** Whole-subtree RSS, where the platform can attribute it. */
-  memoryBytes(): number | undefined
+  /** Resource truth for this session's scope — memory, tasks, and the kernel's
+   *  own OOM-kill counter. `undefined` where there is no cgroup to read. */
+  resources(): ScopeResources | undefined
 }
 
 /** What the driver needs from whoever owns processes and disks. */
@@ -236,6 +243,16 @@ interface DriverSession {
 
 export interface OpencodeRuntime {
   driver: RuntimeDriver
+  /**
+   * THE SUPERVISOR OBSERVED A KERNEL OOM KILL in this session's scope
+   * (POD-2413). The fact enters through the DRIVER because only the driver
+   * holds this session's cursor, observer generation and turn epoch — an event
+   * without a causal envelope is not a runtime event. Not a death:
+   * `OOMPolicy=continue` kills one process inside the tree and the session
+   * usually keeps serving.
+   */
+  reportOomKill(sessionId: SessionId, scopeUnit?: string): void
+
   /**
    * Start a session under an id the CALLER already minted.
    *
@@ -975,19 +992,13 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       },
 
       async health(): Promise<SessionHealth> {
-        const alive = await session.client.health()
-        const bytes = session.endpoint.memoryBytes()
-        return {
-          alive,
-          ...(bytes !== undefined ? { memoryBytes: bytes } : {}),
+        return sessionHealth({
+          alive: await session.client.health(),
+          resources: session.endpoint.resources(),
           ...(session.binding.process.scopeUnit
             ? { scopeUnit: session.binding.process.scopeUnit }
             : {}),
-          // Not observed: nothing in this driver watches the cgroup's OOM
-          // counter, and a hardcoded 0 would read as "this session has never
-          // been OOM-killed", which is a claim rather than a measurement.
-          oomEvents: 0,
-        }
+        })
       },
 
       // ---- identity ----
@@ -1687,6 +1698,16 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     bindings: () => [...handles.values()].map((handle) => handle.binding),
     // so both answers change together by construction.
     has: (sessionId) => handles.has(sessionId),
+    reportOomKill: (sessionId, scopeUnit) => {
+      const session = sessions.get(sessionId)
+      if (!session) return
+      emit(
+        session,
+        { t: 'process', ev: { ev: 'oomKilled', ...(scopeUnit ? { scopeUnit } : {}) } },
+        iso(),
+      )
+    },
+
     forget: (sessionId) => {
       const session = sessions.get(sessionId)
       if (!session) return

@@ -104,7 +104,7 @@ async function world(): Promise<World> {
         kill: async () => {
           for (const client of clients) client.close()
         },
-        memoryBytes: () => 1024,
+        resources: () => ({ memoryBytes: 1024, oomKills: 0 }),
       }
     },
     reportAuthMode: (report) =>

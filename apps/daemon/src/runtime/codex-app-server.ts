@@ -37,6 +37,7 @@ import type {
   CodexServerEndpoint,
   CodexTransport,
   CodexVersionDiagnostic,
+  ScopeResources,
 } from '@podium/agent-runtime'
 import {
   gateCodexVersion,
@@ -47,7 +48,13 @@ import { codexMcpArgs } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
+import {
+  applySessionsSliceBudget,
+  canScopeMaster,
+  scopeReclaimArgvs,
+  scopeUnitName,
+  systemdScopeArgv,
+} from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import WebSocket, { type RawData } from 'ws'
 import { serverChildEnv } from '../control/session-env'
@@ -306,8 +313,14 @@ export function codexAppServerConfigArgs(input: {
 // ---------------------------------------------------------------------------
 
 export interface CodexHostDeps {
-  /** Whole-subtree RSS for a session, from the daemon's own attribution. */
-  memoryBytes(input: { sessionId: SessionId; label: string; pid?: number }): number | undefined
+  /** Resource truth for a session's scope — memory, tasks and the kernel's own
+   *  OOM-kill counter, from the daemon's one cgroup observer. */
+  resources(input: {
+    sessionId: SessionId
+    label: string
+    pid?: number
+    scopeUnit?: string
+  }): ScopeResources | undefined
   /** Start Codex's own TUI against a thread, for `attach()`. `undefined` from
    *  the whole function = this machine cannot host one. */
   attachClient?(input: {
@@ -535,6 +548,10 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
         stdio: ['pipe', 'pipe', 'pipe'],
         detached: false,
       })
+      // The instance's sessions slice exists now that a scope named it, so its
+      // aggregate throttle can be set (POD-2413). Fire and forget, memoized on
+      // success: a session must never wait on a best-effort budget call.
+      if (scoped) void applySessionsSliceBudget()
       liveChildren(input.sessionId).add(child)
       // A child that exits on its own leaves the set, so a later `stop()` of a
       // SIBLING can tell whether it was the last one and reclaim the scope.
@@ -600,11 +617,12 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
           rmSync(socketPath, { force: true })
           journal.clear(input.sessionId)
         },
-        memoryBytes: () =>
-          deps.memoryBytes({
+        resources: () =>
+          deps.resources({
             sessionId: input.sessionId,
             label,
             ...(child.pid !== undefined ? { pid: child.pid } : {}),
+            ...(scoped ? { scopeUnit: unit } : {}),
           }),
       }
       return endpoint

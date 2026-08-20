@@ -261,7 +261,7 @@ function makeWorld(): World {
     readTranscript: async () => [],
     archiveTranscript: async () => ({ path: '/tmp/session.jsonl' }),
     readFileBytes: async () => new TextEncoder().encode('{"role":"user"}'),
-    memoryBytes: () => 1024,
+    resources: () => ({ memoryBytes: 1024, oomKills: 0 }),
     now: () => clock,
     setTimer: (fn, delayMs) => {
       const timer: VirtualTimer = { at: clock + delayMs, fn, cancelled: false }

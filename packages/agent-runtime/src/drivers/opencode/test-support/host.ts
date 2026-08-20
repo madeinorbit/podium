@@ -61,7 +61,7 @@ export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): Ope
           server.alive = false
           await server.close()
         },
-        memoryBytes: () => undefined,
+        resources: () => undefined,
       }
       return endpoint
     },

@@ -54,7 +54,7 @@ function adoptionWorld() {
         process: { key: grokAcpProcessKey(input.sessionId), pid: 10_000 + launches },
         stop: async () => {},
         kill: async () => {},
-        memoryBytes: () => undefined,
+        resources: () => undefined,
         alive: () => true,
       }
     },

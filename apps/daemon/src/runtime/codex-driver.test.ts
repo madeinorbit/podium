@@ -99,7 +99,7 @@ function world() {
         process: { key: `podium-cx-${input.sessionId}` },
         stop: async () => {},
         kill: async () => {},
-        memoryBytes: () => undefined,
+        resources: () => undefined,
       }
     },
   }

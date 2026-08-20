@@ -47,6 +47,13 @@
  * | PODIUM_PTY_BACKEND            | — → auto by runtime     | agent-bridge PTY backend selection                     |
  * | PODIUM_ABDUCO                 | — → embedded/PATH       | agent-bridge/embedded-abduco binary override           |
  * | PODIUM_NO_SCOPE               | — (env-only flag)       | agent-bridge: skip per-master systemd-run scopes       |
+ * | PODIUM_SESSION_MEMORY_MAX     | — → 50% RAM (2–16 GiB)  | per-session scope MemoryMax (`infinity` lifts it)      |
+ * | PODIUM_SESSION_MEMORY_HIGH    | — → 90% of the max      | per-session throttle band (see pod-2413 doc)           |
+ * | PODIUM_SESSION_MEMORY_SWAP_MAX| — → the session max     | per-session MemorySwapMax (a cap swap can dodge is none)|
+ * | PODIUM_SESSION_TASKS_MAX      | — → 4096 (attach: 256)  | per-session scope TasksMax                             |
+ * | PODIUM_SESSIONS_MEMORY_HIGH   | — → 75% RAM             | aggregate throttle on the instance's sessions slice     |
+ * | PODIUM_NO_SESSION_BUDGET      | — (env-only flag)       | keep the slice/scope tree, drop every limit            |
+ * | PODIUM_CGROUP_ROOT            | — → /sys/fs/cgroup      | cgroup2 mount for session observation (tests point it) |
  * | PODIUM_CODEX_HOOK_*           | — (env-only)            | daemon codex hook plumbing (codex-hooks.ts)            |
  * | PODIUM_CLOUD_*                | — (env-only)            | apps/server cloud-runtime seam (hosted provider)       |
  * | PODIUM_UPDATE_SIGNING_KEY     | — (env-only)            | scripts/build-bun.ts + release tooling                 |

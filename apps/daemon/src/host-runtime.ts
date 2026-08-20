@@ -80,6 +80,7 @@ import { daemonRuntimeHost } from './runtime/host'
 import { createOpencodeClientTerminals } from './runtime/opencode-attach'
 import { createDaemonOpencodeRuntime, type DaemonOpencodeRuntime } from './runtime/opencode-driver'
 import { createOpencodeHost } from './runtime/opencode-server'
+import { createScopeMonitor } from './runtime/scope-monitor'
 import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
@@ -605,6 +606,37 @@ export async function createDaemonHostRuntime(args: {
   })
   ctx.clientTerminals = clientTerminals
 
+  /**
+   * THE ONE CGROUP OBSERVER (POD-2413).
+   *
+   * Built before the runtimes and reading them lazily, because it is on both
+   * sides of the same wiring cycle the terminal runtime documents below: every
+   * driver host asks it for resource truth, and it asks the machine runtime
+   * which sessions exist. Family-blind by construction — a binding carries a
+   * scope unit whatever produced it, so one poller covers abduco masters,
+   * app-servers and ACP children alike.
+   */
+  const scopeMonitor = createScopeMonitor({
+    subjects: () =>
+      (agentRuntime?.registeredBindings() ?? []).map((binding) => ({
+        sessionId: binding.sessionId,
+        ...(binding.process.scopeUnit ? { scopeUnit: binding.process.scopeUnit } : {}),
+        label: binding.process.key,
+        ...(binding.process.pid !== undefined ? { pid: binding.process.pid } : {}),
+      })),
+    // The pre-cgroup answer, kept for every session that has no scope to read:
+    // macOS, an unscoped fallback spawn, or a scope systemd already collected.
+    fallbackMemoryBytes: ({ sessionId, label, pid }) =>
+      attributeMemory(
+        snapshotProcesses(),
+        [{ sessionId, label, ...(pid !== undefined ? { pid } : {}) }],
+        [],
+        { selfPid: process.pid },
+      ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+    onOomKill: ({ sessionId, scopeUnit }) => agentRuntime?.reportOomKill(sessionId, scopeUnit),
+  })
+  ctx.scopeMonitor = scopeMonitor
+
   // Built AFTER the context because the driver hosts need that context. The
   // single assignment at the end closes the wiring cycle: handlers reach every
   // family through `ctx.agentRuntime`, which reaches the daemon through `ctx`.
@@ -622,13 +654,7 @@ export async function createDaemonHostRuntime(args: {
   opencodeRuntime = createDaemonOpencodeRuntime({
     send,
     host: createOpencodeHost({
-      memoryBytes: ({ sessionId, label, pid }) =>
-        attributeMemory(
-          snapshotProcesses(),
-          [{ sessionId, label, ...(pid !== undefined ? { pid } : {}) }],
-          [],
-          { selfPid: process.pid },
-        ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+      resources: (subject) => scopeMonitor.resources(subject),
       /**
        * `attach()`'s client terminal (POD-2059), on the frames path this daemon
        * already runs. The stream id is the key, exactly as the engine variant's
@@ -656,13 +682,7 @@ export async function createDaemonHostRuntime(args: {
   codexRuntime = createDaemonCodexRuntime({
     send,
     host: createCodexHost({
-      memoryBytes: ({ sessionId, label, pid }) =>
-        attributeMemory(
-          snapshotProcesses(),
-          [{ sessionId, label, ...(pid !== undefined ? { pid } : {}) }],
-          [],
-          { selfPid: process.pid },
-        ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+      resources: (subject) => scopeMonitor.resources(subject),
       attachClient: async ({ sessionId, threadId, clientAddress, workdir }) => {
         try {
           return await clientTerminals.attach({
@@ -682,13 +702,7 @@ export async function createDaemonHostRuntime(args: {
   grokRuntime = createDaemonGrokRuntime({
     send,
     host: createGrokAcpHost({
-      memoryBytes: ({ sessionId, label, pid }) =>
-        attributeMemory(
-          snapshotProcesses(),
-          [{ sessionId, label, ...(pid !== undefined ? { pid } : {}) }],
-          [],
-          { selfPid: process.pid },
-        ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+      resources: (subject) => scopeMonitor.resources(subject),
       attachClient: async ({ sessionId, grokSessionId, workdir }) => {
         try {
           return await clientTerminals.attach({
@@ -724,6 +738,7 @@ export async function createDaemonHostRuntime(args: {
   let kickedOff = false
   let disposed = false
   const pushHostMetrics = (): void => {
+    const sessionsMemory = scopeMonitor.sessionsMemory()
     send({
       type: 'hostMetrics',
       hostname: hostname(),
@@ -734,6 +749,10 @@ export async function createDaemonHostRuntime(args: {
       // Always sent, including as 0 — which the server treats exactly as an
       // absent field, since both mean "nothing here to reclaim first".
       reclaimableAttachments: clientTerminals.reclaimable(),
+      // Whose pressure it is (POD-2413). Absent on a host with no cgroups, or
+      // before any session has been scoped here — the server then reads only
+      // the host-wide number, exactly as it did before this existed.
+      ...(sessionsMemory ? { sessionsMemory } : {}),
     })
   }
 
@@ -769,6 +788,7 @@ export async function createDaemonHostRuntime(args: {
     if (!kickedOff) {
       kickedOff = true
       discoveryLoop.start()
+      scopeMonitor.start()
       if (metricsBackground) {
         pushHostMetrics()
         metricsTimer = setInterval(pushHostMetrics, metricsIntervalMs)
@@ -802,6 +822,7 @@ export async function createDaemonHostRuntime(args: {
     await ingest.close()
     await agentRelay.close()
     discoveryLoop.stop()
+    scopeMonitor.dispose()
     if (metricsTimer) clearInterval(metricsTimer)
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
     stopInventoryRefresh?.()

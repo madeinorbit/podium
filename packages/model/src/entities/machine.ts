@@ -245,6 +245,22 @@ export const HostMetricsWire = z.object({
    * attachments, not a machine with none.
    */
   reclaimableAttachments: z.number().int().nonnegative().optional(),
+  /**
+   * What this machine's AGENT SESSIONS are using, against the aggregate
+   * throttle their slice carries (POD-2413; spec §6).
+   *
+   * `memory` above is the whole host, which cannot say WHOSE pressure it is: a
+   * browser and a fleet of runaway agents produce the same number, and only one
+   * of them is fixed by parking a session. This pair is the attributable
+   * signal — the sessions slice's `memory.current` and its `MemoryHigh` — so
+   * the reclaim policy can act on evidence about sessions rather than on a
+   * host-wide proxy.
+   *
+   * `SEE`, and no session is named: an aggregate is exactly what the policy
+   * needs, since the machine picks which session to give back. Optional for
+   * mixed-version fleets and for every host without cgroups.
+   */
+  sessionsMemory: z.object({ currentBytes: byteCount, highBytes: byteCount }).optional(),
 })
 export type HostMetricsWire = z.infer<typeof HostMetricsWire>
 

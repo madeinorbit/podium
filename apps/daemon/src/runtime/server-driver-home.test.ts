@@ -148,7 +148,7 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
-const memoryBytes = () => undefined
+const resources = () => undefined
 
 describe('a launched server-driver child runs in the INSTANCE home', () => {
   it('opencode serve: the child itself reports the instance HOME', async () => {
@@ -160,7 +160,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     )
 
     const landing = join(root, 'landing-opencode.json')
-    const host = createOpencodeHost({ memoryBytes, homeDir: instanceHome })
+    const host = createOpencodeHost({ resources, homeDir: instanceHome })
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
       workdir,
@@ -186,7 +186,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     ).toBe(true)
 
     const landing = join(root, 'landing-codex.json')
-    const host = createCodexHost({ memoryBytes, homeDir: instanceHome })
+    const host = createCodexHost({ resources, homeDir: instanceHome })
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
       workdir,
@@ -213,7 +213,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     expect((await grokAcpVersionProbe(() => ({ output: '0.2.23', ok: true }))).drivable).toBe(true)
 
     const landing = join(root, 'landing-grok.json')
-    const host = createGrokAcpHost({ memoryBytes, homeDir: instanceHome })
+    const host = createGrokAcpHost({ resources, homeDir: instanceHome })
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
       workdir,

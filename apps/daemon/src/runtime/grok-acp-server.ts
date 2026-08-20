@@ -17,12 +17,19 @@ import {
   type GrokVersionDiagnostic,
   gateGrokVersion,
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
+  type ScopeResources,
 } from '@podium/agent-runtime'
 import { grokSessionPaths } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
+import {
+  applySessionsSliceBudget,
+  canScopeMaster,
+  scopeReclaimArgvs,
+  scopeUnitName,
+  systemdScopeArgv,
+} from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
 import {
@@ -123,7 +130,14 @@ function defaultVersionProbe(): Promise<{ output: string; ok: boolean }> {
 }
 
 export interface GrokAcpHostDeps {
-  memoryBytes(input: { sessionId: SessionId; label: string; pid?: number }): number | undefined
+  /** Resource truth for a session's scope — memory, tasks and the kernel's own
+   *  OOM-kill counter, from the daemon's one cgroup observer. */
+  resources(input: {
+    sessionId: SessionId
+    label: string
+    pid?: number
+    scopeUnit?: string
+  }): ScopeResources | undefined
   /** Start Grok's original TUI against the native session for `attach()`. */
   attachClient?(input: {
     sessionId: SessionId
@@ -243,6 +257,10 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
         stdio: ['pipe', 'pipe', 'pipe'],
         detached: false,
       })
+      // The instance's sessions slice exists now that a scope named it, so its
+      // aggregate throttle can be set (POD-2413). Fire and forget, memoized on
+      // success: a session must never wait on a best-effort budget call.
+      if (scoped) void applySessionsSliceBudget()
       liveChildren(input.sessionId).add(child)
       child.once('exit', () => children.get(input.sessionId)?.delete(child))
       let banner = ''
@@ -266,11 +284,12 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
           await terminate(input.sessionId, 'SIGKILL', child)
           journal.clear(input.sessionId)
         },
-        memoryBytes: () =>
-          deps.memoryBytes({
+        resources: () =>
+          deps.resources({
             sessionId: input.sessionId,
             label,
             ...(child.pid !== undefined ? { pid: child.pid } : {}),
+            ...(scoped ? { scopeUnit: unit } : {}),
           }),
         alive: () => child.exitCode === null && child.signalCode === null,
       }

@@ -1209,3 +1209,54 @@ describe('driver family on the wire (POD-2290)', () => {
     expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBeUndefined()
   })
 })
+
+describe('OOM truth on the row (POD-2413)', () => {
+  it('names an exit that followed a kernel kill "oom" instead of "exited"', () => {
+    const session = makeSession()
+    session.recordOomKill(new Date().toISOString())
+    session.onExit(137)
+    expect(session.status).toBe('exited')
+    expect(session.stopReason).toBe('oom')
+  })
+
+  it('upgrades a stamped exit when the kill report lands after it', () => {
+    // The daemon samples cgroups on a timer, so the evidence routinely arrives
+    // AFTER the exit frame. A row that stayed "exited" because the observer was
+    // a few seconds late would hide the one death an operator can act on.
+    const session = makeSession()
+    session.onExit(137)
+    expect(session.stopReason).toBe('exited')
+    session.recordOomKill(new Date().toISOString())
+    expect(session.stopReason).toBe('oom')
+  })
+
+  it('leaves an unrelated later exit alone', () => {
+    // `OOMPolicy=continue` means a killed build does not end the session. If it
+    // keeps working and exits cleanly an hour later, that exit is not an OOM.
+    const session = makeSession()
+    session.recordOomKill(new Date(Date.now() - 60 * 60 * 1000).toISOString())
+    session.onExit(0)
+    expect(session.stopReason).toBe('exited')
+  })
+
+  it('does not overwrite the richer reason an explicit stop already stamped', () => {
+    const session = makeSession()
+    session.stoppedAt = new Date().toISOString()
+    session.stopReason = 'forced'
+    session.recordOomKill(new Date().toISOString())
+    session.onExit(137)
+    expect(session.stopReason).toBe('forced')
+  })
+
+  it('never resurrects a hibernated row into an OOM death', () => {
+    // A hibernate kill IS a SIGKILL, and its cgroup may well carry an earlier
+    // kill. `onExit` returns early for a hibernated row; this pins that the OOM
+    // path did not become a way around it.
+    const session = makeSession()
+    session.status = 'hibernated'
+    session.recordOomKill(new Date().toISOString())
+    session.onExit(137)
+    expect(session.status).toBe('hibernated')
+    expect(session.stopReason).toBeUndefined()
+  })
+})

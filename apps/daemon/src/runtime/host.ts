@@ -20,7 +20,6 @@ import type { DaemonContext } from '../control/context'
 import { launchSpawn, stopSessionProcess } from '../control/session'
 import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
-import { attributeMemory, snapshotProcesses } from '../memory-breakdown'
 import type { TerminalRuntimeHost } from './terminal-driver'
 
 /**
@@ -73,19 +72,13 @@ export function daemonRuntimeHost(
         home: ctx.homeDir ?? process.env.HOME ?? '',
       }),
     readFileBytes: async (path) => new Uint8Array(await readFile(path)),
-    memoryBytes: ({ sessionId, label, pid }) => {
-      // The SAME attribution the `memoryBreakdownRequest` frame answers with —
-      // a session's whole process subtree, found by pid and by the durable label
-      // in master cmdlines. Undefined (not zero) when /proc says nothing: a zero
-      // would read as "this session uses no memory", which is never true.
-      const attribution = attributeMemory(
-        snapshotProcesses(),
-        [{ sessionId, label, ...(pid !== undefined ? { pid } : {}) }],
-        [],
-        { selfPid: process.pid },
-      )
-      return attribution.agents.find((agent) => agent.sessionId === sessionId)?.bytes
-    },
+    resources: (subject) =>
+      // THE MACHINE'S ONE CGROUP OBSERVER (POD-2413), which already falls back
+      // to the `/proc` attribution the `memoryBreakdownRequest` frame answers
+      // with when a session has no scope to read. A daemon composed without one
+      // reports nothing rather than a zero: "we never looked" and "this session
+      // uses no memory and was never OOM-killed" are different statements.
+      ctx.scopeMonitor?.resources(subject),
     now: () => Date.now(),
     setTimer: (fn, delayMs) => {
       const handle = setTimeout(fn, delayMs)

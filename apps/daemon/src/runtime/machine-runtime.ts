@@ -52,6 +52,12 @@ export interface DaemonMachineRuntime extends MachineAgentRuntime {
     profile: TerminalHarnessProfile,
   ): AgentSessionHandle
   clearTerminal(sessionId: SessionId): void
+  /**
+   * A kernel OOM kill the scope monitor observed, stated by whichever driver
+   * owns the session (POD-2413). Family-blind on purpose: the supervisor reads
+   * cgroups, not families, and the ONE session that matches gets the event.
+   */
+  reportOomKill(sessionId: SessionId, scopeUnit?: string): void
   launchServer(driverId: DriverId, input: ServerDriverLaunch): Promise<void>
   adoptJournalled(sessionId: SessionId): Promise<JournalledAdoption>
   serverHandleFor(sessionId: SessionId): AgentSessionHandle | undefined
@@ -162,6 +168,14 @@ export function createDaemonMachineRuntime(input: {
     },
     clearTerminal(sessionId) {
       input.terminal.clear(sessionId)
+    },
+    reportOomKill(sessionId, scopeUnit) {
+      // Every family is asked; only the one holding the session emits. A
+      // session cannot be in two runtimes at once, so this is a lookup, not a
+      // broadcast — each `reportOomKill` returns immediately for a session it
+      // does not have.
+      input.terminal.reportOomKill(sessionId, scopeUnit)
+      for (const server of servers) server.reportOomKill(sessionId, scopeUnit)
     },
     async launchServer(driverId, launch) {
       const selected = serverFor(driverId)

@@ -32,11 +32,53 @@ export interface UsageSnapshot {
   contextUsedPercent?: number
 }
 
+/**
+ * RESOURCE TRUTH for one session's process tree, as the supervisor observed it
+ * (spec §6). Produced by whoever owns processes — the daemon reads the session's
+ * cgroup — and consumed by drivers, which never touch the OS themselves.
+ *
+ * `oomKills` is the ONE required field, and it is a CUMULATIVE COUNTER rather
+ * than a boolean: with `OOMPolicy=continue` a session outlives the kernel
+ * killing a child inside it, so "was there ever an OOM here" and "how many"
+ * are different questions, and only the counter can answer the second. Every
+ * other field is optional because a platform without cgroups (macOS) can
+ * honestly answer some and not others, and a fabricated zero is what this
+ * whole surface exists to stop reporting.
+ */
+export interface ScopeResources {
+  /** Whole-tree memory: the cgroup's `memory.current`, or a `/proc` attribution
+   *  where there is no cgroup. */
+  memoryBytes?: number
+  peakMemoryBytes?: number
+  /** Processes/threads in the tree, against the scope's `TasksMax`. */
+  tasks?: number
+  tasksMax?: number
+  /** The budget actually in force, so a consumer can say "3.9 of 6 GiB" rather
+   *  than a number with no scale. */
+  memoryHighBytes?: number
+  memoryMaxBytes?: number
+  /** Kernel OOM kills inside this scope, cumulative over its lifetime. */
+  oomKills: number
+  /** Reclaim-throttle hits (`memory.events` `high`). A large, growing count is a
+   *  session crawling under its budget instead of progressing — the failure mode
+   *  `MemoryHigh` produces when it is set too low. */
+  throttleEvents?: number
+  scopeUnit?: string
+}
+
 export interface SessionHealth {
   alive: boolean
   memoryBytes?: number
+  peakMemoryBytes?: number
+  tasks?: number
+  /** The memory budget in force for this session, where one is. */
+  memoryMaxBytes?: number
   scopeUnit?: string
+  /** Kernel OOM kills observed in this session's scope. Cumulative, and NOT a
+   *  liveness statement: `OOMPolicy=continue` means a session can report kills
+   *  and still be `alive`, which is precisely the case worth reporting. */
   oomEvents: number
+  throttleEvents?: number
 }
 
 // ---------------------------------------------------------------------------

@@ -188,9 +188,29 @@ export class HostsService {
     const m = sample.memory
     const usedPct =
       m.totalBytes > 0 ? ((m.totalBytes - m.availableBytes) / m.totalBytes) * 100 : undefined
+    /**
+     * SESSION PRESSURE, WHICH THE HOST NUMBER CANNOT SEE (POD-2413; spec §6).
+     *
+     * `usedPct` is the whole machine, so it fires the same way whether the
+     * memory went to agent sessions or to a browser someone left open — and
+     * only in the first case does parking a session help. The sessions slice
+     * carries an aggregate `MemoryHigh` precisely so this question has an
+     * answer: at or over it, the sessions ARE the pressure, whatever the rest
+     * of the host is doing. Reported only by daemons that have cgroups and have
+     * scoped at least one session; absent leaves the host-wide trigger exactly
+     * as it was.
+     *
+     * An OR, not a replacement: a host genuinely out of memory still reclaims
+     * even when its sessions are inside their budget, because the sessions are
+     * what this server can give back either way.
+     */
+    const sessions = sample.sessionsMemory
+    const sessionsOverBudget =
+      sessions !== undefined &&
+      sessions.highBytes > 0 &&
+      sessions.currentBytes >= sessions.highBytes
     const memoryReady =
-      usedPct !== undefined &&
-      usedPct >= cfg.memoryPct &&
+      ((usedPct !== undefined && usedPct >= cfg.memoryPct) || sessionsOverBudget) &&
       now - (this.lastAutoHibernateMsByMachine.get(machineId) ?? 0) >= MEMORY_HIBERNATE_COOLDOWN_MS
 
     if (memoryReady) {
@@ -229,6 +249,7 @@ export class HostsService {
           hostname: sample.hostname,
           usedPct,
           thresholdPct: cfg.memoryPct,
+          sessionsOverBudget,
           attachments: reclaimable,
         })
       } else {

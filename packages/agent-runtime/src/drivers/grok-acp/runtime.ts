@@ -22,9 +22,15 @@ import type {
   SessionBinding,
   SessionSnapshot,
 } from '../../binding.js'
-import type { ConfigureRequest, SessionHealth, UsageSnapshot } from '../../capabilities.js'
+import type {
+  ConfigureRequest,
+  ScopeResources,
+  SessionHealth,
+  UsageSnapshot,
+} from '../../capabilities.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
 import type { EventStreamStart, RuntimeEvent, RuntimeEventBody, WatchLevel } from '../../events.js'
+import { sessionHealth } from '../../health.js'
 import type {
   InteractionAnswerOutcome,
   PendingInteraction,
@@ -73,7 +79,9 @@ export interface GrokAcpEndpoint {
   process: ProcessIdentity
   stop(): Promise<void>
   kill(): Promise<void>
-  memoryBytes(): number | undefined
+  /** Resource truth for this session's scope — memory, tasks, and the kernel's
+   *  own OOM-kill counter. `undefined` where there is no cgroup to read. */
+  resources(): ScopeResources | undefined
   alive(): boolean
 }
 
@@ -164,6 +172,21 @@ export interface GrokAcpRuntime {
   bindings(): readonly AgentSessionHandle['binding'][]
   has(sessionId: SessionId): boolean
   readonly journal: GrokAcpJournal
+  /**
+   * THE SUPERVISOR OBSERVED A KERNEL OOM KILL in this session's scope
+   * (POD-2413).
+   *
+   * The fact enters through the DRIVER rather than going to the server
+   * directly, because a runtime event without a causal envelope is not a
+   * runtime event: only the driver holds this session's cursor, observer
+   * generation and turn epoch. The supervisor knows WHAT happened; the driver
+   * is what can say it in the stream's own language.
+   *
+   * Not a death. `OOMPolicy=continue` means the kernel killed one process
+   * inside the tree and the session usually keeps serving; whether it died is
+   * the `exited` arm's business.
+   */
+  reportOomKill(sessionId: SessionId, scopeUnit?: string): void
   forget(sessionId: SessionId): void
   dispose(): void
 }
@@ -840,15 +863,13 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       },
 
       async health(): Promise<SessionHealth> {
-        const bytes = session.endpoint.memoryBytes()
-        return {
+        return sessionHealth({
           alive: session.endpoint.alive(),
-          ...(bytes !== undefined ? { memoryBytes: bytes } : {}),
+          resources: session.endpoint.resources(),
           ...(session.binding.process.scopeUnit
             ? { scopeUnit: session.binding.process.scopeUnit }
             : {}),
-          oomEvents: 0,
-        }
+        })
       },
 
       async snapshot(): Promise<SessionSnapshot> {
@@ -1341,6 +1362,15 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     handleFor: (sessionId) => handles.get(sessionId),
     has: (sessionId) => handles.has(sessionId),
     bindings: () => [...handles.values()].map((handle) => handle.binding),
+    reportOomKill: (sessionId, scopeUnit) => {
+      const session = sessions.get(sessionId)
+      if (!session) return
+      emit(
+        session,
+        { t: 'process', ev: { ev: 'oomKilled', ...(scopeUnit ? { scopeUnit } : {}) } },
+        iso(),
+      )
+    },
     forget(sessionId) {
       const session = sessions.get(sessionId)
       if (!session) return

@@ -110,7 +110,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
       await server.close()
       servers.delete(sessionId)
     },
-    memoryBytes: () => 128 * 1024 * 1024,
+    resources: () => ({ memoryBytes: 128 * 1024 * 1024, oomKills: 0 }),
   })
 
   const host: OpencodeRuntimeHost = {

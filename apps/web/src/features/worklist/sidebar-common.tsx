@@ -668,7 +668,12 @@ export function PanelRow({
       ? 'reaped'
       : session.stopReason === 'forced'
         ? 'interrupted'
-        : 'finished'
+        : // The kernel killed this session's process tree for memory
+          // (POD-2413). "finished" would be the row quietly agreeing with a
+          // death it can name.
+          session.stopReason === 'oom'
+          ? 'out of memory'
+          : 'finished'
     : (idleDone && session.status === 'hibernated') ||
         session.agentState?.phase === 'ended' ||
         session.status === 'exited'

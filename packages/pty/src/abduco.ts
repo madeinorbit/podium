@@ -14,9 +14,18 @@ import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
+import { instanceSessionSliceName } from '@podium/runtime/instance'
 import { resolveAbducoBin } from './abduco-bin.js'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
+import {
+  resolveScopeBudget,
+  resolveSessionsSliceHigh,
+  type ScopeBudget,
+  type ScopeRole,
+  scopeBudgetProperties,
+  sliceBudgetArgv,
+} from './scope.js'
 import { type AgentSession, withHardRepaint, wrapPty } from './session.js'
 import { shellQuote } from './tmux.js'
 
@@ -68,15 +77,31 @@ export function abducoCreateArgv(label: string, cmd: string, args: string[] = []
  * CPU-oversubscribed by agent/test workloads, and POD-594 measured the daemon main
  * thread runqueue-waiting 60% of wall time when every scope competed at the default
  * CPUWeight=100. Interactive services carry CPUWeight=900/IOWeight=500.
+ *
+ * The scope is also PLACED and BOUNDED (POD-2413): `--slice` puts it in the
+ * instance's sessions slice, and the budget adds MemoryHigh/MemoryMax/
+ * MemorySwapMax/TasksMax plus `OOMPolicy=continue`, so a runaway session is
+ * killed by the kernel inside its own cgroup instead of taking the host with it.
+ * Both defaults are resolved here rather than at each call site, because all
+ * four spawn paths (abduco master, codex app-server, grok ACP, opencode serve)
+ * come through this one builder and a per-caller budget would be four policies.
  */
-export function systemdScopeArgv(unit: string, command: string[]): string[] {
+export function systemdScopeArgv(
+  unit: string,
+  command: string[],
+  options: { slice?: string; budget?: ScopeBudget } = {},
+): string[] {
+  const slice = options.slice ?? instanceSessionSliceName()
+  const budget = options.budget ?? resolveScopeBudget('session')
   return [
     '--user',
     '--scope',
     '--collect',
     '--quiet',
+    `--slice=${slice}`,
     '--property=CPUWeight=50',
     '--property=IOWeight=100',
+    ...scopeBudgetProperties(budget),
     `--unit=${unit}`,
     '--',
     ...command,
@@ -266,6 +291,46 @@ export function canScopeMaster(): Promise<boolean> {
     })
   scopeInFlight = pending
   return pending
+}
+
+let sliceBudgetApplied = false
+
+/**
+ * Put the aggregate throttle on the instance's sessions slice.
+ *
+ * The slice is IMPLICIT — no unit file declares it; systemd materializes it the
+ * first time a scope names it — so its budget cannot ride the scope's argv and
+ * has to be set afterwards, which is why every spawn path calls this once a
+ * scope actually exists. Memoized on SUCCESS only: the first call of a daemon's
+ * life may well land before any scope does, and a failure there must not
+ * silently mean "this instance runs unthrottled until the next restart".
+ *
+ * Deliberately a `MemoryHigh` and never a `MemoryMax`: a Max here would let one
+ * greedy session get every other session on the instance killed, which is the
+ * collective OOM death the whole hierarchy exists to prevent. The throttle is
+ * the last line before the HOST starts swapping, not a per-session control.
+ */
+export async function applySessionsSliceBudget(
+  run: SystemctlRunner = execFileAsync,
+  env: NodeJS.ProcessEnv = liveEnv(),
+): Promise<void> {
+  if (sliceBudgetApplied) return
+  const high = resolveSessionsSliceHigh(env)
+  if (high === undefined) {
+    sliceBudgetApplied = true
+    return
+  }
+  try {
+    await run('systemctl', sliceBudgetArgv(instanceSessionSliceName(), high), {
+      timeout: 8000,
+      env: scopeEnv(env),
+    })
+    sliceBudgetApplied = true
+  } catch (err) {
+    // The slice may not exist yet (no scope has named it). Stay un-memoized so
+    // the next spawn tries again.
+    log.debug('could not set the sessions slice budget yet', { err })
+  }
 }
 
 /**
@@ -773,6 +838,14 @@ export interface AbducoSpawnOptions {
    */
   stripEnv?: readonly string[]
   backend?: PtyBackend
+  /**
+   * What this master is, for the scope budget (POD-2413). `'attach'` is a
+   * client TUI parked beside a session: it gets a terminal-sized budget rather
+   * than an agent's, so a warm attachment can never be what pushes the instance
+   * over its aggregate throttle — and it is the first thing given back under
+   * pressure. Default `'session'`: the agent's own process tree.
+   */
+  scopeRole?: ScopeRole
 }
 
 /**
@@ -898,10 +971,15 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     try {
       await execCreate(
         'systemd-run',
-        systemdScopeArgv(scopeUnitName(opts.label), [bin, ...createArgs]),
+        systemdScopeArgv(scopeUnitName(opts.label), [bin, ...createArgs], {
+          budget: resolveScopeBudget(opts.scopeRole ?? 'session'),
+        }),
         execOpts,
       )
       createdInScope = true
+      // The slice now exists, so its aggregate throttle can be set. Fire and
+      // forget: a session must never wait on a best-effort budget call.
+      void applySessionsSliceBudget()
     } catch (err) {
       // A concurrent spawn of the same label may have won: that master is the
       // session, and creating a second one is impossible anyway.

@@ -358,6 +358,15 @@ export function createOpencodeClientTerminals(
       cols: geometry.cols,
       rows: geometry.rows,
       /**
+       * A CLIENT TERMINAL IS SIZED AS ONE (POD-2413). Its scope gets the attach
+       * budget — a terminal's worth of memory and tasks, not an agent's — so a
+       * warm attachment nobody is watching can never be what pushes the
+       * instance's sessions slice over its aggregate throttle. It is also the
+       * first thing given back under pressure (§5), which is the same ordering
+       * viewed from the other end.
+       */
+      scopeRole: 'attach',
+      /**
        * THE SAME PROVIDER KEYS THE SERVE HALF DELETES, deleted here too.
        *
        * It is the same binary reading the same config, and abduco hands the app

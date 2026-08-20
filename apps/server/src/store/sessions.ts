@@ -236,7 +236,8 @@ export class SessionsRepository {
         r.stop_reason === 'self' ||
         r.stop_reason === 'parent' ||
         r.stop_reason === 'forced' ||
-        r.stop_reason === 'exited'
+        r.stop_reason === 'exited' ||
+        r.stop_reason === 'oom'
           ? r.stop_reason
           : null,
       workflowRunId: (r.workflow_run_id as string | null) ?? null,

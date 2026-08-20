@@ -132,7 +132,7 @@ function liveHost(workdir: string): {
         process: { key: `live-${input.sessionId}`, ...(child.pid ? { pid: child.pid } : {}) },
         stop: async () => void child.stdin?.end(),
         kill: async () => void child.kill('SIGKILL'),
-        memoryBytes: () => undefined,
+        resources: () => undefined,
       }
     },
   }

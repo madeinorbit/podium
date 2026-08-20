@@ -62,10 +62,16 @@ import type {
   SessionBinding,
   SessionSnapshot,
 } from '../../binding.js'
-import type { ConfigureRequest, SessionHealth, UsageSnapshot } from '../../capabilities.js'
+import type {
+  ConfigureRequest,
+  ScopeResources,
+  SessionHealth,
+  UsageSnapshot,
+} from '../../capabilities.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
 import type { ProcessEvent } from '../../errors.js'
 import type { EventStreamStart, RuntimeEvent, RuntimeEventBody, WatchLevel } from '../../events.js'
+import { sessionHealth } from '../../health.js'
 import type {
   InteractionAnswer,
   InteractionAnswerOutcome,
@@ -123,8 +129,10 @@ export interface CodexServerEndpoint {
   process: ProcessIdentity
   stop(): Promise<void>
   kill(): Promise<void>
-  /** Whole-subtree RSS, where the platform can attribute it. */
-  memoryBytes(): number | undefined
+  /** Resource truth for this session's scope — memory, tasks, and the kernel's
+   *  own OOM-kill counter. `undefined` where the platform has no cgroup or the
+   *  scope is already gone. */
+  resources(): ScopeResources | undefined
 }
 
 /** What the driver needs from whoever owns processes and disks. */
@@ -336,6 +344,22 @@ export interface CodexRuntime {
   /** Drop a session's handle without touching the process. What a supervisor
    *  restart looks like from inside this process. */
   forget(sessionId: SessionId): void
+  /**
+   * THE SUPERVISOR OBSERVED A KERNEL OOM KILL in this session's scope
+   * (POD-2413).
+   *
+   * The fact enters through the DRIVER rather than going to the server
+   * directly, because a runtime event without a causal envelope is not a
+   * runtime event: only the driver holds this session's cursor, observer
+   * generation and turn epoch. The supervisor knows WHAT happened; the driver
+   * is what can say it in the stream's own language.
+   *
+   * Not a death. `OOMPolicy=continue` means the kernel killed one process
+   * inside the tree and the session usually keeps serving; whether it died is
+   * the `exited` arm's business.
+   */
+  reportOomKill(sessionId: SessionId, scopeUnit?: string): void
+
   dispose(): void
 }
 
@@ -944,20 +968,15 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       },
 
       async health(): Promise<SessionHealth> {
-        const bytes = session.endpoint.memoryBytes()
-        return {
+        return sessionHealth({
           // THE CONNECTION IS THE LIVENESS SIGNAL. A closed client means the child is
           // gone or unreachable, which are the same thing for this transport.
           alive: !session.disposed,
-          ...(bytes !== undefined ? { memoryBytes: bytes } : {}),
+          resources: session.endpoint.resources(),
           ...(session.binding.process.scopeUnit
             ? { scopeUnit: session.binding.process.scopeUnit }
             : {}),
-          // Not observed: nothing here watches the cgroup's OOM counter, and a
-          // hardcoded 0 would read as "this session has never been OOM-killed",
-          // which is a claim rather than a measurement.
-          oomEvents: 0,
-        }
+        })
       },
 
       // ---- identity ----
@@ -2014,6 +2033,15 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     createWithId,
     handleFor: (sessionId) => handles.get(sessionId),
     bindings: () => [...handles.values()].map((handle) => handle.binding),
+    reportOomKill: (sessionId, scopeUnit) => {
+      const session = sessions.get(sessionId)
+      if (!session) return
+      emit(
+        session,
+        { t: 'process', ev: { ev: 'oomKilled', ...(scopeUnit ? { scopeUnit } : {}) } },
+        iso(),
+      )
+    },
     forget: (sessionId) => {
       const session = sessions.get(sessionId)
       if (!session) return

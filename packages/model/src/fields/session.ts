@@ -350,7 +350,7 @@ export const SessionLifecycle = z.object({
   /** Daemon diagnosis for `exitCode === -1` (spawn never started). */
   spawnFailure: z.string().optional(),
   stoppedAt: z.string().optional(),
-  stopReason: z.enum(['self', 'parent', 'forced', 'exited']).optional(),
+  stopReason: z.enum(['self', 'parent', 'forced', 'exited', 'oom']).optional(),
   /** A SHARED session fact, `exp-rev` — ADR 1 Amendment 1 D10, recorded again at
    *  inventory §7.2 Q1 and NOT reopened: `archived` sits beside `deletedAt` and
    *  means "this session is retired", which is identical for every viewer. A

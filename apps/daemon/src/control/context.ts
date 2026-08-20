@@ -14,6 +14,7 @@ import type { DaemonHarnessRuntime } from '../harness-runtime.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
 import type { OpencodeClientTerminals } from '../runtime/opencode-attach'
+import type { ScopeMonitor } from '../runtime/scope-monitor'
 import type { DaemonMachineRuntime } from '../runtime/machine-runtime'
 import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
@@ -90,6 +91,15 @@ export interface DaemonContext {
    * private deps to answer a machine-wide frame would be the wrong shape.
    */
   clientTerminals?: OpencodeClientTerminals
+  /**
+   * The machine's cgroup observer (POD-2413) — per-session memory, tasks and
+   * the kernel's OOM-kill counter.
+   *
+   * ON THE CONTEXT for the same reason `clientTerminals` is: it is machine-wide
+   * rather than any one driver's, and the terminal driver's host port reads it
+   * through here exactly as the three server hosts read it directly.
+   */
+  scopeMonitor?: ScopeMonitor
   /** Sessions whose currently visible browser surface is the native harness TUI. */
   nativeClientRequests?: Set<SessionId>
   /** Per-session serialization for attach/release transitions. */

@@ -1096,7 +1096,7 @@ function defaultCodexRuntime(sent: DaemonMessage[]) {
         process: { key: `podium-cx-${input.sessionId}` },
         stop: async () => transport.close(),
         kill: async () => transport.close(),
-        memoryBytes: () => undefined,
+        resources: () => undefined,
       }
     },
   }
@@ -1127,7 +1127,7 @@ function defaultGrokRuntime(sent: DaemonMessage[]) {
           alive = false
           transport.close()
         },
-        memoryBytes: () => undefined,
+        resources: () => undefined,
         alive: () => alive,
       }
     },

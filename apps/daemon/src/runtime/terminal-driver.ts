@@ -69,6 +69,7 @@ import type {
   RuntimeEvent,
   RuntimeEventBody,
   SessionBinding as RuntimeSessionBinding,
+  ScopeResources,
   SendOptions,
   SessionArchive,
   SessionHealth,
@@ -87,6 +88,7 @@ import {
   driverLocalCursor,
   ESC,
   SUBMIT_CR_DELAY_MS,
+  sessionHealth,
   stampRuntimeEvent,
   terminalCapabilities,
 } from '@podium/agent-runtime'
@@ -192,9 +194,15 @@ export interface TerminalRuntimeHost {
     resumeValue: string
   }): Promise<{ path: string; relativeDir?: string }>
   readFileBytes(path: string): Promise<Uint8Array>
-  /** Per-session memory attribution, from the breakdown the daemon already
-   *  computes. Undefined where /proc is unreadable — honest, not zero. */
-  memoryBytes(input: { sessionId: SessionId; label: string; pid?: number }): number | undefined
+  /** Resource truth for a session's scope — memory, tasks and the kernel's own
+   *  OOM-kill counter, from the daemon's one cgroup observer. Undefined where
+   *  there is neither a cgroup nor a readable /proc — honest, not zero. */
+  resources(input: {
+    sessionId: SessionId
+    label: string
+    pid?: number
+    scopeUnit?: string
+  }): ScopeResources | undefined
   now(): number
   setTimer(fn: () => void, delayMs: number): TimerHandle
   clearTimer(handle: TimerHandle): void
@@ -431,6 +439,23 @@ export interface TerminalRuntime {
   observe(msg: DaemonMessage): void
   /** The causal accept signal: a raw hook payload, before the observers fold it. */
   onHookPayload(sessionId: SessionId, payload: unknown): void
+  /**
+   * THE SUPERVISOR OBSERVED A KERNEL OOM KILL in this session's scope
+   * (POD-2413).
+   *
+   * The fact enters through the DRIVER rather than being sent to the server
+   * directly, because a runtime event without a causal envelope is not a
+   * runtime event: only the driver holds this session's cursor, observer
+   * generation and turn epoch, and the gate rejects anything that arrives
+   * without them. The supervisor knows WHAT happened; the driver is what can
+   * say it in the stream's own language.
+   *
+   * Not a death. `OOMPolicy=continue` means the kernel killed one process
+   * inside the tree — often a build or a test run the agent started — and the
+   * session usually keeps serving. Whether it died is `exited`'s business.
+   */
+  reportOomKill(sessionId: SessionId, scopeUnit?: string): void
+
   /** A driver for one harness kind. */
   driverFor(harness: AgentKind, profile: TerminalHarnessProfile): RuntimeDriver
   clear(sessionId: SessionId): void
@@ -1189,27 +1214,22 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
       async health(): Promise<SessionHealth> {
         const bridge = host.bridge(session.sessionId)
-        return {
+        const scopeUnit = host.scopeUnit(session.label)
+        return sessionHealth({
           alive: session.alive && bridge !== undefined,
-          ...(host.memoryBytes({
+          // THE SESSION'S CGROUP, not the bridge's process tree. The bridge pid
+          // is the daemon's own `abduco -a` client, which lives in the DAEMON's
+          // cgroup — the agent is in the scope, and only the scope unit finds
+          // it. The pid still rides along for the /proc fallback on hosts with
+          // no cgroup to read (POD-2413).
+          resources: host.resources({
             sessionId: session.sessionId,
             label: session.label,
             ...(bridge ? { pid: bridge.pid } : {}),
-          }) !== undefined
-            ? {
-                memoryBytes: host.memoryBytes({
-                  sessionId: session.sessionId,
-                  label: session.label,
-                  ...(bridge ? { pid: bridge.pid } : {}),
-                }) as number,
-              }
-            : {}),
-          ...(host.scopeUnit(session.label) ? { scopeUnit: host.scopeUnit(session.label) } : {}),
-          // The daemon does not count OOM kills per session today, and a zero
-          // that means "we never looked" is worse than no number — so the field
-          // reports what it can prove: nothing observed.
-          oomEvents: 0,
-        }
+            ...(scopeUnit ? { scopeUnit } : {}),
+          }),
+          ...(scopeUnit ? { scopeUnit } : {}),
+        })
       },
 
       // ---- identity ----
@@ -1685,6 +1705,16 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     has: (sessionId) => sessions.has(sessionId),
     observe,
     onHookPayload,
+    reportOomKill(sessionId, scopeUnit) {
+      const session = sessions.get(sessionId)
+      if (!session) return
+      emit(
+        session,
+        { t: 'process', ev: { ev: 'oomKilled', ...(scopeUnit ? { scopeUnit } : {}) } },
+        observedAt(),
+        'live',
+      )
+    },
     clear,
     dispose() {
       for (const sessionId of [...sessions.keys()]) clear(sessionId)

@@ -220,7 +220,11 @@ describe('the client terminal a server-family attach produces', () => {
       { pid: 201, ppid: 200, name: 'opencode', cmdline: 'opencode attach', memBytes: 120_000_000 },
     ]
 
-    const { agents } = attributeMemory(procs, [{ sessionId: SESSION, label: sessionLabel, pid: 100 }], [])
+    const { agents } = attributeMemory(
+      procs,
+      [{ sessionId: SESSION, label: sessionLabel, pid: 100 }],
+      [],
+    )
     expect(agents).toEqual([{ sessionId: SESSION, bytes: 300_000_000, processCount: 1 }])
   })
 
@@ -526,7 +530,7 @@ function memoryJournal(entry?: OpencodeJournalEntry): OpencodeJournal {
 describe('the daemon’s answer to “host a client terminal”', () => {
   it('refuses on a machine that hosts none — an honest per-machine answer', async () => {
     const host = createOpencodeHost({
-      memoryBytes: () => undefined,
+      resources: () => undefined,
       journal: memoryJournal(journalEntry()),
     })
     expect(
@@ -537,7 +541,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
   it('refuses before the session has a conversation, rather than opening a DIFFERENT one', async () => {
     const { terminals, state } = harness()
     const host = createOpencodeHost({
-      memoryBytes: () => undefined,
+      resources: () => undefined,
       journal: memoryJournal(),
       clientTerminals: terminals,
     })
@@ -550,7 +554,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
   it('hands the client the live url and the journalled conversation + credential', async () => {
     const { terminals, state } = harness()
     const host = createOpencodeHost({
-      memoryBytes: () => undefined,
+      resources: () => undefined,
       journal: memoryJournal(journalEntry()),
       clientTerminals: terminals,
     })
@@ -568,7 +572,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
 
   it('answers “this machine cannot host one” when the client will not start', async () => {
     const host = createOpencodeHost({
-      memoryBytes: () => undefined,
+      resources: () => undefined,
       journal: memoryJournal(journalEntry()),
       clientTerminals: {
         attach: async () => {
@@ -619,7 +623,7 @@ describe('the session’s lifecycle owns its attachment', () => {
   it('re-adopts a surviving client when the daemon rebinds the session', async () => {
     const { terminals, state } = harness({ hasMaster: () => true })
     const host = createOpencodeHost({
-      memoryBytes: () => undefined,
+      resources: () => undefined,
       journal: memoryJournal(journalEntry()),
       clientTerminals: terminals,
     })
@@ -643,7 +647,7 @@ describe('the session’s lifecycle owns its attachment', () => {
   ])('abandons the client when %s', async (_name, journal) => {
     const { terminals, state } = harness({ hasMaster: () => true })
     const host = createOpencodeHost({
-      memoryBytes: () => undefined,
+      resources: () => undefined,
       journal: journal(),
       clientTerminals: terminals,
     })
@@ -655,7 +659,7 @@ describe('the session’s lifecycle owns its attachment', () => {
     globalThis.fetch = (async () => new Response('nope', { status: 401 })) as typeof fetch
     const { terminals, state } = harness({ hasMaster: () => true })
     const host = createOpencodeHost({
-      memoryBytes: () => undefined,
+      resources: () => undefined,
       journal: memoryJournal(journalEntry()),
       clientTerminals: terminals,
     })
@@ -666,7 +670,7 @@ describe('the session’s lifecycle owns its attachment', () => {
   it('kills the client when the session is killed', async () => {
     const { terminals, state } = harness({ hasMaster: () => true })
     const host = createOpencodeHost({
-      memoryBytes: () => undefined,
+      resources: () => undefined,
       journal: memoryJournal(journalEntry()),
       clientTerminals: terminals,
     })

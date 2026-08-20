@@ -54,6 +54,7 @@ import type {
   OpencodeJournalEntry,
   OpencodeRuntimeHost,
   OpencodeServerEndpoint,
+  ScopeResources,
 } from '@podium/agent-runtime'
 import {
   gateOpencodeVersion,
@@ -64,7 +65,13 @@ import { AGENT_MANIFESTS } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
+import {
+  applySessionsSliceBudget,
+  canScopeMaster,
+  scopeReclaimArgvs,
+  scopeUnitName,
+  systemdScopeArgv,
+} from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
 import type { OpencodeClientTerminals } from './opencode-attach'
@@ -336,8 +343,14 @@ function defaultVersionProbe(): Promise<{ output: string; ok: boolean }> {
 // ---------------------------------------------------------------------------
 
 export interface OpencodeHostDeps {
-  /** Whole-subtree RSS for a session, from the daemon's own attribution. */
-  memoryBytes(input: { sessionId: SessionId; label: string; pid?: number }): number | undefined
+  /** Resource truth for a session's scope — memory, tasks and the kernel's own
+   *  OOM-kill counter, from the daemon's one cgroup observer. */
+  resources(input: {
+    sessionId: SessionId
+    label: string
+    pid?: number
+    scopeUnit?: string
+  }): ScopeResources | undefined
   /**
    * Where `opencode attach <url>` actually runs, for `attach()` (POD-2059).
    *
@@ -398,11 +411,12 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       await terminate(input.sessionId, 'SIGKILL')
       journal.clear(input.sessionId)
     },
-    memoryBytes: () =>
-      deps.memoryBytes({
+    resources: () =>
+      deps.resources({
         sessionId: input.sessionId,
         label: opencodeScopeLabel(input.sessionId),
         ...(input.pid !== undefined ? { pid: input.pid } : {}),
+        ...(input.scopeUnit ? { scopeUnit: input.scopeUnit } : {}),
       }),
   })
 
@@ -525,6 +539,11 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       child.stderr?.on('data', (chunk: Buffer) => {
         banner = `${banner}${chunk.toString('utf8')}`.slice(-2000)
       })
+
+      // The instance's sessions slice exists now that a scope named it, so its
+      // aggregate throttle can be set (POD-2413). Fire and forget, memoized on
+      // success: a session must never wait on a best-effort budget call.
+      if (scoped) void applySessionsSliceBudget()
 
       const ready = await waitForReady(baseUrl, input.secret, READY_TIMEOUT_MS)
       if (!ready) {

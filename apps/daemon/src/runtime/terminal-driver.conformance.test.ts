@@ -254,7 +254,7 @@ function makeWorld(): { target: ConformanceTarget } {
       throw new Error('fixture harness declares no handoff transcript')
     },
     readFileBytes: async () => new Uint8Array(),
-    memoryBytes: () => undefined,
+    resources: () => undefined,
     now: () => clock,
     setTimer: (fn, delayMs) => {
       const timer: VirtualTimer = { at: clock + delayMs, fn, cancelled: false }

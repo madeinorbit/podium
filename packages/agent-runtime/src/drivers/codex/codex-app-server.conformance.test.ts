@@ -90,7 +90,7 @@ function makeWorld(): { target: ConformanceTarget } {
           server.close()
           servers.delete(input.sessionId)
         },
-        memoryBytes: () => 96 * 1024 * 1024,
+        resources: () => ({ memoryBytes: 96 * 1024 * 1024, oomKills: 0 }),
       }
       return endpoint
     },

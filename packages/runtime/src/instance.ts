@@ -141,6 +141,28 @@ export function instanceTimerName(
   return id === DEFAULT_INSTANCE_ID ? 'podium-health.timer' : `podium-${id}-health.timer`
 }
 
+/**
+ * The instance's resource root slice, and the sessions slice beneath it
+ * (spec §6). systemd derives a slice's PARENT from its own name by cutting at
+ * the last `-`, so these two names ARE the hierarchy: `podium-sessions.slice`
+ * lives inside `podium.slice` without either being declared anywhere. Named
+ * instances keep the same shape one level down, so two instances on one host
+ * never share a budget.
+ *
+ * The daemon/server units deliberately stay OUTSIDE the sessions slice: the
+ * supervisor must never share an OOM fate with the sessions it supervises.
+ */
+export function instanceSliceName(instanceId: string = resolveInstanceId()): string {
+  const id = validateInstanceId(instanceId)
+  return id === DEFAULT_INSTANCE_ID ? 'podium.slice' : `podium-${id}.slice`
+}
+
+/** Parent slice for every session (and attach) scope of one instance. */
+export function instanceSessionSliceName(instanceId: string = resolveInstanceId()): string {
+  const id = validateInstanceId(instanceId)
+  return id === DEFAULT_INSTANCE_ID ? 'podium-sessions.slice' : `podium-${id}-sessions.slice`
+}
+
 /** Stable durable PTY/scope identity; default keeps pre-instance labels reattachable. */
 export function durableSessionLabel(
   sessionId: SessionId,

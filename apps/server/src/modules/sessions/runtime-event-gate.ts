@@ -35,6 +35,9 @@ export type RuntimeEventGateResult =
 export interface RuntimeEventSessionProjection {
   readonly sessionId: SessionId
   recordRuntimeActivity(at: string): boolean
+  /** A kernel OOM kill the machine's supervisor observed in this session's
+   *  scope (POD-2413). Explains an exit; never causes one. */
+  recordOomKill(at: string): void
 }
 
 export interface RuntimeEventGatePorts {
@@ -137,6 +140,16 @@ export class RuntimeEventGate {
       updatedAt: new Date(this.ports.now()).toISOString(),
     }
     session.recordRuntimeActivity(event.at)
+    /**
+     * THE ONE RUNTIME EVENT THAT CHANGES THE ROW'S STOP REASON (POD-2413).
+     *
+     * Recorded here rather than in the board projection because it is not a
+     * board effect and must not wait on the oplog drain: an exit frame can be
+     * milliseconds behind the kill, and a session that has already been stamped
+     * `exited` gets its cause corrected by this call. Persisted with the event
+     * in the same session-ledger write below.
+     */
+    if (event.t === 'process' && event.ev.ev === 'oomKilled') session.recordOomKill(event.at)
     let eventId = 0
     this.ports.persist(sessionId, () => {
       eventId = this.ports.events.appendEvent(

@@ -99,15 +99,26 @@ describe('abduco command builders', () => {
   it('wraps the create command in a named transient --user scope (the cgroup that survives redeploy)', () => {
     // The master must land in a sibling cgroup, not the daemon's service cgroup,
     // or `systemctl restart` (KillMode=control-group) takes it down on every redeploy.
+    // Slice and budget are passed explicitly so this asserts the SHAPE rather
+    // than this host's RAM; the derived defaults have their own test in
+    // `scope.test.ts`.
     expect(
-      systemdScopeArgv('podium-1.scope', ['abduco', ...abducoCreateArgv('podium-1', 'claude')]),
+      systemdScopeArgv('podium-1.scope', ['abduco', ...abducoCreateArgv('podium-1', 'claude')], {
+        slice: 'podium-sessions.slice',
+        budget: { memoryHighBytes: 900, memoryMaxBytes: 1000, tasksMax: 64 },
+      }),
     ).toEqual([
       '--user',
       '--scope',
       '--collect',
       '--quiet',
+      '--slice=podium-sessions.slice',
       '--property=CPUWeight=50',
       '--property=IOWeight=100',
+      '--property=MemoryHigh=900',
+      '--property=MemoryMax=1000',
+      '--property=TasksMax=64',
+      '--property=OOMPolicy=continue',
       '--unit=podium-1.scope',
       '--',
       'abduco',

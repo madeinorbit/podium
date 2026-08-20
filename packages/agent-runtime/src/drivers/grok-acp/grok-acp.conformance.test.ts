@@ -80,7 +80,7 @@ function makeWorld(): { target: ConformanceTarget } {
           server.crash()
           servers.delete(input.sessionId)
         },
-        memoryBytes: () => 80 * 1024 * 1024,
+        resources: () => ({ memoryBytes: 80 * 1024 * 1024, oomKills: 0 }),
         alive: () => server.alive,
       }
       return endpoint
