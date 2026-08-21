@@ -20,6 +20,7 @@
  */
 
 export {
+  RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
   type TerminalCapabilityInput,
   terminalCapabilities,
 } from './capabilities.js'

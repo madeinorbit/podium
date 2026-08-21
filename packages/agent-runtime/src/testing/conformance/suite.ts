@@ -330,6 +330,10 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         expect(declaredKinds.length).toBeGreaterThan(0)
         expect(new Set(declaredKinds).size).toBe(declaredKinds.length)
         for (const kind of declaredKinds) expect(['image', 'file']).toContain(kind)
+        // STRUCTURAL ONLY. This prevents an invented prompt-form value and the
+        // impossible local-image/file pairing; it does not prove that send()
+        // presents a staged ref in the declared form. That requires a driver
+        // boundary test with an observable provider prompt.
         expect(['path-text', 'local-image', 'file-part']).toContain(declared.value.promptForm)
         if (declared.value.promptForm === 'local-image') expect(declaredKinds).toEqual(['image'])
 

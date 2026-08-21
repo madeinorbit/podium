@@ -24,7 +24,12 @@
  * predicate that survives the bounded replay buffer.
  */
 
-import type { ActingPrincipal, PendingInteraction, RuntimeEvent } from '@podium/agent-runtime'
+import {
+  RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
+  type ActingPrincipal,
+  type PendingInteraction,
+  type RuntimeEvent,
+} from '@podium/agent-runtime'
 import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -419,15 +424,48 @@ describe('attachment path prompts', () => {
     })
   })
 
-  it('declares staging unsupported for a raw-first-turn harness', () => {
+  it('refuses staging through both the declaration and verb for raw-first-turn', async () => {
     const world = makeWorld()
-    const staging = world.runtime
-      .driverFor('grok', { ...GROK, usesRawFirstTurn: true })
-      .capabilities().staging
-    expect(staging).toEqual({
+    const driver = world.runtime.driverFor('grok', { ...GROK, usesRawFirstTurn: true })
+    expect(driver.capabilities().staging).toEqual({
       supported: false,
-      reason: 'raw-first-turn harnesses cannot consume an atomic attachment path prompt',
+      reason: RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
     })
+    const session = await driver.create(SPEC)
+    await expect(session.stageAttachment(source)).resolves.toEqual({
+      reason: 'unsupported',
+      detail: RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
+    })
+  })
+
+  it('refuses foreign attachment refs before a raw-first-turn send can type them', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', { ...GROK, usesRawFirstTurn: true })
+    const session = await driver.create(SPEC)
+    await expect(
+      session.send(
+        {
+          text: 'read this',
+          attachments: [
+            {
+              id: 'foreign-attachment',
+              path: '/tmp/foreign-notes.txt',
+              filename: 'notes.txt',
+              mediaType: 'text/plain',
+              kind: 'file',
+            },
+          ],
+        },
+        { origin: 'human', delivery: 'when-ready' },
+      ),
+    ).resolves.toEqual({
+      outcome: 'refused',
+      refusal: {
+        reason: 'unsupported',
+        detail: RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
+      },
+    })
+    expect(world.written).toEqual([])
   })
 })
 

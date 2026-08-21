@@ -52,8 +52,9 @@ import {
  * classifier interactions.
  *
  * THE HARDEST PROFILE ON PURPOSE. It is the one that has to reach `unverified`
- * honestly and the one whose interactions are at-least-once, so it exercises
- * both of the terminal family's permitted failures. A Claude profile would pass
+ * honestly, uses the raw first-turn path, and has at-least-once interactions,
+ * so it exercises the terminal family's permitted failures and staging decline.
+ * A Claude profile would pass
  * more of the corpus for a reason that says nothing about the family.
  */
 const PROFILE: TerminalHarnessProfile = {
@@ -61,7 +62,7 @@ const PROFILE: TerminalHarnessProfile = {
   sendProof: ['transcript-echo'],
   hookAnchoredAccept: false,
   needsSubmitVerification: true,
-  usesRawFirstTurn: false,
+  usesRawFirstTurn: true,
   archivable: false,
   reportsContextPercent: false,
 }
@@ -247,7 +248,16 @@ function makeWorld(): { target: ConformanceTarget } {
             deliveries.set(msg.sessionId, (deliveries.get(msg.sessionId) ?? 0) + 1)
             return
           }
-          if (text !== '\r') return
+          if (text !== '\r') {
+            // Grok's first prompt is raw text followed by CR. Model that path
+            // without mistaking ESC (interrupt) for user text; later turns use
+            // bracketed paste once the transcript records the first user turn.
+            if ((turnEpochs.get(msg.sessionId) ?? 0) === 0 && text !== '\u001b') {
+              pendingPaste.set(msg.sessionId, text)
+              deliveries.set(msg.sessionId, (deliveries.get(msg.sessionId) ?? 0) + 1)
+            }
+            return
+          }
           const pasted = pendingPaste.get(msg.sessionId)
           if (pasted === undefined) return
           pendingPaste.delete(msg.sessionId)

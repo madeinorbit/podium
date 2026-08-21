@@ -21,6 +21,9 @@ import type { DriverId } from '../../families.js'
 import type { SendProof } from '../../turns.js'
 import { VERIFICATION_WINDOW_MS } from './injection.js'
 
+export const RAW_FIRST_TURN_ATTACHMENT_REFUSAL =
+  'raw-first-turn harnesses cannot consume an atomic attachment path prompt'
+
 export interface TerminalCapabilityInput {
   driverId: DriverId
   /** The harness's declared proof order, from `runtime.terminal.sendProof`. */
@@ -123,7 +126,7 @@ export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapa
     },
     transcript: supported({ history: true }),
     staging: input.usesRawFirstTurn
-      ? unsupported('raw-first-turn harnesses cannot consume an atomic attachment path prompt')
+      ? unsupported(RAW_FIRST_TURN_ATTACHMENT_REFUSAL)
       : supported({ kinds: ['image', 'file'], promptForm: 'path-text' }),
     // The engine terminal IS the session for this family — today's frames path,
     // described rather than replaced.

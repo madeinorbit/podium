@@ -87,6 +87,7 @@ import {
   createTerminalInjection,
   driverLocalCursor,
   ESC,
+  RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
   SUBMIT_CR_DELAY_MS,
   sessionHealth,
   stampRuntimeEvent,
@@ -1293,6 +1294,12 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         if (!session.alive || !host.bridge(session.sessionId)) {
           return { outcome: 'refused', refusal: refuse('not_running') }
         }
+        if (profile?.usesRawFirstTurn && input.attachments?.length) {
+          return {
+            outcome: 'refused',
+            refusal: refuse('unsupported', RAW_FIRST_TURN_ATTACHMENT_REFUSAL),
+          }
+        }
         const text = [...(input.attachments ?? []).map((attachment) => attachment.path), input.text]
           .filter(Boolean)
           .join('\n')
@@ -1366,6 +1373,9 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
       async stageAttachment(source) {
         if (!session.alive || !host.bridge(session.sessionId)) return refuse('not_running')
+        if (profile?.usesRawFirstTurn) {
+          return refuse('unsupported', RAW_FIRST_TURN_ATTACHMENT_REFUSAL)
+        }
         try {
           return await host.stageAttachment({ sessionId: session.sessionId, source })
         } catch (err) {
