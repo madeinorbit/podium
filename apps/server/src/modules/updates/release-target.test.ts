@@ -43,10 +43,10 @@ function releaseManifest(version = '0.4.2', url = HEADLESS_URL) {
 
 /** The four platforms a release publishes, and where each one's tarball lives. */
 const FOUR_PLATFORM_URLS: Record<string, string> = {
-  'linux-x86_64': 'https://downloads.test/podium-headless-linux-x64.tar.gz',
-  'linux-aarch64': 'https://downloads.test/podium-headless-linux-arm64.tar.gz',
-  'darwin-aarch64': 'https://downloads.test/podium-headless-darwin-arm64.tar.gz',
-  'darwin-x86_64': 'https://downloads.test/podium-headless-darwin-x64.tar.gz',
+  'linux-x86_64': `${RELEASE_BASE}/podium-headless-linux-x64.tar.gz`,
+  'linux-aarch64': `${RELEASE_BASE}/podium-headless-linux-arm64.tar.gz`,
+  'darwin-aarch64': `${RELEASE_BASE}/podium-headless-darwin-arm64.tar.gz`,
+  'darwin-x86_64': `${RELEASE_BASE}/podium-headless-darwin-x64.tar.gz`,
 }
 
 function fourPlatformManifest(version = '0.4.2') {
@@ -177,7 +177,7 @@ describe('resolveReleaseTarget', () => {
   it('checks every platform a four-platform release names', async () => {
     const fetchImpl = fetchFixture({ release: fourPlatformManifest() })
 
-    await expect(resolveReleaseTarget('edge', fetchImpl)).resolves.toMatchObject({
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
       version: '0.4.2',
     })
     const asked = fetchImpl.mock.calls.map(([url]) => String(url))
@@ -190,7 +190,7 @@ describe('resolveReleaseTarget', () => {
       artifactStatus: { [FOUR_PLATFORM_URLS['darwin-aarch64'] as string]: 404 },
     })
 
-    await expect(resolveReleaseTarget('edge', fetchImpl)).rejects.toThrow(
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
       'headless darwin-aarch64 artifact returned HTTP 404',
     )
   })
