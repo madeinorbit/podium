@@ -23,7 +23,7 @@
  */
 
 import type { UiSource } from '@/lib/ui-source'
-import { formatDisplayedVersion, type SkewMark } from '@/lib/version-skew'
+import { formatDisplayedVersion, type SkewMark } from '@/lib/machine-version-skew'
 import { CHANNEL_LABELS, type FleetChannel } from './updates-view'
 
 /** The same expected/unexpected question the machine rows answer. */

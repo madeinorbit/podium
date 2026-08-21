@@ -23,7 +23,7 @@ import {
   formatDuration,
   presentOperationError,
 } from '@/features/updates/operation-view'
-import { formatDisplayedVersion } from '@/lib/version-skew'
+import { formatDisplayedVersion } from '@/lib/machine-version-skew'
 
 /** Mirrors @podium/model's UpdateChannel; inlined so the bundle never pulls node:fs. */
 export type FleetChannel = 'stable' | 'edge' | 'dev'

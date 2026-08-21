@@ -7,7 +7,6 @@ import { AppStarted } from './AppStarted'
 import { AppShell } from './AppShell'
 import '@/index.css'
 import '@/styles.css'
-import { IterationModeFrame } from './IterationModeFrame'
 import { redirectPhoneToMobileApp } from './mobile-entry-redirect'
 import { ThemeProvider } from './theme'
 import { WireSkewBanner } from './WireSkewBanner'
@@ -15,6 +14,12 @@ import { WireSkewBanner } from './WireSkewBanner'
 const MotionDemo = lazy(() =>
   import('@/lib/motion/MotionDemo').then((module) => ({ default: module.MotionDemo })),
 )
+
+const IterationModeFrame = import.meta.env.PODIUM_ITERATION_MODE
+  ? lazy(() =>
+      import('./IterationModeFrame').then((module) => ({ default: module.IterationModeFrame })),
+    )
+  : null
 
 // FIRST, before anything can throw: the global handlers and the flight recorder
 // are what turn a crash during boot into a report on the user's own server
@@ -41,7 +46,11 @@ if (!redirectPhoneToMobileApp()) {
         {/* OUTSIDE every gate for the same reason, and for one more: the login
             and setup screens are exactly where an iterate tab is most easily
             mistaken for the installed app. Renders nothing in a built bundle. */}
-        <IterationModeFrame />
+        {IterationModeFrame ? (
+          <Suspense fallback={null}>
+            <IterationModeFrame />
+          </Suspense>
+        ) : null}
         {showMotionDemo ? (
           <Suspense fallback={<div className="app-loading" aria-hidden="true" />}>
             <MotionDemo />

@@ -24,7 +24,6 @@ import { LoginPasswordSection } from './sections/security'
 import { SessionsSection } from './sections/sessions'
 import type { AccountView } from './sections/shared'
 import { SuperagentSection } from './sections/superagent'
-import { UpdatesSection } from './sections/updates'
 import { WorkflowSection } from './sections/workflow'
 import { WorkLlmSection } from './sections/workllm'
 import { SETTINGS_SURFACES, type SettingsSurface, SURFACE_COPY, tabsOnSurface } from './surfaces'
@@ -36,6 +35,9 @@ const ConnectedDevicesSection = lazy(() =>
   import('./sections/connected-devices').then((module) => ({
     default: module.ConnectedDevicesSection,
   })),
+)
+const UpdatesSection = lazy(() =>
+  import('./sections/updates').then((module) => ({ default: module.UpdatesSection })),
 )
 
 export type SettingsTab =
@@ -204,7 +206,11 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   security: ({ trpc }) => <LoginPasswordSection trpc={trpc} />,
   // Self-persisting (config.json, not the settings blob) — see privacy.tsx.
   privacy: () => <PrivacySection />,
-  updates: () => <UpdatesSection />,
+  updates: () => (
+    <Suspense fallback={<p className="settings-micro py-6">Loading updates…</p>}>
+      <UpdatesSection />
+    </Suspense>
+  ),
   experimental: ({ settings, patch, resetToDefaults }) => (
     <ExperimentalSection settings={settings} patch={patch} onReset={resetToDefaults} />
   ),

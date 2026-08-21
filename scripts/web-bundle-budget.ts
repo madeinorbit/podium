@@ -97,6 +97,9 @@ const INTERACTION_ONLY_MODULES = [
 
 /** Heavy leaf renderers whose callers deliberately load them after the shell. */
 const DEFERRED_FIRST_PAINT_MODULES = [
+  'src/app/IterationModeFrame.tsx',
+  'src/features/setup/SetupStaleBuild.tsx',
+  'src/lib/machine-version-skew.ts',
   'src/features/mobile-handoff/MobileHandoffQr.tsx',
   'src/features/chat/TranscriptFeed.tsx',
 ] as const
