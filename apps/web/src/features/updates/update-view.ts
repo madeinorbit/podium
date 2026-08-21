@@ -8,16 +8,20 @@
  */
 import type { ServerVersion, SkewVerdict, UpdateNotes } from '@podium/protocol'
 /**
- * THE SUBPATH IS LOAD-BEARING (POD-2241, POD-2190).
+ * THE SUBPATHS ARE LOAD-BEARING (POD-2241, POD-2190, POD-2502).
  *
- * Everything else this file needs from the protocol is a TYPE, which costs a
- * bundle nothing. The refusal table is a value, and reaching it through the
- * barrel pulls the entire wire schema into the update chunk — the chunk that
- * was deliberately split out to keep 99 KB off the first paint. Measured: the
- * chunk's cold import went from ~250 ms to ~3 s, and `updates-context.test.tsx`
- * timed out waiting for the panel to appear. The table imports nothing, so
- * through its own entrypoint it costs one module.
+ * Everything this file takes from the protocol BARREL is a TYPE, which costs a
+ * bundle nothing. The refusal table and `isDevChannelVersion` are values, and
+ * reaching either through the barrel pulls the entire wire schema into the
+ * update chunk — the chunk that was deliberately split out to keep 99 KB off
+ * the first paint. Measured: the chunk's cold import went from ~250 ms to ~3 s,
+ * and `updates-context.test.tsx` timed out waiting for the panel to appear.
+ * That is not a hypothetical — it reproduced on this branch when the shared
+ * dev-version helper was first imported through the barrel. The table imports
+ * nothing and the dev-version leaf imports only `version-order`, so through
+ * their own entrypoints they cost the chunk one module each.
  */
+import { isDevChannelVersion } from '@podium/protocol/update-dev-version'
 import type { MachineFailureCode } from '@podium/protocol/update-refusal'
 import {
   CODE_FOR_UPDATE_FAILURE_TOKEN,
@@ -105,7 +109,7 @@ function affectedMachineLabel(input: UpdateInput): string {
 
   const shown = names.slice(0, 3)
   const remaining = Math.max(0, input.fleet.behind - shown.length)
-  return remaining > 0 ? shown.join(', ') + ', and ' + remaining + ' more' : shown.join(', ')
+  return remaining > 0 ? `${shown.join(', ')}, and ${remaining} more` : shown.join(', ')
 }
 
 function targetNotes(
@@ -170,11 +174,12 @@ function placesFor(input: UpdateInput): Place[] {
   const places: Place[] = []
   const affected = affectedPlaces(input)
 
+  // Dev channel (forensic or publisher mint) — page follows this server.
   const sourceAppAndServer =
     affected.app &&
     affected.server &&
     (input.surface === 'web' || input.surface === 'mobile') &&
-    (input.server.target?.version ?? '').startsWith('dev+')
+    isDevChannelVersion(input.server.target?.version ?? '')
 
   if (sourceAppAndServer) {
     const server = input.serverName ? `your server (${input.serverName})` : 'your server'

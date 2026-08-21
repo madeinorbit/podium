@@ -26,6 +26,21 @@ describe('isProvablyNewer', () => {
     ['0.1.4-alpha.1', '0.1.4-alpha.beta', false, 'numeric ranks below alphanumeric'],
     ['0.1.4+abc1234', '0.1.4', false, 'build metadata takes no part in precedence'],
     ['0.1.5+abc1234', '0.1.4', true, 'and does not prevent a real comparison either'],
+    // Publisher-minted development versions (POD-2502): appended prerelease
+    // identifiers `.dev.<N>` with the commit as build metadata.
+    [
+      '0.1.0-edge.20.dev.5+656f49b',
+      '0.1.0-edge.20',
+      true,
+      'a dest mint ranks above the edge cut it builds on',
+    ],
+    ['0.1.0-edge.20.dev.5+656f49b', '0.1.0-edge.21', false, 'and below the next edge cut'],
+    [
+      '0.1.0-edge.20.dev.10+aaa',
+      '0.1.0-edge.20.dev.4+bbb',
+      true,
+      'dest counters compare numerically; build metadata is ignored',
+    ],
     // FAIL CLOSED. Both callers read `false` as "cannot be proven ahead", never
     // as "is older": one leaves an install where it is, the other refuses a swap
     // it cannot prove survivable.

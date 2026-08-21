@@ -71,12 +71,75 @@ answer: SW-cached assets + IndexedDB, eviction accepted as a "be online once" re
 2. **Service-worker cache** — the offline layer, best-effort. Evictable (the webview
    engine owns eviction; nothing is contractual; `persist()` helps). Keyed by origin
    (scheme+host+port) — server-origin stability is part of the contract. WKWebView SW
-   support unverified → open item. In browsers this is all there is — same accepted
-   risk as Linear (`/refresh`-style repair, "be online once" recovery).
-3. **Baked dist in the .app** — last resort, potentially stale. Guarded: if its build
-   stamp is too old for the local replica (existing skew machinery), show a clear
-   "connect once to update Podium" error instead of running stale code against newer
-   local data.
+   support is **degraded** (see verification below); the design tolerates that. In
+   browsers this is all there is — same accepted risk as Linear (`/refresh`-style
+   repair, "be online once" recovery).
+3. **Baked dist in the .app** — last resort, potentially stale. Guarded: if it is too
+   old for the local replica, show a clear "connect once to update Podium" error
+   instead of running stale code against newer local data. The ordinary skew machinery
+   cannot answer this — it grades the page against a REACHABLE server's `/version`, and
+   this is the case where nothing answers. So the comparison is against a LOCAL record:
+   the shell persists the build identity (`wireVersion`, `minSupportedVersion`,
+   `wireSchemaDigest`, `appVersion`) of the local server it last actually read, and
+   injects it into local documents as `__PODIUM_LOCAL_BUILD__`
+   (`bootstrap::local_build_injection_script`). `SetupGate` grades this build against it
+   on the unreachable path only, and blocks on `client-too-old` — this build is below
+   the recorded wire version, or below the minimum that build supported. A digest
+   difference at the SAME wire version deliberately does not block: wire-compatible
+   builds decode each other's rows, dev builds differ by digest constantly, and the
+   existing skew notice already speaks to that case. Residual: the stamp a page holds
+   is fixed at window creation (an initialization script cannot be rewritten), so a
+   server updated in place mid-session leaves the open window's copy one build behind;
+   the watchdog refreshes the PERSISTED stamp every ~30s so the next boot is accurate.
+
+**Boot order (shell):** reachable connected server → load its http(s) origin; else
+baked `frontendDist` (tauri scheme) with reconnect injection. SW cache is not a
+separate shell URL choice — when present it answers inside the served origin.
+
+**Stable local origin contract:** all-in-one / local-server webviews load
+`http://127.0.0.1:<port>/`, where `<port>` is `PODIUM_PORT` → `config.port` →
+`defaultInstancePorts(PODIUM_INSTANCE).server` (`18787` for the `default` instance;
+a hashed triplet in `20000..43999` for a named one). That is the full `resolvePort`
+precedence from `@podium/runtime`, and the shell mirrors it — including the FNV-1a
+per-instance derivation — in `bootstrap::resolve_local_port`, pinned against the
+TypeScript values by a unit test. The origin must not change across ordinary
+restarts: SW cache identity, cookies, and IndexedDB are all origin-keyed. Ephemeral
+`pick_free_port()` is retired for this path. A second desktop shell on the same box
+must therefore differ in `PODIUM_INSTANCE`, `PODIUM_PORT`, or `config.port` — two
+shells sharing an origin is not merely untidy, because the shell grants its served
+origin window controls, the opener, `sql:default` + `sql:allow-execute` and the
+update bridge (see `docs/multi-instance.md`). Prefer `127.0.0.1` over `localhost`
+(distinct origins).
+
+**The origin has to identify itself.** The port is fixed and unprivileged, so
+"something accepted a TCP connection there" is not evidence that it is ours. The
+shell loads the served origin only after `/version` answers with a Podium payload
+(`wireVersion` + `wireSchemaDigest`) carrying THIS instance's `instanceId`;
+otherwise it falls back to the baked dist. Liveness polling afterwards uses the
+cheap `/health`, but every decision to LOAD the origin — boot, and the return from a
+fallback — re-runs the identity probe.
+
+**Server-down while running:** the boot probe answers "was the sidecar up when we
+opened the window", which is not the same question as "is it up now". A local window
+therefore keeps watching (`spawn_local_document_watchdog`): after ~6s of consecutive
+failures it navigates to the baked dist (reconnect UX, `__PODIUM_SERVER__` pinned to
+the loopback ws), and once the server answers the identity probe again it navigates
+back — the served UI is the one that matches the server. It only ever moves the
+window between those two documents, and stops as soon as a runtime transfer has
+retargeted the window to a remote origin.
+
+**Verification (POD-2510, 2026-08-21) — IPC / SW / CSP for served origins**
+
+There is no Mac in the fleet this run (offline 10+ days), so nothing below is
+macOS-observed. The platform of each observation is named; where the answer is
+inference, the verdict says so.
+
+| Concern | Finding | Consequence |
+|---|---|---|
+| IPC from served http(s) — **WebKitGTK (Linux): observed** | Tauri v2 grants it via `CapabilityBuilder::remote(urlPattern)` (v1's `dangerousRemoteDomainIpcAccess` equivalent). POD-1782 evidence: on **Linux native Tauri WebView under isolated Xvfb — WebKitGTK, not WKWebView** — after retarget to a remote http origin, `toggleMaximize` / `startDragging` / `internalToggleMaximize` invoked successfully (`apps/desktop/src-tauri/tests/evidence/pod-1782-native-runtime.json`, field `platform`). | Served-local all-in-one uses the same grant pattern for `http://127.0.0.1:<port>/*`. |
+| IPC from served http(s) — **WKWebView (macOS): expected to work, UNVERIFIED** | The grant mechanism is engine-independent (Tauri's capability layer, not a webview API), and macOS client/daemon shells have loaded a remote http(s) origin as the page since `6352c24e4` (2026-06-30) — a fix made *because* WKWebView failed the cross-origin alternative (WebSocket close 1006 from `tauri://localhost`). That commit sources macOS *page loading* from a served origin; it does not by itself record an IPC invocation from one. No macOS run was performed for this issue. | Proceed with server-served UI; no auto-sync-tauri-scheme fallback issue needed. If WKWebView IPC did fail from `http://127.0.0.1`, the all-in-one Mac would lose window controls and the SQL replica — worth 10 minutes on the first Mac that comes back online. |
+| Service workers in WKWebView — **desk research, not a run** | Apple/WebKit state the SW API is available in Safari, SFSafariViewController, and home-screen web apps — not general third-party WKWebView ([WebKit, "Workers at Your Service"](https://webkit.org/blog/8090/workers-at-your-service/), 2017 + post update). Nothing was measured here. Secure-context rules still apply where SW exists (`https` or loopback). | Treat layer 2 as absent on macOS until measured; the design already tolerates that — macOS desktop relies on live server + baked fallback. |
+| CSP — **read from config** | App `tauri.conf.json` sets `"csp": null` (no Tauri-injected asset CSP). A served page is governed by the **server's** CSP/CORS headers, identical to a browser tab. Remote-mode shells already depend on this. | No extra shell CSP work for served-local; keep server headers correct. |
 
 DEFERRED: a shell-managed durable dist copy in Application Support (engine-evict-proof
 offline boot). Adopt only if the layer-3 error is actually seen in practice.
@@ -386,8 +449,14 @@ Need operator decisions:
 - **Settings UI redesign** (display breaks 1–2): per-component versions become
   ALWAYS-VISIBLE rows with an expected/unexpected skew marking (shell trailing on dev
   = normal, not a fault); the "Web app" row is replaced by a "UI source" row (live
-  server / offline cache / built-in fallback + build stamp); the legacy
-  `surfaceFromDesktopBridge` http(s) heuristic is fixed alongside `launchMode`.
+  server / offline cache / built-in fallback + build stamp); `launchMode` over the
+  bridge is authoritative for surface classification — the page never re-derives it
+  from its own origin, and the legacy origin heuristic runs only for a shell too old
+  to report `launchMode` at all. The shell computes it by comparing
+  `window.location.origin` against the served-local origin IT chose, so a served-local
+  all-in-one page reports `all-in-one` while a page a runtime transfer moved to a
+  remote server reports `daemon` (POD-2510; `LOCAL_LAUNCH_MODE_EXPRESSION` in
+  `main.rs`, evaluated by `tauri-conf.test.ts`).
 
 ### 8a. Full update matrix (components × running modes × channels)
 
@@ -437,6 +506,78 @@ the same code path. DECISIVE SPIKE (top priority): a Bun cross-compiled,
 rcodesign-ad-hoc-signed darwin binary must run on macOS and spawn abduco correctly —
 the fallback if it fails is a Mac CI leg per release and stale dev Mac payloads, which
 this design otherwise avoids.
+
+**Spike status (POD-2501, 2026-08-21): GO.** The whole darwin-arm64 headless
+payload was cross-compiled on Linux (Bun `--target=bun-darwin-arm64` + a `zig cc`
+prebuilt abduco + an `rcodesign` ad-hoc signature carrying Bun's JIT entitlements),
+and that payload was then **executed and passed on an Apple Silicon macOS 15 CI
+runner** — GitHub Actions run `32433063958`, job `verify-macos`, host
+`Darwin 24.6.0 … RELEASE_ARM64_VMAPPLE arm64`, a GitHub-hosted VM on a blacksmith
+runner. Transcript:
+`docs/internal/superpowers/spikes/2026-08-21-mac-verify-round2.log` (round 1:
+`…-round1.log`). On that run: `--version` printed `podium spike-darwin+0.1.1-edge.1`;
+`all-in-one` booted server + janitor + daemon against a throwaway `PODIUM_STATE_DIR`
+(so `bun:sqlite` in a cross-built binary works); the embedded abduco materialized to
+`state/bin/abduco` and ran; an abduco session was created and survived the
+all-in-one being killed. **No Mac is needed to build Darwin headless payloads.**
+
+What the macOS run does NOT establish, and who closes it:
+
+- **darwin-x64 execution.** The x64 payload cross-builds and asserts on Linux, but
+  has never been run on an Intel Mac or under Rosetta. POD-2520 carries an
+  `macos-15-intel` leg.
+- **A real end-user Mac.** The run was a CI VM, not fleet hardware and not a
+  user's laptop. Two consequences follow from that and are open: whether Gatekeeper
+  blocks a quarantined copy (on the CI VM it did not, so "Gatekeeper cleared" is
+  *not* claimed), and whether AMFI enforces the arm64 signature requirement the way
+  a normal Mac does.
+- **`codesign --verify`.** The CI run only ran `codesign -dv`, which displays a
+  signature without validating the seal. That an rcodesign signature satisfies
+  Apple's own verifier is therefore still unproven; the verifier script now runs
+  `codesign --verify --strict`.
+- **The discovery-worker entrypoint** is compiled in as a second entrypoint but was
+  never executed, and abduco was invoked directly rather than through a podium
+  agent session — materialization is proven, the daemon→abduco→session path is not.
+- **The spike `headless/` is not the production layout** (no `systemd/`, no
+  NOTICE/LICENSE, stub web/mobile `index.html`). POD-2504 must not assume the full
+  bundle layout was exercised; the Mac boot logged "Served web bundle has no valid
+  build stamp" for exactly that reason.
+
+**What `rcodesign` actually contributes: the entitlements, not the signature.**
+`bun build --compile --target=bun-darwin-*` already emits an ad-hoc signed Mach-O —
+verified on the Linux box: `CodeSignatureFlags(ADHOC | LINKER_SIGNED)`, identifier
+`a.out`. The `rcodesign sign` pass replaces that with `ADHOC`, identifier `podium`,
+plus the five Bun JIT entitlement keys. So an earlier reading of the CI log —
+"unsigned ran anyway, AMFI anomaly" — was wrong: that binary was never unsigned, and
+nothing in the run showed AMFI to be lenient. If the release job ever drops
+`rcodesign`, what breaks is JIT, not code signing. A genuine unsigned probe needs the
+signature stripped on purpose (`scripts/spike/macho-strip-signature.py`), which the
+Mac verifier now does.
+
+The Linux-side assertions run against the binary **inside the shipped tarball**
+(`scripts/spike/linux-assert-darwin-spike.sh`), and
+`scripts/spike/prove-assert-can-fail.sh` demonstrates all ten of their failure modes
+going red — a hello-world binary, a Linux ELF, a build with the Linux abduco
+embedded, a stripped signature, a flipped sealed byte, empty entitlements, Bun's raw
+linker-signed output, a deleted input, the wrong tarball layout, and a missing file.
+
+| Step | Result |
+|---|---|
+| Prebuilt abduco via `zig cc` (darwin-arm64 + darwin-x64) | GO — Mach-O, not host ELF; `rcodesign` ADHOC |
+| `bun build --compile --target=bun-darwin-arm64` embedding that abduco | GO — spike `scripts/spike/build-bun-darwin.ts`; the darwin abduco is present verbatim in the shipped binary and no ELF header is |
+| Ad-hoc sign from Linux with Bun JIT entitlements | GO — `rcodesign sign --binary-identifier podium --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist`; adds the entitlements on top of Bun's own linker signature |
+| Updater tarball layout (`headless/` root) | GO — matches `update-install.ts` |
+| macOS arm64: `--version`, all-in-one boot, abduco materialize + session survives | **GO — executed on Apple Silicon macOS 15 CI runner, Actions run 32433063958** |
+| macOS arm64 on real user hardware: Gatekeeper w/ quarantine, AMFI signature enforcement, `codesign --verify` | NOT PROVEN — POD-2520 |
+| macOS x64 execution | NOT PROVEN — POD-2520 `macos-15-intel` leg |
+
+Re-running the execution proof: `.github/workflows/darwin-mac-execution-proof.yml`
+(`workflow_dispatch`). It is deliberately **not** a per-release gate — no Mac sits in
+the build loop — but it exists so the proof can be repeated after a Bun bump, an
+abduco rebuild, or a change to the signing step.
+
+Evidence write-up:
+`docs/internal/superpowers/spikes/2026-08-21-darwin-cross-compile-spike.md`.
 
 ## 8c. Decisions log (grilling round 1, 2026-08-21)
 
@@ -491,8 +632,12 @@ this design otherwise avoids.
 ## 9. Open items
 
 - Spike: updater-swapped ad-hoc-signed .app relaunches cleanly on macOS (Gatekeeper).
-- Verify: service workers (and IPC) in the Tauri/WKWebView webview when the UI is
-  served from the connected server (§2.1).
+- Verify **on a Mac**: IPC from a served origin in Tauri's WKWebView, and service
+  workers there (§2.1). POD-2510 answered the mechanism (remote capabilities) and
+  observed it on WebKitGTK/Linux; WKWebView remains inference, because no Mac was
+  online during that issue. The SW answer is desk research from WebKit's own
+  documentation, not a measurement. Both rows and their consequences are recorded
+  under §2.1 — this stays open until someone runs it on macOS.
 - Define the shell-input hash set for CI's shell-version mint decision (§5).
 - Dev feed manifest validation scoped to fleet platforms vs production's full set.
 - Parent↔shell relationship on macOS: shell *as* parent vs shell supervising the parent.

@@ -1,5 +1,8 @@
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildDevBundle,
   classifyIgnoredSourceInputs,
@@ -16,10 +19,40 @@ import {
   devTarget,
   listDevBundles,
   parseDevBundleName,
+  requireDefinedMigrations,
   selectDevBundleSweep,
   sweepDevBundles,
 } from './dev-bundle'
 import { createServerDevBundleLock } from './dev-bundle-lock'
+
+const CHECKOUT_BASE = '0.1.0-edge.20'
+const publisherDirs: string[] = []
+
+function publisherDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-dev-publisher-'))
+  publisherDirs.push(dir)
+  return dir
+}
+
+afterEach(() => {
+  while (publisherDirs.length > 0) {
+    const dir = publisherDirs.pop()
+    if (dir) rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/** Publisher seams every build/publish test needs after POD-2502. */
+function publisherSeams(): {
+  publisherStateDir: string
+  checkoutReleaseBase: string
+  migrationsAt: (sha: string) => Promise<string[]>
+} {
+  return {
+    publisherStateDir: publisherDir(),
+    checkoutReleaseBase: CHECKOUT_BASE,
+    migrationsAt: async () => ['20260715135845_baseline'],
+  }
+}
 
 const base = {
   isSourceRun: true,
@@ -302,17 +335,19 @@ function published(input: {
   signature: string
   signingKey?: string
   root?: string
+  /** Override the minted version; defaults to a publisher mint on CHECKOUT_BASE. */
+  version?: string
+  counter?: number
 }) {
+  const version = input.version ?? `0.1.0-edge.20.dev.${input.counter ?? 1}+${input.sha}`
   const path =
-    (input.root ?? '/repo/podium') +
-    '/dist-bun/' +
-    devBundleFileName('dev+' + input.sha, input.stamp)
+    (input.root ?? '/repo/podium') + '/dist-bun/' + devBundleFileName(version, input.stamp)
   return memoryFs({
     blobs: { [path]: input.bytes },
     text: {
       [path + '.sig']: input.signature + '\n',
       [path + '.meta.json']: JSON.stringify({
-        version: 'dev+' + input.sha,
+        version,
         digest: digestOf(input.bytes),
         size: input.bytes.length,
         keyFingerprint: devBundleKeyFingerprint(input.signingKey),
@@ -427,21 +462,30 @@ describe('development bundle names', () => {
   it('stamps a build at fixed width, so string order is build order', () => {
     expect(devBundleStamp(Date.UTC(2026, 7, 12, 18, 20, 15, 903))).toBe('20260812T182015Z')
     expect(devBundleStamp(Date.UTC(2026, 0, 1, 0, 0, 0))).toBe('20260101T000000Z')
-    expect(devBundleFileName('dev+abc1234', '20260812T182015Z')).toBe(
-      'podium-headless-dev+abc1234-20260812T182015Z.tar.gz',
+    expect(devBundleFileName('0.1.0-edge.20.dev.5+abc1234', '20260812T182015Z')).toBe(
+      'podium-headless-0.1.0-edge.20.dev.5+abc1234-20260812T182015Z.tar.gz',
     )
   })
 
-  it('recognises this build’s own artifacts, stamped or not', () => {
+  it('recognises legacy and publisher-minted artifacts', () => {
     expect(parseDevBundleName('podium-headless-dev+abc1234-20260812T182015Z.tar.gz')).toEqual({
       name: 'podium-headless-dev+abc1234-20260812T182015Z.tar.gz',
       sha: 'abc1234',
       stamp: '20260812T182015Z',
+      version: 'dev+abc1234',
     })
     // The shape that accumulated before builds were stamped is still ours.
     expect(parseDevBundleName('podium-headless-dev+abc1234.tar.gz')).toMatchObject({
       sha: 'abc1234',
       stamp: '',
+    })
+    expect(
+      parseDevBundleName('podium-headless-0.1.0-edge.20.dev.5+656f49b-20260812T182015Z.tar.gz'),
+    ).toEqual({
+      name: 'podium-headless-0.1.0-edge.20.dev.5+656f49b-20260812T182015Z.tar.gz',
+      sha: '656f49b',
+      stamp: '20260812T182015Z',
+      version: '0.1.0-edge.20.dev.5+656f49b',
     })
   })
 
@@ -529,6 +573,16 @@ describe('selectDevBundleSweep', () => {
       previous,
     ])
   })
+
+  it('never deletes an artifact referenced by current manifests, even if stamp-newest', () => {
+    const current = `podium-headless-0.1.0-edge.20.dev.2+ddddddd-20260812T190000Z.tar.gz`
+    const retained = `podium-headless-0.1.0-edge.20.dev.1+ccccccc-20260812T180000Z.tar.gz`
+    const orphan = `podium-headless-0.1.0-edge.20.dev.3+bbbbbbb-20260812T200000Z.tar.gz`
+    const listing = [current, retained, orphan, orphan + '.sig', 'podium-headless-0.2.0.tar.gz']
+    expect(
+      selectDevBundleSweep(listing, { referenced: [current, retained], protect: [current] }).sort(),
+    ).toEqual([orphan, orphan + '.sig'].sort())
+  })
 })
 
 describe('sweepDevBundles', () => {
@@ -576,6 +630,7 @@ describe('buildDevBundle', () => {
     const store = memoryFs()
     const events: string[] = []
     const built = await buildDevBundle({
+      ...publisherSeams(),
       root: '/repo/podium',
       headSha: '123456789abcdef',
       fs: store.fs,
@@ -589,24 +644,26 @@ describe('buildDevBundle', () => {
       },
     })
 
-    expect(built.version).toBe('dev+1234567')
-    // The version a daemon sees names the commit; the FILE also names the build.
+    expect(built.version).toBe('0.1.0-edge.20.dev.1+1234567')
+    // The version a daemon sees is the publisher mint; the FILE also names the build.
     expect(built.path).toBe(
-      '/repo/podium/dist-bun/podium-headless-dev+1234567-20260812T182015Z.tar.gz',
+      '/repo/podium/dist-bun/podium-headless-0.1.0-edge.20.dev.1+1234567-20260812T182015Z.tar.gz',
     )
     expect(built.size).toBe(bytes.length)
     expect(built.digest).toBe(digestOf(bytes))
-    expect(events).toEqual(['acquire', 'build:dev+1234567', 'release'])
+    expect(events).toEqual(['acquire', 'build:0.1.0-edge.20.dev.1+1234567', 'release'])
     const target = devTarget(built, {
       platform: 'linux-x86_64',
-      artifactUrl: 'http://server.test/updates/dev-bundle/dev%2B1234567',
+      artifactUrl: 'http://server.test/updates/dev-bundle/' + encodeURIComponent(built.version),
       sourceRoot: '/repo/podium',
+      schemaMigrations: ['20260715135845_baseline'],
     })
+    expect(target.schema).toEqual({ migrations: ['20260715135845_baseline'] })
     expect(target.artifacts.headless).toEqual({
       delivery: 'bundle',
       platforms: {
         'linux-x86_64': {
-          url: 'http://server.test/updates/dev-bundle/dev%2B1234567',
+          url: 'http://server.test/updates/dev-bundle/' + encodeURIComponent(built.version),
           digest: built.digest,
           signature,
         },
@@ -618,9 +675,13 @@ describe('buildDevBundle', () => {
     expect(target.artifacts.web).toEqual({ digest: '1234567' })
   })
 
-  it('advertises dev+HEAD with a web digest when there is no tarball yet', () => {
-    const identity = devIdentityTarget('f9485d31b', { sourceRoot: '/repo/podium' })
-    expect(identity.version).toBe('dev+f9485d3')
+  it('advertises an orderable identity with a web digest when there is no tarball yet', () => {
+    const identity = devIdentityTarget('0.1.0-edge.20.dev.1+f9485d3', 'f9485d31b', {
+      sourceRoot: '/repo/podium',
+      schemaMigrations: ['20260715135845_baseline'],
+    })
+    expect(identity.version).toBe('0.1.0-edge.20.dev.1+f9485d3')
+    expect(identity.schema).toEqual({ migrations: ['20260715135845_baseline'] })
     expect(identity.artifacts.web).toEqual({ digest: 'f9485d3' })
     expect(identity.artifacts.headless).toBeUndefined()
     expect(identity.artifacts.headlessAlternatives).toEqual([
@@ -632,6 +693,7 @@ describe('buildDevBundle', () => {
     const big = new Uint8Array(4096).fill(7)
     const store = memoryFs()
     const built = await buildDevBundle({
+      ...publisherSeams(),
       root: '/repo/podium',
       headSha: '123456789abcdef',
       fs: store.fs,
@@ -650,9 +712,11 @@ describe('buildDevBundle', () => {
 
   it('rebuilding one commit writes a new file instead of overwriting the published one', async () => {
     const store = memoryFs()
+    const seams = publisherSeams()
     const built: string[] = []
     for (const at of [Date.UTC(2026, 7, 12, 18, 20, 15), Date.UTC(2026, 7, 12, 19, 30, 45)]) {
       const bundle = await buildDevBundle({
+        ...seams,
         root: '/repo/podium',
         headSha: 'aaaaaaa',
         fs: store.fs,
@@ -667,15 +731,23 @@ describe('buildDevBundle', () => {
     }
 
     expect(built[0]).not.toBe(built[1])
-    // Both survive: a request already streaming the first one keeps its file.
-    expect(store.names()).toContain('podium-headless-dev+aaaaaaa-20260812T182015Z.tar.gz')
-    expect(store.names()).toContain('podium-headless-dev+aaaaaaa-20260812T193045Z.tar.gz')
+    // Same HEAD reuses the mint (F6); the FILE still gets a new stamp so a
+    // streaming download of the previous artifact is not overwritten.
+    expect(built[0]).toContain('dev.1+aaaaaaa-20260812T182015Z')
+    expect(built[1]).toContain('dev.1+aaaaaaa-20260812T193045Z')
+    expect(store.names()).toContain(
+      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T182015Z.tar.gz',
+    )
+    expect(store.names()).toContain(
+      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T193045Z.tar.gz',
+    )
   })
 
   it('records how it published, so a later restore can check it without the bytes', async () => {
     const { bytes, signature, signingKey } = signedFixture()
     const store = memoryFs()
     const built = await buildDevBundle({
+      ...publisherSeams(),
       root: '/repo/podium',
       headSha: 'aaaaaaa',
       signingKey,
@@ -689,7 +761,7 @@ describe('buildDevBundle', () => {
     })
 
     expect(JSON.parse(store.text.get(built.path + '.meta.json') as string)).toEqual({
-      version: 'dev+aaaaaaa',
+      version: '0.1.0-edge.20.dev.1+aaaaaaa',
       digest: digestOf(bytes),
       size: bytes.length,
       keyFingerprint: devBundleKeyFingerprint(signingKey),
@@ -705,6 +777,7 @@ describe('buildDevBundle', () => {
     let head = shas[0] as string
     let minute = 0
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
@@ -726,15 +799,11 @@ describe('buildDevBundle', () => {
       await publisher.requestBuild(true)
     }
 
-    expect(store.names()).toEqual([
-      'podium-headless-dev+5555555-20260812T185000Z.tar.gz',
-      'podium-headless-dev+5555555-20260812T185000Z.tar.gz.meta.json',
-      'podium-headless-dev+5555555-20260812T185000Z.tar.gz.sig',
-      'podium-headless-dev+6666666-20260812T190000Z.tar.gz',
-      'podium-headless-dev+6666666-20260812T190000Z.tar.gz.meta.json',
-      'podium-headless-dev+6666666-20260812T190000Z.tar.gz.sig',
-    ])
-    expect((await publisher.target())?.version).toBe('dev+6666666')
+    const tarNames = store.names().filter((n) => n.endsWith('.tar.gz'))
+    expect(tarNames).toHaveLength(2)
+    expect(tarNames.some((n) => n.includes('dev.5+5555555'))).toBe(true)
+    expect(tarNames.some((n) => n.includes('dev.6+6666666'))).toBe(true)
+    expect((await publisher.target())?.version).toBe('0.1.0-edge.20.dev.6+6666666')
   })
 
   it('reclaims a backlog on restart, from the restore path, without compiling', async () => {
@@ -759,6 +828,7 @@ describe('buildDevBundle', () => {
     }
     let builds = 0
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
@@ -776,19 +846,24 @@ describe('buildDevBundle', () => {
     await publisher.requestBuild(true)
 
     expect(builds).toBe(0)
-    expect(store.names()).toEqual([
-      'podium-headless-dev+3333333-20260812T180000Z.tar.gz',
-      'podium-headless-dev+3333333-20260812T180000Z.tar.gz.sig',
-      'podium-headless-dev+aaaaaaa-20260812T190000Z.tar.gz',
-      'podium-headless-dev+aaaaaaa-20260812T190000Z.tar.gz.meta.json',
-      'podium-headless-dev+aaaaaaa-20260812T190000Z.tar.gz.sig',
-    ])
+    // Reference-based retention keeps the restored artifact and the previous
+    // recognised publisher bundle (DEV_BUNDLE_RETAINED=2), even after state loss.
+    expect(store.names().sort()).toEqual(
+      [
+        'podium-headless-dev+3333333-20260812T180000Z.tar.gz',
+        'podium-headless-dev+3333333-20260812T180000Z.tar.gz.sig',
+        'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T190000Z.tar.gz',
+        'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T190000Z.tar.gz.meta.json',
+        'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T190000Z.tar.gz.sig',
+      ].sort(),
+    )
   })
 
   it('releases the lease and keeps a failed build unpublished', async () => {
     const events: string[] = []
     await expect(
       buildDevBundle({
+        ...publisherSeams(),
         headSha: '123456789abcdef',
         fs: stubFs(),
         lock: lockFixture(events),
@@ -812,6 +887,7 @@ describe('buildDevBundle', () => {
     })
     let builds = 0
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
@@ -830,12 +906,12 @@ describe('buildDevBundle', () => {
 
     expect(builds).toBe(0)
     expect(restored).toMatchObject({
-      version: 'dev+aaaaaaa',
-      path: '/repo/podium/dist-bun/podium-headless-dev+aaaaaaa-20260812T182015Z.tar.gz',
+      version: '0.1.0-edge.20.dev.1+aaaaaaa',
+      path: '/repo/podium/dist-bun/podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T182015Z.tar.gz',
       signature,
     })
     expect(restored?.digest).toBe(digestOf(bytes))
-    expect((await publisher.target())?.version).toBe('dev+aaaaaaa')
+    expect((await publisher.target())?.version).toBe('0.1.0-edge.20.dev.1+aaaaaaa')
   })
 
   it('rebuilds rather than restore an artifact this server did not publish', async () => {
@@ -852,7 +928,7 @@ describe('buildDevBundle', () => {
             signingKey,
           })
           store.text.delete(
-            '/repo/podium/dist-bun/podium-headless-dev+aaaaaaa-20260812T182015Z.tar.gz.meta.json',
+            '/repo/podium/dist-bun/podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T182015Z.tar.gz.meta.json',
           )
           return store
         })(),
@@ -878,7 +954,7 @@ describe('buildDevBundle', () => {
             signingKey,
           })
           store.blobs.set(
-            '/repo/podium/dist-bun/podium-headless-dev+aaaaaaa-20260812T182015Z.tar.gz',
+            '/repo/podium/dist-bun/podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T182015Z.tar.gz',
             bytes.slice(0, 2),
           )
           return store
@@ -889,6 +965,7 @@ describe('buildDevBundle', () => {
     for (const { label, store } of cases) {
       let builds = 0
       const publisher = createDevBundlePublisher({
+        ...publisherSeams(),
         isSourceRun: true,
         readSourceStatus: () => '',
         readIgnoredSourceInputs: () => '',
@@ -915,6 +992,7 @@ describe('buildDevBundle', () => {
     let attempts = 0
     const events: string[] = []
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
@@ -930,14 +1008,15 @@ describe('buildDevBundle', () => {
     })
 
     await publisher.requestBuild(true)
-    expect((await publisher.target())?.version).toBe('dev+aaaaaaa')
+    expect((await publisher.target())?.version).toBe('0.1.0-edge.20.dev.1+aaaaaaa')
     head = 'bbbbbbb'
     await expect(publisher.requestBuild(true)).rejects.toThrow('second compile failed')
     // The signed bytes for the old commit survive — a later request at that sha
     // can still restore them — but they are no longer offered as the target,
     // because they are not what this server is running.
-    expect(publisher.current()?.version).toBe('dev+aaaaaaa')
-    expect((await publisher.target())?.version).toBe('dev+bbbbbbb')
+    expect(publisher.current()?.version).toBe('0.1.0-edge.20.dev.1+aaaaaaa')
+    expect((await publisher.target())?.version?.endsWith('+bbbbbbb')).toBe(true)
+    expect((await publisher.target())?.version?.startsWith('dev+')).toBe(false)
     expect((await publisher.target())?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
     expect((await publisher.target())?.artifacts.headless).toBeUndefined()
   })
@@ -950,6 +1029,7 @@ describe('buildDevBundle', () => {
     const { bytes, signature } = signedFixture()
     const order: string[] = []
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
@@ -979,6 +1059,7 @@ describe('buildDevBundle', () => {
     const seen: boolean[] = []
     let builds = 0
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
@@ -1011,6 +1092,7 @@ describe('buildDevBundle', () => {
   it('does not compile when the website could not be settled', async () => {
     let builds = 0
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
@@ -1026,7 +1108,7 @@ describe('buildDevBundle', () => {
     await expect(publisher.requestBuild(true)).rejects.toThrow('vite blew up')
     // The whole point of hoisting the precondition: nothing expensive runs.
     expect(builds).toBe(0)
-    expect((await publisher.readiness())).toMatchObject({ state: 'failed', headSha: 'aaaaaaa' })
+    expect(await publisher.readiness()).toMatchObject({ state: 'failed', headSha: 'aaaaaaa' })
   })
 
   it('refuses to build or restore anything from a dirty checkout', async () => {
@@ -1041,6 +1123,7 @@ describe('buildDevBundle', () => {
     let builds = 0
     let reads = 0
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       root: '/repo/podium',
       headSha: () => 'aaaaaaa',
@@ -1071,11 +1154,14 @@ describe('buildDevBundle', () => {
     expect(await publisher.target()).toBeUndefined()
     expect(publisher.unavailable()).toContain('apps/server/src/server.ts')
     // And nothing was reclaimed: a refusal is not a licence to touch the disk.
-    expect(store.names()).toContain('podium-headless-dev+aaaaaaa-20260812T182015Z.tar.gz')
+    expect(store.names()).toContain(
+      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T182015Z.tar.gz',
+    )
   })
 
   it('refuses when the checkout cannot be verified at all', async () => {
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => {
@@ -1098,6 +1184,7 @@ describe('buildDevBundle', () => {
     const { bytes, signature } = signedFixture()
     let porcelain = nul(' M apps/server/src/server.ts')
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => porcelain,
@@ -1111,7 +1198,7 @@ describe('buildDevBundle', () => {
     porcelain = ''
     await publisher.requestBuild(true)
 
-    expect(publisher.current()?.version).toBe('dev+aaaaaaa')
+    expect(publisher.current()?.version).toBe('0.1.0-edge.20.dev.1+aaaaaaa')
     expect(publisher.unavailable()).toBeUndefined()
   })
 
@@ -1137,6 +1224,7 @@ describe('buildDevBundle', () => {
     })
     let builds = 0
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       headSha: async () => 'aaaaaaa',
       readSourceStatus: async () => '',
@@ -1169,6 +1257,7 @@ describe('development bundle readiness', () => {
     let head = 'aaaaaaa'
     let fail: string | null = null
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       headSha: () => head,
       readSourceStatus: options.porcelain ?? (() => ''),
@@ -1200,12 +1289,12 @@ describe('development bundle readiness', () => {
   it('is ready, with the version, once HEAD is built', async () => {
     const { publisher } = readinessFixture()
     await publisher.requestBuild(true)
-    expect((await publisher.readiness())).toEqual({
+    expect(await publisher.readiness()).toEqual({
       state: 'ready',
       headSha: 'aaaaaaa',
-      version: 'dev+aaaaaaa',
+      version: '0.1.0-edge.20.dev.1+aaaaaaa',
     })
-    expect((await publisher.target())?.version).toBe('dev+aaaaaaa')
+    expect((await publisher.target())?.version).toBe('0.1.0-edge.20.dev.1+aaaaaaa')
   })
 
   it('withdraws the old target the moment HEAD advances', async () => {
@@ -1215,11 +1304,12 @@ describe('development bundle readiness', () => {
 
     // The bundle still exists and is still dev+aaaaaaa; it is simply not the
     // target for the commit this server is now running.
-    expect(publisher.current()?.version).toBe('dev+aaaaaaa')
-    expect((await publisher.target())?.version).toBe('dev+bbbbbbb')
+    expect(publisher.current()?.version).toBe('0.1.0-edge.20.dev.1+aaaaaaa')
+    expect((await publisher.target())?.version?.endsWith('+bbbbbbb')).toBe(true)
+    expect((await publisher.target())?.version?.startsWith('dev+')).toBe(false)
     expect((await publisher.target())?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
     expect((await publisher.target())?.artifacts.headless).toBeUndefined()
-    expect((await publisher.readiness())).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
+    expect(await publisher.readiness()).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
   })
 
   it('reports failed for the new HEAD, not ready from the old one', async () => {
@@ -1229,14 +1319,15 @@ describe('development bundle readiness', () => {
     failNextBuild('compile blew up')
     await expect(publisher.requestBuild(true)).rejects.toThrow('compile blew up')
 
-    const readiness = (await publisher.readiness())
+    const readiness = await publisher.readiness()
     expect(readiness.state).toBe('failed')
     expect(readiness).toMatchObject({
       headSha: 'bbbbbbb',
       reason: 'compile blew up',
       publicReason: 'Building the development bundle for dev+bbbbbbb failed. See the server log.',
     })
-    expect((await publisher.target())?.version).toBe('dev+bbbbbbb')
+    expect((await publisher.target())?.version?.endsWith('+bbbbbbb')).toBe(true)
+    expect((await publisher.target())?.version?.startsWith('dev+')).toBe(false)
     expect((await publisher.target())?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
   })
 
@@ -1246,7 +1337,7 @@ describe('development bundle readiness', () => {
     })
     await expect(publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
 
-    const readiness = (await publisher.readiness())
+    const readiness = await publisher.readiness()
     expect(readiness).toMatchObject({
       state: 'failed',
       headSha: 'aaaaaaa',
@@ -1266,7 +1357,7 @@ describe('development bundle readiness', () => {
     expect((await publisher.readiness()).state).toBe('failed')
 
     moveHead('bbbbbbb')
-    expect((await publisher.readiness())).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
+    expect(await publisher.readiness()).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
   })
 
   it('is preparing while a build for this HEAD is in flight', async () => {
@@ -1280,6 +1371,7 @@ describe('development bundle readiness', () => {
       announceAdmitted = resolve
     })
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       headSha: async () => 'aaaaaaa',
       readSourceStatus: async () => '',
@@ -1313,6 +1405,7 @@ describe('ignored source inputs gate the build', () => {
     const { bytes, signature } = signedFixture()
     let builds = 0
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       headSha: () => 'aaaaaaa',
       // Clean by git status — the first query sees nothing at all.
@@ -1330,7 +1423,7 @@ describe('ignored source inputs gate the build', () => {
       /ignored source files.*apps\/server\/src\/local-override\.ts/s,
     )
     expect(builds).toBe(0)
-    expect((await publisher.readiness())).toMatchObject({
+    expect(await publisher.readiness()).toMatchObject({
       state: 'failed',
       publicReason:
         'The source checkout has 1 ignored source file that could be compiled into ' +
@@ -1341,6 +1434,7 @@ describe('ignored source inputs gate the build', () => {
   it('builds when the ignored files are only outputs and evidence', async () => {
     const { bytes, signature } = signedFixture()
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => '',
@@ -1357,6 +1451,7 @@ describe('ignored source inputs gate the build', () => {
 
   it('refuses when the ignored-source query itself cannot be run', async () => {
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => '',
@@ -1389,22 +1484,24 @@ describe('development targets declare the schema they can open', () => {
   const migrations = ['20260715135845_baseline', '20260816092917_operations-table']
 
   it('declares the migrations defined at the advertised commit', () => {
-    const target = devIdentityTarget('f9485d31b', {
+    const target = devIdentityTarget('0.1.0-edge.20.dev.1+f9485d3', 'f9485d31b', {
       sourceRoot: '/repo/podium',
       schemaMigrations: migrations,
     })
     expect(target.schema).toEqual({ migrations })
   })
 
-  it('says nothing when the commit tree could not be read', () => {
-    // Absent is not "safe" — the daemon reads a missing declaration as
-    // unproven and refuses. Better an honest refusal than a claim we cannot
-    // stand behind.
-    expect(devIdentityTarget('f9485d31b', { sourceRoot: '/repo/podium' }).schema).toBeUndefined()
+  it('refuses an identity target without migration declarations', () => {
+    expect(() =>
+      devIdentityTarget('0.1.0-edge.20.dev.1+f9485d3', 'f9485d31b', {
+        sourceRoot: '/repo/podium',
+      }),
+    ).toThrow(/no migrations found/)
   })
 
   it('publishes the declaration with the identity target', async () => {
     const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
       isSourceRun: true,
       headSha: () => 'f9485d31b',
       root: '/repo/podium',
@@ -1418,5 +1515,68 @@ describe('development targets declare the schema they can open', () => {
       },
     })
     expect((await publisher.target())?.schema).toEqual({ migrations })
+  })
+
+  it('reports a corrupt publisher state as no target instead of throwing', async () => {
+    // `dev-publisher-wiring.ts` calls `publishReadiness()` as a floating promise
+    // with no `.catch`, and that awaits `target()`. Minting reads the checkout's
+    // package.json, reads and rewrites publisher state and fails closed when it
+    // cannot prove the mint is newer — so an unwrapped throw here is an
+    // unhandled rejection on the live server, where the honest answer is "no
+    // release available, and here is why".
+    const stateDir = publisherDir()
+    writeFileSync(join(stateDir, 'dev-publisher-version.json'), '{ not json at all')
+    const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
+      publisherStateDir: stateDir,
+      isSourceRun: true,
+      headSha: () => 'f9485d31b',
+      root: '/repo/podium',
+      migrationsAt: async () => migrations,
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
+      fs: stubFs(),
+      lock: lockFixture([]),
+      spawnBuild: async () => {
+        throw new Error('should not build')
+      },
+    })
+    expect(await publisher.target()).toBeUndefined()
+    expect(publisher.unavailable()).toMatch(/invalid persisted development publisher state/)
+  })
+
+  it('refuses to publish a target when migrations cannot be declared', async () => {
+    const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
+      isSourceRun: true,
+      headSha: () => 'f9485d31b',
+      root: '/repo/podium',
+      migrationsAt: async () => undefined,
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
+      fs: stubFs(),
+      lock: lockFixture([]),
+      spawnBuild: async () => {
+        throw new Error('should not build')
+      },
+    })
+    expect(await publisher.target()).toBeUndefined()
+    expect(publisher.unavailable()).toMatch(/no migrations found/)
+    expect(() => requireDefinedMigrations(undefined, 'f9485d3')).toThrow(/no migrations found/)
+  })
+
+  it('refuses to form a built target without schema migrations', () => {
+    expect(() =>
+      devTarget(
+        {
+          version: '0.1.0-edge.20.dev.1+1234567',
+          path: '/x',
+          size: 1,
+          digest: 'sha256-x',
+          signature: 'sig',
+        },
+        { sourceRoot: '/repo/podium' },
+      ),
+    ).toThrow(/no migrations found/)
   })
 })

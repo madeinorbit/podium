@@ -36,6 +36,92 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain('"PODIUM_MOBILE_WEB_DIR"')
     expect(mainSource).toContain('.resolve("resources/mobile", BaseDirectory::Resource)')
   })
+
+  it('loads the all-in-one UI from the local server with a stable port (POD-2510)', () => {
+    // Served-local: prefer the sidecar origin; baked frontendDist is fallback only.
+    expect(mainSource).toContain('resolve_local_port')
+    expect(mainSource).toContain('local_window_target')
+    expect(mainSource).toContain('local_served_http_url')
+    // frontendDist remains packaged as the offline / boot-race fallback.
+    expect(conf.build.frontendDist).toBe('../../web/dist')
+  })
+
+  it('keeps the baked document at the URL the fallback navigates to (POD-2510)', () => {
+    // bootstrap::baked_document_url() hard-codes `tauri://localhost` (and the Windows
+    // `http://tauri.localhost` form). Two config keys would move that URL out from under it:
+    // a devUrl replaces it in dev, and useHttpsScheme makes the Windows form https.
+    expect(conf.build.devUrl).toBeUndefined()
+    for (const window of conf.app?.windows ?? []) {
+      expect(window.useHttpsScheme).toBeUndefined()
+    }
+  })
+})
+
+/**
+ * The shell tells the page which launch mode it is in, and the update dialog renders one row
+ * (all-in-one) or two (a device driving a remote server) off that answer. Since POD-2510 the
+ * all-in-one page is SERVED — `http://127.0.0.1:<port>` — which is the same http shape a
+ * transferred remote page has, so the shell emits the served origin it chose and the page
+ * compares against it.
+ *
+ * The bug this replaces was a JS expression that read correctly and returned the wrong string,
+ * so this lifts the real expression out of main.rs and EVALUATES it. A substring assertion
+ * could not have failed on it.
+ */
+describe('served-local launchMode classification (POD-2510)', () => {
+  const SERVED_ORIGIN = 'http://127.0.0.1:18787'
+  const template = mainSource.match(/const LOCAL_LAUNCH_MODE_EXPRESSION: &str = "([^"]*)";/)?.[1]
+
+  function classify(location: Record<string, string>, launchMode = 'all-in-one'): unknown {
+    if (!template) throw new Error('LOCAL_LAUNCH_MODE_EXPRESSION not found in main.rs')
+    const expression = template
+      .replaceAll('{served_origin_literal}', JSON.stringify(SERVED_ORIGIN))
+      .replaceAll('{launch_mode_literal}', JSON.stringify(launchMode))
+    return new Function('window', `return ${expression}`)({ location })
+  }
+
+  it('finds the expression in the shell source', () => {
+    expect(template).toBeTruthy()
+  })
+
+  it('calls the served-local page this shell served exactly what it launched as', () => {
+    for (const mode of ['all-in-one', 'server']) {
+      expect(
+        classify({ protocol: 'http:', hostname: '127.0.0.1', origin: SERVED_ORIGIN }, mode),
+      ).toBe(mode)
+    }
+  })
+
+  it('calls the baked fallback document local too', () => {
+    expect(
+      classify({ protocol: 'tauri:', hostname: 'localhost', origin: 'tauri://localhost' }),
+    ).toBe('all-in-one')
+    expect(
+      classify({
+        protocol: 'http:',
+        hostname: 'tauri.localhost',
+        origin: 'http://tauri.localhost',
+      }),
+    ).toBe('all-in-one')
+  })
+
+  it('calls a page transferred to a remote server daemon', () => {
+    expect(
+      classify({
+        protocol: 'https:',
+        hostname: 'podium.example',
+        origin: 'https://podium.example',
+      }),
+    ).toBe('daemon')
+    // A different loopback port is a different server — someone else's, not ours.
+    expect(
+      classify({
+        protocol: 'http:',
+        hostname: '127.0.0.1',
+        origin: 'http://127.0.0.1:19999',
+      }),
+    ).toBe('daemon')
+  })
   it('ships the entitlements notarization requires', () => {
     // Without an entitlements file the hardened runtime kills the JIT the bundled Bun sidecar
     // needs, and without the hardened runtime Apple refuses to notarize at all.

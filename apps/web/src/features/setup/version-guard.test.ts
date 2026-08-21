@@ -430,3 +430,81 @@ describe('recoverFromWireSkew', () => {
     expect(reload).toHaveBeenCalledTimes(1)
   })
 })
+
+/**
+ * ITERATION MODE (POD-2513). A page served from source by `bun run iterate` sits
+ * in front of the INSTALLED server, so a wire mismatch is the expected state
+ * whenever the branch has touched the protocol — and no reload can resolve it,
+ * because the fresh bundle is the same source. Reloading twice and then
+ * declaring the served build stale would be two wasted reloads and a wrong
+ * diagnosis, on a page whose whole purpose is to differ.
+ */
+describe('checkServerVersion in iteration mode', () => {
+  const mismatched = () =>
+    versionResponse({ wireVersion: WIRE_VERSION + 1, minSupportedVersion: WIRE_VERSION + 1 })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    resetSkewNotice()
+  })
+
+  it('never reloads, and says the page is source rather than stale', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mismatched()))
+    expect(await checkServerVersion(ORIGIN, true)).toBe('iteration')
+    expect(reload).not.toHaveBeenCalled()
+    expect(currentSkew()?.message).toMatch(/iteration mode/i)
+  })
+
+  /**
+   * The common VPS case, and the one a wire-number sentence gets wrong: the
+   * installed server is simply an older commit, so both sides are on the same
+   * wire VERSION and only the schema digest differs. "wire 2 against this
+   * bundle's 2" was the first wording, seen in a real browser against the live
+   * server — it names two identical numbers and explains nothing.
+   */
+  it('names the commit difference, not the wire number, on a schema skew', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        versionResponse({
+          wireVersion: WIRE_VERSION,
+          minSupportedVersion: WIRE_VERSION,
+          wireSchemaDigest: 'a-different-build',
+        }),
+      ),
+    )
+    expect(await checkServerVersion(ORIGIN, true)).toBe('iteration')
+    const message = currentSkew()?.message ?? ''
+    expect(message).toMatch(/different commit/i)
+    expect(message).toMatch(/wire schema/i)
+    expect(message).not.toMatch(new RegExp(`wire ${WIRE_VERSION}\\b`))
+  })
+
+  it('spends no reload budget, so leaving iteration mode starts with a full one', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mismatched()))
+    await checkServerVersion(ORIGIN, true)
+    expect(store.get(COUNTER_KEY)).toBeUndefined()
+    expect(reloadBudgetSpent()).toBe(false)
+  })
+
+  it('still reports a clean match as ok — iteration mode suppresses nothing else', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        versionResponse({
+          wireVersion: WIRE_VERSION,
+          minSupportedVersion: WIRE_VERSION,
+          wireSchemaDigest: wireSchemaDigest(),
+        }),
+      ),
+    )
+    expect(await checkServerVersion(ORIGIN, true)).toBe('ok')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('reloads as usual when iteration mode is off', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mismatched()))
+    expect(await checkServerVersion(ORIGIN, false)).toBe('reloaded')
+    expect(reload).toHaveBeenCalled()
+  })
+})

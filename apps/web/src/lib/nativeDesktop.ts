@@ -205,10 +205,10 @@ export function isMacNativeShell(): boolean {
  * Declines (null) in the three cases where asking would be wrong or useless:
  * a plain browser, where the anchor already does the right thing; a shell older than
  * `openExternal`; and a CROSS-origin URL, which the shell's injected link shim already
- * diverts on its own — handing that one over too would open the page twice (all-in-one
- * mode loads the UI from `tauri://localhost`, so every server URL is cross-origin there).
- * What's left is a same-origin URL, which the shim deliberately skips and the webview would
- * answer with an in-app window.
+ * diverts on its own — handing that one over too would open the page twice. What's left
+ * is a same-origin URL (served-local all-in-one loads http://127.0.0.1 from the sidecar;
+ * baked-fallback tauri:// is cross-origin to the server and relies on the shim), which
+ * the shim deliberately skips and the webview would answer with an in-app window.
  */
 export function openInSystemBrowser(url: string): Promise<void> | null {
   const openExternal = nativeDesktopBridge()?.openExternal

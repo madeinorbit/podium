@@ -24,6 +24,15 @@ import {
 import { fileURLToPath } from 'node:url'
 import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
+/**
+ * The dev-label rules, from the one place that defines them (POD-2502). The
+ * leaf, not the barrel: this script builds the product, and the protocol's
+ * dev-version module imports only `version-order`, which imports nothing.
+ */
+import {
+  commitShaFromDevVersion,
+  isDevChannelVersion,
+} from '../packages/protocol/src/update/dev-version.js'
 import { abducoSupported, buildVendoredAbduco } from '../packages/pty/src/abduco-bin.js'
 import {
   bunVersion,
@@ -94,8 +103,16 @@ export function assertDevClientDistMatchesVersion(
   label: string,
   stamp: { sourceSha?: string } | null,
 ): void {
-  if (!version.startsWith('dev+')) return
-  const expected = version.slice('dev+'.length)
+  // Publisher mints are `<base>.dev.<N>+<sha>` (POD-2502); forensic identity is
+  // still `dev+<sha>`. Key on either — packing yesterday's dist under today's
+  // commit claim is the lie this guard exists to catch.
+  //
+  // ONE definition of both rules, imported rather than re-stated: which labels
+  // are dev-channel, and which commit one names. A release that merely carries
+  // build metadata is not a dev label and is not checked here, which is why the
+  // `isDevChannelVersion` question is asked first.
+  const expected = isDevChannelVersion(version) ? commitShaFromDevVersion(version) : null
+  if (expected === null) return
   if (!stamp?.sourceSha || stamp.sourceSha !== expected) {
     throw new Error(
       `build-bun: ${label} was not built from ${version} ` +

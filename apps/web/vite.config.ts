@@ -255,6 +255,14 @@ export default defineConfig(({ mode }) => {
         '@podium/protocol/update-refusal': fileURLToPath(
           new URL('../../packages/protocol/src/update/refusal.ts', import.meta.url),
         ),
+        /**
+         * Same door, same reason (POD-2502). The update chunk needs
+         * `isDevChannelVersion` as a VALUE; its leaf imports only
+         * `version-order`, which imports nothing.
+         */
+        '@podium/protocol/update-dev-version': fileURLToPath(
+          new URL('../../packages/protocol/src/update/dev-version.ts', import.meta.url),
+        ),
         '@podium/protocol': fileURLToPath(
           new URL('../../packages/protocol/src/index.ts', import.meta.url),
         ),
@@ -373,6 +381,17 @@ export default defineConfig(({ mode }) => {
       // the <meta name="podium-version"> the stamp writer injects, so a
       // packaged restamp can change the string without rebuilding JS.
       'import.meta.env.PODIUM_APP_VERSION': JSON.stringify(productVersion),
+      /**
+       * ITERATION MODE (POD-2513, scripts/iterate.ts). Only `bun run iterate`
+       * exports this, and it only ever runs the DEV server — so every built
+       * dist gets the literal `false` here and the frame in
+       * `src/app/IterationModeFrame.tsx` shakes out of the bundle entirely.
+       * A boolean rather than the raw string, so a stray `PODIUM_ITERATION_MODE=0`
+       * in someone's shell cannot make a released page claim to be source.
+       */
+      'import.meta.env.PODIUM_ITERATION_MODE': JSON.stringify(
+        process.env.PODIUM_ITERATION_MODE === '1',
+      ),
     },
     server: { host: '0.0.0.0', port: WEB_PORT, strictPort: true, allowedHosts, proxy },
     preview: { host: '0.0.0.0', port: WEB_PORT, strictPort: true, allowedHosts, proxy },

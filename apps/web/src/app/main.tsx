@@ -7,6 +7,7 @@ import { AppStarted } from './AppStarted'
 import { AppShell } from './AppShell'
 import '@/index.css'
 import '@/styles.css'
+import { IterationModeFrame } from './IterationModeFrame'
 import { redirectPhoneToMobileApp } from './mobile-entry-redirect'
 import { ThemeProvider } from './theme'
 import { WireSkewBanner } from './WireSkewBanner'
@@ -37,6 +38,10 @@ if (!redirectPhoneToMobileApp()) {
             worth saying on any screen — a banner mounted deeper renders only on
             the screens the skew has not already broken. */}
         <WireSkewBanner />
+        {/* OUTSIDE every gate for the same reason, and for one more: the login
+            and setup screens are exactly where an iterate tab is most easily
+            mistaken for the installed app. Renders nothing in a built bundle. */}
+        <IterationModeFrame />
         {showMotionDemo ? (
           <Suspense fallback={<div className="app-loading" aria-hidden="true" />}>
             <MotionDemo />

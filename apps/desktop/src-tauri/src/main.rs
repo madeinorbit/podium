@@ -140,6 +140,92 @@ fn retarget_existing_window(
     Ok(())
 }
 
+/// How often a LOCAL window re-checks that the server it is loaded from is still there.
+const LOCAL_DOCUMENT_POLL: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// How many healthy polls between refreshes of the persisted local build stamp.
+///
+/// The stamp the PAGE holds is fixed at window creation (an initialization script cannot be
+/// rewritten), so a server updated in place mid-session leaves the open window's copy one
+/// build behind. What this refresh buys is the NEXT boot: the stale guard on the baked
+/// fallback then grades itself against the build that most recently owned the local data,
+/// not against whatever was running when the app was last launched. ~30s, because the read
+/// is a `/version` GET and that endpoint may read git on a source host (POD-2048).
+const LOCAL_BUILD_STAMP_REFRESH_POLLS: u32 = 30;
+
+/// Keep a local (all-in-one / server) window on a document that can actually render.
+///
+/// The boot probe answers one question — "was the sidecar up when we opened the window" — and
+/// the acceptance case is the other one: kill the server while the app is RUNNING and the
+/// webview is parked on a dead origin, where a reload gets the webview engine's own network
+/// error page instead of Podium's reconnect UX. So the shell keeps watching and MOVES the
+/// window: to the baked dist after a sustained outage, and back to the served origin once the
+/// server returns — the convergent direction, because the served UI is the one that matches
+/// the server.
+///
+/// Two rules keep this from being a footgun:
+///
+/// - It only ever moves the window between THIS shell's own two documents. The moment the
+///   window is on anything else it stops: a runtime transfer retargets it to a REMOTE origin,
+///   which is not ours to move.
+/// - The liveness poll is cheap (`/health`), but RETURNING to the served origin requires the
+///   identity-checked probe, because that is a decision to LOAD a page from that origin.
+fn spawn_local_document_watchdog(app: AppHandle, port: u16, shutting_down: Arc<AtomicBool>) {
+    std::thread::spawn(move || {
+        let (Ok(served), Ok(baked)) = (
+            Url::parse(&bootstrap::local_served_http_url(port)),
+            Url::parse(bootstrap::baked_document_url()),
+        ) else {
+            log::warn!("local document watchdog not started: unparseable document URL");
+            return;
+        };
+        let mut watch = bootstrap::ServedOriginWatch::default();
+        let mut window_seen = false;
+        let mut polls_since_stamp: u32 = 0;
+        loop {
+            std::thread::sleep(LOCAL_DOCUMENT_POLL);
+            if shutting_down.load(Ordering::Acquire) {
+                return;
+            }
+            let Some(window) = app.get_webview_window("main") else {
+                // Before the build: keep waiting. After it: the window is gone for good.
+                if window_seen {
+                    return;
+                }
+                continue;
+            };
+            window_seen = true;
+            let Ok(current) = window.url() else { continue };
+            let Some(showing) = bootstrap::document_shown(&current, port) else {
+                log::info!("local document watchdog stopping: window is on {current}");
+                return;
+            };
+            let healthy = match showing {
+                bootstrap::LocalDocument::Served => bootstrap::local_server_alive(port),
+                bootstrap::LocalDocument::Baked => bootstrap::probe_local_server(port),
+            };
+            // Keep the persisted build stamp current while the server is up, so the stale
+            // guard on a later baked boot grades against the right build.
+            polls_since_stamp = polls_since_stamp.saturating_add(1);
+            if healthy && polls_since_stamp >= LOCAL_BUILD_STAMP_REFRESH_POLLS {
+                polls_since_stamp = 0;
+                bootstrap::record_local_build_stamp(port);
+            }
+            let Some(target) = watch.observe(showing, healthy) else {
+                continue;
+            };
+            let (url, label) = match target {
+                bootstrap::LocalDocument::Baked => (baked.clone(), "baked dist fallback"),
+                bootstrap::LocalDocument::Served => (served.clone(), "local server"),
+            };
+            log::info!("local server is {healthy}; moving the window to the {label}");
+            if let Err(error) = window.navigate(url) {
+                log::warn!("could not move the window to the {label}: {error}");
+            }
+        }
+    });
+}
+
 /// How often supervision checks whether the backend child is still alive. Cheap enough to be
 /// invisible and far below the 500ms floor of the respawn backoff, so it costs no reaction time.
 const SUPERVISION_POLL: std::time::Duration = std::time::Duration::from_millis(200);
@@ -344,27 +430,8 @@ fn spawn_respawn_monitor<F, S, D>(
 /// Any failure is logged as a warning and never fatal: a single bundled artifact keeps the
 /// shell and backend versions matched, so this is diagnostics, not a gate.
 fn log_backend_version(port: u16) {
-    use std::io::{Read, Write};
-    use std::net::TcpStream;
-    use std::time::Duration;
-
-    let read_version = || -> std::io::Result<String> {
-        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-        let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(500))?;
-        stream.set_read_timeout(Some(Duration::from_millis(500)))?;
-        stream.set_write_timeout(Some(Duration::from_millis(500)))?;
-        stream.write_all(b"GET /version HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")?;
-        let mut response = String::new();
-        stream.read_to_string(&mut response)?;
-        Ok(response)
-    };
-
-    match read_version() {
-        Ok(response) => {
-            // Body is whatever follows the header/content blank line; log it verbatim.
-            let body = response.split("\r\n\r\n").nth(1).unwrap_or("").trim();
-            log::info!("backend /version: {body}");
-        }
+    match bootstrap::local_http_get(port, "/version", std::time::Duration::from_millis(500)) {
+        Ok((status, body)) => log::info!("backend /version [{status}]: {}", body.trim()),
         Err(e) => log::warn!("could not read backend /version: {e}"),
     }
 }
@@ -385,10 +452,28 @@ fn eval_menu_hook(app: &tauri::AppHandle, hook: &str) {
     }
 }
 
+/// JS expression for `launchMode` in a LOCAL (all-in-one / server) shell.
+///
+/// The question this answers is "is the page in front of the user THIS shell's own UI, or a
+/// remote server's?" — because a runtime transfer moves the existing window to a remote origin,
+/// after which this device is a daemon and the update dialog must say so. Origin alone cannot
+/// answer it any more: since POD-2510 the local UI is SERVED, so an all-in-one page is
+/// `http://127.0.0.1:<port>` — exactly the http(s) shape that used to mean "remote".
+///
+/// So the shell emits the served-local origin it actually chose and the page compares against
+/// that. `{served_origin_literal}` is that origin as a JS string literal (`null` if this shell
+/// has no local server); `{launch_mode_literal}` is the resolved local mode.
+///
+/// Kept as a template constant rather than an inline `format!` so `tauri-conf.test.ts` can lift
+/// it out of this source and EVALUATE it against simulated page locations — the defect it
+/// replaces was a JS expression that read correctly and returned the wrong string.
+const LOCAL_LAUNCH_MODE_EXPRESSION: &str = "((window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost' || window.location.origin === {served_origin_literal}) ? {launch_mode_literal} : 'daemon')";
+
 fn native_desktop_hook(
     launch_mode: &str,
     machine_id: Option<&str>,
     current_version: &str,
+    served_local_origin: Option<&str>,
 ) -> String {
     // [spec:SP-3701] The hosting toggle is exposed only in client mode — the one state where
     // this device is not already running a daemon. The command itself re-checks the mode.
@@ -425,9 +510,12 @@ fn native_desktop_hook(
     let current_version_literal =
         serde_json::to_string(current_version).unwrap_or_else(|_| "\"unknown\"".to_string());
     let launch_mode_expression = if matches!(launch_mode, "all-in-one" | "server") {
-        format!(
-            "((window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost') ? {launch_mode_literal} : 'daemon')"
-        )
+        let served_origin_literal = served_local_origin
+            .and_then(|origin| serde_json::to_string(origin).ok())
+            .unwrap_or_else(|| "null".to_string());
+        LOCAL_LAUNCH_MODE_EXPRESSION
+            .replace("{served_origin_literal}", &served_origin_literal)
+            .replace("{launch_mode_literal}", &launch_mode_literal)
     } else {
         launch_mode_literal
     };
@@ -590,29 +678,33 @@ fn main() {
             let child_state: Arc<Mutex<Option<std::process::Child>>> = Arc::new(Mutex::new(None));
             app.manage(child_state.clone());
 
-            // The server URL the window will be pointed at. Local-all-in-one fills this with the
-            // local ws URL once a port is picked; remote modes use the configured serverUrl.
-            let window_injection: String;
+            // Injection for remote modes (set below). Local modes decide injection after the
+            // sidecar readiness probe — served-local vs baked fallback differ.
+            let mut window_injection = String::new();
             // Whether to block on a local /health before opening the window (only local server).
             let wait_local_port: Option<u16>;
-            // What the window LOADS. All-in-one loads the bundled UI (tauri://localhost) and talks
-            // to the local relay. Remote modes load the relay's own URL directly so the page is
-            // same-origin with it — WKWebView's WebSocket from a tauri://localhost page to a remote
-            // TLS relay fails (1006), but a same-origin load connects, exactly like a browser tab.
-            let mut webview_url: WebviewUrl;
+            // What the window LOADS. Local modes prefer the sidecar's http origin (UI matches
+            // the server); baked `frontendDist` is only the offline / boot-race fallback.
+            // Remote modes load the relay's own URL so the page is same-origin with it —
+            // WKWebView's WebSocket from a tauri:// page to a remote TLS relay fails (1006).
+            // Placeholder until the readiness probe (local) or remote_window_target (remote).
+            let mut webview_url = WebviewUrl::default();
+            // Origin that needs CapabilityBuilder::remote grants. Local served-local uses the
+            // stable loopback URL; remote modes use the configured serverUrl.
             let remote_window_server_url: Option<String>;
 
             // mode=server (#176): the sidecar gets the explicit `server` subcommand so it runs
             // the SERVER role only — no local daemon/agents — and bypasses the CLI's
             // persistence-managed dispatch (which would start systemd units and exit, leaving
-            // nothing on our picked port to supervise).
+            // nothing on our resolved port to supervise).
             let server_only = action == bootstrap::LaunchAction::LocalServerOnly;
             let initial_action = action.clone();
 
             match action {
                 bootstrap::LaunchAction::LocalAllInOne
                 | bootstrap::LaunchAction::LocalServerOnly => {
-                    // Shared local path: pick a port, spawn the sidecar, point the window local.
+                    // Shared local path: stable port (SW/cookie/IDB origin), spawn the sidecar,
+                    // load the UI from that server when reachable.
                     // `--takeover`: the desktop SUPERVISES its sidecar — an orphan left by a
                     // force-killed desktop must be reclaimed, so it opts into the CLI's
                     // otherwise-refused displacement of a live same-role instance (#18).
@@ -621,13 +713,15 @@ fn main() {
                     } else {
                         vec!["--takeover".to_string()]
                     };
-                    let port = bootstrap::pick_free_port();
+                    let port = bootstrap::resolve_local_port(&cfg);
 
                     // Resolve the bundled podium binary (plain resource, never patchelf'd).
                     let podium_res = app
                         .path()
                         .resolve("resources/podium", BaseDirectory::Resource)?;
-                    // Bundled web resource dir for the backend to serve external clients.
+                    // Bundled web resource dir the sidecar serves (external clients + this
+                    // webview once it loads the server origin). Baked `frontendDist` stays in
+                    // the .app as the offline fallback only.
                     let web_dir = app
                         .path()
                         .resolve("resources/web", BaseDirectory::Resource)?;
@@ -671,7 +765,7 @@ fn main() {
                     let sidecar_args2 = sidecar_args.clone();
                     let transition_action = initial_action.clone();
                     let monitor_app = app.handle().clone();
-                    let source_cookie_url = Url::parse(&format!("http://127.0.0.1:{port}"))
+                    let source_cookie_url = Url::parse(&bootstrap::local_served_http_url(port))
                         .expect("loopback desktop URL is valid");
                     spawn_respawn_monitor(
                         child_state.clone(),
@@ -695,10 +789,12 @@ fn main() {
                         format!("on port {port}"),
                     );
 
-                    window_injection = bootstrap::injection_script(port);
+                    // Grant IPC to the served-local origin even before the readiness probe:
+                    // when the sidecar is up we load it; grants for an unused origin are
+                    // harmless if we fall back to baked.
                     wait_local_port = Some(port);
-                    webview_url = WebviewUrl::default();
-                    remote_window_server_url = None;
+                    remote_window_server_url =
+                        Some(bootstrap::local_served_http_url(port));
                 }
 
                 bootstrap::LaunchAction::LocalDaemon { server_url } => {
@@ -749,24 +845,6 @@ fn main() {
                     remote_window_server_url = Some(server_url.clone());
                     (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
                     wait_local_port = None;
-                }
-            }
-
-            // Native runtime proof seam: debug builds may load the scratch host origin directly
-            // so a tiny test server can set an HttpOnly cookie before the committed transition.
-            // Production builds cannot enter this path, and the state/sidecar remain isolated by
-            // PODIUM_STATE_DIR and the staged scratch resource.
-            if cfg!(debug_assertions)
-                && std::env::var("PODIUM_DESKTOP_RUNTIME_PROBE").as_deref() == Ok("1")
-            {
-                if let Some(port) = wait_local_port {
-                    webview_url = WebviewUrl::External(
-                        Url::parse(&format!("http://127.0.0.1:{port}"))
-                            .expect("runtime probe loopback URL is valid"),
-                    );
-                    log::info!(
-                        "runtime probe loading scratch host origin on port {port}"
-                    );
                 }
             }
 
@@ -994,10 +1072,15 @@ fn main() {
             // 0.1.0, so CARGO_PKG_VERSION would erase edge/stable prerelease
             // detail and make a successful update look unchanged in Settings.
             let desktop_version = app.package_info().version.to_string();
+            // The origin this shell serves its OWN UI from, when it has a local server. The
+            // page compares `window.location.origin` against it to tell "my server" from a
+            // server this window was transferred to — see LOCAL_LAUNCH_MODE_EXPRESSION.
+            let served_local_origin = wait_local_port.map(bootstrap::local_served_http_url);
             let native_desktop_hook = native_desktop_hook(
                 launch_mode_tag,
                 machine_id.as_deref(),
                 &desktop_version,
+                served_local_origin.as_deref(),
             );
             // Panics from PREVIOUS runs, handed to the webview to post as crash
             // events (bootstrap::native_crash_report_script). Read here — once,
@@ -1007,24 +1090,73 @@ fn main() {
                 &logging::take_pending_crashes(),
                 machine_id.as_deref(),
             );
-            // External-link shim (ALL modes): route window.open/_blank to the OS browser.
-            let init = format!(
-                "{window_injection}\n{restart_hook}\n{native_desktop_hook}\n{}\n{native_crash_report}",
-                bootstrap::opener_shim_script()
-            );
+            let opener_shim = bootstrap::opener_shim_script();
+            // Remote modes already resolved webview_url + window_injection. Local modes
+            // fill them after the readiness probe inside the spawn below.
+            let remote_init_injection = window_injection;
+            let watchdog_shutting_down = shutting_down.clone();
             std::thread::spawn(move || {
-                if let Some(port) = wait_local_port {
-                    let ready = bootstrap::wait_for_port(port, 200, 150);
-                    if ready {
-                        // Log-only shell↔backend check: read the local backend's /version.
-                        log_backend_version(port);
+                let (resolved_url, resolved_injection) = if let Some(port) = wait_local_port {
+                    // Native runtime proof seam: debug builds may force the scratch host
+                    // origin so a tiny test server can set an HttpOnly cookie before the
+                    // committed transition. It is not a Podium server, so it must skip the
+                    // identity-checked readiness wait rather than time out against it.
+                    // Production cannot enter this path.
+                    if cfg!(debug_assertions)
+                        && std::env::var("PODIUM_DESKTOP_RUNTIME_PROBE").as_deref() == Ok("1")
+                    {
+                        log::info!("runtime probe loading scratch host origin on port {port}");
+                        (
+                            WebviewUrl::External(
+                                Url::parse(&bootstrap::local_served_http_url(port))
+                                    .expect("runtime probe loopback URL is valid"),
+                            ),
+                            bootstrap::local_injection_script(
+                                port,
+                                bootstrap::read_local_build_stamp().as_deref(),
+                            ),
+                        )
                     } else {
-                        log::warn!("backend did not become ready within timeout");
+                        let ready = bootstrap::wait_for_local_server(port, 200, 150);
+                        // Which build owns this device's local data. Refreshed from the
+                        // server when it is up; read from disk when it is not, which is
+                        // exactly the case the baked fallback's stale guard needs it for.
+                        let local_build_stamp = if ready {
+                            bootstrap::record_local_build_stamp(port)
+                        } else {
+                            bootstrap::read_local_build_stamp()
+                        };
+                        if ready {
+                            // Log-only shell↔backend check: read the local backend's /version.
+                            log_backend_version(port);
+                            log::info!(
+                                "loading UI from local server {}",
+                                bootstrap::local_served_http_url(port)
+                            );
+                        } else {
+                            log::warn!(
+                                "no Podium server for this instance answered on port {port} within the timeout; loading baked dist fallback (local build stamp: {})",
+                                local_build_stamp.as_deref().unwrap_or("none recorded")
+                            );
+                        }
+                        (
+                            bootstrap::local_window_target(port, ready),
+                            bootstrap::local_injection_script(
+                                port,
+                                local_build_stamp.as_deref(),
+                            ),
+                        )
                     }
-                }
+                } else {
+                    (webview_url, remote_init_injection)
+                };
+                // External-link shim (ALL modes): route window.open/_blank to the OS browser.
+                let init = format!(
+                    "{resolved_injection}\n{restart_hook}\n{native_desktop_hook}\n{opener_shim}\n{native_crash_report}"
+                );
                 let handle2 = handle.clone();
                 let _ = handle.run_on_main_thread(move || {
-                    let window_builder = WebviewWindowBuilder::new(&handle2, "main", webview_url)
+                    let window_builder = WebviewWindowBuilder::new(&handle2, "main", resolved_url)
                         .title("Podium ADE")
                         .inner_size(1200.0, 800.0)
                         .initialization_script(&init);
@@ -1099,6 +1231,12 @@ fn main() {
                         log::error!("window build failed: {error}");
                     }
                 });
+                // Local modes only: keep the window on a document that renders when the local
+                // server comes and goes (see spawn_local_document_watchdog). Remote modes have
+                // no local server to watch, and the web client owns their reconnect.
+                if let Some(port) = wait_local_port {
+                    spawn_local_document_watchdog(handle, port, watchdog_shutting_down);
+                }
             });
             Ok(())
         })
@@ -1379,8 +1517,16 @@ mod tests {
 
     const TEST_DESKTOP_VERSION: &str = "0.1.0-edge.9";
 
+    /// The loopback origin a local test shell serves its UI from.
+    const TEST_SERVED_ORIGIN: &str = "http://127.0.0.1:18787";
+
     fn test_native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
-        native_desktop_hook(launch_mode, machine_id, TEST_DESKTOP_VERSION)
+        native_desktop_hook(
+            launch_mode,
+            machine_id,
+            TEST_DESKTOP_VERSION,
+            matches!(launch_mode, "all-in-one" | "server").then_some(TEST_SERVED_ORIGIN),
+        )
     }
 
     #[test]
@@ -1451,13 +1597,31 @@ mod tests {
     }
 
     #[test]
-    fn local_native_hook_reports_daemon_after_remote_retarget() {
+    fn local_native_hook_keeps_served_local_local_and_reports_daemon_after_remote_retarget() {
+        // The served-local origin is THIS shell's own UI: the update dialog must render the
+        // single all-in-one row, not the two-row desktop-remote shape. A page transferred to a
+        // remote server is the case 'daemon' exists for.
         for mode in ["all-in-one", "server"] {
             let hook = test_native_desktop_hook(mode, None);
             assert!(hook.contains("window.location.protocol === 'tauri:'"));
-            assert!(hook.contains(": 'daemon'"));
+            assert!(
+                hook.contains(&format!(
+                    "window.location.origin === \"{TEST_SERVED_ORIGIN}\""
+                )),
+                "the served-local origin must be part of the classification: {hook}"
+            );
+            assert!(hook.contains(&format!("? \"{mode}\" : 'daemon'")));
         }
         assert!(test_native_desktop_hook("daemon", None).contains("launchMode: \"daemon\""));
+    }
+
+    #[test]
+    fn local_native_hook_without_a_served_origin_still_classifies_the_baked_page() {
+        // Belt and braces: a local shell that somehow has no served origin must emit a
+        // comparison no page can match, never a bare `undefined` that throws on load.
+        let hook = native_desktop_hook("all-in-one", None, TEST_DESKTOP_VERSION, None);
+        assert!(hook.contains("window.location.origin === null"));
+        assert!(hook.contains("window.location.protocol === 'tauri:'"));
     }
 
     #[test]

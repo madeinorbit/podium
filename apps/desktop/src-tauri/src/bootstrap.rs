@@ -5,17 +5,102 @@ use tauri::{Url, WebviewUrl};
 
 const SERVER_TRANSFER_JOURNAL: &str = ".server-transfer/journal.json";
 
-/// Bind an ephemeral loopback port and return it (best-effort; falls back to 18787).
+/// Default local server port for the `default` instance — must match `@podium/runtime`
+/// `defaultInstancePorts('default').server`.
+pub const DEFAULT_LOCAL_PORT: u16 = 18787;
+
+/// The compatibility instance id, which keeps every historical port. [spec:SP-15aa]
+pub const DEFAULT_INSTANCE_ID: &str = "default";
+
+/// Bind an ephemeral loopback port and return it (best-effort; falls back to [`DEFAULT_LOCAL_PORT`]).
+///
+/// Prefer [`resolve_local_port`] for the all-in-one / local-server webview origin: SW cache,
+/// cookies, and IndexedDB are origin-keyed, so the port must be stable across restarts.
+/// Kept for callers that intentionally want an ephemeral listen (tests, one-off probes).
 ///
 /// NOTE: The port is not reserved between this call and when the backend binds it (TOCTOU).
-/// This is acceptable for a localhost picker — the window between pick and bind is tiny and
-/// the port is only used locally.
 pub fn pick_free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .ok()
         .and_then(|l| l.local_addr().ok())
         .map(|a| a.port())
-        .unwrap_or(18787)
+        .unwrap_or(DEFAULT_LOCAL_PORT)
+}
+
+/// Is this a valid Podium instance id? Mirrors `@podium/runtime` `INSTANCE_ID_PATTERN`
+/// (`^[a-z][a-z0-9-]{0,31}$`).
+fn is_valid_instance_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    if !matches!(chars.next(), Some(c) if c.is_ascii_lowercase()) {
+        return false;
+    }
+    id.len() <= 32 && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// This shell's instance identity: `PODIUM_INSTANCE`, else `default`. [spec:SP-15aa]
+///
+/// `@podium/runtime` `validateInstanceId` THROWS on a malformed id; a desktop shell has to
+/// open a window anyway, so a malformed value degrades to the default instance here. The
+/// sidecar we spawn inherits this same environment variable, so both sides agree on which
+/// instance they are — which is what makes [`resolve_local_port`] agree with `resolvePort`.
+pub fn resolve_instance_id() -> String {
+    let raw = std::env::var("PODIUM_INSTANCE").unwrap_or_default();
+    let id = raw.trim();
+    if is_valid_instance_id(id) {
+        id.to_string()
+    } else {
+        DEFAULT_INSTANCE_ID.to_string()
+    }
+}
+
+/// FNV-1a (32-bit) over the id's UTF-8 bytes — byte-for-byte the hash `@podium/runtime`
+/// `defaultInstancePorts` uses, so the two runtimes derive the SAME port for an instance.
+fn fnv1a(value: &str) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in value.as_bytes() {
+        hash ^= u32::from(*byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash
+}
+
+/// Default server port for an instance — mirrors `defaultInstancePorts(id).server`:
+/// `default` keeps [`DEFAULT_LOCAL_PORT`]; named instances take one of 8,000 non-overlapping
+/// triplets in 20000..43999.
+pub fn default_instance_server_port(instance_id: &str) -> u16 {
+    if instance_id == DEFAULT_INSTANCE_ID {
+        return DEFAULT_LOCAL_PORT;
+    }
+    // 20000 + 7999*3 = 43997, so the cast cannot truncate.
+    (20_000 + (fnv1a(instance_id) % 8_000) * 3) as u16
+}
+
+/// Stable local server port for the desktop webview origin.
+///
+/// Precedence matches `@podium/runtime` `resolvePort`: `PODIUM_PORT` → `config.port` →
+/// `defaultInstancePorts(PODIUM_INSTANCE).server`. The last step is why this is
+/// instance-aware rather than a bare [`DEFAULT_LOCAL_PORT`]: two desktop shells launched
+/// under different `PODIUM_INSTANCE` values must NOT resolve the same loopback origin, or the
+/// second one's window would load the first one's server — with the window controls, opener,
+/// `sql:allow-execute` and update-bridge grants this shell hands its own origin. Documented
+/// in the updater-convergence spec §2.1.
+pub fn resolve_local_port(config: &DesktopConfig) -> u16 {
+    if let Ok(raw) = std::env::var("PODIUM_PORT") {
+        if let Ok(port) = raw.parse::<u16>() {
+            if port > 0 {
+                return port;
+            }
+        }
+    }
+    match config.port {
+        Some(port) if port > 0 => port,
+        _ => default_instance_server_port(&resolve_instance_id()),
+    }
+}
+
+/// Loopback http origin the all-in-one / local-server webview loads when the sidecar is up.
+pub fn local_served_http_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}")
 }
 
 /// Desktop release channel persisted in the shared Podium config or stamped into the build.
@@ -58,6 +143,8 @@ pub fn build_update_channel() -> UpdateChannel {
 pub struct DesktopConfig {
     pub mode: Option<String>,
     pub server_url: Option<String>,
+    /// Stable local listen port (`resolvePort` / webview origin). See [`resolve_local_port`].
+    pub port: Option<u16>,
     /// A valid user choice from config.json. Absence and unknown values deliberately remain
     /// distinguishable so the updater can fall back to the channel stamped into this build.
     pub update_channel: Option<UpdateChannel>,
@@ -66,10 +153,11 @@ pub struct DesktopConfig {
 /// What the shell should do at launch, derived purely from the config.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LaunchAction {
-    /// Default: pick a free port, spawn the local `podium` (server+daemon), point the window local.
+    /// Default: bind the stable local port, spawn the local `podium` (server+daemon), load the
+    /// UI from that server (baked dist only if the sidecar is unreachable).
     LocalAllInOne,
-    /// `mode=server` (hub-only box): pick a free port, spawn `podium server` — the SERVER role
-    /// only, no local daemon/agents — and point the window at the local server port (#176).
+    /// `mode=server` (hub-only box): bind the stable local port, spawn `podium server` — the
+    /// SERVER role only, no local daemon/agents — and load the UI from that port (#176).
     /// The explicit `server` subcommand (rather than a bare `podium` reading config.mode) also
     /// bypasses the CLI's persistence-managed path, so a systemd/detached-configured hub still
     /// gets a real in-process server child the desktop shell can supervise.
@@ -139,8 +227,9 @@ fn is_local_host(action: &LaunchAction) -> bool {
 }
 
 /// Read `$PODIUM_STATE_DIR/config.json` else `~/.podium/config.json`, extracting `mode`,
-/// `serverUrl`, and `updateChannel`. A missing or corrupt file yields an empty config; the updater
-/// resolves the missing channel against the build stamp rather than inventing a persisted choice.
+/// `serverUrl`, `port`, and `updateChannel`. A missing or corrupt file yields an empty config; the
+/// updater resolves the missing channel against the build stamp rather than inventing a persisted
+/// choice.
 pub fn read_config() -> DesktopConfig {
     let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -164,6 +253,9 @@ pub fn read_config() -> DesktopConfig {
             .get("serverUrl")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        port: json.get("port").and_then(|v| v.as_u64()).and_then(|n| {
+            u16::try_from(n).ok().filter(|p| *p > 0)
+        }),
         // [spec:SP-7f2c] Missing or unrecognized values are not user choices, so the channel
         // stamped into the installed build remains authoritative.
         update_channel: UpdateChannel::from_config(
@@ -448,8 +540,12 @@ pub fn resolve_launch(mode: Option<&str>, server_url: Option<&str>) -> LaunchAct
     }
 }
 
-/// The script injected before page load so the bundled web UI talks to the local backend
-/// (Phase 2 serverConfig reads window.__PODIUM_SERVER__ first).
+/// The script injected before page load so the **baked** (tauri-scheme) fallback UI talks to
+/// the local backend (Phase 2 serverConfig reads window.__PODIUM_SERVER__ first).
+///
+/// Served-local loads (`http://127.0.0.1:<port>`) are same-origin with the sidecar and use
+/// [`local_served_injection_script`] instead — they must not pin `__PODIUM_SERVER__` to a
+/// loopback URL that would override same-origin discovery after a transfer navigation.
 pub fn injection_script(port: u16) -> String {
     // The script stays installed when the existing WebView moves to the transferred remote
     // origin. Apply the loopback endpoint only on Tauri's bundled origin so it cannot override
@@ -458,6 +554,165 @@ pub fn injection_script(port: u16) -> String {
         "if (window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost') {{ {}\nwindow.__PODIUM_LOCAL_SETUP__ = true; }}",
         server_injection_script(&format!("ws://127.0.0.1:{port}"))
     )
+}
+
+/// Injection for a webview that LOADS the local server's http origin (all-in-one / server mode
+/// when the sidecar is reachable). Same-origin discovery covers the relay; local-setup still
+/// needs the explicit flag so SetupGate treats this shell as the host box.
+///
+/// Origin-guarded for the same reason [`injection_script`] is: the script stays installed
+/// across navigations, including a runtime-transfer retarget to a REMOTE origin, where this
+/// shell is no longer the host box and the flag must not survive.
+pub fn local_served_injection_script(port: u16) -> String {
+    let origin = serde_json::to_string(&local_served_http_url(port))
+        .unwrap_or_else(|_| "\"\"".to_string());
+    format!("if (window.location.origin === {origin}) {{ window.__PODIUM_LOCAL_SETUP__ = true; }}")
+}
+
+/// The JS condition that is true on EITHER document a local window can show — the baked
+/// tauri-scheme fallback, or this shell's served-local origin — and false everywhere else,
+/// notably after a runtime transfer has retargeted the window to a remote server.
+fn local_document_condition(port: u16) -> String {
+    let origin = serde_json::to_string(&local_served_http_url(port))
+        .unwrap_or_else(|_| "\"\"".to_string());
+    format!("(window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost' || window.location.origin === {origin})")
+}
+
+/// Tell the page which build last owned this device's local data, so the BAKED fallback can
+/// refuse to run when it is too old for it.
+///
+/// This is the local half of the skew machinery and it exists because the other half cannot
+/// work here: the page normally grades itself against a reachable server's `/version`, and the
+/// baked fallback is by definition the case where no server answers. The stamp is a local
+/// record — the last `/version` this shell actually read from its own server, persisted across
+/// restarts — so the page can still ask "is the UI in the .app older than the data on this
+/// disk?" with nothing on the network. [spec:§2.1 durability layer 3]
+///
+/// Origin-guarded like everything else in the local injection: a remote server's page grades
+/// itself against that server, not against this box's history.
+pub fn local_build_injection_script(port: u16, stamp: Option<&str>) -> String {
+    match stamp {
+        Some(stamp) => format!(
+            "if {} {{ window.__PODIUM_LOCAL_BUILD__ = {stamp}; }}",
+            local_document_condition(port)
+        ),
+        None => String::new(),
+    }
+}
+
+/// The one injection a LOCAL (all-in-one / server) window carries, correct at EITHER document
+/// this shell can show it: the served `http://127.0.0.1:<port>` origin, or the baked
+/// tauri-scheme fallback. Every half is origin-guarded, so the same script stays right when
+/// the window MOVES between them ([`ServedOriginWatch`]) or is retargeted to a remote server.
+pub fn local_injection_script(port: u16, local_build_stamp: Option<&str>) -> String {
+    format!(
+        "{}\n{}\n{}",
+        injection_script(port),
+        local_served_injection_script(port),
+        local_build_injection_script(port, local_build_stamp)
+    )
+}
+
+/// Which document a local-mode window is showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalDocument {
+    /// The connected local server's own http origin — the UI always matches the server.
+    Served,
+    /// The baked `frontendDist` in the .app — offline / server-down fallback.
+    Baked,
+}
+
+/// Decide what a local-host window loads after the sidecar readiness probe.
+///
+/// Reachable → External `http://127.0.0.1:<port>` (UI always matches the server).
+/// Unreachable → baked `frontendDist` (offline / boot-race fallback). The injection is the
+/// same either way ([`local_injection_script`]), because the window may move between the two
+/// while it runs.
+pub fn local_window_target(port: u16, server_reachable: bool) -> WebviewUrl {
+    if server_reachable {
+        match Url::parse(&local_served_http_url(port)) {
+            Ok(url) => WebviewUrl::External(url),
+            Err(_) => WebviewUrl::default(),
+        }
+    } else {
+        WebviewUrl::default()
+    }
+}
+
+/// URL of the BAKED document — what `WebviewUrl::default()` resolves to at runtime, and the
+/// navigation target when a served-local window has to fall back.
+///
+/// Tauri serves the embedded assets from `<scheme>://localhost` everywhere except Windows and
+/// Android, which use `http://<scheme>.localhost` (`Manager::tauri_protocol_url`). Two config
+/// facts this depends on are pinned by `tauri-conf.test.ts`: no `build.devUrl` (which would
+/// replace this URL in dev) and no `useHttpsScheme` (which would make the Windows form https).
+pub fn baked_document_url() -> &'static str {
+    if cfg!(any(target_os = "windows", target_os = "android")) {
+        "http://tauri.localhost"
+    } else {
+        "tauri://localhost"
+    }
+}
+
+/// Which of this shell's own two documents is `current`, or `None` for anything else — which
+/// in practice means the window was retargeted to a remote server and is no longer ours to
+/// move.
+pub fn document_shown(current: &Url, port: u16) -> Option<LocalDocument> {
+    if current.scheme() == "tauri" || current.host_str() == Some("tauri.localhost") {
+        return Some(LocalDocument::Baked);
+    }
+    let served = Url::parse(&local_served_http_url(port)).ok()?;
+    if current.origin() == served.origin() {
+        return Some(LocalDocument::Served);
+    }
+    None
+}
+
+/// Consecutive failed probes before a served-local window falls back to the baked dist.
+/// Deliberately several seconds' worth: the shell RESPAWNS its sidecar (see the supervision
+/// monitor), so an ordinary restart — including the one an update performs — must not bounce
+/// the window through the fallback and lose the page's state.
+pub const SERVED_FALLBACK_STREAK: u32 = 6;
+/// Consecutive healthy probes before a fallen-back window returns to the served origin. Lower,
+/// because returning is the convergent direction: the served UI is the one that matches the
+/// server.
+pub const SERVED_RETURN_STREAK: u32 = 2;
+
+/// Tracks the local server's liveness for a window that is already open, and decides when the
+/// window should MOVE between the served origin and the baked fallback.
+///
+/// The boot probe alone is not enough: it answers "was the sidecar up when we opened the
+/// window", and killing the server afterwards would otherwise leave the webview parked on a
+/// dead origin showing the ENGINE's network error page instead of our reconnect UX.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ServedOriginWatch {
+    fail_streak: u32,
+    ok_streak: u32,
+}
+
+impl ServedOriginWatch {
+    /// Feed one probe result for the document currently shown. Returns the document to
+    /// navigate to, or `None` to stay put.
+    pub fn observe(&mut self, showing: LocalDocument, healthy: bool) -> Option<LocalDocument> {
+        if healthy {
+            self.fail_streak = 0;
+            self.ok_streak = self.ok_streak.saturating_add(1);
+        } else {
+            self.ok_streak = 0;
+            self.fail_streak = self.fail_streak.saturating_add(1);
+        }
+        let target = match showing {
+            LocalDocument::Served if self.fail_streak >= SERVED_FALLBACK_STREAK => {
+                LocalDocument::Baked
+            }
+            LocalDocument::Baked if self.ok_streak >= SERVED_RETURN_STREAK => LocalDocument::Served,
+            _ => return None,
+        };
+        // The navigation is about to change what "showing" means; start the next streak from
+        // scratch so one stale count cannot immediately bounce the window back.
+        *self = Self::default();
+        Some(target)
+    }
 }
 
 /// Like `injection_script` but for an arbitrary (remote) server URL — used in client/daemon modes.
@@ -631,13 +886,182 @@ pub fn remote_window_target(server_url: &str) -> (WebviewUrl, String) {
     }
 }
 
-/// Block until http://127.0.0.1:<port>/health accepts a TCP connection or the budget runs
-/// out. Returns true if the port became reachable. (A TCP connect is enough — the server
-/// only binds once it is serving.)
-pub fn wait_for_port(port: u16, attempts: u32, delay_ms: u64) -> bool {
+/// One HTTP/1.0 GET against the loopback backend. Returns the status line's code and the
+/// response body. Deliberately hand-rolled: the shell has no HTTP client dependency, and the
+/// two things it ever asks a loopback server for are `/version` and `/health`.
+pub fn local_http_get(
+    port: u16,
+    path: &str,
+    timeout: std::time::Duration,
+) -> std::io::Result<(u16, String)> {
+    use std::io::{Read, Write};
     use std::net::TcpStream;
+
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = TcpStream::connect_timeout(&addr, timeout)?;
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+    stream.write_all(format!("GET {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").as_bytes())?;
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw)?;
+    let response = String::from_utf8_lossy(&raw).into_owned();
+    let status = response
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or(0);
+    let body = response
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body.to_string())
+        .unwrap_or_default();
+    Ok((status, body))
+}
+
+/// The JSON object inside a response body, tolerating HTTP chunk framing — a payload this
+/// small arrives as a single chunk, so the object itself is intact between the framing lines.
+fn json_object_slice(body: &str) -> Option<&str> {
+    let start = body.find('{')?;
+    let end = body.rfind('}')?;
+    (end > start).then(|| &body[start..=end])
+}
+
+/// Does this `/version` body come from a Podium server belonging to `expected_instance`?
+///
+/// Shape first (`wireVersion` + `wireSchemaDigest` are this server's own protocol identity),
+/// then instance: a DIFFERENT Podium instance holding the port is just as wrong as a stranger,
+/// because its data is not the data this shell's daemon writes. A body with no `instanceId` is
+/// accepted on shape alone — that is an older Podium, not an impostor.
+pub fn is_podium_version_payload(body: &str, expected_instance: &str) -> bool {
+    let Some(slice) = json_object_slice(body) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(slice) else {
+        return false;
+    };
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    if !object.contains_key("wireVersion") || !object.contains_key("wireSchemaDigest") {
+        return false;
+    }
+    match object.get("instanceId").and_then(|id| id.as_str()) {
+        Some(id) => id == expected_instance,
+        None => true,
+    }
+}
+
+/// Is OUR local server — this instance's — the thing listening on `port` right now?
+///
+/// A bare TCP connect is NOT enough, and that is a security boundary rather than a nicety:
+/// this answer decides whether the shell LOADS a page from `http://127.0.0.1:<port>`, and
+/// `main.rs` grants that origin window controls, the opener, `sql:default` +
+/// `sql:allow-execute` and the update bridge (claim/check/install). The port is fixed and
+/// unprivileged, so any local process can be listening on it first; the origin has to
+/// identify itself as ours before the window is pointed at it.
+pub fn probe_local_server(port: u16) -> bool {
+    probe_local_server_as(port, &resolve_instance_id())
+}
+
+/// [`probe_local_server`] with the instance identity passed in (tests, and callers that
+/// already resolved it).
+pub fn probe_local_server_as(port: u16, expected_instance: &str) -> bool {
+    match local_http_get(port, "/version", std::time::Duration::from_millis(1500)) {
+        Ok((200, body)) => is_podium_version_payload(&body, expected_instance),
+        _ => false,
+    }
+}
+
+/// Cheap LIVENESS ping: is something still serving on `port` (`/health` → plaintext `ok`)?
+///
+/// Deliberately NOT an identity check, and deliberately never the answer to "may the window
+/// load this origin" — [`probe_local_server`] owns that question, and every navigation goes
+/// through it. This one is for the watchdog's once-a-second "is our server still up", where
+/// `/version` would mean spawning `git` on a source host every poll (POD-2048).
+pub fn local_server_alive(port: u16) -> bool {
+    match local_http_get(port, "/health", std::time::Duration::from_millis(1500)) {
+        // `contains` rather than an equality: a 200 is already the liveness fact, and the body
+        // may arrive inside HTTP chunk framing.
+        Ok((200, body)) => body.contains("ok"),
+        _ => false,
+    }
+}
+
+/// Where the last-seen local build stamp is kept, so it survives a restart into the offline
+/// case that needs it.
+fn local_build_stamp_path() -> PathBuf {
+    state_dir().join("desktop-local-build.json")
+}
+
+/// The build-identity subset of a `/version` body, as a compact JSON object.
+///
+/// Deliberately only the fields `classifySkew` reads plus `appVersion` for the message the
+/// user sees: the stamp is injected verbatim into a page, so it carries what the decision
+/// needs and nothing else.
+pub fn local_build_stamp_from_version(body: &str) -> Option<String> {
+    let slice = json_object_slice(body)?;
+    let value: serde_json::Value = serde_json::from_str(slice).ok()?;
+    let object = value.as_object()?;
+    let mut stamp = serde_json::Map::new();
+    for field in [
+        "wireVersion",
+        "minSupportedVersion",
+        "wireSchemaDigest",
+        "appVersion",
+    ] {
+        if let Some(value) = object.get(field) {
+            stamp.insert(field.to_string(), value.clone());
+        }
+    }
+    // Without a wire version there is nothing to compare, and a stamp that cannot decide
+    // anything is worse than none: it would look like an answer.
+    stamp.get("wireVersion")?;
+    serde_json::to_string(&serde_json::Value::Object(stamp)).ok()
+}
+
+/// The stamp written by an earlier run, if any. Best-effort in every direction — a missing or
+/// unreadable stamp means the guard has nothing to say, which is the safe answer.
+pub fn read_local_build_stamp() -> Option<String> {
+    let text = std::fs::read_to_string(local_build_stamp_path()).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    value.as_object()?.get("wireVersion")?;
+    serde_json::to_string(&value).ok()
+}
+
+/// Persist the stamp for the next boot. Best-effort: this is a guard's input, never a gate on
+/// opening the window.
+pub fn write_local_build_stamp(stamp: &str) {
+    let path = local_build_stamp_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(error) = std::fs::write(&path, stamp) {
+        log::warn!("could not record the local build stamp: {error}");
+    }
+}
+
+/// Read the local server's `/version`, record the build stamp it carries, and return it.
+/// Falls back to the persisted stamp when the read fails, so a flaky probe never erases what
+/// an earlier run established.
+pub fn record_local_build_stamp(port: u16) -> Option<String> {
+    let fresh = local_http_get(port, "/version", std::time::Duration::from_millis(1500))
+        .ok()
+        .filter(|(status, _)| *status == 200)
+        .and_then(|(_, body)| local_build_stamp_from_version(&body));
+    match fresh {
+        Some(stamp) => {
+            write_local_build_stamp(&stamp);
+            Some(stamp)
+        }
+        None => read_local_build_stamp(),
+    }
+}
+
+/// Block until this instance's Podium server answers on `port`, or the budget runs out.
+/// Returns true if it did.
+pub fn wait_for_local_server(port: u16, attempts: u32, delay_ms: u64) -> bool {
+    let instance = resolve_instance_id();
     for _ in 0..attempts {
-        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        if probe_local_server_as(port, &instance) {
             return true;
         }
         std::thread::sleep(std::time::Duration::from_millis(delay_ms));
@@ -732,6 +1156,114 @@ mod tests {
         assert!(pick_free_port() > 0);
     }
 
+    /// The ports `@podium/runtime` `defaultInstancePorts(id).server` derives for these ids.
+    /// Computed from the TypeScript, pinned here: the two runtimes MUST agree, because the
+    /// shell resolves the origin it loads and the sidecar resolves the port it binds.
+    const TS_INSTANCE_SERVER_PORTS: &[(&str, u16)] =
+        &[("default", 18787), ("work", 37952), ("edge", 25364), ("a", 26660)];
+
+    #[test]
+    fn instance_default_ports_match_the_typescript_derivation() {
+        for (id, expected) in TS_INSTANCE_SERVER_PORTS {
+            assert_eq!(default_instance_server_port(id), *expected, "instance {id}");
+        }
+    }
+
+    #[test]
+    fn resolve_instance_id_falls_back_to_default_for_anything_malformed() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let prev = std::env::var_os("PODIUM_INSTANCE");
+        for (raw, expected) in [
+            ("", "default"),
+            ("  ", "default"),
+            ("work", "work"),
+            ("  work  ", "work"),
+            ("Work", "default"),
+            ("9work", "default"),
+            ("work_two", "default"),
+            (
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", // 33 chars — one over the limit
+                "default",
+            ),
+        ] {
+            std::env::set_var("PODIUM_INSTANCE", raw);
+            assert_eq!(resolve_instance_id(), expected, "PODIUM_INSTANCE={raw:?}");
+        }
+        match prev {
+            Some(value) => std::env::set_var("PODIUM_INSTANCE", value),
+            None => std::env::remove_var("PODIUM_INSTANCE"),
+        }
+    }
+
+    #[test]
+    fn resolve_local_port_is_instance_aware_so_two_shells_cannot_share_an_origin() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let prev_port = std::env::var_os("PODIUM_PORT");
+        let prev_instance = std::env::var_os("PODIUM_INSTANCE");
+        std::env::remove_var("PODIUM_PORT");
+        std::env::remove_var("PODIUM_INSTANCE");
+        assert_eq!(resolve_local_port(&DesktopConfig::default()), DEFAULT_LOCAL_PORT);
+        std::env::set_var("PODIUM_INSTANCE", "work");
+        assert_eq!(resolve_local_port(&DesktopConfig::default()), 37952);
+        // An explicit port still wins over the per-instance default.
+        assert_eq!(
+            resolve_local_port(&DesktopConfig {
+                port: Some(19191),
+                ..DesktopConfig::default()
+            }),
+            19191
+        );
+        match prev_instance {
+            Some(value) => std::env::set_var("PODIUM_INSTANCE", value),
+            None => std::env::remove_var("PODIUM_INSTANCE"),
+        }
+        match prev_port {
+            Some(value) => std::env::set_var("PODIUM_PORT", value),
+            None => std::env::remove_var("PODIUM_PORT"),
+        }
+    }
+
+    #[test]
+    fn resolve_local_port_matches_runtime_precedence() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let prev = std::env::var_os("PODIUM_PORT");
+        let prev_instance = std::env::var_os("PODIUM_INSTANCE");
+        std::env::remove_var("PODIUM_PORT");
+        std::env::remove_var("PODIUM_INSTANCE");
+        assert_eq!(resolve_local_port(&DesktopConfig::default()), DEFAULT_LOCAL_PORT);
+        assert_eq!(
+            resolve_local_port(&DesktopConfig {
+                port: Some(19191),
+                ..DesktopConfig::default()
+            }),
+            19191
+        );
+        std::env::set_var("PODIUM_PORT", "20202");
+        assert_eq!(
+            resolve_local_port(&DesktopConfig {
+                port: Some(19191),
+                ..DesktopConfig::default()
+            }),
+            20202
+        );
+        std::env::set_var("PODIUM_PORT", "nope");
+        assert_eq!(
+            resolve_local_port(&DesktopConfig {
+                port: Some(19191),
+                ..DesktopConfig::default()
+            }),
+            19191
+        );
+        match prev {
+            Some(value) => std::env::set_var("PODIUM_PORT", value),
+            None => std::env::remove_var("PODIUM_PORT"),
+        }
+        match prev_instance {
+            Some(value) => std::env::set_var("PODIUM_INSTANCE", value),
+            None => std::env::remove_var("PODIUM_INSTANCE"),
+        }
+    }
+
     #[test]
     fn injection_script_embeds_the_port() {
         let s = injection_script(18799);
@@ -739,6 +1271,141 @@ mod tests {
         assert!(s.contains("__PODIUM_SERVER__"));
         assert!(s.contains("window.location.protocol === 'tauri:'"));
         assert!(s.contains("__PODIUM_LOCAL_SETUP__ = true"));
+    }
+
+    #[test]
+    fn local_window_target_loads_loopback_when_reachable() {
+        let url = local_window_target(18787, true);
+        assert!(matches!(url, WebviewUrl::External(u) if u.as_str() == "http://127.0.0.1:18787/"));
+    }
+
+    #[test]
+    fn local_window_target_falls_back_to_baked_when_unreachable() {
+        assert!(!matches!(
+            local_window_target(18787, false),
+            WebviewUrl::External(_)
+        ));
+    }
+
+    #[test]
+    fn local_served_injection_guards_the_local_setup_flag_by_origin() {
+        // The script survives a retarget to a remote origin, so the flag must not.
+        let script = local_served_injection_script(18787);
+        assert!(script.contains("window.location.origin === \"http://127.0.0.1:18787\""));
+        assert!(script.contains("__PODIUM_LOCAL_SETUP__ = true"));
+    }
+
+    #[test]
+    fn local_injection_script_is_correct_at_both_documents_a_local_window_can_show() {
+        // One script, installed once, guarding each half by the origin it belongs to — the
+        // window MOVES between the served origin and the baked dist while it runs.
+        let script = local_injection_script(18787, None);
+        assert!(script.contains("window.location.protocol === 'tauri:'"));
+        assert!(script.contains("ws://127.0.0.1:18787"));
+        assert!(script.contains("window.location.origin === \"http://127.0.0.1:18787\""));
+        assert_eq!(script.matches("__PODIUM_LOCAL_SETUP__ = true").count(), 2);
+        // No stamp recorded yet — the guard gets nothing rather than a value that cannot
+        // decide anything.
+        assert!(!script.contains("__PODIUM_LOCAL_BUILD__"));
+    }
+
+    #[test]
+    fn local_build_injection_hands_the_page_the_stamp_on_local_documents_only() {
+        let stamp = "{\"wireVersion\":7,\"wireSchemaDigest\":\"abc\"}";
+        let script = local_build_injection_script(18787, Some(stamp));
+        assert!(script.contains(&format!("window.__PODIUM_LOCAL_BUILD__ = {stamp};")));
+        assert!(script.contains("window.location.protocol === 'tauri:'"));
+        assert!(script.contains("window.location.origin === \"http://127.0.0.1:18787\""));
+        assert_eq!(local_build_injection_script(18787, None), "");
+    }
+
+    #[test]
+    fn local_build_stamp_keeps_the_fields_the_skew_decision_reads() {
+        let body = "{\"wireVersion\":7,\"minSupportedVersion\":5,\"wireSchemaDigest\":\"abc\",\"appVersion\":\"0.1.1\",\"instanceId\":\"default\",\"feedScoping\":\"device-scoped\"}";
+        let stamp = local_build_stamp_from_version(body).expect("a /version body yields a stamp");
+        let value: serde_json::Value = serde_json::from_str(&stamp).expect("stamp is JSON");
+        let object = value.as_object().expect("stamp is an object");
+        assert_eq!(object.len(), 4, "only the decision's fields travel: {stamp}");
+        assert_eq!(object["wireVersion"], serde_json::json!(7));
+        assert_eq!(object["minSupportedVersion"], serde_json::json!(5));
+        assert_eq!(object["wireSchemaDigest"], serde_json::json!("abc"));
+        assert_eq!(object["appVersion"], serde_json::json!("0.1.1"));
+        // A stamp that cannot decide anything would look like an answer, so there is none.
+        assert_eq!(
+            local_build_stamp_from_version("{\"appVersion\":\"0.1.1\"}"),
+            None
+        );
+        assert_eq!(local_build_stamp_from_version("not json"), None);
+    }
+
+    #[test]
+    fn local_build_stamp_round_trips_through_the_state_dir() {
+        with_state_dir("local-build-stamp", None, || {
+            assert_eq!(read_local_build_stamp(), None);
+            write_local_build_stamp("{\"wireVersion\":7,\"wireSchemaDigest\":\"abc\"}");
+            let stamp = read_local_build_stamp().expect("the stamp survives the write");
+            assert!(stamp.contains("\"wireVersion\":7"));
+            // Garbage on disk reads as "nothing recorded", never as a decision.
+            write_local_build_stamp("{\"appVersion\":\"0.1.1\"}");
+            assert_eq!(read_local_build_stamp(), None);
+        });
+    }
+
+    #[test]
+    fn document_shown_names_our_two_documents_and_nothing_else() {
+        let baked = Url::parse(baked_document_url()).expect("baked URL parses");
+        assert_eq!(document_shown(&baked, 18787), Some(LocalDocument::Baked));
+        assert_eq!(
+            document_shown(&Url::parse("http://tauri.localhost/workspace").unwrap(), 18787),
+            Some(LocalDocument::Baked)
+        );
+        assert_eq!(
+            document_shown(&Url::parse("http://127.0.0.1:18787/workspace").unwrap(), 18787),
+            Some(LocalDocument::Served)
+        );
+        // A different port is a different origin — and a REMOTE origin is not ours to move.
+        assert_eq!(
+            document_shown(&Url::parse("http://127.0.0.1:19999/").unwrap(), 18787),
+            None
+        );
+        assert_eq!(
+            document_shown(&Url::parse("https://podium.example/").unwrap(), 18787),
+            None
+        );
+    }
+
+    #[test]
+    fn served_watch_falls_back_only_after_a_sustained_outage() {
+        let mut watch = ServedOriginWatch::default();
+        for _ in 0..(SERVED_FALLBACK_STREAK - 1) {
+            assert_eq!(watch.observe(LocalDocument::Served, false), None);
+        }
+        assert_eq!(
+            watch.observe(LocalDocument::Served, true),
+            None,
+            "one healthy probe clears the streak"
+        );
+        for _ in 0..(SERVED_FALLBACK_STREAK - 1) {
+            assert_eq!(watch.observe(LocalDocument::Served, false), None);
+        }
+        assert_eq!(
+            watch.observe(LocalDocument::Served, false),
+            Some(LocalDocument::Baked)
+        );
+    }
+
+    #[test]
+    fn served_watch_returns_to_the_server_once_it_is_back() {
+        let mut watch = ServedOriginWatch::default();
+        for _ in 0..(SERVED_RETURN_STREAK - 1) {
+            assert_eq!(watch.observe(LocalDocument::Baked, true), None);
+        }
+        assert_eq!(
+            watch.observe(LocalDocument::Baked, true),
+            Some(LocalDocument::Served)
+        );
+        // The streak resets with the navigation, so the very next probe cannot bounce it.
+        assert_eq!(watch.observe(LocalDocument::Served, false), None);
     }
 
     #[test]
@@ -1295,9 +1962,63 @@ mod tests {
     }
 
     #[test]
-    fn wait_for_port_times_out_on_a_closed_port() {
+    fn wait_for_local_server_times_out_on_a_closed_port() {
         // A port nothing is listening on returns false quickly.
-        assert!(!wait_for_port(1, 2, 10));
+        assert!(!wait_for_local_server(1, 2, 10));
+    }
+
+    #[test]
+    fn a_squatter_on_the_port_is_not_treated_as_our_server() {
+        // The whole point of the identity check: something IS listening and answering 200,
+        // and the shell must still refuse to load its origin — that origin would receive
+        // window controls, the opener, sql:allow-execute and the update bridge.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind a scratch port");
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut scratch = [0u8; 512];
+            let _ = stream.read(&mut scratch);
+            let body = "{\"hello\":\"not podium\"}";
+            let _ = stream.write_all(
+                format!(
+                    "HTTP/1.0 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            );
+        });
+        assert!(!probe_local_server_as(port, "default"));
+        server.join().expect("scratch listener thread");
+    }
+
+    #[test]
+    fn version_payload_identity_accepts_only_this_instances_podium() {
+        let podium = |instance: &str| {
+            format!(
+                "{{\"wireVersion\":7,\"minSupportedVersion\":5,\"wireSchemaDigest\":\"abc\",\"appVersion\":\"0.1.1\",\"instanceId\":\"{instance}\",\"feedScoping\":\"device-scoped\"}}"
+            )
+        };
+        assert!(is_podium_version_payload(&podium("default"), "default"));
+        assert!(is_podium_version_payload(&podium("work"), "work"));
+        // A DIFFERENT instance's Podium is the wrong server for this shell's data.
+        assert!(!is_podium_version_payload(&podium("work"), "default"));
+        // Shape alone is the gate for a server too old to report its instance.
+        assert!(is_podium_version_payload(
+            "{\"wireVersion\":7,\"wireSchemaDigest\":\"abc\"}",
+            "default"
+        ));
+        // Anything that is not a Podium /version answer.
+        assert!(!is_podium_version_payload("{\"hello\":\"not podium\"}", "default"));
+        assert!(!is_podium_version_payload("ok", "default"));
+        assert!(!is_podium_version_payload("", "default"));
+        // Chunk framing around a single small chunk still yields the object.
+        assert!(is_podium_version_payload(
+            "2a\r\n{\"wireVersion\":7,\"wireSchemaDigest\":\"abc\"}\r\n0\r\n\r\n",
+            "default"
+        ));
     }
 
     #[test]
