@@ -95,3 +95,71 @@ describe('daemon-only protocol entry', () => {
     expect(ControlMessage.parse(request)).toEqual(request)
   })
 })
+
+/**
+ * THE BOUNDARY THE RUNTIME CONTRACT IS SPLIT ON (POD-2470).
+ *
+ * The suite above pins the OLD daemon-plane families by name. That form is why
+ * the runtime contract leaked in the first place: W1 added a whole new family
+ * and no named assertion knew to grow. So this one is DERIVED — the daemon
+ * plane is whatever `./messages/runtime` declares that
+ * `./messages/runtime-interactions` does not, computed at run time — and a new
+ * export added to the daemon half is covered the moment it exists, with nobody
+ * having to remember this file.
+ *
+ * WHY IT MATTERS BEYOND TIDINESS: eager Zod schemas are constructed at module
+ * scope, so a single value import from the common barrel pulls the entire
+ * module into every browser bundle and no bundler can shake it out. Before this
+ * split, `./messages/sync.ts` importing one interaction schema dragged ~19 kB of
+ * daemon-plane request/result envelopes into the browser. The only thing that
+ * caught it was the size ratchet — a byte ceiling that names no cause — and
+ * POD-2560's paydown will create exactly the headroom for it to fit back in
+ * silently. This assertion is what should catch it next time, in the currency
+ * of the actual rule rather than in bytes.
+ */
+describe('the runtime contract browser boundary', () => {
+  it('keeps every daemon-plane runtime export out of the common barrel', async () => {
+    const daemonHalf = await import('./messages/runtime')
+    const browserHalf = await import('./messages/runtime-interactions')
+    // Derived, never listed. See the note above.
+    const daemonOnly = Object.keys(daemonHalf).filter((name) => !(name in browserHalf))
+    // Guard the guard: if the split were undone, this set would empty and the
+    // loop below would pass vacuously.
+    expect(daemonOnly.length).toBeGreaterThan(20)
+    for (const name of daemonOnly) {
+      expect(
+        commonProtocol,
+        `${name} is daemon-plane and must reach consumers through @podium/protocol/daemon, ` +
+          'not the common barrel every browser bundle imports',
+      ).not.toHaveProperty(name)
+    }
+  })
+
+  it('still serves the interaction half the browser genuinely parses', async () => {
+    const browserHalf = await import('./messages/runtime-interactions')
+    // `./sync.ts` parses this as the `pendingInteraction` metadata feed arm, so
+    // it is not merely allowed in the browser — it is required there.
+    expect(commonProtocol).toHaveProperty('PendingInteractionWire')
+    for (const name of Object.keys(browserHalf)) {
+      expect(commonProtocol, `${name} is browser-facing and must stay on the common barrel`).toHaveProperty(name)
+    }
+  })
+
+  /**
+   * THE ASYMMETRY IS DELIBERATE, and this test records the decision rather than
+   * leaving the next reader to wonder (review question, POD-2470).
+   *
+   * `./messages/runtime.ts` re-exports the interaction half, so
+   * `@podium/protocol/daemon` carries BOTH halves and is not the strict
+   * daemon-only surface its name suggests. That is correct: the daemon PRODUCES
+   * interactions, so it needs the ask vocabulary, and one import site for the
+   * whole contract is what keeps its consumers from drifting. The rule being
+   * enforced is one-directional — the browser must not receive the daemon
+   * plane; the daemon may hold everything.
+   */
+  it('lets the daemon entry point carry both halves, on purpose', async () => {
+    const daemonEntry = await import('./daemon')
+    expect(daemonEntry).toHaveProperty('PendingInteractionWire')
+    expect(daemonEntry).toHaveProperty('RuntimeEvent')
+  })
+})
