@@ -2,6 +2,10 @@
   <img src="apps/desktop/src-tauri/icons/128x128@2x.png" alt="Podium ADE logo" width="56" align="middle">&nbsp;Podium ADE
 </h1>
 
+<p align="center">
+  <img src="docs/assets/readme-hero.jpg" alt="Orca desktop app running agents in parallel worktrees, with the Orca mobile companion app in the corner" width="960" />
+</p>
+
 <p align="center" style="text-align:center"><strong>Ship more, better.</strong></p>
 
 <p align="center" style="text-align:center">Podium ADE is a multi-agent orchestrator running on your Mac, on your VPS and on your phone. It comes out of the box with cross-harness subagents and agent communication.</p>
