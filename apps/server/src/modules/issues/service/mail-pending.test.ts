@@ -142,4 +142,39 @@ describe('countContextAwarePendingMail', () => {
       store.close()
     }
   })
+
+  it('trusts a durable delivery stamp when the reader receipt is missing', () => {
+    const store = new SessionStore(':memory:')
+    try {
+      store.messages.addMessage({
+        ...message({
+          id: 'msg-delivered-without-receipt',
+          fromIssue: 'iss_peer',
+          fromSession: 'peer-session',
+          status: 'delivered',
+        }),
+        deliveredAt: 't1',
+        deliveredTo: asSessionId('reader-session'),
+      })
+
+      expect(
+        countContextAwarePendingMail(
+          store,
+          asIssueId('iss_target'),
+          (fromIssue) => `issue:${fromIssue}`,
+          asSessionId('reader-session'),
+        ),
+      ).toEqual({ unread: 0, senders: [] })
+      expect(
+        countContextAwarePendingMail(
+          store,
+          asIssueId('iss_target'),
+          (fromIssue) => `issue:${fromIssue}`,
+          asSessionId('other-session'),
+        ),
+      ).toEqual({ unread: 1, senders: ['issue:iss_peer'] })
+    } finally {
+      store.close()
+    }
+  })
 })
