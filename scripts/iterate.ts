@@ -200,7 +200,16 @@ export function iterateScopeUnit(webPort: number): string {
  * reclaim will not stop a live scope. Self-perpetuating, and recoverable only by
  * hand. Keep this list and `teardown` together.
  */
-export const TEARDOWN_SIGNALS: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP']
+export const TEARDOWN_SIGNALS: readonly NodeJS.Signals[] = [
+  'SIGINT',
+  'SIGTERM',
+  'SIGHUP',
+  // Ctrl-\ — the last terminal path that could still end this session without
+  // cleanup. Listed rather than left out because it costs one line and closes
+  // the gap: nothing else stands behind these (`process.on('exit')` does not
+  // run on a signal, measured).
+  'SIGQUIT',
+]
 
 /**
  * What actually gets spawned: `bun run dev` in `apps/web`, optionally wrapped in
@@ -444,8 +453,14 @@ async function main(): Promise<void> {
    * EVERYTHING THIS SESSION PUT ON THE BOX COMES OFF AGAIN.
    *
    * Idempotent and fully synchronous, which is what lets it also run from
-   * `process.on('exit')` — the backstop that covers every way out except
-   * SIGKILL, including an unhandled signal and a throw.
+   * `process.on('exit')`. What that backstop actually covers is a THROW and a
+   * normal exit — NOT a signal. An earlier version of this comment claimed it
+   * caught "every way out except SIGKILL", and that was measured false: a Bun
+   * script with only an exit handler, sent SIGHUP at default disposition, dies
+   * without running it at all. Signals are covered because each one is in
+   * `TEARDOWN_SIGNALS`, not because of this line — so a new terminal signal has
+   * to be added to that list, and the docs carry the manual recipe for the ways
+   * out that no handler can survive.
    *
    * STOPPING THE SCOPE IS PART OF IT (POD-2513 review). A scoped process
    * SURVIVES its parent and reparents to the user manager — build-scope.ts says
@@ -511,8 +526,8 @@ async function main(): Promise<void> {
    * SigIgn in /proc/PID/status.)
    */
   for (const signal of TEARDOWN_SIGNALS) process.on(signal, () => forward(signal))
-  // The last line of defence: any exit path that reaches here — a throw, a
-  // signal nobody handled — still gives back the port, the scope and the mount.
+  // For a throw or a normal exit — not for signals, which are handled above and
+  // only above. See teardown's note: an exit handler does not run on one.
   process.on('exit', teardown)
 
   const status = await new Promise<number>((resolve) => {
