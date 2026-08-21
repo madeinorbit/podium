@@ -194,13 +194,17 @@ async function version(port: number): Promise<Record<string, unknown> | undefine
   }
 }
 
+function normalizedBody(report: WindowReport): string {
+  return report.bodyText.replace(/\s+/g, ' ').trim()
+}
+
 function compact(report: WindowReport): Record<string, unknown> {
   return {
     href: report.href.replace(/127\.0\.0\.1:\d+/, '127.0.0.1:<port>'),
     launchMode: report.launchMode,
     readyState: report.readyState,
     bodyIncludes: ['The backend went quiet.', 'Retry connection'].filter((needle) =>
-      report.bodyText.includes(needle),
+      normalizedBody(report).includes(needle),
     ),
   }
 }
@@ -386,8 +390,8 @@ async function runWindowScenario(options: {
           (report) =>
             report.href.startsWith('tauri:') &&
             report.readyState === 'complete' &&
-            report.bodyText.includes('The backend went quiet.') &&
-            report.bodyText.includes('Retry connection'),
+            normalizedBody(report).includes('The backend went quiet.') &&
+            normalizedBody(report).includes('Retry connection'),
         ),
       'the baked reconnect UX after the supervised restart budget and six failed polls',
       65_000,
@@ -541,6 +545,19 @@ async function runWindowScenario(options: {
         ),
     }
   } catch (error) {
+    console.error(
+      JSON.stringify(
+        reports.slice(-12).map((report) => ({
+          at: report.at,
+          href: report.href.replace(/127\.0\.0\.1:\d+/, '127.0.0.1:<port>'),
+          launchMode: report.launchMode,
+          readyState: report.readyState,
+          bodyText: report.bodyText.slice(0, 240),
+        })),
+        null,
+        2,
+      ),
+    )
     console.error(
       output.replaceAll(root, '<isolated-root>').replace(/127\.0\.0\.1:\d+/g, '127.0.0.1:<port>'),
     )
