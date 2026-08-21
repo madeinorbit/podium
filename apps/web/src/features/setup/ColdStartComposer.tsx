@@ -1,6 +1,12 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
+import {
+  EMPTY_PINS,
+  lastUsedMaps,
+  type RepoNavView,
+  sidebarSections,
+} from '@podium/client-core/viewmodels'
 import { asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import { ArrowRight, ChevronDown, LoaderCircle, Monitor, Paperclip } from 'lucide-react'
@@ -23,8 +29,23 @@ import { activationAgentIsReady, activationAgentReadiness } from './agent-readin
 import { clearFirstTaskDraft, persistFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
 import { SetupError } from './SetupFeedback'
 
-function repoLabel(repo: GitRepositoryWire): string {
-  return repo.path.split('/').filter(Boolean).pop() ?? repo.path
+function repoLabel(repo: { path: string; name?: string }): string {
+  return repo.name ?? repo.path.split('/').filter(Boolean).pop() ?? repo.path
+}
+
+function checkoutForMachine(
+  repos: GitRepositoryWire[],
+  repo: RepoNavView,
+  machineId: string | undefined,
+): GitRepositoryWire | undefined {
+  const path =
+    repo.machines?.find((candidate) => candidate.machineId === machineId)?.path ?? repo.path
+  return repos.find(
+    (candidate) =>
+      candidate.kind !== 'worktree' &&
+      candidate.path === path &&
+      (machineId === undefined || candidate.machineId === machineId),
+  )
 }
 
 function promptTitle(prompt: string): string {
@@ -60,10 +81,11 @@ function attachmentBrief(paths: readonly string[]): string {
 }
 
 export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
-  const { trpc, repos, machines, uiState, focusIssueSession } = useStoreSelector(
+  const { trpc, repos, sessions, machines, uiState, focusIssueSession } = useStoreSelector(
     (store) => ({
       trpc: store.trpc,
       repos: store.repos,
+      sessions: store.sessions,
       machines: store.machines,
       uiState: store.uiState,
       focusIssueSession: store.focusIssueSession,
@@ -71,13 +93,16 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     shallowEqual,
   )
   const repoChoices = useMemo(
-    () =>
-      repos
-        .filter((repo) => repo.kind !== 'worktree')
-        .sort((a, b) =>
-          repoLabel(a).localeCompare(repoLabel(b), undefined, { sensitivity: 'base' }),
-        ),
-    [repos],
+    () => {
+      const sections = sidebarSections(repos, sessions, EMPTY_PINS)
+      const { byRepo } = lastUsedMaps(sections, sessions)
+      return sections.repos.sort(
+        (a, b) =>
+          (byRepo.get(b.path) ?? 0) - (byRepo.get(a.path) ?? 0) ||
+          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+      )
+    },
+    [repos, sessions],
   )
   const [draft, setDraftState] = useState(() =>
     readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)),
@@ -111,18 +136,27 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     }
   }, [trpc])
 
-  const selectedRepo = repoChoices.find((repo) => repo.path === draft.repoPath) ?? repoChoices[0]
-  const targetMachines = selectedRepo?.machineId
-    ? machines.filter((machine) => machine.id === selectedRepo.machineId)
-    : machines
+  const selectedRepo =
+    repoChoices.find(
+      (repo) =>
+        repo.path === draft.repoPath || repo.machines?.some(({ path }) => path === draft.repoPath),
+    ) ?? repoChoices[0]
+  const repoMachineIds = new Set(selectedRepo?.machines?.map(({ machineId }) => machineId) ?? [])
+  const targetMachines =
+    repoMachineIds.size > 0
+      ? machines.filter((machine) => repoMachineIds.has(machine.id))
+      : machines
   const selectedMachine =
     targetMachines.find((machine) => machine.id === draft.machineId) ??
     targetMachines.find((machine) => machine.online) ??
     targetMachines[0]
+  const selectedCheckout = selectedRepo
+    ? checkoutForMachine(repos, selectedRepo, selectedMachine?.id)
+    : undefined
   const detectedReadyAgent = ISSUE_AGENT_KINDS.find((candidate) =>
     activationAgentIsReady(
       activationAgentReadiness(
-        selectedRepo,
+        selectedCheckout,
         selectedMachine ? [selectedMachine] : machines,
         candidate,
       ),
@@ -133,7 +167,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     (configuredAgent &&
     activationAgentIsReady(
       activationAgentReadiness(
-        selectedRepo,
+        selectedCheckout,
         selectedMachine ? [selectedMachine] : machines,
         configuredAgent,
       ),
@@ -143,7 +177,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     configuredAgent ??
     'claude-code'
   const readiness = activationAgentReadiness(
-    selectedRepo,
+    selectedCheckout,
     selectedMachine ? [selectedMachine] : machines,
     agent,
   )
@@ -191,9 +225,12 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
 
   const selectRepo = (repoPath: string): void => {
     const repo = repoChoices.find((candidate) => candidate.path === repoPath)
-    const machine = repo?.machineId
-      ? machines.find((candidate) => candidate.id === repo.machineId)
-      : (machines.find((candidate) => candidate.online) ?? machines[0])
+    const repoMachines = new Set(repo?.machines?.map(({ machineId }) => machineId) ?? [])
+    const candidates =
+      repoMachines.size > 0
+        ? machines.filter((candidate) => repoMachines.has(candidate.id))
+        : machines
+    const machine = candidates.find((candidate) => candidate.online) ?? candidates[0]
     setError(null)
     setDraft({
       ...draft,
@@ -218,6 +255,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       busy ||
       attachments.uploading ||
       !selectedRepo ||
+      !selectedCheckout ||
       !selectedMachine ||
       !ready ||
       (!draft.pendingIssueId && !prompt)
@@ -231,12 +269,12 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       const created = draft.pendingIssueId
         ? { id: draft.pendingIssueId }
         : await trpc.issues.create.mutate({
-            repoPath: selectedRepo.path,
+            repoPath: selectedCheckout.path,
             machineId: selectedMachine.id,
             title: promptTitle(prompt),
             description: prompt,
             ...(brief ? { brief } : {}),
-            parentBranch: selectedRepo.branch?.trim() || undefined,
+            parentBranch: selectedCheckout.branch?.trim() || undefined,
             defaultAgent: agent,
             defaultModel: draft.model !== AUTO ? draft.model : undefined,
             defaultEffort: draft.effort !== AUTO ? draft.effort : undefined,
