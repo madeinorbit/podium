@@ -35,22 +35,23 @@ export function isHeadlessPlatform(value: string): value is HeadlessPlatform {
 /**
  * The platform name for an (os, arch) pair.
  *
- * Deliberately returns a plain string, not a {@link HeadlessPlatform}: a machine
- * may honestly report an os/arch we publish nothing for (Windows today), and the
- * truthful answer is its name, followed by "no artifact for you" — not a crash
- * and not a wrong platform. Callers that need a PUBLISHED platform narrow with
+ * BOTH ARGUMENTS ARE REQUIRED, and that is the point. This package is the wire
+ * contract and carries no Node types on purpose — it is imported by the phone
+ * client and the browser as well as by the server. Defaulting to
+ * `process.platform` would make the vocabulary depend on the environment
+ * reading it, which is exactly the coupling that had three copies of this rule
+ * drifting apart in the first place. The callers that HAVE a process supply its
+ * values (`platformTarget` in the CLI, `developmentPlatformTarget` in the
+ * server); a caller reading a machine's reported inventory supplies that.
+ *
+ * Returns a plain string, not a {@link HeadlessPlatform}: a machine may honestly
+ * report an os/arch we publish nothing for (Windows today), and the truthful
+ * answer is its name, followed by "no artifact for you" — not a crash and not a
+ * wrong platform. Callers that need a PUBLISHED platform narrow with
  * {@link isHeadlessPlatform}.
  */
-export function platformTargetFor(
-  platform: NodeJS.Platform | string = process.platform,
-  arch: string = process.arch,
-): string {
+export function platformTargetFor(platform: string, arch: string): string {
   const os = platform === 'win32' ? 'windows' : platform
   const cpu = arch === 'x64' ? 'x86_64' : arch === 'arm64' ? 'aarch64' : arch
   return `${os}-${cpu}`
-}
-
-/** This process's own platform name. */
-export function hostPlatformTarget(): string {
-  return platformTargetFor(process.platform, process.arch)
 }
