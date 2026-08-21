@@ -16,10 +16,12 @@ import {
   ConnectScanReader,
   createMaintenanceHttpClient,
   EventLogPrunePlanner,
+  handleTickError,
   JanitorService,
+  MaintenanceCompatibilityError,
   MessageExpiryReader,
-  type WorktreeGcReadInput,
   WorktreeGcReader,
+  type WorktreeGcReadInput,
 } from './janitor'
 
 const readyLease = (
@@ -717,5 +719,49 @@ describe('the sweep is off when the operator says off [POD-564]', () => {
     const sent = apply.mock.calls.map(([c]) => c).filter((c) => c.jobKind === 'worktree-gc')
     expect(sent).toHaveLength(1)
     expect(sent[0]?.runKey).toBe(worktreeGcRunKey(candidate))
+  })
+})
+
+/**
+ * The one branch in this file that can END A PROCESS [POD-2505, review finding 3].
+ *
+ * Co-hosted inside the server, `process.exit(78)` on a mid-run compatibility
+ * refusal exits the SERVER; the parent then reads 78 as a component refusal and
+ * parks the server permanently stopped. A housekeeping loop's schema check would
+ * end all serving, which is the exact inverse of the §8 policy it implements.
+ */
+describe('handleTickError', () => {
+  const refusal = (): Error =>
+    new MaintenanceCompatibilityError(MAINTENANCE_PROTOCOL_VERSION + 1, '20260901_future')
+
+  it('a HOSTED refusal stops the tick and reports — it must never exit', () => {
+    const exit = vi.fn()
+    const stopTicking = vi.fn()
+    const onCompatibilityRefusal = vi.fn()
+    handleTickError(refusal(), { stopTicking, onCompatibilityRefusal, exit })
+    expect(exit, 'a co-hosted janitor must not exit its host').not.toHaveBeenCalled()
+    expect(stopTicking).toHaveBeenCalledOnce()
+    expect(onCompatibilityRefusal).toHaveBeenCalledOnce()
+  })
+
+  it('a STANDALONE refusal still exits 78, which is what its supervisor reads', () => {
+    const exit = vi.fn()
+    const stopTicking = vi.fn()
+    handleTickError(refusal(), { stopTicking, exit })
+    expect(exit).toHaveBeenCalledWith(78)
+  })
+
+  it('any other tick failure is a delay, not a verdict', () => {
+    const exit = vi.fn()
+    const stopTicking = vi.fn()
+    const onCompatibilityRefusal = vi.fn()
+    handleTickError(new Error('server briefly unreachable'), {
+      stopTicking,
+      onCompatibilityRefusal,
+      exit,
+    })
+    expect(exit).not.toHaveBeenCalled()
+    expect(stopTicking, 'a transient error must not stop the loop').not.toHaveBeenCalled()
+    expect(onCompatibilityRefusal).not.toHaveBeenCalled()
   })
 })

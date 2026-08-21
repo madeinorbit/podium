@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { stateDir } from './config'
 
-export const RunRole = z.enum(['server', 'janitor', 'daemon', 'all-in-one'])
+export const RunRole = z.enum(['parent', 'server', 'janitor', 'daemon', 'all-in-one'])
 export type RunRole = z.infer<typeof RunRole>
 
 export const RunRecord = z.object({
@@ -146,6 +146,17 @@ export interface RegisterOptions {
   kill?: KillFn
   /** Injectable clock (ISO string) for tests. */
   nowIso?: () => string
+  /**
+   * Reclaim (SIGTERM, then SIGKILL) a live holder before claiming the role.
+   * Default true — the normal "there can be only one" semantics.
+   *
+   * FALSE FOR EXACTLY ONE CALLER: a successor parent during self-handover
+   * (POD-2505). Its predecessor is alive ON PURPOSE, still supervising a serving
+   * stack, and owns the decision about when to exit. Reclaiming it would SIGTERM
+   * it mid-handover, and its shutdown would take the children down with it — the
+   * precise failure this flag exists to make impossible.
+   */
+  reclaimExisting?: boolean
 }
 
 /**
@@ -157,8 +168,14 @@ export async function registerProcess(
   role: RunRole,
   opts: RegisterOptions = {},
 ): Promise<() => void> {
-  const { port, mode, kill = process.kill, nowIso = () => new Date().toISOString() } = opts
-  await reclaim(role, { kill })
+  const {
+    port,
+    mode,
+    kill = process.kill,
+    nowIso = () => new Date().toISOString(),
+    reclaimExisting = true,
+  } = opts
+  if (reclaimExisting) await reclaim(role, { kill })
   writeRecord({
     role,
     pid: process.pid,

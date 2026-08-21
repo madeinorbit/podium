@@ -24,6 +24,7 @@ import {
   stateDir,
 } from '@podium/runtime/local-machine'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { clearParentOutcome, readParentOutcome } from '@podium/runtime/parent-control'
 import {
   formatTopQueries,
   queryAttributionTotals,
@@ -266,6 +267,17 @@ export function registerVersionRoute(
      * from one whose phone export is missing — both mean "nothing to say here".
      */
     mobileWeb?: () => MobileWebIdentity
+    /** Parent health gate + settings: is the local daemon connected? */
+    daemonConnected?: () => boolean
+    /** Janitor co-host status for DEGRADED projection [POD-2505]. */
+    janitor?: () =>
+      | {
+          state: 'running' | 'degraded' | 'stopped'
+          reason?: string
+          /** Advance token the parent's watchdog reads (§8, gap 9). */
+          progressVersion?: number
+        }
+      | undefined
   },
 ): void {
   app.get('/version', async (c) => {
@@ -281,6 +293,12 @@ export function registerVersionRoute(
     } catch {
       mobileWeb = undefined
     }
+    const daemonConnected = deps.daemonConnected?.() === true
+    const janitor = deps.janitor?.()
+    const components = {
+      ...(janitor ? { janitor } : {}),
+      daemon: { state: daemonConnected ? ('connected' as const) : ('disconnected' as const) },
+    }
     return c.json({
       wireVersion: WIRE_VERSION,
       minSupportedVersion: MIN_SUPPORTED_VERSION,
@@ -293,6 +311,8 @@ export function registerVersionRoute(
       appVersion: deps.appVersion?.() ?? process.env.PODIUM_APP_VERSION ?? 'dev',
       instanceId: deps.instanceId,
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
+      daemonConnected,
+      components,
       ...(target ? { target } : {}),
       ...(mobileWeb?.present ? { mobileWeb } : {}),
     })
@@ -339,6 +359,13 @@ export async function startServer(
     tls?: { key: string; cert: string }
     /** Advertise the safe local all-in-one first-run default to loopback web clients. */
     localSetupDefault?: boolean
+    /**
+     * The janitor's `startJanitor`, injected by the composition root
+     * (scripts/cli.ts) so this app never imports another app [POD-2505]. When
+     * present AND this shape co-hosts (`shouldHostJanitor`), the janitor runs
+     * inside this process instead of as its own OS role.
+     */
+    startJanitor?: import('./janitor-host').StartJanitorFn
   } = {},
 ): Promise<ServerHandle> {
   const configuredProxyHops = opts.trustedProxyHops ?? proxyHopsFromEnv(process.env)
@@ -563,16 +590,28 @@ export async function startServer(
   // variable as the discriminator misclassified the published binary as source
   // and silently withheld its coordinator restart capability.
   const developmentSourceRoot = process.env.PODIUM_APP_VERSION ? undefined : DEVELOPMENT_SOURCE_ROOT
+  /**
+   * The version the parent installed for THIS operation, which is the version
+   * the handover's health gate must see the successor serving. Written by the
+   * update ask, read by the restart ask — the producer finding 15 said the
+   * parameter did not have.
+   */
+  let pendingCoordinatorVersion: string | undefined
   const requestCoordinatorRestart = developmentSourceRoot
     ? createSourceRedeployRequest({ instanceId })
     : createInstalledCoordinatorRestart({
         instanceId,
         port: () => boundPort,
-        includeDaemon: config.mode === 'all-in-one',
+        pendingVersion: () => pendingCoordinatorVersion,
       })
   const prepareCoordinatorUpdate = developmentSourceRoot
     ? undefined
-    : createInstalledCoordinatorUpdate({ pinnedPubkey: updateSigningKey.publicKey })
+    : createInstalledCoordinatorUpdate({
+        pinnedPubkey: updateSigningKey.publicKey,
+        onInstalled: (version) => {
+          pendingCoordinatorVersion = version
+        },
+      })
   const devPublisher = wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
     instanceId,
@@ -655,6 +694,14 @@ export async function startServer(
   // bare await here is safe by the engine's own contract rather than by a catch
   // at this call site. The server that cannot boot is the one that has to apply
   // the update that fixes it.
+  //
+  // THE PARENT'S NOTE, READ ONCE (POD-2505). A rollback leaves this server on
+  // the version the update was meant to replace, so adoption is about to fail
+  // the `server` step for coming back on the wrong version — which is true, and
+  // on its own reads as an unexplained failure. The parent's own sentence is
+  // what turns it into a report the user can act on, and decision 4 requires it
+  // when rollback was refused. Cleared afterwards: the note is about THIS boot.
+  const parentReport = readParentOutcome()?.why
   await registry.modules.operations.engine.adoptOnBoot(
     () => ({
       appVersion,
@@ -663,10 +710,12 @@ export async function startServer(
         () => servedWebIdentity(phoneWebDir()),
       )?.(),
       machineDirectory: registry.modules.updates.fleet(),
+      ...(parentReport ? { parentReport } : {}),
       now: Date.now(),
     }),
     updateOperationBoot,
   )
+  if (parentReport) clearParentOutcome()
 
   const requestPeerAddresses = new WeakMap<Request, string>()
   const readiness = createServerReadiness({
@@ -676,6 +725,7 @@ export async function startServer(
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   devPublisher.registerRoute(app)
+  let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   registerVersionRoute(app, {
     instanceId,
     appVersion: () => appVersion,
@@ -693,6 +743,23 @@ export async function startServer(
       return registry.modules.updates.advertisedTarget(hostMachineId, published)
     },
     mobileWeb: () => servedWebIdentity(phoneWebDir()),
+    /**
+     * THIS HOST's daemon, not "any daemon anywhere". The parent's handover
+     * health gate (disposition 24) asks whether the LOCAL daemon reached the new
+     * server; `onlineMachineIds().length > 0` answered yes on a multi-machine
+     * host with the local daemon dead, which would let a handover complete onto
+     * a stack that is missing a child (review finding 7).
+     */
+    daemonConnected: () =>
+      registry.modules.machines.onlineMachineIds().includes(asMachineId(hostMachineId)),
+    janitor: () =>
+      janitorHost
+        ? {
+            state: janitorHost.state(),
+            progressVersion: janitorHost.progressVersion(),
+            ...(janitorHost.reason() ? { reason: janitorHost.reason() } : {}),
+          }
+        : undefined,
   })
   registerMaintenanceRoute(app, {
     // The maintenance realm is THIS HOST's credential, named by its real id rather
@@ -1038,6 +1105,21 @@ export async function startServer(
 
     settled = true
     boundPort = server.port
+    // Parent-supervised / desktop: co-host the janitor inside this process so
+    // there is no separate janitor OS role [POD-2505]. Refusal stays degraded.
+    void (async () => {
+      const { shouldHostJanitor, startJanitorHost } = await import('./janitor-host')
+      // No injected starter ⇒ this process was not started by the composition
+      // root and does not co-host. The server never reaches into apps/janitor.
+      if (!shouldHostJanitor() || !opts.startJanitor) return
+      janitorHost = await startJanitorHost({
+        port: boundPort,
+        token: bootstrapToken,
+        startJanitor: opts.startJanitor,
+      })
+    })().catch((error) => {
+      log.warn('janitor host failed to start', { err: error })
+    })
     // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
     // the issue command registry DIRECTLY (not the cookie-gated HTTP /trpc, which would
     // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is
@@ -1223,6 +1305,7 @@ export async function startServer(
             // synchronously, so nothing is buffered and this loses no records —
             // it closes fds a long-lived process would otherwise hold.
             ['logs.close', () => registry.modules.logs.close()],
+            ['janitorHost.close', () => janitorHost?.close()],
             ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
             ['registry.dispose', () => registry.dispose()],
             ['store.close', () => store.close()],

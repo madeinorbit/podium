@@ -1183,11 +1183,61 @@ export interface JanitorHandle {
   close(): void
 }
 
+/**
+ * What a failed tick means. Exported so the ONE branch that can end a process is
+ * testable without a database, an HTTP server and a schema-advanced fixture.
+ *
+ * A mid-run `MaintenanceCompatibilityError` is the §8 REFUSAL class. As its own
+ * OS process the janitor exits 78 and its supervisor parks it stopped. CO-HOSTED
+ * INSIDE THE SERVER (POD-2505) that same exit would take the server down, and
+ * the parent — reading 78 — would park the SERVER refused, permanently. So a
+ * host that can own the refusal passes `onCompatibilityRefusal` and this never
+ * reaches `exit`. Every other error is a delay, not a verdict.
+ */
+export function handleTickError(
+  error: unknown,
+  deps: {
+    stopTicking: () => void
+    onCompatibilityRefusal?: (error: Error) => void
+    exit?: (code: number) => void
+  },
+): void {
+  if (!(error instanceof MaintenanceCompatibilityError)) {
+    log.warn('tick delayed', { err: error })
+    return
+  }
+  if (deps.onCompatibilityRefusal) {
+    // Stop ticking: a refusal is not retried until the next successful update.
+    deps.stopTicking()
+    log.error('maintenance compatibility check failed — janitor stopping (degraded)', {
+      err: error,
+    })
+    deps.onCompatibilityRefusal(error)
+    return
+  }
+  log.error('maintenance compatibility check failed — exiting', { err: error })
+  const exit = deps.exit ?? ((code: number) => process.exit(code))
+  exit(78)
+}
+
 export async function startJanitor(options: {
   serverUrl: string
   token: string
   dbPath?: string
   tickMs?: number
+  /**
+   * What a MID-RUN compatibility refusal means for this host process.
+   *
+   * As its own OS process the janitor exits 78 (EX_CONFIG) and its supervisor
+   * parks it stopped — that is the §8 REFUSAL class. But the janitor is now
+   * normally CO-HOSTED INSIDE THE SERVER (POD-2505), where `process.exit(78)`
+   * would take the server down with it and the parent would park the SERVER
+   * refused: a schema check on a background housekeeping loop would end all
+   * serving, permanently, which is the exact inverse of the policy. A host that
+   * passes this callback owns the refusal instead; the default is the standalone
+   * exit that existing supervision expects.
+   */
+  onCompatibilityRefusal?: (error: Error) => void
 }): Promise<JanitorHandle> {
   const shutdown = new AbortController()
   const client = createMaintenanceHttpClient(
@@ -1234,14 +1284,14 @@ export async function startJanitor(options: {
     log.warn('initial tick delayed', { err: error })
   }
   const timer = setInterval(() => {
-    void service.tick().catch((error) => {
-      if (error instanceof MaintenanceCompatibilityError) {
-        log.error('maintenance compatibility check failed — exiting', { err: error })
-        process.exit(78)
-        return
-      }
-      log.warn('tick delayed', { err: error })
-    })
+    void service.tick().catch((error) =>
+      handleTickError(error, {
+        stopTicking: () => clearInterval(timer),
+        ...(options.onCompatibilityRefusal
+          ? { onCompatibilityRefusal: options.onCompatibilityRefusal }
+          : {}),
+      }),
+    )
   }, options.tickMs ?? DEFAULT_TICK_MS)
   return {
     service,

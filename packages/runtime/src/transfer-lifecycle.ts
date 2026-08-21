@@ -45,16 +45,18 @@ import type { RunRole } from './run-registry'
 import { assertConfigWritable, ephemeralTunnelWarning, validatePublicUrl, wssFrom } from './setup'
 
 /** The roles that must be running for a given deployment mode. `client` and unset host
- *  nothing; `all-in-one` is the desktop sidecar (server + janitor + daemon in one PID). */
+ *  nothing; `all-in-one` is the desktop sidecar (server + janitor + daemon in one PID).
+ *  Parent-supervised installs register the parent plus its OS children (server, daemon);
+ *  janitor is a server worker and is no longer a peer role [POD-2505]. */
 export function rolesForMode(mode: PodiumConfig['mode']): RunRole[] {
-  if (mode === 'all-in-one') return ['server', 'janitor', 'daemon']
-  if (mode === 'server') return ['server', 'janitor']
+  if (mode === 'all-in-one') return ['parent', 'server', 'daemon']
+  if (mode === 'server') return ['parent', 'server']
   if (mode === 'daemon') return ['daemon']
   return []
 }
 
-/** The four role ids a machine can run, in plan order. */
-export const MACHINE_ROLES: RunRole[] = ['server', 'janitor', 'daemon', 'all-in-one']
+/** Role ids a machine can run, in plan order. */
+export const MACHINE_ROLES: RunRole[] = ['parent', 'server', 'janitor', 'daemon', 'all-in-one']
 
 /**
  * Validate + ws-ify a server URL exactly the way a daemon dials it. Accepts http(s) or

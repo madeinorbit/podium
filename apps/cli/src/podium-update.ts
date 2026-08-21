@@ -229,7 +229,8 @@ export async function runUpdate(
       renameSync(backup, dir)
       throw err
     }
-    rmSync(backup, { recursive: true, force: true })
+    // Retain `.old` until a supervising parent declares the new version healthy
+    // (spec §8 disposition 4). Standalone CLI users keep it for manual rollback.
     console.log(`[podium update] updated to ${version}; restart podium to apply`)
     if (reviveJanitor()) {
       console.log(`[podium update] restarted compatibility-blocked janitor`)

@@ -252,7 +252,9 @@ describe('podium update swap crash-safety', () => {
     await runUpdate(feed, testPubkeyB64, () => false)
     expect(readFileSync(join(dir, 'VERSION'), 'utf8').trim()).toBe('0.1.1')
     expect(existsSync(join(dir, 'podium'))).toBe(true)
-    expect(existsSync(`${dir}.old`)).toBe(false)
+    // Retain `.old` until a supervising parent declares healthy (POD-2505).
+    expect(existsSync(`${dir}.old`)).toBe(true)
+    expect(readFileSync(join(`${dir}.old`, 'VERSION'), 'utf8').trim()).toBe('0.1.0')
     // No sibling .podium-update-* temp dir is left behind.
     expect(readdirSync(dirname(dir)).filter((n) => n.startsWith('.podium-update-'))).toHaveLength(0)
     // Signal "actually updated" via exit code 10 so the systemd timer only restarts the
