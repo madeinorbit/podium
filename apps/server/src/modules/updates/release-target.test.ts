@@ -3,6 +3,7 @@ import {
   type ChannelFeed,
   desktopReleaseManifestUrl,
   devFeedManifestUrl,
+  RELEASE_ARTIFACT_REDIRECT_HOSTS,
   releaseChannelFeed,
   releaseManifestUrl,
   resolveReleaseTarget,
@@ -335,6 +336,127 @@ describe('resolveReleaseTarget trust root', () => {
         /headless linux-x86_64 artifact redirected outside the edge feed/,
       )
       expect(fetchImpl.mock.calls.map(([request]) => String(request))).not.toContain(attacker)
+    })
+  })
+
+  /**
+   * REDIRECTS ARE PER CHANNEL. Dev never follows: it is this server serving
+   * its own artifacts. Edge and stable follow GitHub's object-host hop, and
+   * only that hop — bounded, https, whole-host allowlist.
+   */
+  describe('artifact redirect hops', () => {
+    const GITHUB_OBJECT =
+      'https://objects.githubusercontent.com/github-production-release-asset/x.tar.gz'
+
+    const edgeFetch = (onHeadless: (init?: RequestInit) => Response) =>
+      vi.fn<typeof fetch>(async (request, init) => {
+        const url = String(request)
+        if (url === releaseManifestUrl('edge')) return json(releaseManifest())
+        if (url === desktopReleaseManifestUrl('edge')) return json(desktopManifest())
+        if (url === HEADLESS_URL) return onHeadless(init)
+        return new Response(null, { status: 200 })
+      })
+
+    it('REFUSES a dev-feed artifact that redirects anywhere, including inside the feed', async () => {
+      const inFeed = `${DEV_ORIGIN}/updates/feed/dev/other.tar.gz`
+      const fetchImpl = vi.fn<typeof fetch>(async (request, init) => {
+        const url = String(request)
+        if (url === DEV_FEED.manifestUrl) {
+          return json(releaseManifest('0.1.2-dev.4+abc1234', DEV_ARTIFACT_URL))
+        }
+        if (url === DEV_ARTIFACT_URL) {
+          const mode = init?.redirect ?? 'follow'
+          if (mode === 'follow') return new Response(null, { status: 200 })
+          return new Response(null, { status: 302, headers: { location: inFeed } })
+        }
+        if (url === inFeed) return new Response(null, { status: 200 })
+        return new Response(null, { status: 200 })
+      })
+
+      await expect(
+        resolveReleaseTarget('dev', { fetch: fetchImpl, feed: DEV_FEED }),
+      ).rejects.toThrow(/redirect/)
+      expect(fetchImpl.mock.calls.map(([request]) => String(request))).not.toContain(inFeed)
+    })
+
+    it('ACCEPTS a release-channel hop from github.com to objects.githubusercontent.com', async () => {
+      const fetchImpl = vi.fn<typeof fetch>(async (request, init) => {
+        const url = String(request)
+        if (url === releaseManifestUrl('edge')) return json(releaseManifest())
+        if (url === desktopReleaseManifestUrl('edge')) return json(desktopManifest())
+        if (url === HEADLESS_URL) {
+          expect(init?.redirect).toBe('manual')
+          return new Response(null, { status: 302, headers: { location: GITHUB_OBJECT } })
+        }
+        if (url === GITHUB_OBJECT) return new Response(null, { status: 200 })
+        return new Response(null, { status: 200 })
+      })
+
+      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
+        version: '0.4.2',
+      })
+      expect(fetchImpl.mock.calls.map(([request]) => String(request))).toContain(GITHUB_OBJECT)
+    })
+
+    it('REFUSES a release-channel hop to a lookalike of the object host', async () => {
+      const lookalike = 'https://objects.githubusercontent.com.evil.example/x.tar.gz'
+      const fetchImpl = edgeFetch(
+        () => new Response(null, { status: 302, headers: { location: lookalike } }),
+      )
+
+      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+        /redirected outside the edge feed/,
+      )
+      expect(fetchImpl.mock.calls.map(([request]) => String(request))).not.toContain(lookalike)
+    })
+
+    it('REFUSES a redirect chain longer than the hop cap', async () => {
+      const hops = [
+        `${RELEASE_BASE}/h1.tar.gz`,
+        `${RELEASE_BASE}/h2.tar.gz`,
+        `${RELEASE_BASE}/h3.tar.gz`,
+        GITHUB_OBJECT,
+      ]
+      const fetchImpl = vi.fn<typeof fetch>(async (request) => {
+        const url = String(request)
+        if (url === releaseManifestUrl('edge')) return json(releaseManifest())
+        if (url === desktopReleaseManifestUrl('edge')) return json(desktopManifest())
+        if (url === HEADLESS_URL) {
+          return new Response(null, { status: 302, headers: { location: hops[0] } })
+        }
+        const index = hops.indexOf(url)
+        if (index >= 0 && index < hops.length - 1) {
+          return new Response(null, { status: 302, headers: { location: hops[index + 1] } })
+        }
+        return new Response(null, { status: 200 })
+      })
+
+      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+        /redirected too many times/,
+      )
+      expect(fetchImpl.mock.calls.map(([request]) => String(request))).not.toContain(GITHUB_OBJECT)
+    })
+
+    it('REFUSES an http downgrade on any hop', async () => {
+      const downgrade =
+        'http://objects.githubusercontent.com/github-production-release-asset/x.tar.gz'
+      const fetchImpl = edgeFetch(
+        () => new Response(null, { status: 302, headers: { location: downgrade } }),
+      )
+
+      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(/https/)
+      expect(fetchImpl.mock.calls.map(([request]) => String(request))).not.toContain(downgrade)
+    })
+
+    it('lists the GitHub object host on the release feed, never as a suffix match', () => {
+      expect(RELEASE_ARTIFACT_REDIRECT_HOSTS).toEqual([
+        'github.com',
+        'objects.githubusercontent.com',
+      ])
+      expect(releaseChannelFeed('edge')?.redirectHosts).toEqual([
+        ...RELEASE_ARTIFACT_REDIRECT_HOSTS,
+      ])
+      expect(DEV_FEED.redirectHosts).toBeUndefined()
     })
   })
 

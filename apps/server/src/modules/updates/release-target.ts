@@ -28,6 +28,24 @@ const RELEASE_BASE = 'https://github.com/madeinorbit/podium/releases'
 /** Every release artifact `scripts/release.ts` names lives under this prefix. */
 const RELEASE_ARTIFACT_BASE = `${RELEASE_BASE}/download/`
 
+/**
+ * Hosts a RELEASE-CHANNEL artifact HEAD may land on after GitHub redirects.
+ *
+ * GitHub serves every `releases/download/...` asset by 302ing to
+ * `objects.githubusercontent.com`. The named URL stays under the GitHub
+ * download prefix; the bytes live on that object host. This list is the
+ * voucher for that hop — compared as the whole hostname, never as a suffix,
+ * so `objects.githubusercontent.com.evil.example` is not a match. Dev has
+ * no entry: that feed never redirects.
+ */
+export const RELEASE_ARTIFACT_REDIRECT_HOSTS = [
+  'github.com',
+  'objects.githubusercontent.com',
+] as const
+
+/** GitHub 302s once; two extra hops is slack, not a tour of the internet. */
+export const RELEASE_ARTIFACT_REDIRECT_HOPS = 3
+
 /** Where a channel's manifests live, what may sign its artifacts, and who may ask. */
 export interface ChannelFeed {
   /** The product manifest — `podium-update.json`. */
@@ -71,6 +89,12 @@ export interface ChannelFeed {
    * public and carry nothing.
    */
   headers?: Readonly<Record<string, string>>
+  /**
+   * Hosts an artifact HEAD may land on after a redirect. Compared as the
+   * whole hostname. ABSENT means this feed never redirects — the dev feed,
+   * which is this server serving its own artifacts.
+   */
+  redirectHosts?: readonly string[]
 }
 
 export function releaseManifestUrl(channel: 'edge' | 'stable'): string {
@@ -108,6 +132,7 @@ export function releaseChannelFeed(channel: ReleaseUpdateChannel): ChannelFeed |
     desktopManifestUrl: desktopReleaseManifestUrl(channel),
     artifactBase: RELEASE_ARTIFACT_BASE,
     trust: 'release',
+    redirectHosts: RELEASE_ARTIFACT_REDIRECT_HOSTS,
   }
 }
 
@@ -289,17 +314,19 @@ function artifactUrlBelongsToFeed(url: string, artifactBase: string): boolean {
   return feedPath.every((segment, i) => artifactPath[i] === segment)
 }
 
-const MAX_ARTIFACT_REDIRECTS = 5
-
 /**
- * HEAD the named URL without letting `fetch` walk us off the feed.
+ * HEAD the named URL without letting `fetch` walk us somewhere the channel
+ * does not vouch for.
  *
  * Default redirect-following is how an in-feed URL becomes a request to
  * another origin: the fence passed on the name, then the transport followed
- * a 302. A feed serving its own artifacts has no reason to send us
- * off-origin, so we follow hops ourselves and re-apply the same containment
- * check to every Location. The first hop that leaves the feed is a refusal,
- * not a download.
+ * a 302. Containment is per channel, because the channels have different
+ * trust shapes:
+ *
+ *  - DEV never redirects. It is this server serving its own artifacts.
+ *  - EDGE and STABLE follow hops by hand, capped, https-only, and only onto
+ *    hosts {@link ChannelFeed.redirectHosts} names — GitHub's object host,
+ *    not the open internet.
  */
 async function assertArtifactsFetchable(
   channel: ReleaseUpdateChannel,
@@ -307,12 +334,15 @@ async function assertArtifactsFetchable(
   artifacts: Array<{ place: string; url: string }>,
   fetchImpl: typeof fetch,
 ): Promise<void> {
+  const allowedHosts = feed.redirectHosts ?? []
+  const maxRedirects = allowedHosts.length > 0 ? RELEASE_ARTIFACT_REDIRECT_HOPS : 0
   // HEAD proves only that the named URL is reachable now. It cannot prove immutable bytes;
   // rolling-release artifact names must still include the version they were signed for.
   await Promise.all(
     artifacts.map(async ({ place, url }) => {
       let current = url
-      for (let hop = 0; hop <= MAX_ARTIFACT_REDIRECTS; hop++) {
+      let redirects = 0
+      for (;;) {
         let response: Response
         try {
           response = await fetchImpl(current, {
@@ -327,6 +357,17 @@ async function assertArtifactsFetchable(
           throw new Error(`${channel} target unavailable: ${place} artifact ${detail}`)
         }
         if (response.status >= 300 && response.status < 400) {
+          if (maxRedirects === 0) {
+            throw new Error(
+              `${channel} target unavailable: ${place} artifact redirected; the ` +
+                `${channel} feed does not follow redirects`,
+            )
+          }
+          if (redirects >= maxRedirects) {
+            throw new Error(
+              `${channel} target unavailable: ${place} artifact redirected too many times`,
+            )
+          }
           const location = response.headers.get('location')
           if (!location) {
             throw new Error(
@@ -342,13 +383,26 @@ async function assertArtifactsFetchable(
                 `${channel} feed (${location})`,
             )
           }
-          if (!artifactUrlBelongsToFeed(next.href, feed.artifactBase)) {
+          if (next.protocol !== 'https:') {
+            throw new Error(
+              `${channel} target unavailable: ${place} artifact redirected to a non-https URL ` +
+                `(${next.href})`,
+            )
+          }
+          if (next.username !== '' || next.password !== '') {
+            throw new Error(
+              `${channel} target unavailable: ${place} artifact redirected outside the ` +
+                `${channel} feed (${next.href})`,
+            )
+          }
+          if (!allowedHosts.includes(next.hostname)) {
             throw new Error(
               `${channel} target unavailable: ${place} artifact redirected outside the ` +
                 `${channel} feed (${next.href})`,
             )
           }
           current = next.href
+          redirects++
           continue
         }
         if (!response.ok) {
@@ -358,9 +412,6 @@ async function assertArtifactsFetchable(
         }
         return
       }
-      throw new Error(
-        `${channel} target unavailable: ${place} artifact redirected too many times inside the feed`,
-      )
     }),
   )
 }
