@@ -27,9 +27,21 @@ To the user every machine just runs "Podium"; component names below are internal
 (`podium-update.json`, desktop `latest.json`) and all three channels resolve through
 `resolveReleaseTarget`. The publisher-push path, the `dev` exclusion in
 `target-refresh.ts`, and the `bundle`/`git` delivery kinds are retired. Dev versions
-become orderable: `<base>.dev.<N>+<sha>` (publisher-owned monotonic base and counter —
-§8 disposition 23 and §8c decision 13 are authoritative) replaces `dev+<sha>`, so `isProvablyNewer`,
+become orderable: `<base>.dev.<N>+<sha>` replaces `dev+<sha>`, so `isProvablyNewer`,
 drift refusal, and `critical` behave identically on every channel.
+
+AS BUILT (POD-2502, approved 2026-08-21 — this paragraph is the authority, superseding
+the sketch in §8 disposition 23 and §8c decision 13): the base and counter are
+**publisher-owned monotonic state** in the server state dir, never derived per-build from
+the checkout. The gate asks one question — does the version about to be handed out clear
+the PREVIOUS MINT? — rather than comparing bases, which is what let a stable cut mint
+backwards. After a bare `X.Y.Z` base the publisher mints on the next patch
+(`X.Y.(Z+1)-dev.N+<sha>`), so it sorts above the release it builds on, above every
+`X.Y.Z-edge.N.dev.M`, and below `X.Y.(Z+1)-edge.1` — rejoining the edge train instead of
+minting `X.Y.(Z+1)-dev.N` forever. Ordering therefore holds across the edge train, across
+a stable cut, and across branch hops to an older base. Normalisation happens where the
+value ENTERS; on read the stored base is only validated for orderability, never re-bumped
+(re-bumping on read made an unchanged checkout climb 0.1.2 → 0.1.5 over four mints).
 
 ## 2. Component update matrix
 
