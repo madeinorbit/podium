@@ -77,30 +77,26 @@ describe('buildReport', () => {
 })
 
 /**
- * A DESKTOP-SUPERVISED DAEMON IS THE SHELL'S, NOT THE FLEET'S (POD-2099).
- *
- * Three shapes, because the two platforms disagree about what a supervised
- * daemon looks like and neither disagreement may decide the outcome:
- * - macOS all-in-one runs the sidecar IN PLACE inside `Podium.app` and looks
- *   `installed` (feed+bundle caps — a grant would rename dirs in the signature);
- * - Linux copies the sidecar to `~/.podium/bin`, where it looks like a plain
- *   run and nothing about the path says "desktop";
- * - a standalone installed daemon on the same machine is an ordinary fleet
- *   machine and must keep its caps.
+ * Desktop supervision describes process ownership only. An installed external
+ * payload keeps feed delivery; a source daemon still cannot swap bytes merely
+ * because a shell happens to supervise it.
  */
 describe('desktop-supervised build report', () => {
   const supervisedEnv = { PODIUM_APP_VERSION: '0.4.2', PODIUM_DESKTOP_SUPERVISED: '1' }
 
-  it('flags the macOS all-in-one sidecar running in place inside the .app', () => {
-    const r = buildReport(supervisedEnv, '/Applications/Podium.app/Contents/Resources/podium')
+  it('flags the macOS external payload and keeps feed delivery', () => {
+    const r = buildReport(
+      supervisedEnv,
+      '/Users/u/Library/Application Support/app.podium.desktop/payload',
+    )
     expect(r).toMatchObject({ installKind: 'installed', supervised: true })
-    expect(deliveryCaps(r)).toEqual([])
+    expect(deliveryCaps(r)).toEqual(['update.delivery.feed', 'shipping.train.v2'])
   })
 
-  it('flags the Linux sidecar copied out of the bundle, which looks like a plain run', () => {
+  it('does not invent feed delivery for a supervised source daemon', () => {
     const r = buildReport(supervisedEnv, undefined)
     expect(r).toMatchObject({ installKind: 'source', supervised: true })
-    expect(deliveryCaps(r)).toEqual([])
+    expect(deliveryCaps(r)).toEqual(['shipping.train.v2'])
   })
 
   it('leaves a standalone installed daemon on the same machine untouched', () => {
@@ -146,8 +142,11 @@ describe('deliveryCaps', () => {
     expect(deliveryCaps({ installKind: 'source' })).toEqual(['shipping.train.v2'])
   })
 
-  it('offers nothing at all when a desktop shell owns the bytes', () => {
-    expect(deliveryCaps({ installKind: 'installed', supervised: true })).toEqual([])
-    expect(deliveryCaps({ installKind: 'source', supervised: true })).toEqual([])
+  it('treats desktop supervision as process ownership, not delivery ownership', () => {
+    expect(deliveryCaps({ installKind: 'installed', supervised: true })).toEqual([
+      'update.delivery.feed',
+      'shipping.train.v2',
+    ])
+    expect(deliveryCaps({ installKind: 'source', supervised: true })).toEqual(['shipping.train.v2'])
   })
 })

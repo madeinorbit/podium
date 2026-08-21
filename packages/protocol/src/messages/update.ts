@@ -16,6 +16,11 @@ export const UpdateGrantMessage = z.object({
   type: z.literal('updateGrant'),
   /** Correlates the grant with the status reports it produces, across a restart. */
   grantId: z.string().min(1),
+  /**
+   * Explicit repair re-delivers the current target even when its version label
+   * already matches. Optional so older peers read every ordinary grant unchanged.
+   */
+  repair: z.boolean().optional(),
   target: UpdateTarget,
 })
 export type UpdateGrantMessage = z.infer<typeof UpdateGrantMessage>

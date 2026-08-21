@@ -72,7 +72,8 @@ export interface GrantApplyDeps {
   refuse?(target: UpdateGrantMessage['target']): string | undefined
   /** Persist before asking the process manager to restart us. */
   writePending(grant: PendingGrant): void
-  restart(): void
+  /** Restart into the exact version whose bundle was just swapped into place. */
+  restart(expectedVersion: string): void
   report(status: UpdateStatusMessage): void
   now(): number
 }
@@ -121,6 +122,7 @@ export async function applyGrant(
     target: grant.target,
     caps: deps.caps,
     platform: deps.platform ?? runningPlatform(),
+    repair: grant.repair === true,
   })
 
   if (plan.action === 'already-current') {
@@ -180,7 +182,7 @@ export async function applyGrant(
       startedAt: deps.now(),
     })
     report(deps, grant, 'restarting', current)
-    deps.restart()
+    deps.restart(grant.target.version)
   } catch (error) {
     if (signal?.aborted) return
     report(deps, grant, 'rejected', current, error instanceof Error ? error.message : String(error))
@@ -205,7 +207,11 @@ export async function applyGrant(
 export function createGrantRunner(deps: GrantApplyDeps): {
   apply(grant: UpdateGrantMessage): Promise<void>
 } {
-  let active: { grantId: string; abort: AbortController; done: Promise<void> } | null = null
+  let active: {
+    grantId: string
+    abort: AbortController
+    done: Promise<void>
+  } | null = null
 
   return {
     async apply(grant: UpdateGrantMessage): Promise<void> {

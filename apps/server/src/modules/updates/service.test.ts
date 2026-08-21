@@ -361,6 +361,20 @@ describe('UpdatesService', () => {
       })
     })
 
+    it('grants an equal-version payload when the operator requests repair', () => {
+      const { svc, send } = make([m('current', { version: '0.4.2' })])
+      svc.setTarget(target)
+
+      expect(svc.repairMachine(asMachineId('current'))).toEqual({
+        result: 'granted',
+        version: '0.4.2',
+      })
+      expect(send).toHaveBeenCalledWith(
+        asMachineId('current'),
+        expect.objectContaining({ type: 'updateGrant', repair: true }),
+      )
+    })
+
     it('explains an unresolved authority rather than reporting a missing grant', () => {
       const { svc } = make([m('a')])
       expect(svc.authorizeMachine(asMachineId('a'))).toMatchObject({ result: 'no-target' })

@@ -27,11 +27,15 @@ const repoRoot = fileURLToPath(new URL('../../..', import.meta.url)) // repo roo
 // 0. Single-source the version: copy root package.json `version` into tauri.conf.json so the
 //    desktop + headless bundles always report ONE version. Root package.json is the source.
 const rootVersion = (
-  JSON.parse(readFileSync(`${repoRoot}/package.json`, 'utf8')) as { version?: string }
+  JSON.parse(readFileSync(`${repoRoot}/package.json`, 'utf8')) as {
+    version?: string
+  }
 ).version
 if (rootVersion) {
   const confPath = `${desktopDir}src-tauri/tauri.conf.json`
-  const conf = JSON.parse(readFileSync(confPath, 'utf8')) as { version?: string }
+  const conf = JSON.parse(readFileSync(confPath, 'utf8')) as {
+    version?: string
+  }
   if (conf.version !== rootVersion) {
     conf.version = rootVersion
     writeFileSync(confPath, `${JSON.stringify(conf, null, 2)}\n`)
@@ -42,17 +46,23 @@ if (rootVersion) {
 }
 
 // 1. Build the backend (compiled podium) + web (dist-bun/headless/web + dist-bun/podium).
-execFileSync('bun', ['run', 'package:headless'], { cwd: repoRoot, stdio: 'inherit' })
+execFileSync('bun', ['run', 'package:headless'], {
+  cwd: repoRoot,
+  stdio: 'inherit',
+})
 
-// 2. Stage the podium binary as a plain resource (no triple suffix, never patchelf'd).
+// 2. Stage the complete headless bundle as the immutable first-run seed. The native
+//    shell copies this directory to Application Support exactly once; every later
+//    payload change is the ordinary fleet grant swap against that external install.
 const resourcesDir = `${desktopDir}src-tauri/resources`
 mkdirSync(resourcesDir, { recursive: true })
-// bundleNames: the compiled binary is podium.exe on Windows (see build-bun.ts).
-const podiumSrc = `${repoRoot}/dist-bun/${bundleNames().compiled}`
-if (!existsSync(podiumSrc))
-  throw new Error(`missing ${podiumSrc} — package:headless did not produce it`)
-const podiumDst = `${resourcesDir}/${bundleNames().compiled}`
-cpSync(podiumSrc, podiumDst)
+const payloadSrc = `${repoRoot}/dist-bun/headless`
+const payloadDst = `${resourcesDir}/payload`
+if (!existsSync(payloadSrc))
+  throw new Error(`missing ${payloadSrc} — package:headless did not produce it`)
+rmSync(payloadDst, { recursive: true, force: true })
+cpSync(payloadSrc, payloadDst, { recursive: true })
+const podiumDst = `${payloadDst}/${bundleNames().cli}`
 chmodSync(podiumDst, 0o755)
 
 // 2b. macOS: code-sign the staged sidecar BEFORE `tauri build` seals the .app.
@@ -85,33 +95,10 @@ if (process.platform === 'darwin') {
     { stdio: 'inherit' },
   )
   console.log(
-    `[stage-sidecar] signed resources/podium with ${adHoc ? 'ad-hoc identity' : identity}`,
+    `[stage-sidecar] signed resources/payload/podium-cli with ${
+      adHoc ? 'ad-hoc identity' : identity
+    }`,
   )
 }
 
-// 3. Stage the web bundle as a resource (served to external clients via PODIUM_WEB_DIR).
-const webSrc = `${repoRoot}/apps/web/dist`
-const webDst = `${resourcesDir}/web`
-rmSync(webDst, { recursive: true, force: true })
-cpSync(webSrc, webDst, { recursive: true })
-
-// 3b. Stage the Expo web export served at /mobile by a native-hosted server.
-const mobileSrc = `${repoRoot}/apps/mobile/dist`
-const mobileDst = `${resourcesDir}/mobile`
-rmSync(mobileDst, { recursive: true, force: true })
-cpSync(mobileSrc, mobileDst, { recursive: true })
-
-// 4. Stage license notices (Apache-2.0 NOTICE convention + generated third-party inventory)
-//    so the desktop bundle ships them alongside the sidecar.
-const licensesDst = `${resourcesDir}/licenses`
-rmSync(licensesDst, { recursive: true, force: true })
-mkdirSync(licensesDst, { recursive: true })
-for (const f of ['LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md']) {
-  const src = `${repoRoot}/${f}`
-  if (!existsSync(src)) throw new Error(`missing ${src} — required license notice`)
-  cpSync(src, `${licensesDst}/${f}`)
-}
-
-console.log(
-  `[stage-sidecar] resources/podium + resources/web + resources/mobile + resources/licenses staged`,
-)
+console.log(`[stage-sidecar] resources/payload seed staged`)

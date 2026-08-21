@@ -1,11 +1,11 @@
 /**
  * Real-process proof for the native shell's supervised backend shape.
  *
- * Tauri launches one bundled child for a local all-in-one installation. That one
- * PID must host the server, janitor, and daemon together: updating the signed app
- * then replaces all three components in one shell restart. Planner tests can
- * establish the requested roles, but only a real boot can establish that the
- * janitor actually handshakes and the supervised daemon actually reports.
+ * Tauri launches one external-payload parent for a local all-in-one installation.
+ * That parent must host the server, janitor, and daemon together while the native
+ * frame supervises its handover chain. Planner tests can establish the requested
+ * roles, but only a real boot can establish that the janitor actually handshakes
+ * and the supervised daemon actually reports as an installed fleet machine.
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer } from 'node:net'
@@ -74,6 +74,8 @@ describe('desktop-supervised local stack', () => {
   it('hosts a live server, janitor lease, and supervised daemon in one versioned child', async () => {
     const stateDir = await mkdtemp(join(tmpdir(), 'podium-desktop-stack-'))
     roots.push(stateDir)
+    const payloadDir = join(stateDir, 'payload')
+    await mkdir(payloadDir)
     const port = await freePort()
     const version = '0.1.0-native-stack-proof'
     for (const site of ['web', 'mobile']) {
@@ -94,6 +96,10 @@ describe('desktop-supervised local stack', () => {
       env: {
         ...inherited,
         PODIUM_STATE_DIR: stateDir,
+        // The native shell runs this parent from its Application Support
+        // payload home. The source harness needs the explicit equivalent so
+        // build reporting and grant admission see an installed machine.
+        PODIUM_HOME: payloadDir,
         PODIUM_PORT: String(port),
         PODIUM_WEB_DIR: join(stateDir, 'web'),
         PODIUM_MOBILE_WEB_DIR: join(stateDir, 'mobile'),

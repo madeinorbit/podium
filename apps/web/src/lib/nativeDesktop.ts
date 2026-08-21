@@ -43,6 +43,8 @@ export interface NativeDesktopBridge {
   ) => Promise<void>
   /** Persists the user's production feed choice for native update checks without a page. */
   setUpdateChannel?: (channel: NativeDesktopUpdateChannel) => Promise<void>
+  /** Restores the signed seed when the local payload cannot serve its repair grant. */
+  repairPayload?: () => Promise<void>
   /**
    * Opens a URL in the OS browser. Needed for the server's OWN URLs: the shell's link shim
    * only diverts cross-origin links, so a same-origin `_blank` lands in an in-app webview
@@ -162,7 +164,10 @@ export function onNativeDesktopUpdateProgress(
       .then((eventId) => {
         const unlisten = (): void => {
           void internals
-            .invoke('plugin:event|unlisten', { event: UPDATE_PROGRESS_EVENT, eventId })
+            .invoke('plugin:event|unlisten', {
+              event: UPDATE_PROGRESS_EVENT,
+              eventId,
+            })
             .catch(() => {})
         }
         if (disposed) unlisten()

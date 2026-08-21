@@ -399,6 +399,24 @@ describe('resolvePlan — utility subcommands', () => {
       }),
     ).toEqual({ kind: 'update', channel: 'stable', feedOverride: 'http://env' })
   })
+  it('routes payload repair through the local or paired coordinator', () => {
+    expect(plan({ mode: 'all-in-one', port: 19001 }, ['update', '--repair'])).toEqual({
+      kind: 'repair-payload',
+      serverUrl: 'http://localhost:19001',
+      pairedDaemon: false,
+    })
+    expect(
+      plan({ mode: 'daemon', serverUrl: 'wss://hub.example' }, ['update', '--repair']),
+    ).toEqual({
+      kind: 'repair-payload',
+      serverUrl: 'wss://hub.example',
+      pairedDaemon: true,
+    })
+    expect(plan({ mode: 'client' }, ['update', '--repair'])).toMatchObject({
+      kind: 'usage-error',
+    })
+  })
+
   it('help: help/--help/-h anywhere, except the sub-CLIs that render their own', () => {
     expect(plan({}, ['help'])).toEqual({ kind: 'help' })
     expect(plan({}, ['--help'])).toEqual({ kind: 'help' })

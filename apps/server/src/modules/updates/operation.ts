@@ -85,7 +85,10 @@ export const UPDATE_STEP_MACHINES = 'machines'
 export const UPDATE_STEP_SERVER = 'server'
 export const UPDATE_STEP_WEB = 'web'
 
-/** §3.5: the one ask that gates correctness, and therefore the one marked required. */
+/**
+ * Legacy persisted operations may still carry this ask. New plans never mint it;
+ * adoption removes it once a post-transition server is already on the target.
+ */
 export const DESKTOP_INSTALL_ASK = 'desktop-install'
 /** §3.5: voluntary — an idle tab that has not reloaded must NOT hold the operation open. */
 export const RELOAD_SURFACES_ASK = 'reload-surfaces'
@@ -177,10 +180,30 @@ export const UPDATE_ERROR_CODES = [
 export type UpdateErrorCode = (typeof UPDATE_ERROR_CODES)[number]
 
 export type UpdateFailure =
-  | { code: 'machine-dirty-checkout'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-unsupported'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-unreachable'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-cannot-restart'; places: string[]; names: string[]; detail?: string }
+  | {
+      code: 'machine-dirty-checkout'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-unsupported'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-unreachable'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-cannot-restart'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
   | {
       code: 'machine-schema-advanced'
       places: string[]
@@ -188,14 +211,54 @@ export type UpdateFailure =
       detail?: string
       databaseSnapshotPath?: string
     }
-  | { code: 'machine-schema-unknown'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-schema-unreadable'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-delivery-failed'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-delivery-unavailable'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-artifact-rejected'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-update-not-confirmed'; places: string[]; names: string[]; detail?: string }
-  | { code: 'update-withdrawn'; places: string[]; names: string[]; detail?: string }
-  | { code: 'download-failed'; places?: string[]; names?: string[]; detail?: string }
+  | {
+      code: 'machine-schema-unknown'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-schema-unreadable'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-delivery-failed'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-delivery-unavailable'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-artifact-rejected'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-update-not-confirmed'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'update-withdrawn'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'download-failed'
+      places?: string[]
+      names?: string[]
+      detail?: string
+    }
   | {
       code: 'server-did-not-reach-target'
       observedVersion: string
@@ -219,21 +282,27 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
     case 'machine-dirty-checkout':
       return {
         code: failure.code,
-        message: `${subject(failure)} has local edits that prevent a safe update. Commit or stash them there, then try again.`,
+        message: `${subject(
+          failure,
+        )} has local edits that prevent a safe update. Commit or stash them there, then try again.`,
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
     case 'machine-unsupported':
       return {
         code: failure.code,
-        message: `${subject(failure)} can't use this update's package. Check the release includes its platform.`,
+        message: `${subject(
+          failure,
+        )} can't use this update's package. Check the release includes its platform.`,
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
     case 'machine-unreachable':
       return {
         code: failure.code,
-        message: `${subject(failure)} stopped responding while updating. Check it's running; it will resume when it reconnects.`,
+        message: `${subject(
+          failure,
+        )} stopped responding while updating. Check it's running; it will resume when it reconnects.`,
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
@@ -243,7 +312,9 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
         // Says what was NOT done first, because the operator's next question is
         // whether their checkout moved, and then the two ways out — the one that
         // takes five seconds, and the one that makes it not happen again.
-        message: `${subject(failure)} is running Podium as a single foreground process, so it cannot update itself. Nothing was changed. Stop it and start it again there to pick this up, or install it as a service with \`podium setup\`.`,
+        message: `${subject(
+          failure,
+        )} is running Podium as a single foreground process, so it cannot update itself. Nothing was changed. Stop it and start it again there to pick this up, or install it as a service with \`podium setup\`.`,
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
@@ -506,7 +577,7 @@ export interface UpdatePlanInput {
   databaseSnapshotPath?: string
   /** THIS host's machine id, so its own row can be recognised. */
   hostMachineId?: string
-  /** The coordinating server's bytes are owned by the native desktop shell. */
+  /** The coordinating server runs below a native crash-supervisor frame. */
   desktopSupervised?: boolean
   surface?: UpdateSurface
   /**
@@ -569,7 +640,7 @@ type DeliverableTarget = {
  * can name bytes a particular machine has told us it cannot install.
  */
 export function machineCanTakeTargetNow(
-  machine: Pick<WaveMachine, 'deliveryCaps' | 'supervised'>,
+  machine: Pick<WaveMachine, 'deliveryCaps'>,
   target: DeliverableTarget,
 ): boolean {
   const deliveries = offeredDeliveries(target)
@@ -582,7 +653,7 @@ export function machineCanTakeTargetNow(
 /** Is there anyone here this descriptor can be handed to as it stands? */
 export function fleetCanTakeTargetNow(
   target: DeliverableTarget,
-  machines: readonly Pick<WaveMachine, 'deliveryCaps' | 'supervised'>[],
+  machines: readonly Pick<WaveMachine, 'deliveryCaps'>[],
 ): boolean {
   if (!needsDevelopmentBundle(target)) return true
   return machines.some((machine) => machineCanTakeTargetNow(machine, target))
@@ -662,51 +733,11 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   const deferred: DeferredPlace[] = []
   const awaiting: AwaitingAsk[] = []
 
-  /**
-   * ALL-IN-ONE (§4, §5): the server lives INSIDE Podium Desktop on this
-   * machine, so server, janitor, daemon and web are one signed bundle that only
-   * the shell may replace. There is therefore no server/web runner for the HOST:
-   * the plan carries one required ask and settles into `waiting` after any
-   * OTHER connected machines finish their ordinary fleet wave. A browser
-   * looking at the same server renders that honestly and cannot act on it (P5).
-   *
-   * Derived from the HOST daemon's `supervised` flag rather than from the
-   * surface that clicked, because it is a fact about this installation and not
-   * about who is looking at it.
-   */
-  if (desktopHosted) {
-    /**
-     * `place` IS THE WORD A PERSON READS, not the machine's identity (POD-2182).
-     * Nothing matches an ask by its place — the engine resolves asks by `id`
-     * and the surfaces filter on `surface` — so the field's only job is the
-     * sentence the panel builds from it, which appends "on <place>" unless the
-     * chosen line already says it. Passing `host.id` here made that guard miss
-     * against a `detail` that names the machine, so the panel read "Finish this
-     * in Podium Desktop on ludovico. on m_01j…". The same expression as the
-     * detail keeps the two in step whether or not the machine has a name.
-     */
-    const hostPlace = host?.name ?? host?.id ?? input.hostMachineId ?? 'this machine'
-    const ask: AwaitingAsk = {
-      id: DESKTOP_INSTALL_ASK,
-      surface: 'desktop-all-in-one',
-      title: 'Install the update in Podium Desktop',
-      detail: `Finish this in Podium Desktop on ${hostPlace}.`,
-      place: hostPlace,
-      // REQUIRED: this is the ask that gates correctness. Nothing else moves
-      // until the shell installs and the successor server adopts (§5).
-      required: true,
-    }
-    awaiting.push(ask)
-  }
-
-  // A supervised daemon is the SHELL's to update, never the wave's (POD-2099,
-  // spec §4). It is excluded outright rather than deferred: deferred means
-  // "will be done later by us", and this one will never be ours to do.
+  // Desktop supervision is crash ownership only. Its host daemon is deliberately
+  // in this same behind set, so an all-in-one is a coordinator of a fleet of one.
   const behind = channelMachines.filter(
     (machine) =>
       machine.version !== target.version &&
-      machine.supervised !== true &&
-      (!desktopHosted || machine.id !== input.hostMachineId) &&
       (input.onlyMachines === undefined || input.onlyMachines.includes(machine.id)),
   )
 
@@ -729,7 +760,11 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
    */
   const packable = needsDevelopmentBundle(target) && input.canPrepare
   if (packable && behind.some((machine) => machineNeedsPack(machine, target))) {
-    steps.push({ id: UPDATE_STEP_PREPARE, title: 'Preparing the update', state: 'pending' })
+    steps.push({
+      id: UPDATE_STEP_PREPARE,
+      title: 'Preparing the update',
+      state: 'pending',
+    })
   }
 
   /**
@@ -764,7 +799,11 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   }
 
   if (!desktopHosted && input.appVersion !== target.version && input.canRestartServer) {
-    steps.push({ id: UPDATE_STEP_SERVER, title: 'Updating your server', state: 'pending' })
+    steps.push({
+      id: UPDATE_STEP_SERVER,
+      title: 'Updating your server',
+      state: 'pending',
+    })
   }
 
   const expectedWeb = target.artifacts.web?.digest
@@ -774,7 +813,11 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
     webBehind &&
     (input.canRebuildWeb || input.canPrepare || input.canRestartServer)
   ) {
-    steps.push({ id: UPDATE_STEP_WEB, title: 'Serving the new app', state: 'pending' })
+    steps.push({
+      id: UPDATE_STEP_WEB,
+      title: 'Serving the new app',
+      state: 'pending',
+    })
     // VOLUNTARY, and that is the whole point of the flag: a tab that has not
     // reloaded is a straggler that self-serves on its next load (§3.5), so this
     // ask must never hold the operation in `waiting` the way the all-in-one
@@ -915,7 +958,10 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
       // The build that was in flight died with its process. Back to `pending`
       // so the resumed plan RE-ENSURES it rather than watching for a report
       // nothing will ever send.
-      next = patchStep(next, UPDATE_STEP_WEB, (step) => ({ ...step, state: 'pending' }))
+      next = patchStep(next, UPDATE_STEP_WEB, (step) => ({
+        ...step,
+        state: 'pending',
+      }))
     }
   }
 
@@ -966,29 +1012,15 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
   if (prepare && (prepare.state === 'running' || prepare.state === 'stalled')) {
     // Same as `web`: the pack died with its process, and `ensure()` is
     // idempotent — it re-checks the descriptor before it rebuilds anything.
-    next = patchStep(next, UPDATE_STEP_PREPARE, (step) => ({ ...step, state: 'pending' }))
+    next = patchStep(next, UPDATE_STEP_PREPARE, (step) => ({
+      ...step,
+      state: 'pending',
+    }))
   }
 
-  /**
-   * THE ALL-IN-ONE ASK, ANSWERED FROM THE FAR SIDE OF THE RESTART (§3.4, §5).
-   *
-   * An all-in-one plan has NO STEPS: the whole update is the shell replacing
-   * itself, and the only thing holding the operation open is the required
-   * `desktop-install` ask. So nothing above this line can advance it, and
-   * nothing on the wire ever will either — the process that would have reported
-   * the install is the one that died, and the page that clicked the button died
-   * with it.
-   *
-   * What CAN be observed is the same fact the `server` step is judged on, read
-   * one layer out: the server reading these bytes lives INSIDE that shell, and
-   * it is now running the target. That is the install, seen from after the
-   * restart. Reality over memory, applied to an ask instead of a step.
-   *
-   * Without this the ask outlives the restart it was asking for, the reloaded
-   * panel offers "Restart Podium" for an update that is already installed —
-   * which then fails as `no-update-available`, because there is nothing left to
-   * install — and the operation sits in `waiting` until its ten-minute grace
-   * quietly calls it done, long after the user stopped believing it.
+  /** Retire the required ask left by a pre-transition persisted operation once
+   * its old shell has demonstrably returned on the target. New plans never mint
+   * this ask; all-in-one Macs now converge through their ordinary machine step.
    */
   if (reality.appVersion === targetVersion) {
     const awaiting = (next.awaiting ?? []).filter((ask) => ask.id !== DESKTOP_INSTALL_ASK)
@@ -1030,7 +1062,11 @@ export interface UpdateOperationContext {
   requestWebRebuild?: () => void
   requestCoordinatorRestart?: () => void
   /** The dev publisher's readiness, for naming a failed website build. */
-  preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
+  preparation?: () => {
+    webReady: boolean
+    bundleReady: boolean
+    failureDetail?: string
+  }
   /** Server-owned snapshot seam; daemon places deliberately have none. */
   createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
   /** Verified recovery point to carry into a new operation's failure guidance. */
@@ -1519,7 +1555,12 @@ export function projectMachines(
       return { ...place, ...(machine.name ? { name: machine.name } : {}) }
     }
     if (targetVersion !== undefined && machine.version === targetVersion) {
-      return { ...place, state: 'current', percent: 100, name: machine.name ?? place.name }
+      return {
+        ...place,
+        state: 'current',
+        percent: 100,
+        name: machine.name ?? place.name,
+      }
     }
     // A daemon that reported `restarting` and then disconnected has crossed the
     // handoff (`machineCrossedRestartBoundary`). Across a wire boundary its next
@@ -1530,7 +1571,11 @@ export function projectMachines(
       targetVersion !== undefined &&
       context.updates.machineCrossedRestartBoundary(machine.id as MachineId, targetVersion)
     ) {
-      return { ...place, state: 'restarting', name: machine.name ?? place.name }
+      return {
+        ...place,
+        state: 'restarting',
+        name: machine.name ?? place.name,
+      }
     }
     /**
      * A MACHINE THAT IS BEHIND IS NOT `current`, WHATEVER THE WAVE CALLS IT.
@@ -1785,7 +1830,10 @@ const webRunner: StepRunner<UpdateOperationContext> = {
         if (failure !== undefined) {
           return {
             state: 'failed',
-            error: describeUpdateOperationFailure({ code: 'web-build-failed', detail: failure }),
+            error: describeUpdateOperationFailure({
+              code: 'web-build-failed',
+              detail: failure,
+            }),
           }
         }
         return undefined
@@ -1859,16 +1907,9 @@ export const UPDATE_NOT_INSTALLED_ERROR_CODE = 'update-not-installed'
 /**
  * THE GRACE RAN OUT — WAS ANYTHING ACHIEVED? (POD-2186.)
  *
- * `expireWaiting` completes an operation whose steps all succeeded, and it is
- * right to: the update happened, and a browser tab that never reloaded is not a
- * reason to call it a failure. The all-in-one plan is the case that sentence
- * does not cover. Its entire content is one required `desktop-install` ask and
- * ZERO steps (§4, §5) — the shell owns the bytes, so there is nothing for a
- * runner to do — and completing it said "0.4.4 · succeeded" in Settings history
- * about a machine still running 0.4.3, made the panel's `done` branch claim
- * "Podium is on 0.4.4 everywhere", and made §3.7's answer to *did last night's
- * update finish?* a lie. The only reason anyone noticed was the offer coming
- * back on the next check.
+ * New all-in-one plans have an ordinary machine step. This still classifies a
+ * pre-transition persisted operation whose only content is the old required
+ * desktop-install ask; expiry must not rewrite "nobody installed it" as success.
  *
  * SO THE TEST IS "DID ANY STEP GET DONE", not "is this the all-in-one plan".
  * The question the framework is really asking is whether completing is honest,
@@ -1958,7 +1999,13 @@ export function createUpdateFleetBridge(deps: {
           row.id,
           UPDATE_STEP_MACHINES,
           admitted.map((place) => place.id),
-          { places, progress: { done: places.filter(isArrived).length, total: places.length } },
+          {
+            places,
+            progress: {
+              done: places.filter(isArrived).length,
+              total: places.length,
+            },
+          },
         )
         return
       }
@@ -2017,10 +2064,6 @@ const isArrived = (place: StepPlace): boolean =>
  * update, and can it take what is being handed out? Anything else stays
  * deferred and converges through the standing reconciler after the operation
  * ends — which is the honest outcome, not a fallback.
- *
- * `supervised` is re-checked rather than assumed from the plan: a daemon that
- * became desktop-supervised between the plan and the reconnect is the shell's
- * now, and no wave may touch it (§4, P5).
  */
 export function admissibleDeferredPlaces(
   operation: Operation,
@@ -2039,7 +2082,6 @@ export function admissibleDeferredPlaces(
     if (machine.version === details.target.version) continue
     if (updates.channelOf(machine) !== details.channel) continue
     if (deliveries.length > 0 && !machineCanTakeDelivery(machine, deliveries)) continue
-    if (machine.supervised === true) continue
     admitted.push({
       id: machine.id,
       ...(machine.name ? { name: machine.name } : {}),

@@ -71,6 +71,15 @@ describe('applyGrant', () => {
     )
   })
 
+  it('replaces equal-version bytes for an explicit repair grant', async () => {
+    const d = deps({ currentVersion: () => '0.4.2' })
+    await applyGrant({ type: 'updateGrant', grantId: 'g-repair', repair: true, target }, d)
+    expect(d.fetchArtifact).toHaveBeenCalled()
+    expect(d.swap).toHaveBeenCalled()
+    expect(d.writePending).toHaveBeenCalled()
+    expect(d.restart).toHaveBeenCalledWith('0.4.2')
+  })
+
   it('writes the pending marker BEFORE restarting', async () => {
     const order: string[] = []
     const d = deps({

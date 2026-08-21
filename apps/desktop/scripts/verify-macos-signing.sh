@@ -13,7 +13,7 @@ set -euo pipefail
 
 BUNDLE_DIR="${1:-apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle}"
 APP="$BUNDLE_DIR/macos/Podium.app"
-SIDECAR="$APP/Contents/Resources/resources/podium"
+SIDECAR="$APP/Contents/Resources/resources/payload/podium-cli"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -37,6 +37,47 @@ codesign -dvvv "$SIDECAR" 2>&1 | grep -q 'Authority=Developer ID Application' \
   || fail "bundled podium sidecar is not Developer ID signed"
 codesign -d --entitlements - --xml "$SIDECAR" 2>/dev/null | grep -q 'allow-jit' \
   || fail "sidecar is missing the JIT entitlement — a Bun binary will not start under the hardened runtime"
+
+echo "== Application Support seed execution =="
+# Copying out of the signed frame is the actual first-run boundary. Exercise the same
+# quarantine removal the shell performs, then ask Gatekeeper and the launcher to execute
+# the external bytes rather than inferring success from the in-bundle signature.
+seed_work="$(mktemp -d)"
+seeded="$seed_work/payload"
+cp -R "$APP/Contents/Resources/resources/payload" "$seeded"
+xattr -w com.apple.quarantine '0081;00000000;Podium;' "$seeded/podium-cli"
+xattr -dr com.apple.quarantine "$seeded"
+if xattr -p com.apple.quarantine "$seeded/podium-cli" >/dev/null 2>&1; then
+  fail "seeded payload still carries com.apple.quarantine"
+fi
+codesign --verify --strict --verbose=2 "$seeded/podium-cli" \
+  || fail "seeded external podium-cli signature invalid"
+"$seeded/podium-cli" --version >/dev/null \
+  || fail "seeded external podium-cli did not launch"
+rm -rf "$seed_work"
+
+echo "== fleet grant payload execution =="
+# stage-sidecar built the feed tarball before its copy was Developer-ID re-signed
+# inside the app. These are therefore the exact ad-hoc-signed bytes an ordinary
+# fleet grant installs, not another copy of the seed checked above.
+grant_tarball="$(find dist-bun -maxdepth 1 -name 'podium-headless-*.tar.gz' -print -quit)"
+[ -f "$grant_tarball" ] || fail "no headless grant tarball in dist-bun"
+grant_work="$(mktemp -d)"
+tar -xzf "$grant_tarball" -C "$grant_work"
+granted="$grant_work/headless"
+[ -x "$granted/podium-cli" ] || fail "grant tarball has no executable podium-cli"
+xattr -w com.apple.quarantine "0081;00000000;Podium;" "$granted/podium-cli"
+xattr -dr com.apple.quarantine "$granted"
+if xattr -p com.apple.quarantine "$granted/podium-cli" >/dev/null 2>&1; then
+  fail "grant-delivered payload still carries com.apple.quarantine"
+fi
+codesign --verify --strict --verbose=2 "$granted/podium-cli" \
+  || fail "grant-delivered podium-cli signature invalid"
+codesign -d --entitlements - --xml "$granted/podium-cli" 2>/dev/null | grep -q 'allow-jit' \
+  || fail "grant-delivered podium-cli is missing the JIT entitlement"
+"$granted/podium" --version >/dev/null \
+  || fail "grant-delivered payload launcher did not run"
+rm -rf "$grant_work"
 
 echo "== notarization =="
 # stapler validate is the offline proof: it reads the ticket stapled INTO the bundle. It is the

@@ -122,6 +122,10 @@ export function UpdatesSection(): JSX.Element {
   const [openRow, setOpenRow] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
   const [checkNote, setCheckNote] = useState<string | null>(null)
+  const [repairing, setRepairing] = useState(false)
+  const [repairNote, setRepairNote] = useState<string | null>(null)
+  const desktop = nativeDesktopBridge()
+  const desktopMachineId = desktop?.machineId
 
   useEffect(() => {
     let cancelled = false
@@ -227,6 +231,42 @@ export function UpdatesSection(): JSX.Element {
       setChecking(false)
     }
   }, [trpc])
+
+  const repairPayload = useCallback(async () => {
+    setRepairing(true)
+    setRepairNote(null)
+    try {
+      const result = await trpc.updates.repairPayload.mutate(
+        desktopMachineId ? { id: desktopMachineId } : undefined,
+      )
+      setFleet(result.fleet)
+      setRepairNote('Repair granted. Podium will download the current payload and restart.')
+    } catch (error) {
+      if (desktop?.repairPayload) {
+        try {
+          await desktop.repairPayload()
+          setRepairNote(
+            'The signed recovery payload was restored. Fleet updates will catch it up after restart.',
+          )
+          return
+        } catch (nativeError) {
+          setRepairNote(
+            `Podium could not restore the payload: ${
+              nativeError instanceof Error ? nativeError.message : String(nativeError)
+            }`,
+          )
+          return
+        }
+      }
+      setRepairNote(
+        error instanceof Error
+          ? `Podium could not start payload repair: ${error.message}`
+          : 'Podium could not start payload repair.',
+      )
+    } finally {
+      setRepairing(false)
+    }
+  }, [desktop, desktopMachineId, trpc])
 
   // Development is appended, never substituted: the released channels stay in the
   // same place and the same order whether or not the flag is on. A machine already
@@ -459,6 +499,31 @@ export function UpdatesSection(): JSX.Element {
           </div>
         </div>
       </Row>
+
+      {desktop && desktop.launchMode !== 'client' && (
+        <Row
+          label="Repair payload"
+          description="Re-download the current server, daemon, and web payload through the normal fleet update path."
+        >
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={repairing}
+              aria-busy={repairing}
+              onClick={() => void repairPayload()}
+            >
+              {repairing ? 'Starting repair…' : 'Repair payload'}
+            </Button>
+            {repairNote && (
+              <span className="settings-micro" role="status">
+                {repairNote}
+              </span>
+            )}
+          </div>
+        </Row>
+      )}
 
       <Row
         label="Machines"

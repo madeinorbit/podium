@@ -26,15 +26,10 @@ describe('tauri desktop config', () => {
       expect(existsSync(join(__dirname, icon)), icon).toBe(true)
     }
   })
-  it('bundles both server-served web clients beside the native sidecar', () => {
-    expect(conf.bundle.resources).toEqual([
-      'resources/web',
-      'resources/mobile',
-      'resources/podium',
-      'resources/licenses',
-    ])
+  it('bundles one complete headless payload as the first-run seed', () => {
+    expect(conf.bundle.resources).toEqual(['resources/payload'])
     expect(mainSource).toContain('"PODIUM_MOBILE_WEB_DIR"')
-    expect(mainSource).toContain('.resolve("resources/mobile", BaseDirectory::Resource)')
+    expect(mainSource).toContain('.join("mobile")')
   })
 
   it('loads the all-in-one UI from the local server with a stable port (POD-2510)', () => {
@@ -94,7 +89,11 @@ describe('served-local launchMode classification (POD-2510)', () => {
 
   it('calls the baked fallback document local too', () => {
     expect(
-      classify({ protocol: 'tauri:', hostname: 'localhost', origin: 'tauri://localhost' }),
+      classify({
+        protocol: 'tauri:',
+        hostname: 'localhost',
+        origin: 'tauri://localhost',
+      }),
     ).toBe('all-in-one')
     expect(
       classify({

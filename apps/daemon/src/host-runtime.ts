@@ -23,6 +23,7 @@ import {
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
+import { requestParentHandover } from '@podium/runtime/parent-control'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
 import type { RawData } from 'ws'
 import { type ProvisionedAccountHomeSource, provisionedAccountHome } from './account-home'
@@ -38,6 +39,7 @@ import {
   createSchemaGate,
   MAX_CONVERGENCE_ATTEMPTS,
   refuseConvergence,
+  restartAfterGrant,
   resolveOnBoot,
 } from './convergence'
 import type { DaemonOptions } from './daemon-options'
@@ -452,7 +454,13 @@ export async function createDaemonHostRuntime(args: {
     },
     refuse: (target) => convergenceRefusal ?? schemaGate(target),
     writePending: (pending) => writePendingGrant(instance.runtimeDir, pending),
-    restart: opts.restartAfterUpdate ?? (() => process.exit(0)),
+    restart: (expectedVersion) =>
+      restartAfterGrant(expectedVersion, {
+        ...(opts.restartAfterUpdate ? { provided: opts.restartAfterUpdate } : {}),
+        parentManaged: process.env.PODIUM_UNDER_PARENT === '1',
+        requestHandover: (version) => requestParentHandover({ expectedVersion: version }),
+        exit: process.exit,
+      }),
     report: (status) => send(status),
     now: Date.now,
   })
