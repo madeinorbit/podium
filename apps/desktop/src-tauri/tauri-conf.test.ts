@@ -56,6 +56,15 @@ describe('tauri desktop config', () => {
     expect(webMainSource).toContain('nativeDesktopBridge()?.repairPayload')
   })
 
+  it('keeps crash supervision attached across parent self-handover', () => {
+    expect(mainSource).toContain(
+      'const DESKTOP_SUCCESSOR_FILE_ENV: &str = "PODIUM_DESKTOP_SUCCESSOR_FILE"',
+    )
+    expect(mainSource).toContain('take_live_successor_pid(path)')
+    expect(mainSource).toContain('follow_successor_chain(path, pid, &successor, &shutting_down)')
+    expect(mainSource).toContain('reap_tracked_successor(app)')
+  })
+
   it('loads the all-in-one UI from the local server with a stable port (POD-2510)', () => {
     // Served-local: prefer the sidecar origin; baked frontendDist is fallback only.
     expect(mainSource).toContain('resolve_local_port')

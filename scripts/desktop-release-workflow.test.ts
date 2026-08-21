@@ -9,6 +9,10 @@ const desktopWorkflow = readFileSync(
 )
 const headlessWorkflow = readFileSync(join(repoRoot, '.github/workflows/release.yml'), 'utf8')
 const releaseSource = readFileSync(join(repoRoot, 'scripts/release.ts'), 'utf8')
+const macSigningVerifier = readFileSync(
+  join(repoRoot, 'apps/desktop/scripts/verify-macos-signing.sh'),
+  'utf8',
+)
 const publishedHeadlessSmoke = readFileSync(
   join(repoRoot, 'scripts/verify-published-headless-update.sh'),
   'utf8',
@@ -92,6 +96,18 @@ describe('desktop release workflow', () => {
     expect(desktopWorkflow).toContain(
       'bundle_dir: apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle',
     )
+  })
+
+  it('executes both copied seed and exact fleet-grant bytes in the macOS verifier', () => {
+    expect(macSigningVerifier).toContain('cp -R "$APP/Contents/Resources/resources/payload" "$seeded"')
+    expect(macSigningVerifier).toContain('xattr -dr com.apple.quarantine "$seeded"')
+    expect(macSigningVerifier).toContain('codesign --verify --strict --verbose=2 "$seeded/podium-cli"')
+    expect(macSigningVerifier).toContain('"$seeded/podium-cli" --version')
+    expect(macSigningVerifier).toContain("find dist-bun -maxdepth 1 -name 'podium-headless-*.tar.gz'")
+    expect(macSigningVerifier).toContain('tar -xzf "$grant_tarball" -C "$grant_work"')
+    expect(macSigningVerifier).toContain('codesign --verify --strict --verbose=2 "$granted/podium-cli"')
+    expect(macSigningVerifier).toContain("grep -q 'allow-jit'")
+    expect(macSigningVerifier).toContain('"$granted/podium" --version')
   })
 
   it('builds Linux and Apple Silicon macOS with signing before an atomic upload', () => {
