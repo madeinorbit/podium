@@ -178,10 +178,30 @@ describe('native desktop update surface', () => {
   })
 
   it('keeps served-local as desktop-all-in-one via launchMode, not page origin', () => {
-    // Served-local all-in-one loads http://127.0.0.1 from the sidecar. The old
-    // origin heuristic would have called that desktop-remote; launchMode must win.
+    // Served-local all-in-one loads http://127.0.0.1 from the sidecar — the exact http
+    // origin shape the old heuristic read as remote. launchMode must win over it.
+    // That the SHELL emits 'all-in-one' for this origin is the other half of the fix, and
+    // it is proven where it lives: apps/desktop/src-tauri/tauri-conf.test.ts evaluates the
+    // shell's emitted expression against this same location.
+    vi.stubGlobal('location', {
+      protocol: 'http:',
+      hostname: '127.0.0.1',
+      origin: 'http://127.0.0.1:18787',
+      pathname: '/',
+    })
     stubDesktopShell({ launchMode: 'all-in-one' })
     expect(surfaceFromDesktopBridge()).toBe('desktop-all-in-one')
+  })
+
+  it('falls back to the page origin only for a shell too old to report launchMode', () => {
+    vi.stubGlobal('location', {
+      protocol: 'https:',
+      hostname: 'podium.example',
+      origin: 'https://podium.example',
+      pathname: '/',
+    })
+    stubDesktopShell({ launchMode: undefined })
+    expect(surfaceFromDesktopBridge()).toBe('desktop-remote')
   })
 })
 
