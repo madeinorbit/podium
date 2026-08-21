@@ -324,6 +324,32 @@ export default defineConfig(({ mode }) => {
        *
        * scripts/web-bundle-budget.ts fails the build if any of these is bundled
        * more than once again.
+       *
+       * THE ROWS BELOW THE BLANK LINE ARE THERE FOR BYTES, NOT FOR CRASHES
+       * (POD-2527), and they are the reason this list stopped being hand-picked.
+       *
+       * A split does not need a feature to break before it costs something. It
+       * lands in `sourcesContent` twice, and the eager SOURCE budget — which
+       * counts original text, not emitted code — then prices one vendor file at
+       * double. That is how a build in an agent worktree came to report
+       * `eager parsed source bytes: 7757776 exceeds 7700000` and be read as 58KB
+       * of app growth. It was not growth: @dnd-kit/core (104,325), @dnd-kit/
+       * utilities (7,960) and clsx (388) were each in the bundle twice, which is
+       * 112,673 bytes — the whole overage. The same commit measured 7,645,103 in
+       * a checkout that resolved them once.
+       *
+       * WHERE THE SECOND COPY CAME FROM. Not from a version conflict: it was the
+       * SAME version, from another checkout. `.worktrees/` sits inside the main
+       * checkout, so a worktree missing `apps/web/node_modules` walks up past its
+       * own root and finds `/…/podium/node_modules`. The escape is the same one
+       * the `@podium/harness/browser` alias above exists to stop, and it is why
+       * these rows belong here rather than in an install step — no install in
+       * THIS checkout can fix what another checkout's node_modules answers.
+       *
+       * Every one of these was measured resolving twice in a real build. The
+       * family siblings (`@dnd-kit/*`, `@codemirror/lang-*`) share the identical
+       * install layout as the ones that split, so which of them splits is an
+       * accident of import order rather than a property worth waiting to observe.
        */
       dedupe: [
         'react',
@@ -338,6 +364,25 @@ export default defineConfig(({ mode }) => {
         '@lezer/common',
         '@lezer/highlight',
         '@lezer/lr',
+
+        '@trpc/server',
+        'crelt',
+        'style-mod',
+        'clsx',
+        '@dnd-kit/core',
+        '@dnd-kit/utilities',
+        '@dnd-kit/sortable',
+        '@dnd-kit/accessibility',
+        '@dnd-kit/modifiers',
+        '@blocknote/core',
+        '@blocknote/react',
+        '@blocknote/mantine',
+        '@codemirror/lang-css',
+        '@codemirror/lang-html',
+        '@codemirror/lang-javascript',
+        '@codemirror/lang-json',
+        '@codemirror/lang-markdown',
+        '@codemirror/lang-python',
       ],
     },
     // Source maps ship with EVERY build, as `hidden` (POD-1658): the `.map` files land

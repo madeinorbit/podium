@@ -278,6 +278,46 @@ function packageInstallations(sourcePaths: readonly string[], pkg: string): stri
   ].sort()
 }
 
+/**
+ * EVERY package in the bundle, so the duplicate check does not need a list
+ * (POD-2527).
+ *
+ * SINGLETON_PACKAGES is a list of packages a second copy BREAKS. It was read as
+ * if it were the list of packages a second copy MATTERS for, and the gap between
+ * those two readings is the whole of POD-2527. `@dnd-kit/core` is not a
+ * singleton — two copies throw
+ * nothing — but the eager source budget counts `sourcesContent`, so a split put
+ * 104,325 bytes of vendor text into the total twice. With `@dnd-kit/utilities`
+ * and `clsx` that is 112,673 bytes, and the build said `eager parsed source
+ * bytes: 7757776 exceeds 7700000`. Read as 58KB of app growth, it sent a whole
+ * issue looking for a module to lazy-load. There was none: the same commit
+ * measured 7,645,103 in a checkout that resolved those three once.
+ *
+ * So the scan is now over whatever is actually in the bundle. A package name is
+ * the segment after the LAST `node_modules/` in a resolved path — `@scope/name`
+ * counts as one, and the `.bun` store's nested spelling collapses onto the same
+ * name as the hoisted one, which is the point: those two are exactly the pair
+ * that splits.
+ */
+function bundledPackageNames(sourcePaths: readonly string[]): string[] {
+  const marker = '/node_modules/'
+  const names = new Set<string>()
+  for (const path of sourcePaths) {
+    const at = path.lastIndexOf(marker)
+    if (at < 0) continue
+    const [first, second] = path.slice(at + marker.length).split('/')
+    if (!first) continue
+    if (first.startsWith('@')) {
+      if (second) names.add(`${first}/${second}`)
+    } else names.add(first)
+  }
+  return [...names].sort()
+}
+
+/** Membership test for the list above, which is `as const` and so cannot take a
+ *  plain string. Only the message reads it: a split is an error either way. */
+const singletonPackages = new Set<string>(SINGLETON_PACKAGES)
+
 const report = {
   dist,
   eager: {
@@ -309,9 +349,11 @@ const report = {
     commandSources: matchingSources([settings], 'packages/commands/src/'),
   },
   allBrowserChunks: {
-    duplicatedSingletons: SINGLETON_PACKAGES.flatMap((pkg) => {
+    duplicatedPackages: bundledPackageNames(allChunkSourcePaths).flatMap((pkg) => {
       const installations = packageInstallations(allChunkSourcePaths, pkg)
-      return installations.length > 1 ? [{ package: pkg, installations }] : []
+      return installations.length > 1
+        ? [{ package: pkg, installations, breaksTheFeature: singletonPackages.has(pkg) }]
+        : []
     }),
     ownershipMatrixSources: matchingSources(allChunks, 'packages/model/src/annotations/matrix.ts'),
     browserHostileSources: BROWSER_HOSTILE_SOURCES.flatMap((fragment) =>
@@ -448,20 +490,33 @@ if (checkBudget) {
   if (report.eager.commandSources.length > 0)
     errors.push(`command sources are eager: ${report.eager.commandSources.join(', ')}`)
 
-  // The other check phrased as a crash rather than as weight. See
-  // SINGLETON_PACKAGES for why a duplicate here is a broken feature and not a
-  // bigger download, and note that one of these fails silently: a split
-  // `@lezer/highlight` stops colouring code without throwing anything.
-  if (report.allBrowserChunks.duplicatedSingletons.length > 0) {
-    const { duplicatedSingletons: duplicated } = report.allBrowserChunks
+  // The check that must speak BEFORE the byte ceilings do, because it is the one
+  // that explains them. A split package is counted twice in `sourcesContent`, so
+  // it arrives at the source budget as anonymous growth — and that is how a
+  // duplicated @dnd-kit came to be reported as "58KB over" and hunted as a
+  // recently-eager module for a day (POD-2527). It runs over every package in
+  // the bundle rather than SINGLETON_PACKAGES, because costing bytes and
+  // breaking a feature are two different reasons to be here and only the second
+  // one was ever listed.
+  if (report.allBrowserChunks.duplicatedPackages.length > 0) {
+    const { duplicatedPackages: duplicated } = report.allBrowserChunks
+    const breaking = duplicated.filter(({ breaksTheFeature }) => breaksTheFeature)
     errors.push(
       `${duplicated.length} package(s) are in the bundle more than once: ` +
         `${duplicated.map(({ package: pkg, installations }) => `${pkg} (${installations.length})`).join(', ')}. ` +
-        `Each hands out objects its own code recognises with instanceof, so a second copy breaks ` +
-        `the feature rather than costing bytes — POD-2469 was EditorState.create throwing ` +
-        `"Unrecognized extension value in extension set", which killed the file panel on mount in ` +
-        `edit and side-by-side mode, and a split @lezer/highlight does the same thing silently by ` +
-        `simply not colouring code. One lockfile entry is not one module: pin the specifier in ` +
+        `A second copy is never free: it is counted twice in the eager source budget, so it ` +
+        `also shows up there as growth with no feature behind it. ` +
+        (breaking.length > 0
+          ? `${breaking.map(({ package: pkg }) => pkg).join(', ')} ` +
+            `additionally hand out objects their own code recognises with instanceof, so a split ` +
+            `BREAKS them rather than costing bytes — POD-2469 was EditorState.create throwing ` +
+            `"Unrecognized extension value in extension set", which killed the file panel on mount ` +
+            `in edit and side-by-side mode, and a split @lezer/highlight does the same thing ` +
+            `silently by simply not colouring code. `
+          : '') +
+        `One lockfile entry is not one module, and the second copy is often not even in this ` +
+        `checkout: .worktrees/ sits inside the main checkout, so a worktree missing ` +
+        `apps/web/node_modules walks up past its own root into the main one. Pin the specifier in ` +
         `resolve.dedupe in apps/web/vite.config.ts. Installations: ` +
         `${duplicated.flatMap(({ installations }) => installations).join(', ')}`,
     )
