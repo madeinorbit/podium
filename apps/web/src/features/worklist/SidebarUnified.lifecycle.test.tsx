@@ -213,8 +213,13 @@ describe('closed issue fold lifecycle', () => {
     // wait that no longer happens is not a control.
   })
 
-  it('archives every closed issue from the fold title action', () => {
+  it('archives every closed issue from the action under the list', () => {
     render(<SidebarUnified />)
+    // The bulk action lives at the FOOT of the open list (POD-1458), not in the
+    // fold's title row: a shut fold offers no way to archive rows nobody can see.
+    expect(screen.queryByRole('button', { name: 'Archive all 2 closed issues' })).toBeNull()
+
+    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
     fireEvent.click(screen.getByRole('button', { name: 'Archive all 2 closed issues' }))
 
     expect(archiveIssue).toHaveBeenCalledTimes(2)
