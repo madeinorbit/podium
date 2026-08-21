@@ -533,6 +533,13 @@ export function ClosedIssueFold<T>({
             aria-hidden="true"
           />
         </button>
+        {/* The chip used to read `All` and sit at `right-13`, which is exactly
+         * where the chevron is: hovering the fold hid the one control that says
+         * whether it opens or shuts, and put a destructive press under the
+         * cursor that was aiming for the disclosure. It reads `Archive all` now
+         * — a verb, so it does not need the icon to be legible — and parks on
+         * the hairline to the LEFT of the chevron, which stays visible and
+         * clickable the whole time the chip is up. */}
         <button
           data-pressable
           data-hover-reveal
@@ -540,11 +547,11 @@ export function ClosedIssueFold<T>({
           aria-label={`Archive all ${issueRows.length} closed issues`}
           title="Archive all closed issues"
           onClick={archiveAll}
-          className="shell-type-micro absolute right-[13px] bottom-0 flex h-5 items-center gap-1 rounded-[5px] border border-hairline-bar bg-chip px-1.5 font-mono font-medium tracking-[.02em] text-label opacity-0 shadow-sm transition-[color,opacity,background-color] duration-100 group-hover/fold:opacity-100 group-focus-within/fold:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong disabled:pointer-events-none disabled:opacity-0"
+          className="shell-type-micro absolute right-[34px] bottom-0 flex h-5 items-center gap-1 rounded-[5px] border border-hairline-bar bg-chip px-1.5 font-mono font-medium tracking-[.02em] text-label opacity-0 shadow-sm transition-[color,opacity,background-color] duration-100 group-hover/fold:opacity-100 group-focus-within/fold:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong disabled:pointer-events-none disabled:opacity-0"
           data-testid="closed-issues-archive-all"
         >
           <Archive size={10} aria-hidden="true" />
-          <span>All</span>
+          <span>Archive all</span>
         </button>
       </div>
       <FoldPanel open={!collapsed} id={contentId} testId="closed-fold-rows">
