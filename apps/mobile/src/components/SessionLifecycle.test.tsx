@@ -54,7 +54,7 @@ describe('mobile session lifecycle surface', () => {
 
   // THE STATE BAR SPENDS NO SIGNAL (POD-1251, matching web's POD-747): a parked
   // or ended session is reporting a state, not asking for anything, so the bar
-  // takes the chrome ground and neither the yellow that means "waiting on you"
+  // takes the chrome ground and neither the bisque that means "waiting on you"
   // nor the red that means destruction may appear as a fill.
   it.each([
     ['hibernated', 'parked'],

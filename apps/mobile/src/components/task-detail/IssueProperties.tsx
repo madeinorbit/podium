@@ -196,10 +196,10 @@ export function IssueProperties({
               {issue.branch ?? '—'}
             </Text>
             <View style={styles.ghostRow}>
-              {/* THE SIGNAL RULE. The merge button is Superade Yellow only when
+              {/* THE SIGNAL RULE. The merge button takes the accent only when
                   there is something to land; on every other task both actions are
-                  outline and behave identically. A permanently yellow primary in
-                  a fold spends the one signal on furniture. */}
+                  outline and behave identically. A permanently accented primary
+                  in a fold spends the one signal on furniture. */}
               <Ghost
                 label="FF-only merge"
                 busy={busy}

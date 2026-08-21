@@ -85,7 +85,7 @@ export const BAND_H = 44
  * Selection and attention are therefore not allowed to be surfaces, or the one
  * thing a colour means in this column stops being one thing. They arrive
  * instead as a short square tick standing in the rail's own gutter — the issue
- * accent for the row you are on, amber one notch further out for a row with a
+ * accent for the row you are on, bisque one notch further out for a row with a
  * session asking inside it. Two ticks stand side by side without either
  * becoming the other, which a border and a background cannot.
  */
@@ -533,8 +533,8 @@ function stateStyle(state: DeckIssueState) {
  * whole mission, and being the only filled agent row anywhere in the spine, the
  * fill says exactly that and nothing else.
  *
- * Even the asking row stays unfilled. Attention is a MARK in this system — amber
- * type, an amber tick outside the rail, the `!` disc — never a surface.
+ * Even the asking row stays unfilled. Attention is a MARK in this system —
+ * bisque type, a bisque tick outside the rail, the `!` disc — never a surface.
  *
  * There is deliberately NO answer button here. The decision lives on the offer
  * card in the transcript, one tap away; putting it on the band too would give

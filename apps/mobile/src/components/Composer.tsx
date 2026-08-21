@@ -53,10 +53,10 @@ const SEND = 32
  * prose, it renders as sans the moment it lands in the transcript, and every
  * other field in the app is already sans — the mono was a terminal costume on
  * a touch text view. And NOTHING IN THE RESTING COMPOSER IS COLOURED: focus
- * lifts the hairline by one tier rather than flipping it to Superade Yellow,
- * and the send control earns its fill only once there is something to send.
- * Yellow in this app means "waiting on you"; a permanently yellow composer
- * spends the one signal on furniture.
+ * lifts the hairline by one tier rather than flipping it to the accent, and the
+ * send control earns its fill only once there is something to send. Bisque in
+ * this app means "waiting on you"; a permanently accented composer spends the
+ * one signal on furniture.
  */
 export function Composer({
   placeholder,
@@ -431,7 +431,7 @@ const styles = StyleSheet.create({
   fill: {
     ...StyleSheet.absoluteFill,
     // Opaque enough that a coloured row passing underneath reads as a soft
-    // shape rather than as colour inside the composer — a yellow action card
+    // shape rather than as colour inside the composer — an accented action card
     // sliding past used to tint the capsule itself.
     backgroundColor: alpha(color.bg, 0.88),
   },

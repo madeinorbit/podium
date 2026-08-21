@@ -8,12 +8,12 @@ import { color } from './theme'
  * places — the React `StageGlyph`, the chat `.ref-link` chip, and the terminal's
  * `REF_STAGE_ACCENT` underline — and POD-583 already caught what happens when a
  * surface is added without being wired to the same values: the terminals kept
- * amber for `in_progress` a whole release after amber became "operator
- * attention" everywhere else. The phone is the fourth surface, so it reads the
- * same values rather than picking hexes that merely look similar.
+ * the attention colour for `in_progress` a whole release after it came to mean
+ * "operator attention" everywhere else. The phone is the fourth surface, so it
+ * reads the same values rather than picking hexes that merely look similar.
  *
- * Blue for `in_progress`/`review`, NOT amber: amber is reserved for "waiting on
- * you" (The Signal Rule), and a stage is never an ask.
+ * Blue for `in_progress`/`review`, NOT the accent: bisque is reserved for
+ * "waiting on you" (The Signal Rule), and a stage is never an ask.
  */
 export const STAGE_COLOR: Readonly<Record<IssueStatus, string>> = {
   proposed: '#d946ef',
