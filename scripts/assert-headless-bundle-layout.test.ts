@@ -22,14 +22,19 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, sep } from 'node:path'
+import { delimiter, dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   assertNoCallerSuppliedClientRootDigest,
   clientBuildRootDigest,
 } from './client-build-root-digest'
-import { packageHeadlessForFreshClients, type FreshClientPackagingSession } from './build-bun'
+import {
+  assertClientBuildInvocation,
+  beginFreshClientPackagingSession,
+  packageHeadlessForFreshClients,
+  type FreshClientPackagingSession,
+} from './build-bun'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
@@ -250,9 +255,49 @@ describe('assert-headless-bundle production layout', () => {
       clientRootDigest: clientBuildRootDigest(headless),
       version: TEST_VERSION,
     }) as FreshClientPackagingSession
-    expect(() => packageHeadlessForFreshClients(attackerSession, [], {})).toThrow(
+    expect(() => packageHeadlessForFreshClients(attackerSession, [])).toThrow(
       /requires a fresh-client session minted by this invocation/,
     )
+  })
+
+  it('refuses to mint a session when PATH replaces the running Bun with a no-op', () => {
+    const fakeBin = scratch()
+    const fakeBun = join(fakeBin, process.platform === 'win32' ? 'bun.exe' : 'bun')
+    writeFileSync(fakeBun, '#!/bin/sh\nexit 0\n')
+    chmodSync(fakeBun, 0o755)
+    const originalPath = process.env.PATH
+    process.env.PATH = `${fakeBin}${delimiter}${originalPath ?? ''}`
+    try {
+      expect(() => beginFreshClientPackagingSession([])).toThrow(
+        /PATH resolves bun to .* not the running interpreter/,
+      )
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+    }
+  })
+
+  it('refuses the reviewer attack that passes a no-op PATH as a second argument', () => {
+    expect(() =>
+      (
+        beginFreshClientPackagingSession as unknown as (
+          argv: readonly string[],
+          env: NodeJS.ProcessEnv,
+        ) => FreshClientPackagingSession
+      )([], { ...process.env, PATH: '/tmp/pod2540-noop-bun' }),
+    ).toThrow(/caller-supplied environment is forbidden for client freshness/)
+  })
+
+  it('requires a manifest nonce written by this packaging invocation', () => {
+    const site = scratch()
+    const manifest = join(site, 'podium-build-manifest.json')
+    expect(() => assertClientBuildInvocation(site, 'current')).toThrow(/no readable build manifest/)
+    writeFileSync(manifest, '{"buildInvocation":"stale"}\n')
+    expect(() => assertClientBuildInvocation(site, 'current')).toThrow(
+      /was not freshly produced by this packaging invocation/,
+    )
+    writeFileSync(manifest, '{"buildInvocation":"current"}\n')
+    expect(() => assertClientBuildInvocation(site, 'current')).not.toThrow()
   })
 
   it('refuses an attacker-computed digest supplied through the old shell interface', () => {
@@ -469,13 +514,17 @@ describe('the gate and the signing step name the same JIT keys', () => {
     const packageHeadless = readFileSync(join(repoRoot, 'scripts/package-headless.ts'), 'utf8')
     const packageJson = readFileSync(join(repoRoot, 'package.json'), 'utf8')
     const windowsSmoke = readFileSync(join(repoRoot, '.github/workflows/windows-smoke.yml'), 'utf8')
-    expect(release).toContain('const session = beginFreshClientPackagingSession([], process.env)')
+    expect(release).toContain('const session = beginFreshClientPackagingSession([])')
     expect(release).toContain('packageHeadlessForFreshClients(')
     expect(buildBun).toContain('freshClientPackagingSessions.has(session)')
+    expect(buildBun).toContain("execFileSync(process.execPath, ['run', 'package:clients']")
+    expect(buildBun).toContain('PODIUM_CLIENT_BUILD_INVOCATION: buildInvocation')
+    expect(buildBun).toContain('assertClientBuildInvocation(web, buildInvocation)')
+    expect(buildBun).toContain('assertClientBuildInvocation(mobile, buildInvocation)')
     expect(buildBun).toContain('direct headless packaging is forbidden')
     expect(buildBun).toContain('continuity, not correctness')
-    expect(packageHeadless).toContain('beginFreshClientPackagingSession(argv, process.env)')
-    expect(packageHeadless).toContain('packageHeadlessForFreshClients(session, argv, process.env)')
+    expect(packageHeadless).toContain('beginFreshClientPackagingSession(argv)')
+    expect(packageHeadless).toContain('packageHeadlessForFreshClients(session, argv)')
     expect(packageJson).toContain('"package:headless": "bun scripts/package-headless.ts"')
     expect(windowsSmoke).toContain('run: bun run package:headless')
     expect(windowsSmoke).not.toContain('bun scripts/build-bun.ts')

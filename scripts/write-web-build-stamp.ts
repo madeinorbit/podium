@@ -76,6 +76,8 @@ export const CLIENT_BUILD_MANIFEST_FILE = 'podium-build-manifest.json'
 export interface ClientBuildManifest {
   manifestVersion: 1
   sourceCommit: string
+  /** Opaque nonce supplied by a packaging invocation that requires freshness evidence. */
+  buildInvocation?: string
   buildStamp: WrittenBuildStamp
   /** SHA-256 of every shipped regular file except this self-referential manifest. */
   files: Record<string, string>
@@ -197,6 +199,7 @@ function clientBuildManifest(
   distDir: string,
   stamp: WrittenBuildStamp,
   stampBytes: string,
+  buildInvocation?: string,
 ): ClientBuildManifest {
   if (!stamp.sourceSha) {
     throw new Error('cannot write a client build manifest without a source commit')
@@ -222,6 +225,7 @@ function clientBuildManifest(
   return {
     manifestVersion: 1,
     sourceCommit: stamp.sourceSha,
+    ...(buildInvocation ? { buildInvocation } : {}),
     buildStamp: stamp,
     files: Object.fromEntries(Object.entries(files).sort(([a], [b]) => a.localeCompare(b))),
   }
@@ -232,6 +236,7 @@ export function writeWebBuildStamp(
   now: Date = new Date(),
   sourceSha?: string,
   packagedVersion?: string,
+  buildInvocation?: string,
 ): WrittenBuildStamp {
   const indexPath = join(distDir, 'index.html')
   if (!existsSync(indexPath)) {
@@ -250,7 +255,7 @@ export function writeWebBuildStamp(
   writeFileSync(indexPath, stamped)
   refreshCompressedSiblings(indexPath, stamped)
   const stampBytes = `${JSON.stringify(stamp, null, 2)}\n`
-  const manifest = clientBuildManifest(distDir, stamp, stampBytes)
+  const manifest = clientBuildManifest(distDir, stamp, stampBytes, buildInvocation)
   writeFileSync(join(distDir, CLIENT_BUILD_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`)
   // The stamp file stays LAST. Its digest is already in the manifest, so a reader
   // that sees podium-build.json sees a finished and exactly inventoried dist.
@@ -284,6 +289,7 @@ function main(): void {
       new Date(),
       resolveWebSourceSha(repoRoot),
       process.env.PODIUM_APP_VERSION,
+      process.env.PODIUM_CLIENT_BUILD_INVOCATION,
     )
   } catch (err) {
     console.error(`[podium] build stamp: ${(err as Error).message}`)

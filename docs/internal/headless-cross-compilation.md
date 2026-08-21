@@ -127,11 +127,13 @@ Three scripts, deliberately separate:
 Everything `assert-headless-bundle.sh` checks, it checks against bytes extracted
 **from the tarball** — never a loose sibling in a build directory, because a
 build tree can be right while the archive is wrong. Client continuity is checked
-by the packaging entry point itself: the same process runs the fresh client build,
-brands that session in memory, packages, extracts the resulting tarball, and compares
-the packaged entry set to that process-local value. Direct `build-bun.ts` invocation
-refuses, and no expected digest is accepted from a caller, environment variable, sidecar,
-or the archive itself. This catches
+by the packaging entry point itself: the same process resolves its own Bun executable,
+generates a random invocation nonce, and requires both completed client manifests to echo
+that nonce before it brands the session in memory. It then packages, extracts the resulting
+tarball, and compares the packaged entry set to that process-local value. Direct
+`build-bun.ts` invocation refuses, caller-supplied build environments refuse, and no
+expected digest is accepted from a flag, environment variable, sidecar, or the archive
+itself. This catches
 a stale or wrong directory being packaged, partial/corrupt copies, and bytes changed
 between build and packaging; it does **not** prove the build itself is correct, because
 a broken build can agree with its own captured identity. The tarball gate still verifies

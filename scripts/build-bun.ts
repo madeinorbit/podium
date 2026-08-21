@@ -26,7 +26,7 @@
  * once per platform, in sequence.
  */
 import { execFileSync } from 'node:child_process'
-import { sign as cryptoSign } from 'node:crypto'
+import { randomBytes, sign as cryptoSign } from 'node:crypto'
 import {
   chmodSync,
   cpSync,
@@ -35,6 +35,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -184,7 +185,7 @@ export type PackagedHeadlessBundle = Readonly<{
 
 const freshClientPackagingSessions = new WeakSet<object>()
 
-function packageVersion(root: string, env: Record<string, string | undefined>): string {
+function packageVersion(root: string): string {
   const pkgVersion = (() => {
     try {
       return (
@@ -196,7 +197,7 @@ function packageVersion(root: string, env: Record<string, string | undefined>): 
       return undefined
     }
   })()
-  const version = env.PODIUM_APP_VERSION ?? pkgVersion
+  const version = process.env.PODIUM_APP_VERSION ?? pkgVersion
   if (!version) {
     throw new Error(
       'build-bun: could not determine the version — root package.json has no `version` field ' +
@@ -206,27 +207,64 @@ function packageVersion(root: string, env: Record<string, string | undefined>): 
   return version
 }
 
+export function assertClientBuildInvocation(site: string, expectedInvocation: string): void {
+  const manifestPath = join(site, 'podium-build-manifest.json')
+  let actualInvocation: unknown
+  try {
+    actualInvocation = (
+      JSON.parse(readFileSync(manifestPath, 'utf8')) as { buildInvocation?: unknown }
+    ).buildInvocation
+  } catch {
+    throw new Error(
+      `build-bun: ${site} has no readable build manifest from this packaging invocation`,
+    )
+  }
+  if (actualInvocation !== expectedInvocation) {
+    throw new Error(
+      `build-bun: ${site} manifest was not freshly produced by this packaging invocation`,
+    )
+  }
+}
+
 /**
- * Run the client build and retain its identity as a module-branded object. Packaging
- * accepts only an object minted here, so a direct build-bun invocation cannot turn a
- * stale dist or a caller-computed digest into provenance evidence.
+ * Run the client build with this process's own Bun and retain its identity as a
+ * module-branded object. Both manifests must echo a random nonce generated here;
+ * exit zero alone cannot mint the brand. Packaging accepts only an object minted
+ * here, so stale output or a caller-computed digest is not provenance evidence.
  */
 export function beginFreshClientPackagingSession(
   argv: readonly string[] = [],
-  env: Record<string, string | undefined> = process.env,
 ): FreshClientPackagingSession {
-  assertNoCallerSuppliedClientRootDigest(argv, env)
+  if (arguments.length > 1) {
+    throw new Error('build-bun: caller-supplied environment is forbidden for client freshness')
+  }
+  assertNoCallerSuppliedClientRootDigest(argv)
   const root = fileURLToPath(new URL('..', import.meta.url))
-  const version = packageVersion(root, env)
-  execFileSync('bun', ['run', 'package:clients'], {
+  const pathBun = Bun.which('bun', { PATH: process.env.PATH })
+  if (!pathBun || realpathSync(pathBun) !== realpathSync(process.execPath)) {
+    throw new Error(
+      `build-bun: PATH resolves bun to ${pathBun ?? 'nothing'}, not the running interpreter ${process.execPath}`,
+    )
+  }
+  const version = packageVersion(root)
+  const buildInvocation = randomBytes(32).toString('hex')
+  execFileSync(process.execPath, ['run', 'package:clients'], {
     cwd: root,
     stdio: 'inherit',
-    env: { ...env, PODIUM_APP_VERSION: version },
+    env: {
+      ...process.env,
+      PODIUM_APP_VERSION: version,
+      PODIUM_CLIENT_BUILD_INVOCATION: buildInvocation,
+    },
   })
+  const web = `${root}apps/web/dist`
+  const mobile = `${root}apps/mobile/dist`
+  assertClientBuildInvocation(web, buildInvocation)
+  assertClientBuildInvocation(mobile, buildInvocation)
   const session = Object.freeze({
     clientRootDigest: clientBuildRootDigestFromSites({
-      web: `${root}apps/web/dist`,
-      mobile: `${root}apps/mobile/dist`,
+      web,
+      mobile,
     }),
     version,
   })
@@ -374,14 +412,17 @@ exec "$DIR/podium-cli" "$@"
 export function packageHeadlessForFreshClients(
   session: FreshClientPackagingSession,
   argv: readonly string[] = [],
-  env: Record<string, string | undefined> = process.env,
 ): PackagedHeadlessBundle {
-  assertNoCallerSuppliedClientRootDigest(argv, env)
+  if (arguments.length > 2) {
+    throw new Error('build-bun: caller-supplied environment is forbidden for packaging')
+  }
+  assertNoCallerSuppliedClientRootDigest(argv)
   if (!freshClientPackagingSessions.has(session)) {
     throw new Error(
       'build-bun: headless packaging requires a fresh-client session minted by this invocation',
     )
   }
+  const env = process.env
   // Refuse to compile with a Bun whose terminal PTY API is missing (feature-detected, not
   // version-guessed). The compiled daemon's ONLY PTY is Bun's terminal — `bun build --compile`
   // can't embed node-pty's native addon — so an old build Bun would silently ship a binary
@@ -415,7 +456,7 @@ export function packageHeadlessForFreshClients(
   // Single source of truth for the version: root package.json `version` (env PODIUM_APP_VERSION
   // wins for one-off builds). Drives the headless VERSION stamp AND the value baked into the
   // compiled server's /version (process.env.PODIUM_APP_VERSION via --define below).
-  const version = packageVersion(root, env)
+  const version = packageVersion(root)
   if (version !== session.version) {
     throw new Error(
       `build-bun: package version changed after the fresh client build ` +

@@ -136,13 +136,20 @@ describe('webBuildStamp', () => {
     writeFileSync(join(dir, 'index.html'), BUILT_INDEX)
     writeFileSync(join(dir, 'asset.txt'), asset)
 
-    const stamp = writeWebBuildStamp(dir, new Date('2026-08-13T00:00:00.000Z'), '47a01e3', '0.4.2')
+    const stamp = writeWebBuildStamp(
+      dir,
+      new Date('2026-08-13T00:00:00.000Z'),
+      '47a01e3',
+      '0.4.2',
+      'packaging-invocation-123',
+    )
     const manifest = JSON.parse(
       readFileSync(join(dir, CLIENT_BUILD_MANIFEST_FILE), 'utf8'),
     ) as ClientBuildManifest
 
     expect(manifest.manifestVersion).toBe(1)
     expect(manifest.sourceCommit).toBe('47a01e3')
+    expect(manifest.buildInvocation).toBe('packaging-invocation-123')
     expect(manifest.buildStamp).toEqual(stamp)
     expect(Object.keys(manifest.files).sort()).toEqual(
       ['asset.txt', 'index.html', 'podium-build.json'].sort(),

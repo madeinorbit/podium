@@ -9,8 +9,8 @@ import { beginFreshClientPackagingSession, packageHeadlessForFreshClients } from
 
 function main(): void {
   const argv = process.argv.slice(2)
-  const session = beginFreshClientPackagingSession(argv, process.env)
-  packageHeadlessForFreshClients(session, argv, process.env)
+  const session = beginFreshClientPackagingSession(argv)
+  packageHeadlessForFreshClients(session, argv)
 }
 
 if (import.meta.main) main()

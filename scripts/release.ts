@@ -242,7 +242,7 @@ export function prepareHeadlessCross(
   // systemd units + web + mobile, once for the whole set. Stamp the fresh client
   // output with the FINAL product version before capturing its process-local root;
   // packaging is forbidden from restamping after this point.
-  const session = beginFreshClientPackagingSession([], process.env)
+  const session = beginFreshClientPackagingSession([])
   mkdirSync(outDir, { recursive: true })
   writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)
 
@@ -250,7 +250,7 @@ export function prepareHeadlessCross(
   for (const platform of platforms) {
     const target = bunTargetForPlatform(platform)
     console.log(`[release] cross-building ${platform} (--target=${target})`)
-    const packaged = packageHeadlessForFreshClients(session, [`--target=${target}`], process.env)
+    const packaged = packageHeadlessForFreshClients(session, [`--target=${target}`])
     prepared.push(
       stagePrepared({
         platform,
@@ -282,10 +282,10 @@ export function prepareHeadlessArchitecture(
     )
   }
 
-  const session = beginFreshClientPackagingSession([], process.env)
+  const session = beginFreshClientPackagingSession([])
   mkdirSync(outDir, { recursive: true })
   writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)
-  const packaged = packageHeadlessForFreshClients(session, [], process.env)
+  const packaged = packageHeadlessForFreshClients(session, [])
   return stagePrepared({
     platform: config.target,
     packaged,
