@@ -173,6 +173,99 @@ const MISSIONS = {
     state.paneA = 's2'
   },
   /**
+   * THE OPERATOR'S FILED ROSTER (POD-1461) — the demo rig's MRD-2, verbatim.
+   *
+   * Four agents directly on one mission and no sub-tasks, so the roster IS the
+   * spine: every one of the four fields is occupied on at least one row (a
+   * long spawn provenance, a bare peer, a done total, an ask) and the ARCHIVED
+   * divider follows immediately underneath. It is the shape the operator
+   * called cluttered, which makes it the shape any alignment fix has to hold.
+   */
+  mrd: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'MRD-2',
+        title: 'Migrate sessions store from SQLite to Postgres',
+        description:
+          'Dual-write behind a flag, backfill, then cut over. Needs a rollback plan.',
+        stage: 'in_progress',
+        memberSessionIds: ['s1', 's2', 's3', 's4', 'a1', 'a2', 'a3'],
+      }),
+    ]
+    state.sessions = [
+      session('s1', {
+        issueId: 'root',
+        displayRef: 'MRD-2-D',
+        name: 'Migration coordinator',
+        title: 'Migration coordinator',
+        agentState: {
+          // The running clock is driven by the real wall clock, not the stub's
+          // frozen `coarseNow`, so the fixture's 82:00 has to be anchored to it.
+          phase: 'working',
+          since: new Date(Date.now() - 60_000).toISOString(),
+          workingMsTotal: 4_860_000,
+        },
+      }),
+      session('s2', {
+        issueId: 'root',
+        displayRef: 'MRD-2-E',
+        name: 'Dual-write layer',
+        title: 'Dual-write layer',
+        spawnedBy: 'session:s1',
+        unread: true,
+        lastActiveAt: '2025-12-31T23:30:00.000Z',
+      }),
+      session('s3', {
+        issueId: 'root',
+        displayRef: 'MRD-2-F',
+        name: 'Backfill job',
+        title: 'Backfill job',
+        spawnedBy: 'session:s1',
+        unread: true,
+        agentState: {
+          phase: 'ended',
+          since: new Date(Date.now() - 60_000).toISOString(),
+          workingMsTotal: 165_000,
+        },
+      }),
+      session('s4', {
+        issueId: 'root',
+        displayRef: 'MRD-2-G',
+        name: 'Rollback runbook',
+        title: 'Rollback runbook',
+        agentState: { phase: 'needs_user', since: '2025-12-31T23:30:00.000Z' },
+      }),
+      // The three the reveal counts. Archived sessions never draw in the tree.
+      session('a1', {
+        issueId: 'root',
+        displayRef: 'MRD-2-A',
+        name: 'Schema survey',
+        title: 'Schema survey',
+        archived: true,
+        lastActiveAt: '2025-12-30T00:00:00.000Z',
+      }),
+      session('a2', {
+        issueId: 'root',
+        displayRef: 'MRD-2-B',
+        name: 'Connection pool spike',
+        title: 'Connection pool spike',
+        archived: true,
+        lastActiveAt: '2025-12-30T00:00:00.000Z',
+      }),
+      session('a3', {
+        issueId: 'root',
+        displayRef: 'MRD-2-C',
+        name: 'Wire format check',
+        title: 'Wire format check',
+        archived: true,
+        lastActiveAt: '2025-12-30T00:00:00.000Z',
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = 's1'
+  },
+  /**
    * THE VIEW BAR'S OWN CASE (POD-1245) — a mission shaped like the one an
    * operator filed `Active` against.
    *

@@ -947,7 +947,10 @@ function RoleWord({ role, label }: { role: SessionRole; label: string }): JSX.El
         // for a role — so `COORDINATOR`, `TASK LEAD`, `BY SPINE DESIGNER` and
         // `PEER` read down one edge instead of alternating between two
         // typographic registers.
-        'deck-agent-role flex-none font-mono text-[9px] leading-none tracking-[0.14em] uppercase',
+        // No `flex-none`: `.deck-agent-role` is a grid cell that fills its own
+        // track now (POD-1461), and its display is the stylesheet's to own —
+        // the wide row needs `block` for the ellipsis it may have to spend.
+        'deck-agent-role font-mono text-[9px] leading-none tracking-[0.14em] uppercase',
         lead ? 'font-medium' : 'font-normal text-text-faint',
       )}
       style={
@@ -1198,7 +1201,10 @@ function SessionRow({
               row that is worthless partly rendered — so it never truncates and
               the NAME shrinks around it. Lifted straight off the session: it is
               the permanent birth ref, so it survives a rename. */}
-          <span className="deck-agent-ref shell-type-micro flex-none text-right font-mono font-normal whitespace-nowrap text-text-faint">
+          {/* Left-aligned in its own fixed column (POD-1461): the refs on a
+              mission share a stem, so aligning their STARTS is what makes the
+              suffix that distinguishes them the thing that moves. */}
+          <span className="deck-agent-ref shell-type-micro flex-none text-left font-mono font-normal whitespace-nowrap text-text-faint">
             {session.displayRef}
           </span>
           {/* Attention and provenance are different facts. The state remains the
@@ -3562,9 +3568,15 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             )}
             {/* No count on this divider: the disclosure under it already carries
                 one, and a region that states its size twice reads as two
-                different numbers that happen to agree. */}
+                different numbers that happen to agree.
+                A WIDER BREAK THAN THE OTHER DIVIDERS, TOO (POD-1461). Every
+                other section here is still part of the mission's live shape, so
+                `mt-2.5` is the right beat between them. Archived is the point
+                the roster STOPS: it opened 10px under the last agent, which read
+                as a fifth row in the same list rather than as the end of it. The
+                extra 14px is the whole distinction. */}
             {archivedSessions.length > 0 && (
-              <DeckSection label="Archived" testId="flight-archived">
+              <DeckSection label="Archived" className="mt-6" testId="flight-archived">
                 <button
                   data-pressable
                   type="button"
