@@ -268,16 +268,19 @@ export function HeaderHostIndicators(): JSX.Element {
       {hostMetrics.map((host) => {
         const memory = hostMemoryView(host)
         const load = hostLoadView(host, lifecycle?.hibernation.loadPerCore ?? null)
+        const machine = machines.find((m) => m.id === host.machineId)
+        // A renamed machine should read by its chosen name everywhere, and this
+        // chip was the one surface still showing the raw telemetry hostname.
+        const displayName = machine?.name ?? host.hostname
         const agents = hostAgentsView(
           sessions,
           host.machineId,
           lifecycle?.hibernation.maxIdleSessions ?? null,
-          host.hostname,
+          displayName,
         )
         const memTone = SEVERITY[memory.severity]
         const loadTone = SEVERITY[load.severity]
         const agentTone = SEVERITY[agents.severity]
-        const machine = machines.find((m) => m.id === host.machineId)
         const needsUpdate = machine != null && machineNeedsUpdate(machine, serverAppVersion)
         const updateTargetVersion =
           machine?.targetVersion !== undefined ? machine.targetVersion : serverAppVersion
@@ -292,7 +295,7 @@ export function HeaderHostIndicators(): JSX.Element {
             : null,
         ].filter(Boolean)
         const aria = [
-          host.hostname,
+          displayName,
           memory.title,
           load.title,
           agentTitleParts.join(' — '),
@@ -328,7 +331,7 @@ export function HeaderHostIndicators(): JSX.Element {
                   )}
                   aria-hidden="true"
                 />
-                <span className="header-machine-name">{host.hostname}</span>
+                <span className="header-machine-name">{displayName}</span>
                 {needsUpdate && (
                   <CircleArrowUp
                     size={12}
