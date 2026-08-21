@@ -48,6 +48,9 @@ const store = {
   // No `machineId` on the repo: every visible host is a candidate, which is the
   // shape that lets this file assert what the picker does with the three of them.
   repos: [{ path: '/work/podium', kind: 'repository' as const, branch: 'main', worktrees: [] }],
+  // No sessions, so `resolveDefaultAgent` falls through to the persisted
+  // setting rather than to a most-recently-used harness.
+  sessions: [],
   machines: [
     machine('mine', { use: 'granted' }),
     machine('theirs', { use: 'denied' }),

@@ -30,6 +30,7 @@ import type { JSX } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
 import { cn } from '@/lib/utils'
 import { newTaskChordBound, useNewTask } from './new-task'
+import { ID_GUTTER_W } from './WorkRowShell'
 
 /**
  * The one top row: a full-width raised card that opens a blank mission.
@@ -122,10 +123,19 @@ export function AddRepositoryButton({ className }: { className?: string }): JSX.
  * whole purpose is to make a project exist. The band is drawn from the project
  * tree now, and this is what stands under it.
  *
- * SUBTLE, AND THAT IS THE SPECIFICATION. It sits where a row's title sits, at
- * the column's 13px inset, in muted ink with the row's own hover wash — it reads
- * as the group's first line rather than as a button parked inside it. The one
- * raised control in this column is the head, and it stays that way.
+ * IT IS DRAWN, NOT WRITTEN, AND IT IS QUIETER FOR IT. The first cut was a `+`
+ * and two words in `--muted-foreground` — a text link parked inside a band,
+ * which is both louder than an empty project deserves and says nothing about
+ * what would appear if you pressed it. This is a ROW-SHAPED HOLE instead: the
+ * live row's own geometry (`shell-work-row`, the 13px inset, `ID_GUTTER_W`, the
+ * 11px gap) with a dashed tile where the ID square goes, so it lands on the
+ * column's one vertical datum and reads as the slot the first task will fill.
+ * The ink is the ghost ramp the empty list already uses, a rung under the
+ * faintest text in the column — graphical enough to be seen, quiet enough that
+ * a fleet of untouched projects does not shout.
+ *
+ * The whole row lifts on hover, tile and label together, which is what says it
+ * is a control at all. Everything else about an empty project stays still.
  *
  * It seeds the composer with THIS project, so the sentence the operator lands on
  * names the repo whose band they clicked.
@@ -139,10 +149,22 @@ export function StartFirstTaskRow({ repoPath }: { repoPath: string }): JSX.Eleme
       data-testid="start-first-task"
       onClick={() => startNewTask(repoPath)}
       title="Start the first task in this project"
-      className="flex min-h-[38px] w-full items-center gap-[9px] px-[13px] text-left text-[12px] text-muted-foreground transition-colors hover:bg-accent hover:text-text-strong focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
+      className="group/first shell-work-row flex min-h-[44px] w-full min-w-0 items-center px-[13px] text-left transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
     >
-      <Plus size={13} aria-hidden="true" className="flex-none text-text-faint" />
-      <span className="min-w-0 truncate">Start first task</span>
+      {/* The identity gutter, right-aligned exactly as the live rows align their
+          digits — so the tile's right edge and every row number's share one x,
+          and the label below starts where every title starts. */}
+      <span className="flex flex-none justify-end" style={{ width: ID_GUTTER_W }}>
+        <span
+          aria-hidden="true"
+          className="flex size-[21px] items-center justify-center rounded-[6px] border border-dashed border-(--ghost-1) text-(--ghost-1) transition-colors group-hover/first:border-text-faint group-hover/first:text-text-dim"
+        >
+          <Plus size={12} strokeWidth={2.25} />
+        </span>
+      </span>
+      <span className="ml-[11px] min-w-0 truncate text-[11.5px] text-text-faint transition-colors group-hover/first:text-text-strong">
+        Start first task
+      </span>
     </button>
   )
 }

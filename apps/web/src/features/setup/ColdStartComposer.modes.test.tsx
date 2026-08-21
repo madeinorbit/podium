@@ -42,6 +42,9 @@ const store = {
   repos: [
     { path: '/work/podium', kind: 'repository' as const, branch: 'main', worktrees: [], machineId },
   ],
+  // No sessions, so `resolveDefaultAgent` falls through to the persisted
+  // setting rather than to a most-recently-used harness.
+  sessions: [],
   machines: [
     {
       id: machineId,
@@ -118,7 +121,7 @@ describe('the launch box opens closed', () => {
   it('shows the one-line invitation and no way to dismiss what is not open', () => {
     render(<ColdStartComposer first={false} />)
     expect(box().getAttribute('data-expanded')).toBe('false')
-    expect(field().getAttribute('placeholder')).toBe('Click here to enter a prompt.')
+    expect(field().getAttribute('placeholder')).toBe('Click here to enter a prompt')
     expect(screen.queryByTestId('cold-start-collapse')).toBeNull()
   })
 
@@ -181,7 +184,7 @@ describe('the launch box unfolds', () => {
 
     expect(box().getAttribute('data-expanded')).toBe('false')
     expect(field().value).toBe('')
-    expect(field().getAttribute('placeholder')).toBe('Click here to enter a prompt.')
+    expect(field().getAttribute('placeholder')).toBe('Click here to enter a prompt')
   })
 
   it('comes back open when the persisted draft still holds a sentence', () => {

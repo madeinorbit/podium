@@ -19,6 +19,8 @@ type Selector<T> = (store: unknown) => T
  *  on (an unlaunched prompt must come back UNFOLDED). */
 const rows = new Map<string, string>()
 
+const harness = new URLSearchParams(location.search).get('agent') ?? 'claude-code'
+
 const machine = {
   id: 'machine-a',
   name: 'Studio Mac',
@@ -28,7 +30,11 @@ const machine = {
   inventory: {
     os: 'darwin' as const,
     arch: 'arm64' as const,
-    agents: [{ kind: 'claude-code' as const, installed: true, login: { state: 'in' as const } }],
+    agents: ['claude-code', 'codex', 'grok', 'opencode', 'cursor'].map((kind) => ({
+      kind: kind as 'claude-code',
+      installed: true,
+      login: { state: 'in' as const },
+    })),
     tools: [],
   },
 }
@@ -44,6 +50,7 @@ const store = {
     },
   ],
   machines: [machine],
+  sessions: [],
   uiState: {
     get: (key: string): string | null => rows.get(key) ?? null,
     set: (key: string, value: string | null): void => {
@@ -62,11 +69,17 @@ const store = {
   setView: () => {},
   trpc: {
     settings: {
+      // `roles.coding` is what the box reads to open on the operator's harness
+      // (POD-1469), and `?agent=codex` is how the harness shows that the chip's
+      // glyph follows the selection rather than being Claude's clay forever.
       get: {
         query: async () => ({
-          sessionDefaults: { agent: 'claude-code' },
+          roles: { coding: { accountId: `native:${harness}` } },
           gitWorkflow: { defaultParentBranch: 'main' },
         }),
+      },
+      updatePersonal: {
+        mutate: async () => ({ roles: { coding: { accountId: `native:${harness}` } } }),
       },
     },
     issues: {

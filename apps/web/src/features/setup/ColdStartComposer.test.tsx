@@ -31,6 +31,8 @@ const initialRepo = {
 
 const store = {
   repos: [initialRepo],
+  // No sessions, so `resolveDefaultAgent` falls through to the persisted
+  // setting rather than to a most-recently-used harness.
   sessions: [] as SessionMeta[],
   machines: [
     {

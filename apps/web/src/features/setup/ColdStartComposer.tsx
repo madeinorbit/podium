@@ -6,12 +6,13 @@ import {
   lastUsedMaps,
   machineViewsFromWire,
   type RepoNavView,
+  resolveDefaultAgent,
   sidebarSections,
   usableMachines,
 } from '@podium/client-core/viewmodels'
 import { asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
 import { asMachineId } from '@podium/model/browser'
-import { resolveRole } from '@podium/runtime'
+import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -87,6 +88,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   const {
     trpc,
     repos,
+    // Read to rank the project list AND to answer "which harness did you last
+    // run" — see `repoChoices` and `defaultAgent`.
     sessions,
     machines,
     uiState,
@@ -127,7 +130,13 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   const [draft, setDraftState] = useState(() =>
     readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)),
   )
-  const [configuredAgent, setConfiguredAgent] = useState<IssueAgentKind | null>(null)
+  /**
+   * The operator's harness, as `roles.coding` answers it — the same read the
+   * deleted sidebar chip made, and held as a raw string for the same reason it
+   * was there (POD-1469). It is written back from the agent menu below, which is
+   * what makes "the last one you used" a fact rather than a hope.
+   */
+  const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -144,11 +153,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     void trpc.settings.get
       .query()
       .then((settings) => {
-        if (!cancelled) {
-          setConfiguredAgent(
-            issueAgentKind(resolveRole(settings, 'coding').harness) ?? 'claude-code',
-          )
-        }
+        if (!cancelled) setAgentSetting(resolveRole(settings, 'coding').harness)
       })
       .catch(() => {})
     return () => {
@@ -212,20 +217,66 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       ),
     ),
   )
+  /**
+   * WHICH HARNESS THIS BOX OPENS ON — the sidebar chip's rule, inherited whole
+   * (POD-1469).
+   *
+   * `New <Agent> in <Repo>` answered this with `resolveDefaultAgent` over the
+   * `roles.coding` harness, so that is the call, unchanged. In practice the
+   * settings read always yields a concrete harness — a native account NAMES its
+   * CLI (`native:codex`) and the role's default account names Claude Code — so
+   * what actually carries "the last one you used" is the write in
+   * `persistDefaultAgent` below, exactly as it did for the chip. The resolver's
+   * session fallback stays because it is the same resolver, and it is the right
+   * answer for the one input that can still arrive unresolved (`auto`).
+   *
+   * Then availability, and only then: a default that cannot start on the chosen
+   * machine is not a default, so it steps aside for the first harness that can.
+   * A pick made in THIS box outranks both — it is the most recent thing the
+   * operator said about this specific task.
+   */
+  const defaultAgent = issueAgentKind(resolveDefaultAgent(agentSetting, sessions)) ?? 'claude-code'
+
+  /**
+   * PICKING A HARNESS HERE IS A WRITE (POD-1469).
+   *
+   * This is the half of the sidebar chip's behaviour that did not survive the
+   * move. `New <Agent> in <Repo>` showed the last harness you chose because its
+   * menu PERSISTED the choice — `roles.coding.accountId` — so the next spawn,
+   * from any surface, opened on it. The composer only ever held the pick in its
+   * own draft: correct for one run of the box, forgotten by the issue page, the
+   * dock and the CLI, and gone the moment ui-state was cleared.
+   *
+   * It is deliberately the same key and the same account spelling
+   * (`nativeAccountId`), because the point is that every surface reads ONE
+   * answer to "which harness does this operator work in".
+   *
+   * Best-effort: the local read is updated first either way, so a failed write
+   * costs the operator the persistence and never the pick they just made.
+   */
+  const persistDefaultAgent = async (kind: IssueAgentKind): Promise<void> => {
+    setAgentSetting(kind)
+    try {
+      const updated = await trpc.settings.updatePersonal.mutate({
+        values: { 'roles.coding.accountId': nativeAccountId(kind) },
+      })
+      setAgentSetting(resolveRole(updated, 'coding').harness)
+    } catch {
+      // Kept optimistic — see above.
+    }
+  }
   const agent =
     issueAgentKind(draft.agent) ??
-    (configuredAgent &&
-    activationAgentIsReady(
+    (activationAgentIsReady(
       activationAgentReadiness(
         selectedCheckout,
         selectedMachine ? [selectedMachine] : machines,
-        configuredAgent,
+        defaultAgent,
       ),
     )
-      ? configuredAgent
+      ? defaultAgent
       : detectedReadyAgent) ??
-    configuredAgent ??
-    'claude-code'
+    defaultAgent
   const readiness = activationAgentReadiness(
     selectedCheckout,
     selectedMachine ? [selectedMachine] : machines,
@@ -295,16 +346,32 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     if (!selectedRepo) return
     const repoChanged = draft.repoPath !== selectedRepo.path
     const machineChanged = selectedMachine && draft.machineId !== selectedMachine.id
-    const agentChanged = !draft.agent
+    /**
+     * NOT BEFORE THE SETTINGS LAND (POD-1469).
+     *
+     * This clause is what writes the resolved harness into the draft, and the
+     * draft then OUTRANKS everything — it is the operator's own pick. So filling
+     * it one render too early is not a cosmetic race: on the first paint
+     * `agentSetting` is still undefined, `defaultAgent` is therefore the bare
+     * `claude-code` fallback, and this effect pinned that into the draft before
+     * the settings query had answered. Every later render read the draft and
+     * found `claude-code` sitting there, so an operator whose harness is Codex
+     * got Claude Code on every new task — and the `roles.coding` read this whole
+     * resolution rests on could never be seen to matter.
+     *
+     * The repo and machine clauses have no such problem: both come from the
+     * replica, which is already there on the first paint.
+     */
+    const agentChanged = !draft.agent && agentSetting !== undefined
     if (!repoChanged && !machineChanged && !agentChanged) return
     setDraft({
       ...draft,
       repoPath: selectedRepo.path,
       machineId: selectedMachine?.id ?? '',
-      agent,
+      ...(agentChanged ? { agent } : {}),
       ...(repoChanged ? { model: AUTO, effort: AUTO } : {}),
     })
-  }, [agent, draft, selectedMachine, selectedRepo, setDraft])
+  }, [agent, agentSetting, draft, selectedMachine, selectedRepo, setDraft])
 
   const selectRepo = (repoPath: string): void => {
     const repo = repoChoices.find((candidate) => candidate.path === repoPath)
@@ -481,7 +548,12 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 }
                 className="cold-start-project items-center bg-bar text-text-strong shadow-[inset_0_0_0_1px_var(--border-strong)] transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
-                <span className="cold-start-project-mark bg-claude" aria-hidden="true" />
+                {/* NO MARK (POD-1469). The pill carried a 7px Claude-clay square:
+                    the harness's brand colour, on the control that names the
+                    PROJECT. It said nothing true about the repo — every project
+                    wore the same dot whatever was going to run in it — and beside
+                    the agent chip's identical dot it read as a shared bullet
+                    rather than as anything meaningful. The word is the pill. */}
                 <span className="cold-start-project-name leading-none font-semibold tracking-[-0.02em]">
                   {selectedRepo ? repoLabel(selectedRepo) : 'a project'}
                 </span>
@@ -542,7 +614,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             placeholder={
               expanded
                 ? 'Describe the mission — an outcome, a bug, a question about the codebase…'
-                : 'Click here to enter a prompt.'
+                : 'Click here to enter a prompt'
             }
             className="cold-start-input block w-full resize-none bg-transparent px-[22px] text-[14.5px] leading-[1.6] text-text-strong outline-none placeholder:text-text-faint disabled:opacity-60"
           />
@@ -605,7 +677,14 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                     aria-label="Agent"
                     className="inline-flex h-7 items-center gap-1.5 px-2.5 text-[11px] leading-none font-semibold text-text-strong hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
                   >
-                    <span className="size-[7px] rounded-[2px] bg-claude" aria-hidden="true" />
+                    {/* THE HARNESS'S OWN MARK, ALWAYS (POD-1469). This was a
+                        7px square in Claude clay — hue and nothing else, and the
+                        SAME hue whichever harness was selected, so picking Codex
+                        left an orange dot in front of the word `Codex`. The menu
+                        this chip opens draws every harness's real glyph; the
+                        chip now draws the selected one, at the menu's own 13px
+                        column, and the swatch's job is done properly. */}
+                    {issueAgentIcon(agent, 13)}
                     {issueAgentLabel(agent)}
                     <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
                   </button>
@@ -617,14 +696,11 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 }))}
                 selectedValue={agent}
                 placeholder="Choose an agent…"
-                onSelect={(nextAgent) =>
-                  setDraft({
-                    ...draft,
-                    agent: issueAgentKind(nextAgent) ?? agent,
-                    model: AUTO,
-                    effort: AUTO,
-                  })
-                }
+                onSelect={(nextAgent) => {
+                  const kind = issueAgentKind(nextAgent) ?? agent
+                  setDraft({ ...draft, agent: kind, model: AUTO, effort: AUTO })
+                  void persistDefaultAgent(kind)
+                }}
               />
               <span className="w-px bg-hairline-bar" aria-hidden="true" />
               <ModelPicker
