@@ -98,7 +98,7 @@ expect_fail "hello-world Mach-O swapped in as headless/podium-cli" \
 
 # (b) Linux ELF in place of the shipped binary.
 fresh
-cp -f "$(command -v abduco)" "$WORK/headless/podium-cli"; chmod +x "$WORK/headless/podium-cli"; repack
+cp -f /bin/true "$WORK/headless/podium-cli"; chmod +x "$WORK/headless/podium-cli"; repack
 expect_fail "Linux ELF swapped in as headless/podium-cli" \
   "is not Mach-O" "$WORK/t.tar.gz"
 
@@ -112,7 +112,7 @@ else
   echo
   echo "SKIP case: no dist-bun-spike/fixtures/linux-abduco-embedded.tar.gz"
   echo "  rebuild it with:"
-  echo "    cp \$(command -v abduco) $PREBUILT"
+  echo "    cp /bin/true $PREBUILT"
   echo "    bun --conditions=@podium/source scripts/spike/build-bun-darwin.ts --target=bun-darwin-arm64"
   echo "    tar -czf dist-bun-spike/fixtures/linux-abduco-embedded.tar.gz -C dist-bun-spike/darwin-arm64 headless"
   echo "  then restore the darwin prebuilt and rebuild."

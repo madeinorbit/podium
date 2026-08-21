@@ -91,7 +91,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist-bun-spike/fixtures
           cp scripts/prebuilt/abduco/darwin-arm64/abduco /tmp/abduco.darwin.bak
-          cp "$(command -v abduco || echo /bin/true)" scripts/prebuilt/abduco/darwin-arm64/abduco
+          cp /bin/true scripts/prebuilt/abduco/darwin-arm64/abduco
           bun --conditions=@podium/source scripts/spike/build-bun-darwin.ts --target=bun-darwin-arm64
           tar -czf dist-bun-spike/fixtures/linux-abduco-embedded.tar.gz \
             -C dist-bun-spike/darwin-arm64 headless
