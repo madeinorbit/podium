@@ -8,6 +8,11 @@ import base from './vite.config'
 
 const REAL_STORE = fileURLToPath(new URL('./src/app/store.tsx', import.meta.url))
 const STUB_STORE = fileURLToPath(new URL('./harness/explorer-store.ts', import.meta.url))
+// The launch box's model + effort segments read the live catalog, and that hook
+// hangs off the real store provider rather than the stub above — see
+// harness/model-catalog-stub.ts.
+const REAL_CATALOG = fileURLToPath(new URL('./src/lib/use-model-catalog.ts', import.meta.url))
+const STUB_CATALOG = fileURLToPath(new URL('./harness/model-catalog-stub.ts', import.meta.url))
 
 export default defineConfig(async (env) => {
   const real = await (base as unknown as (e: typeof env) => Promise<Record<string, unknown>>)(env)
@@ -22,7 +27,8 @@ export default defineConfig(async (env) => {
         name: 'explorer-harness-store-stub',
         enforce: 'pre',
         async resolveId(source: string, importer: string | undefined, opts: unknown) {
-          if (source.endsWith('explorer-store')) return null
+          if (source.endsWith('explorer-store') || source.endsWith('model-catalog-stub'))
+            return null
           const resolved = await (
             this as unknown as {
               resolve: (
@@ -32,7 +38,9 @@ export default defineConfig(async (env) => {
               ) => Promise<{ id: string } | null>
             }
           ).resolve(source, importer, { ...(opts as Record<string, unknown>), skipSelf: true })
-          if (resolved && resolved.id.split('?')[0] === REAL_STORE) return STUB_STORE
+          const id = resolved?.id.split('?')[0]
+          if (id === REAL_STORE) return STUB_STORE
+          if (id === REAL_CATALOG) return STUB_CATALOG
           return null
         },
       } as PluginOption,

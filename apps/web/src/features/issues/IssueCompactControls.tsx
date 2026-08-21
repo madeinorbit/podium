@@ -6,6 +6,7 @@ import {
   type ProposalPlacement,
   sessionNeedsHuman,
 } from '@podium/client-core/viewmodels'
+import type { IssueUpdatePatch } from '@podium/commands'
 import {
   type IssueId,
   type IssueStage,
@@ -13,6 +14,7 @@ import {
   issueStatusMenuEntries,
   issueStatusOf,
   issueStatusValueOf,
+  type MachineId,
   parseIssueStatusValue,
   type SessionMeta,
 } from '@podium/model/browser'
@@ -46,6 +48,7 @@ import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/Worker
 import { IssueContextMenu } from './IssueContextMenu'
 import { StatusGlyph } from './issue-glyphs'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
+import { LaunchBox, type LaunchCommands } from './LaunchBox'
 
 // The right-click menu exists only after a right-click; loading it on demand
 // keeps the menu (and its handoff machinery) out of the eager bundle.
@@ -497,17 +500,19 @@ export function IssueCompactControls({
    *  still workable; see {@link IssuePanelView}. */
   onWorkOnThis?: () => void
 }): JSX.Element {
-  const { trpc, sessions, setOpenIssueId, setView, updateIssue, closeIssue } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      sessions: s.sessions,
-      setOpenIssueId: s.setOpenIssueId,
-      setView: s.setView,
-      updateIssue: s.updateIssue,
-      closeIssue: s.closeIssue,
-    }),
-    shallowEqual,
-  )
+  const { trpc, sessions, machines, setOpenIssueId, setView, updateIssue, closeIssue } =
+    useStoreSelector(
+      (s) => ({
+        trpc: s.trpc,
+        sessions: s.sessions,
+        machines: s.machines,
+        setOpenIssueId: s.setOpenIssueId,
+        setView: s.setView,
+        updateIssue: s.updateIssue,
+        closeIssue: s.closeIssue,
+      }),
+      shallowEqual,
+    )
   const issues = useReplicaIssues()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
@@ -588,6 +593,15 @@ export function IssueCompactControls({
     else confirmClose(reason)
   }
 
+  /** Every write on this strip surfaces its failure the same way. */
+  const reportError = (error: unknown): void => {
+    toast.error(error instanceof Error ? error.message : String(error))
+  }
+
+  const patchIssue = (patch: IssueUpdatePatch): void => {
+    updateIssue(issue.id, patch).catch(reportError)
+  }
+
   const runAction = (): void => {
     if (!action) return
     switch (action.kind) {
@@ -628,12 +642,53 @@ export function IssueCompactControls({
       .finally(() => setStarting(false))
   }
 
+  /**
+   * THE DOCK'S LAUNCH WRITES (POD-1457) — the seven verbs {@link LaunchBox}
+   * needs, over the same store actions the rest of this strip already uses.
+   *
+   * The full issue page hands the box `issuePageCommands`, which is built from
+   * the page's whole dependency set (loaders, curation callbacks, its busy
+   * gate). The panel needs none of that, and `LaunchCommands` is deliberately
+   * narrow enough that this satisfies it: same `issues.update` call, same
+   * per-agent reset ([spec:SP-7ff1] — models are per-agent, so a harness change
+   * resets model + effort rather than showing the previous agent's model for a
+   * beat), same `issues.start`.
+   */
+  const launchCommands: LaunchCommands = {
+    setDefaultAgent: (defaultAgent) => {
+      if (defaultAgent === issue.defaultAgent) return
+      patchIssue({ defaultAgent, defaultModel: 'auto', defaultEffort: 'auto' })
+    },
+    setDefaultModel: (defaultModel) => patchIssue({ defaultModel, defaultEffort: 'auto' }),
+    setDefaultEffort: (defaultEffort) => patchIssue({ defaultEffort }),
+    setMachine: (machineId: MachineId | null) => patchIssue({ machineId }),
+    startWork: () => startWork(),
+    addSession: () => {
+      void trpc.issues.addSession.mutate({ id: issue.id }).catch(reportError)
+    },
+    addShell: () => {
+      void trpc.issues.addShell.mutate({ id: issue.id }).catch(reportError)
+    },
+  }
+
+  // The panel's ONE launch surface, and the only place it starts work since
+  // POD-1457. It stands where the bare `Start work` chip stood — the strip's
+  // second line — so the primary action has not moved, it has only stopped
+  // being the one control on this task that could not say WITH WHAT.
+  // A closed task gets none: the strip offers Reopen there instead.
+  const launchable = !closed && action?.kind === 'start-work'
+
   return (
-    // WRAPS, since POD-1269. The strip can now hold four objects — status, the
-    // resolved action, its placement fork, the crossing into the work tool — and
-    // the dock is 300px wide at its narrowest. Wrapping is safe where a clamp
-    // would not be: the head must not grow with DATA, and a line break here is a
-    // function of width, not of how much this task has to say.
+    // WRAPS, since POD-1269. The strip can hold four objects — status, a
+    // resolved Mark done, the crossing into the work tool, the overflow menu —
+    // and the dock is 300px wide at its narrowest. Wrapping is safe where a
+    // clamp would not be: the head must not grow with DATA, and a line break
+    // here is a function of width, not of how much this task has to say.
+    //
+    // The launch box is a full-width item, so it takes the next line of the
+    // same wrap rather than nesting a second row. It is bounded the same way —
+    // two picker rows and a button, whatever the task holds — so the dock's
+    // fixed region stays fixed (POD-1457).
     <div className="mt-2.5 flex flex-wrap items-center gap-2">
       {/* STATUS, exposed as a first-class dock action. Built from the shell's
           own dropdown rather than a native <select>, which exists nowhere in
@@ -699,40 +754,29 @@ export function IssueCompactControls({
         >
           <RotateCcw size={12} aria-hidden="true" /> Reopen issue
         </Button>
-      ) : action ? (
-        <div className="flex items-center">
-          {/* THE PANEL'S ONE PRIMARY CHIP. `resolveTaskAction()` returns exactly
-              one action, so there is never a second filled object to compete
-              with — which is why the needs-you variant (Answer / Mark done) now
-              takes the SAME solid yellow as Start work rather than an
-              ochre-tinted outline. On paper that outline was 15% ochre over
-              near-white: a washed tan that read as disabled, and read QUIETER
-              than the neutral status pill beside it — exactly backwards for the
-              one control asking something of the operator (POD-725, The Signal
-              Rule). Yellow fills; ochre writes, and it keeps doing the writing
-              in the status line. */}
-          <Button
-            type="button"
-            size="sm"
-            data-testid="task-primary-action"
-            data-action={action.kind}
-            disabled={starting}
-            className={cn(
-              'btn-primary-rim h-7 border px-2.5 text-[11.5px] font-semibold',
-              placement && 'rounded-r-none',
-            )}
-            onClick={runAction}
-          >
-            {starting && action.kind === 'start-work' ? 'Starting…' : action.label}
-          </Button>
-          {/* THE FORK (POD-679). The plain button keeps the agent's own call, so
-              the fast path costs no extra click; this is for the case the
-              operator already knows the work is something else. Both entries are
-              phrased as the CONSEQUENCE for the origin — "POD-516 can close
-              without it" is what the operator is actually choosing between, and
-              `parentId` versus `discovered-from` is not. */}
-          {placement && <PlacementMenu placement={placement} busy={starting} onStart={startWork} />}
-        </div>
+      ) : action && !launchable ? (
+        // THE PANEL'S ONE CHIP-SHAPED ACTION — Mark done, on an origin whose
+        // work has left. Start work is no longer here: it is the launch box's
+        // button below, where it can say which agent it is about to spend.
+        //
+        // The needs-you variant takes the SAME solid yellow rather than an
+        // ochre-tinted outline. On paper that outline was 15% ochre over
+        // near-white: a washed tan that read as disabled, and read QUIETER than
+        // the neutral status pill beside it — exactly backwards for the one
+        // control asking something of the operator (POD-725, The Signal Rule).
+        // Yellow fills; ochre writes, and it keeps doing the writing in the
+        // status line.
+        <Button
+          type="button"
+          size="sm"
+          data-testid="task-primary-action"
+          data-action={action.kind}
+          disabled={starting}
+          className="btn-primary-rim h-7 border px-2.5 text-[11.5px] font-semibold"
+          onClick={runAction}
+        >
+          {action.label}
+        </Button>
       ) : null}
       {/* WHERE THE WORK HAPPENS (POD-1269). The explorer is a place to read
           tasks; the work tool is where you sit with one. This is the crossing,
@@ -775,6 +819,36 @@ export function IssueCompactControls({
       >
         <MoreHorizontal size={16} aria-hidden="true" />
       </Button>
+      {/* THE LAUNCH BOX (POD-1457) — the same instrument the issue page's
+          Sessions block wears, mounted here in place of the chip that could
+          only ever start this task with whatever the filing agent happened to
+          leave on it. Agent, model, effort and machine are all writes on the
+          issue, so setting one here sets it everywhere; the button then simply
+          starts. It mounts only where nobody is on the task, so it always wears
+          its `Start work` face — see the box's `started` prop. */}
+      {launchable && (
+        <LaunchBox
+          className="w-full"
+          issue={issue}
+          busy={starting}
+          starting={starting}
+          started={false}
+          commands={launchCommands}
+          machines={machines}
+          {...(placement
+            ? {
+                // THE FORK (POD-679). The plain button keeps the agent's own
+                // call, so the fast path costs no extra click; this is for the
+                // case the operator already knows the work is something else.
+                // Both entries are phrased as the CONSEQUENCE for the origin —
+                // "POD-516 can close without it" is what the operator is
+                // actually choosing between, and `parentId` versus
+                // `discovered-from` is not.
+                fork: <PlacementMenu placement={placement} busy={starting} onStart={startWork} />,
+              }
+            : {})}
+        />
+      )}
       {menu && (
         <IssueContextMenu
           issues={[issue]}
