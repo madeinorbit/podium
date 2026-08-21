@@ -1,0 +1,191 @@
+/**
+ * The release gate must refuse a bundle that only has the spike layout.
+ *
+ * assert-headless-bundle.sh used to require podium-cli, the launcher, VERSION, and
+ * any file named index.html — exactly what POD-2501's spike packed. A production
+ * bundle from scripts/build-bun.ts also carries systemd/, LICENSE, NOTICE,
+ * THIRD-PARTY-NOTICES.md, and stamped client sites. These tests pack a fake
+ * production-shaped tree (tiny, not a real binary) and prove the layout checks
+ * fire for the right reason, before the 20 MB Mach-O / ELF checks. The Darwin
+ * entitlement refusal is proven against a real tarball by
+ * scripts/prove-headless-assertions-can-fail.sh (empty entitlements case).
+ */
+import { execFileSync, spawnSync } from 'node:child_process'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { afterEach, describe, expect, it } from 'vitest'
+
+const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+
+const JIT_ENTITLEMENTS = [
+  'com.apple.security.cs.allow-jit',
+  'com.apple.security.cs.allow-unsigned-executable-memory',
+  'com.apple.security.cs.disable-executable-page-protection',
+  'com.apple.security.cs.allow-dyld-environment-variables',
+  'com.apple.security.cs.disable-library-validation',
+] as const
+
+const PRODUCTION_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta name="podium-version" content="0.0.0-test" />
+    <title>Podium</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- padded so a production client is not confused with a ~70-byte spike stub ${'x'.repeat(320)} -->
+  </body>
+</html>
+`
+
+const SPIKE_STUB =
+  '<!doctype html><title>spike</title><p>POD-2501 spike — no web dist</p>\n'
+
+const UNIT = `[Unit]
+Description=Podium test unit
+[Service]
+ExecStart=/bin/true
+`
+
+const made: string[] = []
+const scratch = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-assert-layout-'))
+  made.push(dir)
+  return dir
+}
+afterEach(() => {
+  for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
+function writeProductionTree(headless: string): void {
+  mkdirSync(join(headless, 'web'), { recursive: true })
+  mkdirSync(join(headless, 'mobile'), { recursive: true })
+  mkdirSync(join(headless, 'systemd'), { recursive: true })
+  writeFileSync(join(headless, 'podium-cli'), '#!/bin/sh\necho stub-cli\n')
+  chmodSync(join(headless, 'podium-cli'), 0o755)
+  writeFileSync(
+    join(headless, 'podium'),
+    '#!/bin/sh\nexport PODIUM_HOME="$DIR"\nexec "$DIR/podium-cli" "$@"\n',
+  )
+  chmodSync(join(headless, 'podium'), 0o755)
+  writeFileSync(join(headless, 'VERSION'), '0.0.0-test\n')
+  writeFileSync(join(headless, 'LICENSE'), 'Apache License Version 2.0\n')
+  writeFileSync(join(headless, 'NOTICE'), 'Podium\n')
+  writeFileSync(join(headless, 'THIRD-PARTY-NOTICES.md'), '# Third-party notices\n')
+  for (const site of ['web', 'mobile'] as const) {
+    writeFileSync(join(headless, site, 'index.html'), PRODUCTION_HTML)
+    writeFileSync(join(headless, site, 'podium-build.json'), '{"appVersion":"0.0.0-test"}\n')
+  }
+  for (const unit of [
+    'podium-parent.service',
+    'podium-server.service',
+    'podium-janitor.service',
+    'podium-daemon.service',
+  ]) {
+    writeFileSync(join(headless, 'systemd', unit), UNIT)
+  }
+}
+
+function pack(headlessParent: string): string {
+  const tarball = join(headlessParent, 'bundle.tar.gz')
+  execFileSync('tar', ['-czf', tarball, '-C', headlessParent, 'headless'])
+  return tarball
+}
+
+function runGate(tarball: string): { status: number; failLine: string; output: string } {
+  const result = spawnSync(
+    'bash',
+    ['scripts/assert-headless-bundle.sh', tarball, 'linux-x86_64', '--no-abduco-identity'],
+    { encoding: 'utf8', cwd: repoRoot },
+  )
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+  const failLine =
+    output
+      .split('\n')
+      .find((line) => /^(FAIL|ABORT):/.test(line))
+      ?.trim() ?? ''
+  return { status: result.status ?? 1, failLine, output }
+}
+
+describe('assert-headless-bundle production layout', () => {
+  it('refuses a bundle with systemd/ removed', () => {
+    const root = scratch()
+    const headless = join(root, 'headless')
+    writeProductionTree(headless)
+    rmSync(join(headless, 'systemd'), { recursive: true, force: true })
+    const { status, failLine } = runGate(pack(root))
+    expect(status).not.toBe(0)
+    expect(failLine).toMatch(/tarball missing headless\/systemd/)
+  })
+
+  it('refuses a spike stub in place of web/index.html', () => {
+    const root = scratch()
+    const headless = join(root, 'headless')
+    writeProductionTree(headless)
+    writeFileSync(join(headless, 'web', 'index.html'), SPIKE_STUB)
+    const { status, failLine } = runGate(pack(root))
+    expect(status).not.toBe(0)
+    expect(failLine).toMatch(/web\/index\.html is only/)
+  })
+
+  it('refuses a bundle with NOTICE missing', () => {
+    const root = scratch()
+    const headless = join(root, 'headless')
+    writeProductionTree(headless)
+    rmSync(join(headless, 'NOTICE'))
+    const { status, failLine } = runGate(pack(root))
+    expect(status).not.toBe(0)
+    expect(failLine).toMatch(/tarball missing headless\/NOTICE/)
+  })
+
+  it('lets a complete production layout through to the binary checks', () => {
+    // A tiny podium-cli cannot be a shipped Bun runtime. Reaching THAT failure
+    // is the proof the layout checks accepted the tree — a gate that rejected
+    // everything would never get here.
+    const root = scratch()
+    writeProductionTree(join(root, 'headless'))
+    const { status, failLine } = runGate(pack(root))
+    expect(status).not.toBe(0)
+    expect(failLine).toMatch(/shipped podium-cli/)
+    expect(failLine).not.toMatch(/tarball missing|stub|NOTICE|systemd|index\.html/)
+  })
+})
+
+describe('the gate and the signing step name the same JIT keys', () => {
+  it('asserts every entitlement key the plist attaches', () => {
+    const gate = readFileSync(join(repoRoot, 'scripts/assert-headless-bundle.sh'), 'utf8')
+    const plist = readFileSync(join(repoRoot, 'scripts/bun-jit.entitlements.plist'), 'utf8')
+    for (const key of JIT_ENTITLEMENTS) {
+      expect(plist).toContain(`<key>${key}</key>`)
+      expect(gate).toContain(key)
+    }
+    expect(gate).toContain('rcodesign CONTRIBUTES THE ENTITLEMENTS, NOT THE SIGNATURE')
+  })
+
+  it('keeps the empty-entitlements refusal in the release-job proof harness', () => {
+    const prove = readFileSync(join(repoRoot, 'scripts/prove-headless-assertions-can-fail.sh'), 'utf8')
+    expect(prove).toContain('entitlements missing com.apple.security.cs.allow-jit')
+    expect(prove).toContain('empty entitlements')
+    expect(prove).toContain('systemd/ removed')
+    expect(prove).toContain('stub web/index.html')
+    expect(prove).toContain('NOTICE missing')
+  })
+
+  it('says in the release job that rcodesign supplies entitlements, not the signature', () => {
+    const workflow = readFileSync(join(repoRoot, '.github/workflows/release.yml'), 'utf8')
+    expect(workflow).toContain('does not add the Darwin signature')
+    expect(workflow).toContain('five Bun JIT entitlement keys')
+    expect(workflow).toContain('what breaks is JIT, at runtime')
+    expect(workflow).toContain('scripts/assert-headless-bundle.sh')
+    expect(workflow).toContain('scripts/prove-headless-assertions-can-fail.sh')
+  })
+})

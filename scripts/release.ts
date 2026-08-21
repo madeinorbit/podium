@@ -10,8 +10,10 @@
  * WHY THIS USED TO BE A MATRIX. The compiled daemon embeds a native abduco helper, so
  * the helper — and therefore the whole bundle — had to be produced on the architecture
  * that would run it. `zig cc` now builds that helper for every target from Linux and
- * `rcodesign` applies the ad-hoc signature Apple Silicon requires, so the architecture
- * of the runner stopped meaning anything.
+ * `rcodesign` re-signs each Darwin Mach-O with Bun's JIT entitlements (Bun's own
+ * compile already emitted an ad-hoc LINKER_SIGNED signature; dropping rcodesign
+ * breaks JIT at runtime, not code signing at build time), so the architecture of
+ * the runner stopped meaning anything.
  *
  * `--prepare-arch x64|arm64` REMAINS, and still builds natively on a runner of that
  * architecture. It is no longer how a release is made: it is the A/B leg that proves

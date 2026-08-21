@@ -12,10 +12,12 @@
  * CROSS-COMPILATION [spec:SP-6144 §8b]. With `--target` this builds the bundle for
  * ANOTHER platform from a Linux box: `bun build --compile --target=…` produces the
  * foreign executable, `scripts/abduco-cross.ts` produces the foreign abduco helper
- * with `zig cc`, and a Darwin target is ad-hoc signed with `rcodesign` (Apple Silicon
- * refuses to execute an unsigned Mach-O, so that signature is what makes the binary
- * runnable at all — not a formality). That is what collapses the release matrix from
- * one runner per architecture to one Linux job for all four.
+ * with `zig cc`, and a Darwin target is re-signed with `rcodesign`. bun build --compile
+ * already emits an ad-hoc LINKER_SIGNED Mach-O (identifier a.out, no entitlements);
+ * rcodesign replaces that signature with identifier podium plus the five Bun JIT
+ * entitlement keys. Drop rcodesign and the binary still "signs" — what breaks is JIT,
+ * at runtime, not code signing at build time. That is what collapses the release
+ * matrix from one runner per architecture to one Linux job for all four.
  *
  * ONE TARGET PER INVOCATION, and deliberately so: the compiled binary embeds abduco
  * through a static `with { type: 'file' }` import of the FIXED path dist-bun/abduco.bin,
@@ -450,9 +452,12 @@ function main(): void {
    * is a LINKER_SIGNED one with identifier `a.out` and NO entitlements — and Bun's
    * JavaScriptCore needs `allow-jit` to map its writable-executable pages. So this is
    * not "add a signature", it is "replace a signature that lacks the entitlements".
-   * The published-bundle assertions check both discriminators (identifier `podium`,
-   * not LINKER_SIGNED) precisely so a silent regression to the linker signature reads
-   * as a failure rather than as a pass.
+   *
+   * If this pass is ever dropped, what breaks is JIT — not code signing. The binary
+   * still carries Bun's linker signature, the build still goes green, and the failure
+   * is at runtime when JSC cannot map W^X pages. The published-bundle assertions
+   * check identifier `podium` (not LINKER_SIGNED) and the five entitlement keys
+   * precisely so that regression is a release-gate red rather than a Mac-side crash.
    */
   const signDarwin = (binary: string): void => {
     const entitlements = `${root}scripts/bun-jit.entitlements.plist`

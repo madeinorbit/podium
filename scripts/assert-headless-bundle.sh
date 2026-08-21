@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Interrogate a SHIPPED headless tarball: is it really a bundle for the platform it
-# claims, built the way a release is supposed to build it?
+# Interrogate a SHIPPED headless tarball: is it really a PRODUCTION bundle for the
+# platform it claims, built the way a release is supposed to build it?
 #
 # EVERY check runs against bytes extracted FROM THE TARBALL. Nothing here inspects a
 # loose sibling binary in a build directory — the thing that ships is the only subject,
@@ -66,22 +66,24 @@ esac
 case "$PLATFORM" in darwin-*) IS_DARWIN=1 ;; *) IS_DARWIN=0 ;; esac
 [ "$IS_DARWIN" = 1 ] && need rcodesign
 
-# WHAT A SIGNATURE FAILURE MEANS, WHICH IS NOT THE SAME ON BOTH MACS.
+# WHAT THE DARWIN CHECKS ARE FOR — TWO DIFFERENT DEFECTS, NOT ONE.
 #
-# Apple Silicon REFUSES to execute an unsigned Mach-O, so on darwin-aarch64 a missing
-# or broken signature means the binary will not start at all.
+# bun build --compile already emits an ad-hoc signed Mach-O (ADHOC | LINKER_SIGNED,
+# identifier a.out, NO entitlements). rcodesign does not "add a signature". It
+# REPLACES that linker signature with ADHOC, identifier podium, plus the five Bun
+# JIT entitlement keys JavaScriptCore needs. If the release job ever drops
+# rcodesign, the binary still carries a signature and the build still goes green;
+# what breaks is JIT, at runtime, when JSC cannot map W^X pages. The entitlement
+# check below is the build-time stand-in for that.
 #
-# Intel macOS has no such requirement: an unsigned x86_64 binary runs. We sign it
-# anyway, because the signature is what carries the JIT entitlements JavaScriptCore
-# needs — so on darwin-x86_64 a red here means THE BUILD'S SIGNING STEP DID NOT RUN,
-# not that the payload is unrunnable. Both are failures worth stopping a release for,
-# but they send you to different places, and POD-2501 shipped a check whose Intel red
-# read as "the payload is broken" when it meant "Intel does not require signatures".
-# Saying which is which is the whole point of this variable.
+# A genuinely unsigned Mach-O is a different defect (signature stripped, not
+# rcodesign skipped). Apple Silicon refuses to execute one; Intel macOS does not
+# — an unsigned x86_64 binary runs, just without the entitlements. Both stop a
+# release; they send you to different places.
 if [ "$PLATFORM" = darwin-x86_64 ]; then
-  SIG_MEANING="the build's signing step did not run (Intel macOS would still EXECUTE this binary — it does not require a signature — but it would run without the JIT entitlements)"
+  SIG_MEANING="the binary is unsigned (Intel macOS would still EXECUTE it — it does not require a signature — but without rcodesign it would also lack the JIT entitlements and fail at runtime)"
 else
-  SIG_MEANING="this binary will not execute at all (Apple Silicon refuses an unsigned Mach-O)"
+  SIG_MEANING="this binary will not execute at all (Apple Silicon refuses an unsigned Mach-O). Dropping rcodesign is a different defect: Bun already signed it, and what would break is JIT at runtime"
 fi
 
 echo "=== assert-headless-bundle ==="
@@ -89,15 +91,35 @@ echo "tarball=$TARBALL"
 echo "platform=$PLATFORM (expect $EXPECT_FORMAT $EXPECT_ARCH)"
 echo "tarball sha256=$(sha256sum "$TARBALL" | cut -d' ' -f1)"
 
-# --- The layout the updater extracts into (packages/runtime/src/update-install.ts
-# --- joins the staged dir with 'headless', so anything else silently installs nothing).
+# --- The layout a PRODUCTION bundle has, not the spike ---
+#
+# packages/runtime/src/update-install.ts joins the staged dir with 'headless', so
+# any other archive root silently installs nothing. The file set itself is what
+# scripts/build-bun.ts writes: podium-cli, the launcher shim, both client sites,
+# the packaged systemd units, VERSION, LICENSE, NOTICE, THIRD-PARTY-NOTICES.md.
+# POD-2501's spike packed none of systemd/LICENSE/NOTICE and wrote stub
+# index.html files; a gate that only checks that subset accepts a malformed
+# production bundle.
 listing="$(tar -tzf "$TARBALL")" || fail "cannot list $TARBALL"
-for want in headless/podium-cli headless/podium headless/VERSION; do
+for want in \
+  headless/podium-cli \
+  headless/podium \
+  headless/VERSION \
+  headless/LICENSE \
+  headless/NOTICE \
+  headless/THIRD-PARTY-NOTICES.md \
+  headless/web/index.html \
+  headless/mobile/index.html \
+  headless/systemd/podium-parent.service \
+  headless/systemd/podium-server.service \
+  headless/systemd/podium-janitor.service \
+  headless/systemd/podium-daemon.service
+do
   echo "$listing" | grep -qx "$want" || fail "tarball missing $want"
 done
 stray="$(echo "$listing" | awk -F/ '{print $1}' | sort -u | grep -vx 'headless' || true)"
 [ -z "$stray" ] || fail "tarball has entries outside headless/: $stray"
-pass "archive root is headless/ and carries podium-cli, podium and VERSION"
+pass "archive root is headless/ and carries the production file set"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-assert-XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
@@ -105,11 +127,38 @@ tar -xzf "$TARBALL" -C "$WORK" || fail "cannot extract $TARBALL"
 CLI="$WORK/headless/podium-cli"
 [ -x "$CLI" ] || fail "extracted headless/podium-cli is missing or not executable"
 [ -x "$WORK/headless/podium" ] || fail "extracted headless/podium launcher is not executable"
+grep -q 'PODIUM_HOME' "$WORK/headless/podium" \
+  || fail "extracted headless/podium is not the launcher shim (no PODIUM_HOME)"
 [ -s "$WORK/headless/VERSION" ] || fail "extracted headless/VERSION is empty"
-for site in web mobile; do
-  [ -f "$WORK/headless/$site/index.html" ] || fail "extracted bundle has no $site/index.html"
+grep -q Apache "$WORK/headless/LICENSE" \
+  || fail "extracted headless/LICENSE is empty or is not the Apache license"
+grep -q Podium "$WORK/headless/NOTICE" \
+  || fail "extracted headless/NOTICE is empty or does not name Podium"
+[ -s "$WORK/headless/THIRD-PARTY-NOTICES.md" ] \
+  || fail "extracted headless/THIRD-PARTY-NOTICES.md is empty"
+for unit in podium-parent.service podium-server.service podium-janitor.service podium-daemon.service; do
+  grep -q '\[Unit\]' "$WORK/headless/systemd/$unit" \
+    || fail "extracted headless/systemd/$unit is not a systemd unit"
 done
-pass "bundle carries both client sites and a non-empty VERSION ($(tr -d '\n' <"$WORK/headless/VERSION"))"
+# A file named index.html is not enough. The spike wrote
+# `<!doctype html><title>spike</title>…` (~70 bytes, no React mount, no build
+# stamp) and that would pass an existence check. Production clients are stamped
+# by write-web-build-stamp.ts (podium-build.json + podium-version meta) and
+# mount at id="root".
+for site in web mobile; do
+  html="$WORK/headless/$site/index.html"
+  [ -f "$html" ] || fail "extracted bundle has no $site/index.html"
+  [ -f "$WORK/headless/$site/podium-build.json" ] \
+    || fail "extracted bundle has no $site/podium-build.json — a production client carries a build stamp"
+  html_size="$(stat -c%s "$html")"
+  [ "$html_size" -ge 400 ] \
+    || fail "extracted $site/index.html is only $html_size bytes — a production client is not this small"
+  grep -q 'id="root"' "$html" \
+    || fail "extracted $site/index.html is a stub (no React mount id=\"root\")"
+  grep -q 'podium-version' "$html" \
+    || fail "extracted $site/index.html is a stub (no podium-version meta; write-web-build-stamp did not run)"
+done
+pass "bundle carries the production layout and a non-empty VERSION ($(tr -d '\n' <"$WORK/headless/VERSION"))"
 echo "shipped podium-cli sha256=$(sha256sum "$CLI" | cut -d' ' -f1)"
 
 # --- Object format and architecture of the SHIPPED binary ---
@@ -177,7 +226,14 @@ else
   echo "NOTE: embedded-helper identity NOT checked (--no-abduco-identity was passed)"
 fi
 
-# --- Darwin code signature: the thing that makes the binary runnable at all ---
+# --- Darwin signature + entitlements ---
+#
+# rcodesign CONTRIBUTES THE ENTITLEMENTS, NOT THE SIGNATURE. Bun's --compile
+# output is already ad-hoc signed (LINKER_SIGNED, identifier a.out, no
+# entitlements). The discriminators below prove the build re-signed it; the
+# five keys prove the thing that re-sign actually adds. Drop rcodesign and the
+# LINKER_SIGNED check fails here; strip the keys off a re-signed binary and
+# the entitlement loop fails here. Neither is visible as "unsigned".
 if [ "$IS_DARWIN" = 1 ]; then
   echo "signature policy for $PLATFORM: a failure below means — $SIG_MEANING"
   sig="$(rcodesign print-signature-info "$CLI" 2>&1)" \
@@ -185,9 +241,6 @@ if [ "$IS_DARWIN" = 1 ]; then
   echo "$sig" | grep -q 'signature: null' && fail "shipped binary has NO code signature: $SIG_MEANING"
   echo "$sig" | grep -q 'CodeSignatureFlags(ADHOC' \
     || fail "shipped binary signature is missing the ADHOC flag: $SIG_MEANING"
-  # Bun's --compile output is ALREADY ad-hoc signed, as LINKER_SIGNED with identifier
-  # a.out and no entitlements. Both discriminators below prove the build re-signed it
-  # with rcodesign, which is what attaches the JIT entitlements JavaScriptCore needs.
   echo "$sig" | grep -q 'LINKER_SIGNED' \
     && fail "shipped binary still carries Bun's LINKER_SIGNED signature — rcodesign never re-signed it, so the JIT entitlements were never attached ($SIG_MEANING)"
   echo "$sig" | grep -q 'identifier: podium' \

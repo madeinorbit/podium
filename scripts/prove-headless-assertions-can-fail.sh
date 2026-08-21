@@ -3,12 +3,13 @@
 #
 # `assert-headless-bundle.sh` is the only thing standing between a broken Darwin
 # payload and a release page. A green from a check that cannot go red is worse than no
-# check: it is a claim nobody made. So this harness breaks a real bundle ten ways and
-# requires the gate to reject each one FOR THE RIGHT REASON — not merely to exit
+# check: it is a claim nobody made. So this harness breaks a real bundle and
+# requires the gate to reject each mutation FOR THE RIGHT REASON — not merely to exit
 # non-zero, which a typo in the script would also do.
 #
-# Grown out of POD-2501's prove-assert-can-fail.sh, which is where the ten cases come
-# from, and wired into the release job so the proof is re-run rather than remembered.
+# Grown out of POD-2501's prove-assert-can-fail.sh, and wired into the release job so
+# the proof is re-run rather than remembered. Cases 12–14 are the production-layout
+# checks the spike never had.
 #
 # Usage:
 #   scripts/prove-headless-assertions-can-fail.sh <darwin-arm64-tarball> [<linux-x64-tarball>]
@@ -214,8 +215,10 @@ check "byte flipped inside the sealed region" "does not seal the shipped bytes" 
 
 # 6. Re-signed with EMPTY entitlements: ad-hoc, identifier podium, not LINKER_SIGNED —
 #    everything the other signature checks look for — and unable to JIT. This isolates
-#    the entitlement check, which nothing else reaches: the raw-Bun case above trips
-#    LINKER_SIGNED first and never gets there.
+#    the entitlement check, which nothing else reaches: the raw-Bun case below trips
+#    LINKER_SIGNED first and never gets there. THIS is the proof that stripping the
+#    five keys rcodesign actually contributes is refused; dropping rcodesign entirely
+#    is case 7 (LINKER_SIGNED still present).
 #
 #    The signature must be STRIPPED before re-signing. `rcodesign sign` on an already
 #    signed binary PRESERVES the existing entitlements, so signing without
@@ -276,8 +279,31 @@ check "VERSION removed" "tarball missing headless/VERSION" \
 #     never a silent skip that reads as a green.
 check "no abduco flag" "pass --abduco" darwin-aarch64 "" "$DARWIN_TARBALL"
 
+# 12–14. THE PRODUCTION LAYOUT, not the spike layout. The spike packed no systemd/,
+#     no NOTICE, and stub web/mobile index.html files. A gate that only checked what
+#     the spike happened to emit would accept each of these as a green.
+
+# 12. Packaged systemd units gone — a headless VPS cannot enable the parent unit.
+edit_nosystemd() { rm -rf "$CASE/headless/systemd"; }
+check "systemd/ removed" "tarball missing headless/systemd" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate nosystemd edit_nosystemd)"
+
+# 13. The spike's stub web/index.html in place of the stamped production client.
+#     Existence of a file named index.html is the check that would have passed this.
+edit_stub_web() {
+  printf '<!doctype html><title>spike</title><p>POD-2501 spike — no web dist</p>\n' \
+    > "$CASE/headless/web/index.html"
+}
+check "stub web/index.html" "web/index.html is only" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate stubweb edit_stub_web)"
+
+# 14. NOTICE absent — Apache-2.0 convention, packed by build-bun.ts with LICENSE.
+edit_nonotice() { rm -f "$CASE/headless/NOTICE"; }
+check "NOTICE missing" "tarball missing headless/NOTICE" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate nonotice edit_nonotice)"
+
 # THE CONTROL FOR THE CONTROLS: the pristine bundle must still PASS. Without this a
-# gate that rejected everything would score a perfect ten above.
+# gate that rejected everything would score a perfect set above.
 echo
 if bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 --abduco "$DARWIN_REF" >/dev/null 2>&1; then
   echo "ACCEPTED (control): the unmutated bundle still passes"
