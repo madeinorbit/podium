@@ -34,7 +34,13 @@ describe('readServedBuild', () => {
   })
 
   it('treats every failure as silence, never as a new build', async () => {
-    const notFound = vi.fn(async () => ({ ok: false })) as unknown as typeof fetch
+    // The body PARSES and names a version: the only thing that can make this
+    // undefined is the status check. A stub with no `json` would pass whether
+    // that check existed or not — it would throw its way to the same answer.
+    const notFound = vi.fn(async () => ({
+      ok: false,
+      json: async () => ({ appVersion: '0.1.1-edge.9' }),
+    })) as unknown as typeof fetch
     expect(await readServedBuild(notFound)).toBeUndefined()
 
     const offline = vi.fn(async () => {
