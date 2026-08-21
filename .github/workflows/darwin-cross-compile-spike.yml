@@ -3,6 +3,10 @@
 name: darwin-cross-compile-spike
 on:
   workflow_dispatch:
+  # Also on this spike branch so we can run before the workflow exists on main
+  # (workflow_dispatch only resolves workflows present on the default branch).
+  push:
+    branches: ['issue/2501-darwin-cross-compile-spike']
 concurrency:
   group: darwin-cross-compile-spike-${{ github.ref }}
   cancel-in-progress: true
