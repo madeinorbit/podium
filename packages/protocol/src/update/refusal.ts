@@ -194,7 +194,9 @@ const UPDATE_FAILURE_MATCHERS = [
     token: 'dirty-working-tree',
     pattern: /dirty[-_\s]working[-_\s]tree|local (?:files|edits)|uncommitted/i,
     code: 'machine-dirty-checkout',
-    example: 'git delivery failed: dirty-working-tree',
+    example:
+      'The source checkout has 2 uncommitted changes and no longer matches HEAD (aaaaaaa). ' +
+      'Commit or stash them to publish dev+aaaaaaa.',
   },
 
   // --- what the convergence planner refused --------------------------------
@@ -380,7 +382,6 @@ export const UPDATE_FAILURE_EXAMPLES = Object.fromEntries(
  * producer left is an older peer.
  */
 export const RETIRED_PRODUCER_TOKENS: readonly UpdateFailureToken[] = [
-  'dirty-working-tree',
   'invalid-git-reference',
   'git-status-failed',
   'git-fetch-failed',

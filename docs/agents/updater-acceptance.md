@@ -191,7 +191,9 @@ thing the two legs do not share (spec §1):
 - the dev leg must verify against the key the daemon pinned at pairing, and the release leg
   against the baked release key. Prove BOTH directions of the mistake: a dev-signed artifact
   offered on a release-channel target, and a release-signed artifact offered on a dev target.
-  Each must be refused with a signature failure and nothing swapped.
+  Each must be refused with a signature failure and nothing swapped. Also the missing half:
+  an instance-trusted target reaching a daemon that pinned no key at all must refuse closed
+  before any download, with nothing swapped.
 - the dev feed is machine-authenticated: an unauthenticated request for either the manifest
   or an artifact must be refused with 401 before anything is opened.
 - a release-channel manifest naming an artifact URL outside the release feed must be refused
@@ -224,7 +226,7 @@ Linux AppImage run does not substitute for this macOS proof.
 | Surface | Positive path | Required negative path | Proof of completion |
 | --- | --- | --- | --- |
 | Installed headless (release) | Signed feed swap and reconnect, twice | Tamper; wrong signing key | On-disk version and reconnect agree |
-| Installed headless (dev) | Signed feed swap from the pulled dev feed | Cross-channel key; unauthenticated feed request; dirty publisher checkout | On-disk version and reconnect agree; refusals name the cause |
+| Installed headless (dev) | Signed feed swap from the pulled dev feed | Cross-channel key; missing pinned key; unauthenticated feed request; dirty publisher checkout | On-disk version and reconnect agree; refusals name the cause |
 | Web update panel | Available to applying to current | Connection/delivery failure can be dismissed | Real click observed in branch app |
 | Linux desktop | Signed AppImage replacement | Signature/install failure | Re-launched on-disk AppImage reports target |
 | macOS desktop | Production-signed install and restart | Broken artifact/native fallback | Restarted notarized app reports target |

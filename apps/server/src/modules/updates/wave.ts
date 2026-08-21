@@ -95,11 +95,14 @@ export function offeredDeliveries(target: {
  */
 export function machineCanTakeDelivery(
   machine: Pick<WaveMachine, 'deliveryCaps' | 'supervised'>,
-  deliveries: readonly string[],
+  deliveries?: readonly string[],
 ): boolean {
   if (machine.supervised === true) return false
   if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) return true
-  if (deliveries.length === 0) return true
+  // Omitted means the caller is not asking the caps question. An empty list is
+  // the opposite: a target that offers nothing, which nobody can take.
+  if (deliveries === undefined) return true
+  if (deliveries.length === 0) return false
   return deliveries.some((delivery) =>
     machine.deliveryCaps?.includes(`update.delivery.${delivery}`),
   )
@@ -125,7 +128,6 @@ export function planWave(ctx: {
   /** How the target can be delivered; omitted means "do not filter on it". */
   deliveries?: readonly string[]
 }): string[] {
-  const deliveries = ctx.deliveries ?? []
   const inFlight = ctx.machines.filter((machine) => IN_FLIGHT.has(machine.state)).length
   const eligible = ctx.machines.filter(
     (machine) =>
@@ -138,7 +140,7 @@ export function planWave(ctx: {
       // predicate, and it is applied to the ELIGIBLE set — so a supervised
       // machine cannot be picked as the canary either, which is the selection
       // that would otherwise slip past a filter placed further down.
-      machineCanTakeDelivery(machine, deliveries),
+      machineCanTakeDelivery(machine, ctx.deliveries),
   )
 
   if (eligible.length === 0) return []

@@ -241,6 +241,60 @@ describe('resolveReleaseTarget trust root', () => {
     expect(fetchImpl.mock.calls.map(([url]) => String(url))).not.toContain(DEV_ARTIFACT_URL)
   })
 
+  /**
+   * TEXT PREFIX IS NOT CONTAINMENT. `startsWith(artifactBase)` accepts a URL
+   * that still has the fence as a prefix and then walks out of it with `../`.
+   * `fetch` parses the URL and drops the dot segments, so the HEAD goes to
+   * another repository on the same host. The fence's job is to refuse that at
+   * resolve time, not after a download, and not on a signature mismatch.
+   */
+  it('REFUSES a path-traversal URL that still string-prefixes the fence', async () => {
+    const escaped = `${RELEASE_BASE}/../../../../attacker/repo/releases/download/x.tar.gz`
+    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', escaped) })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+      /headless linux-x86_64 artifact is served from outside the edge feed/,
+    )
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
+      releaseManifestUrl('edge'),
+      desktopReleaseManifestUrl('edge'),
+    ])
+  })
+
+  it('REFUSES a percent-encoded path traversal out of the feed', async () => {
+    const escaped = `${RELEASE_BASE}/%2e%2e/%2e%2e/%2e%2e/%2e%2e/attacker/repo/releases/download/x.tar.gz`
+    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', escaped) })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+      /headless linux-x86_64 artifact is served from outside the edge feed/,
+    )
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
+      releaseManifestUrl('edge'),
+      desktopReleaseManifestUrl('edge'),
+    ])
+  })
+
+  it('REFUSES a single-segment encoded slash traversal out of the feed', async () => {
+    const escaped = `${RELEASE_BASE}/%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2fattacker/x.tar.gz`
+    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', escaped) })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+      /headless linux-x86_64 artifact is served from outside the edge feed/,
+    )
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
+      releaseManifestUrl('edge'),
+      desktopReleaseManifestUrl('edge'),
+    ])
+  })
+
+  it('REFUSES an artifact URL that does not parse', async () => {
+    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', 'https://[broken') })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+      /headless linux-x86_64 artifact is served from outside the edge feed/,
+    )
+  })
+
   it('REFUSES a dev manifest that names an artifact outside the dev feed', async () => {
     const fetchImpl = devFetchFixture({
       release: releaseManifest('0.1.2-dev.4+abc1234', HEADLESS_URL),

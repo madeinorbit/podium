@@ -165,7 +165,7 @@ describe('a machine that cannot take the delivery', () => {
     // Nobody can take it, so nobody is waved towards it — and the moment a real
     // release is published the installed machine converges with nothing to
     // retry by hand.
-    expect(plan([source(), installed()], [])).toEqual(['a-source', 'b-installed'])
+    expect(plan([source(), installed()], [])).toEqual([])
     expect(plan([source(), installed()], ['feed'])).toEqual(['b-installed'])
   })
 
@@ -255,6 +255,9 @@ describe('a desktop-supervised daemon', () => {
     // old daemon stays honestly behind instead of being handed bytes it cannot
     // install. Caps are open at the wire; they are not accepted by being old.
     expect(machineCanTakeDelivery({ deliveryCaps: ['update.delivery.git'] }, ['feed'])).toBe(false)
+    // An empty offer is not "do not filter": it is a target with nothing to
+    // hand anyone.
+    expect(machineCanTakeDelivery({ deliveryCaps: ['update.delivery.feed'] }, [])).toBe(false)
   })
 })
 

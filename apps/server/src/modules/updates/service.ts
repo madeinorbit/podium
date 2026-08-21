@@ -177,6 +177,51 @@ const freshRollout = (): ChannelRolloutState => ({
   halted: false,
 })
 
+function hasHeadlessBytes(target: UpdateTarget): boolean {
+  return target.artifacts.headless !== undefined
+}
+
+function stripUrlCredentials(url: string): string {
+  try {
+    const parsed = new URL(url)
+    parsed.username = ''
+    parsed.password = ''
+    parsed.search = ''
+    parsed.hash = ''
+    return parsed.href
+  } catch {
+    return url
+  }
+}
+
+function stripArtifactCredentials<T extends { platforms: Record<string, { url: string }> }>(
+  artifact: T,
+): T {
+  return {
+    ...artifact,
+    platforms: Object.fromEntries(
+      Object.entries(artifact.platforms).map(([platform, asset]) => [
+        platform,
+        { ...asset, url: stripUrlCredentials(asset.url) },
+      ]),
+    ),
+  }
+}
+
+/**
+ * `/version` is unauthenticated. The standing channel target keeps the token
+ * so a grant can fetch; the advertisement must not.
+ */
+function withoutArtifactCredentials(target: UpdateTarget): UpdateTarget {
+  const artifacts = { ...target.artifacts }
+  if (artifacts.headless) artifacts.headless = stripArtifactCredentials(artifacts.headless)
+  if (artifacts.headlessAlternatives) {
+    artifacts.headlessAlternatives = artifacts.headlessAlternatives.map(stripArtifactCredentials)
+  }
+  if (artifacts.desktop) artifacts.desktop = stripArtifactCredentials(artifacts.desktop)
+  return { ...target, artifacts }
+}
+
 /**
  * Server-owned convergence orchestration. Each channel names a separate
  * authority: `dev` is signed by this coordinating source server, while `edge`
@@ -289,6 +334,14 @@ export class UpdatesService {
     // step ticks explicitly, after `prepare`, exactly once, where a reader can
     // see it happen.
     if (this.isSameUpdate(channel, target.version)) {
+      const standing = this.targets.get(channel)
+      // The deliverable always comes from the feed. An identity for the same
+      // version names no bytes, and replacing the packed target with it is how
+      // a published package sat on "Waiting for the update package" — every
+      // `/version` poll re-publishes the identity, including mid-operation.
+      if (standing && hasHeadlessBytes(standing) && !hasHeadlessBytes(target)) {
+        return
+      }
       this.unavailableReasons.delete(channel)
       this.targets.set(channel, target)
       return
@@ -1116,8 +1169,28 @@ export class UpdatesService {
     publishedDevTarget?: UpdateTarget,
   ): UpdateTarget | undefined {
     const channel = this.operationChannel(hostMachineId)
-    if (channel === 'dev') return publishedDevTarget ?? this.target('dev')
-    return this.target(channel)
+    const raw = channel === 'dev' ? this.devAdvertisement(publishedDevTarget) : this.target(channel)
+    return raw ? withoutArtifactCredentials(raw) : undefined
+  }
+
+  /**
+   * The development publisher's identity is HEAD, not the package. Once the
+   * feed has delivered the same version with bytes, that standing target is
+   * what `/version` must advertise — otherwise every poll hides the package
+   * behind an artifact-less descriptor of the same number.
+   */
+  private devAdvertisement(published?: UpdateTarget): UpdateTarget | undefined {
+    const standing = this.target('dev')
+    if (!published) return standing
+    if (
+      standing &&
+      standing.version === published.version &&
+      hasHeadlessBytes(standing) &&
+      !hasHeadlessBytes(published)
+    ) {
+      return standing
+    }
+    return published
   }
 
   private rollout(channel: UpdateChannel): ChannelRolloutState {

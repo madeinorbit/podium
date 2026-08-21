@@ -326,7 +326,7 @@ export function sourceIdentityDiagnostic(sha: string, offending: string[]): stri
   const shown = offending.slice(0, 5)
   const more = offending.length - shown.length
   return (
-    'development bundle unavailable: the source checkout does not match HEAD (' +
+    'development bundle unavailable: the source checkout has uncommitted changes and does not match HEAD (' +
     sha +
     '), so a dev+' +
     sha +

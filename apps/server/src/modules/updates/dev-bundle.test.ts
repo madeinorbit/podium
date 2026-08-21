@@ -2,9 +2,10 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { UpdateTarget } from '@podium/protocol'
+import { matchUpdateFailureToken, UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  assertSourceMatchesHead,
   buildDevBundle,
   classifyIgnoredSourceInputs,
   classifySourceIdentity,
@@ -1715,6 +1716,27 @@ describe('development bundle readiness', () => {
     // The operator's copy names the files; the client's copy never does.
     expect(publisher.unavailable()).toContain('apps/server/src/server.ts')
     expect(readiness.state === 'failed' && readiness.publicReason).not.toContain('apps/')
+  })
+
+  /**
+   * `dirty-working-tree` is still produced HERE, on the publisher, not on a
+   * retired git-delivery consumer. The shared table must classify the real
+   * sentence `assertSourceMatchesHead` writes, not only the table's own
+   * example.
+   */
+  it('classifies a dirty checkout as dirty-working-tree from the real constructor', async () => {
+    let caught: unknown
+    try {
+      await assertSourceMatchesHead('/repo', 'aaaaaaa', async () =>
+        nul(' M apps/server/src/server.ts'),
+      )
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(Error)
+    const refusal = caught as Error & { publicReason?: string }
+    expect(matchUpdateFailureToken(refusal.publicReason ?? '')).toBe('dirty-working-tree')
+    expect(matchUpdateFailureToken(refusal.message)).toBe('dirty-working-tree')
   })
 
   it('does not carry an old HEAD failure into a new one', async () => {

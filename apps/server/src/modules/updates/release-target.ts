@@ -45,8 +45,9 @@ export interface ChannelFeed {
    */
   desktopManifestUrl?: string
   /**
-   * THE ORIGIN FENCE. Every artifact URL either manifest names must start with
-   * this prefix.
+   * THE ORIGIN FENCE. Every artifact URL either manifest names must sit under
+   * this directory: same origin, and a path that is a descendant after the URL
+   * is parsed and `..` / encoded-dot segments are resolved.
    *
    * A manifest is an advertisement fetched off a network, and the one thing an
    * advertisement must not be able to do is move the reader to another trust
@@ -56,6 +57,10 @@ export interface ChannelFeed {
    * either way, but it fails LATE, after a quarter-gigabyte download, and with
    * a sentence about signatures rather than about the feed that lied. Checking
    * the origin makes the refusal happen at resolve time and say what it means.
+   *
+   * A string prefix is not containment: `…/download/../attacker/…` still starts
+   * with the fence, and `fetch` then issues the HEAD against the escaped host
+   * path. The comparison is structural so those walk-outs refuse here.
    */
   artifactBase: string
   /** Which key a machine must verify this channel's artifacts against. */
@@ -217,6 +222,57 @@ function parseDesktopManifest(channel: ReleaseUpdateChannel, raw: unknown): Desk
   return { version: manifest.version, platforms }
 }
 
+/**
+ * Decode one path segment, then split on any slash that decoding introduced
+ * (`%2f`, `%5c`). A malformed escape stays as written rather than throwing —
+ * an undecodable URL is not inside the feed.
+ */
+function decodePathSegment(segment: string): string[] {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(segment.replace(/\+/g, '%20'))
+  } catch {
+    decoded = segment
+  }
+  return decoded.split(/[/\\]/)
+}
+
+/** Path segments with `.` dropped and `..` walked, after percent-decoding. */
+function normalisedPathSegments(pathname: string): string[] {
+  const out: string[] = []
+  for (const piece of pathname.split('/').flatMap(decodePathSegment)) {
+    if (piece === '' || piece === '.') continue
+    if (piece === '..') {
+      out.pop()
+      continue
+    }
+    out.push(piece)
+  }
+  return out
+}
+
+/**
+ * Whether `url` is genuinely under `artifactBase`: same origin, and a path
+ * that is a descendant after normalisation. A URL that fails to parse is
+ * not inside the feed.
+ */
+function artifactUrlBelongsToFeed(url: string, artifactBase: string): boolean {
+  let artifact: URL
+  let feed: URL
+  try {
+    artifact = new URL(url)
+    feed = new URL(artifactBase)
+  } catch {
+    return false
+  }
+  if (artifact.protocol !== 'http:' && artifact.protocol !== 'https:') return false
+  if (artifact.origin !== feed.origin) return false
+  const feedPath = normalisedPathSegments(feed.pathname)
+  const artifactPath = normalisedPathSegments(artifact.pathname)
+  if (artifactPath.length <= feedPath.length) return false
+  return feedPath.every((segment, i) => artifactPath[i] === segment)
+}
+
 async function assertArtifactsFetchable(
   channel: ReleaseUpdateChannel,
   feed: ChannelFeed,
@@ -339,7 +395,7 @@ export async function resolveReleaseTarget(
   }
 
   for (const named of namedArtifacts) {
-    if (named.url.startsWith(feed.artifactBase)) continue
+    if (artifactUrlBelongsToFeed(named.url, feed.artifactBase)) continue
     throw new Error(
       `${channel} target unavailable: ${named.place} artifact is served from outside the ` +
         `${channel} feed (${named.url})`,

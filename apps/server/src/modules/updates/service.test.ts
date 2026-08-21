@@ -1317,6 +1317,79 @@ describe('UpdatesService.advertisedTarget', () => {
     expect(svc.advertisedTarget('host')?.version).toBe('dev+aaaaaaa')
   })
 
+  /**
+   * `/version` awaits `publishTarget()` on every read and hands that identity
+   * in as `publishedDevTarget`. Once the feed target for the same version is
+   * standing, advertising the identity would hide the package the resolver
+   * just pulled — same defect as setTarget, on the probe the panel reads.
+   */
+  it('does not advertise a same-version identity over a standing deliverable', () => {
+    const packed = {
+      version: '0.1.2-dev.5+bbbbbbb',
+      critical: false,
+      artifacts: {
+        web: { digest: 'bbbbbbb' },
+        headless: {
+          delivery: 'feed',
+          platforms: {
+            'linux-x86_64': {
+              url: 'https://podium.example.test/updates/feed/dev/x.tar.gz?token=secret',
+              digest: 'd',
+              signature: 's',
+            },
+          },
+        },
+      },
+    } as unknown as never
+    const identity = {
+      version: '0.1.2-dev.5+bbbbbbb',
+      critical: false,
+      artifacts: { web: { digest: 'bbbbbbb' } },
+    } as unknown as never
+    const svc = shipped([m('host', { channel: 'dev' })])
+    svc.setTarget('dev', packed)
+
+    const advertised = svc.advertisedTarget('host', identity)
+    expect(advertised?.artifacts.headless).toBeDefined()
+    expect(advertised?.version).toBe('0.1.2-dev.5+bbbbbbb')
+  })
+
+  /**
+   * `/version` is the unauthenticated pre-boot probe. The feed target carries
+   * the artifact token in the query string so the daemon can fetch; that token
+   * must not ride the probe. The standing channel target keeps it — grants
+   * read that, not the advertisement.
+   */
+  it('does not put a tokenised artifact URL on the advertised target', () => {
+    const packed = {
+      version: '0.1.2-dev.5+bbbbbbb',
+      critical: false,
+      artifacts: {
+        headless: {
+          delivery: 'feed',
+          platforms: {
+            'linux-x86_64': {
+              url: 'http://127.0.0.1:18787/updates/feed/dev/x.tar.gz?token=secret',
+              digest: 'd',
+              signature: 's',
+            },
+          },
+        },
+      },
+    } as unknown as never
+    const svc = shipped([m('host', { channel: 'dev' })])
+    svc.setTarget('dev', packed)
+
+    const advertised = svc.advertisedTarget('host')
+    const advertisedUrl = advertised?.artifacts.headless?.platforms['linux-x86_64']?.url
+    expect(advertisedUrl).toBeDefined()
+    expect(advertisedUrl).not.toContain('token=')
+    expect(advertisedUrl).not.toContain('secret')
+    expect(svc.target('dev')?.artifacts.headless?.platforms['linux-x86_64']?.url).toContain(
+      'token=secret',
+    )
+  })
+
   it('follows an edge-pinned host onto edge', () => {
     const svc = shipped([m('host', { channel: 'edge' })])
     svc.setTarget('edge', t('0.2.0'))
@@ -1420,6 +1493,41 @@ describe('a channel this server also publishes into', () => {
     await svc.refreshTarget('dev')
 
     expect(svc.target('dev')?.artifacts.headless).toBeDefined()
+  })
+
+  /**
+   * THE PRODUCTION ORDER, which is the reverse of the case above. The publisher
+   * writes the manifest, the resolver pulls a deliverable, THEN every `/version`
+   * poll (and the tail of `requestBuild`) publishes the identity for the same
+   * HEAD. Same version, no bytes. Replacing the standing target with that
+   * descriptor is how an already-published package sat on "Waiting for the
+   * update package" until the machines step timed out.
+   */
+  it('does not let an identity overwrite a published feed target of the same version', () => {
+    const packed = {
+      version: '0.1.2-dev.5+bbbbbbb',
+      critical: false,
+      artifacts: {
+        headless: {
+          delivery: 'feed',
+          platforms: { 'linux-x86_64': { url: 'https://x/a', digest: 'd', signature: 's' } },
+        },
+      },
+    } as unknown as never
+    const identity = {
+      version: '0.1.2-dev.5+bbbbbbb',
+      critical: false,
+      artifacts: { web: { digest: 'bbbbbbb' } },
+    } as unknown as never
+    const { svc } = make([m('a', { channel: 'dev' })])
+
+    svc.setTarget('dev', packed)
+    svc.setTarget('dev', identity)
+
+    expect(svc.target('dev')?.artifacts.headless).toBeDefined()
+    expect(svc.target('dev')?.artifacts.headless?.platforms['linux-x86_64']?.url).toBe(
+      'https://x/a',
+    )
   })
 
   it('holds against an UNORDERABLE answer too, rather than guessing', async () => {

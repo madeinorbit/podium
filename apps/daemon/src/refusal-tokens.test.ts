@@ -202,10 +202,7 @@ describe('every refusal a daemon can produce is classified by the shared table',
     // never quietly grow to cover a token something here really does produce.
     expect(
       RETIRED_PRODUCER_TOKENS.every(
-        (token) =>
-          token.startsWith('git-') ||
-          token === 'dirty-working-tree' ||
-          token === 'invalid-git-reference',
+        (token) => token.startsWith('git-') || token === 'invalid-git-reference',
       ),
     ).toBe(true)
   })
