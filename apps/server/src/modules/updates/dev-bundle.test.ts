@@ -629,6 +629,55 @@ describe('selectDevBundleSweep', () => {
     ])
   })
 
+  it('counts BUILDS per platform, not files, when it has no allowlist to go on', () => {
+    // `keep` means "the last N builds", and a build is now up to four files. Counting
+    // them in one list keeps two and deletes the rest of the build just published — a
+    // Mac in the fleet would be offered a target whose tarball the sweep had removed.
+    //
+    // Production reaches this through the allowlist (`referenced`) instead, which
+    // POD-2502 added; this counting fallback is what an `selectDevBundleSweep(names)`
+    // with no options still does, so it has to be right on its own terms.
+    const build = (counter: number, sha: string, stamp: string, platform: string) =>
+      `podium-headless-0.1.0-edge.20.dev.${counter}+${sha}-${platform}-${stamp}.tar.gz`
+    const newestBuild = ['linux-x86_64', 'darwin-aarch64', 'linux-aarch64', 'darwin-x86_64'].map(
+      (platform) => build(3, '3333333', '20260812T190000Z', platform),
+    )
+    const previousBuild = ['linux-x86_64', 'darwin-aarch64'].map((platform) =>
+      build(2, '2222222', '20260812T180000Z', platform),
+    )
+    const oldestBuild = ['linux-x86_64', 'darwin-aarch64'].map((platform) =>
+      build(1, '1111111', '20260812T170000Z', platform),
+    )
+
+    const doomed = selectDevBundleSweep([...newestBuild, ...previousBuild, ...oldestBuild], {
+      hostPlatform: 'linux-x86_64',
+    })
+
+    // Every file of the two newest builds survives; only the third build goes.
+    expect(doomed.sort()).toEqual([...oldestBuild].sort())
+    for (const name of [...newestBuild, ...previousBuild]) expect(doomed).not.toContain(name)
+  })
+
+  it('drains legacy platform-less names through the host group rather than hoarding them', () => {
+    // A name with no platform predates multi-platform builds, and the only bundle such
+    // a build produced was this host's. Give it a group of its own and its survivors are
+    // retained forever, because nothing new is ever added to push them out.
+    const legacy = [
+      'podium-headless-dev+1111111-20260812T170000Z.tar.gz',
+      'podium-headless-dev+2222222-20260812T180000Z.tar.gz',
+    ]
+    const fresh = ['linux-x86_64', 'darwin-aarch64'].map(
+      (platform) =>
+        `podium-headless-0.1.0-edge.20.dev.9+9999999-${platform}-20260812T190000Z.tar.gz`,
+    )
+    const doomed = selectDevBundleSweep([...fresh, ...legacy], {
+      keep: 1,
+      hostPlatform: 'linux-x86_64',
+    })
+    // keep:1 — the host group holds the fresh linux bundle, so BOTH legacy names go.
+    expect(doomed.sort()).toEqual([...legacy].sort())
+  })
+
   it('never deletes an artifact referenced by current manifests, even if stamp-newest', () => {
     const current = `podium-headless-0.1.0-edge.20.dev.2+ddddddd-20260812T190000Z.tar.gz`
     const retained = `podium-headless-0.1.0-edge.20.dev.1+ccccccc-20260812T180000Z.tar.gz`
