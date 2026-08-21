@@ -127,6 +127,8 @@ Three scripts, deliberately separate:
 Everything `assert-headless-bundle.sh` checks, it checks against bytes extracted
 **from the tarball** — never a loose sibling in a build directory, because a
 build tree can be right while the archive is wrong. It refuses to run without
+`--source-commit <sha>`, and verifies both client sites against the exact-file
+hash manifests emitted by their builds at that commit. It also requires
 either `--abduco <reference>` or an explicit `--no-abduco-identity`, so an
 omitted input can never read as a green.
 

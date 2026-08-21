@@ -23,6 +23,7 @@ export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
 
 DARWIN_TARBALL="${1:-}"
 LINUX_TARBALL="${2:-}"
+SOURCE_COMMIT="$(git rev-parse HEAD)"
 [ -f "$DARWIN_TARBALL" ] || { echo "ABORT: pass a real darwin-aarch64 tarball to mutate (got '$DARWIN_TARBALL')" >&2; exit 1; }
 
 for tool in rcodesign python3 tar file bun; do
@@ -67,9 +68,9 @@ check() {
   local label="$1" expect="$2" platform="$3" abduco="$4" tarball="$5"
   local out status line
   if [ -n "$abduco" ]; then
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --abduco "$abduco" 2>&1)"
+    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" --abduco "$abduco" 2>&1)"
   else
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" 2>&1)"
+    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" 2>&1)"
   fi
   status=$?
   if [ "$status" -eq 0 ]; then
@@ -320,7 +321,7 @@ edit_stub_web() {
   printf '<!doctype html><title>spike</title><p>POD-2501 spike — no web dist</p>\n' \
     > "$CASE/headless/web/index.html"
 }
-check "stub web/index.html" "static stub (no React mount" \
+check "stub web/index.html" "build provenance hash mismatch for index.html" \
   darwin-aarch64 "$DARWIN_REF" "$(mutate stubweb edit_stub_web)"
 
 # 13b. Pad the stub far beyond the old size floor, add every stamp field, and name a
@@ -352,8 +353,14 @@ bundle_hash = 'AbCdEf12'
 }) + '\n')
 PY
 }
-check "padded forged web stub with no assets" "references missing client asset" \
+check "padded forged web stub with no assets" "build provenance stamp does not exactly match" \
   darwin-aarch64 "$DARWIN_REF" "$(mutate forgedweb edit_forged_web)"
+
+# 13c. Removing the manifest itself must trip the provenance guard. This is the
+#      armedness proof: delete that check and this case reaches the binary unchanged.
+edit_nomanifest() { rm -f "$CASE/headless/web/podium-build-manifest.json"; }
+check "web build provenance manifest removed" "has no build provenance manifest" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate nomanifest edit_nomanifest)"
 
 # 14. NOTICE absent — Apache-2.0 convention, packed by build-bun.ts with LICENSE.
 edit_nonotice() { rm -f "$CASE/headless/NOTICE"; }
@@ -363,7 +370,8 @@ check "NOTICE missing" "tarball missing headless/NOTICE" \
 # THE CONTROL FOR THE CONTROLS: the pristine bundle must still PASS. Without this a
 # gate that rejected everything would score a perfect set above.
 echo
-if bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 --abduco "$DARWIN_REF" >/dev/null 2>&1; then
+if bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
+  --source-commit "$SOURCE_COMMIT" --abduco "$DARWIN_REF" >/dev/null 2>&1; then
   echo "ACCEPTED (control): the unmutated bundle still passes"
   PASSED=$((PASSED + 1))
 else

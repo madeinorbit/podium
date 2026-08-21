@@ -67,6 +67,7 @@ jobs:
             platform="${pair%%:*}"; asset="${pair##*:}"
             bash scripts/assert-headless-bundle.sh \
               "dist-bun/release/podium-headless-${asset}.tar.gz" "$platform" \
+              --source-commit "$GITHUB_SHA" \
               --abduco "dist-bun/abduco-cache/${platform}-${HASH}"
           done
       # RUN the one bundle this runner can run, BEFORE publishing it. Everything above

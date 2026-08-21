@@ -16,12 +16,13 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -40,8 +41,8 @@ const TEST_SOURCE_SHA = '012345a'
 const WEB_HASH = 'AbCdEf12'
 const MOBILE_HASH = '0123456789abcdef0123456789abcdef'
 
-// A synthetic but substantive JavaScript entry for the layout-only fixture. Random-looking
-// content keeps its gzip size above the gate's anti-padding floor; a repeated comment does not.
+// Reviewer-grade generated noise: it defeated the former size/compression plausibility
+// checks, but changing even one byte now violates the build-produced manifest.
 const CLIENT_ENTRY = Array.from({ length: 3_000 }, (_, index) => {
   const value = createHash('sha256').update(String(index)).digest('hex')
   return `const value_${index}=()=>({index:${index},value:"${value}"});`
@@ -67,23 +68,47 @@ function productionHtml(site: 'web' | 'mobile'): string {
 `
 }
 
-function productionStamp(hash: string): string {
-  return `${JSON.stringify(
-    {
-      wireSchemaDigest: '0123456789abcdef',
-      wireVersion: 1,
-      builtAt: '2026-08-21T00:00:00.000Z',
-      appVersion: TEST_VERSION,
-      sourceSha: TEST_SOURCE_SHA,
-      bundleVersion: `bundle+${hash}`,
-    },
-    null,
-    2,
-  )}\n`
+function productionStamp(hash: string): Record<string, string | number> {
+  return {
+    wireSchemaDigest: '0123456789abcdef',
+    wireVersion: 1,
+    builtAt: '2026-08-21T00:00:00.000Z',
+    appVersion: TEST_VERSION,
+    sourceSha: TEST_SOURCE_SHA,
+    bundleVersion: `bundle+${hash}`,
+  }
 }
 
-const SPIKE_STUB =
-  '<!doctype html><title>spike</title><p>POD-2501 spike — no web dist</p>\n'
+function writeBuildManifest(siteDir: string, stamp: Record<string, string | number>): void {
+  const files: Record<string, string> = {}
+  const visit = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name)
+      if (entry.name === 'podium-build-manifest.json') continue
+      if (entry.isDirectory()) visit(path)
+      else {
+        const name = relative(siteDir, path).split(sep).join('/')
+        files[name] = createHash('sha256').update(readFileSync(path)).digest('hex')
+      }
+    }
+  }
+  visit(siteDir)
+  writeFileSync(
+    join(siteDir, 'podium-build-manifest.json'),
+    `${JSON.stringify(
+      {
+        manifestVersion: 1,
+        sourceCommit: TEST_SOURCE_SHA,
+        buildStamp: stamp,
+        files,
+      },
+      null,
+      2,
+    )}\n`,
+  )
+}
+
+const SPIKE_STUB = '<!doctype html><title>spike</title><p>POD-2501 spike — no web dist</p>\n'
 
 const UNIT = `[Unit]
 Description=Podium test unit
@@ -123,9 +148,11 @@ function writeProductionTree(headless: string): void {
         ? join(headless, site, 'assets', `index-${hash}.js`)
         : join(headless, site, '_expo', 'static', 'js', 'web', `entry-${hash}.js`)
     mkdirSync(dirname(entry), { recursive: true })
+    const stamp = productionStamp(hash)
     writeFileSync(join(headless, site, 'index.html'), productionHtml(site))
-    writeFileSync(join(headless, site, 'podium-build.json'), productionStamp(hash))
+    writeFileSync(join(headless, site, 'podium-build.json'), `${JSON.stringify(stamp, null, 2)}\n`)
     writeFileSync(entry, CLIENT_ENTRY)
+    writeBuildManifest(join(headless, site), stamp)
   }
   for (const unit of [
     'podium-parent.service',
@@ -143,10 +170,21 @@ function pack(headlessParent: string): string {
   return tarball
 }
 
-function runGate(tarball: string): { status: number; failLine: string; output: string } {
+function runGate(tarball: string): {
+  status: number
+  failLine: string
+  output: string
+} {
   const result = spawnSync(
     'bash',
-    ['scripts/assert-headless-bundle.sh', tarball, 'linux-x86_64', '--no-abduco-identity'],
+    [
+      'scripts/assert-headless-bundle.sh',
+      tarball,
+      'linux-x86_64',
+      '--source-commit',
+      TEST_SOURCE_SHA,
+      '--no-abduco-identity',
+    ],
     { encoding: 'utf8', cwd: repoRoot },
   )
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
@@ -169,17 +207,17 @@ describe('assert-headless-bundle production layout', () => {
     expect(failLine).toMatch(/tarball missing headless\/systemd/)
   })
 
-  it('refuses a spike stub in place of web/index.html', () => {
+  it('refuses a mutated spike stub because it is not the manifested build output', () => {
     const root = scratch()
     const headless = join(root, 'headless')
     writeProductionTree(headless)
     writeFileSync(join(headless, 'web', 'index.html'), SPIKE_STUB)
     const { status, failLine } = runGate(pack(root))
     expect(status).not.toBe(0)
-    expect(failLine).toMatch(/static stub \(no React mount/)
+    expect(failLine).toMatch(/build provenance hash mismatch for index\.html/)
   })
 
-  it('refuses a padded static stub with a forged coherent stamp but no client asset', () => {
+  it('refuses the padded, coherently stamped forged web dist that defeated plausibility checks', () => {
     const root = scratch()
     const headless = join(root, 'headless')
     writeProductionTree(headless)
@@ -190,20 +228,65 @@ describe('assert-headless-bundle production layout', () => {
     rmSync(join(headless, 'web', 'assets'), { recursive: true, force: true })
     const { status, failLine } = runGate(pack(root))
     expect(status).not.toBe(0)
-    expect(failLine).toMatch(/references missing client asset/)
+    expect(failLine).toMatch(/build provenance file set mismatch/)
   })
 
-  it('refuses a forged hashed asset made only of repetitive padding', () => {
+  it('refuses generated noise plus inert code even when it looks like a client asset', () => {
     const root = scratch()
     const headless = join(root, 'headless')
     writeProductionTree(headless)
     writeFileSync(
       join(headless, 'web', 'assets', `index-${WEB_HASH}.js`),
-      'function padded(){return 1}\n'.repeat(10_000),
+      `${CLIENT_ENTRY}\nfunction inert(){return 1}\n${'/* plausible noise */\n'.repeat(10_000)}`,
     )
     const { status, failLine } = runGate(pack(root))
     expect(status).not.toBe(0)
-    expect(failLine).toMatch(/compresses to only .*padded static content/)
+    expect(failLine).toMatch(/build provenance hash mismatch for assets\/index-.*\.js/)
+  })
+
+  it('refuses the same coherently stamped fabrication in the mobile client', () => {
+    const root = scratch()
+    const headless = join(root, 'headless')
+    writeProductionTree(headless)
+    writeFileSync(
+      join(headless, 'mobile', 'index.html'),
+      `${productionHtml('mobile')}<!-- forged padding ${'x'.repeat(200_000)} -->\n`,
+    )
+    rmSync(join(headless, 'mobile', '_expo'), { recursive: true, force: true })
+    const { status, failLine } = runGate(pack(root))
+    expect(status).not.toBe(0)
+    expect(failLine).toMatch(/build provenance file set mismatch/)
+  })
+
+  it('refuses a production-shaped client when its build manifest is absent', () => {
+    const root = scratch()
+    const headless = join(root, 'headless')
+    writeProductionTree(headless)
+    rmSync(join(headless, 'web', 'podium-build-manifest.json'))
+    const { status, failLine } = runGate(pack(root))
+    expect(status).not.toBe(0)
+    expect(failLine).toMatch(/has no build provenance manifest/)
+  })
+
+  it('refuses manifested clients from a commit other than the release commit', () => {
+    const root = scratch()
+    writeProductionTree(join(root, 'headless'))
+    const tarball = pack(root)
+    const result = spawnSync(
+      'bash',
+      [
+        'scripts/assert-headless-bundle.sh',
+        tarball,
+        'linux-x86_64',
+        '--source-commit',
+        'fffffff',
+        '--no-abduco-identity',
+      ],
+      { encoding: 'utf8', cwd: repoRoot },
+    )
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+    expect(result.status).not.toBe(0)
+    expect(output).toMatch(/build provenance source commit .* does not match release commit/)
   })
 
   it('refuses a bundle with NOTICE missing', () => {
@@ -225,7 +308,7 @@ describe('assert-headless-bundle production layout', () => {
     const { status, failLine } = runGate(pack(root))
     expect(status).not.toBe(0)
     expect(failLine).toMatch(/shipped podium-cli/)
-    expect(failLine).not.toMatch(/tarball missing|stub|NOTICE|systemd|client asset|build stamp/)
+    expect(failLine).not.toMatch(/tarball missing|NOTICE|systemd|build provenance|build stamp/)
   })
 })
 
@@ -241,13 +324,17 @@ describe('the gate and the signing step name the same JIT keys', () => {
   })
 
   it('keeps the empty-entitlements refusal in the release-job proof harness', () => {
-    const prove = readFileSync(join(repoRoot, 'scripts/prove-headless-assertions-can-fail.sh'), 'utf8')
+    const prove = readFileSync(
+      join(repoRoot, 'scripts/prove-headless-assertions-can-fail.sh'),
+      'utf8',
+    )
     expect(prove).toContain('entitlements missing com.apple.security.cs.allow-jit')
     expect(prove).toContain('empty entitlements')
     expect(prove).toContain('all JIT entitlements false')
     expect(prove).toContain('systemd/ removed')
     expect(prove).toContain('stub web/index.html')
     expect(prove).toContain('padded forged web stub with no assets')
+    expect(prove).toContain('web build provenance manifest removed')
     expect(prove).toContain('NOTICE missing')
   })
 
@@ -257,6 +344,7 @@ describe('the gate and the signing step name the same JIT keys', () => {
     expect(workflow).toContain('five Bun JIT entitlement keys')
     expect(workflow).toContain('what breaks is JIT, at runtime')
     expect(workflow).toContain('scripts/assert-headless-bundle.sh')
+    expect(workflow).toContain('--source-commit "$GITHUB_SHA"')
     expect(workflow).toContain('scripts/prove-headless-assertions-can-fail.sh')
   })
 })

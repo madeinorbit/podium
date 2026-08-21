@@ -51,6 +51,8 @@ MANIFEST="$DIR/podium-update.json"
 [ -s "$DIR/SHA256SUMS" ] || fail "no SHA256SUMS in $DIR"
 
 TARGET_VERSION="$(jq -er '.version' "$MANIFEST")" || fail "manifest has no version"
+TARGET_SOURCE="$(jq -er '.artifacts.web.digest' "$MANIFEST")" \
+  || fail "manifest has no approved client source commit"
 
 MANIFEST_PLATFORMS="$(jq -r '.artifacts.headless.platforms | keys[]' "$MANIFEST" | sort | tr '\n' ' ')"
 EXPECTED_PLATFORMS="$(for pair in $PLATFORMS; do echo "${pair%%:*}"; done | sort | tr '\n' ' ')"
@@ -92,6 +94,7 @@ for pair in $PLATFORMS; do
   bun scripts/verify-headless-signature.ts "$DIR/$asset" "$MANIFEST_SIG" "${PUBKEY_ARGS[@]+"${PUBKEY_ARGS[@]}"}" || exit 1
 
   bash scripts/assert-headless-bundle.sh "$DIR/$asset" "$platform" \
+    --source-commit "$TARGET_SOURCE" \
     --abduco "dist-bun/abduco-cache/${platform}-${ABDUCO_HASH}" || exit 1
 
   BUNDLE_VERSION="$(tar -xzOf "$DIR/$asset" headless/VERSION | tr -d '\n')"
