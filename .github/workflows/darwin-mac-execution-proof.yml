@@ -134,7 +134,7 @@ jobs:
         run: |
           set -euo pipefail
           uname -a
-          tar -xzf "mac-execution-bundle-${{ matrix.platform }}.tar.gz"
+          tar -xzf "dist-bun-spike/mac-execution-bundle-${{ matrix.platform }}.tar.gz"
           cd "mac-execution-bundle-${{ matrix.platform }}"
           chmod +x verify-on-mac.sh podium-cli.nosig
           bash verify-on-mac.sh | tee "../verify-${{ matrix.platform }}.log"
