@@ -240,7 +240,13 @@ async function runUsageScan(
   const buckets = current
     ? current.buckets.filter((b) => Date.parse(b.hour) >= sinceMs - 3_600_000)
     : []
-  ctx.send({ type: 'usageResult', requestId: msg.requestId, hostname: hostname(), buckets })
+  ctx.send({
+    type: 'usageResult',
+    requestId: msg.requestId,
+    hostname: hostname(),
+    ...(current ? { sampledAt: new Date(current.atMs).toISOString() } : {}),
+    buckets,
+  })
 }
 
 async function runAgentQuotaScan(

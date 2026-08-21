@@ -1037,6 +1037,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
       type: 'usageResult',
       requestId: 'req-2',
       hostname: 'ludovico',
+      sampledAt: '2026-07-30T10:02:00.000Z',
       buckets: [
         {
           hour: '2026-07-30T10:00:00.000Z',
