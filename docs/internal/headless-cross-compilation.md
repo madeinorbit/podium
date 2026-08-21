@@ -118,12 +118,44 @@ Three scripts, deliberately separate:
 | `assert-headless-bundle.sh` | one tarball | is this really a bundle for the platform it claims? |
 | `assert-release-platform-set.sh` | a release directory | is every platform there, summed, signed and named by the manifest? |
 | `ab-headless-cross-vs-native.sh` | two tarballs, on target hardware | does the cross-built one BEHAVE like the native one? |
+| `prove-headless-assertions-can-fail.sh` | the first script | can the gate say NO, and for the right reason? |
 
 Everything `assert-headless-bundle.sh` checks, it checks against bytes extracted
 **from the tarball** — never a loose sibling in a build directory, because a
 build tree can be right while the archive is wrong. It refuses to run without
 either `--abduco <reference>` or an explicit `--no-abduco-identity`, so an
 omitted input can never read as a green.
+
+And a fourth script exists to check the checker:
+`prove-headless-assertions-can-fail.sh` breaks a real bundle eleven ways and
+requires the gate to reject each one **for the right reason** — not merely to
+exit non-zero, which a typo would also do. The release job runs it on every
+release, because a gate that once could fail is not the same as one that still
+can. It earned that place on its first run, which found that the entitlement
+check had never been exercised by anything: signing an already-signed binary
+preserves its entitlements, so the "empty entitlements" mutation had been
+mutating nothing.
+
+The cases: hello-world stub · Linux ELF as the Darwin payload · wrong-platform
+abduco reference · signature stripped · byte flipped inside the sealed region ·
+empty entitlements · raw Bun output never re-signed · reference helper deleted ·
+archive root not `headless/` · `VERSION` removed · no `--abduco` and no waiver.
+Plus a positive control, without which a gate that rejected *everything* would
+score a perfect eleven.
+
+### What a signature failure MEANS is not the same on both Macs
+
+Apple Silicon refuses to execute an unsigned Mach-O, so on `darwin-aarch64` a
+signature failure means the binary will not start.
+
+Intel macOS has no such requirement — an unsigned x86_64 binary runs. We sign it
+anyway, because the signature is what carries the JIT entitlements. So on
+`darwin-x86_64` a red means **the build's signing step did not run**, not that
+the payload is unrunnable. Both stop a release; they send you to different
+places. `assert-headless-bundle.sh` prints which one it means before it checks,
+and repeats it in the failure, because POD-2501 shipped a check whose Intel red
+read as "the payload is broken" when it meant "Intel does not require
+signatures".
 
 ## Prerequisites
 

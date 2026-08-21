@@ -66,6 +66,24 @@ esac
 case "$PLATFORM" in darwin-*) IS_DARWIN=1 ;; *) IS_DARWIN=0 ;; esac
 [ "$IS_DARWIN" = 1 ] && need rcodesign
 
+# WHAT A SIGNATURE FAILURE MEANS, WHICH IS NOT THE SAME ON BOTH MACS.
+#
+# Apple Silicon REFUSES to execute an unsigned Mach-O, so on darwin-aarch64 a missing
+# or broken signature means the binary will not start at all.
+#
+# Intel macOS has no such requirement: an unsigned x86_64 binary runs. We sign it
+# anyway, because the signature is what carries the JIT entitlements JavaScriptCore
+# needs — so on darwin-x86_64 a red here means THE BUILD'S SIGNING STEP DID NOT RUN,
+# not that the payload is unrunnable. Both are failures worth stopping a release for,
+# but they send you to different places, and POD-2501 shipped a check whose Intel red
+# read as "the payload is broken" when it meant "Intel does not require signatures".
+# Saying which is which is the whole point of this variable.
+if [ "$PLATFORM" = darwin-x86_64 ]; then
+  SIG_MEANING="the build's signing step did not run (Intel macOS would still EXECUTE this binary — it does not require a signature — but it would run without the JIT entitlements)"
+else
+  SIG_MEANING="this binary will not execute at all (Apple Silicon refuses an unsigned Mach-O)"
+fi
+
 echo "=== assert-headless-bundle ==="
 echo "tarball=$TARBALL"
 echo "platform=$PLATFORM (expect $EXPECT_FORMAT $EXPECT_ARCH)"
@@ -154,15 +172,17 @@ fi
 
 # --- Darwin code signature: the thing that makes the binary runnable at all ---
 if [ "$IS_DARWIN" = 1 ]; then
+  echo "signature policy for $PLATFORM: a failure below means — $SIG_MEANING"
   sig="$(rcodesign print-signature-info "$CLI" 2>&1)" \
-    || fail "rcodesign could not parse a signature out of the shipped binary"
-  echo "$sig" | grep -q 'signature: null' && fail "shipped binary has NO code signature — Apple Silicon will refuse to execute it"
-  echo "$sig" | grep -q 'CodeSignatureFlags(ADHOC' || fail "shipped binary signature is missing the ADHOC flag"
+    || fail "rcodesign could not parse a signature out of the shipped binary: $SIG_MEANING"
+  echo "$sig" | grep -q 'signature: null' && fail "shipped binary has NO code signature: $SIG_MEANING"
+  echo "$sig" | grep -q 'CodeSignatureFlags(ADHOC' \
+    || fail "shipped binary signature is missing the ADHOC flag: $SIG_MEANING"
   # Bun's --compile output is ALREADY ad-hoc signed, as LINKER_SIGNED with identifier
   # a.out and no entitlements. Both discriminators below prove the build re-signed it
   # with rcodesign, which is what attaches the JIT entitlements JavaScriptCore needs.
   echo "$sig" | grep -q 'LINKER_SIGNED' \
-    && fail "shipped binary still carries Bun's LINKER_SIGNED signature — the JIT entitlements were never attached"
+    && fail "shipped binary still carries Bun's LINKER_SIGNED signature — rcodesign never re-signed it, so the JIT entitlements were never attached ($SIG_MEANING)"
   echo "$sig" | grep -q 'identifier: podium' \
     || fail "shipped binary signature identifier is not 'podium' (Bun's linker signature uses a.out)"
   pass "shipped binary was re-signed ad-hoc by rcodesign (identifier=podium)"

@@ -66,6 +66,15 @@ jobs:
               "dist-bun/release/podium-headless-${asset}.tar.gz" "$platform" \
               --abduco "dist-bun/abduco-cache/${platform}-${HASH}"
           done
+      # PROVE THE GATE ABOVE CAN SAY NO, on every release, rather than remembering that
+      # it once could. A green from a check that cannot go red is a claim nobody made —
+      # and this harness earned its place immediately: its first run found that the
+      # entitlement check had never been exercised by anything.
+      - name: Prove the bundle assertions can fail
+        run: |
+          bash scripts/prove-headless-assertions-can-fail.sh \
+            dist-bun/release/podium-headless-darwin-arm64.tar.gz \
+            dist-bun/release/podium-headless-linux-x64.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: headless-cross
