@@ -940,7 +940,8 @@ export function IssuePanelView({
   // like, and it is a place you can act from. This used to render an intake
   // canvas written for a chat that had not become work yet, which on a level
   // pointed at a real-but-unshowable task read as a panel about nothing
-  // (POD-1277). The trail collapses to match, in the explorer's own effect.
+  // (POD-1277). The trail collapses to match, in the explorer provider's own
+  // effect — which also runs while this panel is unmounted (POD-1471).
   if (!issue) {
     return <IssueExplorerList />
   }

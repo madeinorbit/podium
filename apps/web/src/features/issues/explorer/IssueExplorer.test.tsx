@@ -327,13 +327,34 @@ describe('issue explorer navigation', () => {
     act(() => view.rerender(tree(null, false)))
     expect(screen.getByTestId('pointer').dataset.current).toBe('s')
 
-    state.issues = [EPIC, CHILD, ARCHIVED]
+    // Tombstoned, not dropped: a delete lands as `deletedAt` on a row that is
+    // still in the replica, and that is the half the row-count check cannot see.
+    state.issues = [EPIC, CHILD, { ...STRANGER, deletedAt: 'now' }, ARCHIVED]
     act(() => view.rerender(tree(null, false)))
     expect(screen.getByTestId('pointer').dataset.current).toBe('')
 
     act(() => view.rerender(tree(null, true)))
     expect(screen.queryByTestId('detail')).toBeNull()
     expect(screen.getByTestId('explorer-list')).toBeTruthy()
+  })
+
+  it('falls back to the live mission root, not to level 0, when the focused task is tombstoned (POD-1471)', () => {
+    // Deleting the task the explorer is ON is not the same as having nothing to
+    // point at: the mission it belonged to is still there. The tombstone drops
+    // the child out of the mission index, so the subject moves child -> root in
+    // the SAME commit that marks the level's task gone, and the two rules fire
+    // together. Retiring the dead level must not beat the re-aim, or the panel
+    // lands on the full list while the shell still points at live work.
+    state.selectedIssueId = 'p'
+    const view = mount('p')
+    fireEvent.click(screen.getByText('deck: c'))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('c')
+
+    state.issues = [EPIC, { ...CHILD, deletedAt: 'now' }, STRANGER, ARCHIVED]
+    act(() => view.rerender(tree('p')))
+
+    expect(screen.getByTestId('pointer').dataset.current).toBe('p')
+    expect(detail().dataset.issueId).toBe('p')
   })
 
   it('rides out an empty replica without losing the trail (POD-1277)', () => {

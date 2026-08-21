@@ -75,10 +75,9 @@ export function IssueExplorer({
   }, [seq, current, motion])
 
   // A level whose task is gone goes home — but that rule belongs to the pointer,
-  // not to this view, so it runs in the provider where it also runs while the
-  // dock is shut (POD-1471). The body below still renders the list for a level
-  // whose task cannot be resolved, which covers the frame before the reset lands
-  // (POD-1277).
+  // not to this view, so it lives in the provider, where it also runs while the
+  // dock is shut (POD-1471). Nothing to do here: this component renders whatever
+  // the pointer currently says, and the pointer retires its own dead levels.
 
   return (
     <div className="explorer-stack" data-testid="issue-explorer">

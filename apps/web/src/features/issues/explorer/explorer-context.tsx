@@ -213,11 +213,30 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
   // view. Deleting a task from the Flight Deck with the dock shut used to leave
   // the dead id in the stack until the panel was next mounted, so reopening the
   // dock landed on a task that no longer existed (POD-1471).
-  const missing =
-    grounded && current !== null && !issues.some((i) => i.id === current && !i.deletedAt)
+  //
+  // HOME IS THE SUBJECT IF THERE STILL IS ONE, and the list otherwise. A
+  // tombstone drops the task out of the mission index, so deleting the task the
+  // explorer is ON re-aims the subject at the live root in the very commit that
+  // strands the level: the two rules fire together, and a flat "go to the list"
+  // would race the re-aim and park the panel on level 0 while real work is still
+  // selected. Resolving the destination here instead of ordering the effects
+  // makes the outcome the same whichever of them lands first.
+  const { missing, reseed } = useMemo(() => {
+    const alive = (id: string): boolean => issues.some((i) => i.id === id && !i.deletedAt)
+    if (!grounded || current === null || alive(current)) return { missing: false, reseed: null }
+    return { missing: true, reseed: target !== null && alive(target) ? target : null }
+  }, [grounded, current, target, issues])
+
   useEffect(() => {
-    if (missing) toIndex()
-  }, [missing, toIndex])
+    if (!missing) return
+    if (reseed === null) {
+      toIndex()
+      return
+    }
+    setStack([reseed])
+    setMotion(null)
+    setSeq((n) => n + 1)
+  }, [missing, reseed, toIndex])
 
   const value = useMemo<IssueExplorerNav>(
     () => ({
