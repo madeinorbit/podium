@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { matchUpdateFailureToken, UpdateTarget } from '@podium/protocol'
@@ -109,12 +109,24 @@ describe('decideDevBuild', () => {
   it('an explicit request bypasses the debounce', () => {
     // A human asking for it now is not a merge storm.
     expect(
-      decideDevBuild({ ...base, builtSha: 'old', lastAttemptAt: 99_999, explicit: true }),
+      decideDevBuild({
+        ...base,
+        builtSha: 'old',
+        lastAttemptAt: 99_999,
+        explicit: true,
+      }),
     ).toEqual({ build: true })
   })
 
   it('an explicit request still does not stack on an in-flight build', () => {
-    expect(decideDevBuild({ ...base, builtSha: 'old', explicit: true, inFlight: true })).toEqual({
+    expect(
+      decideDevBuild({
+        ...base,
+        builtSha: 'old',
+        explicit: true,
+        inFlight: true,
+      }),
+    ).toEqual({
       build: false,
       reason: 'in-flight',
     })
@@ -192,7 +204,10 @@ describe('classifySourceIdentity', () => {
       '?? dist-bun/podium-headless-dev+aaaaaaa.tar.gz',
       '?? dist-bun/podium-headless-dev+aaaaaaa.tar.gz.sig',
     )
-    expect(classifySourceIdentity(porcelain)).toEqual({ clean: true, offending: [] })
+    expect(classifySourceIdentity(porcelain)).toEqual({
+      clean: true,
+      offending: [],
+    })
   })
 
   it('takes paths raw, with no quoting or escaping to undo', () => {
@@ -374,7 +389,10 @@ function stubFs(): DevBundleFs {
   const text = new Map<string, string>()
   return {
     list: async () => [],
-    digest: async () => ({ digest: digestOf(new Uint8Array([1, 2, 3, 4])), size: 4 }),
+    digest: async () => ({
+      digest: digestOf(new Uint8Array([1, 2, 3, 4])),
+      size: 4,
+    }),
     readText: async (path) => {
       const value = text.get(path)
       if (value === undefined) throw new Error('no such file: ' + path)
@@ -628,9 +646,12 @@ describe('selectDevBundleSweep', () => {
   })
 
   it('will not delete the artifact being served, whatever the ordering says', () => {
-    expect(selectDevBundleSweep([newest, previous, older], { keep: 1, protect: [older] })).toEqual([
-      previous,
-    ])
+    expect(
+      selectDevBundleSweep([newest, previous, older], {
+        keep: 1,
+        protect: [older],
+      }),
+    ).toEqual([previous])
   })
 
   it('counts BUILDS per platform, not files, when it has no allowlist to go on', () => {
@@ -688,7 +709,10 @@ describe('selectDevBundleSweep', () => {
     const orphan = `podium-headless-0.1.0-edge.20.dev.3+bbbbbbb-20260812T200000Z.tar.gz`
     const listing = [current, retained, orphan, orphan + '.sig', 'podium-headless-0.2.0.tar.gz']
     expect(
-      selectDevBundleSweep(listing, { referenced: [current, retained], protect: [current] }).sort(),
+      selectDevBundleSweep(listing, {
+        referenced: [current, retained],
+        protect: [current],
+      }).sort(),
     ).toEqual([orphan, orphan + '.sig'].sort())
   })
 })
@@ -806,6 +830,21 @@ describe('devBuildPlatforms', () => {
 })
 
 describe('buildDevBundle', () => {
+  it('refuses the retired caller-supplied digest seam', async () => {
+    await expect(
+      buildDevBundle({
+        clientRootDigest: 'a'.repeat(64),
+      } as unknown as Parameters<typeof buildDevBundle>[0]),
+    ).rejects.toThrow(/caller-supplied clientRootDigest is forbidden/)
+  })
+
+  it('keeps process-local capture and tarball comparison wired into the production spawn', () => {
+    const source = readFileSync(new URL('./dev-bundle.ts', import.meta.url), 'utf8')
+    expect(source).toContain('const capturedClientRootDigest = clientBuildRootDigestFromSites')
+    expect(source).toContain("await execFileAsync('tar', ['-xzf', ctx.artifactPath")
+    expect(source).toContain('packagedClientRootDigest !== capturedClientRootDigest')
+  })
+
   it('builds a signed dev target and releases the lease after describing the artifact', async () => {
     const { bytes, signature } = signedFixture()
     const store = memoryFs()
@@ -873,7 +912,9 @@ describe('buildDevBundle', () => {
       schemaMigrations: ['20260715135845_baseline'],
     })
     expect(identity.version).toBe('0.1.0-edge.20.dev.1+f9485d3')
-    expect(identity.schema).toEqual({ migrations: ['20260715135845_baseline'] })
+    expect(identity.schema).toEqual({
+      migrations: ['20260715135845_baseline'],
+    })
     expect(identity.artifacts.web).toEqual({ digest: 'f9485d3' })
     // NOTHING to deliver. The git alternative that used to sit here named a
     // repo and a sha for a machine that owned the checkout; that delivery kind
@@ -1387,7 +1428,9 @@ describe('buildDevBundle', () => {
     expect(publisher.current()?.version).toBe('0.1.0-edge.20.dev.1+aaaaaaa')
     expect((await publisher.target())?.version?.endsWith('+bbbbbbb')).toBe(true)
     expect((await publisher.target())?.version?.startsWith('dev+')).toBe(false)
-    expect((await publisher.target())?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
+    expect((await publisher.target())?.artifacts.web).toEqual({
+      digest: 'bbbbbbb',
+    })
     expect((await publisher.target())?.artifacts.headless).toBeUndefined()
   })
 
@@ -1408,16 +1451,15 @@ describe('buildDevBundle', () => {
       lock: lockFixture([]),
       prepareWebDist: async (headSha) => {
         order.push('web:' + headSha)
-        return 'a'.repeat(64)
       },
-      spawnBuild: async ({ version, clientRootDigest }) => {
-        order.push('bundle:' + clientRootDigest)
+      spawnBuild: async ({ version }) => {
+        order.push('bundle')
         return { path: '/stage/' + version, bytes, signature }
       },
     })
 
     await publisher.requestBuild(true)
-    expect(order).toEqual(['web:aaaaaaa', `bundle:${'a'.repeat(64)}`])
+    expect(order).toEqual(['web:aaaaaaa', 'bundle'])
   })
 
   it('tells the website step whether this request may move the served dist', async () => {
@@ -1479,7 +1521,10 @@ describe('buildDevBundle', () => {
     await expect(publisher.requestBuild(true)).rejects.toThrow('vite blew up')
     // The whole point of hoisting the precondition: nothing expensive runs.
     expect(builds).toBe(0)
-    expect(await publisher.readiness()).toMatchObject({ state: 'failed', headSha: 'aaaaaaa' })
+    expect(await publisher.readiness()).toMatchObject({
+      state: 'failed',
+      headSha: 'aaaaaaa',
+    })
   })
 
   it('refuses to build or restore anything from a dirty checkout', async () => {
@@ -1562,7 +1607,10 @@ describe('buildDevBundle', () => {
       readIgnoredSourceInputs: () => '',
       fs: stubFs(),
       lock: lockFixture([]),
-      spawnBuild: async ({ version }) => ({ path: '/stage/' + version, signature }),
+      spawnBuild: async ({ version }) => ({
+        path: '/stage/' + version,
+        signature,
+      }),
     })
 
     await expect(publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
@@ -1654,7 +1702,10 @@ describe('development bundle readiness', () => {
 
   it('is idle before anything has been built for this HEAD', async () => {
     const { publisher } = readinessFixture()
-    expect(await publisher.readiness()).toEqual({ state: 'idle', headSha: 'aaaaaaa' })
+    expect(await publisher.readiness()).toEqual({
+      state: 'idle',
+      headSha: 'aaaaaaa',
+    })
   })
 
   it('is ready, with the version, once HEAD is built', async () => {
@@ -1678,9 +1729,14 @@ describe('development bundle readiness', () => {
     expect(publisher.current()?.version).toBe('0.1.0-edge.20.dev.1+aaaaaaa')
     expect((await publisher.target())?.version?.endsWith('+bbbbbbb')).toBe(true)
     expect((await publisher.target())?.version?.startsWith('dev+')).toBe(false)
-    expect((await publisher.target())?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
+    expect((await publisher.target())?.artifacts.web).toEqual({
+      digest: 'bbbbbbb',
+    })
     expect((await publisher.target())?.artifacts.headless).toBeUndefined()
-    expect(await publisher.readiness()).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
+    expect(await publisher.readiness()).toEqual({
+      state: 'idle',
+      headSha: 'bbbbbbb',
+    })
   })
 
   it('reports failed for the new HEAD, not ready from the old one', async () => {
@@ -1699,7 +1755,9 @@ describe('development bundle readiness', () => {
     })
     expect((await publisher.target())?.version?.endsWith('+bbbbbbb')).toBe(true)
     expect((await publisher.target())?.version?.startsWith('dev+')).toBe(false)
-    expect((await publisher.target())?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
+    expect((await publisher.target())?.artifacts.web).toEqual({
+      digest: 'bbbbbbb',
+    })
   })
 
   it('keeps a dirty checkout out of the public reason while the log gets the paths', async () => {
@@ -1749,7 +1807,10 @@ describe('development bundle readiness', () => {
     expect((await publisher.readiness()).state).toBe('failed')
 
     moveHead('bbbbbbb')
-    expect(await publisher.readiness()).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
+    expect(await publisher.readiness()).toEqual({
+      state: 'idle',
+      headSha: 'bbbbbbb',
+    })
   })
 
   it('is preparing while a build for this HEAD is in flight', async () => {
@@ -1785,7 +1846,10 @@ describe('development bundle readiness', () => {
     // hands back its promise. This is the moment the read model is told to stop
     // advertising the previous commit's target.
     await admitted
-    expect(await publisher.readiness()).toEqual({ state: 'preparing', headSha: 'aaaaaaa' })
+    expect(await publisher.readiness()).toEqual({
+      state: 'preparing',
+      headSha: 'aaaaaaa',
+    })
     resolveBuild()
     await built
     expect((await publisher.readiness()).state).toBe('ready')
@@ -1834,7 +1898,10 @@ describe('ignored source inputs gate the build', () => {
         nul('apps/server/node_modules/left-pad/index.js', 'apps/web/shot.png'),
       fs: stubFs(),
       lock: lockFixture([]),
-      spawnBuild: async ({ version }) => ({ path: '/stage/' + version, signature }),
+      spawnBuild: async ({ version }) => ({
+        path: '/stage/' + version,
+        signature,
+      }),
     })
 
     await publisher.requestBuild(true)
@@ -2006,7 +2073,7 @@ describe('the dev feed manifest the publisher writes', () => {
       commits: [{ sha: headSha, summary: `Commit ${headSha}` }],
       addedMigrations: [],
     }),
-    prepareWebDist?: (headSha: string, explicit: boolean) => Promise<string | void>,
+    prepareWebDist?: (headSha: string, explicit: boolean) => Promise<void>,
   ) {
     const { bytes, signature, signingKey } = signedFixture()
     return createDevBundlePublisher({
@@ -2070,7 +2137,9 @@ describe('the dev feed manifest the publisher writes', () => {
     const root = join(parent, 'repo')
     mkdirSync(root)
     execFileSync('git', ['init', '--quiet'], { cwd: root })
-    execFileSync('git', ['config', 'user.email', 'bundle@test.invalid'], { cwd: root })
+    execFileSync('git', ['config', 'user.email', 'bundle@test.invalid'], {
+      cwd: root,
+    })
     execFileSync('git', ['config', 'user.name', 'Bundle Test'], { cwd: root })
     writeFileSync(join(root, 'package.json'), '{"version":"0.1.0-edge.20"}\n')
     writeFileSync(join(root, 'approved-source.ts'), 'export const bytes = "approved"\n')

@@ -126,13 +126,15 @@ Three scripts, deliberately separate:
 
 Everything `assert-headless-bundle.sh` checks, it checks against bytes extracted
 **from the tarball** — never a loose sibling in a build directory, because a
-build tree can be right while the archive is wrong. Client provenance is the
-deliberate exception: the release captures a root digest from the fresh client
-build output before packaging, then passes that digest to the gate out of band.
-The gate verifies both sites' exact-file manifests and requires their packaged
-entry set to equal that independently captured root; it never trusts the archive's
-own manifest as its expected value or falls back when the fresh-build digest is
-missing. It also refuses to run without `--source-commit <sha>` and requires
+build tree can be right while the archive is wrong. Client continuity is checked
+by the release entry point itself: the same process runs the fresh client build,
+captures its root digest, packages, extracts the resulting tarball, and compares
+the packaged entry set to that process-local value. No expected digest is accepted
+from a caller, environment variable, sidecar, or the archive itself. This catches
+a stale or wrong directory being packaged, partial/corrupt copies, and bytes changed
+between build and packaging; it does **not** prove the build itself is correct, because
+a broken build can agree with its own captured identity. The tarball gate still verifies
+both sites' exact-file manifests, refuses to run without `--source-commit <sha>`, and requires
 either `--abduco <reference>` or an explicit `--no-abduco-identity`, so an
 omitted input can never read as a green.
 

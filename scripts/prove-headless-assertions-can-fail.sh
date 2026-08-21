@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # PROVE THE RELEASE GATE CAN SAY NO.
 #
-# `assert-headless-bundle.sh` is the only thing standing between a broken Darwin
-# payload and a release page. A green from a check that cannot go red is worse than no
+# The release gate combines process-local client continuity with
+# `assert-headless-bundle.sh`'s shipped-byte checks. A green from a check that cannot go
+# red is worse than no
 # check: it is a claim nobody made. So this harness breaks a real bundle and
 # requires the gate to reject each mutation FOR THE RIGHT REASON — not merely to exit
 # non-zero, which a typo in the script would also do.
@@ -12,7 +13,7 @@
 # checks the spike never had.
 #
 # Usage:
-#   scripts/prove-headless-assertions-can-fail.sh <darwin-arm64-tarball> <fresh-client-root-digest> [<linux-x64-tarball>]
+#   scripts/prove-headless-assertions-can-fail.sh <darwin-arm64-tarball> [<linux-x64-tarball>]
 #
 # Needs the abduco cache (scripts/abduco-cross.ts) for the reference helpers.
 set -uo pipefail
@@ -22,12 +23,9 @@ cd "$ROOT"
 export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
 
 DARWIN_TARBALL="${1:-}"
-CLIENT_ROOT_DIGEST="${2:-}"
-LINUX_TARBALL="${3:-}"
+LINUX_TARBALL="${2:-}"
 SOURCE_COMMIT="$(git rev-parse HEAD)"
 [ -f "$DARWIN_TARBALL" ] || { echo "ABORT: pass a real darwin-aarch64 tarball to mutate (got '$DARWIN_TARBALL')" >&2; exit 1; }
-[[ "$CLIENT_ROOT_DIGEST" =~ ^[0-9a-f]{64}$ ]] \
-  || { echo "ABORT: pass the out-of-band SHA-256 captured from the fresh client build" >&2; exit 1; }
 
 for tool in rcodesign python3 tar file bun; do
   command -v "$tool" >/dev/null || { echo "ABORT: need $tool on PATH" >&2; exit 1; }
@@ -71,9 +69,9 @@ check() {
   local label="$1" expect="$2" platform="$3" abduco="$4" tarball="$5"
   local out status line
   if [ -n "$abduco" ]; then
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" --client-root-digest "$CLIENT_ROOT_DIGEST" --abduco "$abduco" 2>&1)"
+    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" --abduco "$abduco" 2>&1)"
   else
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" --client-root-digest "$CLIENT_ROOT_DIGEST" 2>&1)"
+    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" 2>&1)"
   fi
   status=$?
   if [ "$status" -eq 0 ]; then
@@ -98,25 +96,47 @@ check() {
   PASSED=$((PASSED + 1))
 }
 
-# The expected root must come from a fresh build. Omitting it may never fall back to
-# the self-authored manifest inside the archive.
-check_no_client_root() {
+# The former caller-supplied root is now an explicitly refused interface. An attacker
+# computing the root of their own bytes must not be able to hand that value to the gate.
+check_caller_client_root() {
   local out status line
   out="$(bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
-    --source-commit "$SOURCE_COMMIT" --abduco "$DARWIN_REF" 2>&1)"
+    --source-commit "$SOURCE_COMMIT" --client-root-digest "$(printf 'a%.0s' {1..64})" \
+    --abduco "$DARWIN_REF" 2>&1)"
   status=$?
   line="$(printf '%s\n' "$out" | grep -iE '^(FAIL|ABORT)' | head -1)"
-  if [ "$status" -ne 0 ] && printf '%s' "$line" | grep -qi -- 'captured from the fresh client build'; then
-    echo "REJECTED (right reason) [no fresh client build]: $line"
+  if [ "$status" -ne 0 ] && printf '%s' "$line" | grep -qi -- 'unknown flag --client-root-digest'; then
+    echo "REJECTED (right reason) [caller-supplied client root]: $line"
     PASSED=$((PASSED + 1))
   else
-    echo "HARNESS FAILURE [no fresh client build]: expected the missing out-of-band digest refusal"
+    echo "HARNESS FAILURE [caller-supplied client root]: expected the retired interface refusal"
     echo "  got: ${line:-<no failure line>}"
     FAILED=$((FAILED + 1))
   fi
 }
 
-check_no_client_root
+check_caller_client_root
+
+# Run the release process's internal continuity comparison. The expected root is computed
+# inside this invocation from the still-fresh build output; it never enters as an argument.
+check_release_capture() {
+  local label="$1" tarball="$2" out status
+  out="$(bun -e '
+    import { assertPackagedClientsMatchCapturedBuild } from "./scripts/release.ts";
+    import { clientBuildRootDigestFromSites } from "./scripts/client-build-root-digest.ts";
+    const captured = clientBuildRootDigestFromSites({web:"apps/web/dist",mobile:"apps/mobile/dist"});
+    assertPackagedClientsMatchCapturedBuild(process.argv.at(-1), captured);
+  ' "$tarball" 2>&1)"
+  status=$?
+  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qi -- 'packaged clients differ from the fresh build'; then
+    echo "REJECTED (right reason) [$label]: packaged clients differ from the fresh build"
+    PASSED=$((PASSED + 1))
+  else
+    echo "HARNESS FAILURE [$label]: expected the process-local captured digest mismatch"
+    echo "  got: ${out:-<no output>}"
+    FAILED=$((FAILED + 1))
+  fi
+}
 
 # Build a mutated tarball from the pristine tree; `$1` is a function that edits $CASE.
 #
@@ -348,8 +368,8 @@ check "stub web/index.html" "build provenance hash mismatch for index.html" \
   darwin-aarch64 "$DARWIN_REF" "$(mutate stubweb edit_stub_web)"
 
 # 13b. Forge plausible bytes, a public release stamp and an exact internal manifest.
-#      The archive is internally self-consistent; only the fresh build's out-of-band
-#      digest can prove those are not the bytes the build produced.
+#      The archive is internally self-consistent; only the release process's root captured
+#      before packaging can prove the bytes changed after the fresh build completed.
 edit_forged_web() {
   rm -rf "$CASE/headless/web/assets"
   python3 - "$CASE/headless/web" "$CASE/headless/VERSION" "$SOURCE_COMMIT" <<'PY'
@@ -390,8 +410,8 @@ for path in sorted(site.rglob('*')):
 }) + '\n')
 PY
 }
-check "padded forged web stub with matching forged manifest" "packaged client root digest .* does not match fresh build" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate forgedweb edit_forged_web)"
+check_release_capture "padded forged web stub with matching forged manifest" \
+  "$(mutate forgedweb edit_forged_web)"
 
 # 13c. Removing the manifest itself must trip the provenance guard. This is the
 #      armedness proof: delete that check and this case reaches the binary unchanged.
@@ -407,9 +427,14 @@ check "NOTICE missing" "tarball missing headless/NOTICE" \
 # THE CONTROL FOR THE CONTROLS: the pristine bundle must still PASS. Without this a
 # gate that rejected everything would score a perfect set above.
 echo
-if bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
-  --source-commit "$SOURCE_COMMIT" --client-root-digest "$CLIENT_ROOT_DIGEST" \
-  --abduco "$DARWIN_REF" >/dev/null 2>&1; then
+if bun -e '
+  import { assertPackagedClientsMatchCapturedBuild } from "./scripts/release.ts";
+  import { clientBuildRootDigestFromSites } from "./scripts/client-build-root-digest.ts";
+  const captured = clientBuildRootDigestFromSites({web:"apps/web/dist",mobile:"apps/mobile/dist"});
+  assertPackagedClientsMatchCapturedBuild(process.argv.at(-1), captured);
+' "$DARWIN_TARBALL" >/dev/null 2>&1 && \
+  bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
+    --source-commit "$SOURCE_COMMIT" --abduco "$DARWIN_REF" >/dev/null 2>&1; then
   echo "ACCEPTED (control): the unmutated bundle still passes"
   PASSED=$((PASSED + 1))
 else

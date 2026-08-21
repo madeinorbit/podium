@@ -57,7 +57,10 @@ import {
   minTerminalBunVersion,
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
 import { crossBuildAbduco, type HeadlessPlatform, resolveRcodesign } from './abduco-cross'
-import { clientBuildRootDigestFromSites } from './client-build-root-digest'
+import {
+  assertNoCallerSuppliedClientRootDigest,
+  clientBuildRootDigestFromSites,
+} from './client-build-root-digest'
 
 /**
  * The POSIX-sh launcher shim written to `headless/podium`. It exports PODIUM_HOME (so
@@ -103,10 +106,26 @@ export function bundleNames(platform: NodeJS.Platform = process.platform): {
  * bundle built for one platform from being published under another's name.
  */
 export const BUN_TARGETS = {
-  'bun-linux-x64': { platform: 'linux-x86_64', nodePlatform: 'linux', asset: 'linux-x64' },
-  'bun-linux-arm64': { platform: 'linux-aarch64', nodePlatform: 'linux', asset: 'linux-arm64' },
-  'bun-darwin-arm64': { platform: 'darwin-aarch64', nodePlatform: 'darwin', asset: 'darwin-arm64' },
-  'bun-darwin-x64': { platform: 'darwin-x86_64', nodePlatform: 'darwin', asset: 'darwin-x64' },
+  'bun-linux-x64': {
+    platform: 'linux-x86_64',
+    nodePlatform: 'linux',
+    asset: 'linux-x64',
+  },
+  'bun-linux-arm64': {
+    platform: 'linux-aarch64',
+    nodePlatform: 'linux',
+    asset: 'linux-arm64',
+  },
+  'bun-darwin-arm64': {
+    platform: 'darwin-aarch64',
+    nodePlatform: 'darwin',
+    asset: 'darwin-arm64',
+  },
+  'bun-darwin-x64': {
+    platform: 'darwin-x86_64',
+    nodePlatform: 'darwin',
+    asset: 'darwin-x64',
+  },
 } as const satisfies Record<
   string,
   { platform: HeadlessPlatform; nodePlatform: NodeJS.Platform; asset: string }
@@ -287,6 +306,7 @@ exec "$DIR/podium-cli" "$@"
 }
 
 function main(): void {
+  assertNoCallerSuppliedClientRootDigest(process.argv.slice(2), process.env)
   // Refuse to compile with a Bun whose terminal PTY API is missing (feature-detected, not
   // version-guessed). The compiled daemon's ONLY PTY is Bun's terminal — `bun build --compile`
   // can't embed node-pty's native addon — so an old build Bun would silently ship a binary
@@ -322,8 +342,11 @@ function main(): void {
   // compiled server's /version (process.env.PODIUM_APP_VERSION via --define below).
   const pkgVersion = (() => {
     try {
-      return (JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as { version?: string })
-        .version
+      return (
+        JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as {
+          version?: string
+        }
+      ).version
     } catch {
       return undefined
     }
@@ -390,30 +413,6 @@ function main(): void {
         `(web=${webStamp?.sourceSha ?? 'missing'}, mobile=${mobileStamp?.sourceSha ?? 'missing'}).`,
     )
   }
-  const expectedClientRootDigest = process.env.PODIUM_EXPECTED_CLIENT_ROOT_DIGEST?.trim()
-  if (expectedClientRootDigest) {
-    if (!/^[0-9a-f]{64}$/.test(expectedClientRootDigest)) {
-      throw new Error('build-bun: PODIUM_EXPECTED_CLIENT_ROOT_DIGEST is not a SHA-256 hex digest')
-    }
-    if (webStamp?.appVersion !== version || mobileStamp?.appVersion !== version) {
-      throw new Error(
-        `build-bun: the fresh client build was not finalized for ${version} ` +
-          `(web=${webStamp?.appVersion ?? 'missing'}, mobile=${mobileStamp?.appVersion ?? 'missing'}); ` +
-          'refusing to restamp after its out-of-band digest was captured',
-      )
-    }
-    const actualClientRootDigest = clientBuildRootDigestFromSites({
-      web: webDist,
-      mobile: mobileDist,
-    })
-    if (actualClientRootDigest !== expectedClientRootDigest) {
-      throw new Error(
-        `build-bun: client output changed after the fresh-build digest was captured ` +
-          `(expected=${expectedClientRootDigest}, actual=${actualClientRootDigest})`,
-      )
-    }
-  }
-
   if (spec) {
     // Cross build: the helper cannot be compiled by the host cc (wrong architecture,
     // wrong object format), so it comes from the zig-cc cache — built from the SAME
@@ -525,20 +524,44 @@ function main(): void {
   // agree with the VERSION file and the compiled /version. A dest publish
   // already wrote dev+<sha>; a channel package overwrites dev+<sha> with
   // PODIUM_APP_VERSION / package.json (e.g. 0.4.2).
-  if (!expectedClientRootDigest) {
+  if (webStamp?.appVersion !== version || mobileStamp?.appVersion !== version) {
     for (const clientDist of [webDist, mobileDist]) {
       execFileSync(
         'bun',
         ['--conditions=@podium/source', 'scripts/write-web-build-stamp.ts', clientDist],
-        { cwd: root, stdio: 'inherit', env: { ...process.env, PODIUM_APP_VERSION: version } },
+        {
+          cwd: root,
+          stdio: 'inherit',
+          env: { ...process.env, PODIUM_APP_VERSION: version },
+        },
       )
     }
   }
+  // Capture immediately before copying. This local guard catches a partial or wrong
+  // copy into headless/; the enclosing release flow separately retains the digest it
+  // captured before invoking this packager and checks the final tarball against it.
+  const packagingClientRootDigest = clientBuildRootDigestFromSites({
+    web: webDist,
+    mobile: mobileDist,
+  })
   mkdirSync(headless, { recursive: true })
   // Release units are generated from the same renderer used by runtime setup and the dev host.
-  writeSystemdFiles(`${headless}/systemd`, { profile: 'packaged', instanceId: 'default' })
+  writeSystemdFiles(`${headless}/systemd`, {
+    profile: 'packaged',
+    instanceId: 'default',
+  })
   syncBundleWeb(webDist, `${headless}/web`)
   syncBundleWeb(mobileDist, `${headless}/mobile`)
+  const copiedClientRootDigest = clientBuildRootDigestFromSites({
+    web: `${headless}/web`,
+    mobile: `${headless}/mobile`,
+  })
+  if (copiedClientRootDigest !== packagingClientRootDigest) {
+    throw new Error(
+      `build-bun: client output changed while it was copied into the bundle ` +
+        `(captured=${packagingClientRootDigest}, copied=${copiedClientRootDigest})`,
+    )
+  }
 
   // The one compiled binary, plus the launcher shim (below) that execs it as `podium-cli`.
   const bundledCli = `${headless}/${names.cli}`

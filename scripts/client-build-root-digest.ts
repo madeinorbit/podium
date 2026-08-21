@@ -20,6 +20,31 @@ export {
   clientBuildRootDigestFromSites,
 }
 
+/**
+ * The expected client identity is release-process state, not operator input. Keep the
+ * old spellings as explicit refusals so a stale workflow or test cannot silently turn
+ * the archive back into its own authority.
+ */
+export function assertNoCallerSuppliedClientRootDigest(
+  argv: readonly string[] = process.argv.slice(2),
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (
+    argv.some(
+      (value) => value === '--client-root-digest' || value.startsWith('--client-root-digest='),
+    )
+  ) {
+    throw new Error(
+      '--client-root-digest is forbidden: the release flow captures client provenance itself',
+    )
+  }
+  if (env.PODIUM_EXPECTED_CLIENT_ROOT_DIGEST) {
+    throw new Error(
+      'PODIUM_EXPECTED_CLIENT_ROOT_DIGEST is forbidden: the release flow captures client provenance itself',
+    )
+  }
+}
+
 function main(): void {
   const raw = process.argv[2]
   if (!raw) {

@@ -2,18 +2,18 @@
 # Interrogate a SHIPPED headless tarball: is it really a PRODUCTION bundle for the
 # platform it claims, built the way a release is supposed to build it?
 #
-# Every bundle-shape check runs against bytes extracted FROM THE TARBALL. Client
-# provenance is deliberately different: the expected digest is captured from the fresh
-# build output before packaging and passed out of band. An archive cannot vouch for
-# itself by forging both its bytes and its internal manifest.
+# Every check here runs against bytes extracted FROM THE TARBALL. The release entry point
+# owns the separate continuity check: it captures the fresh client output before packing,
+# then compares this tarball to that process-local value. This script deliberately accepts
+# no expected digest; letting a caller provide one would make forged bytes their own proof.
 #
 # A MISSING INPUT IS A FAILURE, NEVER A SKIP. The embedded-helper identity check needs
 # the reference abduco; running without it requires saying so explicitly with
 # --no-abduco-identity, so an omitted path can never read as a green.
 #
 # Usage:
-#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha> --client-root-digest <sha256> --abduco <reference-binary>
-#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha> --client-root-digest <sha256> --no-abduco-identity
+#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha> --abduco <reference-binary>
+#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha> --no-abduco-identity
 #
 # platform: linux-x86_64 | linux-aarch64 | darwin-aarch64 | darwin-x86_64
 set -euo pipefail
@@ -30,13 +30,11 @@ PLATFORM=""
 ABDUCO_REF=""
 ABDUCO_IDENTITY=unset
 SOURCE_COMMIT=""
-CLIENT_ROOT_DIGEST=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --abduco) ABDUCO_REF="${2:-}"; ABDUCO_IDENTITY=required; shift 2 ;;
     --no-abduco-identity) ABDUCO_IDENTITY=waived; shift ;;
     --source-commit) SOURCE_COMMIT="${2:-}"; shift 2 ;;
-    --client-root-digest) CLIENT_ROOT_DIGEST="${2:-}"; shift 2 ;;
     -*) fail "unknown flag $1" ;;
     *)
       if [ -z "$TARBALL" ]; then TARBALL="$1"
@@ -51,10 +49,6 @@ done
 [ -n "$SOURCE_COMMIT" ] || fail "pass --source-commit <sha> to bind the clients to the release commit"
 [[ "$SOURCE_COMMIT" =~ ^[0-9a-fA-F]{7,40}$ ]] \
   || fail "--source-commit must be a 7-40 character hexadecimal commit"
-[ -n "$CLIENT_ROOT_DIGEST" ] \
-  || fail "pass --client-root-digest <sha256> captured from the fresh client build"
-[[ "$CLIENT_ROOT_DIGEST" =~ ^[0-9a-f]{64}$ ]] \
-  || fail "--client-root-digest must be a lowercase 64-character SHA-256 digest"
 [ -f "$TARBALL" ] || fail "no such tarball: $TARBALL"
 [ "$ABDUCO_IDENTITY" != unset ] \
   || fail "pass --abduco <reference-binary> to check the embedded helper, or --no-abduco-identity to state deliberately that you are not checking it"
@@ -260,26 +254,6 @@ for site in web mobile; do
   fi
   echo "$client_report"
 done
-
-packaged_client_root="$(python3 - "$WORK/headless" <<'PY'
-import hashlib
-import json
-import sys
-from pathlib import Path
-
-root = Path(sys.argv[1])
-entries = []
-for site in ('mobile', 'web'):
-    manifest = json.loads((root / site / 'podium-build-manifest.json').read_text(encoding='utf-8'))
-    for name, digest in sorted(manifest['files'].items()):
-        entries.append([f'{site}/{name}', digest])
-encoded = json.dumps(entries, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
-print(hashlib.sha256(encoded).hexdigest())
-PY
-)" || fail "could not derive the packaged client root digest"
-[ "$packaged_client_root" = "$CLIENT_ROOT_DIGEST" ] \
-  || fail "packaged client root digest $packaged_client_root does not match fresh build $CLIENT_ROOT_DIGEST"
-pass "packaged clients match the out-of-band fresh-build root digest $CLIENT_ROOT_DIGEST"
 
 pass "bundle carries exact build-produced clients for $SOURCE_COMMIT and VERSION ($(tr -d '\n' <"$WORK/headless/VERSION"))"
 echo "shipped podium-cli sha256=$(sha256sum "$CLI" | cut -d' ' -f1)"

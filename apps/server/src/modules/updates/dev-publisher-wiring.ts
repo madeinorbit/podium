@@ -20,9 +20,7 @@
 
 import { createLogger } from '@podium/logger'
 import type { ReleaseProposal, UpdateTarget } from '@podium/protocol'
-import { clientBuildRootDigestFromSites } from '@podium/runtime/client-build-provenance'
 import type { Hono } from 'hono'
-import { join } from 'node:path'
 import { registerDevFeedRoutes } from './artifact-route'
 import {
   createDevBundlePublisher,
@@ -103,7 +101,9 @@ export function developmentArtifactUrl(
   artifactToken: string,
   platform: string,
 ): string {
-  return `${origin}${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(version)}/${encodeURIComponent(platform)}?token=${encodeURIComponent(artifactToken)}`
+  return `${origin}${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(
+    version,
+  )}/${encodeURIComponent(platform)}?token=${encodeURIComponent(artifactToken)}`
 }
 
 /**
@@ -239,10 +239,7 @@ export function wireDevBundlePublisher(deps: {
             explicit,
           })
           if (decision === 'ready') {
-            return clientBuildRootDigestFromSites({
-              web: join(buildRoot, 'apps/web/dist'),
-              mobile: join(buildRoot, 'apps/mobile/dist'),
-            })
+            return
           }
           // `refuse` is the `/version` poll. The browser is served
           // `apps/web/dist` by THIS process, which is still running the commit
@@ -265,10 +262,7 @@ export function wireDevBundlePublisher(deps: {
           // vite output) is different from the one a failed compile calls for.
           try {
             await buildWeb.ensure(headSha, releaseVersion)
-            return clientBuildRootDigestFromSites({
-              web: join(buildRoot, 'apps/web/dist'),
-              mobile: join(buildRoot, 'apps/mobile/dist'),
-            })
+            return
           } catch (error) {
             throw new DevBundleUnavailableError(
               `development bundle unavailable: the web bundles could not be rebuilt for dev+${headSha}: ` +
@@ -336,7 +330,9 @@ export function wireDevBundlePublisher(deps: {
     publishFailureDetail = error.publicReason
     if (error.message === unavailableDiagnostic) return
     unavailableDiagnostic = error.message
-    log.warn('development bundle target unavailable', { diagnostic: error.message })
+    log.warn('development bundle target unavailable', {
+      diagnostic: error.message,
+    })
   }
 
   /** Cache publisher readiness at lifecycle transitions; fleet polling must not spawn git. */

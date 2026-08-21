@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
 import { createReadStream, existsSync, readFileSync } from 'node:fs'
-import { readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -17,6 +18,7 @@ import {
   type UpdateTarget,
 } from '@podium/protocol'
 import { resolveInstanceId, stateDir } from '@podium/runtime/config'
+import { clientBuildRootDigestFromSites } from '@podium/runtime/client-build-provenance'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
 import { type DevBuildSnapshot, withDevBuildSnapshot } from './dev-build-snapshot'
 import {
@@ -560,7 +562,13 @@ export function parseDevBundleName(name: string): DevBundleFile | null {
   const legacy = LEGACY_DEV_BUNDLE_NAME.exec(name)
   if (legacy) {
     const sha = legacy[1] as string
-    return { name, sha, platform: legacy[2] ?? '', stamp: legacy[3] ?? '', version: `dev+${sha}` }
+    return {
+      name,
+      sha,
+      platform: legacy[2] ?? '',
+      stamp: legacy[3] ?? '',
+      version: `dev+${sha}`,
+    }
   }
   const stamped = STAMPED_DEV_BUNDLE_NAME.exec(name)
   if (!stamped) return null
@@ -729,7 +737,11 @@ export function devBundleKeyFingerprint(signingKey: string | undefined): string 
   if (!signingKey) return 'unkeyed'
   try {
     const publicKey = createPublicKey(
-      createPrivateKey({ key: Buffer.from(signingKey, 'base64'), format: 'der', type: 'pkcs8' }),
+      createPrivateKey({
+        key: Buffer.from(signingKey, 'base64'),
+        format: 'der',
+        type: 'pkcs8',
+      }),
     )
     const der = publicKey.export({ format: 'der', type: 'spki' })
     return `sha256-${createHash('sha256').update(der).digest('base64')}`
@@ -765,8 +777,6 @@ export interface DevBuildSpawnContext {
    * path nothing tests until release day.
    */
   bunTarget: string
-  /** Root digest captured from the fresh client build before packaging. */
-  clientRootDigest?: string
 }
 
 export type DevBuildSpawnResult =
@@ -805,8 +815,6 @@ export interface DevBundleBuildDeps {
    * to reading `<root>/package.json`.
    */
   checkoutReleaseBase?: string | (() => string)
-  /** Root digest captured from the fresh client build before packaging. */
-  clientRootDigest?: string
   /**
    * Which platforms to mint, in build order. Defaults to this host's own.
    *
@@ -842,7 +850,9 @@ function shortSha(raw: string): string {
 export function readCheckoutReleaseBase(root: string): string {
   const path = join(root, 'package.json')
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as {
+      version?: unknown
+    }
     if (typeof parsed.version === 'string' && parsed.version.trim().length > 0) {
       return parsed.version.trim()
     }
@@ -1044,9 +1054,14 @@ function developmentSigningKey(root: string): string {
  * one (macOS, Windows, a container without a user manager). See `build-scope.ts`.
  */
 async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
-  if (!ctx.clientRootDigest) {
-    throw new Error('development bundle has no fresh client-build root digest; refusing to package')
-  }
+  // Capture inside the production packager, after the approved-SHA web build settled and
+  // before any archive is written. This is continuity evidence, not build correctness:
+  // it catches a stale/wrong directory, partial copy, corruption, or substitution between
+  // this point and packaging. A bad build can still agree with its own captured identity.
+  const capturedClientRootDigest = clientBuildRootDigestFromSites({
+    web: join(ctx.root, 'apps/web/dist'),
+    mobile: join(ctx.root, 'apps/mobile/dist'),
+  })
   const signingKey = ctx.signingKey ?? developmentSigningKey(ctx.root)
   await runLowTierBuild({
     unit: devBuildScopeUnit(DEV_BUNDLE_BUILD_ROLE, ctx.instanceId ?? resolveInstanceId()),
@@ -1065,9 +1080,25 @@ async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
       // the stamp in the name is what retention later sorts on.
       PODIUM_BUNDLE_ARTIFACT: ctx.artifactPath,
       PODIUM_UPDATE_SIGNING_KEY: signingKey,
-      PODIUM_EXPECTED_CLIENT_ROOT_DIGEST: ctx.clientRootDigest,
     },
   })
+
+  const extracted = await mkdtemp(join(tmpdir(), 'podium-dev-client-proof-'))
+  try {
+    await execFileAsync('tar', ['-xzf', ctx.artifactPath, '-C', extracted])
+    const packagedClientRootDigest = clientBuildRootDigestFromSites({
+      web: join(extracted, 'headless/web'),
+      mobile: join(extracted, 'headless/mobile'),
+    })
+    if (packagedClientRootDigest !== capturedClientRootDigest) {
+      throw new Error(
+        `development bundle clients differ from the fresh approved-SHA build ` +
+          `(captured=${capturedClientRootDigest}, packaged=${packagedClientRootDigest})`,
+      )
+    }
+  } finally {
+    await rm(extracted, { recursive: true, force: true })
+  }
 }
 
 /**
@@ -1140,7 +1171,10 @@ export async function sweepDevBundles(
         await fs.remove(join(dir, name))
         removed.push(name)
       } catch (error) {
-        log.warn('could not remove a stale development bundle', { name, err: error })
+        log.warn('could not remove a stale development bundle', {
+          name,
+          err: error,
+        })
       }
     }
     if (removed.length > 0) log.info('reclaimed stale development bundles', { removed })
@@ -1257,6 +1291,11 @@ async function readExistingDevBundle(
  * checkout cannot have its half-written output deleted from under it.
  */
 export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDevBundle> {
+  if ('clientRootDigest' in deps) {
+    throw new Error(
+      'caller-supplied clientRootDigest is forbidden; the packager captures client provenance itself',
+    )
+  }
   const root = deps.root ?? SOURCE_ROOT
   const fs = deps.fs ?? nodeDevBundleFs
   const sha = shortSha(deps.headSha ?? (await developmentHeadSha(root)))
@@ -1323,7 +1362,6 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
         version,
         artifactPath: requestedPath,
         bunTarget: bunTargetForPlatform(platform),
-        ...(deps.clientRootDigest ? { clientRootDigest: deps.clientRootDigest } : {}),
         ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
         ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
       })
@@ -1355,7 +1393,14 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
         artifactPath + DEV_BUNDLE_METADATA_SUFFIX,
         `${JSON.stringify(metadata, null, 2)}\n`,
       )
-      artifacts.push({ platform, path: artifactPath, size, digest, signature, version })
+      artifacts.push({
+        platform,
+        path: artifactPath,
+        size,
+        digest,
+        signature,
+        version,
+      })
     }
 
     // ONE sweep, after every platform is on disk and with all of them protected.
@@ -1414,7 +1459,9 @@ export function developmentPlatformTarget(
  * inside the build.
  */
 export function fleetHeadlessPlatforms(
-  machines: ReadonlyArray<{ inventory?: { os: string; arch: string } | undefined }>,
+  machines: ReadonlyArray<{
+    inventory?: { os: string; arch: string } | undefined
+  }>,
   host: string = developmentPlatformTarget(),
 ): string[] {
   const platforms = [host]
@@ -1720,7 +1767,7 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
     explicit: boolean,
     buildRoot: string,
     releaseVersion?: string,
-  ) => Promise<string | void>
+  ) => Promise<void>
   /** Approved builds use a detached worktree; tests may supply an equivalent snapshot. */
   snapshotBuild?: DevBuildSnapshot
   /** Git proposal facts seam; production reads the checkout relative to the last publish. */
@@ -1740,7 +1787,12 @@ export type DevBundleReadiness =
   | { state: 'idle'; headSha: string | null }
   | { state: 'preparing'; headSha: string }
   | { state: 'ready'; headSha: string; version: string }
-  | { state: 'failed'; headSha: string | null; reason: string; publicReason: string }
+  | {
+      state: 'failed'
+      headSha: string | null
+      reason: string
+      publicReason: string
+    }
 
 export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   requestBuild(
@@ -1814,7 +1866,11 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   const recordFailure = (error: unknown, sha: string | null) => {
     const reason = error instanceof Error ? error.message : String(error)
     unavailable = reason
-    failure = { sha, reason, publicReason: publicUnavailableReason(error, sha ?? 'unknown') }
+    failure = {
+      sha,
+      reason,
+      publicReason: publicUnavailableReason(error, sha ?? 'unknown'),
+    }
   }
 
   /**
@@ -1838,7 +1894,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       attempted = headSha
       if (approved !== undefined && headSha !== shortSha(approved.headSha)) {
         throw new DevBundleProposalMovedError(
-          `development release approval named ${shortSha(approved.headSha)}, but HEAD is ${headSha}`,
+          `development release approval named ${shortSha(
+            approved.headSha,
+          )}, but HEAD is ${headSha}`,
           'HEAD changed after this development release was approved. Review and approve the new proposal.',
         )
       }
@@ -1881,12 +1939,8 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         // The website is built INSIDE the same immutable snapshot the platform
         // compiles read. Nothing in an approved release reads the live checkout
         // after admission.
-        const clientRootDigest = await (deps.prepareWebDist?.(
-          headSha,
-          explicit,
-          buildRoot,
-          approved?.version,
-        ) ?? Promise.resolve())
+        await (deps.prepareWebDist?.(headSha, explicit, buildRoot, approved?.version) ??
+          Promise.resolve())
         const build = () =>
           buildDevBundle({
             ...deps,
@@ -1894,7 +1948,6 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
             artifactRoot: liveRoot,
             headSha,
             platforms,
-            ...(clientRootDigest ? { clientRootDigest } : {}),
             ...(approved ? { releaseVersion: approved.version } : {}),
           })
         return current === null
@@ -2055,7 +2108,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           ? (platform: string) =>
               platform === hostPlatform
                 ? configured
-                : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(built.version)}/${encodeURIComponent(platform)}`
+                : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(
+                    built.version,
+                  )}/${encodeURIComponent(platform)}`
           : undefined
     return devTarget(built, {
       ...(artifactUrl ? { artifactUrl } : {}),
@@ -2122,7 +2177,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           ? (platform: string) =>
               platform === hostPlatform
                 ? configured
-                : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(built.version)}/${encodeURIComponent(platform)}`
+                : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(
+                    built.version,
+                  )}/${encodeURIComponent(platform)}`
           : undefined
     return devTarget(built, {
       ...(artifactUrl ? { artifactUrl } : {}),

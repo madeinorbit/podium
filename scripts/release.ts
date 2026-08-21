@@ -22,7 +22,17 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 // Imported from source, not the `@podium/protocol` entry point: that entry resolves to
 // `dist/`, which the release workflow never builds (`bun install --ignore-scripts`), so a
@@ -34,7 +44,11 @@ import {
 import { HEADLESS_PLATFORMS, type HeadlessPlatform, isHeadlessPlatform } from './abduco-cross'
 import { BUN_TARGETS, bunTargetForPlatform, targetOutputRoot } from './build-bun'
 import { extractRelease } from './changelog'
-import { CLIENT_ROOT_DIGEST_FILE, clientBuildRootDigestFromSites } from './client-build-root-digest'
+import {
+  assertNoCallerSuppliedClientRootDigest,
+  CLIENT_ROOT_DIGEST_FILE,
+  clientBuildRootDigestFromSites,
+} from './client-build-root-digest'
 import { buildManifest } from './release-manifest'
 import { validateReferencedDesktopManifest } from './desktop-release'
 
@@ -173,6 +187,41 @@ function descriptorName(asset: string): string {
 }
 
 /**
+ * Compare the bytes that will ship with the identity captured from the fresh client
+ * output before packaging. This proves continuity, not correctness: it catches a stale
+ * or wrong directory being packed, a partial/corrupt copy, or bytes substituted between
+ * build and packaging. A broken build can still agree with its own captured identity.
+ *
+ * `capturedClientRootDigest` is an internal test seam. The production CLI rejects every
+ * caller-supplied spelling and only reaches this function with state computed inside
+ * {@link prepareHeadlessCross} or {@link prepareHeadlessArchitecture}.
+ */
+export function assertPackagedClientsMatchCapturedBuild(
+  tarball: string,
+  capturedClientRootDigest: string,
+): void {
+  if (!/^[0-9a-f]{64}$/.test(capturedClientRootDigest)) {
+    throw new Error('captured fresh-client root is not a SHA-256 digest')
+  }
+  const extracted = mkdtempSync(join(tmpdir(), 'podium-release-client-proof-'))
+  try {
+    execFileSync('tar', ['-xzf', tarball, '-C', extracted])
+    const packagedClientRootDigest = clientBuildRootDigestFromSites({
+      web: join(extracted, 'headless/web'),
+      mobile: join(extracted, 'headless/mobile'),
+    })
+    if (packagedClientRootDigest !== capturedClientRootDigest) {
+      throw new Error(
+        `packaged clients differ from the fresh build ` +
+          `(captured=${capturedClientRootDigest}, packaged=${packagedClientRootDigest})`,
+      )
+    }
+  } finally {
+    rmSync(extracted, { recursive: true, force: true })
+  }
+}
+
+/**
  * Copy one built bundle out of its build root into the release staging dir and record
  * the descriptor the publisher reads. Shared by the cross and native paths so the two
  * legs cannot drift in what they stage or in what they claim about it.
@@ -191,16 +240,7 @@ function stagePrepared(p: {
   if (!existsSync(built) || !existsSync(builtSig)) {
     throw new Error(`headless build did not produce signed artifact ${built}`)
   }
-  const packagedClientRootDigest = clientBuildRootDigestFromSites({
-    web: join(p.bundleRoot, 'headless/web'),
-    mobile: join(p.bundleRoot, 'headless/mobile'),
-  })
-  if (packagedClientRootDigest !== p.clientRootDigest) {
-    throw new Error(
-      `packaged clients differ from the fresh build ` +
-        `(expected=${p.clientRootDigest}, actual=${packagedClientRootDigest})`,
-    )
-  }
+  assertPackagedClientsMatchCapturedBuild(built, p.clientRootDigest)
 
   mkdirSync(p.outDir, { recursive: true })
   cpSync(built, join(p.outDir, asset))
@@ -243,7 +283,7 @@ export function prepareHeadlessCross(
   if (platforms.length === 0) throw new Error('prepare-cross needs at least one platform')
 
   // systemd units + web + mobile, once for the whole set. Stamp the fresh client
-  // output with the FINAL product version before capturing its out-of-band root;
+  // output with the FINAL product version before capturing its process-local root;
   // packaging is forbidden from restamping after this point.
   const version = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version
   execFileSync('bun', ['run', 'package:clients'], {
@@ -263,7 +303,7 @@ export function prepareHeadlessCross(
     console.log(`[release] cross-building ${platform} (--target=${target})`)
     execFileSync('bun', ['scripts/build-bun.ts', `--target=${target}`], {
       stdio: 'inherit',
-      env: { ...process.env, PODIUM_EXPECTED_CLIENT_ROOT_DIGEST: clientRootDigest },
+      env: { ...process.env },
     })
     prepared.push(
       stagePrepared({
@@ -310,7 +350,7 @@ export function prepareHeadlessArchitecture(
   writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${clientRootDigest}\n`)
   execFileSync('bun', ['scripts/build-bun.ts'], {
     stdio: 'inherit',
-    env: { ...process.env, PODIUM_EXPECTED_CLIENT_ROOT_DIGEST: clientRootDigest },
+    env: { ...process.env },
   })
   return stagePrepared({
     platform: config.target,
@@ -349,7 +389,7 @@ export function loadPreparedHeadless(
     }
   })()
   if (capturedClientRootDigest !== prepared[0].clientRootDigest) {
-    throw new Error('prepared headless artifacts do not match the out-of-band client root digest')
+    throw new Error('prepared headless artifacts do not match the captured client root record')
   }
   for (const target of requiredTargets) {
     if (!prepared.some((item) => item.target === target)) {
@@ -524,6 +564,7 @@ export function publishPreparedHeadless(p: {
 }
 
 async function main(): Promise<void> {
+  assertNoCallerSuppliedClientRootDigest(process.argv.slice(2), process.env)
   const channel = (arg('--channel') ?? 'edge') as 'stable' | 'edge'
   if (channel !== 'stable' && channel !== 'edge') throw new Error(`unknown channel ${channel}`)
   const tag = channel === 'stable' ? (arg('--tag') ?? '') : 'edge'
