@@ -9,7 +9,9 @@ import { isTooOldForLocalData, localBuildStamp } from './local-build-guard'
 import { restartPodiumShell } from './restart-shell'
 import { checkServerVersion } from './version-guard'
 
-const SetupView = lazy(() => import('./SetupView').then((module) => ({ default: module.SetupView })))
+const SetupView = lazy(() =>
+  import('./SetupView').then((module) => ({ default: module.SetupView })),
+)
 
 type Phase =
   | 'loading'
@@ -286,11 +288,7 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   if (phase === 'restart-required') {
     return (
       <Suspense fallback={null}>
-        <SetupView
-          httpOrigin={httpOrigin}
-          onSaved={onSetupSaved}
-          blockedState="restart-required"
-        />
+        <SetupView httpOrigin={httpOrigin} onSaved={onSetupSaved} blockedState="restart-required" />
       </Suspense>
     )
   }

@@ -1,6 +1,7 @@
 import type { MachineWire } from '@podium/model/browser'
 import { describe, expect, it } from 'vitest'
-import { machineNeedsUpdate, machineVersionSkew } from './version-skew'
+import { machineVersionSkew } from './machine-version-skew'
+import { machineNeedsUpdate } from './version-skew'
 
 type Subject = Parameters<typeof machineVersionSkew>[0]
 

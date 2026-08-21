@@ -45,7 +45,8 @@ import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { formatDisplayedVersion, machineVersionSkew, useServerAppVersion } from '@/lib/version-skew'
+import { formatDisplayedVersion, machineVersionSkew } from '@/lib/machine-version-skew'
+import { useServerAppVersion } from '@/lib/version-skew'
 
 const SERVER_TRANSFER_PHASES = [
   { key: 'preparing', label: 'Preparing' },

@@ -15,7 +15,7 @@ import {
   formatDisplayedVersion,
   machineVersionSkew,
   type VersionSkewVerdict,
-} from '@/lib/version-skew'
+} from '@/lib/machine-version-skew'
 import { Row, Section } from './shared'
 import {
   CHANNEL_LABELS,
