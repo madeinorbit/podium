@@ -223,40 +223,49 @@ function parseDesktopManifest(channel: ReleaseUpdateChannel, raw: unknown): Desk
 }
 
 /**
- * Decode one path segment, then split on any slash that decoding introduced
- * (`%2f`, `%5c`). A malformed escape stays as written rather than throwing —
- * an undecodable URL is not inside the feed.
+ * Decode until the segment stops changing. A legitimate filename may carry
+ * `%2B` for `+`; it must not carry an encoded separator or an encoded `..`.
+ * Decoding a fixed number of times just moves the attack to N+1, so we iterate
+ * to a fixed point and REJECT (rather than walk) the first round that
+ * introduces `/`, `\`, `.` or `..`. A decode bomb is itself a refusal.
  */
-function decodePathSegment(segment: string): string[] {
-  let decoded: string
-  try {
-    decoded = decodeURIComponent(segment.replace(/\+/g, '%20'))
-  } catch {
-    decoded = segment
+const MAX_DECODE_ROUNDS = 8
+
+function decodeSegmentToStable(raw: string): string | undefined {
+  let current = raw
+  for (let round = 0; round < MAX_DECODE_ROUNDS; round++) {
+    let next: string
+    try {
+      next = decodeURIComponent(current.replace(/\+/g, '%20'))
+    } catch {
+      return undefined
+    }
+    if (next === current) {
+      if (next === '.' || next === '..') return undefined
+      return next
+    }
+    if (/[/\\]/.test(next) || next === '.' || next === '..') return undefined
+    current = next
   }
-  return decoded.split(/[/\\]/)
+  return undefined
 }
 
-/** Path segments with `.` dropped and `..` walked, after percent-decoding. */
-function normalisedPathSegments(pathname: string): string[] {
-  const out: string[] = []
-  for (const piece of pathname.split('/').flatMap(decodePathSegment)) {
-    if (piece === '' || piece === '.') continue
-    if (piece === '..') {
-      out.pop()
-      continue
-    }
-    out.push(piece)
+function pathSegmentsOrReject(pathname: string): string[] | undefined {
+  const segments: string[] = []
+  for (const raw of pathname.split('/')) {
+    if (raw === '') continue
+    const decoded = decodeSegmentToStable(raw)
+    if (decoded === undefined) return undefined
+    segments.push(decoded)
   }
-  return out
+  return segments
 }
 
 /**
  * Whether `url` is genuinely under `artifactBase`: same origin, no userinfo,
- * and a path that is a descendant after normalisation. A URL that fails to
- * parse is not inside the feed. `new URL().href.startsWith(base)` is not
- * enough: `..%2f` is not a dot-segment to the parser, so the path still
- * string-prefixes the fence until each segment is decoded and split.
+ * and a path that is a descendant after decoding to a fixed point. A URL that
+ * fails to parse, or whose encoding hides a separator or `..`, is not inside
+ * the feed.
  */
 function artifactUrlBelongsToFeed(url: string, artifactBase: string): boolean {
   let artifact: URL
@@ -273,12 +282,25 @@ function artifactUrlBelongsToFeed(url: string, artifactBase: string): boolean {
   // request made as someone else.
   if (artifact.username !== '' || artifact.password !== '') return false
   if (artifact.origin !== feed.origin) return false
-  const feedPath = normalisedPathSegments(feed.pathname)
-  const artifactPath = normalisedPathSegments(artifact.pathname)
+  const feedPath = pathSegmentsOrReject(feed.pathname)
+  const artifactPath = pathSegmentsOrReject(artifact.pathname)
+  if (!feedPath || !artifactPath) return false
   if (artifactPath.length <= feedPath.length) return false
   return feedPath.every((segment, i) => artifactPath[i] === segment)
 }
 
+const MAX_ARTIFACT_REDIRECTS = 5
+
+/**
+ * HEAD the named URL without letting `fetch` walk us off the feed.
+ *
+ * Default redirect-following is how an in-feed URL becomes a request to
+ * another origin: the fence passed on the name, then the transport followed
+ * a 302. A feed serving its own artifacts has no reason to send us
+ * off-origin, so we follow hops ourselves and re-apply the same containment
+ * check to every Location. The first hop that leaves the feed is a refusal,
+ * not a download.
+ */
 async function assertArtifactsFetchable(
   channel: ReleaseUpdateChannel,
   feed: ChannelFeed,
@@ -289,23 +311,56 @@ async function assertArtifactsFetchable(
   // rolling-release artifact names must still include the version they were signed for.
   await Promise.all(
     artifacts.map(async ({ place, url }) => {
-      let response: Response
-      try {
-        response = await fetchImpl(url, {
-          method: 'HEAD',
-          cache: 'no-store',
-          ...(feed.headers ? { headers: { ...feed.headers } } : {}),
-          signal: AbortSignal.timeout(5_000),
-        })
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        throw new Error(`${channel} target unavailable: ${place} artifact ${detail}`)
+      let current = url
+      for (let hop = 0; hop <= MAX_ARTIFACT_REDIRECTS; hop++) {
+        let response: Response
+        try {
+          response = await fetchImpl(current, {
+            method: 'HEAD',
+            redirect: 'manual',
+            cache: 'no-store',
+            ...(feed.headers ? { headers: { ...feed.headers } } : {}),
+            signal: AbortSignal.timeout(5_000),
+          })
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error)
+          throw new Error(`${channel} target unavailable: ${place} artifact ${detail}`)
+        }
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get('location')
+          if (!location) {
+            throw new Error(
+              `${channel} target unavailable: ${place} artifact redirected without a Location`,
+            )
+          }
+          let next: URL
+          try {
+            next = new URL(location, current)
+          } catch {
+            throw new Error(
+              `${channel} target unavailable: ${place} artifact redirected outside the ` +
+                `${channel} feed (${location})`,
+            )
+          }
+          if (!artifactUrlBelongsToFeed(next.href, feed.artifactBase)) {
+            throw new Error(
+              `${channel} target unavailable: ${place} artifact redirected outside the ` +
+                `${channel} feed (${next.href})`,
+            )
+          }
+          current = next.href
+          continue
+        }
+        if (!response.ok) {
+          throw new Error(
+            `${channel} target unavailable: ${place} artifact returned HTTP ${response.status}`,
+          )
+        }
+        return
       }
-      if (!response.ok) {
-        throw new Error(
-          `${channel} target unavailable: ${place} artifact returned HTTP ${response.status}`,
-        )
-      }
+      throw new Error(
+        `${channel} target unavailable: ${place} artifact redirected too many times inside the feed`,
+      )
     }),
   )
 }

@@ -132,7 +132,12 @@ describe('resolveReleaseTarget', () => {
     ])
     expect(calls.slice(0, 2).every(([, init]) => init?.cache === 'no-store')).toBe(true)
     expect(
-      calls.slice(2).every(([, init]) => init?.method === 'HEAD' && init?.cache === 'no-store'),
+      calls
+        .slice(2)
+        .every(
+          ([, init]) =>
+            init?.method === 'HEAD' && init?.cache === 'no-store' && init?.redirect === 'manual',
+        ),
     ).toBe(true)
   })
 
@@ -231,6 +236,108 @@ describe('resolveReleaseTarget trust root', () => {
     for (const [, init] of fetchImpl.mock.calls) expect(init?.headers).toBeUndefined()
   })
 
+  /**
+   * THE ATTACK LIST. Every spelling that has ever walked this fence, as a
+   * permanent case, so the next edit cannot quietly reopen one.
+   */
+  describe('origin fence attacks', () => {
+    const expectRefusedAtResolve = async (url: string) => {
+      const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', url) })
+      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+        /headless linux-x86_64 artifact is served from outside the edge feed/,
+      )
+      expect(fetchImpl.mock.calls.map(([request]) => String(request))).toEqual([
+        releaseManifestUrl('edge'),
+        desktopReleaseManifestUrl('edge'),
+      ])
+    }
+
+    it('REFUSES an absolute URL on another host', async () => {
+      await expectRefusedAtResolve(DEV_ARTIFACT_URL)
+    })
+
+    it('REFUSES a host that is a prefix of the feed host', async () => {
+      await expectRefusedAtResolve(
+        'https://github.com.attacker.example/madeinorbit/podium/releases/download/edge/x.tar.gz',
+      )
+    })
+
+    it('REFUSES a path-traversal URL that still string-prefixes the fence', async () => {
+      await expectRefusedAtResolve(
+        `${RELEASE_BASE}/../../../../attacker/repo/releases/download/x.tar.gz`,
+      )
+    })
+
+    it('REFUSES a percent-encoded path traversal out of the feed', async () => {
+      await expectRefusedAtResolve(
+        `${RELEASE_BASE}/%2e%2e/%2e%2e/%2e%2e/%2e%2e/attacker/repo/releases/download/x.tar.gz`,
+      )
+    })
+
+    it('REFUSES a single-segment encoded slash traversal out of the feed', async () => {
+      await expectRefusedAtResolve(
+        `${RELEASE_BASE}/%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2fattacker/x.tar.gz`,
+      )
+    })
+
+    it('REFUSES a literal-dot encoded-slash traversal that href.startsWith would accept', async () => {
+      await expectRefusedAtResolve(`${RELEASE_BASE}/..%2f..%2f..%2f..%2fattacker/x.tar.gz`)
+    })
+
+    /**
+     * SINGLE-DECODING IS NOT ENOUGH. One decode of `%252e%252e%252f` leaves
+     * `%2e%2e%2f`, which still looks like a filename. A second decode produces
+     * the slash. Decode-once-and-split accepts this; decode-to-a-fixed-point
+     * and refuse a newly-introduced separator does not.
+     */
+    it('REFUSES a double-encoded path traversal out of the feed', async () => {
+      await expectRefusedAtResolve(
+        `${RELEASE_BASE}/%252e%252e%252f%252e%252e%252f%252e%252e%252fattacker/x.tar.gz`,
+      )
+    })
+
+    it('REFUSES an artifact URL that carries userinfo', async () => {
+      await expectRefusedAtResolve(HEADLESS_URL.replace('https://', 'https://user:pw@'))
+    })
+
+    it('REFUSES an artifact URL that does not parse', async () => {
+      await expectRefusedAtResolve('https://[broken')
+    })
+
+    /**
+     * CONTAINMENT AT FETCH TIME. The named URL sits inside the fence; the
+     * transport then follows a 302 to another origin. Default `fetch` follows
+     * redirects, so the URL we validated is not the URL we HEAD. A feed
+     * serving its own artifacts has no reason to send us off-origin.
+     */
+    it('REFUSES an in-feed artifact that redirects to another origin', async () => {
+      const attacker = 'https://attacker.example/x.tar.gz'
+      const fetchImpl = vi.fn<typeof fetch>(async (request, init) => {
+        const url = String(request)
+        if (url === releaseManifestUrl('edge')) return json(releaseManifest())
+        if (url === desktopReleaseManifestUrl('edge')) return json(desktopManifest())
+        if (url === HEADLESS_URL) {
+          const mode = init?.redirect ?? 'follow'
+          if (mode === 'follow') {
+            // Default fetch would request Location next. Returning 200 here is
+            // that hop succeeding against the attacker, without a recursive
+            // mock that TypeScript cannot type.
+            return new Response(null, { status: 200 })
+          }
+          if (mode === 'error') throw new TypeError('Failed to fetch')
+          return new Response(null, { status: 302, headers: { location: attacker } })
+        }
+        if (url === attacker) return new Response(null, { status: 200 })
+        return new Response(null, { status: 200 })
+      })
+
+      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+        /headless linux-x86_64 artifact redirected outside the edge feed/,
+      )
+      expect(fetchImpl.mock.calls.map(([request]) => String(request))).not.toContain(attacker)
+    })
+  })
+
   it('REFUSES a release manifest that names a dev-feed artifact URL', async () => {
     const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', DEV_ARTIFACT_URL) })
 
@@ -239,99 +346,6 @@ describe('resolveReleaseTarget trust root', () => {
     )
     // Refused at RESOLVE time: nothing was ever downloaded from the other origin.
     expect(fetchImpl.mock.calls.map(([url]) => String(url))).not.toContain(DEV_ARTIFACT_URL)
-  })
-
-  /**
-   * TEXT PREFIX IS NOT CONTAINMENT. `startsWith(artifactBase)` accepts a URL
-   * that still has the fence as a prefix and then walks out of it with `../`.
-   * `fetch` parses the URL and drops the dot segments, so the HEAD goes to
-   * another repository on the same host. The fence's job is to refuse that at
-   * resolve time, not after a download, and not on a signature mismatch.
-   */
-  it('REFUSES a path-traversal URL that still string-prefixes the fence', async () => {
-    const escaped = `${RELEASE_BASE}/../../../../attacker/repo/releases/download/x.tar.gz`
-    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', escaped) })
-
-    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-      /headless linux-x86_64 artifact is served from outside the edge feed/,
-    )
-    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
-      releaseManifestUrl('edge'),
-      desktopReleaseManifestUrl('edge'),
-    ])
-  })
-
-  it('REFUSES a percent-encoded path traversal out of the feed', async () => {
-    const escaped = `${RELEASE_BASE}/%2e%2e/%2e%2e/%2e%2e/%2e%2e/attacker/repo/releases/download/x.tar.gz`
-    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', escaped) })
-
-    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-      /headless linux-x86_64 artifact is served from outside the edge feed/,
-    )
-    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
-      releaseManifestUrl('edge'),
-      desktopReleaseManifestUrl('edge'),
-    ])
-  })
-
-  it('REFUSES a single-segment encoded slash traversal out of the feed', async () => {
-    const escaped = `${RELEASE_BASE}/%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2fattacker/x.tar.gz`
-    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', escaped) })
-
-    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-      /headless linux-x86_64 artifact is served from outside the edge feed/,
-    )
-    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
-      releaseManifestUrl('edge'),
-      desktopReleaseManifestUrl('edge'),
-    ])
-  })
-
-  /**
-   * THE SPELLING `new URL().href.startsWith(base)` WOULD PASS. `new URL`
-   * resolves `../`, `%2e%2e`, and `.%2e` as dot segments; it does NOT decode
-   * `%2f` before that, so `..%2f..%2fattacker` stays a path that still string-
-   * prefixes the fence. Only a later, lenient origin server would decode it.
-   * Per-segment decode-and-split is what refuses it here.
-   */
-  it('REFUSES a literal-dot encoded-slash traversal that href.startsWith would accept', async () => {
-    const escaped = `${RELEASE_BASE}/..%2f..%2f..%2f..%2fattacker/x.tar.gz`
-    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', escaped) })
-
-    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-      /headless linux-x86_64 artifact is served from outside the edge feed/,
-    )
-    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
-      releaseManifestUrl('edge'),
-      desktopReleaseManifestUrl('edge'),
-    ])
-  })
-
-  /**
-   * Same origin, path inside the fence, credentials in the userinfo. `fetch`
-   * turns that into an Authorization header, so a manifest that names
-   * `https://user:pw@github.com/...` is not a feed artifact — it is a request
-   * made as someone else.
-   */
-  it('REFUSES an artifact URL that carries userinfo', async () => {
-    const withUserinfo = HEADLESS_URL.replace('https://', 'https://user:pw@')
-    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', withUserinfo) })
-
-    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-      /headless linux-x86_64 artifact is served from outside the edge feed/,
-    )
-    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
-      releaseManifestUrl('edge'),
-      desktopReleaseManifestUrl('edge'),
-    ])
-  })
-
-  it('REFUSES an artifact URL that does not parse', async () => {
-    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', 'https://[broken') })
-
-    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-      /headless linux-x86_64 artifact is served from outside the edge feed/,
-    )
   })
 
   it('REFUSES a dev manifest that names an artifact outside the dev feed', async () => {
