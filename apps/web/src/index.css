@@ -364,6 +364,24 @@
      Lines are barely touched — a hairline has to stay visible to do its job. */
   --issue-tint-scale: 0.4%;
   --issue-line-scale: 0.8%;
+  /* THE WORK ROW GETS ITS OWN DOSE ON PAPER (POD-1456). The warning above is
+     about tint over WIDE surfaces — the deck's fade, the tab strip, the stage —
+     where a hue spread across half the window stops being an accent. A sidebar
+     row is the opposite case: a 306px band, stacked twenty deep, whose tint is
+     the only thing saying WHOSE row this is. At the general 0.4% the row's 7%
+     resting dose lands ~2.8% over warm stone, which reads as a smudge of warmth
+     rather than as a colour — you can see that a row is tinted but not which
+     colour it is, so the channel carries no information.
+     1% — the SAME dose dark ships — is the settled value: the row rests at 7%
+     and hovers at 11% in both appearances, so an issue's colour is the same
+     statement whichever theme you are in, which is the point of an identity
+     channel. That is deliberately louder than the 0.6% first tried here; on
+     paper 0.6% named the hue but still asked you to look for it, and a row you
+     have to look at is not a row you can scan past.
+     Paper and dark agreeing on the ROW does not undo the split — the general
+     scale stays 0.4% here, so the wide surfaces the warning above is about are
+     untouched. The token is what lets those two facts coexist. */
+  --issue-row-tint-scale: 1%;
 }
 
 /* ── Podium theme — dark ("Dark Ink") [POD-737] ───────────────────────────────────
@@ -496,6 +514,10 @@
   --well-cell-lip: rgb(0 0 0 / 0.35);
   --issue-tint-scale: 1%;
   --issue-line-scale: 1%;
+  /* Unchanged from the general scale — see the paper block's note (POD-1456).
+     Spelled out rather than left to the fallback so the row's dose in both
+     appearances is one grep away. */
+  --issue-row-tint-scale: 1%;
   --ghost-1: color-mix(in srgb, var(--foreground) 12%, transparent);
   --ghost-2: color-mix(in srgb, var(--foreground) 9%, transparent);
   --ghost-3: color-mix(in srgb, var(--foreground) 5.5%, transparent);
