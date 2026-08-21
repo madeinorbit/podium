@@ -447,10 +447,11 @@ if (checkBudget) {
           ? `${outgrown
               .map(
                 ({ package: pkg, installations, acceptedInstallations }) =>
-                  `${pkg} has an accepted split of ${acceptedInstallations}, and there are now ${installations.length}`,
+                  `${pkg} was signed off for ${acceptedInstallations} installation(s) and there are ${installations.length}`,
               )
-              .join('; ')} — that is a NEW copy standing behind an old decision, so read it as a ` +
-            `fresh split rather than as the one on the list. `
+              .join('; ')} — the count on the accept list is not the count in the bundle, so the ` +
+            `entry does not describe this split. Re-measure it and either correct the entry or fix ` +
+            `the split; do not widen the number to make the build pass. `
           : '') +
         `A second copy is never free: it is counted twice in the eager source budget, so it ` +
         `also shows up there as growth with no feature behind it. ` +

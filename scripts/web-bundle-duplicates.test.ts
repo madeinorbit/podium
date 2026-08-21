@@ -105,7 +105,10 @@ describe('the accept list', () => {
     // Without this the check can only ever advise dedupe, which is the WRONG
     // advice for a two-version install somebody chose on purpose.
     const report = duplicateReport(
-      [`${main}/@trpc/client/dist/index.mjs`, `${main}/.bun/@trpc+client@10/node_modules/@trpc/client/dist/index.mjs`],
+      [
+        `${main}/@trpc/client/dist/index.mjs`,
+        `${main}/.bun/@trpc+client@10/node_modules/@trpc/client/dist/index.mjs`,
+      ],
       [acceptance],
     )
 

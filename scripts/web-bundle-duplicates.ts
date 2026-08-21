@@ -29,8 +29,9 @@ export interface DuplicatedPackage {
   /** True when a split does not cost bytes but breaks the feature outright. */
   readonly breaksTheFeature: boolean
   /** Set only when an acceptance exists and did NOT cover what was found: the
-   *  number of installations that were signed off. More than that is a new
-   *  split hiding behind an old decision, so it is still an error. */
+   *  number of installations that were signed off. A different number is a
+   *  different split from the one on the list, so it is still an error — most
+   *  often a new copy standing behind an old decision. */
   readonly acceptedInstallations?: number
 }
 
@@ -125,8 +126,8 @@ export const SINGLETON_PACKAGES = [
  * can only say no. Add the entry, and make it carry the decision:
  *
  *   - `package` — the name as the check reports it.
- *   - `installations` — how many were measured. The check accepts THAT many and
- *     no more, so a third copy arriving later is still a failure rather than
+ *   - `installations` — how many were measured. The check accepts exactly that
+ *     many, so a third copy arriving later is still a failure rather than
  *     something the old decision quietly absorbs.
  *   - `reason` — which two versions, who needs each, what the second copy costs
  *     in eager source bytes, and what would let the entry be deleted.
