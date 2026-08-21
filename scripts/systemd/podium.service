@@ -1,24 +1,25 @@
 # GENERATED from apps/cli/src/cli-systemd.ts by scripts/render-systemd.ts.
 # Do not hand-edit; rerun the renderer after changing the source.
 [Unit]
-Description=Podium durable maintenance janitor (source checkout)
-After=network-online.target podium-server.service
+Description=Podium parent supervisor (source checkout)
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=notify
 NotifyAccess=all
-WatchdogSec=30
+WatchdogSec=90
 WorkingDirectory=/home/user/src/other/podium
 Environment=HOME=/home/user
 Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PODIUM_PORT=18787
 Environment=PODIUM_INSTANCE=default
-ExecStart=/home/user/.local/bin/bun --conditions=@podium/source scripts/cli.ts janitor --server http://localhost:18787
+ExecStart=/home/user/.local/bin/bun --conditions=@podium/source scripts/cli.ts parent --takeover
 Restart=always
 RestartSec=2
-RestartPreventExitStatus=78
-CPUWeight=100
-IOWeight=100
+CPUWeight=900
+IOWeight=500
+MemoryLow=2G
 
 [Install]
 WantedBy=default.target

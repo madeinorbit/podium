@@ -92,39 +92,31 @@ export async function waitForHealth(
 export { rolesForMode } from '@podium/runtime/transfer-lifecycle'
 
 /**
- * Start the detached parent-supervised stack for a host box. Daemon-only joins
- * still spawn a bare remote daemon.
+ * Start the detached parent-supervised stack. Daemon-only joins also go through
+ * the parent (daemon-only role config); the parent replaces the run-registry trio.
  */
 export async function startDetachedStack(
   mode: PodiumConfig['mode'],
   port: number,
 ): Promise<{ serverUp: boolean }> {
-  if (mode === 'daemon') {
-    spawnDetached('daemon', {})
-    return { serverUp: true }
-  }
   if (mode === 'client') return { serverUp: false }
   spawnDetached('parent', { port })
+  if (mode === 'daemon') return { serverUp: true }
   return { serverUp: await waitForHealth(port) }
 }
 
 /**
  * Ensure the configured backend is running (bare `podium` on a configured, detached box).
- * Host modes start/restart the parent when it is down; the parent owns children.
+ * Every managed mode starts/restarts the parent when it is down; the parent owns children.
  */
 export async function ensureDetachedUp(
   config: PodiumConfig,
   port: number,
 ): Promise<{ started: RunRole[] }> {
-  if (config.mode === 'daemon') {
-    if (liveRecord('daemon')) return { started: [] }
-    spawnDetached('daemon', {})
-    return { started: ['daemon'] }
-  }
   if (config.mode === 'client') return { started: [] }
   if (liveRecord('parent')) return { started: [] }
   spawnDetached('parent', { port })
-  await waitForHealth(port)
+  if (config.mode !== 'daemon') await waitForHealth(port)
   return { started: ['parent'] }
 }
 

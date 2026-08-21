@@ -170,38 +170,34 @@ describe('resolvePlan — launch matrix', () => {
     expect(plan({}, ['setup', '--vps'])).toMatchObject({ kind: 'usage-error' })
   })
 
-  it('systemd-recorded box, bare invocation → start both units (all-in-one)', () => {
+  it('systemd-recorded box, bare invocation → the parent unit', () => {
     expect(plan({ mode: 'all-in-one', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
-      units: ['podium-server.service', 'podium-janitor.service', 'podium-daemon.service'],
+      units: ['podium.service'],
       mode: 'all-in-one',
       port: 18787,
     })
   })
-  it('systemd-recorded server box → server + janitor; daemon box → daemon only', () => {
+  it('systemd-recorded server and daemon boxes both use the parent unit', () => {
     expect(plan({ mode: 'server', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
-      units: ['podium-server.service', 'podium-janitor.service'],
+      units: ['podium.service'],
       mode: 'server',
       port: 18787,
     })
     expect(plan({ mode: 'daemon', serverUrl: 'wss://relay', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
-      units: ['podium-daemon.service'],
+      units: ['podium.service'],
       mode: 'daemon',
       port: 18787,
     })
   })
-  it('routes named managed instances only to their own units', () => {
+  it('routes named managed instances only to their own parent unit', () => {
     expect(
       plan({ mode: 'all-in-one', persistence: 'systemd' }, [], { PODIUM_INSTANCE: 'blue' }),
     ).toEqual({
       kind: 'systemd-managed',
-      units: [
-        'podium-blue-server.service',
-        'podium-blue-janitor.service',
-        'podium-blue-daemon.service',
-      ],
+      units: ['podium-blue.service'],
       mode: 'all-in-one',
       // A named instance binds its OWN derived port, not the default one — the
       // plan carries the port because ensuring the split may mean installing it.
@@ -265,7 +261,7 @@ describe('resolvePlan — launch matrix', () => {
     // what arrives here is an ordinary managed box.
     expect(plan({ mode: 'all-in-one', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
-      units: ['podium-server.service', 'podium-janitor.service', 'podium-daemon.service'],
+      units: ['podium.service'],
       mode: 'all-in-one',
       port: 18787,
     })

@@ -154,6 +154,7 @@ export type LaunchPlan =
       port: number
       /** Include the local daemon child (all-in-one). Server-only omits it. */
       includeDaemon: boolean
+      includeServer: boolean
       takeover: boolean
     }
   | { kind: 'repair-config' }
@@ -573,7 +574,8 @@ export function resolvePlan(
   if (argv[0] === 'parent') {
     const takeover = argv.includes('--takeover')
     const includeDaemon = config.mode !== 'server'
-    return { kind: 'parent', port, includeDaemon, takeover }
+    const includeServer = config.mode !== 'daemon'
+    return { kind: 'parent', port, includeDaemon, includeServer, takeover }
   }
   // `podium setup --repair` (#21): back up an existing-but-invalid config.json.
   if (argv[0] === 'setup' && argv.includes('--repair')) return { kind: 'repair-config' }
@@ -686,10 +688,7 @@ export function resolvePlan(
       // Parent-supervised topology [POD-2505]: one unit runs the parent; children
       // are not separate systemd units. Daemon-only joins stay a single daemon unit.
       // Legacy multi-unit installs are reconciled by the migration issue.
-      const units =
-        modePlan.mode === 'daemon'
-          ? [instanceServiceName('daemon', instanceId)]
-          : [instanceServiceName('parent', instanceId)]
+      const units = [instanceServiceName('parent', instanceId)]
       return { kind: 'systemd-managed', units, mode: modePlan.mode, port }
     }
     return { kind: 'detached-managed', mode: modePlan.mode, port }
@@ -1191,6 +1190,18 @@ async function runInProcess(
   }
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
+  // Topology migration kickoff: a legacy unit that just became the new version
+  // writes+starts podium.service and keeps serving until the parent takeovers.
+  // Handlers are already installed, so a SIGTERM during this cannot orphan
+  // children (POD-2505). The parent, not this process, retires leftover units.
+  if (plan.claimRole === 'server' || (plan.claimRole === 'daemon' && modePlan.mode === 'daemon')) {
+    const { reconcileSupervision, shouldKickoffMigration } = await import('./topology-reconcile')
+    if (shouldKickoffMigration()) {
+      void reconcileSupervision().catch((error) => {
+        console.error(`podium: topology reconcile failed: ${(error as Error).message}`)
+      })
+    }
+  }
   // Parent-death watch (POD-1228). This is the process Podium Desktop spawns as
   // its sidecar, and the shell's own exit handlers only run on a deliberate quit:
   // a GUI crash or SIGKILL leaves us reparented and still holding the fixed
@@ -1377,7 +1388,10 @@ export async function main(
       const { fileURLToPath } = await import('node:url')
       const cliPath = fileURLToPath(new URL('../../../scripts/cli.ts', import.meta.url))
       const compiled = import.meta.url.includes('/$bunfs/')
-      const children = plan.includeDaemon ? (['server', 'daemon'] as const) : (['server'] as const)
+      const children: Array<'server' | 'daemon'> = [
+        ...(plan.includeServer ? (['server'] as const) : []),
+        ...(plan.includeDaemon ? (['daemon'] as const) : []),
+      ]
       /**
        * A SUCCESSOR is a parent spawned by a live predecessor during
        * self-handover. It must not touch the `parent` pidfile on the way up:
@@ -1448,6 +1462,23 @@ export async function main(
       }
       console.log(`podium parent up — supervising ${children.join(' + ')} on :${plan.port}`)
       await parent.start()
+      // Health-gated unit retirement: only the NEW parent proving healthy may
+      // shed leftover units. A failed gate aborts onto the still-armed legacy set.
+      // Skip when this parent is not a managed install (foreground tests, desktop).
+      if (config.persistence === 'systemd' || config.persistence === 'detached') {
+        try {
+          const { reconcileSupervision } = await import('./topology-reconcile')
+          const { hasUserSystemd } = await import('./cli-systemd')
+          if (config.persistence !== 'systemd' || hasUserSystemd()) {
+            await reconcileSupervision({
+              parentHealthy: () => parent.isBootHealthy(),
+              ...(parent.isBootHealthy() ? {} : { healthTimeoutMs: 0 }),
+            })
+          }
+        } catch (error) {
+          console.error(`podium: topology reconcile failed: ${(error as Error).message}`)
+        }
+      }
       return
     }
     case 'janitor': {
@@ -1668,27 +1699,16 @@ export async function main(
       return
     }
     case 'systemd-managed': {
-      // ENSURE, not just start. This absorbs what the retired
-      // `reconcile-pending-persistence` plan did (POD-333): a box whose web
-      // setup chose systemd could not install the units from inside the serving
-      // process, so `systemctl start` here has nothing to start. Installing on
-      // that failure is the same act the old plan performed, minus the config
-      // state that used to schedule it — and it is idempotent on a box whose
-      // units already exist, because that box takes the first branch.
-      const { execFileSync } = await import('node:child_process')
-      let started = false
+      // Boot reconciliation: write/enable/start podium.service, leave leftover
+      // units armed until the parent health gate (run by the parent process)
+      // retires them. Idempotent on a converged host.
+      const { reconcileSupervision } = await import('./topology-reconcile')
       try {
-        execFileSync('systemctl', ['--user', 'start', ...plan.units], { stdio: 'ignore' })
-        started = true
-      } catch {
-        // Fall through to install — the units are missing, masked, or broken.
-      }
-      if (!started) {
+        await reconcileSupervision()
+      } catch (error) {
         const { installSystemd } = await import('./cli-systemd')
         const res = installSystemd(plan.mode, plan.port, resolveInstanceId())
-        if (res.ok) {
-          console.log('Installed + started the systemd units for this instance.')
-        } else {
+        if (!res.ok) {
           console.error(`podium: could not start or install the systemd units — ${res.reason}`)
           if (res.remedy) console.error(res.remedy)
         }

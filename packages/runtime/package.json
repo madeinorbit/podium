@@ -33,6 +33,7 @@
     "./parent-process": "./src/parent-process.ts",
     "./parent-control": "./src/parent-control.ts",
     "./parent-update-swap": "./src/parent-update-swap.ts",
+    "./topology-migration": "./src/topology-migration.ts",
     "./boot": "./src/boot.ts",
     "./migration-ledger": "./src/migration-ledger.ts",
     "./update-delivery": "./src/update-delivery.ts",

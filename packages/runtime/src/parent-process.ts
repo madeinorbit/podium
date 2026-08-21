@@ -262,6 +262,7 @@ export class ParentProcess {
   private advance: WatchdogAdvance = {}
   private lastPetMs = 0
   private readonly petIntervalMs: number
+  private bootHealthy = false
 
   constructor(deps: ParentProcessDeps) {
     this.env = { ...(deps.env ?? process.env) }
@@ -295,6 +296,11 @@ export class ParentProcess {
 
   snapshot(): ParentSnapshot {
     return this.snap
+  }
+
+  /** True when the boot health gate (disposition 24) passed. */
+  isBootHealthy(): boolean {
+    return this.bootHealthy
   }
 
   /** True when this process was spawned as another parent's successor. */
@@ -455,6 +461,7 @@ export class ParentProcess {
       this.env.PODIUM_APP_VERSION ??
       (await this.readInstalledVersion())
     const healthy = await this.waitForHealthy(expected, 60_000)
+    this.bootHealthy = healthy
     if (this.terminating) return
     if (!healthy) {
       log.error('parent boot health gate failed', { expected })
@@ -514,8 +521,14 @@ export class ParentProcess {
   private async waitForHealthy(expectedVersion: string, budgetMs: number): Promise<boolean> {
     const deadline = this.deps.now() + budgetMs
     const wantsDaemon = this.requiresDaemon()
+    const wantsServer = this.childOrder.includes('server')
     while (this.deps.now() < deadline) {
       if (this.terminating) return false
+      if (!wantsServer && wantsDaemon) {
+        if (this.snap.children.daemon.status === 'running') return true
+        await this.deps.sleep(200)
+        continue
+      }
       const probe = await this.deps.probeHealth(this.deps.port)
       const versionOk =
         expectedVersion === 'dev' || !expectedVersion || probe.serverVersion === expectedVersion
