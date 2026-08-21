@@ -6,7 +6,7 @@
  */
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
+import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process'
 import {
   cpSync,
   existsSync,
@@ -50,6 +50,7 @@ interface RunningInstance extends InstanceSpec {
   output(): string
 }
 const running: RunningInstance[] = []
+let packagedCli: string | undefined
 
 const freePorts = (() => {
   const servers = Array.from({ length: 9 }, () =>
@@ -141,6 +142,7 @@ function instanceEnv(
 /** Compile the real packaged entry in an isolated tree so its fixed embedded-file
  *  path cannot race with or depend on a developer's dist-bun artifacts. */
 function buildPackagedCli(): string {
+  if (packagedCli) return packagedCli
   const buildRoot = join(TEST_ROOT, 'compiled-cli-build')
   const scriptsDir = join(buildRoot, 'scripts')
   const distDir = join(buildRoot, 'dist-bun')
@@ -170,7 +172,8 @@ function buildPackagedCli(): string {
     ],
     { cwd: buildRoot, stdio: 'pipe' },
   )
-  return executable
+  packagedCli = executable
+  return packagedCli
 }
 
 function startInstance(
@@ -303,6 +306,44 @@ afterAll(async () => {
 })
 
 describe('multi-instance runtime isolation', () => {
+  it('keeps packaged diagnostics state-free while foreign roots still refuse mutation', () => {
+    const foreign = makeSpec('blue', 'foreign-blue')
+    mkdirSync(foreign.stateDir, { recursive: true })
+    writeFileSync(join(foreign.stateDir, 'belongs-to-something-else'), 'foreign state\n')
+    const executable = buildPackagedCli()
+    const run = (argv: string[]) =>
+      spawnSync(executable, argv, {
+        cwd: ROOT,
+        env: instanceEnv(foreign, {
+          PODIUM_ABDUCO: undefined,
+          PODIUM_ADOPT_STATE: undefined,
+          PODIUM_APP_VERSION: '9.9.9',
+          PODIUM_RUN_MODE: 'detached',
+        }),
+        encoding: 'utf8',
+      })
+
+    const versionResult = run(['--version'])
+    expect(versionResult.status, versionResult.stderr).toBe(0)
+    expect(versionResult.stdout.trim()).toBe('podium 9.9.9')
+
+    const helpResult = run(['--help'])
+    expect(helpResult.status, helpResult.stderr).toBe(0)
+    expect(helpResult.stdout).toContain('Usage: podium [command] [--flags]')
+
+    // Neither diagnostic may claim or otherwise populate the foreign root, including
+    // the packaged entry's embedded-abduco initialization.
+    expect(existsSync(join(foreign.stateDir, 'instance.json'))).toBe(false)
+    expect(existsSync(join(foreign.stateDir, 'bin', 'abduco'))).toBe(false)
+
+    const mutation = run(['channel', 'edge'])
+    expect(mutation.status).toBe(2)
+    expect(mutation.stderr).toContain('refusing to adopt non-empty state directory')
+    expect(mutation.stderr).toContain("for instance 'blue'")
+    expect(existsSync(join(foreign.stateDir, 'instance.json'))).toBe(false)
+    expect(existsSync(join(foreign.stateDir, 'config.json'))).toBe(false)
+  })
+
   it('claims an absent named root before the compiled launcher materializes abduco', async () => {
     const namedSpec = makeSpec('blue', 'cold-blue')
     expect(existsSync(namedSpec.stateDir)).toBe(false)

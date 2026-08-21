@@ -60,6 +60,25 @@ const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup', 'parent', '
 const LAUNCH_VALUE_FLAGS = ['--server', '--pair', '--name']
 const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
 
+// These sub-CLIs render richer command-local help after normal dispatch. Top-level
+// help is different: it is a diagnostic of the installed executable and must remain
+// available even when the selected state root cannot safely be claimed.
+const HELP_DELEGATED = new Set([
+  'issue',
+  'session',
+  'spec',
+  'worktree',
+  'workspace',
+  'mail',
+  'offer',
+  'agent',
+  'workflow',
+  'telemetry',
+  'quota',
+  'machine',
+  'logs',
+])
+
 /** First token the launch path does not understand (skipping value-flag arguments). */
 export function unknownLaunchToken(argv: string[]): string | undefined {
   for (let i = 0; i < argv.length; i++) {
@@ -223,6 +242,28 @@ export type LaunchPlan =
        *  refuses to start when the run registry shows a live holder (#18). */
       takeover: boolean
     }
+
+type StateFreeInformationalPlan = Extract<LaunchPlan, { kind: 'help' | 'version' }>
+
+/**
+ * Diagnostics that depend only on argv and this executable. This classifier is shared by
+ * `main` (where it runs before the state claim and compiled initialization) and the pure
+ * launch planner so those two entry paths cannot disagree about what is state-free.
+ */
+export function resolveStateFreeInformationalPlan(
+  argv: readonly string[],
+): StateFreeInformationalPlan | undefined {
+  if (argv[0] === 'version' || argv[0] === '--version' || argv[0] === '-v') {
+    return { kind: 'version' }
+  }
+  if (
+    argv[0] === 'help' ||
+    ((argv.includes('--help') || argv.includes('-h')) && !HELP_DELEGATED.has(argv[0] ?? ''))
+  ) {
+    return { kind: 'help' }
+  }
+  return undefined
+}
 
 const AUTOMATION_SCHEDULE_USAGE =
   'usage: podium automation schedule --at <ISO timestamp> --message <text> [--name <name>] [--session <id> | --fresh --repo <path> [--agent <kind>] [--model <id>] [--effort <level>]]'
@@ -438,6 +479,9 @@ export function resolvePlan(
   env: EnvSnapshot,
   tty: boolean,
 ): LaunchPlan {
+  const informational = resolveStateFreeInformationalPlan(argv)
+  if (informational) return informational
+
   const port = resolvePort(config, env)
   const instanceId = resolveInstanceId(env)
   const relay = resolveAgentRelay(env)
@@ -452,40 +496,6 @@ export function resolvePlan(
         instanceId +
         "'; set PODIUM_NO_RELAY=1 to target another instance explicitly",
     }
-  }
-
-  // ---- help / version (before everything else, so a `--help` tacked onto a launch
-  // command can never boot the stack — issue #18) ----
-  // `podium version` / `--version` / `-v`: print the baked-in build version.
-  if (argv[0] === 'version' || argv[0] === '--version' || argv[0] === '-v') {
-    return { kind: 'version' }
-  }
-  // `podium help` / `--help` / `-h` anywhere → top-level help, EXCEPT for the
-  // sub-CLIs that render their own richer help (issue/session/spec/worktree).
-  const helpDelegated = new Set([
-    'issue',
-    'session',
-    'spec',
-    'worktree',
-    'workspace',
-    'mail',
-    'offer',
-    'agent',
-    'workflow',
-    // Renders its own usage, and `podium telemetry --help` should answer the
-    // privacy question in front of the user, not bury it in the top-level help.
-    'telemetry',
-    'quota',
-    'machine',
-    // `logs` grew verbs of its own (POD-1947 — `clients`, `level`), so its help
-    // now has something to say that the top-level list cannot fit.
-    'logs',
-  ])
-  if (
-    argv[0] === 'help' ||
-    ((argv.includes('--help') || argv.includes('-h')) && !helpDelegated.has(argv[0] ?? ''))
-  ) {
-    return { kind: 'help' }
   }
 
   // ---- approval broker [spec:SP-edbb] ----
@@ -1306,6 +1316,21 @@ export async function main(
   }
   process.env.PODIUM_INSTANCE = selection.instanceId
   const argv = selection.argv
+
+  // Diagnostics must survive the exact failure this claim protects against: a foreign,
+  // damaged, or non-empty unmarked root. They also exit before compiled initialization,
+  // which materializes embedded abduco inside that root. Top-level help deliberately uses
+  // the state-free core command list; feature-decorated discovery is not worth making a
+  // broken installation's help unavailable.
+  const informational = resolveStateFreeInformationalPlan(argv)
+  if (informational?.kind === 'version') {
+    console.log(versionText())
+    return
+  }
+  if (informational?.kind === 'help') {
+    console.log(helpText())
+    return
+  }
 
   // Claim the selected state root before ANY shared CLI bootstrap can populate it.
   // In particular, a packaged `podium-<instance> channel ...` invocation configures
