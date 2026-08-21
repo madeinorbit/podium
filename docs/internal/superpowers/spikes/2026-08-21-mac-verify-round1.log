@@ -1,0 +1,100 @@
+=== POD-2501 Mac verification ===
+date: 2026-08-21T00:30:42Z
+host: Darwin Mac-1785468368985.local 24.6.0 Darwin Kernel Version 24.6.0: Mon Jan 19 22:02:01 PST 2026; root:xnu-11417.140.69.708.3~1/RELEASE_ARM64_VMAPPLE arm64
+arch: arm64
+spike: /Users/runner/_work/podium/podium/spike
+state: /tmp/podium-spike-EZATs8
+
+--- file(1) ---
+/Users/runner/_work/podium/podium/spike/headless/podium-cli: Mach-O 64-bit executable arm64
+/Users/runner/_work/podium/podium/spike/podium.unsigned:     Mach-O 64-bit executable arm64
+/Users/runner/_work/podium/podium/spike/abduco:              Mach-O 64-bit executable arm64
+
+--- codesign -dv ---
+Executable=/Users/runner/_work/podium/podium/spike/headless/podium-cli
+Identifier=podium
+Format=Mach-O thin (arm64)
+CodeDirectory v=20400 size=560895 flags=0x2(adhoc) hashes=17518+7 location=embedded
+VersionPlatform=1
+VersionMin=851968
+VersionSDK=983552
+Hash type=sha256 size=32
+CandidateCDHash sha256=8626f568788a80cd1a4af3c2b3ef89778190946a
+CandidateCDHashFull sha256=8626f568788a80cd1a4af3c2b3ef89778190946a1b18b212c9b072525f09be77
+Hash choices=sha256
+CMSDigest=8626f568788a80cd1a4af3c2b3ef89778190946a1b18b212c9b072525f09be77
+CMSDigestType=2
+Executable Segment base=0
+Executable Segment limit=61276160
+Executable Segment flags=0x1
+Page size=4096
+CDHash=8626f568788a80cd1a4af3c2b3ef89778190946a
+Signature=adhoc
+Info.plist=not bound
+TeamIdentifier=not set
+Sealed Resources=none
+Internal requirements count=0 size=12
+
+Executable=/Users/runner/_work/podium/podium/spike/abduco
+Identifier=abduco
+Format=Mach-O thin (arm64)
+CodeDirectory v=20400 size=6463 flags=0x2(adhoc) hashes=197+2 location=embedded
+VersionPlatform=1
+VersionMin=851968
+VersionSDK=1704960
+Hash type=sha256 size=32
+CandidateCDHash sha256=704b8e1af72102ba1fa7f030a827fee480fdaffc
+CandidateCDHashFull sha256=704b8e1af72102ba1fa7f030a827fee480fdaffc779adbd2856b0506b99960be
+Hash choices=sha256
+CMSDigest=704b8e1af72102ba1fa7f030a827fee480fdaffc779adbd2856b0506b99960be
+CMSDigestType=2
+Executable Segment base=0
+Executable Segment limit=561616
+Executable Segment flags=0x1
+Page size=4096
+CDHash=704b8e1af72102ba1fa7f030a827fee480fdaffc
+Signature=adhoc
+Info.plist=not bound
+TeamIdentifier=not set
+Sealed Resources=none
+Internal requirements count=0 size=12
+
+--- Gatekeeper / quarantine ---
+xattr signed (expect empty or no com.apple.quarantine):
+xattr after planting quarantine:
+com.apple.quarantine: 0081;6a879c32;Safari;00000000-0000-0000-0000-000000000000
+xattr after strip:
+PASS: quarantine plant+strip exercised
+
+--- 1) unsigned should fail on arm64 (signature requirement) ---
+unsigned exit=0
+[podium] materialized embedded abduco -> /Users/runner/.podium/bin/abduco
+podium spike-darwin+0.1.1-edge.1
+WARN: unsigned --version succeeded on arm64 — unexpected; record as anomaly
+
+--- 2) signed --version ---
+podium spike-darwin+0.1.1-edge.1
+PASS: signed --version
+
+--- 3/4) daemon boot (bun:sqlite + discovery-worker + embedded abduco materialize) ---
+instance=spike-1787272242 state=/tmp/podium-spike-EZATs8/state port=18661
+WARN: daemon exited early — log:
+[podium] materialized embedded abduco -> /tmp/podium-spike-EZATs8/state/bin/abduco
+podium daemon mode needs a serverUrl (config.serverUrl or --server)
+--- daemon.log (tail) ---
+[podium] materialized embedded abduco -> /tmp/podium-spike-EZATs8/state/bin/abduco
+podium daemon mode needs a serverUrl (config.serverUrl or --server)
+--- materialized abduco under state dir ---
+/tmp/podium-spike-EZATs8/state/bin/abduco
+total 1600
+drwxr-xr-x  3 runner  wheel      96 Aug 21 00:30 .
+drwxr-xr-x  6 runner  wheel     192 Aug 21 00:30 ..
+-rwxr-xr-x  1 runner  wheel  817424 Aug 21 00:30 abduco
+abduco-0.6-podium © 2013-2018 Marc André Tanner
+PASS: embedded abduco materialized and runs
+
+--- 5) abduco self-check ---
+abduco-0.6-podium © 2013-2018 Marc André Tanner
+PASS: standalone prebuilt abduco -v
+server-execvp: --: No such file or directory
+FAIL: abduco -n podium-spike-805 failed
