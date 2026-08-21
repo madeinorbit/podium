@@ -9,7 +9,7 @@
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { DevPublisherVersionState } from '@podium/protocol'
+import { compareVersions, type DevPublisherVersionState } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
 
 const FILE_NAME = 'dev-publisher-version.json'
@@ -45,6 +45,20 @@ function parsePersistedState(path: string, raw: string): PersistedDevPublisherSt
       lastVersion?: unknown
     }
     if (typeof candidate.base !== 'string' || candidate.base.trim().length === 0) {
+      throw invalidState(path)
+    }
+    // A base this system cannot ORDER is not a base. Minting on one produces a
+    // version with no provable relation to the last one, and `mintDevVersion`
+    // rightly refuses it — catching it here means the whole file is rejected at
+    // the door, so nothing else (the retained-artifact set, `lastVersion`) is
+    // read out of a file we have already decided is corrupt.
+    //
+    // NOT `effectiveMintBase(base)`, which round 2 suggested: a stored base is
+    // often a legitimate bare stable (`0.1.2`, the next-patch lineage after a
+    // `0.1.1` cut), and re-bumping it on every read walks the lineage away from
+    // reality — measured 0.1.2 → 0.1.3 → 0.1.4 → 0.1.5 on four mints from one
+    // unchanged checkout.
+    if (compareVersions(candidate.base.trim(), candidate.base.trim()) !== 0) {
       throw invalidState(path)
     }
     if (

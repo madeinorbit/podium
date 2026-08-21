@@ -24,6 +24,15 @@ import {
 import { fileURLToPath } from 'node:url'
 import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
+/**
+ * The dev-label rules, from the one place that defines them (POD-2502). The
+ * leaf, not the barrel: this script builds the product, and the protocol's
+ * dev-version module imports only `version-order`, which imports nothing.
+ */
+import {
+  commitShaFromDevVersion,
+  isDevChannelVersion,
+} from '../packages/protocol/src/update/dev-version.js'
 import { abducoSupported, buildVendoredAbduco } from '../packages/pty/src/abduco-bin.js'
 import {
   bunVersion,
@@ -97,7 +106,12 @@ export function assertDevClientDistMatchesVersion(
   // Publisher mints are `<base>.dev.<N>+<sha>` (POD-2502); forensic identity is
   // still `dev+<sha>`. Key on either — packing yesterday's dist under today's
   // commit claim is the lie this guard exists to catch.
-  const expected = commitShaFromDevChannelVersion(version)
+  //
+  // ONE definition of both rules, imported rather than re-stated: which labels
+  // are dev-channel, and which commit one names. A release that merely carries
+  // build metadata is not a dev label and is not checked here, which is why the
+  // `isDevChannelVersion` question is asked first.
+  const expected = isDevChannelVersion(version) ? commitShaFromDevVersion(version) : null
   if (expected === null) return
   if (!stamp?.sourceSha || stamp.sourceSha !== expected) {
     throw new Error(
@@ -106,23 +120,6 @@ export function assertDevClientDistMatchesVersion(
         'Rebuild the client apps, then retry.',
     )
   }
-}
-
-/** Commit a dest-channel version claims, or null when the label is not one. */
-function commitShaFromDevChannelVersion(version: string): string | null {
-  const trimmed = version.trim()
-  if (/^dev\+[0-9a-f]{7,40}$/i.test(trimmed)) {
-    return trimmed.slice('dev+'.length).toLowerCase().slice(0, 7)
-  }
-  const plus = trimmed.lastIndexOf('+')
-  if (plus < 0) return null
-  // Publisher mint: must carry a `.dev.<N>+` or `-dev.<N>+` marker, not every
-  // release that happens to include build metadata.
-  if (!/\.dev\.\d+\+/i.test(trimmed) && !/^\d+\.\d+\.\d+-dev\.\d+\+/i.test(trimmed)) {
-    return null
-  }
-  const meta = trimmed.slice(plus + 1).toLowerCase()
-  return /^[0-9a-f]{7,40}$/.test(meta) ? meta.slice(0, 7) : null
 }
 
 /**

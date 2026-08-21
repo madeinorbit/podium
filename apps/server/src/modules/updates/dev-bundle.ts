@@ -732,6 +732,13 @@ function resolveCheckoutReleaseBase(
  * same HEAD is advertised again (identity target → later build). Call
  * {@link rememberDevArtifact} once the stamped basename is known so the sweep
  * allowlist includes it.
+ *
+ * READ-MODIFY-WRITE, AND NOT SERIALISED against a concurrent build. `target()`
+ * calls this on the `/version` path, outside the lock `buildDevBundle` holds,
+ * so two callers can interleave. Safe because allocation is idempotent per SHA
+ * (`lastSha`/`lastVersion` short-circuit) and the counter only ever moves
+ * forward — an interleaving costs a wasted N, never a reused one. Anything that
+ * makes allocation depend on more than the SHA needs the lock first.
  */
 export function allocateDevPublishVersion(input: {
   stateDir: string
@@ -1523,16 +1530,31 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       }
       // Allocate (or reuse) an orderable mint for this HEAD so identity
       // targets compare like every other channel (spec §1 / F6).
+      //
+      // FAIL SOFT, like every other step on this path. Minting reads the
+      // checkout's package.json, reads and rewrites publisher state, and fails
+      // closed when it cannot prove the mint is newer — five throw sites where
+      // there used to be none. The only caller that matters is
+      // `dev-publisher-wiring.ts`'s `onAdmitted: () => { void publishReadiness() }`,
+      // a floating promise with no `.catch`: a corrupt state file thrown from
+      // here is an unhandled rejection on the live server. "No target right
+      // now", recorded so the operator can read the reason, is the honest
+      // answer to a publisher that cannot mint.
       const root = deps.root ?? SOURCE_ROOT
-      const allocated = allocateDevPublishVersion({
-        stateDir: deps.publisherStateDir ?? stateDir(),
-        checkoutBase: resolveCheckoutReleaseBase(deps, root),
-        sha: headSha,
-      })
-      return devIdentityTarget(allocated.version, headSha, {
-        sourceRoot: deps.root,
-        schemaMigrations: migrations,
-      })
+      try {
+        const allocated = allocateDevPublishVersion({
+          stateDir: deps.publisherStateDir ?? stateDir(),
+          checkoutBase: resolveCheckoutReleaseBase(deps, root),
+          sha: headSha,
+        })
+        return devIdentityTarget(allocated.version, headSha, {
+          sourceRoot: deps.root,
+          schemaMigrations: migrations,
+        })
+      } catch (error) {
+        recordFailure(error, headSha)
+        return undefined
+      }
     },
   }
 }
