@@ -765,6 +765,8 @@ export interface DevBuildSpawnContext {
    * path nothing tests until release day.
    */
   bunTarget: string
+  /** Root digest captured from the fresh client build before packaging. */
+  clientRootDigest?: string
 }
 
 export type DevBuildSpawnResult =
@@ -803,6 +805,8 @@ export interface DevBundleBuildDeps {
    * to reading `<root>/package.json`.
    */
   checkoutReleaseBase?: string | (() => string)
+  /** Root digest captured from the fresh client build before packaging. */
+  clientRootDigest?: string
   /**
    * Which platforms to mint, in build order. Defaults to this host's own.
    *
@@ -1040,6 +1044,9 @@ function developmentSigningKey(root: string): string {
  * one (macOS, Windows, a container without a user manager). See `build-scope.ts`.
  */
 async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
+  if (!ctx.clientRootDigest) {
+    throw new Error('development bundle has no fresh client-build root digest; refusing to package')
+  }
   const signingKey = ctx.signingKey ?? developmentSigningKey(ctx.root)
   await runLowTierBuild({
     unit: devBuildScopeUnit(DEV_BUNDLE_BUILD_ROLE, ctx.instanceId ?? resolveInstanceId()),
@@ -1058,6 +1065,7 @@ async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
       // the stamp in the name is what retention later sorts on.
       PODIUM_BUNDLE_ARTIFACT: ctx.artifactPath,
       PODIUM_UPDATE_SIGNING_KEY: signingKey,
+      PODIUM_EXPECTED_CLIENT_ROOT_DIGEST: ctx.clientRootDigest,
     },
   })
 }
@@ -1315,6 +1323,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
         version,
         artifactPath: requestedPath,
         bunTarget: bunTargetForPlatform(platform),
+        ...(deps.clientRootDigest ? { clientRootDigest: deps.clientRootDigest } : {}),
         ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
         ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
       })
@@ -1706,14 +1715,16 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    * the server straight after. Polling and start-up leave it alone: an unpacked
    * identity target costs nothing, a broken page costs every open tab.
    */
-  prepareWebDist?: (headSha: string, explicit: boolean, buildRoot: string) => Promise<void>
+  prepareWebDist?: (
+    headSha: string,
+    explicit: boolean,
+    buildRoot: string,
+    releaseVersion?: string,
+  ) => Promise<string | void>
   /** Approved builds use a detached worktree; tests may supply an equivalent snapshot. */
   snapshotBuild?: DevBuildSnapshot
   /** Git proposal facts seam; production reads the checkout relative to the last publish. */
-  proposalFacts?: (input: {
-    headSha: string
-    sinceSha?: string
-  }) => Promise<ReleaseProposalFacts>
+  proposalFacts?: (input: { headSha: string; sinceSha?: string }) => Promise<ReleaseProposalFacts>
 }
 
 /**
@@ -1870,7 +1881,12 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         // The website is built INSIDE the same immutable snapshot the platform
         // compiles read. Nothing in an approved release reads the live checkout
         // after admission.
-        await (deps.prepareWebDist?.(headSha, explicit, buildRoot) ?? Promise.resolve())
+        const clientRootDigest = await (deps.prepareWebDist?.(
+          headSha,
+          explicit,
+          buildRoot,
+          approved?.version,
+        ) ?? Promise.resolve())
         const build = () =>
           buildDevBundle({
             ...deps,
@@ -1878,6 +1894,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
             artifactRoot: liveRoot,
             headSha,
             platforms,
+            ...(clientRootDigest ? { clientRootDigest } : {}),
             ...(approved ? { releaseVersion: approved.version } : {}),
           })
         return current === null
@@ -2192,7 +2209,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         const statePath = deps.publisherStateDir ?? stateDir()
         const publisherState = readDevPublisherState(statePath)
         if (!publisherState) {
-          throw new Error('cannot record a published development release before a version is minted')
+          throw new Error(
+            'cannot record a published development release before a version is minted',
+          )
         }
         writeDevPublisherState({ ...publisherState, lastPublishedSha: builtSha }, statePath)
         log.info('published development feed manifests', {

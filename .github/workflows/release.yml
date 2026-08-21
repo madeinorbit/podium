@@ -62,12 +62,14 @@ jobs:
         run: |
           set -euo pipefail
           HASH="$(bun -e 'import{abducoSourceHash}from"./scripts/abduco-cross.ts";console.log(abducoSourceHash().slice(0,16))')"
+          CLIENT_ROOT_DIGEST="$(tr -d '\n' < dist-bun/release/client-root-digest.sha256)"
           for pair in "linux-x86_64:linux-x64" "linux-aarch64:linux-arm64" \
                       "darwin-aarch64:darwin-arm64" "darwin-x86_64:darwin-x64"; do
             platform="${pair%%:*}"; asset="${pair##*:}"
             bash scripts/assert-headless-bundle.sh \
               "dist-bun/release/podium-headless-${asset}.tar.gz" "$platform" \
               --source-commit "$GITHUB_SHA" \
+              --client-root-digest "$CLIENT_ROOT_DIGEST" \
               --abduco "dist-bun/abduco-cache/${platform}-${HASH}"
           done
       # RUN the one bundle this runner can run, BEFORE publishing it. Everything above
@@ -94,6 +96,7 @@ jobs:
         run: |
           bash scripts/prove-headless-assertions-can-fail.sh \
             dist-bun/release/podium-headless-darwin-arm64.tar.gz \
+            "$(tr -d '\n' < dist-bun/release/client-root-digest.sha256)" \
             dist-bun/release/podium-headless-linux-x64.tar.gz
       - uses: actions/upload-artifact@v4
         with:

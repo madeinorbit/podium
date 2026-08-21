@@ -126,9 +126,13 @@ Three scripts, deliberately separate:
 
 Everything `assert-headless-bundle.sh` checks, it checks against bytes extracted
 **from the tarball** — never a loose sibling in a build directory, because a
-build tree can be right while the archive is wrong. It refuses to run without
-`--source-commit <sha>`, and verifies both client sites against the exact-file
-hash manifests emitted by their builds at that commit. It also requires
+build tree can be right while the archive is wrong. Client provenance is the
+deliberate exception: the release captures a root digest from the fresh client
+build output before packaging, then passes that digest to the gate out of band.
+The gate verifies both sites' exact-file manifests and requires their packaged
+entry set to equal that independently captured root; it never trusts the archive's
+own manifest as its expected value or falls back when the fresh-build digest is
+missing. It also refuses to run without `--source-commit <sha>` and requires
 either `--abduco <reference>` or an explicit `--no-abduco-identity`, so an
 omitted input can never read as a green.
 

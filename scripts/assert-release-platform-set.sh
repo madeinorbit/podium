@@ -53,6 +53,12 @@ MANIFEST="$DIR/podium-update.json"
 TARGET_VERSION="$(jq -er '.version' "$MANIFEST")" || fail "manifest has no version"
 TARGET_SOURCE="$(jq -er '.artifacts.web.digest' "$MANIFEST")" \
   || fail "manifest has no approved client source commit"
+CLIENT_ROOT_DIGEST_FILE="$DIR/client-root-digest.sha256"
+[ -s "$CLIENT_ROOT_DIGEST_FILE" ] \
+  || fail "release has no out-of-band fresh-client root digest"
+CLIENT_ROOT_DIGEST="$(tr -d '\n' < "$CLIENT_ROOT_DIGEST_FILE")"
+[[ "$CLIENT_ROOT_DIGEST" =~ ^[0-9a-f]{64}$ ]] \
+  || fail "release fresh-client root digest is not a SHA-256 hex digest"
 
 MANIFEST_PLATFORMS="$(jq -r '.artifacts.headless.platforms | keys[]' "$MANIFEST" | sort | tr '\n' ' ')"
 EXPECTED_PLATFORMS="$(for pair in $PLATFORMS; do echo "${pair%%:*}"; done | sort | tr '\n' ' ')"
@@ -95,6 +101,7 @@ for pair in $PLATFORMS; do
 
   bash scripts/assert-headless-bundle.sh "$DIR/$asset" "$platform" \
     --source-commit "$TARGET_SOURCE" \
+    --client-root-digest "$CLIENT_ROOT_DIGEST" \
     --abduco "dist-bun/abduco-cache/${platform}-${ABDUCO_HASH}" || exit 1
 
   BUNDLE_VERSION="$(tar -xzOf "$DIR/$asset" headless/VERSION | tr -d '\n')"

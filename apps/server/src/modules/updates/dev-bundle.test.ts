@@ -1408,15 +1408,16 @@ describe('buildDevBundle', () => {
       lock: lockFixture([]),
       prepareWebDist: async (headSha) => {
         order.push('web:' + headSha)
+        return 'a'.repeat(64)
       },
-      spawnBuild: async ({ version }) => {
-        order.push('bundle')
+      spawnBuild: async ({ version, clientRootDigest }) => {
+        order.push('bundle:' + clientRootDigest)
         return { path: '/stage/' + version, bytes, signature }
       },
     })
 
     await publisher.requestBuild(true)
-    expect(order).toEqual(['web:aaaaaaa', 'bundle'])
+    expect(order).toEqual(['web:aaaaaaa', `bundle:${'a'.repeat(64)}`])
   })
 
   it('tells the website step whether this request may move the served dist', async () => {
@@ -2005,7 +2006,7 @@ describe('the dev feed manifest the publisher writes', () => {
       commits: [{ sha: headSha, summary: `Commit ${headSha}` }],
       addedMigrations: [],
     }),
-    prepareWebDist?: (headSha: string, explicit: boolean) => Promise<void>,
+    prepareWebDist?: (headSha: string, explicit: boolean) => Promise<string | void>,
   ) {
     const { bytes, signature, signingKey } = signedFixture()
     return createDevBundlePublisher({
@@ -2060,9 +2061,7 @@ describe('the dev feed manifest the publisher writes', () => {
         headSha: 'aaaaaaa',
         version: '0.1.0-edge.20.dev.1+aaaaaaa',
       }),
-    ).rejects.toThrow(
-      /approval named aaaaaaa, but HEAD is bbbbbbb/,
-    )
+    ).rejects.toThrow(/approval named aaaaaaa, but HEAD is bbbbbbb/)
     expect(store.names()).not.toContain('podium-update.json')
   })
 
@@ -2096,10 +2095,7 @@ describe('the dev feed manifest the publisher writes', () => {
         addedMigrations: [],
       }),
       snapshotBuild: (approvedSha, build) =>
-        withDevBuildSnapshot(
-          { sourceRoot: root, approvedSha, install: async () => {} },
-          build,
-        ),
+        withDevBuildSnapshot({ sourceRoot: root, approvedSha, install: async () => {} }, build),
       prepareWebDist: async () => {},
       signingKey,
       fs: store.fs,
@@ -2169,10 +2165,15 @@ describe('the dev feed manifest the publisher writes', () => {
     const prepared = new Promise<void>((resolve) => {
       finishPreparation = resolve
     })
-    const publisher = publisherFor(store, () => head, undefined, async () => {
-      beginPreparation()
-      await prepared
-    })
+    const publisher = publisherFor(
+      store,
+      () => head,
+      undefined,
+      async () => {
+        beginPreparation()
+        await prepared
+      },
+    )
     const approved = await publisher.proposal()
     expect(approved).toBeDefined()
     const building = publisher.requestBuild(true, approved)
@@ -2217,14 +2218,18 @@ describe('the dev feed manifest the publisher writes', () => {
     const store = memoryFs()
     let head = 'aaaaaaa'
     const ranges: Array<{ headSha: string; sinceSha?: string }> = []
-    const publisher = publisherFor(store, () => head, async (input) => {
-      ranges.push(input)
-      return {
-        branch: 'feature/collapsing',
-        commits: [{ sha: input.headSha, summary: `Commit ${input.headSha}` }],
-        addedMigrations: input.headSha === 'ccccccc' ? ['20260821110000_release'] : [],
-      }
-    })
+    const publisher = publisherFor(
+      store,
+      () => head,
+      async (input) => {
+        ranges.push(input)
+        return {
+          branch: 'feature/collapsing',
+          commits: [{ sha: input.headSha, summary: `Commit ${input.headSha}` }],
+          addedMigrations: input.headSha === 'ccccccc' ? ['20260821110000_release'] : [],
+        }
+      },
+    )
 
     head = 'bbbbbbb'
     head = 'ccccccc'

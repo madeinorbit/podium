@@ -83,6 +83,7 @@ export const DEV_WEB_BUILD_STEPS = [
 
 export interface DevWebBuildStamp {
   sourceSha?: string
+  appVersion?: string
 }
 
 /**
@@ -144,8 +145,11 @@ export function readDevWebStamp(root: string): DevWebBuildStamp | null {
   try {
     const raw = JSON.parse(
       readFileSync(join(root, 'apps', 'web', 'dist', 'podium-build.json'), 'utf8'),
-    ) as { sourceSha?: unknown }
-    return typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}
+    ) as { sourceSha?: unknown; appVersion?: unknown }
+    return {
+      ...(typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}),
+      ...(typeof raw.appVersion === 'string' ? { appVersion: raw.appVersion } : {}),
+    }
   } catch {
     return null
   }
@@ -166,7 +170,7 @@ export interface DevWebBuilder {
    * itself asks, or a refusal and a rebuild would disagree about what "current"
    * is.
    */
-  isCurrent(headSha: string): boolean
+  isCurrent(headSha: string, appVersion?: string): boolean
   /**
    * Resolves once the website — `apps/web/dist` AND the phone export beside it
    * — is stamped at `headSha`, building it if it is not. Concurrent callers
@@ -177,7 +181,7 @@ export interface DevWebBuilder {
    * update that restarts it). The browser loads what this writes, so calling it
    * on a poll marches the page ahead of the server it is talking to.
    */
-  ensure(headSha: string): Promise<void>
+  ensure(headSha: string, appVersion?: string): Promise<void>
   /** The Update panel's explicit "rebuild the website". */
   requestRebuild(): void
   state(): DevWebBuildState
@@ -198,7 +202,10 @@ export interface DevWebBuilderDeps {
   /** Seam for tests; defaults to reading `apps/mobile/dist`. */
   readPhone?: (root: string) => ServedWebIdentity
   /** Seam for tests; defaults to one batch-tier scope per step. */
-  runStep?: (step: { role: string; label: string; args: readonly string[] }) => Promise<void>
+  runStep?: (
+    step: { role: string; label: string; args: readonly string[] },
+    appVersion?: string,
+  ) => Promise<void>
 }
 
 export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
@@ -207,26 +214,32 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
   const units = DEV_WEB_BUILD_STEPS.map((step) => devBuildScopeUnit(step.role, deps.instanceId))
   const runStep =
     deps.runStep ??
-    ((step: { role: string; label: string; args: readonly string[] }) =>
+    ((step: { role: string; label: string; args: readonly string[] }, appVersion?: string) =>
       runLowTierBuild({
         unit: devBuildScopeUnit(step.role, deps.instanceId),
         description: `Podium development web build (${step.label})`,
         command: devBuildCommand(process.env),
         args: step.args,
         cwd: deps.root,
-        env: process.env,
+        env: { ...process.env, ...(appVersion ? { PODIUM_APP_VERSION: appVersion } : {}) },
       }))
 
   let state: DevWebBuildState = { state: 'idle' }
-  let inFlight: { headSha: string; promise: Promise<void> } | null = null
+  let inFlight: { identity: string; promise: Promise<void> } | null = null
 
   /**
    * Is the WEBSITE this commit's — both halves of it? Cheap by construction:
    * one small file read, and a second only when the first says yes.
    */
-  const websiteAtHead = (headSha: string): boolean =>
-    webDistMatchesHead(readStamp(deps.root), headSha) &&
-    !phoneDistBehindHead(readPhone(deps.root), headSha)
+  const websiteAtHead = (headSha: string, appVersion?: string): boolean => {
+    const web = readStamp(deps.root)
+    const phone = readPhone(deps.root)
+    return (
+      webDistMatchesHead(web, headSha) &&
+      !phoneDistBehindHead(phone, headSha) &&
+      (!appVersion || (web?.appVersion === appVersion && phone.appVersion === appVersion))
+    )
+  }
 
   /**
    * THE ARTIFACT DECIDES, NOT THE EXIT CODE — and one step's failure does not
@@ -250,12 +263,12 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
    * building, the stamps do not name it and this still fails — before the
    * compile that would otherwise have spent a minute discovering the same thing.
    */
-  const build = async (headSha: string): Promise<void> => {
+  const build = async (headSha: string, appVersion?: string): Promise<void> => {
     log.info('building the development web bundles', { headSha, units })
     const failures: string[] = []
     for (const step of DEV_WEB_BUILD_STEPS) {
       try {
-        await runStep(step)
+        await runStep(step, appVersion)
       } catch (error) {
         failures.push(`${step.label}: ${error instanceof Error ? error.message : String(error)}`)
       }
@@ -268,6 +281,14 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
     }
     if (phoneDistBehindHead(readPhone(deps.root), headSha)) {
       wrong.push(`apps/mobile/dist is not stamped at ${headSha}`)
+    }
+    if (appVersion) {
+      if (readStamp(deps.root)?.appVersion !== appVersion) {
+        wrong.push(`apps/web/dist is not stamped at release ${appVersion}`)
+      }
+      if (readPhone(deps.root).appVersion !== appVersion) {
+        wrong.push(`apps/mobile/dist is not stamped at release ${appVersion}`)
+      }
     }
     if (wrong.length > 0) {
       throw new Error(
@@ -283,14 +304,15 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
     }
   }
 
-  const ensure = (headSha: string): Promise<void> => {
-    if (websiteAtHead(headSha)) {
+  const ensure = (headSha: string, appVersion?: string): Promise<void> => {
+    if (websiteAtHead(headSha, appVersion)) {
       state = { state: 'ready', headSha }
       return Promise.resolve()
     }
-    if (inFlight && inFlight.headSha === headSha) return inFlight.promise
+    const identity = `${headSha}\0${appVersion ?? ''}`
+    if (inFlight && inFlight.identity === identity) return inFlight.promise
     state = { state: 'building', headSha, units }
-    const promise = build(headSha).then(
+    const promise = build(headSha, appVersion).then(
       () => {
         inFlight = null
         state = { state: 'ready', headSha }
@@ -303,7 +325,7 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
         throw error
       },
     )
-    inFlight = { headSha, promise }
+    inFlight = { identity, promise }
     return promise
   }
 

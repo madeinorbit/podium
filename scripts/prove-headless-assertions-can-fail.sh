@@ -12,7 +12,7 @@
 # checks the spike never had.
 #
 # Usage:
-#   scripts/prove-headless-assertions-can-fail.sh <darwin-arm64-tarball> [<linux-x64-tarball>]
+#   scripts/prove-headless-assertions-can-fail.sh <darwin-arm64-tarball> <fresh-client-root-digest> [<linux-x64-tarball>]
 #
 # Needs the abduco cache (scripts/abduco-cross.ts) for the reference helpers.
 set -uo pipefail
@@ -22,9 +22,12 @@ cd "$ROOT"
 export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
 
 DARWIN_TARBALL="${1:-}"
-LINUX_TARBALL="${2:-}"
+CLIENT_ROOT_DIGEST="${2:-}"
+LINUX_TARBALL="${3:-}"
 SOURCE_COMMIT="$(git rev-parse HEAD)"
 [ -f "$DARWIN_TARBALL" ] || { echo "ABORT: pass a real darwin-aarch64 tarball to mutate (got '$DARWIN_TARBALL')" >&2; exit 1; }
+[[ "$CLIENT_ROOT_DIGEST" =~ ^[0-9a-f]{64}$ ]] \
+  || { echo "ABORT: pass the out-of-band SHA-256 captured from the fresh client build" >&2; exit 1; }
 
 for tool in rcodesign python3 tar file bun; do
   command -v "$tool" >/dev/null || { echo "ABORT: need $tool on PATH" >&2; exit 1; }
@@ -68,9 +71,9 @@ check() {
   local label="$1" expect="$2" platform="$3" abduco="$4" tarball="$5"
   local out status line
   if [ -n "$abduco" ]; then
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" --abduco "$abduco" 2>&1)"
+    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" --client-root-digest "$CLIENT_ROOT_DIGEST" --abduco "$abduco" 2>&1)"
   else
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" 2>&1)"
+    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" --client-root-digest "$CLIENT_ROOT_DIGEST" 2>&1)"
   fi
   status=$?
   if [ "$status" -eq 0 ]; then
@@ -94,6 +97,26 @@ check() {
   echo "REJECTED (right reason) [$label]: $line"
   PASSED=$((PASSED + 1))
 }
+
+# The expected root must come from a fresh build. Omitting it may never fall back to
+# the self-authored manifest inside the archive.
+check_no_client_root() {
+  local out status line
+  out="$(bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
+    --source-commit "$SOURCE_COMMIT" --abduco "$DARWIN_REF" 2>&1)"
+  status=$?
+  line="$(printf '%s\n' "$out" | grep -iE '^(FAIL|ABORT)' | head -1)"
+  if [ "$status" -ne 0 ] && printf '%s' "$line" | grep -qi -- 'captured from the fresh client build'; then
+    echo "REJECTED (right reason) [no fresh client build]: $line"
+    PASSED=$((PASSED + 1))
+  else
+    echo "HARNESS FAILURE [no fresh client build]: expected the missing out-of-band digest refusal"
+    echo "  got: ${line:-<no failure line>}"
+    FAILED=$((FAILED + 1))
+  fi
+}
+
+check_no_client_root
 
 # Build a mutated tarball from the pristine tree; `$1` is a function that edits $CASE.
 #
@@ -324,17 +347,20 @@ edit_stub_web() {
 check "stub web/index.html" "build provenance hash mismatch for index.html" \
   darwin-aarch64 "$DARWIN_REF" "$(mutate stubweb edit_stub_web)"
 
-# 13b. Pad the stub far beyond the old size floor, add every stamp field, and name a
-#      plausible hashed entry — but ship no entry bytes. A shape-only gate accepts it.
+# 13b. Forge plausible bytes, a public release stamp and an exact internal manifest.
+#      The archive is internally self-consistent; only the fresh build's out-of-band
+#      digest can prove those are not the bytes the build produced.
 edit_forged_web() {
   rm -rf "$CASE/headless/web/assets"
-  python3 - "$CASE/headless/web" "$CASE/headless/VERSION" <<'PY'
+  python3 - "$CASE/headless/web" "$CASE/headless/VERSION" "$SOURCE_COMMIT" <<'PY'
+import hashlib
 import json
 import sys
 from pathlib import Path
 
 site = Path(sys.argv[1])
 version = Path(sys.argv[2]).read_text().strip()
+source_commit = sys.argv[3][:7]
 bundle_hash = 'AbCdEf12'
 (site / 'index.html').write_text(
     '<!doctype html><html><head>'
@@ -343,17 +369,28 @@ bundle_hash = 'AbCdEf12'
     f'<script type="module" src="/assets/index-{bundle_hash}.js"></script>'
     f'<!-- forged padding {"x" * 200_000} --></body></html>\n'
 )
-(site / 'podium-build.json').write_text(json.dumps({
+stamp = {
     'wireSchemaDigest': '0123456789abcdef',
     'wireVersion': 1,
     'builtAt': '2026-08-21T00:00:00.000Z',
     'appVersion': version,
-    'sourceSha': '012345a',
+    'sourceSha': source_commit,
     'bundleVersion': f'bundle+{bundle_hash}',
+}
+(site / 'podium-build.json').write_text(json.dumps(stamp) + '\n')
+files = {}
+for path in sorted(site.rglob('*')):
+    if path.is_file() and path.name != 'podium-build-manifest.json':
+        files[path.relative_to(site).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+(site / 'podium-build-manifest.json').write_text(json.dumps({
+    'manifestVersion': 1,
+    'sourceCommit': source_commit,
+    'buildStamp': stamp,
+    'files': files,
 }) + '\n')
 PY
 }
-check "padded forged web stub with no assets" "build provenance stamp does not exactly match" \
+check "padded forged web stub with matching forged manifest" "packaged client root digest .* does not match fresh build" \
   darwin-aarch64 "$DARWIN_REF" "$(mutate forgedweb edit_forged_web)"
 
 # 13c. Removing the manifest itself must trip the provenance guard. This is the
@@ -371,7 +408,8 @@ check "NOTICE missing" "tarball missing headless/NOTICE" \
 # gate that rejected everything would score a perfect set above.
 echo
 if bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
-  --source-commit "$SOURCE_COMMIT" --abduco "$DARWIN_REF" >/dev/null 2>&1; then
+  --source-commit "$SOURCE_COMMIT" --client-root-digest "$CLIENT_ROOT_DIGEST" \
+  --abduco "$DARWIN_REF" >/dev/null 2>&1; then
   echo "ACCEPTED (control): the unmutated bundle still passes"
   PASSED=$((PASSED + 1))
 else

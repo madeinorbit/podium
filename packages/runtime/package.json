@@ -40,7 +40,8 @@
     "./update-install": "./src/update-install.ts",
     "./update-schema": "./src/update-schema.ts",
     "./source-version": "./src/source-version.ts",
-    "./command-environment": "./src/command-environment.ts"
+    "./command-environment": "./src/command-environment.ts",
+    "./client-build-provenance": "./src/client-build-provenance.ts"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",

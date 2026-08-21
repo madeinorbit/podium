@@ -57,6 +57,7 @@ import {
   minTerminalBunVersion,
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
 import { crossBuildAbduco, type HeadlessPlatform, resolveRcodesign } from './abduco-cross'
+import { clientBuildRootDigestFromSites } from './client-build-root-digest'
 
 /**
  * The POSIX-sh launcher shim written to `headless/podium`. It exports PODIUM_HOME (so
@@ -349,12 +350,16 @@ function main(): void {
       'build-bun: apps/web/dist not built — run `bun run --filter @podium/web build` first',
     )
   }
-  let webStamp: { sourceSha?: string } | null = null
+  let webStamp: { sourceSha?: string; appVersion?: string } | null = null
   try {
     const raw = JSON.parse(readFileSync(`${webDist}/podium-build.json`, 'utf8')) as {
       sourceSha?: unknown
+      appVersion?: unknown
     }
-    webStamp = typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}
+    webStamp = {
+      ...(typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}),
+      ...(typeof raw.appVersion === 'string' ? { appVersion: raw.appVersion } : {}),
+    }
   } catch {
     webStamp = null
   }
@@ -365,12 +370,16 @@ function main(): void {
       'build-bun: apps/mobile/dist not built - run `bun run --filter @podium/mobile build:web` first',
     )
   }
-  let mobileStamp: { sourceSha?: string } | null = null
+  let mobileStamp: { sourceSha?: string; appVersion?: string } | null = null
   try {
     const raw = JSON.parse(readFileSync(`${mobileDist}/podium-build.json`, 'utf8')) as {
       sourceSha?: unknown
+      appVersion?: unknown
     }
-    mobileStamp = typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}
+    mobileStamp = {
+      ...(typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}),
+      ...(typeof raw.appVersion === 'string' ? { appVersion: raw.appVersion } : {}),
+    }
   } catch {
     mobileStamp = null
   }
@@ -380,6 +389,29 @@ function main(): void {
       'build-bun: apps/web/dist and apps/mobile/dist were built from different commits ' +
         `(web=${webStamp?.sourceSha ?? 'missing'}, mobile=${mobileStamp?.sourceSha ?? 'missing'}).`,
     )
+  }
+  const expectedClientRootDigest = process.env.PODIUM_EXPECTED_CLIENT_ROOT_DIGEST?.trim()
+  if (expectedClientRootDigest) {
+    if (!/^[0-9a-f]{64}$/.test(expectedClientRootDigest)) {
+      throw new Error('build-bun: PODIUM_EXPECTED_CLIENT_ROOT_DIGEST is not a SHA-256 hex digest')
+    }
+    if (webStamp?.appVersion !== version || mobileStamp?.appVersion !== version) {
+      throw new Error(
+        `build-bun: the fresh client build was not finalized for ${version} ` +
+          `(web=${webStamp?.appVersion ?? 'missing'}, mobile=${mobileStamp?.appVersion ?? 'missing'}); ` +
+          'refusing to restamp after its out-of-band digest was captured',
+      )
+    }
+    const actualClientRootDigest = clientBuildRootDigestFromSites({
+      web: webDist,
+      mobile: mobileDist,
+    })
+    if (actualClientRootDigest !== expectedClientRootDigest) {
+      throw new Error(
+        `build-bun: client output changed after the fresh-build digest was captured ` +
+          `(expected=${expectedClientRootDigest}, actual=${actualClientRootDigest})`,
+      )
+    }
   }
 
   if (spec) {
@@ -493,12 +525,14 @@ function main(): void {
   // agree with the VERSION file and the compiled /version. A dest publish
   // already wrote dev+<sha>; a channel package overwrites dev+<sha> with
   // PODIUM_APP_VERSION / package.json (e.g. 0.4.2).
-  for (const clientDist of [webDist, mobileDist]) {
-    execFileSync(
-      'bun',
-      ['--conditions=@podium/source', 'scripts/write-web-build-stamp.ts', clientDist],
-      { cwd: root, stdio: 'inherit', env: { ...process.env, PODIUM_APP_VERSION: version } },
-    )
+  if (!expectedClientRootDigest) {
+    for (const clientDist of [webDist, mobileDist]) {
+      execFileSync(
+        'bun',
+        ['--conditions=@podium/source', 'scripts/write-web-build-stamp.ts', clientDist],
+        { cwd: root, stdio: 'inherit', env: { ...process.env, PODIUM_APP_VERSION: version } },
+      )
+    }
   }
   mkdirSync(headless, { recursive: true })
   // Release units are generated from the same renderer used by runtime setup and the dev host.

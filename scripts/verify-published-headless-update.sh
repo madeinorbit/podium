@@ -211,6 +211,7 @@ gh release download "$RELEASE" --repo "$REPO" \
   --pattern 'podium-headless-*.tar.gz' \
   --pattern 'podium-headless-*.tar.gz.sig' \
   --pattern 'podium-update.json' \
+  --pattern 'client-root-digest.sha256' \
   --pattern 'SHA256SUMS' \
   --dir "$ALL_DIR" --clobber >/dev/null 2>&1 || {
     echo "ABORT: could not download the full published asset set for $REPO@$RELEASE" >&2

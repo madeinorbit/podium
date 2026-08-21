@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { clientBuildRootDigest } from './client-build-root-digest'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
@@ -126,7 +127,7 @@ afterEach(() => {
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
-function writeProductionTree(headless: string): void {
+function writeProductionTree(headless: string): string {
   mkdirSync(join(headless, 'web'), { recursive: true })
   mkdirSync(join(headless, 'mobile'), { recursive: true })
   mkdirSync(join(headless, 'systemd'), { recursive: true })
@@ -152,16 +153,12 @@ function writeProductionTree(headless: string): void {
     writeFileSync(join(headless, site, 'index.html'), productionHtml(site))
     writeFileSync(join(headless, site, 'podium-build.json'), `${JSON.stringify(stamp, null, 2)}\n`)
     writeFileSync(entry, CLIENT_ENTRY)
+    writeFileSync(join(headless, site, 'Alpha.txt'), 'capital sorts before punctuation\n')
+    writeFileSync(join(headless, site, '_metadata.txt'), 'punctuation sorts before lowercase\n')
     writeBuildManifest(join(headless, site), stamp)
   }
-  for (const unit of [
-    'podium-parent.service',
-    'podium-server.service',
-    'podium-janitor.service',
-    'podium-daemon.service',
-  ]) {
-    writeFileSync(join(headless, 'systemd', unit), UNIT)
-  }
+  writeFileSync(join(headless, 'systemd', 'podium.service'), UNIT)
+  return clientBuildRootDigest(headless)
 }
 
 function pack(headlessParent: string): string {
@@ -170,7 +167,10 @@ function pack(headlessParent: string): string {
   return tarball
 }
 
-function runGate(tarball: string): {
+function runGate(
+  tarball: string,
+  clientRootDigest: string,
+): {
   status: number
   failLine: string
   output: string
@@ -183,6 +183,8 @@ function runGate(tarball: string): {
       'linux-x86_64',
       '--source-commit',
       TEST_SOURCE_SHA,
+      '--client-root-digest',
+      clientRootDigest,
       '--no-abduco-identity',
     ],
     { encoding: 'utf8', cwd: repoRoot },
@@ -200,9 +202,9 @@ describe('assert-headless-bundle production layout', () => {
   it('refuses a bundle with systemd/ removed', () => {
     const root = scratch()
     const headless = join(root, 'headless')
-    writeProductionTree(headless)
+    const clientRootDigest = writeProductionTree(headless)
     rmSync(join(headless, 'systemd'), { recursive: true, force: true })
-    const { status, failLine } = runGate(pack(root))
+    const { status, failLine } = runGate(pack(root), clientRootDigest)
     expect(status).not.toBe(0)
     expect(failLine).toMatch(/tarball missing headless\/systemd/)
   })
@@ -210,9 +212,9 @@ describe('assert-headless-bundle production layout', () => {
   it('refuses a mutated spike stub because it is not the manifested build output', () => {
     const root = scratch()
     const headless = join(root, 'headless')
-    writeProductionTree(headless)
+    const clientRootDigest = writeProductionTree(headless)
     writeFileSync(join(headless, 'web', 'index.html'), SPIKE_STUB)
-    const { status, failLine } = runGate(pack(root))
+    const { status, failLine } = runGate(pack(root), clientRootDigest)
     expect(status).not.toBe(0)
     expect(failLine).toMatch(/build provenance hash mismatch for index\.html/)
   })
@@ -220,26 +222,65 @@ describe('assert-headless-bundle production layout', () => {
   it('refuses the padded, coherently stamped forged web dist that defeated plausibility checks', () => {
     const root = scratch()
     const headless = join(root, 'headless')
-    writeProductionTree(headless)
+    const clientRootDigest = writeProductionTree(headless)
     writeFileSync(
       join(headless, 'web', 'index.html'),
       `${productionHtml('web')}<!-- forged padding ${'x'.repeat(200_000)} -->\n`,
     )
     rmSync(join(headless, 'web', 'assets'), { recursive: true, force: true })
-    const { status, failLine } = runGate(pack(root))
+    const { status, failLine } = runGate(pack(root), clientRootDigest)
     expect(status).not.toBe(0)
     expect(failLine).toMatch(/build provenance file set mismatch/)
+  })
+
+  it('refuses fabricated bytes even when their in-archive manifest matches perfectly', () => {
+    const root = scratch()
+    const headless = join(root, 'headless')
+    const capturedDigest = writeProductionTree(headless)
+    const web = join(headless, 'web')
+    writeFileSync(
+      join(web, 'index.html'),
+      `${productionHtml('web')}<!-- forged padding ${'x'.repeat(200_000)} -->\n`,
+    )
+    rmSync(join(web, 'assets'), { recursive: true, force: true })
+    const forgedStamp = productionStamp(WEB_HASH)
+    writeFileSync(join(web, 'podium-build.json'), `${JSON.stringify(forgedStamp, null, 2)}\n`)
+    writeBuildManifest(web, forgedStamp)
+
+    const { status, failLine } = runGate(pack(root), capturedDigest)
+    expect(status).not.toBe(0)
+    expect(failLine).toMatch(/packaged client root digest .* does not match fresh build/)
+  })
+
+  it('refuses when no fresh-build digest is supplied instead of trusting the archive', () => {
+    const root = scratch()
+    writeProductionTree(join(root, 'headless'))
+    const result = spawnSync(
+      'bash',
+      [
+        'scripts/assert-headless-bundle.sh',
+        pack(root),
+        'linux-x86_64',
+        '--source-commit',
+        TEST_SOURCE_SHA,
+        '--no-abduco-identity',
+      ],
+      { encoding: 'utf8', cwd: repoRoot },
+    )
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+    expect(result.status).not.toBe(0)
+    expect(output).toMatch(/pass --client-root-digest .* captured from the fresh client build/)
   })
 
   it('refuses generated noise plus inert code even when it looks like a client asset', () => {
     const root = scratch()
     const headless = join(root, 'headless')
-    writeProductionTree(headless)
+    const clientRootDigest = writeProductionTree(headless)
     writeFileSync(
       join(headless, 'web', 'assets', `index-${WEB_HASH}.js`),
       `${CLIENT_ENTRY}\nfunction inert(){return 1}\n${'/* plausible noise */\n'.repeat(10_000)}`,
     )
-    const { status, failLine } = runGate(pack(root))
+    const { status, failLine } = runGate(pack(root), clientRootDigest)
     expect(status).not.toBe(0)
     expect(failLine).toMatch(/build provenance hash mismatch for assets\/index-.*\.js/)
   })
@@ -247,13 +288,13 @@ describe('assert-headless-bundle production layout', () => {
   it('refuses the same coherently stamped fabrication in the mobile client', () => {
     const root = scratch()
     const headless = join(root, 'headless')
-    writeProductionTree(headless)
+    const clientRootDigest = writeProductionTree(headless)
     writeFileSync(
       join(headless, 'mobile', 'index.html'),
       `${productionHtml('mobile')}<!-- forged padding ${'x'.repeat(200_000)} -->\n`,
     )
     rmSync(join(headless, 'mobile', '_expo'), { recursive: true, force: true })
-    const { status, failLine } = runGate(pack(root))
+    const { status, failLine } = runGate(pack(root), clientRootDigest)
     expect(status).not.toBe(0)
     expect(failLine).toMatch(/build provenance file set mismatch/)
   })
@@ -261,16 +302,16 @@ describe('assert-headless-bundle production layout', () => {
   it('refuses a production-shaped client when its build manifest is absent', () => {
     const root = scratch()
     const headless = join(root, 'headless')
-    writeProductionTree(headless)
+    const clientRootDigest = writeProductionTree(headless)
     rmSync(join(headless, 'web', 'podium-build-manifest.json'))
-    const { status, failLine } = runGate(pack(root))
+    const { status, failLine } = runGate(pack(root), clientRootDigest)
     expect(status).not.toBe(0)
     expect(failLine).toMatch(/has no build provenance manifest/)
   })
 
   it('refuses manifested clients from a commit other than the release commit', () => {
     const root = scratch()
-    writeProductionTree(join(root, 'headless'))
+    const clientRootDigest = writeProductionTree(join(root, 'headless'))
     const tarball = pack(root)
     const result = spawnSync(
       'bash',
@@ -280,6 +321,8 @@ describe('assert-headless-bundle production layout', () => {
         'linux-x86_64',
         '--source-commit',
         'fffffff',
+        '--client-root-digest',
+        clientRootDigest,
         '--no-abduco-identity',
       ],
       { encoding: 'utf8', cwd: repoRoot },
@@ -292,9 +335,9 @@ describe('assert-headless-bundle production layout', () => {
   it('refuses a bundle with NOTICE missing', () => {
     const root = scratch()
     const headless = join(root, 'headless')
-    writeProductionTree(headless)
+    const clientRootDigest = writeProductionTree(headless)
     rmSync(join(headless, 'NOTICE'))
-    const { status, failLine } = runGate(pack(root))
+    const { status, failLine } = runGate(pack(root), clientRootDigest)
     expect(status).not.toBe(0)
     expect(failLine).toMatch(/tarball missing headless\/NOTICE/)
   })
@@ -304,8 +347,8 @@ describe('assert-headless-bundle production layout', () => {
     // is the proof the layout checks accepted the tree — a gate that rejected
     // everything would never get here.
     const root = scratch()
-    writeProductionTree(join(root, 'headless'))
-    const { status, failLine } = runGate(pack(root))
+    const clientRootDigest = writeProductionTree(join(root, 'headless'))
+    const { status, failLine } = runGate(pack(root), clientRootDigest)
     expect(status).not.toBe(0)
     expect(failLine).toMatch(/shipped podium-cli/)
     expect(failLine).not.toMatch(/tarball missing|NOTICE|systemd|build provenance|build stamp/)
@@ -333,7 +376,7 @@ describe('the gate and the signing step name the same JIT keys', () => {
     expect(prove).toContain('all JIT entitlements false')
     expect(prove).toContain('systemd/ removed')
     expect(prove).toContain('stub web/index.html')
-    expect(prove).toContain('padded forged web stub with no assets')
+    expect(prove).toContain('padded forged web stub with matching forged manifest')
     expect(prove).toContain('web build provenance manifest removed')
     expect(prove).toContain('NOTICE missing')
   })
@@ -345,6 +388,7 @@ describe('the gate and the signing step name the same JIT keys', () => {
     expect(workflow).toContain('what breaks is JIT, at runtime')
     expect(workflow).toContain('scripts/assert-headless-bundle.sh')
     expect(workflow).toContain('--source-commit "$GITHUB_SHA"')
+    expect(workflow).toContain('--client-root-digest "$CLIENT_ROOT_DIGEST"')
     expect(workflow).toContain('scripts/prove-headless-assertions-can-fail.sh')
   })
 })

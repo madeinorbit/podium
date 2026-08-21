@@ -34,6 +34,7 @@ import {
 import { HEADLESS_PLATFORMS, type HeadlessPlatform, isHeadlessPlatform } from './abduco-cross'
 import { BUN_TARGETS, bunTargetForPlatform, targetOutputRoot } from './build-bun'
 import { extractRelease } from './changelog'
+import { CLIENT_ROOT_DIGEST_FILE, clientBuildRootDigestFromSites } from './client-build-root-digest'
 import { buildManifest } from './release-manifest'
 import { validateReferencedDesktopManifest } from './desktop-release'
 
@@ -65,6 +66,7 @@ type PreparedHeadless = {
   asset: string
   signature: string
   webDigest: string
+  clientRootDigest: string
   /**
    * How the bundle was produced. Recorded rather than inferred so the A/B job can say
    * which leg it is comparing, and so a descriptor can never be mistaken for the other
@@ -180,6 +182,7 @@ function stagePrepared(p: {
   bundleRoot: string
   outDir: string
   mode: 'cross' | 'native'
+  clientRootDigest: string
 }): PreparedHeadless {
   const asset = headlessAsset(p.platform)
   const version = readFileSync(join(p.bundleRoot, 'headless/VERSION'), 'utf8').trim()
@@ -187,6 +190,16 @@ function stagePrepared(p: {
   const builtSig = `${built}.sig`
   if (!existsSync(built) || !existsSync(builtSig)) {
     throw new Error(`headless build did not produce signed artifact ${built}`)
+  }
+  const packagedClientRootDigest = clientBuildRootDigestFromSites({
+    web: join(p.bundleRoot, 'headless/web'),
+    mobile: join(p.bundleRoot, 'headless/mobile'),
+  })
+  if (packagedClientRootDigest !== p.clientRootDigest) {
+    throw new Error(
+      `packaged clients differ from the fresh build ` +
+        `(expected=${p.clientRootDigest}, actual=${packagedClientRootDigest})`,
+    )
   }
 
   mkdirSync(p.outDir, { recursive: true })
@@ -198,6 +211,7 @@ function stagePrepared(p: {
     asset,
     signature: readFileSync(builtSig, 'utf8').trim(),
     webDigest: packagedWebDigest(join(p.bundleRoot, 'headless')),
+    clientRootDigest: p.clientRootDigest,
     mode: p.mode,
   }
   writeFileSync(join(p.outDir, descriptorName(asset)), `${JSON.stringify(prepared)}\n`)
@@ -228,20 +242,36 @@ export function prepareHeadlessCross(
   }
   if (platforms.length === 0) throw new Error('prepare-cross needs at least one platform')
 
-  // systemd units + web + mobile, once for the whole set.
-  execFileSync('bun', ['run', 'package:clients'], { stdio: 'inherit' })
+  // systemd units + web + mobile, once for the whole set. Stamp the fresh client
+  // output with the FINAL product version before capturing its out-of-band root;
+  // packaging is forbidden from restamping after this point.
+  const version = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version
+  execFileSync('bun', ['run', 'package:clients'], {
+    stdio: 'inherit',
+    env: { ...process.env, PODIUM_APP_VERSION: version },
+  })
+  const clientRootDigest = clientBuildRootDigestFromSites({
+    web: 'apps/web/dist',
+    mobile: 'apps/mobile/dist',
+  })
+  mkdirSync(outDir, { recursive: true })
+  writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${clientRootDigest}\n`)
 
   const prepared: PreparedHeadless[] = []
   for (const platform of platforms) {
     const target = bunTargetForPlatform(platform)
     console.log(`[release] cross-building ${platform} (--target=${target})`)
-    execFileSync('bun', ['scripts/build-bun.ts', `--target=${target}`], { stdio: 'inherit' })
+    execFileSync('bun', ['scripts/build-bun.ts', `--target=${target}`], {
+      stdio: 'inherit',
+      env: { ...process.env, PODIUM_EXPECTED_CLIENT_ROOT_DIGEST: clientRootDigest },
+    })
     prepared.push(
       stagePrepared({
         platform,
         bundleRoot: targetOutputRoot('dist-bun', target),
         outDir,
         mode: 'cross',
+        clientRootDigest,
       }),
     )
   }
@@ -267,12 +297,27 @@ export function prepareHeadlessArchitecture(
     )
   }
 
-  execFileSync('bun', ['run', 'package:headless'], { stdio: 'inherit' })
+  const version = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version
+  execFileSync('bun', ['run', 'package:clients'], {
+    stdio: 'inherit',
+    env: { ...process.env, PODIUM_APP_VERSION: version },
+  })
+  const clientRootDigest = clientBuildRootDigestFromSites({
+    web: 'apps/web/dist',
+    mobile: 'apps/mobile/dist',
+  })
+  mkdirSync(outDir, { recursive: true })
+  writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${clientRootDigest}\n`)
+  execFileSync('bun', ['scripts/build-bun.ts'], {
+    stdio: 'inherit',
+    env: { ...process.env, PODIUM_EXPECTED_CLIENT_ROOT_DIGEST: clientRootDigest },
+  })
   return stagePrepared({
     platform: config.target,
     bundleRoot: 'dist-bun',
     outDir,
     mode: 'native',
+    clientRootDigest,
   })
 }
 
@@ -291,6 +336,20 @@ export function loadPreparedHeadless(
   const webDigests = new Set(prepared.map((item) => item.webDigest))
   if (webDigests.size !== 1 || !prepared[0]?.webDigest) {
     throw new Error('prepared headless artifacts have different or missing web digests')
+  }
+  const clientRootDigests = new Set(prepared.map((item) => item.clientRootDigest))
+  if (clientRootDigests.size !== 1 || !prepared[0]?.clientRootDigest) {
+    throw new Error('prepared headless artifacts have different or missing client root digests')
+  }
+  const capturedClientRootDigest = (() => {
+    try {
+      return readFileSync(join(dir, CLIENT_ROOT_DIGEST_FILE), 'utf8').trim()
+    } catch {
+      return ''
+    }
+  })()
+  if (capturedClientRootDigest !== prepared[0].clientRootDigest) {
+    throw new Error('prepared headless artifacts do not match the out-of-band client root digest')
   }
   for (const target of requiredTargets) {
     if (!prepared.some((item) => item.target === target)) {
@@ -404,6 +463,7 @@ export function publishPreparedHeadless(p: {
     ...prepared.flatMap((item) => [item.asset, `${item.asset}.sig`]),
     manifestName,
     'VERSION',
+    CLIENT_ROOT_DIGEST_FILE,
   ]
   const checksums = writeChecksums(p.dir, releaseFiles)
 
