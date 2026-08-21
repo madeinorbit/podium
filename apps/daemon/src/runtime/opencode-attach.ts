@@ -397,6 +397,21 @@ export function createOpencodeClientTerminals(
       // let the next attach reconnect; the reaper still owns the deadline.
       record.session = undefined
     })
+    /**
+     * SUBSCRIBE, THEN ASK FOR THE FIRST PAINT.
+     *
+     * `spawnAbducoAgent` has to attach a live PTY before it can return the
+     * `AgentSession`, and that attach nudges the TUI to repaint. A fast client
+     * can answer both halves of the resize nudge before this caller gets to
+     * register `onFrame`; opencode does exactly that, leaving a valid client and
+     * control lease behind with no bytes ever entering the relay. Codex and Grok
+     * happened to emit later startup work, which hid the same hot-source race.
+     *
+     * A second redraw after the consumers are installed makes the contract at
+     * this seam explicit for every harness client. It also covers adoption,
+     * where abduco has no history to replay and a fresh paint is required.
+     */
+    session.redraw()
     return session
   }
 

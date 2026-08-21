@@ -44,7 +44,7 @@ const target = {
 }
 
 /** A stand-in for the abduco client PTY: records what was wired to it. */
-function fakeClient(): AgentSession & {
+function fakeClient(redrawFrame?: string): AgentSession & {
   emit(data: string): void
   disposed: boolean
   writes: string[]
@@ -77,6 +77,7 @@ function fakeClient(): AgentSession & {
     },
     redraw() {
       client.redraws += 1
+      if (redrawFrame) client.emit(redrawFrame)
     },
     geometry: () => ({ cols: 120, rows: 40 }),
     dispose() {
@@ -106,7 +107,7 @@ interface Harness {
   cleared: number
 }
 
-function harness(opts: { hasMaster?: (label: string) => boolean } = {}) {
+function harness(opts: { hasMaster?: (label: string) => boolean; redrawFrame?: string } = {}) {
   const state: Harness = {
     spawns: [],
     reclaimed: [],
@@ -128,7 +129,7 @@ function harness(opts: { hasMaster?: (label: string) => boolean } = {}) {
         ...(o.env ? { env: o.env } : {}),
         ...(o.stripEnv ? { stripEnv: o.stripEnv } : {}),
       })
-      const client = fakeClient()
+      const client = fakeClient(opts.redrawFrame)
       state.clients.push(client)
       return client
     },
@@ -236,6 +237,19 @@ describe('the client terminal a server-family attach produces', () => {
     expect(endpoint.streamId).toBe(SESSION)
   })
 
+  it('subscribes before requesting the initial client paint', async () => {
+    const initialPaint = Buffer.from('\x1b[2Jopencode ready').toString('base64')
+    const { terminals, state } = harness({ redrawFrame: initialPaint })
+
+    const endpoint = await terminals.attach({ sessionId: SESSION, target })
+
+    // A hot PTY may have painted before spawn() returned. The attach seam must
+    // request one paint after its relay listener exists, or opencode can leave a
+    // valid lease and endpoint whose client never receives a single frame.
+    expect(state.frames).toEqual([{ streamId: endpoint.streamId, data: initialPaint }])
+    expect(state.clients[0]?.redraws).toBe(1)
+  })
+
   it('routes browser input, geometry, and redraw back to the attached TUI', async () => {
     const { terminals, state } = harness()
     await terminals.attach({ sessionId: SESSION, target })
@@ -244,7 +258,7 @@ describe('the client terminal a server-family attach produces', () => {
     expect(terminals.redraw(SESSION)).toBe(true)
     expect(state.clients[0]?.writes).toEqual(['aGVsbG8='])
     expect(state.clients[0]?.sizes).toEqual([{ cols: 101, rows: 37 }])
-    expect(state.clients[0]?.redraws).toBe(1)
+    expect(state.clients[0]?.redraws).toBe(2)
     expect(terminals.input(asSessionId('not-attached'), 'eA==')).toBe(false)
   })
 
