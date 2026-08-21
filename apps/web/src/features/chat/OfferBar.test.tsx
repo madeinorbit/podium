@@ -127,12 +127,13 @@ describe('OfferBar', () => {
       ],
     }
     act(() => root.render(<OfferBar offer={withInput} disabled={false} onAction={onAction} />))
-    // The button advertises the pending input with an ellipsis.
+    // The button advertises the pending input with a pencil mark — an icon in
+    // the bar's own family now, not a text glyph, so it is asserted by class.
     const sendBack = [...container.querySelectorAll('button')].find((b) =>
       b.textContent?.startsWith('Send back'),
     )
     expect(sendBack?.textContent).toContain('Send back')
-    expect(sendBack?.textContent).toContain('✎')
+    expect(sendBack?.querySelector('.offer-fold-action-pencil')).not.toBeNull()
     act(() => sendBack?.click())
     // Nothing sent yet — the feedback field is up instead of the button row.
     expect(onAction).not.toHaveBeenCalled()
