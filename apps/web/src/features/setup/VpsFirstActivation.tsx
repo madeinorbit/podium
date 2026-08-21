@@ -1,11 +1,7 @@
 import { ONBOARDING_VPS_SERVER_DRAFT_KEY, type UiState } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
 import { isServerReadiness } from '@podium/model'
-import {
-  buildVpsBootstrapCommand,
-  type VpsReleaseChannel,
-  vpsInstallerChannel,
-} from '@podium/runtime/vps-bootstrap'
+import { buildVpsBootstrapCommand, type VpsReleaseChannel } from '@podium/runtime/vps-bootstrap'
 import {
   ArrowRight,
   Check,
@@ -134,9 +130,6 @@ export function VpsFirstActivation({
     () => (read.status === 'known' ? buildVpsBootstrapCommand(read.channel) : null),
     [read],
   )
-  // The instance updates on a channel the VPS cannot install from yet; the command
-  // says the other train, and so must the page. Never a silent substitution.
-  const substituted = read.status === 'known' && vpsInstallerChannel(read.channel) !== read.channel
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt is the deliberate re-read trigger
   useEffect(() => {
@@ -315,14 +308,6 @@ export function VpsFirstActivation({
               </div>
             )}
           </div>
-          {substituted && (
-            <p className="mt-3 text-[12.5px] leading-[1.55] text-[#9ba1ab]">
-              This Podium updates on <code className="font-mono text-[#a8adb6]">stable</code>, but
-              no stable release is published yet — so the VPS installs the{' '}
-              <code className="font-mono text-[#a8adb6]">edge</code> build, the only train that
-              exists, and keeps updating on it.
-            </p>
-          )}
           {command !== null && (
             <p className="mt-3 text-[12.5px] leading-[1.55] text-[#7f858f]">
               The shorter <code className="font-mono text-[#a8adb6]">curl … | sh</code> command only

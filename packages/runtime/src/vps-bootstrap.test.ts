@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  buildVpsBootstrapCommand,
-  STABLE_INSTALLER_PUBLISHED,
-  vpsInstallerChannel,
-} from './vps-bootstrap'
+import { buildVpsBootstrapCommand } from './vps-bootstrap'
 
 describe('fresh VPS bootstrap command', () => {
   it('installs a standalone host without a join token or transfer source', () => {
@@ -24,36 +20,23 @@ describe('fresh VPS bootstrap command', () => {
     expect(buildVpsBootstrapCommand('edge')).toContain('--channel edge')
   })
 
-  /**
-   * THE DEFECT (POD-1288): a stable-resolving instance handed the VPS
-   * `releases/latest/download/install.sh`, which 404s while only the edge
-   * prerelease is published — the paste failed on a fresh VM.
-   */
-  it('never emits the stable installer while no stable release is published', () => {
-    expect(STABLE_INSTALLER_PUBLISHED).toBe(false)
-    expect(vpsInstallerChannel('stable')).toBe('edge')
-
+  it('keeps stable onboarding on the stable release train', () => {
     const command = buildVpsBootstrapCommand('stable')
-    expect(command).not.toContain('/releases/latest/download/install.sh')
-    expect(command).not.toContain('--channel stable')
-    expect(command).toContain('/releases/download/edge/install.sh')
-    expect(command).toContain('--channel edge')
+    expect(command).toContain('/releases/latest/download/install.sh')
+    expect(command).toContain('--channel stable')
+    expect(command).not.toContain('/releases/download/edge/install.sh')
+    expect(command).not.toContain('--channel edge')
   })
 
-  it('installs the channel it downloaded, so the VPS keeps updating on that train', () => {
+  it('downloads and persists the requested channel', () => {
     for (const channel of ['stable', 'edge'] as const) {
-      const installing = vpsInstallerChannel(channel)
       const command = buildVpsBootstrapCommand(channel)
-      expect(command).toContain(`--channel ${installing}`)
+      expect(command).toContain(`--channel ${channel}`)
       expect(command).toContain(
-        installing === 'edge'
+        channel === 'edge'
           ? '/releases/download/edge/install.sh'
           : '/releases/latest/download/install.sh',
       )
     }
-  })
-
-  it('leaves edge alone: the substitution is only for a channel nothing is published on', () => {
-    expect(vpsInstallerChannel('edge')).toBe('edge')
   })
 })
