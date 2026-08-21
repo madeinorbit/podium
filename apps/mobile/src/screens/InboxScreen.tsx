@@ -13,6 +13,7 @@ import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholde
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
+import { RefreshOffer } from '../components/RefreshOffer'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { CountPill } from '../components/StatusGlyphs'
@@ -155,6 +156,9 @@ export function InboxScreen() {
           attribute to this account, and storage degradation, are both things the
           user is owed rather than log lines. */}
       <StorageNoticeAlert />
+      {/* The phone's own interface is replaced whenever an update lands, by
+          someone who was not holding this phone (spec §8c decision 11). */}
+      <RefreshOffer />
       <BootstrapCrossfade resolved={!booting} placeholder={<WorkSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <SectionList
