@@ -11,6 +11,7 @@
  * scripts/prove-headless-assertions-can-fail.sh (empty entitlements case).
  */
 import { execFileSync, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
   chmodSync,
   mkdirSync,
@@ -20,7 +21,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -34,18 +35,52 @@ const JIT_ENTITLEMENTS = [
   'com.apple.security.cs.disable-library-validation',
 ] as const
 
-const PRODUCTION_HTML = `<!doctype html>
+const TEST_VERSION = '0.0.0-test'
+const TEST_SOURCE_SHA = '012345a'
+const WEB_HASH = 'AbCdEf12'
+const MOBILE_HASH = '0123456789abcdef0123456789abcdef'
+
+// A synthetic but substantive JavaScript entry for the layout-only fixture. Random-looking
+// content keeps its gzip size above the gate's anti-padding floor; a repeated comment does not.
+const CLIENT_ENTRY = Array.from({ length: 3_000 }, (_, index) => {
+  const value = createHash('sha256').update(String(index)).digest('hex')
+  return `const value_${index}=()=>({index:${index},value:"${value}"});`
+}).join('\n')
+
+function productionHtml(site: 'web' | 'mobile'): string {
+  const src =
+    site === 'web'
+      ? `/assets/index-${WEB_HASH}.js`
+      : `/mobile/_expo/static/js/web/entry-${MOBILE_HASH}.js`
+  const type = site === 'web' ? ' type="module"' : ''
+  return `<!doctype html>
 <html lang="en">
   <head>
-    <meta name="podium-version" content="0.0.0-test" />
+    <meta name="podium-version" content="${TEST_VERSION}" />
     <title>Podium</title>
   </head>
   <body>
     <div id="root"></div>
-    <!-- padded so a production client is not confused with a ~70-byte spike stub ${'x'.repeat(320)} -->
+    <script${type} src="${src}"></script>
   </body>
 </html>
 `
+}
+
+function productionStamp(hash: string): string {
+  return `${JSON.stringify(
+    {
+      wireSchemaDigest: '0123456789abcdef',
+      wireVersion: 1,
+      builtAt: '2026-08-21T00:00:00.000Z',
+      appVersion: TEST_VERSION,
+      sourceSha: TEST_SOURCE_SHA,
+      bundleVersion: `bundle+${hash}`,
+    },
+    null,
+    2,
+  )}\n`
+}
 
 const SPIKE_STUB =
   '<!doctype html><title>spike</title><p>POD-2501 spike — no web dist</p>\n'
@@ -77,13 +112,20 @@ function writeProductionTree(headless: string): void {
     '#!/bin/sh\nexport PODIUM_HOME="$DIR"\nexec "$DIR/podium-cli" "$@"\n',
   )
   chmodSync(join(headless, 'podium'), 0o755)
-  writeFileSync(join(headless, 'VERSION'), '0.0.0-test\n')
+  writeFileSync(join(headless, 'VERSION'), `${TEST_VERSION}\n`)
   writeFileSync(join(headless, 'LICENSE'), 'Apache License Version 2.0\n')
   writeFileSync(join(headless, 'NOTICE'), 'Podium\n')
   writeFileSync(join(headless, 'THIRD-PARTY-NOTICES.md'), '# Third-party notices\n')
   for (const site of ['web', 'mobile'] as const) {
-    writeFileSync(join(headless, site, 'index.html'), PRODUCTION_HTML)
-    writeFileSync(join(headless, site, 'podium-build.json'), '{"appVersion":"0.0.0-test"}\n')
+    const hash = site === 'web' ? WEB_HASH : MOBILE_HASH
+    const entry =
+      site === 'web'
+        ? join(headless, site, 'assets', `index-${hash}.js`)
+        : join(headless, site, '_expo', 'static', 'js', 'web', `entry-${hash}.js`)
+    mkdirSync(dirname(entry), { recursive: true })
+    writeFileSync(join(headless, site, 'index.html'), productionHtml(site))
+    writeFileSync(join(headless, site, 'podium-build.json'), productionStamp(hash))
+    writeFileSync(entry, CLIENT_ENTRY)
   }
   for (const unit of [
     'podium-parent.service',
@@ -134,7 +176,34 @@ describe('assert-headless-bundle production layout', () => {
     writeFileSync(join(headless, 'web', 'index.html'), SPIKE_STUB)
     const { status, failLine } = runGate(pack(root))
     expect(status).not.toBe(0)
-    expect(failLine).toMatch(/web\/index\.html is only/)
+    expect(failLine).toMatch(/static stub \(no React mount/)
+  })
+
+  it('refuses a padded static stub with a forged coherent stamp but no client asset', () => {
+    const root = scratch()
+    const headless = join(root, 'headless')
+    writeProductionTree(headless)
+    writeFileSync(
+      join(headless, 'web', 'index.html'),
+      `${productionHtml('web')}<!-- forged padding ${'x'.repeat(200_000)} -->\n`,
+    )
+    rmSync(join(headless, 'web', 'assets'), { recursive: true, force: true })
+    const { status, failLine } = runGate(pack(root))
+    expect(status).not.toBe(0)
+    expect(failLine).toMatch(/references missing client asset/)
+  })
+
+  it('refuses a forged hashed asset made only of repetitive padding', () => {
+    const root = scratch()
+    const headless = join(root, 'headless')
+    writeProductionTree(headless)
+    writeFileSync(
+      join(headless, 'web', 'assets', `index-${WEB_HASH}.js`),
+      'function padded(){return 1}\n'.repeat(10_000),
+    )
+    const { status, failLine } = runGate(pack(root))
+    expect(status).not.toBe(0)
+    expect(failLine).toMatch(/compresses to only .*padded static content/)
   })
 
   it('refuses a bundle with NOTICE missing', () => {
@@ -156,7 +225,7 @@ describe('assert-headless-bundle production layout', () => {
     const { status, failLine } = runGate(pack(root))
     expect(status).not.toBe(0)
     expect(failLine).toMatch(/shipped podium-cli/)
-    expect(failLine).not.toMatch(/tarball missing|stub|NOTICE|systemd|index\.html/)
+    expect(failLine).not.toMatch(/tarball missing|stub|NOTICE|systemd|client asset|build stamp/)
   })
 })
 
@@ -175,8 +244,10 @@ describe('the gate and the signing step name the same JIT keys', () => {
     const prove = readFileSync(join(repoRoot, 'scripts/prove-headless-assertions-can-fail.sh'), 'utf8')
     expect(prove).toContain('entitlements missing com.apple.security.cs.allow-jit')
     expect(prove).toContain('empty entitlements')
+    expect(prove).toContain('all JIT entitlements false')
     expect(prove).toContain('systemd/ removed')
     expect(prove).toContain('stub web/index.html')
+    expect(prove).toContain('padded forged web stub with no assets')
     expect(prove).toContain('NOTICE missing')
   })
 

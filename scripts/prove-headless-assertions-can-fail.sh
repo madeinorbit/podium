@@ -233,6 +233,32 @@ edit_noent() {
 check "empty entitlements" "entitlements missing com.apple.security.cs.allow-jit" \
   darwin-aarch64 "$DARWIN_REF" "$(mutate noent edit_noent)"
 
+# 6b. All five keys still PRESENT, but explicitly false. Presence alone is not the
+#     policy: Bun's JIT needs each entitlement enabled. This is the closest false
+#     positive to the real regression because a key-only grep accepts it.
+edit_false_entitlements() {
+  cat > "$CASE/false-entitlements.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><false/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><false/>
+  <key>com.apple.security.cs.disable-executable-page-protection</key><false/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key><false/>
+  <key>com.apple.security.cs.disable-library-validation</key><false/>
+</dict>
+</plist>
+PLIST
+  python3 scripts/macho-strip-signature.py "$CASE/headless/podium-cli" "$CASE/headless/podium-cli.bare" \
+    && mv "$CASE/headless/podium-cli.bare" "$CASE/headless/podium-cli" \
+    && chmod +x "$CASE/headless/podium-cli" \
+    && rcodesign sign --binary-identifier podium \
+      --entitlements-xml-file "$CASE/false-entitlements.plist" "$CASE/headless/podium-cli"
+}
+check "all JIT entitlements false" "entitlement com.apple.security.cs.allow-jit is not enabled" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate falseentitlements edit_false_entitlements)"
+
 # 7. Raw `bun build --compile` output: already ad-hoc signed, but LINKER_SIGNED with
 #    identifier a.out and NO entitlements. The regression that looks most like success.
 RAW="$WORK/raw-podium"
@@ -294,8 +320,40 @@ edit_stub_web() {
   printf '<!doctype html><title>spike</title><p>POD-2501 spike — no web dist</p>\n' \
     > "$CASE/headless/web/index.html"
 }
-check "stub web/index.html" "web/index.html is only" \
+check "stub web/index.html" "static stub (no React mount" \
   darwin-aarch64 "$DARWIN_REF" "$(mutate stubweb edit_stub_web)"
+
+# 13b. Pad the stub far beyond the old size floor, add every stamp field, and name a
+#      plausible hashed entry — but ship no entry bytes. A shape-only gate accepts it.
+edit_forged_web() {
+  rm -rf "$CASE/headless/web/assets"
+  python3 - "$CASE/headless/web" "$CASE/headless/VERSION" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+site = Path(sys.argv[1])
+version = Path(sys.argv[2]).read_text().strip()
+bundle_hash = 'AbCdEf12'
+(site / 'index.html').write_text(
+    '<!doctype html><html><head>'
+    f'<meta name="podium-version" content="{version}">'
+    '</head><body><div id="root"></div>'
+    f'<script type="module" src="/assets/index-{bundle_hash}.js"></script>'
+    f'<!-- forged padding {"x" * 200_000} --></body></html>\n'
+)
+(site / 'podium-build.json').write_text(json.dumps({
+    'wireSchemaDigest': '0123456789abcdef',
+    'wireVersion': 1,
+    'builtAt': '2026-08-21T00:00:00.000Z',
+    'appVersion': version,
+    'sourceSha': '012345a',
+    'bundleVersion': f'bundle+{bundle_hash}',
+}) + '\n')
+PY
+}
+check "padded forged web stub with no assets" "references missing client asset" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate forgedweb edit_forged_web)"
 
 # 14. NOTICE absent — Apache-2.0 convention, packed by build-bun.ts with LICENSE.
 edit_nonotice() { rm -f "$CASE/headless/NOTICE"; }

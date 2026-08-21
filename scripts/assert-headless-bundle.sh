@@ -115,7 +115,7 @@ for want in \
   headless/systemd/podium-janitor.service \
   headless/systemd/podium-daemon.service
 do
-  echo "$listing" | grep -qx "$want" || fail "tarball missing $want"
+  grep -qx "$want" <<<"$listing" || fail "tarball missing $want"
 done
 stray="$(echo "$listing" | awk -F/ '{print $1}' | sort -u | grep -vx 'headless' || true)"
 [ -z "$stray" ] || fail "tarball has entries outside headless/: $stray"
@@ -140,25 +140,133 @@ for unit in podium-parent.service podium-server.service podium-janitor.service p
   grep -q '\[Unit\]' "$WORK/headless/systemd/$unit" \
     || fail "extracted headless/systemd/$unit is not a systemd unit"
 done
-# A file named index.html is not enough. The spike wrote
-# `<!doctype html><title>spike</title>…` (~70 bytes, no React mount, no build
-# stamp) and that would pass an existence check. Production clients are stamped
-# by write-web-build-stamp.ts (podium-build.json + podium-version meta) and
-# mount at id="root".
+
+validate_client() {
+  python3 - "$1" "$2" <<'PY'
+import gzip
+import json
+import re
+import sys
+from datetime import datetime
+from html.parser import HTMLParser
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
+
+site = Path(sys.argv[1])
+version = Path(sys.argv[2]).read_text(encoding='utf-8').strip()
+
+class Document(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.has_root = False
+        self.version = None
+        self.scripts = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if attrs.get('id') == 'root':
+            self.has_root = True
+        if tag == 'meta' and attrs.get('name', '').lower() == 'podium-version':
+            self.version = attrs.get('content')
+        if tag == 'script' and attrs.get('src'):
+            self.scripts.append((attrs.get('type', '').lower(), attrs['src']))
+
+def reject(message):
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+html_path = site / 'index.html'
+stamp_path = site / 'podium-build.json'
+if not html_path.is_file():
+    reject(f'has no {site.name}/index.html')
+if not stamp_path.is_file():
+    reject(f'has no {site.name}/podium-build.json')
+
+html = html_path.read_text(encoding='utf-8')
+doc = Document()
+doc.feed(html)
+if not doc.has_root:
+    reject('is a static stub (no React mount id="root")')
+if doc.version != version:
+    reject(f'podium-version meta {doc.version!r} does not match VERSION {version!r}')
+
+try:
+    stamp = json.loads(stamp_path.read_text(encoding='utf-8'))
+except (OSError, json.JSONDecodeError) as error:
+    reject(f'has an invalid podium-build.json: {error}')
+if not isinstance(stamp, dict):
+    reject('podium-build.json is not an object')
+if stamp.get('appVersion') != version:
+    reject(f'build stamp appVersion {stamp.get("appVersion")!r} does not match VERSION {version!r}')
+if not isinstance(stamp.get('wireVersion'), int) or isinstance(stamp.get('wireVersion'), bool) or stamp['wireVersion'] < 1:
+    reject('build stamp has no positive integer wireVersion')
+if not re.fullmatch(r'[0-9a-f]{16}', stamp.get('wireSchemaDigest', '')):
+    reject('build stamp has no 16-hex wireSchemaDigest')
+source_sha = stamp.get('sourceSha', '')
+if not re.fullmatch(r'[0-9a-f]{7,40}', source_sha):
+    reject('build stamp has no hexadecimal sourceSha')
+if version.startswith('dev+') and version[4:] != source_sha:
+    reject(f'build stamp sourceSha {source_sha!r} does not match development version {version!r}')
+try:
+    built_at = datetime.fromisoformat(stamp.get('builtAt', '').replace('Z', '+00:00'))
+    if built_at.tzinfo is None:
+        reject('build stamp builtAt has no timezone')
+except (TypeError, ValueError):
+    reject('build stamp builtAt is not an ISO-8601 timestamp')
+
+hashed = re.compile(r'(?:^|/)[^/?#]+-([A-Za-z0-9_-]{8}|[0-9a-f]{32})\.js(?:[?#]|$)')
+module = [(src, hashed.search(src)) for typ, src in doc.scripts if typ == 'module']
+classic = [(src, hashed.search(src)) for typ, src in doc.scripts if typ != 'module']
+candidates = [pair for pair in (module or classic) if pair[1]]
+if not candidates:
+    reject('index.html references no content-hashed JavaScript entry')
+src, match = candidates[0]
+expected_bundle = f'bundle+{match.group(1)}'
+if stamp.get('bundleVersion') != expected_bundle:
+    reject(f'build stamp bundleVersion {stamp.get("bundleVersion")!r} does not match entry {expected_bundle!r}')
+
+url = urlsplit(src)
+if url.scheme or url.netloc:
+    reject(f'entry script is not a local client asset: {src}')
+relative = unquote(url.path).lstrip('/')
+if relative.startswith(f'{site.name}/'):
+    relative = relative[len(site.name) + 1:]
+asset = (site / relative).resolve()
+try:
+    asset.relative_to(site.resolve())
+except ValueError:
+    reject(f'entry script escapes the client root: {src}')
+if not asset.is_file():
+    reject(f'index.html references missing client asset {src}')
+raw = asset.read_bytes()
+if len(raw) < 100_000:
+    reject(f'hashed entry asset {src} is only {len(raw)} bytes')
+compressed = len(gzip.compress(raw, compresslevel=9))
+if compressed < 20_000:
+    reject(f'hashed entry asset {src} compresses to only {compressed} bytes — padded static content is not a client build')
+try:
+    javascript = raw.decode('utf-8')
+except UnicodeDecodeError:
+    reject(f'hashed entry asset {src} is not UTF-8 JavaScript')
+if not ('{' in javascript and '(' in javascript and any(token in javascript for token in ('function', '=>', 'const ', 'var ', 'class '))):
+    reject(f'hashed entry asset {src} does not contain executable JavaScript structure')
+
+print(f'{site.name}: validated {src} ({len(raw)} raw bytes, {compressed} gzip bytes), stamp {expected_bundle}')
+PY
+}
+
+# A file named index.html is not enough. Nor are padding, a stamp-shaped JSON
+# file, and a made-up hashed script name: all three are cheap to forge around a
+# static stub. Validate the stamp's relationships and require the referenced,
+# content-hashed entry chunk to contain substantial compressed JavaScript.
 for site in web mobile; do
-  html="$WORK/headless/$site/index.html"
-  [ -f "$html" ] || fail "extracted bundle has no $site/index.html"
-  [ -f "$WORK/headless/$site/podium-build.json" ] \
-    || fail "extracted bundle has no $site/podium-build.json — a production client carries a build stamp"
-  html_size="$(stat -c%s "$html")"
-  [ "$html_size" -ge 400 ] \
-    || fail "extracted $site/index.html is only $html_size bytes — a production client is not this small"
-  grep -q 'id="root"' "$html" \
-    || fail "extracted $site/index.html is a stub (no React mount id=\"root\")"
-  grep -q 'podium-version' "$html" \
-    || fail "extracted $site/index.html is a stub (no podium-version meta; write-web-build-stamp did not run)"
+  site_dir="$WORK/headless/$site"
+  if ! client_report="$(validate_client "$site_dir" "$WORK/headless/VERSION" 2>&1)"; then
+    fail "extracted $site client is not a validated production build: $client_report"
+  fi
+  echo "$client_report"
 done
-pass "bundle carries the production layout and a non-empty VERSION ($(tr -d '\n' <"$WORK/headless/VERSION"))"
+pass "bundle carries validated production clients and VERSION ($(tr -d '\n' <"$WORK/headless/VERSION"))"
 echo "shipped podium-cli sha256=$(sha256sum "$CLI" | cut -d' ' -f1)"
 
 # --- Object format and architecture of the SHIPPED binary ---
@@ -238,12 +346,12 @@ if [ "$IS_DARWIN" = 1 ]; then
   echo "signature policy for $PLATFORM: a failure below means — $SIG_MEANING"
   sig="$(rcodesign print-signature-info "$CLI" 2>&1)" \
     || fail "rcodesign could not parse a signature out of the shipped binary: $SIG_MEANING"
-  echo "$sig" | grep -q 'signature: null' && fail "shipped binary has NO code signature: $SIG_MEANING"
-  echo "$sig" | grep -q 'CodeSignatureFlags(ADHOC' \
+  grep -q 'signature: null' <<<"$sig" && fail "shipped binary has NO code signature: $SIG_MEANING"
+  grep -q 'CodeSignatureFlags(ADHOC' <<<"$sig" \
     || fail "shipped binary signature is missing the ADHOC flag: $SIG_MEANING"
-  echo "$sig" | grep -q 'LINKER_SIGNED' \
+  grep -q 'LINKER_SIGNED' <<<"$sig" \
     && fail "shipped binary still carries Bun's LINKER_SIGNED signature — rcodesign never re-signed it, so the JIT entitlements were never attached ($SIG_MEANING)"
-  echo "$sig" | grep -q 'identifier: podium' \
+  grep -q 'identifier: podium' <<<"$sig" \
     || fail "shipped binary signature identifier is not 'podium' (Bun's linker signature uses a.out)"
   pass "shipped binary was re-signed ad-hoc by rcodesign (identifier=podium)"
   for ent in \
@@ -253,18 +361,25 @@ if [ "$IS_DARWIN" = 1 ]; then
     com.apple.security.cs.allow-dyld-environment-variables \
     com.apple.security.cs.disable-library-validation
   do
-    echo "$sig" | grep -q "$ent" || fail "shipped binary entitlements missing $ent"
+    ent_value="$(awk -v ent="$ent" '
+      index($0, "<key>" ent "</key>") { getline; print; exit }
+    ' <<<"$sig")"
+    [ -n "$ent_value" ] || fail "shipped binary entitlements missing $ent"
+    case "$ent_value" in
+      *'<true/>'*|*'<true />'*) : ;;
+      *) fail "shipped binary entitlement $ent is not enabled (expected true, got: $ent_value)" ;;
+    esac
   done
-  pass "shipped binary carries the full Bun JIT entitlement set (5 keys)"
+  pass "shipped binary carries the full Bun JIT entitlement set (5 keys, all true)"
 
   # Does the signature still seal these bytes? An ad-hoc signature has no CMS blob, so
   # `rcodesign verify` ALWAYS reports a CMS error — that line is the proof the verifier
   # ran at all. What must not appear is a code digest mismatch.
   verify_out="$(rcodesign verify "$CLI" 2>&1 || true)"
-  echo "$verify_out" | grep -q 'CMS error' \
+  grep -q 'CMS error' <<<"$verify_out" \
     || fail "rcodesign verify did not produce the expected ad-hoc CMS marker — the verifier did not run as expected:
 $verify_out"
-  echo "$verify_out" | grep -qi 'digest mismatch' \
+  grep -qi 'digest mismatch' <<<"$verify_out" \
     && fail "code digest mismatch — the signature does not seal the shipped bytes"
   pass "signature seals the shipped bytes (no code digest mismatch)"
 fi
