@@ -247,8 +247,9 @@ function StageSections({
  *
  * IDENTITY COMES FROM THE STAGE, not from a new colour: the glyph and the tint
  * are the same values the desktop's `issue-glyphs.tsx` and the terminal's
- * `REF_STAGE_ACCENT` table use, read from `../theme/stage`. Amber never appears
- * here — it is reserved for "waiting on you", and a stage is never an ask.
+ * `REF_STAGE_ACCENT` table use, read from `../theme/stage`. Bisque never
+ * appears here — it is reserved for "waiting on you", and a stage is never an
+ * ask.
  *
  * The whole 44pt bar is the fold control, and the count sits OUTSIDE the fold so
  * a collapsed lane still says how much is in it. Compression, not concealment.
@@ -383,7 +384,7 @@ const styles = StyleSheet.create({
   toggle: {
     ...sans(600),
     // A view filter is not the primary action; it stopped competing with the
-    // needs-you yellow and the New Task button [POD-366].
+    // needs-you bisque and the New Task button [POD-366].
     color: color.textDim,
     fontSize: font.small,
   },

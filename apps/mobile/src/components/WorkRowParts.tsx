@@ -120,7 +120,7 @@ export type RowProgress = MissionProgress
 /**
  * The row's baseline rule: a segmented meter drawn across the text column, in
  * the row's existing bottom padding, so a row that has one costs no height and
- * a list of thirty keeps one even rhythm. Review is the one amber segment: it
+ * a list of thirty keeps one even rhythm. Review is the one bisque segment: it
  * is the progress state that explicitly asks the operator for attention.
  */
 export function RowProgressMeter({

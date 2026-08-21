@@ -42,7 +42,7 @@ const SQUARE_STATE: Record<DotTone, IdSquareState> = {
  * One session row in the redesign's work-list grammar: the 26px ID square is
  * the identity mark, the row tints in the issue's colour (slate-quiet when
  * uncoloured), status lives as a glyph column on the right. Needs-you rows are
- * the heroes — amber border + tint, the agent's actual question quoted below.
+ * the heroes — bisque border + tint, the agent's actual question quoted below.
  */
 export function SessionCard({
   model,

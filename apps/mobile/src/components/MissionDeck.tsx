@@ -344,9 +344,9 @@ export function MissionDeck({
         {/* ICON ONLY, and the label is the reason. "+ Agent" cost about 50pt of
             a 390pt row, which is exactly what "Needs you" needed to stay on one
             line — and a segmented control whose third tab wraps to two lines
-            makes the whole row taller than the controls beside it. The amber
+            makes the whole row taller than the controls beside it. The bisque
             fill already says "this is the primary action here", and it is the
-            only amber on the panel. */}
+            only accent on the panel. */}
         <PressableScale
           onPress={onLaunchAgent}
           accessibilityRole="button"
@@ -855,7 +855,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.hairline,
   },
-  // The deck's ONE primary action, and the only amber on the panel: launching an
+  // The deck's ONE primary action, and the only accent on the panel: launching an
   // agent is what the operator came here to be able to do without leaving the
   // conversation.
   launch: {

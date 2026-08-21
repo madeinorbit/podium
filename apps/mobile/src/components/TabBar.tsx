@@ -87,8 +87,8 @@ interface TabBarProps {
  * which is opt-in there rather than the default. Screens drive it through
  * ../lib/tab-bar-minimize; see ../hooks/useMinimizeTabBarOnScroll.
  *
- * The active tab is a Superade Yellow chip. Attention stays on the Work rows
- * that own it instead of being duplicated onto navigation chrome.
+ * The active tab is a bisque chip. Attention stays on the Work rows that own it
+ * instead of being duplicated onto navigation chrome.
  */
 export function TabBar({ state, descriptors, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets()
@@ -226,7 +226,7 @@ const styles = StyleSheet.create({
   },
   chip: {
     // Hugs its label rather than filling the cell: a quarter-width block of
-    // Superade Yellow is a bigger claim on attention than "you are here".
+    // bisque is a bigger claim on attention than "you are here".
     alignSelf: 'center',
     maxWidth: '100%',
     alignItems: 'center',

@@ -126,7 +126,7 @@
   .rail.task { width: 2px; background: color-mix(in oklab, var(--issue) 22%, transparent); }
   .elbow { position: absolute; top: 50%; height: 1px; background: var(--hairline); }
   .elbow.mission { background: color-mix(in oklab, var(--issue) 45%, transparent); }
-  .elbow.amber { background: var(--accent); }
+  .elbow.attention { background: var(--accent); }
   .tick { position: absolute; width: 3px; height: 18px; }
 
   /* the ONE rectangle: a task strip, grey in every state */
@@ -375,7 +375,7 @@
       <div class="row">
         <span class="rail mission" style="left:20px"></span>
         <span class="rail" style="left:64px;bottom:50%"></span>
-        <span class="elbow amber" style="left:64px;width:16px"></span>
+        <span class="elbow attention" style="left:64px;width:16px"></span>
         <div class="band" style="padding-left:80px">
           <span class="ask-rule" style="left:70px"></span>
           <span class="k20" style="background:rgb(217 119 87 / 0.16);color:var(--claude)">C</span>
@@ -491,9 +491,9 @@
 
   <div class="notes">
     <div class="note"><b>Two fills, and that is all.</b><span>A task is grey in every state — working, blocked, done, selected or not. A proposal is fuchsia. So purple in this column means exactly one thing: this task does not exist yet.</span></div>
-    <div class="note"><b>Selection and attention are ticks.</b><span>A 3×18 square standing in the rail's gutter: the mission accent for the strip you are on, amber one notch further out for a strip with a session asking inside it. Neither is ever a fill or an accent border, so the two can stand side by side.</span></div>
+    <div class="note"><b>Selection and attention are ticks.</b><span>A 3×18 square standing in the rail's gutter: the mission accent for the strip you are on, bisque one notch further out for a strip with a session asking inside it. Neither is ever a fill or an accent border, so the two can stand side by side.</span></div>
     <div class="note"><b>The rail carries the lead.</b><span>A branch whose owner has a live coordinator draws its guide 2px in the mission accent — full strength for the mission's own lead, 22% for a task's. Only that agent's elbow is drawn in the colour; everyone else on the branch keeps a hairline, so the line names one agent instead of tinting the roster.</span></div>
-    <div class="note"><b>Agent rows are contents, not objects.</b><span>No fill, no outline, no rounded collar — the only rectangles left in the column are tasks. The mission coordinator is the single exception. Even the asking row stays unfilled: amber type, an amber inner rule, the <code>!</code> disc.</span></div>
+    <div class="note"><b>Agent rows are contents, not objects.</b><span>No fill, no outline, no rounded collar — the only rectangles left in the column are tasks. The mission coordinator is the single exception. Even the asking row stays unfilled: bisque type, a bisque inner rule, the <code>!</code> disc.</span></div>
     <div class="note"><b>One rail, one indent.</b><span>A task's agents and its child tasks now hang on the same line at the same indent. The old geometry split them two lines apart so a child could never read as an agent; an agent that is no longer drawn as an object cannot be mistaken for one.</span></div>
     <div class="note"><b>A fold costs no row.</b><span>The census and the task count moved onto the strip itself — a harness square per session, capped at four with <code>+N</code>, dimmed when settled. The held seat did the same: a dotted chip where a staffed task shows its crew, instead of a presence line underneath.</span></div>
     <div class="note"><b>Proposals sink.</b><span>They leave the sibling order for a tail under a divider that carries their count, and each names the session that filed it.</span></div>
@@ -505,11 +505,11 @@
   <tr><th style="width:26%">Element</th><th style="width:37%">Was, on the phone</th><th>Is now</th></tr>
   <tr><td>Task strip</td><td class="was">No ground at all; a selected one took an issue-tinted wash</td><td>Grey ground in every state, hairline rim, darker rim + bold title when selected</td></tr>
   <tr><td>Selection</td><td class="was">Tinted fill on the strip</td><td>Accent tick in the gutter, just inside the rail</td></tr>
-  <tr><td>Attention</td><td class="was">Amber dot beside the title</td><td>Amber tick in the gutter, one notch outside the rail</td></tr>
+  <tr><td>Attention</td><td class="was">Attention dot beside the title</td><td>Bisque tick in the gutter, one notch outside the rail</td></tr>
   <tr><td>Left glyph</td><td class="was">State glyph (✓ / ⊘ / clock)</td><td>Stage glyph, the same Linear-style ring the rest of Podium draws</td></tr>
   <tr><td>Agent row</td><td class="was">Rail-navy ground, hairline rim, 10px rounded collar</td><td>Nothing — indent, harness square and rail only</td></tr>
   <tr><td>Coordinator</td><td class="was">Same band as everyone, role word <code>coordinator</code></td><td>The one filled row in the spine, <code>COORDINATOR</code> in the accent, coloured elbow</td></tr>
-  <tr><td>Asking agent</td><td class="was">Accent border on the band's ground</td><td>Amber inner rule, <code>!</code> disc, amber word — and an amber elbow</td></tr>
+  <tr><td>Asking agent</td><td class="was">Accent border on the band's ground</td><td>Bisque inner rule, <code>!</code> disc, bisque word — and a bisque elbow</td></tr>
   <tr><td>Current session</td><td class="was">Blue wash across the whole band</td><td>Accent tick in the row's own gutter</td></tr>
   <tr><td>Agent indent</td><td class="was">One issue step <em>plus</em> 10pt, to keep children left of agents</td><td>Exactly one issue step — agents and child tasks on one line</td></tr>
   <tr><td>Folded payload</td><td class="was">A dashed row underneath, with up to two harness kinds</td><td>On the strip: a census of the actual sessions, dimmed when settled, + <code>N tasks</code></td></tr>

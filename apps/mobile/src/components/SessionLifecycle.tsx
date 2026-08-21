@@ -232,10 +232,10 @@ const styles = StyleSheet.create({
    * THE STATE BAR — the phone's copy of web's `.pane-state-bar` (POD-747,
    * brought over in POD-1251).
    *
-   * It used to be a tinted slab: a yellow ground with yellow copy for a parked
+   * It used to be a tinted slab: an accent ground with accent copy for a parked
    * session and a RED one for an ended session, which is the enterprise-console
    * look the design system opens by rejecting — and which spends The Signal
-   * Rule's yellow on a state that is asking nothing of anyone. Hibernation is a
+   * Rule's accent on a state that is asking nothing of anyone. Hibernation is a
    * STATE, not a request.
    *
    * What it is instead, exactly as on web: the `bar` chrome tier, one hairline
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
     color: color.text,
   },
   /** The bar's control is chrome inside chrome: an outline cell, not the
-   *  filled-yellow primary the pane below uses. */
+   *  filled-accent primary the pane below uses. */
   barAction: {
     alignSelf: 'flex-start',
     borderWidth: StyleSheet.hairlineWidth,

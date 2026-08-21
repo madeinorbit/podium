@@ -339,7 +339,7 @@ const styles = StyleSheet.create({
   },
   editSave: {
     // The single primary action of this region — the one place the page spends
-    // Superade Yellow while an editor is open (The Signal Rule).
+    // the accent while an editor is open (The Signal Rule).
     backgroundColor: color.accent,
     borderColor: color.accent,
   },

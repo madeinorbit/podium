@@ -16,13 +16,13 @@ export const composeOfferPrompt = (prompt: string, feedback: string): string =>
  * the session is both the source of the decision and where its answer goes.
  *
  * A BLOCK IN THE DOCUMENT, NOT A CARD — the same move the desktop bar made
- * [POD-725], arrived at here for the same reason. This was a yellow-rimmed,
- * yellow-washed, rounded panel: a 3pt yellow edge, a yellow wash and a yellow
+ * [POD-725], arrived at here for the same reason. This was an accent-rimmed,
+ * accent-washed, rounded panel: a 3pt accent edge, an accent wash and an accent
  * button, three signals for one request, in an app whose whole palette spends
- * yellow exactly once. The block now earns its weight typographically — a rule
- * marking where the answer ended and the question began, an ochre eyebrow, and a
- * headline set larger than the transcript prose above it — and the single yellow
- * object left on screen is the button the operator is meant to press.
+ * the accent exactly once. The block now earns its weight typographically — a
+ * rule marking where the answer ended and the question began, a bisque eyebrow,
+ * and a headline set larger than the transcript prose above it — and the single
+ * accented object left on screen is the button the operator is meant to press.
  *
  * `onDismiss` is the THIRD answer, matching the web bar's x [POD-771]: none of
  * these. Without it the phone could only answer an offer or wait for the
@@ -251,7 +251,7 @@ const styles = StyleSheet.create({
   headline: {
     ...sans(600),
     color: color.text,
-    // Set ABOVE the transcript prose it follows: with the yellow wash gone, the
+    // Set ABOVE the transcript prose it follows: with the accent wash gone, the
     // question's weight is what marks it as the thing that needs you.
     fontSize: font.body,
     lineHeight: leading(font.body, 'prose'),
@@ -288,7 +288,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.accent,
   },
   /** ONE STRONG BUTTON, THEN QUIET BUTTONS. A low-contrast surface gives the
-   *  alternatives a visible tap shape without challenging the filled yellow
+   *  alternatives a visible tap shape without challenging the filled accent
    *  recommendation for priority. */
   textAction: {
     minHeight: 44,
@@ -323,7 +323,7 @@ const styles = StyleSheet.create({
   },
   linkText: {
     ...sans(500),
-    // Neutral, not accentTint: the yellow is spent on the eyebrow and the
+    // Neutral, not accentTint: the accent is spent on the eyebrow and the
     // primary button, and a third one would argue with both. textDim, not
     // textFaint — this is a control, and faint lands under 4.5:1 on `bg`.
     color: color.textDim,

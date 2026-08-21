@@ -13,7 +13,7 @@ import { StageGlyph, UnknownRefGlyph } from './StageGlyph'
  * stage (POD-724 — the phone twin of the desktop's `a.ref-link` chip and the
  * terminal's stage-coloured underline).
  *
- * Before this the phone painted every ref one flat yellow-tinted token, which
+ * Before this the phone painted every ref one flat accent-tinted token, which
  * made the transcript's most common cross-reference the one place where state
  * was invisible: a ref to a task that shipped last week looked exactly like a
  * ref to the task the agent is failing on right now. The stage colours and the
