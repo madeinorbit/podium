@@ -154,7 +154,7 @@ describe('resolveReleaseTarget', () => {
   it('does not advertise a release whose darwin artifact is missing from the page', async () => {
     const fetchImpl = fetchFixture({
       release: fourPlatformManifest(),
-      artifactStatus: { [FOUR_PLATFORM_URLS['darwin-aarch64']]: 404 },
+      artifactStatus: { [FOUR_PLATFORM_URLS['darwin-aarch64'] as string]: 404 },
     })
 
     await expect(resolveReleaseTarget('edge', fetchImpl)).rejects.toThrow(

@@ -82,7 +82,11 @@ describe('dev publisher state', () => {
     expect(first.version).toBe('0.1.0-edge.20.dev.1+1111111')
     const referenced = rememberDevArtifact({
       stateDir: dir,
-      artifactName: 'podium-headless-0.1.0-edge.20.dev.1+1111111-20260812T182015Z.tar.gz',
+      // One publish is one artifact PER PLATFORM (POD-2504); the ledger remembers them
+      // together so a sweep cannot reclaim part of a build it just published.
+      artifactNames: [
+        'podium-headless-0.1.0-edge.20.dev.1+1111111-linux-x86_64-20260812T182015Z.tar.gz',
+      ],
     })
     const second = allocateDevPublishVersion({
       stateDir: dir,

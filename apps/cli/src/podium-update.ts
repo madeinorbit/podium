@@ -21,7 +21,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { compareVersions, isProvablyNewer } from '@podium/protocol'
+import { compareVersions, isProvablyNewer, platformTargetFor } from '@podium/protocol'
 import { resolveInstallDir, resolveUpdateTarget } from '@podium/runtime/config'
 import { instanceServiceName, resolveInstanceId } from '@podium/runtime/instance'
 import { PODIUM_UPDATE_PUBKEY, verifyTarball } from '@podium/runtime/update-delivery'
@@ -104,14 +104,16 @@ export function isNewer(candidate: string, current: string): boolean {
 /**
  * Map a Node/Bun (platform, arch) pair to the manifest's platform-asset key
  * (Tauri updater target triple prefix, e.g. 'linux-x86_64', 'darwin-aarch64').
+ *
+ * Delegates to the protocol's single derivation. This used to compute the string
+ * itself, as did the development publisher and the release scripts — three copies of
+ * the rule that decides which artifact a machine is offered.
  */
 export function platformTarget(
   platform: NodeJS.Platform = process.platform,
   arch: string = process.arch,
 ): string {
-  const os = platform === 'win32' ? 'windows' : platform
-  const cpu = arch === 'x64' ? 'x86_64' : arch === 'arm64' ? 'aarch64' : arch
-  return `${os}-${cpu}`
+  return platformTargetFor(platform, arch)
 }
 
 export function parseManifest(

@@ -8,9 +8,11 @@ import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import {
   commitShaFromDevVersion,
+  isHeadlessPlatform,
   isPublisherDevVersion,
   mintDevVersion,
   parsePublisherDevVersion,
+  platformTargetFor,
   type UpdateTarget,
 } from '@podium/protocol'
 import { resolveInstanceId, stateDir } from '@podium/runtime/config'
@@ -407,12 +409,42 @@ export const DEV_ARTIFACT_ROUTE = '/updates/dev-bundle'
  * again on request. What the process keeps is this descriptor, which is bytes
  * of metadata, not megabytes of payload.
  */
+/** One platform's signed tarball inside a development build. */
+export interface DevBundleArtifact {
+  /** The updater's platform name, e.g. `linux-x86_64` or `darwin-aarch64`. */
+  platform: string
+  path: string
+  size: number
+  digest: string
+  signature: string
+  /**
+   * The version label this artifact carries.
+   *
+   * Recorded per artifact, not only per build, because RECOVERY reads it back off disk
+   * one file at a time: it is how a restore can tell that four files on disk belong to
+   * one publish rather than to two mints of the same commit, which would produce a
+   * manifest whose platforms disagreed about their own version.
+   */
+  version: string
+}
+
+/**
+ * What one development build produced.
+ *
+ * The flat `path`/`size`/`digest`/`signature` describe THIS HOST'S bundle and are kept
+ * as the primary shape because most readers — the artifact route's back-compatible
+ * URL, readiness, the tests — only ever care about the machine they are running on.
+ * `artifacts` carries every platform that was minted, host included, and is what the
+ * published target enumerates.
+ */
 export interface BuiltDevBundle {
   version: string
   path: string
   size: number
   digest: string
   signature: string
+  /** Every platform minted by this build, host first. Never empty. */
+  artifacts: DevBundleArtifact[]
 }
 
 /**
@@ -443,11 +475,38 @@ export const DEV_BUNDLE_METADATA_SUFFIX = '.meta.json'
  */
 export const DEV_BUNDLE_RETAINED = 2
 
-/** Legacy `dev+<sha>` names, with or without a build stamp. */
-const LEGACY_DEV_BUNDLE_NAME =
-  /^podium-headless-dev\+([0-9a-f]{7,40})(?:-(\d{8}T\d{6}Z))?\.tar\.gz$/
-/** Stamped publisher artifact: `podium-headless-<version>-<stamp>.tar.gz`. */
-const STAMPED_DEV_BUNDLE_NAME = /^podium-headless-(.+)-(\d{8}T\d{6}Z)\.tar\.gz$/
+/**
+ * The platform infix, as a CLOSED SET.
+ *
+ * That is what makes it safe to slot an optional platform into the middle of a name
+ * whose other parts are open-ended: a publisher version can contain almost anything,
+ * but it cannot contain `linux-x86_64`, so the parse is never ambiguous.
+ */
+const PLATFORM_INFIX = '(?:linux|darwin|windows)-(?:x86_64|aarch64)'
+
+/**
+ * Legacy `dev+<sha>` names, with or without a platform and with or without a stamp.
+ *
+ * EVERY optional group is optional on PURPOSE. A checkout that has been publishing for
+ * a while has bundles on disk from before the stamp existed and from before a build
+ * minted more than one platform; if these patterns stopped recognising them they would
+ * not become safe, they would become invisible — unreachable files the retention sweep
+ * no longer knows to delete.
+ */
+const LEGACY_DEV_BUNDLE_NAME = new RegExp(
+  `^podium-headless-dev\\+([0-9a-f]{7,40})(?:-(${PLATFORM_INFIX}))?(?:-(\\d{8}T\\d{6}Z))?\\.tar\\.gz$`,
+)
+/**
+ * Stamped publisher artifact: `podium-headless-<version>[-<platform>]-<stamp>.tar.gz`.
+ *
+ * The version is non-greedy so that a trailing platform is claimed by the platform
+ * group rather than swallowed into the version — `…dev.3+abc-linux-x86_64-<stamp>`
+ * parses as version `…dev.3+abc` on platform `linux-x86_64`, not as a version nobody
+ * can look up.
+ */
+const STAMPED_DEV_BUNDLE_NAME = new RegExp(
+  `^podium-headless-(.+?)(?:-(${PLATFORM_INFIX}))?-(\\d{8}T\\d{6}Z)\\.tar\\.gz$`,
+)
 
 export interface DevBundleFile {
   name: string
@@ -457,6 +516,12 @@ export interface DevBundleFile {
   stamp: string
   /** Version label embedded in the filename, when parseable. */
   version: string
+  /**
+   * Empty for a bundle built before one build minted several platforms. Retention
+   * groups on this: keeping "the newest two files" across four platforms would sweep
+   * away three quarters of the build it just published.
+   */
+  platform: string
 }
 
 /** `20260812T182015Z` — fixed width, so string order is time order. */
@@ -479,7 +544,7 @@ export function parseDevBundleName(name: string): DevBundleFile | null {
   const legacy = LEGACY_DEV_BUNDLE_NAME.exec(name)
   if (legacy) {
     const sha = legacy[1] as string
-    return { name, sha, stamp: legacy[2] ?? '', version: `dev+${sha}` }
+    return { name, sha, platform: legacy[2] ?? '', stamp: legacy[3] ?? '', version: `dev+${sha}` }
   }
   const stamped = STAMPED_DEV_BUNDLE_NAME.exec(name)
   if (!stamped) return null
@@ -491,13 +556,15 @@ export function parseDevBundleName(name: string): DevBundleFile | null {
   return {
     name,
     sha: commitShaFromDevVersion(version) ?? '',
-    stamp: stamped[2] as string,
+    platform: stamped[2] ?? '',
+    stamp: stamped[3] as string,
     version,
   }
 }
 
-export function devBundleFileName(version: string, stamp: string): string {
-  return `podium-headless-${version}-${stamp}${DEV_BUNDLE_SUFFIX}`
+export function devBundleFileName(version: string, stamp: string, platform?: string): string {
+  const infix = platform ? `-${platform}` : ''
+  return `podium-headless-${version}${infix}-${stamp}${DEV_BUNDLE_SUFFIX}`
 }
 
 /** Newest first; an unstamped legacy artifact is oldest by definition. */
@@ -533,10 +600,17 @@ export function selectDevBundleSweep(
     protect?: readonly string[]
     /** Artifact basenames retained publishes still reference. */
     referenced?: readonly string[]
+    /** Which platform an unlabelled legacy name belongs to; defaults to this host's. */
+    hostPlatform?: string
   } = {},
 ): string[] {
   const present = new Set(names)
   const protectedNames = new Set(options.protect ?? [])
+  // A name with no platform in it predates multi-platform builds, and the only bundle
+  // such a build ever produced was this host's. Counting it in the host's group is what
+  // lets the backlog DRAIN: give it a group of its own and its two survivors are
+  // retained forever, because nothing new is ever added to push them out.
+  const hostPlatform = options.hostPlatform ?? developmentPlatformTarget()
   const doomed: string[] = []
 
   const pushDoomed = (entryName: string) => {
@@ -546,6 +620,10 @@ export function selectDevBundleSweep(
     }
   }
 
+  // An explicit allowlist of what publishes still reference (POD-2502) answers the
+  // question outright, for every platform at once — a referenced artifact is kept
+  // whatever its platform, and an unreferenced one goes. No counting is involved, so
+  // the per-platform grouping below does not apply to it.
   if (options.referenced !== undefined) {
     const referenced = new Set(options.referenced)
     for (const entry of listDevBundles(names)) {
@@ -555,11 +633,19 @@ export function selectDevBundleSweep(
     return doomed
   }
 
+  // The counting fallback, PER PLATFORM. `keep` means "the last N builds", and a build
+  // is now up to four files. Counting them in one list would keep two and delete the
+  // rest of the build just published — a Mac in the fleet would be offered a target
+  // whose tarball the sweep had already removed.
   const keep = options.keep ?? DEV_BUNDLE_RETAINED
-  listDevBundles(names).forEach((entry, index) => {
-    if (index < keep || protectedNames.has(entry.name)) return
+  const seenPerPlatform = new Map<string, number>()
+  for (const entry of listDevBundles(names)) {
+    const group = entry.platform || hostPlatform
+    const seen = seenPerPlatform.get(group) ?? 0
+    seenPerPlatform.set(group, seen + 1)
+    if (seen < keep || protectedNames.has(entry.name)) continue
     pushDoomed(entry.name)
-  })
+  }
   return doomed
 }
 
@@ -615,6 +701,12 @@ export interface DevBundleMetadata {
   digest: string
   size: number
   keyFingerprint: string
+  /**
+   * Which platform's bundle this describes. Optional because a sidecar written before
+   * a build minted more than one platform has no such field, and `readMetadata` must
+   * keep reading those rather than treating them as corrupt.
+   */
+  platform?: string
 }
 
 export function devBundleKeyFingerprint(signingKey: string | undefined): string {
@@ -647,6 +739,16 @@ export interface DevBuildSpawnContext {
   signingKey?: string
   /** Names the transient build unit, so two instances cannot share one. */
   instanceId?: string
+  /**
+   * Which platform this bundle is for, as a `bun build --compile` target.
+   *
+   * Present for EVERY build, this host's own included [spec:SP-6144 section 8b]. The
+   * development host and the release runner therefore take the same code path and
+   * produce the same shape of bundle — which is the point: development use is the
+   * continuous test of the release mechanism, and a path only production takes is a
+   * path nothing tests until release day.
+   */
+  bunTarget: string
 }
 
 export type DevBuildSpawnResult =
@@ -680,6 +782,16 @@ export interface DevBundleBuildDeps {
    * to reading `<root>/package.json`.
    */
   checkoutReleaseBase?: string | (() => string)
+  /**
+   * Which platforms to mint, in build order. Defaults to this host's own.
+   *
+   * FLEET-SCOPED, not all-four: the development host builds a Darwin bundle when the
+   * fleet has a Mac in it and not otherwise. A release publishes every platform
+   * because it cannot know who will install it; a dev feed serves a fleet whose
+   * members are all registered, so minting for a platform nobody runs is two minutes
+   * of the live host's CPU spent on a file no one will ever fetch.
+   */
+  platforms?: readonly string[]
 }
 
 const SOURCE_ROOT = fileURLToPath(new URL('../../../../..', import.meta.url))
@@ -778,7 +890,15 @@ export function allocateDevPublishVersion(input: {
  */
 export function rememberDevArtifact(input: {
   stateDir: string
-  artifactName: string
+  /**
+   * EVERY artifact of ONE publish — one per platform.
+   *
+   * This took a list rather than a name because a publish is now up to four files
+   * (POD-2504). Remembering only one of them would leave the other three out of the
+   * allowlist, and the very next sweep would delete the bundles a Mac in the fleet had
+   * just been offered.
+   */
+  artifactNames: readonly string[]
   retain?: number
 }): string[] {
   const existing = readDevPublisherState(input.stateDir)
@@ -786,10 +906,25 @@ export function rememberDevArtifact(input: {
     throw new Error('cannot remember a development artifact before a version has been minted')
   }
   const retain = input.retain ?? DEV_BUNDLE_RETAINED
-  const referenced = [
-    input.artifactName,
-    ...existing.retainedArtifacts.filter((name) => name !== input.artifactName),
-  ].slice(0, retain)
+  const fresh = [...input.artifactNames]
+  // `retain` counts PUBLISHES, not files. Slicing a flat list of names would cap at two
+  // FILES and drop most of a four-platform build, so artifacts are grouped by the build
+  // that produced them (its version and stamp) and whole builds are what age out.
+  const buildOf = (name: string): string => {
+    const parsed = parseDevBundleName(name)
+    return parsed ? `${parsed.version}@${parsed.stamp}` : name
+  }
+  const keptBuilds = new Set(fresh.map(buildOf))
+  const referenced = [...fresh]
+  for (const name of existing.retainedArtifacts) {
+    if (referenced.includes(name)) continue
+    const build = buildOf(name)
+    if (!keptBuilds.has(build)) {
+      if (keptBuilds.size >= retain) continue
+      keptBuilds.add(build)
+    }
+    referenced.push(name)
+  }
   writeDevPublisherState(
     {
       ...existing,
@@ -811,16 +946,32 @@ export function rememberDevArtifact(input: {
 export function seedPublisherStateFromArtifact(input: {
   stateDir: string
   version: string
-  artifactName: string
+  /** Every artifact of the restored publish — one per platform (POD-2504). */
+  artifactNames: readonly string[]
   retain?: number
   /** Directory listing (basenames) used to keep the previous retained bundle. */
   knownNames?: readonly string[]
 }): string[] {
   const retain = input.retain ?? DEV_BUNDLE_RETAINED
-  const others = listDevBundles(input.knownNames ?? [])
-    .map((entry) => entry.name)
-    .filter((name) => name !== input.artifactName)
-  const referenced = [input.artifactName, ...others].slice(0, retain)
+  const restored = [...input.artifactNames]
+  // Grouped by the build that produced them, for the same reason as
+  // {@link rememberDevArtifact}: `retain` counts publishes, and a flat slice would
+  // drop most of a four-platform build.
+  const buildOf = (name: string): string => {
+    const parsed = parseDevBundleName(name)
+    return parsed ? `${parsed.version}@${parsed.stamp}` : name
+  }
+  const keptBuilds = new Set(restored.map(buildOf))
+  const referenced = [...restored]
+  for (const entry of listDevBundles(input.knownNames ?? [])) {
+    if (referenced.includes(entry.name)) continue
+    const build = buildOf(entry.name)
+    if (!keptBuilds.has(build)) {
+      if (keptBuilds.size >= retain) continue
+      keptBuilds.add(build)
+    }
+    referenced.push(entry.name)
+  }
   const parsed = parsePublisherDevVersion(input.version)
   if (parsed) {
     writeDevPublisherState(
@@ -840,7 +991,7 @@ export function seedPublisherStateFromArtifact(input: {
   if (existing) {
     return rememberDevArtifact({
       stateDir: input.stateDir,
-      artifactName: input.artifactName,
+      artifactNames: restored,
       retain,
     })
   }
@@ -870,9 +1021,13 @@ async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
   const signingKey = ctx.signingKey ?? developmentSigningKey(ctx.root)
   await runLowTierBuild({
     unit: devBuildScopeUnit(DEV_BUNDLE_BUILD_ROLE, ctx.instanceId ?? resolveInstanceId()),
-    description: `Podium development bundle build (${ctx.version})`,
+    description: `Podium development bundle build (${ctx.version}, ${ctx.bunTarget})`,
     command: devBuildCommand(process.env),
-    args: ['scripts/build-bun.ts'],
+    // `--target` on EVERY build, this host's own included. The release job passes it
+    // too, so the dev host exercises the exact path that produces what ships rather
+    // than a nearby one — including the cross-compiled abduco helper, which is the part
+    // of a bundle a native build would have got from somewhere else.
+    args: ['scripts/build-bun.ts', `--target=${ctx.bunTarget}`],
     cwd: ctx.root,
     env: {
       ...process.env,
@@ -883,6 +1038,21 @@ async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
       PODIUM_UPDATE_SIGNING_KEY: signingKey,
     },
   })
+}
+
+/**
+ * The `bun build --compile` target that produces a bundle for `platform`.
+ *
+ * Kept here rather than imported from scripts/: the server may not reach into the build
+ * scripts, and this is three lines of arithmetic on the platform name the protocol
+ * already defines. `scripts/headless-platforms.test.ts` holds it to the table in
+ * scripts/build-bun.ts, so the two cannot drift silently.
+ */
+export function bunTargetForPlatform(platform: string): string {
+  const [os, cpu] = platform.split('-')
+  const arch = cpu === 'x86_64' ? 'x64' : cpu === 'aarch64' ? 'arm64' : cpu
+  if (!os || !arch) throw new Error(`cannot build a bundle for platform '${platform}'`)
+  return `bun-${os}-${arch}`
 }
 
 export function devBundleDirectory(root: string): string {
@@ -961,40 +1131,89 @@ export async function sweepDevBundles(
  * short or corrupt file — is treated as absent and rebuilt.
  */
 async function readExistingDevBundle(
-  deps: Pick<DevBundleBuildDeps, 'root' | 'signingKey'> & { headSha: string; fs: DevBundleFs },
+  deps: Pick<DevBundleBuildDeps, 'root' | 'signingKey'> & {
+    headSha: string
+    fs: DevBundleFs
+    /**
+     * What the fleet needs TODAY. A recovered build that predates a machine joining
+     * covers fewer platforms than are now required, and publishing it would offer that
+     * machine a manifest with no entry for it — so a short recovery reads as no
+     * recovery, and the build runs.
+     */
+    platforms?: readonly string[]
+  },
 ): Promise<BuiltDevBundle | null> {
   const root = deps.root ?? SOURCE_ROOT
   const sha = shortSha(deps.headSha)
   const dir = devBundleDirectory(root)
-  // Prefer the newest artifact whose name (or metadata) claims this commit.
-  // Publisher mints put the sha in build metadata; legacy names used `dev+<sha>`.
-  const candidate = listDevBundles(await deps.fs.list(dir)).find((entry) => entry.sha === sha)
-  if (!candidate) return null
+  const hostPlatform = developmentPlatformTarget()
 
-  const path = join(dir, candidate.name)
-  const metadata = await readMetadata(deps.fs, path)
-  if (!metadata) return null
-  const metadataSha = commitShaFromDevVersion(metadata.version)
-  if (metadataSha !== sha) return null
-  if (metadata.keyFingerprint !== devBundleKeyFingerprint(deps.signingKey)) return null
-
-  const signature = (await readOptionalText(deps.fs, path + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
-  if (!signature) return null
-
-  let actual: { digest: string; size: number }
-  try {
-    actual = await deps.fs.digest(path)
-  } catch {
-    return null
+  /** One candidate file, or nothing if it cannot prove it is what it claims to be. */
+  const recover = async (entry: DevBundleFile): Promise<DevBundleArtifact | null> => {
+    const path = join(dir, entry.name)
+    const metadata = await readMetadata(deps.fs, path)
+    if (!metadata) return null
+    // Publisher mints carry the sha in build metadata; legacy names carried `dev+<sha>`.
+    // Either way the artifact has to claim THIS commit.
+    if (commitShaFromDevVersion(metadata.version) !== sha) return null
+    if (metadata.keyFingerprint !== devBundleKeyFingerprint(deps.signingKey)) return null
+    const signature = (await readOptionalText(deps.fs, path + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
+    if (!signature) return null
+    let actual: { digest: string; size: number }
+    try {
+      actual = await deps.fs.digest(path)
+    } catch {
+      return null
+    }
+    if (actual.digest !== metadata.digest || actual.size !== metadata.size) return null
+    // An artifact from before multi-platform builds carries no platform in either its
+    // name or its sidecar; it can only be this host's, because that is the only one a
+    // build of that vintage produced.
+    const platform = entry.platform || metadata.platform || hostPlatform
+    return {
+      platform,
+      path,
+      size: actual.size,
+      digest: actual.digest,
+      signature,
+      version: metadata.version,
+    }
   }
-  if (actual.digest !== metadata.digest || actual.size !== metadata.size) return null
 
+  // Newest first per platform, so a rebuilt platform recovers its latest file.
+  const seen = new Set<string>()
+  const artifacts: DevBundleArtifact[] = []
+  let version: string | undefined
+  for (const entry of listDevBundles(await deps.fs.list(dir))) {
+    if (entry.sha !== sha) continue
+    const platform = entry.platform || hostPlatform
+    if (seen.has(platform)) continue
+    seen.add(platform)
+    const artifact = await recover(entry)
+    if (!artifact) continue
+    version ??= artifact.version
+    // One recovered BUILD, not an assortment: mixing two mints of the same commit
+    // would publish a manifest whose platforms disagree about which version they are.
+    if (artifact.version !== version) continue
+    artifacts.push(artifact)
+  }
+
+  // THE HOST'S OWN BUNDLE DECIDES. Without it there is nothing for this machine to
+  // converge on, and recovering only a Mac's bundle would publish a target the
+  // publisher's own host could not take — so this reads as "nothing recovered", and the
+  // build runs.
+  const hostIndex = artifacts.findIndex((artifact) => artifact.platform === hostPlatform)
+  if (hostIndex < 0 || version === undefined) return null
+  const recovered = new Set(artifacts.map((artifact) => artifact.platform))
+  if ((deps.platforms ?? []).some((platform) => !recovered.has(platform))) return null
+  const [host] = artifacts.splice(hostIndex, 1) as [DevBundleArtifact]
   return {
-    version: metadata.version,
-    path,
-    size: actual.size,
-    digest: actual.digest,
-    signature,
+    version,
+    path: host.path,
+    size: host.size,
+    digest: host.digest,
+    signature: host.signature,
+    artifacts: [host, ...artifacts],
   }
 }
 
@@ -1032,52 +1251,85 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
     const spawnBuild = deps.spawnBuild ?? deps.build ?? defaultSpawnBuild
     const stamp = devBundleStamp((deps.now ?? Date.now)())
     const checkoutBase = resolveCheckoutReleaseBase(deps, root)
+    // ONE version for the whole build. Every platform of one publish carries the same
+    // label — a manifest whose platforms disagreed about their version would be a
+    // release nobody could reason about.
     const allocated = allocateDevPublishVersion({
       stateDir: publisherStateDir,
       checkoutBase,
       sha,
     })
     const version = allocated.version
-    const artifactName = devBundleFileName(version, stamp)
+
+    // Host first, then whatever else the fleet needs. Host first matters: if a later
+    // platform's compile fails, the host has already produced the bundle this machine
+    // itself converges on, and the error names the platform that failed.
+    const platforms = devBuildPlatforms(deps.platforms)
+    const artifactNames = platforms.map((platform) => devBundleFileName(version, stamp, platform))
+    // Remember the WHOLE publish before building it. The allowlist is what stops the
+    // sweep reclaiming these files, and it has to name all of them.
     const referenced = rememberDevArtifact({
       stateDir: publisherStateDir,
-      artifactName,
+      artifactNames,
       ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
     })
-    const requestedPath = join(devBundleDirectory(root), artifactName)
-    const result = await spawnBuild({
-      root,
-      version,
-      artifactPath: requestedPath,
-      ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
-      ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
-    })
-    await renewal
-    if (renewalError) throw renewalError
 
-    const resultObject = typeof result === 'object' && result !== null ? result : undefined
-    const artifactPath = (typeof result === 'string' ? result : resultObject?.path) ?? requestedPath
-    const signature =
-      resultObject?.signature ??
-      (await readOptionalText(fs, artifactPath + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
-    if (!signature) throw new Error('development bundle is unsigned; refusing to publish it')
+    const artifacts: DevBundleArtifact[] = []
+    for (const [index, platform] of platforms.entries()) {
+      const requestedPath = join(devBundleDirectory(root), artifactNames[index] as string)
+      const result = await spawnBuild({
+        root,
+        version,
+        artifactPath: requestedPath,
+        bunTarget: bunTargetForPlatform(platform),
+        ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
+        ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
+      })
+      await renewal
+      if (renewalError) throw renewalError
 
-    const { digest, size } = await fs.digest(artifactPath)
-    const metadata: DevBundleMetadata = {
-      version,
-      digest,
-      size,
-      keyFingerprint: devBundleKeyFingerprint(deps.signingKey),
+      const resultObject = typeof result === 'object' && result !== null ? result : undefined
+      const artifactPath =
+        (typeof result === 'string' ? result : resultObject?.path) ?? requestedPath
+      const signature =
+        resultObject?.signature ??
+        (await readOptionalText(fs, artifactPath + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
+      // Unsigned is not "publish it anyway with a warning": a daemon verifies before it
+      // swaps, so an unsigned bundle is one every machine would refuse after
+      // downloading it. Refuse here, where the reason is still legible.
+      if (!signature) {
+        throw new Error(`development bundle for ${platform} is unsigned; refusing to publish it`)
+      }
+
+      const { digest, size } = await fs.digest(artifactPath)
+      const metadata: DevBundleMetadata = {
+        version,
+        platform,
+        digest,
+        size,
+        keyFingerprint: devBundleKeyFingerprint(deps.signingKey),
+      }
+      await fs.writeText(
+        artifactPath + DEV_BUNDLE_METADATA_SUFFIX,
+        `${JSON.stringify(metadata, null, 2)}\n`,
+      )
+      artifacts.push({ platform, path: artifactPath, size, digest, signature, version })
     }
-    await fs.writeText(
-      artifactPath + DEV_BUNDLE_METADATA_SUFFIX,
-      `${JSON.stringify(metadata, null, 2)}\n`,
-    )
-    await sweepDevBundles(fs, dirname(artifactPath), {
+
+    // ONE sweep, after every platform is on disk and with all of them protected.
+    const host = artifacts[0] as DevBundleArtifact
+    await sweepDevBundles(fs, dirname(host.path), {
       referenced,
-      protect: [basename(artifactPath)],
+      protect: artifacts.map((artifact) => basename(artifact.path)),
     })
-    return { version, path: artifactPath, size, digest, signature }
+    return {
+      version,
+      path: host.path,
+      size: host.size,
+      digest: host.digest,
+      signature: host.signature,
+      artifacts,
+    }
   } catch (error) {
     buildError = error
     throw error
@@ -1097,9 +1349,55 @@ export function developmentPlatformTarget(
   platform: NodeJS.Platform = process.platform,
   arch: string = process.arch,
 ): string {
-  const os = platform === 'win32' ? 'windows' : platform
-  const cpu = arch === 'x64' ? 'x86_64' : arch === 'arm64' ? 'aarch64' : arch
-  return `${os}-${cpu}`
+  return platformTargetFor(platform, arch)
+}
+
+/**
+ * WHICH PLATFORMS A FLEET NEEDS BUNDLES FOR.
+ *
+ * The development host always mints its own — it is a consumer of its own feed, and the
+ * one machine guaranteed to be there. Beyond that it mints for the platforms its
+ * REGISTERED MACHINES actually run, and nothing else: a release cannot know who will
+ * install it, but a dev feed serves a fleet whose members have all enrolled, so a
+ * platform nobody runs is two minutes of the live host's CPU spent producing a file
+ * that will never be fetched.
+ *
+ * A machine that has not reported an inventory yet contributes nothing rather than a
+ * guess — it will contribute the moment its daemon connects and says what it is. A
+ * machine on a platform we publish no bundle for (Windows) is likewise skipped: there
+ * is no artifact to offer it, and pretending otherwise would put a key in the manifest
+ * with nothing behind it.
+ *
+ * Pure, and ordered host-first, so it is a table of cases rather than a judgement made
+ * inside the build.
+ */
+export function fleetHeadlessPlatforms(
+  machines: ReadonlyArray<{ inventory?: { os: string; arch: string } | undefined }>,
+  host: string = developmentPlatformTarget(),
+): string[] {
+  const platforms = [host]
+  for (const machine of machines) {
+    if (!machine.inventory) continue
+    const platform = platformTargetFor(machine.inventory.os, machine.inventory.arch)
+    if (!isHeadlessPlatform(platform)) continue
+    if (!platforms.includes(platform)) platforms.push(platform)
+  }
+  return platforms
+}
+
+/**
+ * The platform list a build will actually walk: whatever was asked for, with this
+ * host's own guaranteed to be present and first, and duplicates removed.
+ *
+ * Host-first is load-bearing. If a later platform's compile fails, the bundle this
+ * machine converges on has already been produced, and the failure names the platform
+ * that could not be built rather than losing the whole build.
+ */
+export function devBuildPlatforms(
+  requested: readonly string[] | undefined,
+  host: string = developmentPlatformTarget(),
+): string[] {
+  return [...new Set([host, ...(requested ?? [])])]
 }
 
 /**
@@ -1144,15 +1442,38 @@ export function requireDefinedMigrations(migrations: string[] | undefined, sha: 
 export function devTarget(
   built: BuiltDevBundle,
   opts: {
-    artifactUrl?: string
+    /**
+     * Where a machine fetches a platform's tarball from. Given the platform, because
+     * one build now publishes several and each needs its own address.
+     */
+    artifactUrl?: (platform: string) => string
+    /** Overrides the name of the host bundle's platform. Test seam. */
     platform?: string
     sourceRoot?: string
     webDigest?: string
     schemaMigrations?: string[]
   } = {},
 ): UpdateTarget {
-  const platform = opts.platform ?? developmentPlatformTarget()
-  const url = opts.artifactUrl ?? `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(built.version)}`
+  const hostPlatform = opts.platform ?? developmentPlatformTarget()
+  // Every platform this build actually MINTED, and only those. A key here with no
+  // tarball behind it is a machine that downloads a 404 and stops converging, so the
+  // manifest is built from the artifact list rather than from what was asked for.
+  const artifacts: DevBundleArtifact[] = built.artifacts ?? [
+    {
+      platform: hostPlatform,
+      path: built.path,
+      size: built.size,
+      digest: built.digest,
+      signature: built.signature,
+      version: built.version,
+    },
+  ]
+  const urlFor =
+    opts.artifactUrl ??
+    ((platform: string) =>
+      `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(built.version)}/${encodeURIComponent(platform)}`)
+  // The sha lives in build metadata for a publisher mint and after `dev+` for a legacy
+  // identity; both forms answer "which commit is this?" through the same call.
   const sha = commitShaFromDevVersion(built.version) ?? built.version.replace(/^dev\+/, '')
   const webDigest = opts.webDigest ?? sha
   const migrations = requireDefinedMigrations(opts.schemaMigrations, sha)
@@ -1163,13 +1484,18 @@ export function devTarget(
     artifacts: {
       headless: {
         delivery: 'bundle',
-        platforms: {
-          [platform]: {
-            url,
-            digest: built.digest,
-            signature: built.signature,
-          },
-        },
+        platforms: Object.fromEntries(
+          artifacts.map((artifact) => [
+            // The host build is published under the name the caller gave, so a test
+            // seam that renames the host platform still names one thing.
+            artifact.platform === artifacts[0]?.platform ? hostPlatform : artifact.platform,
+            {
+              url: urlFor(artifact.platform),
+              digest: artifact.digest,
+              signature: artifact.signature,
+            },
+          ]),
+        ),
       },
       headlessAlternatives: [
         {
@@ -1224,8 +1550,19 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
   isSourceRun: boolean | (() => boolean)
   headSha: () => string | Promise<string>
   debounceMs?: number
-  artifactUrl?: string | ((version: string) => string)
+  /**
+   * Where a machine fetches a platform's tarball from. Takes the platform as well as
+   * the version, because one build now publishes several bundles and each needs its
+   * own address.
+   */
+  artifactUrl?: string | ((version: string, platform: string) => string)
   platform?: string
+  /**
+   * The platforms this fleet needs bundles for, read fresh at every build so a Mac
+   * that enrolls today is served by the next build rather than by the next restart.
+   * Defaults to this host's own.
+   */
+  fleetPlatforms?: () => readonly string[]
   /**
    * The migrations defined AT a revision — what the published target declares
    * it can open (POD-2213). Seam for tests; defaults to reading the commit's
@@ -1390,20 +1727,26 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       // single small file read when the dist is already current, which is the
       // common case on the `/version` path.
       const prepared = deps.prepareWebDist?.(headSha, explicit) ?? Promise.resolve()
+      // Read fresh, per build: a Mac that enrolled since the last one must be served by
+      // the NEXT build, not by the next restart.
+      const platforms = devBuildPlatforms(deps.fleetPlatforms?.())
+      const build = () => buildDevBundle({ ...deps, headSha, platforms })
       const requested = prepared
         .then(() =>
           current === null
-            ? readExistingDevBundle({ ...deps, fs, headSha }).then(async (existing) => {
-                if (!existing) return buildDevBundle({ ...deps, headSha })
-                const artifactName = basename(existing.path)
+            ? readExistingDevBundle({ ...deps, fs, headSha, platforms }).then(async (existing) => {
+                if (!existing) return build()
+                // The WHOLE publish, not just this host's file: the allowlist is what
+                // stops the sweep reclaiming the other platforms' bundles.
+                const artifactNames = existing.artifacts.map((artifact) => basename(artifact.path))
                 const statePath = deps.publisherStateDir ?? stateDir()
-                // Restoring still counts as publishing that basename. Seed from
-                // the artifact when state was lost so the counter cannot rewind.
+                // Restoring still counts as publishing those basenames. Seed from
+                // the artifacts when state was lost so the counter cannot rewind.
                 let referenced: string[]
                 try {
                   referenced = rememberDevArtifact({
                     stateDir: statePath,
-                    artifactName,
+                    artifactNames,
                     ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
                   })
                 } catch {
@@ -1411,18 +1754,18 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
                   referenced = seedPublisherStateFromArtifact({
                     stateDir: statePath,
                     version: existing.version,
-                    artifactName,
+                    artifactNames,
                     knownNames,
                     ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
                   })
                 }
                 await sweepDevBundles(fs, dirname(existing.path), {
                   referenced,
-                  protect: [artifactName],
+                  protect: artifactNames,
                 })
                 return existing
               })
-            : buildDevBundle({ ...deps, headSha }),
+            : build(),
         )
         .then(
           (built) => {
@@ -1517,12 +1860,24 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         return undefined
       }
       if (current && builtSha === headSha) {
+        const configured = deps.artifactUrl
+        const built = current
+        const hostPlatform = deps.platform ?? developmentPlatformTarget()
         const artifactUrl =
-          typeof deps.artifactUrl === 'function'
-            ? deps.artifactUrl(current.version)
-            : deps.artifactUrl
+          typeof configured === 'function'
+            ? (platform: string) => configured(built.version, platform)
+            : configured !== undefined
+              ? // A fixed string names ONE address, which could only ever be honest
+                // while one platform was published. Keep honouring it for the host
+                // bundle and give every other platform its own route URL, rather than
+                // handing every machine the same file.
+                (platform: string) =>
+                  platform === hostPlatform
+                    ? configured
+                    : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(built.version)}/${encodeURIComponent(platform)}`
+              : undefined
         return devTarget(current, {
-          artifactUrl,
+          ...(artifactUrl ? { artifactUrl } : {}),
           platform: deps.platform,
           sourceRoot: deps.root,
           schemaMigrations: migrations,

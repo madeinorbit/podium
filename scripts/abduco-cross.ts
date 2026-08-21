@@ -39,24 +39,22 @@ export const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 export const ABDUCO_SOURCE = join(REPO_ROOT, 'packages/pty/vendor/abduco/abduco.c')
 
 /**
- * The platform target strings are the ones the updater already speaks — the Tauri
- * updater triple prefix that `developmentPlatformTarget()` and the CLI's
- * `hostUpdateTarget()` derive from os/arch. Keeping ONE vocabulary means a
- * manifest key, a release asset and an abduco cache entry can never disagree
- * about which machine they are for.
+ * The platform vocabulary is the protocol's, not this script's: a manifest key, a
+ * release asset and an abduco cache entry all name the same thing, and they can only
+ * be guaranteed to agree if there is one definition. Re-exported so build scripts can
+ * keep importing it from here.
  */
-export const HEADLESS_PLATFORMS = [
-  'linux-x86_64',
-  'linux-aarch64',
-  'darwin-aarch64',
-  'darwin-x86_64',
-] as const
+export {
+  HEADLESS_PLATFORMS,
+  type HeadlessPlatform,
+  isHeadlessPlatform,
+} from '../packages/protocol/src/update/platforms'
 
-export type HeadlessPlatform = (typeof HEADLESS_PLATFORMS)[number]
-
-export function isHeadlessPlatform(value: string): value is HeadlessPlatform {
-  return (HEADLESS_PLATFORMS as readonly string[]).includes(value)
-}
+import {
+  HEADLESS_PLATFORMS,
+  type HeadlessPlatform,
+  isHeadlessPlatform,
+} from '../packages/protocol/src/update/platforms'
 
 export type AbducoTargetSpec = {
   /** `zig cc -target` triple. */

@@ -70,12 +70,20 @@ export interface DevPublisherWiring {
   }
 }
 
+/**
+ * Where a machine of `platform` fetches this version's bundle.
+ *
+ * The platform is part of the PATH rather than a query parameter because it selects
+ * which file is served, and a URL that names the bytes it returns is one a log line or
+ * a failed download can be read against.
+ */
 export function developmentArtifactUrl(
   origin: string,
   version: string,
   artifactToken: string,
+  platform: string,
 ): string {
-  return `${origin}/updates/dev-bundle/${encodeURIComponent(version)}?token=${encodeURIComponent(artifactToken)}`
+  return `${origin}/updates/dev-bundle/${encodeURIComponent(version)}/${encodeURIComponent(platform)}?token=${encodeURIComponent(artifactToken)}`
 }
 
 /**
@@ -143,6 +151,11 @@ export function wireDevBundlePublisher(deps: {
   readonly localArtifactOrigin: () => string
   /** Read at publication time so a newly joined remote machine fails closed immediately. */
   readonly hasRemoteManagedMachines: () => boolean
+  /**
+   * The platforms the registered fleet actually runs — what this host mints bundles
+   * for beyond its own [spec:SP-6144 section 8b]. Absent mints only this host's.
+   */
+  readonly fleetPlatforms?: () => readonly string[]
   readonly artifactToken: string
   readonly signingKey: string
   readonly setTarget: (target: UpdateTarget) => void
@@ -237,7 +250,7 @@ export function wireDevBundlePublisher(deps: {
             )
           })
         },
-        artifactUrl: (version) =>
+        artifactUrl: (version, platform) =>
           developmentArtifactUrl(
             selectDevelopmentArtifactOrigin({
               externalOrigin: artifactOrigin,
@@ -246,7 +259,12 @@ export function wireDevBundlePublisher(deps: {
             }),
             version,
             deps.artifactToken,
+            platform,
           ),
+        // Read at BUILD time, not at wiring time: a machine that enrolls while this
+        // server is running must be covered by the next build, and this server runs for
+        // days at a time.
+        fleetPlatforms: deps.fleetPlatforms,
       })
     : undefined
 
