@@ -13,6 +13,8 @@
  *   finding  3  a refusing child (exit 78) stays parked; the parent stays up
  *   findings 1+4 handover: the old parent decides, MAINPID only after health,
  *               a successor that never arrives is killed and supervision returns
+ *   R2          a FAILED handover rolls back to `.old` — or, when the release
+ *               carried migrations, refuses to and reports why
  *
  * REAPING IS PART OF THE CONTRACT: `afterEach` kills every process it started,
  * then FAILS if any grandchild survived — a leak in the code under test must not
@@ -94,18 +96,31 @@ interface Stack {
   parent: ChildProcess
   parentPid: number
   stateDir: string
+  installDir: string
   port: number
   output: () => string
   spawns: (role: string) => number[]
   notifications: () => string[]
 }
 
-async function startStack(env: Record<string, string> = {}): Promise<Stack> {
-  const stateDir = await mkdtemp(join(tmpdir(), 'podium-parent-lifecycle-'))
-  roots.push(stateDir)
+async function startStack(
+  env: Record<string, string> = {},
+  /**
+   * Put the install dir on a SIBLING path from the state dir. Rollback renames
+   * the install dir, so `run/` — pidfiles, the request channel, the fixture's
+   * own logs — cannot live inside it. Every other case keeps them the same
+   * directory, which is the shape a real headless install has.
+   */
+  opts: { separateInstallDir?: boolean } = {},
+): Promise<Stack> {
+  const root = await mkdtemp(join(tmpdir(), 'podium-parent-lifecycle-'))
+  roots.push(root)
+  const stateDir = opts.separateInstallDir ? join(root, 'state') : root
+  const installDir = opts.separateInstallDir ? join(root, 'install') : root
   const port = await freePort()
   mkdirSync(join(stateDir, 'run'), { recursive: true })
-  writeFileSync(join(stateDir, 'VERSION'), '1.0.0\n')
+  mkdirSync(installDir, { recursive: true })
+  writeFileSync(join(installDir, 'VERSION'), '1.0.0\n')
   const inherited = { ...process.env }
   delete inherited.PODIUM_AGENT_RELAY
   delete inherited.NOTIFY_SOCKET
@@ -114,7 +129,7 @@ async function startStack(env: Record<string, string> = {}): Promise<Stack> {
     env: {
       ...inherited,
       PODIUM_STATE_DIR: stateDir,
-      PODIUM_HOME: stateDir,
+      PODIUM_HOME: installDir,
       PODIUM_PORT: String(port),
       PODIUM_APP_VERSION: '1.0.0',
       ...env,
@@ -147,6 +162,7 @@ async function startStack(env: Record<string, string> = {}): Promise<Stack> {
     parent,
     parentPid,
     stateDir,
+    installDir,
     port,
     output: () => output,
     spawns: (role) => {
@@ -343,7 +359,7 @@ describe('parent lifecycle (real processes)', () => {
     expect(oldParentRecord.pid).toBe(stack.parentPid)
 
     // The "update": a new bundle is on disk.
-    writeFileSync(join(stack.stateDir, 'VERSION'), '2.0.0\n')
+    writeFileSync(join(stack.installDir, 'VERSION'), '2.0.0\n')
     const { writeParentRequest } = await import('../packages/runtime/src/parent-control')
     writeParentRequest(
       {
@@ -406,7 +422,7 @@ describe('parent lifecycle (real processes)', () => {
     const before = stack.spawns('parent').length
 
     // A "release" whose server refuses to start: the successor can never be healthy.
-    writeFileSync(join(stack.stateDir, 'VERSION'), '2.0.0\n')
+    writeFileSync(join(stack.installDir, 'VERSION'), '2.0.0\n')
     const { writeParentRequest } = await import('../packages/runtime/src/parent-control')
     writeParentRequest(
       {
@@ -433,4 +449,133 @@ describe('parent lifecycle (real processes)', () => {
     ).toEqual([])
     expect(stack.parent.exitCode).toBeNull()
   }, 45_000)
+
+  /**
+   * RE-REVIEW R2, driven all the way through. The case above deliberately stops
+   * at the edge of the 90s gate; this one shortens the gate and watches what
+   * happens AFTER it expires, which is where the defect lived: the old parent
+   * cleared the post-update arming and respawned its children onto the bundle
+   * the successor had just failed to boot — so no later crash could ever reach
+   * `considerRollback`, and nothing was reported.
+   *
+   * Everything asserted here is a filesystem or process fact: the bytes at
+   * `<install>/VERSION`, the `.old` directory, the pid in the spawn ledger.
+   */
+  it('R2 — a failed handover ROLLS BACK to .old and comes back serving on it', async () => {
+    const stack = await startStack(
+      {
+        FIXTURE_HANDOVER_TIMEOUT_MS: '6000',
+        // The parent that ran the swap knows this; it is what decision 4 turns on.
+        FIXTURE_RELEASE_HAD_MIGRATIONS: '0',
+      },
+      { separateInstallDir: true },
+    )
+    await until(
+      () => (stack.notifications().includes('READY=1') ? true : undefined),
+      'old parent READY',
+    )
+    const before = stack.spawns('server').length
+
+    // THE SWAP: the new bundle is on disk and the previous one is retained,
+    // exactly as `swapHeadlessBundle` leaves things.
+    mkdirSync(`${stack.installDir}.old`, { recursive: true })
+    writeFileSync(join(`${stack.installDir}.old`, 'VERSION'), '1.0.0\n')
+    writeFileSync(join(stack.installDir, 'VERSION'), '2.0.0\n')
+
+    const { writeParentRequest } = await import('../packages/runtime/src/parent-control')
+    writeParentRequest(
+      {
+        requestId: 'rollback-handover',
+        kind: 'handover',
+        // Nothing will ever serve this, so the gate expires and the abort runs.
+        expectedVersion: '9.9.9-never-arrives',
+        requestedAt: new Date().toISOString(),
+      },
+      stack.stateDir,
+    )
+    process.kill(stack.parentPid, 'SIGUSR1')
+
+    const version = await until(
+      () => {
+        const now = readFileSync(join(stack.installDir, 'VERSION'), 'utf8').trim()
+        return now === '1.0.0' ? now : undefined
+      },
+      `the install to be rolled back to 1.0.0; log:\n${stack.output()}`,
+      30_000,
+    )
+    expect(version).toBe('1.0.0')
+    expect(existsSync(`${stack.installDir}.old`), '.old is consumed by the restore').toBe(false)
+
+    // A rollback that does not restart is a stop: a NEW server process must exist.
+    const after = await until(
+      () => (stack.spawns('server').length > before ? stack.spawns('server') : undefined),
+      'a server respawned on the restored bundle',
+    )
+    expect(after.length).toBeGreaterThan(before)
+    expect(alive(stack.parentPid), 'the parent keeps supervising after a rollback').toBe(true)
+
+    // And it SAID so, where the next server to boot will read it.
+    const outcome = JSON.parse(
+      readFileSync(join(stack.stateDir, 'run', 'parent-outcome.json'), 'utf8'),
+    ) as { outcome: string; why: string; version?: string }
+    expect(outcome.outcome).toBe('rolled-back')
+    expect(outcome.version).toBe('1.0.0')
+    expect(outcome.why).toMatch(/never became healthy/)
+  }, 60_000)
+
+  /**
+   * The other side of decision 4, on real processes: a release that carried
+   * migrations must NOT be undone, and the parent must say why rather than
+   * leaving the machine silently stuck on it.
+   */
+  it('R2 — a failed handover on a MIGRATING release refuses to roll back, and reports why', async () => {
+    const stack = await startStack(
+      { FIXTURE_HANDOVER_TIMEOUT_MS: '6000', FIXTURE_RELEASE_HAD_MIGRATIONS: '1' },
+      { separateInstallDir: true },
+    )
+    await until(
+      () => (stack.notifications().includes('READY=1') ? true : undefined),
+      'old parent READY',
+    )
+    const before = stack.spawns('server').length
+    mkdirSync(`${stack.installDir}.old`, { recursive: true })
+    writeFileSync(join(`${stack.installDir}.old`, 'VERSION'), '1.0.0\n')
+    writeFileSync(join(stack.installDir, 'VERSION'), '2.0.0\n')
+
+    const { writeParentRequest } = await import('../packages/runtime/src/parent-control')
+    writeParentRequest(
+      {
+        requestId: 'stuck-handover',
+        kind: 'handover',
+        expectedVersion: '9.9.9-never-arrives',
+        requestedAt: new Date().toISOString(),
+      },
+      stack.stateDir,
+    )
+    process.kill(stack.parentPid, 'SIGUSR1')
+
+    const outcome = await until(
+      () => {
+        const path = join(stack.stateDir, 'run', 'parent-outcome.json')
+        if (!existsSync(path)) return undefined
+        return JSON.parse(readFileSync(path, 'utf8')) as { outcome: string; why: string }
+      },
+      `a report from the parent; log:\n${stack.output()}`,
+      30_000,
+    )
+    expect(outcome.outcome).toBe('rollback-unavailable')
+    expect(outcome.why).toMatch(/migrations/)
+    expect(
+      readFileSync(join(stack.installDir, 'VERSION'), 'utf8').trim(),
+      'a migrating release must NOT be rolled back',
+    ).toBe('2.0.0')
+    expect(existsSync(`${stack.installDir}.old`), 'the backup stays for a human').toBe(true)
+    // Still supervised: refusing to roll back is not refusing to serve.
+    const after = await until(
+      () => (stack.spawns('server').length > before ? stack.spawns('server') : undefined),
+      'the server taken back after the abort',
+    )
+    expect(after.length).toBeGreaterThan(before)
+    expect(alive(stack.parentPid)).toBe(true)
+  }, 60_000)
 })

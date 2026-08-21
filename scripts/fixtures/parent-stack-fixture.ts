@@ -21,12 +21,21 @@
  *   FIXTURE_EXIT_AFTER_MS / FIXTURE_EXIT_CODE   — die on cue: crash (1) or refuse (78)
  *   FIXTURE_SERVER_NEVER_HEALTHY=1              — bind, but never report the daemon connected
  *   FIXTURE_SERVER_REFUSE_START=1               — exit before binding
+ *   FIXTURE_HANDOVER_TIMEOUT_MS                 — shorten the 90s successor gate
+ *   FIXTURE_RELEASE_HAD_MIGRATIONS=1|0          — what the swap would have reported
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const role = process.argv[2]
 const stateDir = process.env.PODIUM_STATE_DIR ?? process.env.PODIUM_HOME ?? process.cwd()
+/**
+ * The INSTALL directory, which a rollback RENAMES. Usually the same directory as
+ * the state dir in these tests; the rollback case points them at siblings,
+ * because `run/` (pidfiles, the request channel, these logs) has to survive the
+ * rename that swaps `.old` back into place.
+ */
+const installDir = process.env.PODIUM_HOME ?? stateDir
 const runDir = join(stateDir, 'run')
 const port = Number(process.env.PODIUM_PORT ?? 0)
 const daemonMarker = join(runDir, 'fixture-daemon.alive')
@@ -93,7 +102,7 @@ async function takeoverPort(): Promise<void> {
 
 function installedVersion(): string {
   try {
-    return readFileSync(join(stateDir, 'VERSION'), 'utf8').trim()
+    return readFileSync(join(installDir, 'VERSION'), 'utf8').trim()
   } catch {
     return process.env.PODIUM_APP_VERSION ?? 'dev'
   }
@@ -192,7 +201,8 @@ async function runParent(): Promise<void> {
   const notifyLog = join(runDir, 'fixture-notify.log')
   const parent = new ParentProcess({
     port,
-    installDir: stateDir,
+    installDir,
+    stateDir,
     installBinary: process.execPath,
     children,
     env: { ...process.env, PODIUM_PARENT_CLI: import.meta.filename },
@@ -209,6 +219,14 @@ async function runParent(): Promise<void> {
       : {}),
     ...(process.env.FIXTURE_PET_EVERY_MS
       ? { watchdogPetMs: Number(process.env.FIXTURE_PET_EVERY_MS) }
+      : {}),
+    // The real gate is 90s. A test that has to watch the ABORT path — kill the
+    // successor, decide about `.old`, come back serving — cannot wait that out.
+    ...(process.env.FIXTURE_HANDOVER_TIMEOUT_MS
+      ? { handoverTimeoutMs: Number(process.env.FIXTURE_HANDOVER_TIMEOUT_MS) }
+      : {}),
+    ...(process.env.FIXTURE_RELEASE_HAD_MIGRATIONS
+      ? { releaseHadMigrations: process.env.FIXTURE_RELEASE_HAD_MIGRATIONS === '1' }
       : {}),
     claimRole: isSuccessor
       ? () => registerProcess('parent', { reclaimExisting: false, port }).then(() => undefined)

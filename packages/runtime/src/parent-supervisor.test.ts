@@ -8,12 +8,14 @@ import {
   CHILD_START_ORDER,
   classifyChildExit,
   clearJanitorRefusal,
+  clearPostUpdate,
   componentsProjection,
   crashBackoffMs,
   emptyParentSnapshot,
   isHandoverHealthy,
   isPostUpdateCrashLoop,
   markPostUpdate,
+  markRollbackUnavailable,
   POST_UPDATE_CRASH_LOOP_THRESHOLD,
   rollbackDecision,
   watchdogPetDecision,
@@ -175,6 +177,22 @@ describe('rollbackDecision', () => {
     if (d.action === 'unavailable') expect(d.why).toMatch(/\.old/)
   })
 
+  /**
+   * Re-review R1. A parent that does not KNOW must not act as if the answer were
+   * "no migrations": restoring old code over a migrated database corrupts data.
+   * The successor read `undefined` and, because the call site coerced it with
+   * `=== true`, rolled back across migrating releases.
+   */
+  it('refuses, and says so, when the migration fact is UNKNOWN rather than false', () => {
+    const d = rollbackDecision({
+      crashLoop: true,
+      oldBundlePresent: true,
+      releaseHadMigrations: undefined,
+    })
+    expect(d).toMatchObject({ action: 'unavailable' })
+    if (d.action === 'unavailable') expect(d.why).toMatch(/cannot tell/)
+  })
+
   it('continues when the crash-loop threshold is not met', () => {
     expect(
       rollbackDecision({
@@ -183,6 +201,32 @@ describe('rollbackDecision', () => {
         releaseHadMigrations: false,
       }),
     ).toEqual({ action: 'continue' })
+  })
+})
+
+describe('markRollbackUnavailable', () => {
+  /**
+   * A stuck release is not a per-child condition, and the first cut modelled it
+   * as a bare `phase = 'degraded'` — which the very next child coming up wiped,
+   * because `applyChildRunning` promotes a degraded parent with no refusals back
+   * to running. The machine then looked healthy while sitting on a release
+   * nobody could undo.
+   */
+  it('survives a child coming back up, and says why', () => {
+    const stuck = markRollbackUnavailable(
+      applyChildRunning(emptyParentSnapshot('running'), 'server', 11),
+      'rollback unavailable: release carried schema migrations — forward-fix required',
+    )
+    expect(stuck.phase).toBe('degraded')
+
+    const afterRestart = applyChildRunning(stuck, 'server', 12)
+    expect(afterRestart.phase, 'a healthy child must not un-stick the release').toBe('degraded')
+    expect(componentsProjection(afterRestart).rollbackUnavailable).toMatch(/migrations/)
+  })
+
+  it('is cleared when the post-update window closes', () => {
+    const stuck = markRollbackUnavailable(emptyParentSnapshot('running'), 'no .old bundle')
+    expect(clearPostUpdate(stuck).rollbackUnavailable).toBeUndefined()
   })
 })
 

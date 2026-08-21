@@ -24,6 +24,7 @@ import {
   stateDir,
 } from '@podium/runtime/local-machine'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { clearParentOutcome, readParentOutcome } from '@podium/runtime/parent-control'
 import {
   formatTopQueries,
   queryAttributionTotals,
@@ -689,6 +690,14 @@ export async function startServer(
   // bare await here is safe by the engine's own contract rather than by a catch
   // at this call site. The server that cannot boot is the one that has to apply
   // the update that fixes it.
+  //
+  // THE PARENT'S NOTE, READ ONCE (POD-2505). A rollback leaves this server on
+  // the version the update was meant to replace, so adoption is about to fail
+  // the `server` step for coming back on the wrong version — which is true, and
+  // on its own reads as an unexplained failure. The parent's own sentence is
+  // what turns it into a report the user can act on, and decision 4 requires it
+  // when rollback was refused. Cleared afterwards: the note is about THIS boot.
+  const parentReport = readParentOutcome()?.why
   await registry.modules.operations.engine.adoptOnBoot(
     () => ({
       appVersion,
@@ -697,10 +706,12 @@ export async function startServer(
         () => servedWebIdentity(phoneWebDir()),
       )?.(),
       machineDirectory: registry.modules.updates.fleet(),
+      ...(parentReport ? { parentReport } : {}),
       now: Date.now(),
     }),
     updateOperationBoot,
   )
+  if (parentReport) clearParentOutcome()
 
   const requestPeerAddresses = new WeakMap<Request, string>()
   const readiness = createServerReadiness({

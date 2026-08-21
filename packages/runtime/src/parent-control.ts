@@ -74,6 +74,55 @@ export const ParentResult = z.object({
 })
 export type ParentResult = z.infer<typeof ParentResult>
 
+/**
+ * The parent's UNSOLICITED report about the release it was asked to install.
+ *
+ * A result file answers a request; this one answers nothing, because by the time
+ * the parent knows the release is bad the process that asked has been replaced
+ * or killed. Decision 4 requires the parent to "report WHY rollback was
+ * unavailable", and §4 requires a rollback to end as a `stuck` report rather
+ * than as a silent revert — so the outcome is written where the NEXT server to
+ * boot will find it, and that server folds it into the update operation it
+ * adopts (`reconcileUpdateOperation`).
+ */
+export const ParentOutcome = z.object({
+  at: z.string(),
+  outcome: z.enum(['rolled-back', 'rollback-unavailable']),
+  /** One plain sentence: what happened to the release, and why. */
+  why: z.string().min(1),
+  /** The version the machine is left running. */
+  version: z.string().optional(),
+})
+export type ParentOutcome = z.infer<typeof ParentOutcome>
+
+export function parentOutcomePath(dir: string = stateDir()): string {
+  return join(dir, 'run', 'parent-outcome.json')
+}
+
+export function writeParentOutcome(outcome: ParentOutcome, dir: string = stateDir()): void {
+  const parsed = ParentOutcome.parse(outcome)
+  mkdirSync(join(dir, 'run'), { recursive: true })
+  writeFileSync(parentOutcomePath(dir), `${JSON.stringify(parsed, null, 2)}\n`)
+}
+
+export function readParentOutcome(dir: string = stateDir()): ParentOutcome | undefined {
+  const path = parentOutcomePath(dir)
+  if (!existsSync(path)) return undefined
+  try {
+    return ParentOutcome.parse(JSON.parse(readFileSync(path, 'utf8')))
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Consume the report. Called by the server that read it: the note describes the
+ * boot that just happened, and leaving it would misattribute it to a later one.
+ */
+export function clearParentOutcome(dir: string = stateDir()): void {
+  rmSync(parentOutcomePath(dir), { force: true })
+}
+
 export function parentRequestPath(dir: string = stateDir()): string {
   return join(dir, 'run', 'parent-request.json')
 }

@@ -197,7 +197,13 @@ export type UpdateFailure =
   | { code: 'machine-update-not-confirmed'; places: string[]; names: string[]; detail?: string }
   | { code: 'update-withdrawn'; places: string[]; names: string[]; detail?: string }
   | { code: 'download-failed'; places?: string[]; names?: string[]; detail?: string }
-  | { code: 'server-did-not-reach-target'; observedVersion: string; targetVersion: string }
+  | {
+      code: 'server-did-not-reach-target'
+      observedVersion: string
+      targetVersion: string
+      /** The supervising parent's own account of what it did and why. */
+      parentReport?: string
+    }
   | { code: 'web-build-failed'; detail?: string }
   | { code: 'preparation-failed'; detail?: string }
 
@@ -376,7 +382,9 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
     case 'server-did-not-reach-target':
       return {
         code: failure.code,
-        message: `The server restarted but came back on ${failure.observedVersion}. Nothing else was changed. Try again or check the server log.`,
+        message: failure.parentReport
+          ? `The server came back on ${failure.observedVersion}: ${failure.parentReport}`
+          : `The server restarted but came back on ${failure.observedVersion}. Nothing else was changed. Try again or check the server log.`,
         detail: `Expected ${failure.targetVersion}, observed ${failure.observedVersion}.`,
       }
     case 'web-build-failed':
@@ -783,6 +791,14 @@ export interface UpdateReality {
   servedWebDigest: string | undefined
   /** The machine directory, as the daemons' handshakes have refreshed it. */
   machineDirectory: readonly WaveMachine[]
+  /**
+   * The supervising parent's note about the release it installed, if it left one
+   * (`run/parent-outcome.json`). Set when the parent rolled the machine back, or
+   * could not and had to say why (decision 4). Without it the only thing this
+   * server can report is that it came back on the wrong version — true, but it
+   * reads as an unexplained failure when the parent in fact acted deliberately.
+   */
+  parentReport?: string
   now: number
 }
 
@@ -846,6 +862,7 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
         code: 'server-did-not-reach-target',
         observedVersion: reality.appVersion,
         targetVersion,
+        ...(reality.parentReport ? { parentReport: reality.parentReport } : {}),
       })
       return {
         ...patchStep(next, UPDATE_STEP_SERVER, (step) => ({

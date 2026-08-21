@@ -537,6 +537,28 @@ describe('reconcileUpdateOperation', () => {
     expect(next.finishedAt).toBe(1_000)
   })
 
+  /**
+   * POD-2505 decision 4. When the supervising parent rolled the machine back —
+   * or refused to and had to say why — "came back on the wrong version" is true
+   * but reads as an unexplained failure. The parent's own sentence is the report
+   * the spec requires, and this is the only place it can reach a person: the
+   * process that asked for the update died with it.
+   */
+  it('carries the supervising parent’s account of the rollback into the failure', () => {
+    const next = reconcileUpdateOperation(
+      operation([{ id: UPDATE_STEP_SERVER, state: 'running' }]),
+      reality({
+        appVersion: '0.4.2',
+        parentReport:
+          'rollback unavailable: release carried schema migrations — forward-fix required',
+      }),
+    )
+    expect(next.state).toBe('failed')
+    expect(next.error?.code).toBe('server-did-not-reach-target')
+    expect(next.error?.message).toContain('schema migrations')
+    expect(next.error?.detail, 'the version comparison is still there').toContain('0.4.2')
+  })
+
   it('leaves a server step that had not started yet alone', () => {
     const next = reconcileUpdateOperation(
       operation([{ id: UPDATE_STEP_SERVER, state: 'pending' }]),

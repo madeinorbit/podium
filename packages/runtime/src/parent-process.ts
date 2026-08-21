@@ -17,8 +17,10 @@
  *  2. THE OLD PARENT OWNS THE EXIT DECISION. The successor never reclaims its
  *     predecessor. This parent spawns the successor, watches it over HTTP, and
  *     exits only once the successor is serving the new version with its daemon
- *     connected. If the successor never gets there, this parent kills it,
- *     restores its own children and keeps serving the OLD version.
+ *     connected. If the successor never gets there, this parent kills it and
+ *     takes supervision back — restoring the `.old` bundle first when decision 4
+ *     allows it, because the children would otherwise come back on the very
+ *     release that just failed to boot. See `abortHandover`.
  *  3. THE SUPERVISION LOOP HOLDS THE PROCESS OPEN. The tick is NOT `unref`'d.
  *     An unref'd interval plus signal listeners does not keep Bun alive, so the
  *     parent drained and exited the moment its last child died — which is
@@ -34,6 +36,7 @@ import {
   PARENT_HANDOVER_SIGNAL,
   type ParentRequest,
   readParentRequest,
+  writeParentOutcome,
   writeParentResult,
 } from './parent-control'
 import {
@@ -48,6 +51,7 @@ import {
   isHandoverHealthy,
   isPostUpdateCrashLoop,
   markPostUpdate,
+  markRollbackUnavailable,
   type ParentSnapshot,
   rollbackDecision,
   type SupervisedChild,
@@ -70,6 +74,19 @@ export const PARENT_POST_UPDATE_ENV = 'PODIUM_PARENT_POST_UPDATE'
  * children the successor was about to replace. See invariant 2.
  */
 export const PARENT_SUCCESSOR_ENV = 'PODIUM_PARENT_SUCCESSOR'
+/**
+ * `1` / `0`: did the release now on disk carry migrations this database had not
+ * applied?
+ *
+ * ONLY THE PARENT THAT RAN THE SWAP CAN ANSWER THAT — it is the process that
+ * compared the target's declared migrations against the live ledger — and that
+ * parent EXITS at the end of a successful handover. The successor is then the
+ * only process that can observe a post-update crash loop, so the fact has to
+ * travel with it. Without this, the successor read `undefined`, took it for
+ * `false`, and would roll a migrating release back: exactly what decision 4
+ * exists to forbid (re-review R1).
+ */
+export const PARENT_RELEASE_MIGRATIONS_ENV = 'PODIUM_PARENT_RELEASE_MIGRATIONS'
 
 /** Termination signals the parent handles itself, from before the first spawn. */
 const TERMINATION_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
@@ -84,6 +101,12 @@ export type HealthProbeFn = (port: number) => Promise<HandoverHealthProbe>
 
 export interface ParentProcessDeps {
   installDir?: string
+  /**
+   * Where `run/` lives. Distinct from `installDir`: a rollback RENAMES the
+   * install directory, so the control files must not be inside it. Defaults to
+   * this instance's state dir.
+   */
+  stateDir?: string
   /** Override the install binary used for children AND successor parents. */
   installBinary?: string
   port: number
@@ -124,6 +147,13 @@ export interface ParentProcessDeps {
   componentWedgedMs?: number
   /** Watchdog pet cadence. Default: half of WATCHDOG_USEC, per systemd's margin. */
   watchdogPetMs?: number
+  /**
+   * How long a successor gets to become healthy before the handover is aborted.
+   * Default 90s. Injectable so a real-process test can drive the ABORT path
+   * (rollback, reporting, respawn) instead of only asserting what holds while
+   * the gate is still open — the gap the re-review called R8.
+   */
+  handoverTimeoutMs?: number
 }
 
 function defaultInstallBinary(installDir: string, env: NodeJS.ProcessEnv): string {
@@ -248,6 +278,12 @@ export class ParentProcess {
       sleep: deps.sleep ?? sleep,
     }
     this.petIntervalMs = deps.watchdogPetMs ?? watchdogPetIntervalMs(this.env.WATCHDOG_USEC)
+    // Inherited from the predecessor that ran the swap. An explicit dep wins:
+    // the composition root may know better, and a test must be able to say so.
+    if (deps.releaseHadMigrations === undefined) {
+      const carried = this.env[PARENT_RELEASE_MIGRATIONS_ENV]
+      if (carried === '1' || carried === '0') this.deps.releaseHadMigrations = carried === '1'
+    }
     const incoming = this.env[PARENT_HANDOVER_EXPECTED_VERSION_ENV]
     this.snap = incoming
       ? { ...emptyParentSnapshot('handover_incoming'), expectedVersion: incoming }
@@ -534,6 +570,7 @@ export class ParentProcess {
     delete childEnv[PARENT_SUCCESSOR_ENV]
     delete childEnv[PARENT_HANDOVER_EXPECTED_VERSION_ENV]
     delete childEnv[PARENT_POST_UPDATE_ENV]
+    delete childEnv[PARENT_RELEASE_MIGRATIONS_ENV]
 
     log.info('spawning child', { child, command, args })
     const proc = this.deps.spawn(command, args, {
@@ -633,27 +670,68 @@ export class ParentProcess {
     const decision = rollbackDecision({
       crashLoop: true,
       oldBundlePresent: oldBundlePresent(this.installDir),
-      releaseHadMigrations: this.deps.releaseHadMigrations === true,
+      releaseHadMigrations: this.deps.releaseHadMigrations,
     })
     if (decision.action === 'continue') return
     if (decision.action === 'unavailable') {
-      log.error('post-update crash loop; rollback unavailable', { why: decision.why })
-      this.snap = { ...this.snap, phase: 'degraded' }
-      this.publish()
+      this.reportRollbackUnavailable(
+        decision.why,
+        'the children kept crashing after the update was installed',
+      )
       return
     }
-    await this.rollback()
+    await this.rollback('the children kept crashing after the update was installed')
   }
 
-  /** Restore `.old`, restart children on it, clear post-update arming. */
-  async rollback(): Promise<void> {
+  /**
+   * Say WHY the machine is stuck on a release it cannot undo (decision 4).
+   *
+   * Logging alone is not a report: nothing reads the parent's journal, and the
+   * process that would have told the user died with the update. The note goes on
+   * disk for the next server to boot, which folds it into the update operation
+   * it adopts — see {@link writeParentOutcome}.
+   */
+  private reportRollbackUnavailable(why: string, because: string): void {
+    log.error('rollback unavailable', { why, because })
+    this.snap = markRollbackUnavailable(this.snap, why)
+    this.publish()
+    try {
+      writeParentOutcome(
+        {
+          at: new Date(this.deps.now()).toISOString(),
+          outcome: 'rollback-unavailable',
+          why: `${why} (${because})`,
+        },
+        this.deps.stateDir,
+      )
+    } catch (error) {
+      log.error('could not write the parent outcome report', { err: error })
+    }
+  }
+
+  /** Restore `.old`, restart children on it, clear post-update arming, report. */
+  async rollback(because = 'a post-update crash loop'): Promise<void> {
     this.snap = { ...this.snap, phase: 'rolling_back' }
     this.publish()
-    log.warn('rolling back to .old bundle after post-update crash loop')
+    log.warn('rolling back to .old bundle', { because })
     await this.stopChildren()
     restoreOldBundle(this.installDir)
+    const restored = await this.readInstalledVersion()
     this.snap = clearPostUpdate(emptyParentSnapshot('booting'))
     this.publish()
+    try {
+      writeParentOutcome(
+        {
+          at: new Date(this.deps.now()).toISOString(),
+          outcome: 'rolled-back',
+          why: `the update was rolled back because ${because}; the machine is running ${restored} again`,
+          version: restored,
+        },
+        this.deps.stateDir,
+      )
+    } catch (error) {
+      log.error('could not write the parent outcome report', { err: error })
+    }
     for (const child of this.childOrder) {
       await this.spawnChild(child)
     }
@@ -688,6 +766,12 @@ export class ParentProcess {
       [PARENT_SUCCESSOR_ENV]: '1',
       [PARENT_HANDOVER_EXPECTED_VERSION_ENV]: expectedVersion,
       [PARENT_POST_UPDATE_ENV]: '1',
+      // The migration fact travels WITH the successor, or the successor guesses
+      // — and a guess here is a data-loss bug (R1). Omitted when this parent
+      // does not know either, so the successor refuses rather than assuming.
+      ...(this.deps.releaseHadMigrations !== undefined
+        ? { [PARENT_RELEASE_MIGRATIONS_ENV]: this.deps.releaseHadMigrations ? '1' : '0' }
+        : {}),
     }
     // Successor inherits NOTIFY_SOCKET so it can READY + MAINPID under the same unit.
 
@@ -707,7 +791,7 @@ export class ParentProcess {
     }
     this.deps.reportSuccessorPid?.(successorPid)
 
-    const deadline = this.deps.now() + 90_000
+    const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? 90_000)
     while (this.deps.now() < deadline) {
       if (this.terminating) return
       const probe = await this.deps.probeHealth(this.deps.port)
@@ -738,9 +822,33 @@ export class ParentProcess {
   }
 
   /**
-   * The successor never got healthy. Kill it, take supervision back, and restore
-   * whatever it reclaimed on its way through — this parent is still the one that
-   * has to keep the machine serving, on the OLD version if that is what works.
+   * The successor never got healthy. Kill it, take supervision back, and put the
+   * machine on a version that works.
+   *
+   * "THE VERSION THAT WORKS" IS NOT THE ONE ON DISK. The swap ran before the
+   * handover was asked for, so the install path already holds the release the
+   * successor just failed to boot; children respawned from it are respawned onto
+   * the suspect bundle. The first cut did exactly that AND cleared the
+   * post-update arming on the way, which meant the crash loop that followed
+   * could never reach `considerRollback` — the rollback substrate was disarmed
+   * on the one path it exists for (re-review R2).
+   *
+   * So a `.old` bundle on disk changes what an abort means. `.old` is retained
+   * by the swap and pruned only once a successor has proved healthy, so its
+   * presence says: an unproven release is installed and its predecessor is still
+   * here. Then this is a release failure, and decision 4 decides —
+   *   - no migrations: restore `.old` and come back on it, and report it;
+   *   - migrations, or an unknown migration fact: the arming STAYS (so later
+   *     crashes still reach `considerRollback`), the parent goes degraded, and
+   *     it says why rather than sitting on a broken release silently.
+   * With no `.old` there was no retained predecessor to go back to — a plain
+   * handover, or one whose backup was already pruned — and the old behaviour is
+   * right: drop the arming and take the children back.
+   *
+   * Rolling back on a failed handover is deliberately eager: a handover fails
+   * because the successor could not serve for 90 seconds, and the cost of being
+   * wrong is one re-download on the next attempt, against a machine left on a
+   * release that has already failed to boot once.
    */
   private async abortHandover(
     successor: ChildProcess,
@@ -766,7 +874,28 @@ export class ParentProcess {
       this.deps.notify(`MAINPID=${process.pid}`)
       this.mainPidDeclared = false
     }
-    this.abandonHandover(priorPhase)
+    const because = `the successor parent never became healthy on ${expectedVersion}`
+    const decision = oldBundlePresent(this.installDir)
+      ? rollbackDecision({
+          crashLoop: true,
+          oldBundlePresent: true,
+          releaseHadMigrations: this.deps.releaseHadMigrations,
+        })
+      : ({ action: 'continue' } as const)
+
+    if (decision.action === 'rollback') {
+      // Leave `handover_outgoing` first: `rollback()` respawns children, and
+      // spawns are suppressed while a handover is nominally in flight.
+      this.abandonHandover(priorPhase, { keepPostUpdate: true })
+      await this.rollback(because)
+      return
+    }
+    if (decision.action === 'unavailable') {
+      this.abandonHandover(priorPhase, { keepPostUpdate: true })
+      this.reportRollbackUnavailable(decision.why, because)
+    } else {
+      this.abandonHandover(priorPhase)
+    }
     // Whatever the successor reclaimed is not running under anybody now.
     for (const child of this.childOrder) {
       if (this.childProcs.has(child)) continue
@@ -774,15 +903,25 @@ export class ParentProcess {
     }
   }
 
-  /** Leave `handover_outgoing` so the tick and the exit handler work again. */
-  private abandonHandover(priorPhase: ParentSnapshot['phase']): void {
+  /**
+   * Leave `handover_outgoing` so the tick and the exit handler work again.
+   *
+   * `keepPostUpdate` holds the rollback window open across an abort: the release
+   * on disk is still unproven, so the crashes that follow are still post-update
+   * crashes and must still be counted as such.
+   */
+  private abandonHandover(
+    priorPhase: ParentSnapshot['phase'],
+    opts: { keepPostUpdate?: boolean } = {},
+  ): void {
     const phase =
       Object.keys(this.snap.refusals).length > 0
         ? 'degraded'
         : priorPhase === 'handover_outgoing' || priorPhase === 'handover_incoming'
           ? 'running'
           : priorPhase
-    this.snap = clearPostUpdate({ ...this.snap, phase })
+    const next = { ...this.snap, phase }
+    this.snap = opts.keepPostUpdate ? next : clearPostUpdate(next)
     this.publish()
   }
 

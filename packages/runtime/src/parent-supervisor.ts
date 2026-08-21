@@ -53,6 +53,15 @@ export interface ParentSnapshot {
   postUpdateCrashes: number[]
   /** Component refusals currently holding the stack degraded. */
   refusals: Partial<Record<SupervisedChild | 'janitor', string>>
+  /**
+   * Why this machine is stuck on a release it cannot undo (decision 4).
+   *
+   * NOT a per-child fact, which is why it is not a refusal: the children may be
+   * perfectly healthy on the release nobody can roll back, and a child coming up
+   * must not clear it. Set when a rollback was refused, cleared only when the
+   * post-update window closes or the rollback actually happens.
+   */
+  rollbackUnavailable?: string
 }
 
 export function emptyParentSnapshot(phase: ParentPhase = 'booting'): ParentSnapshot {
@@ -132,8 +141,9 @@ export function applyChildExit(
     postUpdateCrashes = [...snap.postUpdateCrashes.filter((t) => t >= windowStart), input.nowMs]
   }
 
-  // A crash does not clear an unrelated refusal — stay degraded if any remain.
-  if (Object.keys(refusals).length > 0) phase = 'degraded'
+  // A crash does not clear an unrelated refusal — stay degraded if any remain,
+  // and never while the machine is stuck on a release it cannot roll back.
+  if (Object.keys(refusals).length > 0 || snap.rollbackUnavailable) phase = 'degraded'
   else if (phase === 'booting' || phase === 'degraded' || phase === 'running') phase = 'running'
 
   return { ...snap, phase, children, refusals, postUpdateCrashes }
@@ -155,7 +165,18 @@ export function applyChildRunning(
   if (snap.phase === 'handover_incoming' || snap.phase === 'booting') {
     return { ...snap, children, refusals }
   }
+  // A child coming back does not un-stick a release that cannot be rolled back.
+  if (snap.rollbackUnavailable) return { ...snap, children, refusals, phase: 'degraded' }
   return { ...snap, children, refusals, phase: 'running' }
+}
+
+/** Record that rollback was refused, and why (decision 4). Holds the stack degraded. */
+export function markRollbackUnavailable(snap: ParentSnapshot, why: string): ParentSnapshot {
+  return {
+    ...snap,
+    phase: snap.phase === 'stopping' ? snap.phase : 'degraded',
+    rollbackUnavailable: why,
+  }
 }
 
 /** Record a janitor refusal reported by the server worker (not an OS child). */
@@ -270,13 +291,29 @@ export function watchdogPetDecision(input: {
 /**
  * Rollback availability after a post-update crash loop (decision 4): only when
  * the release carried no new migrations AND `.old` still exists.
+ *
+ * `releaseHadMigrations` is deliberately `boolean | undefined`, and UNDEFINED IS
+ * NOT FALSE. Only the process that ran the swap can compare the release's
+ * declared migrations against the live ledger; any other process — a successor
+ * parent spawned by a predecessor too old to pass the fact on, a parent that
+ * found a `.old` it did not create — is guessing. Restoring old code over a
+ * migrated database corrupts data rather than merely inconveniencing the user,
+ * so a parent that cannot answer the question refuses and says so. (Contrast
+ * `releaseCarriesNewMigrations`, where a target that declares NO migrations is
+ * knowledge, not absence of it.)
  */
 export function rollbackDecision(input: {
   crashLoop: boolean
   oldBundlePresent: boolean
-  releaseHadMigrations: boolean
+  releaseHadMigrations: boolean | undefined
 }): { action: 'rollback' } | { action: 'unavailable'; why: string } | { action: 'continue' } {
   if (!input.crashLoop) return { action: 'continue' }
+  if (input.releaseHadMigrations === undefined) {
+    return {
+      action: 'unavailable',
+      why: 'rollback unavailable: this parent cannot tell whether the release carried schema migrations — forward-fix required',
+    }
+  }
   if (input.releaseHadMigrations) {
     return {
       action: 'unavailable',
@@ -330,7 +367,11 @@ export function markPostUpdate(snap: ParentSnapshot, nowMs: number): ParentSnaps
 
 /** Clear post-update arming after healthy soak or successful rollback. */
 export function clearPostUpdate(snap: ParentSnapshot): ParentSnapshot {
-  return { ...snap, postUpdateSinceMs: undefined, postUpdateCrashes: [] }
+  const next = { ...snap, postUpdateSinceMs: undefined, postUpdateCrashes: [] }
+  // The release is no longer the unproven one, so "cannot roll it back" is no
+  // longer a live fact about this machine.
+  delete next.rollbackUnavailable
+  return next
 }
 
 /**
@@ -344,6 +385,8 @@ export function componentsProjection(snap: ParentSnapshot): {
   janitor: 'running' | 'degraded' | 'unknown'
   degraded: Array<SupervisedChild | 'janitor'>
   refusals: Partial<Record<SupervisedChild | 'janitor', string>>
+  /** Present when the machine is stuck on a release rollback cannot undo. */
+  rollbackUnavailable?: string
 } {
   const degraded = (Object.keys(snap.refusals) as Array<SupervisedChild | 'janitor'>).slice()
   const janitor = snap.refusals.janitor ? 'degraded' : 'running'
@@ -360,5 +403,6 @@ export function componentsProjection(snap: ParentSnapshot): {
     janitor,
     degraded,
     refusals: { ...snap.refusals },
+    ...(snap.rollbackUnavailable ? { rollbackUnavailable: snap.rollbackUnavailable } : {}),
   }
 }
