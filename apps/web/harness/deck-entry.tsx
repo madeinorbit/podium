@@ -32,6 +32,7 @@ declare global {
       setMission: (name: keyof typeof MISSIONS) => void
       setMode: (mode: 'full' | 'working' | 'needs-you') => void
       setIssueColor: (hex: string | null) => void
+      setTheme: (mode: 'light' | 'dark') => void
       point: (sessionId: string | null) => void
     }
   }
@@ -661,7 +662,52 @@ const MISSIONS = {
     state.selectedIssueId = 'root'
     state.paneA = null
   },
+  /**
+   * THE FILED CASE FOR POD-1455 — a mission whose description is a WRITTEN
+   * BRIEF: an opening line, a blank line, then a bullet list. Every other
+   * fixture here carries one flat sentence, which is why the header's prose
+   * block could ship as a `<p>` for so long: with no newline in the string
+   * there was nothing for `white-space` to lose. This one has both, so the
+   * paragraph break and the list markers are measurable rather than asserted.
+   */
+  prose: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-1451',
+        title: 'Live footer metrics',
+        stage: 'review',
+        description:
+          'in the footer bar: make sure:\n\n- agents count is based on "now" / live (can also be last minute or something, don\u2019t risk performance). but, definitely not an avg over last 12h or so\n- burn: the same\n\nremove:\n\n- ships/day\n- work in worktree',
+        memberSessionIds: ['s1'],
+      }),
+    ]
+    state.sessions = [
+      session('s1', {
+        issueId: 'root',
+        displayRef: 'POD-1451-A',
+        name: 'Live Footer Metrics',
+        title: 'Live Footer Metrics',
+        status: 'exited',
+        lastActiveAt: '2026-01-01T00:24:00.000Z',
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
 } as const
+
+/**
+ * THE THEME IS AN ATTRIBUTE, NOT A DEFAULT (POD-1455).
+ *
+ * Every token in `index.css` hangs off `[data-theme="podium"]` — the app sets it
+ * in `theme.tsx` — so a harness page that only imports the stylesheet renders
+ * with NO surface, NO ink ramp and NO seams: an untokenized white page that
+ * looks close enough to Paper to be mistaken for it. Dark is the app's own
+ * default, so that is what the harness opens in; `window.deck.setTheme` swaps.
+ */
+document.documentElement.setAttribute('data-theme', 'podium')
+document.documentElement.classList.add('dark')
 
 function Harness(): JSX.Element {
   const [width, setWidth] = useState(366)
@@ -685,6 +731,9 @@ function Harness(): JSX.Element {
         bump((v) => v + 1)
       },
       setIssueColor: (hex) => setColor(hex),
+      setTheme: (mode) => {
+        document.documentElement.classList.toggle('dark', mode === 'dark')
+      },
       // `setHoveredSession(null)` IS the clear; `clearHoveredSession` is the
       // guarded form a row uses on pointer-out and needs its own id.
       point: (id) => setHoveredSession(id as never),

@@ -4,7 +4,6 @@ import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core
 import {
   archivedSessionsForIssue,
   buildFlightDeckRows,
-  continuationPresenceLine as sharedContinuationPresenceLine,
   type CollapsedSummary,
   type DeckIssueState,
   type DeckState,
@@ -36,8 +35,8 @@ import {
   nativeSubagentRows,
   type PresenceNote,
   presenceNote,
-  reposToViews,
   readFlightDeckFolds,
+  reposToViews,
   reuseFlightDeckRows,
   type SessionRole,
   selectedMissionRoot,
@@ -46,6 +45,7 @@ import {
   sessionRole,
   sessionSettled,
   sessionUnreadEmphasized,
+  continuationPresenceLine as sharedContinuationPresenceLine,
   subtreeUnread,
   treeGuides,
   writeFlightDeckFolds,
@@ -72,7 +72,7 @@ import {
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { UnreadDot } from '@/components/UnreadMark'
@@ -96,6 +96,7 @@ import {
   candidateFromAvailability,
 } from '@/lib/agent-capability'
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
+import { renderReadoutMarkdown } from '@/lib/markdown'
 import { PhaseTimer, useArrivals, WorkingMark } from '@/lib/motion'
 import { SessionContextMenu } from '@/lib/SessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -2257,6 +2258,76 @@ export function ContinuationCard({
 }
 
 /**
+ * THE MISSION'S BRIEF, SET AS PROSE (POD-1455).
+ *
+ * The header's one paragraph used to be a `<p>` of `shell-type-secondary` —
+ * 12px on a 16px line box — carrying the description exactly as typed. Two
+ * things were wrong with that and both were visible in the same screenshot.
+ *
+ * The STRUCTURE was thrown away. Briefs in this product are written the way the
+ * product is used: a lead-in line, a blank line, then a list of things to make
+ * sure of. Collapsed into one run, `make sure: - agents count is based on "now"`
+ * reads as a sentence with stray hyphens in it, and the operator has to re-parse
+ * in their head a shape the author had already given them. It is rendered now —
+ * breaks, paragraphs, lists, emphasis — through {@link renderReadoutMarkdown},
+ * which is the transcript's renderer with every anchor dropped: this block sits
+ * beside the mission's own click target, so a link in it is either dead or a
+ * second thing to hit by accident.
+ *
+ * And the SETTING was a caption's, not a paragraph's. 12/16 is 1.33 leading,
+ * which is the density of a table cell; the `leading-[1.6]` on the element never
+ * applied, because `.shell-type-secondary` is unlayered CSS and Tailwind's
+ * utilities live in a layer that unlayered rules outrank. `chat-md` is the
+ * shell's own answer for a block somebody actually reads (13.5/23), it is
+ * already the register the pinned brief and the transcript are set in, and it
+ * brings the list and emphasis rules with it rather than restating them here.
+ *
+ * THE CLAMP STAYS, and it is not a compromise. The uncapped read is the Task
+ * dock's, deliberately (POD-516 r3 #2) — down there it costs nothing, and up
+ * here the five lines are a height budget the spine below is owed. What changes
+ * is that a cut brief now SAYS it is cut: `line-clamp`'s ellipsis only works on
+ * a run of inline text, so with real blocks in the box the fade takes the job
+ * over, and it is applied only when the content genuinely overflows, so a
+ * two-line brief never has its last line dimmed for nothing.
+ */
+function MissionBrief({ html, standing }: { html: string; standing?: boolean }): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  const [clipped, setClipped] = useState(false)
+  // `html` is not READ in here, it is the reason to run again: a new brief in
+  // the same box is new content to measure, and the element identity does not
+  // change to say so.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency is the trigger, not a value the effect reads
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    // `scrollHeight` is the whole content even while `max-height` hides most of
+    // it, so the question is one read and there is no second box to keep in sync.
+    const measure = (): void => setClipped(el.scrollHeight - el.clientHeight > 1)
+    measure()
+    // No layout, no overflow: under happy-dom every box is zero-high, `measure`
+    // correctly answers "nothing is cut", and there is no observer to attach.
+    if (typeof ResizeObserver === 'undefined') return
+    // The column is resizable, so "does this overflow" has to be answered again
+    // at every width. Nothing this sets changes layout — the fade is a mask — so
+    // the observer cannot feed itself the way a toggle beside the text would.
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [html])
+  return (
+    <div
+      ref={ref}
+      className="deck-brief chat-md"
+      data-testid="deck-brief"
+      data-clipped={clipped ? 'true' : undefined}
+      data-standing={standing ? 'true' : undefined}
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
+}
+
+/**
  * A CLOSED MISSION WITH NOBODY LEFT ON IT (POD-1268).
  *
  * The other ending. Work that carried on elsewhere gets {@link ContinuationCard}
@@ -2885,6 +2956,25 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const rootSession = root ? rows[0]?.sessions[0] : focusedSession
   const draftFilling = Boolean(root?.draft && rootSession)
   const rootDraft = useSessionDraft(draftFilling ? rootSession?.sessionId : undefined)
+  /**
+   * The header's one paragraph, resolved and rendered in one place (POD-1455).
+   *
+   * The fall-through is the old one — the operator's own words, then the agent's
+   * latest note, then the column's standing sentence — and all three go through
+   * the same renderer: a status note is written in the same voice a description
+   * is, and a fixed sentence with no markup in it renders as itself.
+   */
+  const authoredBrief = draftFilling
+    ? ''
+    : root?.description?.trim() || root?.activityNotes?.trim() || ''
+  const briefText =
+    authoredBrief ||
+    (draftFilling
+      ? rootDraft
+        ? 'Your first prompt is taking shape. This mission will fill in as the conversation develops.'
+        : 'Start with a message. The mission, plan, and team will fill in here as the agent learns what you need.'
+      : 'Mission work, agents, and dependencies in one live execution view.')
+  const briefHtml = useMemo(() => renderReadoutMarkdown(briefText), [briefText])
   // The root is never in the fold set — see `rootRow`. Neither are proposals:
   // they left the tree, and "fold every branch" is about the tree.
   const foldable = useMemo(
@@ -3243,7 +3333,15 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 note and the seat drop underneath them, left-aligned on the same
                 16px datum, where they can never run into the chevron. A flight
                 deck may spend a line to keep a fact. */}
-            <div className="shell-type-micro flex min-h-8 flex-wrap items-center gap-x-1.5 py-1 pr-2 pl-4 font-mono text-text-dim">
+            {/* AND IT STANDS ON THE SHELL'S ONE HEADER DATUM (POD-1455).
+                It was 32px — four pixels short of `--section-bar-h`, which is
+                the height every other column header in this window spends — so
+                the deck's identity row sat two pixels higher than the sidebar's
+                and the tab strip's, and the chevron had four pixels of air over
+                it against the column's own top edge. At 36px the ink lands on
+                the same datum as its neighbours and the control at the end of
+                the row stops reading as jammed into the corner. */}
+            <div className="shell-type-micro flex min-h-9 flex-wrap items-center gap-x-1.5 py-1.5 pr-2 pl-4 font-mono text-text-dim">
               {/* Identity NEVER shrinks and never leaves line 1: the glyph, the
                   ref and the stage word are what this row is for. */}
               {rootIssue ? (
@@ -3303,15 +3401,18 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   {draftFilling ? sessionDisplayName(rootSession as SessionMeta) : root.title}
                 </h2>
               </button>
-              <p className="shell-type-secondary mt-[7px] line-clamp-4 leading-[1.6] text-muted-foreground">
-                {draftFilling
-                  ? rootDraft
-                    ? 'Your first prompt is taking shape. This mission will fill in as the conversation develops.'
-                    : 'Start with a message. The mission, plan, and team will fill in here as the agent learns what you need.'
-                  : root.description?.trim() ||
-                    root.activityNotes?.trim() ||
-                    'Mission work, agents, and dependencies in one live execution view.'}
-              </p>
+              {/* THE BRIEF IS THE ONE THING HERE THAT IS READ RATHER THAN
+                  SCANNED — see {@link MissionBrief}. 10px under a 17px title is
+                  the title's own half-leading plus a hair: less and the two
+                  blocks touch, more and the title stops belonging to the
+                  paragraph it names. */}
+              <div className="mt-2.5">
+                {/* The column's own standing sentence is not a brief — it is
+                    what the deck says when nobody has written one. Same slot,
+                    same setting, one step down the ink ramp, so a mission with a
+                    real brief is visibly a mission somebody described. */}
+                <MissionBrief html={briefHtml} standing={!authoredBrief} />
+              </div>
               {/* ONE 26px FAMILY, ON ONE BASELINE (POD-1146). The gauge, the
                   crew chip and the mission's one action were three heights on
                   two alignments; they are one row of 26px radius-8 objects now.
