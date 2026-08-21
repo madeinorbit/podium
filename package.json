@@ -42,6 +42,8 @@
     "host": "bun run --filter @podium/web dev & bun --conditions=@podium/source --watch scripts/host.ts",
     "host:web": "bun run --filter @podium/web dev",
     "host:backend": "bun --conditions=@podium/source --watch scripts/host.ts",
+    "//iterate": "ITERATION MODE (POD-2513, spec §7) — the web UI from source, hot-reloading, in front of the LIVE INSTALLED server rather than a second source backend. `host` is the laptop all-in-one and gives you an empty instance; `iterate` is how you change the UI on a machine whose data and agent sessions you actually want. Writes no dist, publishes no release, and frames the page so it can never be mistaken for the installed app. Foreground, never auto-started; see docs/iteration-mode.md.",
+    "iterate": "bun --conditions=@podium/source scripts/iterate.ts",
     "typecheck": "bun scripts/typecheck.ts",
     "test": "bun run typecheck && bun --bun node_modules/vitest/vitest.mjs run --config vitest.unit.config.ts --project node --maxWorkers=1 packages/runtime/src/boot.test.ts apps/server/src/router.setup.test.ts apps/daemon/src/connection-state.test.ts scripts/test-configuration.test.ts --passWithNoTests",
     "test:agent": "bun run test",
