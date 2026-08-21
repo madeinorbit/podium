@@ -9243,6 +9243,65 @@ a.ref-link--session::before {
   max-height: 32vh;
   overflow: hidden;
   color: var(--muted-foreground);
+  /* THE EXPAND IS A MOVE, NOT A CUT — the same call `.brief-shelf-text` makes.
+     Everything under this box (the mission's controls, the view bar, the spine)
+     is pushed down by the difference, and on the design's own curve that reads
+     as the header making room, which is what it is. Structural motion, so it is
+     a one-shot layout transition rather than a state signal, and the distance is
+     measured, so the easing is spent on the text and not on empty space. */
+  transition: max-height 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Past the second ceiling the brief scrolls inside itself rather than taking the
+   column: `min(content, 60vh)` stops the box, and this is what lets the operator
+   reach the rest of a pasted spec. */
+.deck-brief[data-open="true"] {
+  overflow-y: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .deck-brief.chat-md {
+    transition: none;
+  }
+}
+/* THE END OF THE BRIEF, DRAWN. A rule on the block's own datum, the full width
+   of the text above it, in the soft tier the shell uses for inner dividers — so
+   the paragraph has a bottom edge instead of dissolving into the row of chips
+   under it. When there is more to read, the rule carries the toggle at its right
+   end; the left end never moves, because it is the same 16px the title and the
+   text stand on. */
+.deck-brief-end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.deck-brief-rule {
+  height: 1px;
+  flex: 1;
+  /* NOT `--hairline-soft`, which is INVISIBLE HERE. The header's ground is the
+     panel tier, and the plain hairline is one step above it — measured off the
+     painted pixels, rgb(36,39,45) of rule against rgb(35,38,45) of ground, so
+     the line was in the DOM and nowhere on the screen. `--chat-rule` is the
+     shell's existing answer to exactly that: the border mixed one notch toward
+     the strong tier on a dark ground, and the plain border on paper, where a
+     hairline already reads and mixing would draw a grid. The token's name says
+     "chat" because that is where the problem was met first; what it encodes is
+     "a hairline that survives a panel-tier face", which is this. */
+  background: var(--chat-rule);
+}
+/* The shell's established toggle voice — `.brief-shelf-toggle`'s, to the letter.
+   Two ways to say "there is more of this" in one window is one too many. */
+.deck-brief-more {
+  flex: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim, var(--muted-foreground));
+  transition: color 160ms ease;
+}
+.deck-brief-more:hover {
+  color: var(--text-strong);
 }
 /* BLOCK RHYTHM IS THE COLUMN'S, NOT THE FEED'S. `chat-md`'s intervals are set
    for a turn in a transcript, where a paragraph has a whole stage to breathe in

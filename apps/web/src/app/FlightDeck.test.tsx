@@ -276,6 +276,15 @@ describe("the mission's brief (POD-1455)", () => {
     expect(brief().querySelectorAll('br')).toHaveLength(1)
   })
 
+  /* NEITHER IS THE TOGGLE. `Show more` appears only when the brief overflows its
+     ceiling, and happy-dom has no layout: every box measures zero, so nothing
+     ever overflows and the control is correctly absent in every case this file
+     can construct. Driven in Chromium instead, against the harness fixture whose
+     description is long enough to bind the cap: shut, the brief measures 243px
+     of 454px and the control reads `Show more`; opened, 454px with the header at
+     597px and the spine pushed down to what is left; shut again, back to 243px
+     and `Show more`. */
+
   /* THE ANCHOR-AND-SCRIPT HALF OF `renderReadoutMarkdown` IS NOT TESTABLE HERE.
      DOMPurify decides at import whether the environment supports it, and under
      happy-dom it does not — `sanitize` hands the input straight back, so a
@@ -299,6 +308,16 @@ describe("the mission's brief (POD-1455)", () => {
     harness.sessions = []
     deck()
     expect(brief().getAttribute('data-standing')).toBeNull()
+  })
+
+  it('draws the line that ends the brief in every state', () => {
+    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
+    harness.sessions = []
+    deck()
+    expect(document.querySelector('.deck-brief-rule')).toBeTruthy()
+    // Nothing is cut in a box with no layout, so the toggle stays away — which
+    // is the same answer the browser gives for a brief that fits.
+    expect(screen.queryByTestId('deck-brief-more')).toBeNull()
   })
 
   it("falls through to the agent's own note when nobody wrote a description", () => {
