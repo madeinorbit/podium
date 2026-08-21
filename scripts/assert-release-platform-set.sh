@@ -51,6 +51,16 @@ MANIFEST="$DIR/podium-update.json"
 [ -s "$DIR/SHA256SUMS" ] || fail "no SHA256SUMS in $DIR"
 
 TARGET_VERSION="$(jq -er '.version' "$MANIFEST")" || fail "manifest has no version"
+TARGET_SOURCE="$(jq -er '.artifacts.web.digest' "$MANIFEST")" \
+  || fail "manifest has no approved client source commit"
+# This value travelled in unsigned manifest metadata with the artifacts. It is a
+# cross-platform consistency check here, not an independent binding to the approved
+# source commit; the release job supplies that independent commit when it gates output.
+# The root sidecar is useful inspection metadata, but it is not trusted here: it travelled
+# with the artifact. Build-to-package continuity was already checked against process-local
+# state by scripts/release.ts before this directory was staged.
+[ -s "$DIR/client-root-digest.sha256" ] \
+  || fail "release has no client root digest inspection record"
 
 MANIFEST_PLATFORMS="$(jq -r '.artifacts.headless.platforms | keys[]' "$MANIFEST" | sort | tr '\n' ' ')"
 EXPECTED_PLATFORMS="$(for pair in $PLATFORMS; do echo "${pair%%:*}"; done | sort | tr '\n' ' ')"
@@ -92,6 +102,7 @@ for pair in $PLATFORMS; do
   bun scripts/verify-headless-signature.ts "$DIR/$asset" "$MANIFEST_SIG" "${PUBKEY_ARGS[@]+"${PUBKEY_ARGS[@]}"}" || exit 1
 
   bash scripts/assert-headless-bundle.sh "$DIR/$asset" "$platform" \
+    --source-commit "$TARGET_SOURCE" \
     --abduco "dist-bun/abduco-cache/${platform}-${ABDUCO_HASH}" || exit 1
 
   BUNDLE_VERSION="$(tar -xzOf "$DIR/$asset" headless/VERSION | tr -d '\n')"

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Install `rcodesign` (apple-codesign) on a Linux CI runner.
 #
-# It is what lets a Linux box sign a Mach-O: the ad-hoc signature plus the Bun JIT
-# entitlements that Apple Silicon requires before it will execute the binary at all.
-# Two jobs need it — the one that BUILDS the Darwin bundles and the one that reads their
-# signatures back off the published release — so the version lives here rather than being
-# spelled twice in the workflow and drifting.
+# It is what lets a Linux box re-sign a Darwin Mach-O with Bun's JIT entitlements.
+# bun build --compile already emits an ad-hoc LINKER_SIGNED signature (identifier a.out,
+# no entitlements). rcodesign replaces that signature; if this install is dropped, the
+# binary still carries a signature and the build still goes green — JIT then fails at
+# runtime rather than at build time. Two jobs need the tool — the one that BUILDS the
+# Darwin bundles and the one that reads their signatures back off the published release —
+# so the version lives here rather than being spelled twice in the workflow and drifting.
 #
 # Pinned, not "latest": a signing tool that changes under a release job is a change to
 # the bytes we ship. Bump deliberately, and re-run the Darwin assertions when you do.

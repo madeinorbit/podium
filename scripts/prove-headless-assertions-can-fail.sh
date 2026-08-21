@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # PROVE THE RELEASE GATE CAN SAY NO.
 #
-# `assert-headless-bundle.sh` is the only thing standing between a broken Darwin
-# payload and a release page. A green from a check that cannot go red is worse than no
-# check: it is a claim nobody made. So this harness breaks a real bundle ten ways and
-# requires the gate to reject each one FOR THE RIGHT REASON — not merely to exit
+# The release gate combines process-local client continuity with
+# `assert-headless-bundle.sh`'s shipped-byte checks. A green from a check that cannot go
+# red is worse than no
+# check: it is a claim nobody made. So this harness breaks a real bundle and
+# requires the gate to reject each mutation FOR THE RIGHT REASON — not merely to exit
 # non-zero, which a typo in the script would also do.
 #
-# Grown out of POD-2501's prove-assert-can-fail.sh, which is where the ten cases come
-# from, and wired into the release job so the proof is re-run rather than remembered.
+# Grown out of POD-2501's prove-assert-can-fail.sh, and wired into the release job so
+# the proof is re-run rather than remembered. Cases 12–14 are the production-layout
+# checks the spike never had.
 #
 # Usage:
 #   scripts/prove-headless-assertions-can-fail.sh <darwin-arm64-tarball> [<linux-x64-tarball>]
@@ -22,6 +24,7 @@ export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
 
 DARWIN_TARBALL="${1:-}"
 LINUX_TARBALL="${2:-}"
+SOURCE_COMMIT="$(git rev-parse HEAD)"
 [ -f "$DARWIN_TARBALL" ] || { echo "ABORT: pass a real darwin-aarch64 tarball to mutate (got '$DARWIN_TARBALL')" >&2; exit 1; }
 
 for tool in rcodesign python3 tar file bun; do
@@ -66,9 +69,9 @@ check() {
   local label="$1" expect="$2" platform="$3" abduco="$4" tarball="$5"
   local out status line
   if [ -n "$abduco" ]; then
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --abduco "$abduco" 2>&1)"
+    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" --abduco "$abduco" 2>&1)"
   else
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" 2>&1)"
+    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" 2>&1)"
   fi
   status=$?
   if [ "$status" -eq 0 ]; then
@@ -91,6 +94,44 @@ check() {
   fi
   echo "REJECTED (right reason) [$label]: $line"
   PASSED=$((PASSED + 1))
+}
+
+# The former caller-supplied root is now an explicitly refused interface. An attacker
+# computing the root of their own bytes must not be able to hand that value to the gate.
+check_caller_client_root() {
+  local out status line
+  out="$(bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
+    --source-commit "$SOURCE_COMMIT" --client-root-digest "$(printf 'a%.0s' {1..64})" \
+    --abduco "$DARWIN_REF" 2>&1)"
+  status=$?
+  line="$(printf '%s\n' "$out" | grep -iE '^(FAIL|ABORT)' | head -1)"
+  if [ "$status" -ne 0 ] && printf '%s' "$line" | grep -qi -- 'unknown flag --client-root-digest'; then
+    echo "REJECTED (right reason) [caller-supplied client root]: $line"
+    PASSED=$((PASSED + 1))
+  else
+    echo "HARNESS FAILURE [caller-supplied client root]: expected the retired interface refusal"
+    echo "  got: ${line:-<no failure line>}"
+    FAILED=$((FAILED + 1))
+  fi
+}
+
+check_caller_client_root
+
+# Try to route fabricated bytes through the retired raw packager. It must refuse before
+# looking at either the forged archive or an attacker-computed root: only the wrapper that
+# actually runs package:clients can mint the in-process session build-bun requires.
+check_release_capture() {
+  local label="$1" tarball="$2" out status
+  out="$(PODIUM_BUNDLE_ARTIFACT="$tarball" bun scripts/build-bun.ts 2>&1)"
+  status=$?
+  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qi -- 'direct headless packaging is forbidden'; then
+    echo "REJECTED (right reason) [$label]: direct headless packaging is forbidden"
+    PASSED=$((PASSED + 1))
+  else
+    echo "HARNESS FAILURE [$label]: expected the process-local captured digest mismatch"
+    echo "  got: ${out:-<no output>}"
+    FAILED=$((FAILED + 1))
+  fi
 }
 
 # Build a mutated tarball from the pristine tree; `$1` is a function that edits $CASE.
@@ -214,8 +255,10 @@ check "byte flipped inside the sealed region" "does not seal the shipped bytes" 
 
 # 6. Re-signed with EMPTY entitlements: ad-hoc, identifier podium, not LINKER_SIGNED —
 #    everything the other signature checks look for — and unable to JIT. This isolates
-#    the entitlement check, which nothing else reaches: the raw-Bun case above trips
-#    LINKER_SIGNED first and never gets there.
+#    the entitlement check, which nothing else reaches: the raw-Bun case below trips
+#    LINKER_SIGNED first and never gets there. THIS is the proof that stripping the
+#    five keys rcodesign actually contributes is refused; dropping rcodesign entirely
+#    is case 7 (LINKER_SIGNED still present).
 #
 #    The signature must be STRIPPED before re-signing. `rcodesign sign` on an already
 #    signed binary PRESERVES the existing entitlements, so signing without
@@ -229,6 +272,32 @@ edit_noent() {
 }
 check "empty entitlements" "entitlements missing com.apple.security.cs.allow-jit" \
   darwin-aarch64 "$DARWIN_REF" "$(mutate noent edit_noent)"
+
+# 6b. All five keys still PRESENT, but explicitly false. Presence alone is not the
+#     policy: Bun's JIT needs each entitlement enabled. This is the closest false
+#     positive to the real regression because a key-only grep accepts it.
+edit_false_entitlements() {
+  cat > "$CASE/false-entitlements.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><false/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><false/>
+  <key>com.apple.security.cs.disable-executable-page-protection</key><false/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key><false/>
+  <key>com.apple.security.cs.disable-library-validation</key><false/>
+</dict>
+</plist>
+PLIST
+  python3 scripts/macho-strip-signature.py "$CASE/headless/podium-cli" "$CASE/headless/podium-cli.bare" \
+    && mv "$CASE/headless/podium-cli.bare" "$CASE/headless/podium-cli" \
+    && chmod +x "$CASE/headless/podium-cli" \
+    && rcodesign sign --binary-identifier podium \
+      --entitlements-xml-file "$CASE/false-entitlements.plist" "$CASE/headless/podium-cli"
+}
+check "all JIT entitlements false" "entitlement com.apple.security.cs.allow-jit is not enabled" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate falseentitlements edit_false_entitlements)"
 
 # 7. Raw `bun build --compile` output: already ad-hoc signed, but LINKER_SIGNED with
 #    identifier a.out and NO entitlements. The regression that looks most like success.
@@ -276,10 +345,86 @@ check "VERSION removed" "tarball missing headless/VERSION" \
 #     never a silent skip that reads as a green.
 check "no abduco flag" "pass --abduco" darwin-aarch64 "" "$DARWIN_TARBALL"
 
+# 12–14. THE PRODUCTION LAYOUT, not the spike layout. The spike packed no systemd/,
+#     no NOTICE, and stub web/mobile index.html files. A gate that only checked what
+#     the spike happened to emit would accept each of these as a green.
+
+# 12. Packaged systemd units gone — a headless VPS cannot enable the parent unit.
+edit_nosystemd() { rm -rf "$CASE/headless/systemd"; }
+check "systemd/ removed" "tarball missing headless/systemd" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate nosystemd edit_nosystemd)"
+
+# 13. The spike's stub web/index.html in place of the stamped production client.
+#     Existence of a file named index.html is the check that would have passed this.
+edit_stub_web() {
+  printf '<!doctype html><title>spike</title><p>POD-2501 spike — no web dist</p>\n' \
+    > "$CASE/headless/web/index.html"
+}
+check "stub web/index.html" "build provenance hash mismatch for index.html" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate stubweb edit_stub_web)"
+
+# 13b. Forge plausible bytes, a public release stamp and an exact internal manifest.
+#      The archive is internally self-consistent; the raw packager must still refuse because
+#      it has no module-branded evidence that this invocation ran a fresh client build.
+edit_forged_web() {
+  rm -rf "$CASE/headless/web/assets"
+  python3 - "$CASE/headless/web" "$CASE/headless/VERSION" "$SOURCE_COMMIT" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+site = Path(sys.argv[1])
+version = Path(sys.argv[2]).read_text().strip()
+source_commit = sys.argv[3][:7]
+bundle_hash = 'AbCdEf12'
+(site / 'index.html').write_text(
+    '<!doctype html><html><head>'
+    f'<meta name="podium-version" content="{version}">'
+    '</head><body><div id="root"></div>'
+    f'<script type="module" src="/assets/index-{bundle_hash}.js"></script>'
+    f'<!-- forged padding {"x" * 200_000} --></body></html>\n'
+)
+stamp = {
+    'wireSchemaDigest': '0123456789abcdef',
+    'wireVersion': 1,
+    'builtAt': '2026-08-21T00:00:00.000Z',
+    'appVersion': version,
+    'sourceSha': source_commit,
+    'bundleVersion': f'bundle+{bundle_hash}',
+}
+(site / 'podium-build.json').write_text(json.dumps(stamp) + '\n')
+files = {}
+for path in sorted(site.rglob('*')):
+    if path.is_file() and path.name != 'podium-build-manifest.json':
+        files[path.relative_to(site).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+(site / 'podium-build-manifest.json').write_text(json.dumps({
+    'manifestVersion': 1,
+    'sourceCommit': source_commit,
+    'buildStamp': stamp,
+    'files': files,
+}) + '\n')
+PY
+}
+check_release_capture "padded forged web stub with matching forged manifest" \
+  "$(mutate forgedweb edit_forged_web)"
+
+# 13c. Removing the manifest itself must trip the provenance guard. This is the
+#      armedness proof: delete that check and this case reaches the binary unchanged.
+edit_nomanifest() { rm -f "$CASE/headless/web/podium-build-manifest.json"; }
+check "web build provenance manifest removed" "has no build provenance manifest" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate nomanifest edit_nomanifest)"
+
+# 14. NOTICE absent — Apache-2.0 convention, packed by build-bun.ts with LICENSE.
+edit_nonotice() { rm -f "$CASE/headless/NOTICE"; }
+check "NOTICE missing" "tarball missing headless/NOTICE" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate nonotice edit_nonotice)"
+
 # THE CONTROL FOR THE CONTROLS: the pristine bundle must still PASS. Without this a
-# gate that rejected everything would score a perfect ten above.
+# gate that rejected everything would score a perfect set above.
 echo
-if bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 --abduco "$DARWIN_REF" >/dev/null 2>&1; then
+if bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
+    --source-commit "$SOURCE_COMMIT" --abduco "$DARWIN_REF" >/dev/null 2>&1; then
   echo "ACCEPTED (control): the unmutated bundle still passes"
   PASSED=$((PASSED + 1))
 else

@@ -584,7 +584,9 @@ What the macOS runs do NOT establish, and who closes it:
 - **The spike `headless/` is not the production layout** (no `systemd/`, no
   NOTICE/LICENSE, stub web/mobile `index.html`). POD-2504 must not assume the full
   bundle layout was exercised; the Mac boot logged "Served web bundle has no valid
-  build stamp" for exactly that reason.
+  build stamp" for exactly that reason. **POD-2540** made the release gate require
+  the production set from `scripts/build-bun.ts` and refuse a missing `systemd/`
+  tree, a stub `web/index.html`, and a missing NOTICE.
 
 **What `rcodesign` actually contributes: the entitlements, not the signature.**
 `bun build --compile --target=bun-darwin-*` already emits an ad-hoc signed Mach-O —
@@ -595,7 +597,9 @@ plus the five Bun JIT entitlement keys. So an earlier reading of the CI log —
 nothing in the run showed AMFI to be lenient. If the release job ever drops
 `rcodesign`, what breaks is JIT, not code signing. A genuine unsigned probe needs the
 signature stripped on purpose (`scripts/spike/macho-strip-signature.py`), which the
-Mac verifier now does.
+Mac verifier now does. The release job and `scripts/build-bun.ts` signing step
+say this; `scripts/assert-headless-bundle.sh` refuses a Darwin binary whose five
+JIT entitlement keys were stripped (**POD-2540**).
 
 The Linux-side assertions run against the binary **inside the shipped tarball**
 (`scripts/spike/linux-assert-darwin-spike.sh`), and

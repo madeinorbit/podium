@@ -32,9 +32,7 @@ jobs:
         run: bun --conditions=@podium/source scripts/conpty-smoke.ts
 
       - name: Build headless bundle
-        run: |
-          bun run --filter @podium/web build
-          bun scripts/build-bun.ts
+        run: bun run package:headless
 
 
       - name: Boot smoke (podium.cmd all-in-one → /health + /version)

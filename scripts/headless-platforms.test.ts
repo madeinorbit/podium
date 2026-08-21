@@ -17,6 +17,7 @@ import {
 } from './abduco-cross'
 import { BUN_TARGETS, bunTargetForPlatform, parseBuildTarget, targetOutputRoot } from './build-bun'
 import { headlessAsset, loadPreparedHeadless, RELEASE_PLATFORMS } from './release'
+import { CLIENT_ROOT_DIGEST_FILE } from './client-build-root-digest'
 
 /**
  * The four platform names are spoken by five things — the abduco cache, the bun
@@ -128,6 +129,7 @@ describe('loadPreparedHeadless', () => {
       asset,
       signature: 'SIG',
       webDigest: 'abc1234',
+      clientRootDigest: '1'.repeat(64),
       ...extra,
     }
     writeFileSync(join(dir, asset), 'tarball')
@@ -136,6 +138,7 @@ describe('loadPreparedHeadless', () => {
   }
   const stage = (platforms: readonly string[]): string => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-prepared-'))
+    writeFileSync(join(dir, CLIENT_ROOT_DIGEST_FILE), `${'1'.repeat(64)}\n`)
     for (const platform of platforms) {
       write(dir, platform, headlessAsset(platform as (typeof RELEASE_PLATFORMS)[number]))
     }
@@ -179,6 +182,7 @@ describe('loadPreparedHeadless', () => {
           asset: 'native-arm64.tar.gz',
           signature: 'SIG',
           webDigest: 'abc1234',
+          clientRootDigest: '1'.repeat(64),
           mode: 'native',
         }),
       )
@@ -191,10 +195,27 @@ describe('loadPreparedHeadless', () => {
   it('REFUSES a set whose bundles pack different web builds', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-prepared-'))
     try {
+      writeFileSync(join(dir, CLIENT_ROOT_DIGEST_FILE), `${'1'.repeat(64)}\n`)
       write(dir, 'linux-x86_64', headlessAsset('linux-x86_64'))
       write(dir, 'darwin-aarch64', headlessAsset('darwin-aarch64'), { webDigest: 'different' })
       expect(() => loadPreparedHeadless(dir, ['linux-x86_64', 'darwin-aarch64'])).toThrow(
         /different or missing web digests/,
+      )
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('REFUSES a set whose bundles differ from the captured client build', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-prepared-'))
+    try {
+      writeFileSync(join(dir, CLIENT_ROOT_DIGEST_FILE), `${'1'.repeat(64)}\n`)
+      write(dir, 'linux-x86_64', headlessAsset('linux-x86_64'))
+      write(dir, 'darwin-aarch64', headlessAsset('darwin-aarch64'), {
+        clientRootDigest: '2'.repeat(64),
+      })
+      expect(() => loadPreparedHeadless(dir, ['linux-x86_64', 'darwin-aarch64'])).toThrow(
+        /different or missing client root digests/,
       )
     } finally {
       rmSync(dir, { recursive: true, force: true })

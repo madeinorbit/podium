@@ -22,7 +22,7 @@ Two tools remove that constraint:
 | Tool | What it does | Where it is used |
 |---|---|---|
 | `zig cc` | cross-compiles `abduco.c` for every target from Linux | `scripts/abduco-cross.ts` |
-| `rcodesign` | applies an ad-hoc Mach-O signature + entitlements from Linux | `scripts/build-bun.ts` |
+| `rcodesign` | replaces Bun's linker signature with identifier `podium` + the five JIT entitlement keys | `scripts/build-bun.ts` |
 
 ## The abduco helper
 
@@ -72,12 +72,14 @@ what the arm64 A/B check exists to confirm (see below).
 
 ## The Darwin signature
 
-Apple Silicon refuses to execute an unsigned Mach-O, so the signature is not a
-formality — it is what makes the binary runnable.
+`rcodesign` contributes the entitlements, not the signature. `bun build
+--compile` already emits an ad-hoc signed Mach-O (`ADHOC | LINKER_SIGNED`,
+identifier `a.out`, **no entitlements**). Apple Silicon refuses a genuinely
+unsigned Mach-O, but dropping `rcodesign` does not produce one — it ships Bun's
+linker signature, and what breaks is JIT at runtime, not code signing at build
+time.
 
-`bun build --compile` already emits an ad-hoc signature for Darwin targets, but
-it is `LINKER_SIGNED`, identifier `a.out`, and carries **no entitlements**. Bun
-embeds JavaScriptCore, which JITs, and macOS will not map writable-executable
+Bun embeds JavaScriptCore, which JITs, and macOS will not map writable-executable
 pages without `com.apple.security.cs.allow-jit`. So the build *re-signs*:
 
 ```sh
@@ -86,15 +88,16 @@ rcodesign sign --binary-identifier podium \
 ```
 
 `scripts/assert-headless-bundle.sh` checks both discriminators (identifier
-`podium`, and NOT `LINKER_SIGNED`) precisely so a silent regression to the
-linker signature reads as a failure rather than as a pass. Keep the entitlement
-list minimal: every key is a hardened-runtime protection given up.
+`podium`, and NOT `LINKER_SIGNED`) plus the five entitlement keys, precisely so
+a silent regression to the linker signature — or a re-sign that dropped the
+keys — reads as a failure rather than as a pass. Keep the entitlement list
+minimal: every key is a hardened-runtime protection given up.
 
 ## Building
 
 ```sh
-bun scripts/build-bun.ts                            # this machine's platform
-bun scripts/build-bun.ts --target=bun-darwin-arm64  # cross, from Linux
+bun run package:headless                                      # this machine's platform
+bun scripts/package-headless.ts --target=bun-darwin-arm64     # cross, from Linux
 bun scripts/release.ts --prepare-cross              # all four, staged for publish
 ```
 
@@ -123,13 +126,24 @@ Three scripts, deliberately separate:
 
 Everything `assert-headless-bundle.sh` checks, it checks against bytes extracted
 **from the tarball** — never a loose sibling in a build directory, because a
-build tree can be right while the archive is wrong. It refuses to run without
+build tree can be right while the archive is wrong. Client continuity is checked
+by the packaging entry point itself: the same process resolves its own Bun executable,
+generates a random invocation nonce, and requires both completed client manifests to echo
+that nonce before it brands the session in memory. It then packages, extracts the resulting
+tarball, and compares the packaged entry set to that process-local value. Direct
+`build-bun.ts` invocation refuses, caller-supplied build environments refuse, and no
+expected digest is accepted from a flag, environment variable, sidecar, or the archive
+itself. This catches
+a stale or wrong directory being packaged, partial/corrupt copies, and bytes changed
+between build and packaging; it does **not** prove the build itself is correct, because
+a broken build can agree with its own captured identity. The tarball gate still verifies
+both sites' exact-file manifests, refuses to run without `--source-commit <sha>`, and requires
 either `--abduco <reference>` or an explicit `--no-abduco-identity`, so an
 omitted input can never read as a green.
 
 And a fourth script exists to check the checker:
-`prove-headless-assertions-can-fail.sh` breaks a real bundle eleven ways and
-requires the gate to reject each one **for the right reason** — not merely to
+`prove-headless-assertions-can-fail.sh` breaks a real bundle and
+requires the gate to reject each mutation **for the right reason** — not merely to
 exit non-zero, which a typo would also do. The release job runs it on every
 release, because a gate that once could fail is not the same as one that still
 can. It earned that place on its first run, which found that the entitlement
@@ -141,9 +155,11 @@ The cases: hello-world stub · Linux ELF as the Darwin payload · **the wrong
 platform's helper actually embedded in the bundle** · wrong-platform reference
 supplied · signature stripped · byte flipped inside the sealed region · empty
 entitlements · raw Bun output never re-signed · reference helper deleted ·
-archive root not `headless/` · `VERSION` removed · no `--abduco` and no waiver.
+archive root not `headless/` · `VERSION` removed · no `--abduco` and no waiver ·
+`systemd/` removed · stub `web/index.html` · `NOTICE` missing.
 Plus a positive control, without which a gate that rejected *everything* would
-score a perfect twelve.
+score a perfect set. The last three are the production-layout checks: a gate
+that only required what the spike happened to emit would have accepted them.
 
 Two properties of that harness are load-bearing and were both learned the hard
 way:
@@ -176,17 +192,13 @@ stop a bad one.
 
 ### What a signature failure MEANS is not the same on both Macs
 
-Apple Silicon refuses to execute an unsigned Mach-O, so on `darwin-aarch64` a
-signature failure means the binary will not start.
-
-Intel macOS has no such requirement — an unsigned x86_64 binary runs. We sign it
-anyway, because the signature is what carries the JIT entitlements. So on
-`darwin-x86_64` a red means **the build's signing step did not run**, not that
-the payload is unrunnable. Both stop a release; they send you to different
-places. `assert-headless-bundle.sh` prints which one it means before it checks,
-and repeats it in the failure, because POD-2501 shipped a check whose Intel red
-read as "the payload is broken" when it meant "Intel does not require
-signatures".
+A genuinely unsigned Mach-O (signature stripped) will not start on Apple
+Silicon; Intel macOS will still execute it. That is a different defect from
+dropping `rcodesign`: Bun already signed the binary, so the build still goes
+green and the binary still starts — JIT then fails at runtime. Both stop a
+release; they send you to different places. `assert-headless-bundle.sh` prints
+which one it means before it checks, and the entitlement-key loop is the
+build-time stand-in for the JIT failure.
 
 ## Prerequisites
 

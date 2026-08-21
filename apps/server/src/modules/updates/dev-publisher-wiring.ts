@@ -101,7 +101,9 @@ export function developmentArtifactUrl(
   artifactToken: string,
   platform: string,
 ): string {
-  return `${origin}${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(version)}/${encodeURIComponent(platform)}?token=${encodeURIComponent(artifactToken)}`
+  return `${origin}${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(
+    version,
+  )}/${encodeURIComponent(platform)}?token=${encodeURIComponent(artifactToken)}`
 }
 
 /**
@@ -222,8 +224,8 @@ export function wireDevBundlePublisher(deps: {
         onAdmitted: () => {
           void observeBundleReadiness()
         },
-        prepareWebDist: (headSha, explicit, buildRoot) => {
-          if (!webBuilder) return Promise.resolve()
+        prepareWebDist: async (headSha, explicit, buildRoot, releaseVersion) => {
+          if (!webBuilder) return undefined
           const buildWeb =
             buildRoot === sourceRoot
               ? webBuilder
@@ -233,10 +235,12 @@ export function wireDevBundlePublisher(deps: {
                   headSha: () => headSha,
                 })
           const decision = decideWebDist({
-            current: buildWeb.isCurrent(headSha),
+            current: buildWeb.isCurrent(headSha, releaseVersion),
             explicit,
           })
-          if (decision === 'ready') return Promise.resolve()
+          if (decision === 'ready') {
+            return
+          }
           // `refuse` is the `/version` poll. The browser is served
           // `apps/web/dist` by THIS process, which is still running the commit
           // it booted with, so rebuilding the dist here would put the page
@@ -256,13 +260,16 @@ export function wireDevBundlePublisher(deps: {
           // A web-build failure must arrive as a REFUSAL with its own words, not
           // as a nameless compile error: the operator's next move (look at the
           // vite output) is different from the one a failed compile calls for.
-          return buildWeb.ensure(headSha).catch((error: unknown) => {
+          try {
+            await buildWeb.ensure(headSha, releaseVersion)
+            return
+          } catch (error) {
             throw new DevBundleUnavailableError(
               `development bundle unavailable: the web bundles could not be rebuilt for dev+${headSha}: ` +
                 (error instanceof Error ? error.message : String(error)),
               `The website could not be rebuilt for HEAD (${headSha}), so dev+${headSha} cannot be packed.`,
             )
-          })
+          }
         },
         artifactUrl: (version, platform) =>
           developmentArtifactUrl(
@@ -323,7 +330,9 @@ export function wireDevBundlePublisher(deps: {
     publishFailureDetail = error.publicReason
     if (error.message === unavailableDiagnostic) return
     unavailableDiagnostic = error.message
-    log.warn('development bundle target unavailable', { diagnostic: error.message })
+    log.warn('development bundle target unavailable', {
+      diagnostic: error.message,
+    })
   }
 
   /** Cache publisher readiness at lifecycle transitions; fleet polling must not spawn git. */

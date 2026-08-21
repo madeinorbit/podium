@@ -15,6 +15,9 @@
  * - `sourceSha` — `git rev-parse --short=7 HEAD`, `artifacts.web.digest`
  * - `bundleVersion` — `bundle+<entry chunk hash>`, forensic only
  *
+ * It also writes `podium-build-manifest.json`: the exact SHA-256 inventory of
+ * every other shipped file, bound to this source commit and full build stamp.
+ *
  * The Update panel, About, `/version`, and log field `v` all read `appVersion`.
  * `wireSchemaDigest` is not that identity — UI-only commits keep the same
  * protocol digest. `bundleVersion` is not that identity either — it names
@@ -50,8 +53,9 @@
  * certify the wrong artefact, and a wrong certificate is worse than none.
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { isAbsolute, join, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
+import { existsSync, lstatSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, gzipSync, constants as zlibConstants } from 'node:zlib'
 import {
@@ -66,6 +70,18 @@ import {
 import { developmentSourceSha } from '../packages/runtime/src/source-version'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+
+export const CLIENT_BUILD_MANIFEST_FILE = 'podium-build-manifest.json'
+
+export interface ClientBuildManifest {
+  manifestVersion: 1
+  sourceCommit: string
+  /** Opaque nonce supplied by a packaging invocation that requires freshness evidence. */
+  buildInvocation?: string
+  buildStamp: WrittenBuildStamp
+  /** SHA-256 of every shipped regular file except this self-referential manifest. */
+  files: Record<string, string>
+}
 
 export type WrittenBuildStamp = BuildStamp & {
   wireSchemaDigest: string
@@ -170,11 +186,57 @@ function refreshCompressedSiblings(filePath: string, bytes: string): void {
   }
 }
 
+function sha256(bytes: Buffer | string): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+/**
+ * Describe the exact completed client dist. The manifest excludes only itself
+ * (a file cannot contain its own digest), and predicts the stamp bytes written
+ * immediately after it so `podium-build.json` remains the completion marker.
+ */
+function clientBuildManifest(
+  distDir: string,
+  stamp: WrittenBuildStamp,
+  stampBytes: string,
+  buildInvocation?: string,
+): ClientBuildManifest {
+  if (!stamp.sourceSha) {
+    throw new Error('cannot write a client build manifest without a source commit')
+  }
+  const files: Record<string, string> = {}
+  const visit = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name)
+      const name = relative(distDir, path).split(sep).join('/')
+      if (name === CLIENT_BUILD_MANIFEST_FILE || name === BUILD_STAMP_FILE) continue
+      if (entry.isDirectory()) {
+        visit(path)
+        continue
+      }
+      if (!entry.isFile() || !lstatSync(path).isFile()) {
+        throw new Error(`client dist contains unsupported non-regular entry ${name}`)
+      }
+      files[name] = sha256(readFileSync(path))
+    }
+  }
+  visit(distDir)
+  files[BUILD_STAMP_FILE] = sha256(stampBytes)
+  return {
+    manifestVersion: 1,
+    sourceCommit: stamp.sourceSha,
+    ...(buildInvocation ? { buildInvocation } : {}),
+    buildStamp: stamp,
+    files: Object.fromEntries(Object.entries(files).sort(([a], [b]) => a.localeCompare(b))),
+  }
+}
+
 export function writeWebBuildStamp(
   distDir: string,
   now: Date = new Date(),
   sourceSha?: string,
   packagedVersion?: string,
+  buildInvocation?: string,
 ): WrittenBuildStamp {
   const indexPath = join(distDir, 'index.html')
   if (!existsSync(indexPath)) {
@@ -192,9 +254,12 @@ export function writeWebBuildStamp(
   const stamped = injectProductVersionMeta(indexHtml, stamp.appVersion)
   writeFileSync(indexPath, stamped)
   refreshCompressedSiblings(indexPath, stamped)
-  // The stamp file goes LAST, after every other byte this build writes. That is the
-  // whole contract: a reader that sees podium-build.json sees a finished dist.
-  writeFileSync(join(distDir, BUILD_STAMP_FILE), `${JSON.stringify(stamp, null, 2)}\n`)
+  const stampBytes = `${JSON.stringify(stamp, null, 2)}\n`
+  const manifest = clientBuildManifest(distDir, stamp, stampBytes, buildInvocation)
+  writeFileSync(join(distDir, CLIENT_BUILD_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`)
+  // The stamp file stays LAST. Its digest is already in the manifest, so a reader
+  // that sees podium-build.json sees a finished and exactly inventoried dist.
+  writeFileSync(join(distDir, BUILD_STAMP_FILE), stampBytes)
   return stamp
 }
 
@@ -224,6 +289,7 @@ function main(): void {
       new Date(),
       resolveWebSourceSha(repoRoot),
       process.env.PODIUM_APP_VERSION,
+      process.env.PODIUM_CLIENT_BUILD_INVOCATION,
     )
   } catch (err) {
     console.error(`[podium] build stamp: ${(err as Error).message}`)

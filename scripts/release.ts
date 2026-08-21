@@ -10,8 +10,10 @@
  * WHY THIS USED TO BE A MATRIX. The compiled daemon embeds a native abduco helper, so
  * the helper — and therefore the whole bundle — had to be produced on the architecture
  * that would run it. `zig cc` now builds that helper for every target from Linux and
- * `rcodesign` applies the ad-hoc signature Apple Silicon requires, so the architecture
- * of the runner stopped meaning anything.
+ * `rcodesign` re-signs each Darwin Mach-O with Bun's JIT entitlements (Bun's own
+ * compile already emitted an ad-hoc LINKER_SIGNED signature; dropping rcodesign
+ * breaks JIT at runtime, not code signing at build time), so the architecture of
+ * the runner stopped meaning anything.
  *
  * `--prepare-arch x64|arm64` REMAINS, and still builds natively on a runner of that
  * architecture. It is no longer how a release is made: it is the A/B leg that proves
@@ -30,8 +32,18 @@ import {
   type MinRequired as MinRequiredShape,
 } from '../packages/protocol/src/update/target'
 import { HEADLESS_PLATFORMS, type HeadlessPlatform, isHeadlessPlatform } from './abduco-cross'
-import { BUN_TARGETS, bunTargetForPlatform, targetOutputRoot } from './build-bun'
+import {
+  beginFreshClientPackagingSession,
+  BUN_TARGETS,
+  bunTargetForPlatform,
+  packageHeadlessForFreshClients,
+  type PackagedHeadlessBundle,
+} from './build-bun'
 import { extractRelease } from './changelog'
+import {
+  assertNoCallerSuppliedClientRootDigest,
+  CLIENT_ROOT_DIGEST_FILE,
+} from './client-build-root-digest'
 import { buildManifest } from './release-manifest'
 import { validateReferencedDesktopManifest } from './desktop-release'
 
@@ -63,6 +75,7 @@ type PreparedHeadless = {
   asset: string
   signature: string
   webDigest: string
+  clientRootDigest: string
   /**
    * How the bundle was produced. Recorded rather than inferred so the A/B job can say
    * which leg it is comparing, and so a descriptor can never be mistaken for the other
@@ -175,18 +188,17 @@ function descriptorName(asset: string): string {
  */
 function stagePrepared(p: {
   platform: HeadlessPlatform
-  bundleRoot: string
+  packaged: PackagedHeadlessBundle
   outDir: string
   mode: 'cross' | 'native'
 }): PreparedHeadless {
   const asset = headlessAsset(p.platform)
-  const version = readFileSync(join(p.bundleRoot, 'headless/VERSION'), 'utf8').trim()
-  const built = join(p.bundleRoot, `podium-headless-${version}.tar.gz`)
+  const version = readFileSync(join(p.packaged.bundleRoot, 'headless/VERSION'), 'utf8').trim()
+  const built = p.packaged.tarball
   const builtSig = `${built}.sig`
   if (!existsSync(built) || !existsSync(builtSig)) {
     throw new Error(`headless build did not produce signed artifact ${built}`)
   }
-
   mkdirSync(p.outDir, { recursive: true })
   cpSync(built, join(p.outDir, asset))
   cpSync(builtSig, join(p.outDir, `${asset}.sig`))
@@ -195,7 +207,8 @@ function stagePrepared(p: {
     target: p.platform,
     asset,
     signature: readFileSync(builtSig, 'utf8').trim(),
-    webDigest: packagedWebDigest(join(p.bundleRoot, 'headless')),
+    webDigest: packagedWebDigest(join(p.packaged.bundleRoot, 'headless')),
+    clientRootDigest: p.packaged.clientRootDigest,
     mode: p.mode,
   }
   writeFileSync(join(p.outDir, descriptorName(asset)), `${JSON.stringify(prepared)}\n`)
@@ -226,18 +239,22 @@ export function prepareHeadlessCross(
   }
   if (platforms.length === 0) throw new Error('prepare-cross needs at least one platform')
 
-  // systemd units + web + mobile, once for the whole set.
-  execFileSync('bun', ['run', 'package:clients'], { stdio: 'inherit' })
+  // systemd units + web + mobile, once for the whole set. Stamp the fresh client
+  // output with the FINAL product version before capturing its process-local root;
+  // packaging is forbidden from restamping after this point.
+  const session = beginFreshClientPackagingSession([])
+  mkdirSync(outDir, { recursive: true })
+  writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)
 
   const prepared: PreparedHeadless[] = []
   for (const platform of platforms) {
     const target = bunTargetForPlatform(platform)
     console.log(`[release] cross-building ${platform} (--target=${target})`)
-    execFileSync('bun', ['scripts/build-bun.ts', `--target=${target}`], { stdio: 'inherit' })
+    const packaged = packageHeadlessForFreshClients(session, [`--target=${target}`])
     prepared.push(
       stagePrepared({
         platform,
-        bundleRoot: targetOutputRoot('dist-bun', target),
+        packaged,
         outDir,
         mode: 'cross',
       }),
@@ -265,10 +282,13 @@ export function prepareHeadlessArchitecture(
     )
   }
 
-  execFileSync('bun', ['run', 'package:headless'], { stdio: 'inherit' })
+  const session = beginFreshClientPackagingSession([])
+  mkdirSync(outDir, { recursive: true })
+  writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)
+  const packaged = packageHeadlessForFreshClients(session, [])
   return stagePrepared({
     platform: config.target,
-    bundleRoot: 'dist-bun',
+    packaged,
     outDir,
     mode: 'native',
   })
@@ -289,6 +309,20 @@ export function loadPreparedHeadless(
   const webDigests = new Set(prepared.map((item) => item.webDigest))
   if (webDigests.size !== 1 || !prepared[0]?.webDigest) {
     throw new Error('prepared headless artifacts have different or missing web digests')
+  }
+  const clientRootDigests = new Set(prepared.map((item) => item.clientRootDigest))
+  if (clientRootDigests.size !== 1 || !prepared[0]?.clientRootDigest) {
+    throw new Error('prepared headless artifacts have different or missing client root digests')
+  }
+  const capturedClientRootDigest = (() => {
+    try {
+      return readFileSync(join(dir, CLIENT_ROOT_DIGEST_FILE), 'utf8').trim()
+    } catch {
+      return ''
+    }
+  })()
+  if (capturedClientRootDigest !== prepared[0].clientRootDigest) {
+    throw new Error('prepared headless artifacts do not match the captured client root record')
   }
   for (const target of requiredTargets) {
     if (!prepared.some((item) => item.target === target)) {
@@ -402,6 +436,7 @@ export function publishPreparedHeadless(p: {
     ...prepared.flatMap((item) => [item.asset, `${item.asset}.sig`]),
     manifestName,
     'VERSION',
+    CLIENT_ROOT_DIGEST_FILE,
   ]
   const checksums = writeChecksums(p.dir, releaseFiles)
 
@@ -462,6 +497,7 @@ export function publishPreparedHeadless(p: {
 }
 
 async function main(): Promise<void> {
+  assertNoCallerSuppliedClientRootDigest(process.argv.slice(2), process.env)
   const channel = (arg('--channel') ?? 'edge') as 'stable' | 'edge'
   if (channel !== 'stable' && channel !== 'edge') throw new Error(`unknown channel ${channel}`)
   const tag = channel === 'stable' ? (arg('--tag') ?? '') : 'edge'

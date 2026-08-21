@@ -560,7 +560,13 @@ export function parseDevBundleName(name: string): DevBundleFile | null {
   const legacy = LEGACY_DEV_BUNDLE_NAME.exec(name)
   if (legacy) {
     const sha = legacy[1] as string
-    return { name, sha, platform: legacy[2] ?? '', stamp: legacy[3] ?? '', version: `dev+${sha}` }
+    return {
+      name,
+      sha,
+      platform: legacy[2] ?? '',
+      stamp: legacy[3] ?? '',
+      version: `dev+${sha}`,
+    }
   }
   const stamped = STAMPED_DEV_BUNDLE_NAME.exec(name)
   if (!stamped) return null
@@ -729,7 +735,11 @@ export function devBundleKeyFingerprint(signingKey: string | undefined): string 
   if (!signingKey) return 'unkeyed'
   try {
     const publicKey = createPublicKey(
-      createPrivateKey({ key: Buffer.from(signingKey, 'base64'), format: 'der', type: 'pkcs8' }),
+      createPrivateKey({
+        key: Buffer.from(signingKey, 'base64'),
+        format: 'der',
+        type: 'pkcs8',
+      }),
     )
     const der = publicKey.export({ format: 'der', type: 'spki' })
     return `sha256-${createHash('sha256').update(der).digest('base64')}`
@@ -838,7 +848,9 @@ function shortSha(raw: string): string {
 export function readCheckoutReleaseBase(root: string): string {
   const path = join(root, 'package.json')
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as {
+      version?: unknown
+    }
     if (typeof parsed.version === 'string' && parsed.version.trim().length > 0) {
       return parsed.version.trim()
     }
@@ -1049,7 +1061,9 @@ async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
     // too, so the dev host exercises the exact path that produces what ships rather
     // than a nearby one — including the cross-compiled abduco helper, which is the part
     // of a bundle a native build would have got from somewhere else.
-    args: ['scripts/build-bun.ts', `--target=${ctx.bunTarget}`],
+    // package-headless owns the fresh-build session. Calling build-bun directly
+    // refuses, so this path cannot accidentally package an old approved-SHA dist.
+    args: ['scripts/package-headless.ts', `--target=${ctx.bunTarget}`],
     cwd: ctx.root,
     env: {
       ...process.env,
@@ -1132,7 +1146,10 @@ export async function sweepDevBundles(
         await fs.remove(join(dir, name))
         removed.push(name)
       } catch (error) {
-        log.warn('could not remove a stale development bundle', { name, err: error })
+        log.warn('could not remove a stale development bundle', {
+          name,
+          err: error,
+        })
       }
     }
     if (removed.length > 0) log.info('reclaimed stale development bundles', { removed })
@@ -1249,6 +1266,11 @@ async function readExistingDevBundle(
  * checkout cannot have its half-written output deleted from under it.
  */
 export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDevBundle> {
+  if ('clientRootDigest' in deps) {
+    throw new Error(
+      'caller-supplied clientRootDigest is forbidden; the packager captures client provenance itself',
+    )
+  }
   const root = deps.root ?? SOURCE_ROOT
   const fs = deps.fs ?? nodeDevBundleFs
   const sha = shortSha(deps.headSha ?? (await developmentHeadSha(root)))
@@ -1346,7 +1368,14 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
         artifactPath + DEV_BUNDLE_METADATA_SUFFIX,
         `${JSON.stringify(metadata, null, 2)}\n`,
       )
-      artifacts.push({ platform, path: artifactPath, size, digest, signature, version })
+      artifacts.push({
+        platform,
+        path: artifactPath,
+        size,
+        digest,
+        signature,
+        version,
+      })
     }
 
     // ONE sweep, after every platform is on disk and with all of them protected.
@@ -1405,7 +1434,9 @@ export function developmentPlatformTarget(
  * inside the build.
  */
 export function fleetHeadlessPlatforms(
-  machines: ReadonlyArray<{ inventory?: { os: string; arch: string } | undefined }>,
+  machines: ReadonlyArray<{
+    inventory?: { os: string; arch: string } | undefined
+  }>,
   host: string = developmentPlatformTarget(),
 ): string[] {
   const platforms = [host]
@@ -1706,14 +1737,16 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    * the server straight after. Polling and start-up leave it alone: an unpacked
    * identity target costs nothing, a broken page costs every open tab.
    */
-  prepareWebDist?: (headSha: string, explicit: boolean, buildRoot: string) => Promise<void>
+  prepareWebDist?: (
+    headSha: string,
+    explicit: boolean,
+    buildRoot: string,
+    releaseVersion?: string,
+  ) => Promise<void>
   /** Approved builds use a detached worktree; tests may supply an equivalent snapshot. */
   snapshotBuild?: DevBuildSnapshot
   /** Git proposal facts seam; production reads the checkout relative to the last publish. */
-  proposalFacts?: (input: {
-    headSha: string
-    sinceSha?: string
-  }) => Promise<ReleaseProposalFacts>
+  proposalFacts?: (input: { headSha: string; sinceSha?: string }) => Promise<ReleaseProposalFacts>
 }
 
 /**
@@ -1729,7 +1762,12 @@ export type DevBundleReadiness =
   | { state: 'idle'; headSha: string | null }
   | { state: 'preparing'; headSha: string }
   | { state: 'ready'; headSha: string; version: string }
-  | { state: 'failed'; headSha: string | null; reason: string; publicReason: string }
+  | {
+      state: 'failed'
+      headSha: string | null
+      reason: string
+      publicReason: string
+    }
 
 export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   requestBuild(
@@ -1803,7 +1841,11 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   const recordFailure = (error: unknown, sha: string | null) => {
     const reason = error instanceof Error ? error.message : String(error)
     unavailable = reason
-    failure = { sha, reason, publicReason: publicUnavailableReason(error, sha ?? 'unknown') }
+    failure = {
+      sha,
+      reason,
+      publicReason: publicUnavailableReason(error, sha ?? 'unknown'),
+    }
   }
 
   /**
@@ -1827,7 +1869,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       attempted = headSha
       if (approved !== undefined && headSha !== shortSha(approved.headSha)) {
         throw new DevBundleProposalMovedError(
-          `development release approval named ${shortSha(approved.headSha)}, but HEAD is ${headSha}`,
+          `development release approval named ${shortSha(
+            approved.headSha,
+          )}, but HEAD is ${headSha}`,
           'HEAD changed after this development release was approved. Review and approve the new proposal.',
         )
       }
@@ -1870,7 +1914,8 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         // The website is built INSIDE the same immutable snapshot the platform
         // compiles read. Nothing in an approved release reads the live checkout
         // after admission.
-        await (deps.prepareWebDist?.(headSha, explicit, buildRoot) ?? Promise.resolve())
+        await (deps.prepareWebDist?.(headSha, explicit, buildRoot, approved?.version) ??
+          Promise.resolve())
         const build = () =>
           buildDevBundle({
             ...deps,
@@ -2038,7 +2083,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           ? (platform: string) =>
               platform === hostPlatform
                 ? configured
-                : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(built.version)}/${encodeURIComponent(platform)}`
+                : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(
+                    built.version,
+                  )}/${encodeURIComponent(platform)}`
           : undefined
     return devTarget(built, {
       ...(artifactUrl ? { artifactUrl } : {}),
@@ -2105,7 +2152,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           ? (platform: string) =>
               platform === hostPlatform
                 ? configured
-                : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(built.version)}/${encodeURIComponent(platform)}`
+                : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(
+                    built.version,
+                  )}/${encodeURIComponent(platform)}`
           : undefined
     return devTarget(built, {
       ...(artifactUrl ? { artifactUrl } : {}),
@@ -2192,7 +2241,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         const statePath = deps.publisherStateDir ?? stateDir()
         const publisherState = readDevPublisherState(statePath)
         if (!publisherState) {
-          throw new Error('cannot record a published development release before a version is minted')
+          throw new Error(
+            'cannot record a published development release before a version is minted',
+          )
         }
         writeDevPublisherState({ ...publisherState, lastPublishedSha: builtSha }, statePath)
         log.info('published development feed manifests', {

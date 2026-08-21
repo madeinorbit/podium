@@ -118,7 +118,7 @@
     "release:cut": "bun scripts/release-cut.ts",
     "//package:clients": "Everything a headless bundle packs that is NOT the compiled binary: the rendered systemd units and both client sites. Split out of package:headless so a cross-compiled release builds the clients ONCE and packs the same bytes into all four platform bundles (scripts/release.ts prepareHeadlessCross).",
     "package:clients": "bun run systemd:render && bun run --filter @podium/web build && bun run --filter @podium/mobile build:web",
-    "package:headless": "bun run package:clients && bun scripts/build-bun.ts",
+    "package:headless": "bun scripts/package-headless.ts",
     "package:headless:cross": "bun scripts/release.ts --prepare-cross",
     "desktop:build": "bun run --cwd apps/desktop build",
     "migration:new": "bun run scripts/new-migration.ts",
