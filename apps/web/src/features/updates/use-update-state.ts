@@ -24,6 +24,7 @@
  */
 import {
   classifySkew,
+  isDevChannelVersion,
   type Operation,
   parseBuildStamp,
   parseServerVersion,
@@ -573,7 +574,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         fleetBehind: fleet.behind,
         serverBehind,
         sourceAppFollowsServer:
-          (surface === 'web' || surface === 'mobile') && target.version.startsWith('dev+'),
+          (surface === 'web' || surface === 'mobile') && isDevChannelVersion(target.version),
         phoneBehind: phoneStale,
       })
     : { app: false, server: serverBehind, machines: fleet.behind > 0, phone: false }

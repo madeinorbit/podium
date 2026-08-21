@@ -1,6 +1,16 @@
 import type { MachineWire } from '@podium/model/browser'
+import { formatDevVersionShort } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import type { Store } from '@/app/store'
+
+/**
+ * Operator-facing version label. Publisher-minted development versions shorten
+ * to `dev.N (sha)`; everything else passes through. Shell version single-
+ * sourcing stays POD-2451 — this only formats an already-chosen product string.
+ */
+export function formatDisplayedVersion(version: string): string {
+  return formatDevVersionShort(version)
+}
 
 /**
  * POD-838: the server's own build version, fetched once from setup.info.
