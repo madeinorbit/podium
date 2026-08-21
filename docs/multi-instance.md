@@ -47,13 +47,24 @@ Duplicate selectors and invalid IDs are rejected.
 | Server port | `18787` | stable ID-derived port | `PODIUM_PORT` or config `port` |
 | Hook port | `45777` | next port in the ID-derived triplet | `PODIUM_HOOK_PORT` or config `hookPort` |
 | Agent relay port | `45778` | final port in the ID-derived triplet | `PODIUM_AGENT_RELAY_PORT` or config `agentRelayPort` |
-| Durable terminal label | `podium-<session>` | `podium-blue-<session>` | none |
+| Durable terminal label | `podium-<session>` | `podium-blue-<session>`; IDs over 17 bytes use a stable hashed component | none |
+| Durable socket root | legacy backend default | state runtime root when it fits, otherwise `/tmp/pd-<stable-key>` | `ABDUCO_SOCKET_DIR` / `TMUX_TMPDIR` |
+| Codex hook socket | state runtime root | state runtime root when it fits, otherwise `/tmp/pd-<stable-key>` | explicit daemon socket path |
 | Server unit | `podium-server.service` | `podium-blue-server.service` | none |
 | Janitor unit | `podium-janitor.service` | `podium-blue-janitor.service` | none |
 | Daemon unit | `podium-daemon.service` | `podium-blue-daemon.service` | none |
 
 Named endpoint triplets are deterministic and non-overlapping for ordinary IDs. Set all three port
 overrides when an operator needs a fixed allocation.
+
+Linux exposes 108 bytes in `sockaddr_un.sun_path`, of which 107 are usable by the
+pathname because the final byte is the terminating NUL. Podium's bounded abduco
+layout fixes 90 bytes around the instance component (the short runtime key,
+`abduco/<user>/`, durable-label/session UUID syntax, and `@<hostname>`), leaving
+17 bytes for that component; an 18-byte component would consume 108 pathname bytes
+and is invalid. Longer instance IDs therefore use a deterministic 17-byte component,
+and any explicit socket path that still cannot fit is refused with the instance ID,
+the measured byte length, and the Linux limit before abduco or tmux is launched.
 
 A collision — a rare hash collision, an explicit one, or another instance already on the default
 triplet — is handled differently per port, because the two kinds of port are dialed by different

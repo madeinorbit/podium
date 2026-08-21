@@ -5,7 +5,7 @@
  * Run: bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts
  */
 import { afterAll, describe, expect, it } from 'bun:test'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process'
 import {
   cpSync,
@@ -17,17 +17,30 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
-import { FIRST_ADMIN_USER_ID, asMachineId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asMachineId, asSessionId } from '@podium/model'
 import { SESSION_COOKIE } from '@podium/protocol'
-import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
+import {
+  abducoSocketPath,
+  killAbducoSession,
+  resolveAbducoBin,
+  spawnAbducoAgent,
+} from '@podium/pty'
+import {
+  abducoSocketPathname,
+  applyInstanceRuntimeEnv,
+  durableSessionLabel,
+  instanceSocketRuntimeDir,
+  LINUX_UNIX_SOCKET_PATH_BYTES,
+} from '@podium/runtime/instance'
 import { encodeJoin } from '@podium/runtime/join'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
 import { SessionStore } from '../apps/server/src/store'
+import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLI = join(ROOT, 'scripts', 'cli.ts')
@@ -378,6 +391,110 @@ afterAll(async () => {
   rmSync(TEST_ROOT, { recursive: true, force: true })
 })
 
+describe('long instance durable sockets', () => {
+  it('arms the old overflow, starts a real bounded session, and refuses an impossible override', async () => {
+    const bin = resolveAbducoBin({ fresh: true })
+    if (!bin) throw new Error('multi-instance acceptance requires abduco')
+
+    const instanceId = `update-e2e-${'x'.repeat(21)}`
+    const sessionId = asSessionId(randomUUID())
+    const oldLabel = `podium-${instanceId}-${sessionId}`
+    const socketTestRoot = mkdtempSync('/tmp/podium-mi-socket-')
+    const stateDir = join(socketTestRoot, instanceId, 'state')
+    const oldSocketDir = join(stateDir, 'runtime', 'abduco')
+    const impossibleDir = join('/tmp', `podium-refusal-${process.pid}-${'x'.repeat(28)}`)
+    mkdirSync(oldSocketDir, { recursive: true })
+    const oldPath = abducoSocketPathname(
+      oldSocketDir,
+      oldLabel,
+      userInfo().username,
+      hostname(),
+    )
+    expect(Buffer.byteLength(oldPath)).toBeGreaterThan(LINUX_UNIX_SOCKET_PATH_BYTES)
+
+    const previous = {
+      PODIUM_INSTANCE: process.env.PODIUM_INSTANCE,
+      PODIUM_STATE_DIR: process.env.PODIUM_STATE_DIR,
+      PODIUM_ABDUCO: process.env.PODIUM_ABDUCO,
+      ABDUCO_SOCKET_DIR: process.env.ABDUCO_SOCKET_DIR,
+      TMUX_TMPDIR: process.env.TMUX_TMPDIR,
+      PODIUM_NO_SCOPE: process.env.PODIUM_NO_SCOPE,
+    }
+    const restore = () => {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+
+    let session: Awaited<ReturnType<typeof spawnAbducoAgent>> | undefined
+    let label: string | undefined
+    try {
+      const old = spawnSync(bin, ['-n', oldLabel, '/bin/true'], {
+        env: {
+          ...process.env,
+          PODIUM_INSTANCE: instanceId,
+          ABDUCO_SOCKET_DIR: oldSocketDir,
+          PODIUM_NO_SCOPE: '1',
+        },
+        encoding: 'utf8',
+      })
+      expect(old.status).not.toBe(0)
+      expect(old.stderr).toMatch(/File name too long|Filename too long/)
+
+      process.env.PODIUM_INSTANCE = instanceId
+      process.env.PODIUM_STATE_DIR = stateDir
+      process.env.PODIUM_ABDUCO = bin
+      delete process.env.ABDUCO_SOCKET_DIR
+      delete process.env.TMUX_TMPDIR
+      process.env.PODIUM_NO_SCOPE = '1'
+      applyInstanceRuntimeEnv(instanceId, process.env, stateDir)
+      label = durableSessionLabel(sessionId, instanceId)
+      expect(process.env.ABDUCO_SOCKET_DIR).toMatch(/^\/tmp\/pd-[A-Za-z0-9_-]{10}$/)
+
+      session = await spawnAbducoAgent({
+        label,
+        cmd: '/bin/sh',
+        args: ['-c', 'sleep 30'],
+        cols: 80,
+        rows: 24,
+      })
+      expect(abducoSocketPath(label, process.env)).toBeDefined()
+      session.dispose()
+      session = undefined
+      await killAbducoSession(label)
+
+      mkdirSync(impossibleDir, { recursive: true })
+      const raw = spawnSync(bin, ['-n', label, '/bin/true'], {
+        env: { ...process.env, ABDUCO_SOCKET_DIR: impossibleDir },
+        encoding: 'utf8',
+      })
+      expect(raw.status).not.toBe(0)
+      expect(raw.stderr).toMatch(/File name too long|Filename too long/)
+
+      await expect(
+        spawnAbducoAgent({
+          label,
+          cmd: '/bin/true',
+          cols: 80,
+          rows: 24,
+          env: { ABDUCO_SOCKET_DIR: impossibleDir, PODIUM_INSTANCE: instanceId },
+        }),
+      ).rejects.toThrow(
+        new RegExp(
+          `instance '${instanceId}'.*Linux sun_path \\(108 bytes.*107 pathname bytes usable\\)`,
+        ),
+      )
+    } finally {
+      session?.dispose()
+      if (label) await killAbducoSession(label)
+      restore()
+      rmSync(impossibleDir, { recursive: true, force: true })
+      rmSync(socketTestRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+})
+
 describe('multi-instance runtime isolation', () => {
   it('keeps packaged diagnostics state-free while foreign roots still refuse mutation', () => {
     const foreign = makeSpec('blue', 'foreign-blue')
@@ -585,7 +702,8 @@ describe('multi-instance runtime isolation', () => {
       instanceId: 'blue',
     })
     expect(existsSync(join(compat.stateDir, 'runtime', 'abduco'))).toBe(false)
-    expect(existsSync(join(named.stateDir, 'runtime', 'abduco'))).toBe(true)
+    expect(existsSync(join(named.stateDir, 'runtime', 'abduco'))).toBe(false)
+    expect(existsSync(instanceSocketRuntimeDir('blue', named.stateDir))).toBe(true)
 
     const inspectBoot = (spec: InstanceSpec) => {
       const db = openDatabase(join(spec.stateDir, 'podium.db'))

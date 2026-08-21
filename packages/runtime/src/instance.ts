@@ -7,12 +7,30 @@
  * process/runtime labels.
  */
 import type { SessionId } from '@podium/model'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { homedir, hostname, userInfo } from 'node:os'
+import { join, resolve } from 'node:path'
 
 export const DEFAULT_INSTANCE_ID = 'default'
 export const INSTANCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/
+
+/** Linux `sockaddr_un.sun_path`: 108 bytes including the terminating NUL. */
+export const LINUX_SUN_PATH_BYTES = 108
+export const LINUX_UNIX_SOCKET_PATH_BYTES = LINUX_SUN_PATH_BYTES - 1
+
+/**
+ * Longest instance component in a packaged abduco socket on Linux.
+ *
+ * The bounded root is `/tmp/pd-<10-byte-key>`. With the packaged `podium` user,
+ * a 12-byte Docker hostname, `podium-` label prefix, UUID session id, separators,
+ * and abduco's own `abduco/<user>/` directory plus `@<hostname>` suffix, 90 bytes
+ * are fixed. That leaves 17 bytes of Linux's 107 usable pathname bytes; 18 would
+ * fill byte 108 and leave no room for the required NUL. Keep the arithmetic pinned
+ * in instance.test.ts rather than making the next socket change rediscover it.
+ */
+export const DURABLE_INSTANCE_COMPONENT_BYTES = 17
+export const INSTANCE_SOCKET_KEY_BYTES = 10
 
 export type InstanceEnv = Readonly<Record<string, string | undefined>>
 
@@ -24,6 +42,19 @@ export function validateInstanceId(value: string): string {
     )
   }
   return id
+}
+
+function stableKey(value: string, bytes: number): string {
+  return createHash('sha256').update(value).digest('base64url').slice(0, bytes)
+}
+
+/** Stable label component shared by the server and every reconnecting daemon. */
+export function durableInstanceComponent(instanceId: string): string {
+  const id = validateInstanceId(instanceId)
+  if (Buffer.byteLength(id) <= DURABLE_INSTANCE_COMPONENT_BYTES) return id
+  // Instance ids must start with a letter, so the leading `0` makes hashed and
+  // literal components disjoint as well as deterministic.
+  return `0${stableKey(id, DURABLE_INSTANCE_COMPONENT_BYTES - 1)}`
 }
 
 /** PODIUM_INSTANCE, else the legacy-compatible `default` identity. */
@@ -153,7 +184,65 @@ export function durableSessionLabel(
   instanceId: string = resolveInstanceId(),
 ): string {
   const id = validateInstanceId(instanceId)
-  return id === DEFAULT_INSTANCE_ID ? `podium-${sessionId}` : `podium-${id}-${sessionId}`
+  return id === DEFAULT_INSTANCE_ID
+    ? `podium-${sessionId}`
+    : `podium-${durableInstanceComponent(id)}-${sessionId}`
+}
+
+/** Exact pathname abduco constructs for a relative durable label. */
+export function abducoSocketPathname(
+  socketDir: string,
+  label: string,
+  username: string,
+  host: string,
+): string {
+  return join(socketDir, 'abduco', username, `${label}@${host}`)
+}
+
+/** Exact pathname tmux constructs for `tmux -L <label>`. */
+export function tmuxSocketPathname(socketDir: string, label: string, uid: number): string {
+  return join(socketDir, `tmux-${uid}`, label)
+}
+
+export function linuxUnixSocketPathFits(path: string): boolean {
+  return Buffer.byteLength(path) <= LINUX_UNIX_SOCKET_PATH_BYTES
+}
+
+/** Fail before a native tool can reduce the diagnosis to `Filename too long`. */
+export function assertLinuxUnixSocketPath(
+  path: string,
+  instanceId: string,
+  purpose: string,
+  platform: NodeJS.Platform = process.platform,
+): void {
+  if (platform !== 'linux' || linuxUnixSocketPathFits(path)) return
+  const bytes = Buffer.byteLength(path)
+  throw new Error(
+    `Podium instance '${instanceId}' cannot create ${purpose}: the ${bytes}-byte socket path exceeds Linux sun_path (${LINUX_SUN_PATH_BYTES} bytes including the terminator; ${LINUX_UNIX_SOCKET_PATH_BYTES} pathname bytes usable): ${path}`,
+  )
+}
+
+/**
+ * Short deterministic root for named-instance Unix sockets whose legacy
+ * state-owned path cannot fit. The state root participates in the key so two
+ * intentionally separate deployments using the same id do not share sockets.
+ */
+export function instanceSocketRuntimeDir(
+  instanceId: string,
+  dir: string = instanceStateDir(instanceId),
+  uid: number = typeof process.getuid === 'function' ? process.getuid() : 0,
+): string {
+  const id = validateInstanceId(instanceId)
+  const key = stableKey(`${uid}\0${id}\0${resolve(dir)}`, INSTANCE_SOCKET_KEY_BYTES)
+  return join('/tmp', `pd-${key}`)
+}
+
+function currentUsername(): string {
+  try {
+    return userInfo().username
+  } catch {
+    return typeof process.getuid === 'function' ? String(process.getuid()) : 'unknown'
+  }
 }
 
 /**
@@ -285,12 +374,20 @@ export function applyInstanceRuntimeEnv(
   const id = validateInstanceId(instanceId)
   env.PODIUM_INSTANCE = id
   if (id === DEFAULT_INSTANCE_ID) return env
+  const sessionId = '00000000-0000-4000-8000-000000000000' as SessionId
+  const label = durableSessionLabel(sessionId, id)
+  const shortDir = instanceSocketRuntimeDir(id, dir)
   if (!env.ABDUCO_SOCKET_DIR) {
-    env.ABDUCO_SOCKET_DIR = join(dir, 'runtime', 'abduco')
+    const legacyDir = join(dir, 'runtime', 'abduco')
+    const projected = abducoSocketPathname(legacyDir, label, currentUsername(), hostname())
+    env.ABDUCO_SOCKET_DIR = linuxUnixSocketPathFits(projected) ? legacyDir : shortDir
     mkdirSync(env.ABDUCO_SOCKET_DIR, { recursive: true, mode: 0o700 })
   }
   if (!env.TMUX_TMPDIR) {
-    env.TMUX_TMPDIR = join(dir, 'runtime', 'tmux')
+    const legacyDir = join(dir, 'runtime', 'tmux')
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 0
+    const projected = tmuxSocketPathname(legacyDir, label, uid)
+    env.TMUX_TMPDIR = linuxUnixSocketPathFits(projected) ? legacyDir : shortDir
     mkdirSync(env.TMUX_TMPDIR, { recursive: true, mode: 0o700 })
   }
   return env

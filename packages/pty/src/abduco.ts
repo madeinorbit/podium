@@ -10,10 +10,15 @@ import {
   statSync,
   unlinkSync,
 } from 'node:fs'
-import { tmpdir, userInfo } from 'node:os'
+import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
+import {
+  abducoSocketPathname,
+  assertLinuxUnixSocketPath,
+  resolveInstanceId,
+} from '@podium/runtime/instance'
 import { resolveAbducoBin } from './abduco-bin.js'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
@@ -850,6 +855,18 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
   const adoptRaceWinner = (): AgentSession | undefined => {
     const raced = abducoSocketPath(opts.label, childEnv)
     return raced ? adopt(raced) : undefined
+  }
+  if (childEnv.ABDUCO_SOCKET_DIR) {
+    assertLinuxUnixSocketPath(
+      abducoSocketPathname(
+        childEnv.ABDUCO_SOCKET_DIR,
+        opts.label,
+        userInfo().username,
+        hostname(),
+      ),
+      resolveInstanceId(childEnv),
+      'an abduco session socket',
+    )
   }
   // Create the master in its own systemd scope so it outlives a redeploy. `--scope`
   // runs in the foreground but returns the instant the create process exits — abduco

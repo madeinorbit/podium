@@ -1,9 +1,13 @@
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { stateDir } from '@podium/runtime/config'
 import {
   applyInstanceRuntimeEnv,
+  assertLinuxUnixSocketPath,
   ensureInstanceStateIdentity,
+  instanceSocketRuntimeDir,
   instanceStateDir,
+  linuxUnixSocketPathFits,
   resolveInstanceId,
 } from '@podium/runtime/instance'
 
@@ -28,16 +32,24 @@ export function bootstrapDaemonInstance(opts?: {
 }): DaemonInstanceBootstrap {
   const instanceId = resolveInstanceId()
   ensureInstanceStateIdentity({ instanceId })
-  applyInstanceRuntimeEnv(instanceId)
+  const instanceDir = instanceStateDir(instanceId)
+  applyInstanceRuntimeEnv(instanceId, process.env, instanceDir)
 
   const settingsDir = opts?.settingsDir ?? join(stateDir(), 'hooks')
   // An explicit settings directory is also the isolation root for tests/embedders.
-  const runtimeDir = opts?.settingsDir ?? join(instanceStateDir(instanceId), 'runtime')
-  const hookSocketPath =
-    opts?.socketPath ??
-    ((opts?.platform ?? process.platform) === 'win32'
-      ? undefined
-      : join(runtimeDir, 'codex-hooks.sock'))
+  const runtimeDir = opts?.settingsDir ?? join(instanceDir, 'runtime')
+  const platform = opts?.platform ?? process.platform
+  let hookSocketPath: string | undefined
+  if (platform !== 'win32') {
+    const legacyPath = opts?.socketPath ?? join(runtimeDir, 'codex-hooks.sock')
+    hookSocketPath = legacyPath
+    if (!opts?.socketPath && platform === 'linux' && !linuxUnixSocketPathFits(legacyPath)) {
+      const socketDir = instanceSocketRuntimeDir(instanceId, opts?.settingsDir ?? instanceDir)
+      mkdirSync(socketDir, { recursive: true, mode: 0o700 })
+      hookSocketPath = join(socketDir, 'codex-hooks.sock')
+    }
+    assertLinuxUnixSocketPath(hookSocketPath, instanceId, 'the Codex hook socket', platform)
+  }
   return {
     instanceId,
     runtimeDir,

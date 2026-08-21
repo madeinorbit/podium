@@ -1,5 +1,10 @@
 import { execFile, spawnSync } from 'node:child_process'
 import { promisify } from 'node:util'
+import {
+  assertLinuxUnixSocketPath,
+  resolveInstanceId,
+  tmuxSocketPathname,
+} from '@podium/runtime/instance'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend } from './backends/types.js'
 import { type AgentSession, withHardRepaint, wrapPty } from './session.js'
@@ -113,6 +118,13 @@ function tmuxClientEnv(extra?: Record<string, string>): Record<string, string> {
 export async function spawnTmuxAgent(opts: TmuxSpawnOptions): Promise<AgentSession> {
   const inner = [opts.cmd, ...(opts.args ?? [])].map(shellQuote).join(' ')
   const env = tmuxClientEnv(opts.env)
+  const socketDir = env.TMUX_TMPDIR ?? env.TMPDIR ?? '/tmp'
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 0
+  assertLinuxUnixSocketPath(
+    tmuxSocketPathname(socketDir, opts.label, uid),
+    resolveInstanceId(env),
+    'a tmux session socket',
+  )
   await execFileAsync('tmux', newSessionArgs(opts.label, opts.cols, opts.rows, opts.cwd, inner), {
     env,
   })

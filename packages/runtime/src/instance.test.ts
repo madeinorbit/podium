@@ -4,18 +4,24 @@ import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  abducoSocketPathname,
   applyInstanceRuntimeEnv,
+  assertLinuxUnixSocketPath,
   assertInstanceStateIdentity,
   DEFAULT_INSTANCE_ID,
   defaultInstancePorts,
+  DURABLE_INSTANCE_COMPONENT_BYTES,
+  durableInstanceComponent,
   durableSessionLabel,
   ensureInstanceStateIdentity,
   instanceCommandName,
   instanceInstallDir,
   instanceServiceName,
+  instanceSocketRuntimeDir,
   instanceStateDir,
   instanceTimerName,
   instanceUpdateTimerName,
+  LINUX_UNIX_SOCKET_PATH_BYTES,
   readInstanceStateIdentity,
   resolveInstanceId,
   selectInstance,
@@ -97,6 +103,46 @@ describe('instance namespaces', () => {
   })
 })
 
+describe('Unix socket byte budget', () => {
+  const sessionId = asSessionId('00000000-0000-4000-8000-000000000000')
+
+  it('pins the 17-byte instance component ceiling inside Linux sun_path', () => {
+    expect(DURABLE_INSTANCE_COMPONENT_BYTES).toBe(17)
+    const fixedRoot = '/tmp/pd-0123456789'
+    const atCeiling = abducoSocketPathname(
+      fixedRoot,
+      `podium-${'i'.repeat(17)}-${sessionId}`,
+      'podium',
+      '123456789abc',
+    )
+    const overflow = abducoSocketPathname(
+      fixedRoot,
+      `podium-${'i'.repeat(18)}-${sessionId}`,
+      'podium',
+      '123456789abc',
+    )
+    expect(Buffer.byteLength(atCeiling)).toBe(LINUX_UNIX_SOCKET_PATH_BYTES)
+    expect(Buffer.byteLength(overflow)).toBe(LINUX_UNIX_SOCKET_PATH_BYTES + 1)
+  })
+
+  it('keeps short instance labels readable and hashes longer ids deterministically', () => {
+    expect(durableInstanceComponent('a'.repeat(17))).toBe('a'.repeat(17))
+    const long = 'a'.repeat(32)
+    const component = durableInstanceComponent(long)
+    expect(component).toHaveLength(DURABLE_INSTANCE_COMPONENT_BYTES)
+    expect(component).toMatch(/^0[A-Za-z0-9_-]{16}$/)
+    expect(durableInstanceComponent(long)).toBe(component)
+    expect(durableSessionLabel(sessionId, long)).toBe(`podium-${component}-${sessionId}`)
+  })
+
+  it('names the instance and both Linux limits when a socket still cannot fit', () => {
+    const path = `/tmp/${'x'.repeat(104)}`
+    expect(() => assertLinuxUnixSocketPath(path, 'blue', 'a test socket', 'linux')).toThrow(
+      /instance 'blue'.*109-byte.*108 bytes.*107 pathname bytes/,
+    )
+  })
+})
+
 describe('state ownership marker', () => {
   it('reads missing markers without a preflight existence check', () => {
     const dir = join(temp(), 'state')
@@ -140,14 +186,16 @@ describe('state ownership marker', () => {
 })
 
 it('named durable backend env is private unless explicitly overridden', () => {
-  const dir = join(temp(), 'state')
+  const dir = join(temp(), 'x'.repeat(60), 'state')
   const env: NodeJS.ProcessEnv = {}
   applyInstanceRuntimeEnv('blue', env, dir)
+  const bounded = instanceSocketRuntimeDir('blue', dir)
   expect(env).toMatchObject({
     PODIUM_INSTANCE: 'blue',
-    ABDUCO_SOCKET_DIR: join(dir, 'runtime', 'abduco'),
-    TMUX_TMPDIR: join(dir, 'runtime', 'tmux'),
+    ABDUCO_SOCKET_DIR: bounded,
+    TMUX_TMPDIR: bounded,
   })
+  expect(bounded).toMatch(/^\/tmp\/pd-[A-Za-z0-9_-]{10}$/)
   const shared: NodeJS.ProcessEnv = { ABDUCO_SOCKET_DIR: '/shared/a', TMUX_TMPDIR: '/shared/t' }
   applyInstanceRuntimeEnv('blue', shared, dir)
   expect(shared.ABDUCO_SOCKET_DIR).toBe('/shared/a')
