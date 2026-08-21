@@ -20,9 +20,11 @@ import type {
 } from '@podium/model'
 import type {
   ObservationProvider,
-  QueueDrainAbandonedReason,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
+import type {
+  QueueDrainAbandonedReason,
+} from '@podium/protocol/daemon'
 
 /** ALIASES @podium/model's PinKind (POD-380). The three literals had four
  *  declarations — here, router.ts, the presence contract and the model family — and

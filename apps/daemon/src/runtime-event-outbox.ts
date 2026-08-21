@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import {
   RuntimeEventMessage,
   type RuntimeEventMessage as RuntimeEventFrame,
-} from '@podium/protocol'
+} from '@podium/protocol/daemon'
 
 const FILE_NAME = 'runtime-event-outbox.json'
 const FILE_VERSION = 1

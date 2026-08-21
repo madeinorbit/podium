@@ -27,9 +27,10 @@ import {
   parseDaemonHandshakeReply,
   parseServerMessage,
   parseServerMessageLenient,
-  RuntimeQueueDrainAbandonedMessage,
   ServerMessage,
 } from './messages'
+// Daemon-plane frame: reachable only through the daemon subpath since POD-2470.
+import { RuntimeQueueDrainAbandonedMessage } from './messages/runtime'
 import {
   type ControlMessage,
   type DaemonMessage,

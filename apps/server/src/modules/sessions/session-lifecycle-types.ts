@@ -18,9 +18,11 @@ import type {
 import type { AgentKind, UserId } from '@podium/model'
 import type {
   MetadataChange,
-  QueueDrainAbandonedReason,
   SubscriptionRegistry,
 } from '@podium/protocol'
+import type {
+  QueueDrainAbandonedReason,
+} from '@podium/protocol/daemon'
 import type { EntityChangeSpec, MutationLedgerPort } from '@podium/sync'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { ClientConn } from '../../gateway/client-registry'

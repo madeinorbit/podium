@@ -35,12 +35,14 @@ import type { MachineId, MutationId, SessionId } from '@podium/model'
 import type {
   InteractionAnswerOutcome,
   ObservationInputOrigin,
+} from '@podium/protocol'
+import type {
   Refusal,
   RuntimeAttachmentRef,
   RuntimeEvent,
   TurnDelivery,
   TurnReceipt,
-} from '@podium/protocol'
+} from '@podium/protocol/daemon'
 import type { InboxPrincipalReference } from './inbox'
 import type { RuntimeEventGate, RuntimeEventGateResult } from './runtime-event-gate'
 

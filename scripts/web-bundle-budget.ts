@@ -361,7 +361,50 @@ if (checkBudget) {
   // next feature of any size turns one of those red, and a payload budget going
   // red means shipping more to the browser. That is not this argument, and it does
   // not get this raise.
-  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_700_000)
+  //
+  // 7_700_000 -> 7_780_000 (2026-08-21, POD-2470). THE PAYDOWN CAME FIRST, and it
+  // is in this same commit: `packages/protocol/src/messages/runtime.ts` was the
+  // agent-runtime epic's W1 contract filed as ONE module, and `./sync.ts` parses
+  // `PendingInteractionWire` out of it as the `pendingInteraction` metadata feed
+  // arm — so importing one browser-facing schema dragged all 55,193 bytes of the
+  // contract into the eager graph, including ~19k of daemon-plane request/result
+  // envelopes no browser can receive. Eager Zod schemas are built at module
+  // scope, so no bundler shakes them out; only the import edge decides. Splitting
+  // the interaction half into `./runtime-interactions.ts` and leaving the daemon
+  // plane behind `@podium/protocol/daemon` — which is the rule `messages/index.ts`
+  // and `daemon.ts` BOTH already state, and which W1 broke — took 25,314 bytes
+  // out. The wire is untouched: schema digest 86b2d689b1e6358f either side.
+  //
+  // What is left is 46,626 over, and it is the epic's growth that CANNOT be
+  // deferred, measured against the merge-base 1bda60ae6:
+  //   runtime-interactions.ts  29,866  the browser parses these at runtime
+  //   AgentPanel.tsx           +7,670  \
+  //   panel-surface.ts         +5,006   | the terminal panel IS the workspace
+  //   startup-overlay.ts       +4,235   | first paint
+  //   use-panel-surface.ts     +1,757  /
+  //   protocol terminal.ts     +5,992  \
+  //   message-class.ts         +2,509   | wire + entity schemas the client
+  //   model machine.ts         +3,376   | parses on every frame
+  //   model session.ts         +2,029   |
+  //   sync/host.ts             +2,416  /
+  //   client-core viewmodels   +7,681  session-status, ui-state, socket-hub,
+  //                                    machine-selection, replica, contract
+  // Deferring any one in isolation is not available: none is behind a gesture,
+  // and each is reached by the shell's own first render.
+  //
+  // The three payload budgets all IMPROVED and pass with room — raw 2,185,261 of
+  // 2,260,000, gzip 657,105 of 680,000, Brotli 548,241 of 566,000 — so nothing
+  // the browser downloads got worse; this metric counts commented source text.
+  //
+  // THE REAL LEVER IS NAMED AND FILED, not left for the next person to rediscover
+  // (POD-2560): `AppShell.tsx` imports `Workspace` EAGERLY while SettingsView,
+  // UsageView, FlightDeck, OnboardingWizard and the dialogs are all `lazy()`.
+  // Workspace pulls AgentPanel -> ChatView -> the whole chat and terminal stack,
+  // and the app lands on the work list, not a workspace. `TranscriptFeed.tsx` is
+  // already in DEFERRED_FIRST_PAINT_MODULES above while its own scroll hooks are
+  // eager, which is the tell. That paydown is worth several hundred k and should
+  // bring this ceiling DOWN, not sideways.
+  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_780_000)
   atMost('settings raw bytes', report.settings.raw, 105_000)
   atMost('settings gzip bytes', report.settings.gzip, 30_000)
   atMost('settings Brotli bytes', report.settings.brotli, 26_000)

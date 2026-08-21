@@ -57,8 +57,10 @@ import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@p
 import type {
   ObservationProvenance,
   ProviderCursor,
-  QueueDrainAbandonedReason,
 } from '@podium/protocol'
+import type {
+  QueueDrainAbandonedReason,
+} from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ProcessIdentity,

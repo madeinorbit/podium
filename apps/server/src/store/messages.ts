@@ -16,7 +16,9 @@ import {
   type IssueId,
   type SessionId,
 } from '@podium/model'
-import type { QueueDrainAbandonedReason } from '@podium/protocol'
+import type {
+  QueueDrainAbandonedReason,
+} from '@podium/protocol/daemon'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 

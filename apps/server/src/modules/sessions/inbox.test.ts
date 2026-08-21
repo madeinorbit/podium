@@ -7,7 +7,12 @@ import {
   asUserId,
   type SessionId,
 } from '@podium/model'
-import { asDelegationRef, type TurnReceipt } from '@podium/protocol'
+import {
+  asDelegationRef,
+} from '@podium/protocol'
+import {
+  type TurnReceipt,
+} from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
 import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'

@@ -40,19 +40,21 @@ import type {
   PortableCredentialBundle,
   PortableCredentialKind,
   RepoOp,
-  RuntimeAttachmentRef,
-  RuntimeLifecycleResultMessage,
-  RuntimeSnapshotResultMessage,
-  RuntimeStageAttachmentResultMessage,
   ServerTransferManifest,
   ServerTransferManifestEntry,
   ServerTransferResultMessage,
-  TurnDelivery,
-  TurnReceipt,
   WorkspaceCleanResultMessage,
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
 } from '@podium/protocol'
+import type {
+  RuntimeAttachmentRef,
+  RuntimeLifecycleResultMessage,
+  RuntimeSnapshotResultMessage,
+  RuntimeStageAttachmentResultMessage,
+  TurnDelivery,
+  TurnReceipt,
+} from '@podium/protocol/daemon'
 import type {
   ControlMessage,
   DaemonMessage,

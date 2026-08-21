@@ -19,7 +19,7 @@ import {
 import { ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
 import { changeRowArm } from './change-row'
-import { PendingInteractionWire } from './runtime'
+import { PendingInteractionWire } from './runtime-interactions'
 
 /**
  * Re-exported from `@podium/model` [POD-796, POD-822].

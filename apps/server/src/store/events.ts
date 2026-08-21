@@ -6,7 +6,8 @@
  */
 
 import type { SessionId } from '@podium/model'
-import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor, RuntimeEvent } from '@podium/protocol'
+import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
+import { RuntimeEvent } from '@podium/protocol/daemon'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { Subscription } from './types'
 
@@ -55,7 +56,7 @@ export const RUNTIME_EVENT_LOG_KIND = 'session.runtime'
 export interface RuntimeEventCheckpoint {
   sessionId: SessionId
   observerGeneration: number
-  cursor: import('@podium/protocol').ProviderCursor
+  cursor: ProviderCursor
   turnEpoch: number
   closedTurnEpoch: number | null
   updatedAt: string
@@ -64,7 +65,7 @@ export interface RuntimeEventCheckpoint {
 export interface RuntimeEventLogRecord {
   id: number
   sessionId: SessionId
-  event: import('@podium/protocol').RuntimeEvent
+  event: RuntimeEvent
 }
 
 export interface EventPrunePlan {

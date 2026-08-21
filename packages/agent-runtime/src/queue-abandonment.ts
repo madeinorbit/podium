@@ -40,7 +40,9 @@
  */
 
 import type { SessionId } from '@podium/model'
-import type { QueueDrainAbandonedReason } from '@podium/protocol'
+import type {
+  QueueDrainAbandonedReason,
+} from '@podium/protocol/daemon'
 import type { SendOptions, TurnInput } from './turns.js'
 
 /** One turn a server-family queue accepted and will not deliver. The driver's

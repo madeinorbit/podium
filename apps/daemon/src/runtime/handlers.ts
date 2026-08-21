@@ -21,7 +21,9 @@
 
 import type { AgentSessionHandle } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
-import type { RuntimeSnapshotResultMessage } from '@podium/protocol'
+import type {
+  RuntimeSnapshotResultMessage,
+} from '@podium/protocol/daemon'
 import type { ControlHandlers, DaemonContext } from '../control/context'
 
 /**

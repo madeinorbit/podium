@@ -27,9 +27,11 @@ import {
 import type {
   LiveServerMessage,
   LocalPortableStateControl,
-  QueueDrainAbandonedReason,
   VisibilityResolver,
 } from '@podium/protocol'
+import type {
+  QueueDrainAbandonedReason,
+} from '@podium/protocol/daemon'
 import {
   formatIssueRef,
   isTerminalOperationState,

@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import {
   RuntimeQueueDrainAbandonedMessage,
   type RuntimeQueueDrainAbandonedMessage as QueueDrainMessage,
-} from '@podium/protocol'
+} from '@podium/protocol/daemon'
 
 const FILE_NAME = 'queue-drain-outbox.json'
 const FILE_VERSION = 1

@@ -33,7 +33,9 @@ import {
   type SessionMeta,
   type MachineId,
 } from '@podium/model'
-import type { TurnReceipt } from '@podium/protocol'
+import type {
+  TurnReceipt,
+} from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
 import { SessionStore } from '../../store'

@@ -52,11 +52,13 @@
  */
 
 import type {
-  FailureDisposition,
   InteractionAskSpec,
   RecoveryChoice,
-  TurnFailureReason,
 } from '@podium/protocol'
+import type {
+  FailureDisposition,
+  TurnFailureReason,
+} from '@podium/protocol/daemon'
 
 /**
  * WHAT A FAILURE-MATERIALIZED RECOVERY OFFERS.

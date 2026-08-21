@@ -85,9 +85,6 @@ import type {
  * is the house style.
  */
 export {
-  CausalEnvelope as CausalEnvelopeSchema,
-  ExitClassification as ExitClassificationSchema,
-  FailureDisposition as FailureDispositionSchema,
   InteractionAnswerability as InteractionAnswerabilitySchema,
   InteractionAnswerOutcome as InteractionAnswerOutcomeSchema,
   InteractionEvent as InteractionEventSchema,
@@ -95,6 +92,14 @@ export {
   InteractionSource as InteractionSourceSchema,
   ObservationInputOrigin as InputOriginSchema,
   PendingInteraction as PendingInteractionSchema,
+} from '@podium/protocol'
+export {
+  TurnFailureReason as TurnFailureReasonSchema,
+} from '@podium/protocol/daemon'
+export {
+  CausalEnvelope as CausalEnvelopeSchema,
+  ExitClassification as ExitClassificationSchema,
+  FailureDisposition as FailureDispositionSchema,
   ProcessEvent as ProcessEventSchema,
   Refusal as RefusalSchema,
   RefusalReason as RefusalReasonSchema,
@@ -110,14 +115,10 @@ export {
   TranscriptItemDelta as TranscriptItemDeltaSchema,
   TurnDelivery as TurnDeliverySchema,
   TurnEvent as TurnEventSchema,
-  TurnFailureReason as TurnFailureReasonSchema,
   TurnReceipt as TurnReceiptSchema,
-} from '@podium/protocol'
+} from '@podium/protocol/daemon'
 
 import type {
-  CausalEnvelope as CausalEnvelopeWire,
-  ExitClassification as ExitClassificationWire,
-  FailureDisposition as FailureDispositionWire,
   InteractionAnswerability as InteractionAnswerabilityWire,
   InteractionAnswerOutcome as InteractionAnswerOutcomeWire,
   InteractionEvent as InteractionEventWire,
@@ -125,6 +126,14 @@ import type {
   InteractionSource as InteractionSourceWire,
   ObservationInputOrigin,
   PendingInteraction as PendingInteractionWire,
+} from '@podium/protocol'
+import type {
+  TurnFailureReason as TurnFailureReasonWire,
+} from '@podium/protocol/daemon'
+import type {
+  CausalEnvelope as CausalEnvelopeWire,
+  ExitClassification as ExitClassificationWire,
+  FailureDisposition as FailureDispositionWire,
   ProcessEvent as ProcessEventWire,
   RefusalReason as RefusalReasonWire,
   Refusal as RefusalWire,
@@ -135,9 +144,8 @@ import type {
   TranscriptItemDelta as TranscriptItemDeltaWire,
   TurnDelivery as TurnDeliveryWire,
   TurnEvent as TurnEventWire,
-  TurnFailureReason as TurnFailureReasonWire,
   TurnReceipt as TurnReceiptWire,
-} from '@podium/protocol'
+} from '@podium/protocol/daemon'
 
 // ---------------------------------------------------------------------------
 // The drift guard

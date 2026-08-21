@@ -53,8 +53,10 @@ import type {
   MachinePrincipal,
   PendingInteraction,
   Principal,
-  TurnEvent,
 } from '@podium/protocol'
+import type {
+  TurnEvent,
+} from '@podium/protocol/daemon'
 import {
   type AgentInstruction,
   AUTO_ARCHIVE_READ_WINDOW_MS,
@@ -69,8 +71,10 @@ import {
   type SessionOpenUrlMessage,
   type SubscriptionRegistry,
   type SyncChangesSinceResult,
-  type TurnReceipt,
 } from '@podium/protocol'
+import {
+  type TurnReceipt,
+} from '@podium/protocol/daemon'
 import { type ControlMessage, type DaemonMessage } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import {

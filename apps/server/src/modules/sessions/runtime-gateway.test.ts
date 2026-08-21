@@ -10,7 +10,10 @@
 
 import type { MachineId, SessionId } from '@podium/model'
 import { asUserId } from '@podium/model'
-import type { TurnDelivery, TurnReceipt } from '@podium/protocol'
+import type {
+  TurnDelivery,
+  TurnReceipt,
+} from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { SYSTEM_INBOX_PRINCIPAL } from './inbox'
 import {

@@ -27,7 +27,9 @@
  */
 
 import { asSessionId } from '@podium/model'
-import type { TurnReceipt } from '@podium/protocol'
+import type {
+  TurnReceipt,
+} from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { OPERATOR } from '../../test-support/capabilities'
 import { mailHarness } from './characterization-support'

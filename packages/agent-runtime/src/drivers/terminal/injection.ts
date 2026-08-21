@@ -51,7 +51,9 @@
  * outcome.
  */
 
-import type { QueueDrainAbandonedReason as WireQueueDrainAbandonedReason } from '@podium/protocol'
+import type {
+  QueueDrainAbandonedReason as WireQueueDrainAbandonedReason,
+} from '@podium/protocol/daemon'
 import type { ActingPrincipal, InputOrigin, TurnDelivery, TurnReceipt } from '../../turns.js'
 
 // ---------------------------------------------------------------------------

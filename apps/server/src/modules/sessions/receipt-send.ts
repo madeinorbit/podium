@@ -56,7 +56,13 @@
  */
 
 import type { MutationId, SessionId } from '@podium/model'
-import type { ObservationInputOrigin, TurnDelivery, TurnReceipt } from '@podium/protocol'
+import type {
+  ObservationInputOrigin,
+} from '@podium/protocol'
+import type {
+  TurnDelivery,
+  TurnReceipt,
+} from '@podium/protocol/daemon'
 import type { InboxPrincipalReference } from './inbox'
 import type { RuntimeDurableQueuePort } from './runtime-gateway'
 

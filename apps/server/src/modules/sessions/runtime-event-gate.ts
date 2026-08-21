@@ -1,7 +1,8 @@
 import { createLogger } from '@podium/logger'
 import { compareProviderCursor } from '@podium/harness/metadata'
 import type { SessionId } from '@podium/model'
-import type { InteractionEvent, RuntimeEvent, TurnEvent } from '@podium/protocol'
+import type { InteractionEvent } from '@podium/protocol'
+import type { RuntimeEvent, TurnEvent } from '@podium/protocol/daemon'
 import {
   RUNTIME_EVENT_LOG_KIND,
   type EventsRepository,

@@ -29,7 +29,13 @@ import {
   asUserId,
   isAgentComputing,
 } from '@podium/model'
-import type { AgentObservation, ObservationInputOrigin, TurnReceipt } from '@podium/protocol'
+import type {
+  AgentObservation,
+  ObservationInputOrigin,
+} from '@podium/protocol'
+import type {
+  TurnReceipt,
+} from '@podium/protocol/daemon'
 import { asDelegationRef, type DelegationRef } from '@podium/protocol'
 import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'

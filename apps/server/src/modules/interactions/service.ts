@@ -49,8 +49,10 @@ import type {
   InteractionKind,
   InteractionSource,
   PendingInteractionWire,
-  TurnEvent,
 } from '@podium/protocol'
+import type {
+  TurnEvent,
+} from '@podium/protocol/daemon'
 import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
 import type { InboxPrincipalReference } from '../sessions/inbox'
 import type { AnswerDeliveryResult } from '../superagent/answer-delivery'

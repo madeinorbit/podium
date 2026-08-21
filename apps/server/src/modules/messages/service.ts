@@ -50,9 +50,11 @@ import {
 } from '@podium/model'
 import {
   asDelegationRef,
+} from '@podium/protocol'
+import {
   type QueueDrainAbandonedReason,
   type TurnReceipt,
-} from '@podium/protocol'
+} from '@podium/protocol/daemon'
 import type { CommandPrincipal } from '../../command-principal'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {

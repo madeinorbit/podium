@@ -1,5 +1,7 @@
 import { asSessionId } from '@podium/model'
-import type { RuntimeEvent } from '@podium/protocol'
+import type {
+  RuntimeEvent,
+} from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import {
   RuntimeEventGate,
