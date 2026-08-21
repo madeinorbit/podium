@@ -255,6 +255,14 @@ export default defineConfig(({ mode }) => {
         '@podium/protocol/update-refusal': fileURLToPath(
           new URL('../../packages/protocol/src/update/refusal.ts', import.meta.url),
         ),
+        /**
+         * Same door, same reason (POD-2502). The update chunk needs
+         * `isDevChannelVersion` as a VALUE; its leaf imports only
+         * `version-order`, which imports nothing.
+         */
+        '@podium/protocol/update-dev-version': fileURLToPath(
+          new URL('../../packages/protocol/src/update/dev-version.ts', import.meta.url),
+        ),
         '@podium/protocol': fileURLToPath(
           new URL('../../packages/protocol/src/index.ts', import.meta.url),
         ),
