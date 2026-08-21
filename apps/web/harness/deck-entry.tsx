@@ -695,6 +695,32 @@ const MISSIONS = {
     state.selectedIssueId = 'root'
     state.paneA = null
   },
+  /**
+   * THE SAME BRIEF, PASTED RATHER THAN WRITTEN — the extreme the header's cap
+   * exists for. Nobody types this into a task description, but people paste
+   * specs into them, and the only limit the deck keeps is that a brief may not
+   * take so much of the window that the spine has nowhere to be. This is the
+   * fixture that makes that cap bind, and the fade with it.
+   */
+  proseLong: () => {
+    MISSIONS.prose()
+    const root = state.issues[0] as Record<string, unknown>
+    root.description = [
+      'in the footer bar, the readouts have drifted apart and each one needs its own decision:',
+      '',
+      '- agents count is based on "now" / live (can also be last minute or something, don\u2019t risk performance). but, definitely not an avg over last 12h or so',
+      '- burn: the same \u2014 it is a rate, and a rate averaged over half a day is a different quantity from the one the label promises',
+      '- ships/day was measured against a window nobody chose; it reads as a target and it is not one',
+      '- work in worktree double-counts a worktree two sessions share',
+      '',
+      'remove outright:',
+      '',
+      '- ships/day',
+      '- work in worktree',
+      '',
+      'and once those are gone, check the bar still balances at 300px: the readouts left have to shed words before they shed data, the way the command bar does.',
+    ].join('\n')
+  },
 } as const
 
 /**

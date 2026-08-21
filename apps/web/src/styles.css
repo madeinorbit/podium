@@ -9214,29 +9214,44 @@ a.ref-link--session::before {
    controls, so it takes the secondary ink the header's paragraph has always
    had; the title stays the loudest thing in the block.
 
-   HEIGHT. Five of its OWN lines, `1lh` at whatever density the shell is in —
-   the same mechanism `.brief-shelf-text` uses, and for the same reason: a pixel
-   constant written next to a line-height it cannot see clamps at three lines
-   and a sliver the moment compact density moves one of them.
+   HEIGHT IS A SAFETY VALVE, NOT A PREVIEW. This column IS the mission, and the
+   brief is what the mission is — so it is shown, not sampled. A four-line clamp
+   was the old `<p>`'s and it made the header a teaser for a paragraph the
+   operator would have finished reading in the time it takes to open the dock.
+   What is left is the only limit the column genuinely needs: a brief may not
+   take so much of the window that the spine underneath it has nowhere to be.
+
+   32vh, because the constraint is the WINDOW's height and nothing else here
+   knows it. The deck is the window less the top bar and the status strip, and
+   the rest of this header plus the view bar is a fixed ~154px on top of the
+   brief — so at the smallest window anybody works in, a brief at the cap still
+   leaves the spine under it just under half the column. That is ten or eleven
+   lines of description, which no brief anybody writes reaches; what it stops is
+   a pasted spec taking the column. A line count cannot express that: eleven
+   lines is comfortable on a tall display and the whole column on a laptop in a
+   split window.
 
    THE CUT SAYS SO. `line-clamp`'s ellipsis needs a single run of inline text,
-   and this box has blocks in it, so the last visible line fades instead. It is
-   gated on `data-clipped` — measured, because nothing in CSS can answer it —
-   so a two-line brief is never dimmed for a cut that did not happen. */
+   and this box has blocks in it, so the tail fades instead. Over TWO lines, not
+   one: the cap is a height rather than a line count now, so the cut lands
+   wherever it lands — often in a block's own bottom margin, where a one-line
+   fade dims nothing but empty space and the brief reads as having ended. Two
+   lines of gradient always reach text. Gated on `data-clipped` — measured in
+   JS, because nothing in CSS can answer it — so a brief that fits is never
+   dimmed for a cut that did not happen. */
 .deck-brief.chat-md {
-  --brief-lines: 5;
-  max-height: calc(var(--brief-lines) * 1lh);
+  max-height: 32vh;
   overflow: hidden;
   color: var(--muted-foreground);
 }
 /* BLOCK RHYTHM IS THE COLUMN'S, NOT THE FEED'S. `chat-md`'s intervals are set
    for a turn in a transcript, where a paragraph has a whole stage to breathe in
-   and two thirds of a line between thoughts is right. Inside a five-line clamp
-   in a 300px column the same intervals spend a fifth of the box on air: the
-   lead-in and its list arrived a line and a half apart, and the brief showed
-   less than the 12px slab it replaced. Tighter here, and the list is pulled back
-   onto the header's own 16px datum — a bullet indented past the title it sits
-   under reads as a second, narrower column. */
+   and two thirds of a line between thoughts is right. In a 300px column at the
+   top of a list the same intervals put a line and a half between a lead-in and
+   the list it introduces, which is a document's rhythm spent on four sentences.
+   Tighter here, and the list is pulled back onto the header's own 16px datum —
+   a bullet indented past the title it sits under reads as a second, narrower
+   column. */
 .deck-brief p {
   margin: 0.55em 0;
 }
@@ -9262,18 +9277,8 @@ a.ref-link--session::before {
   color: var(--text-dim);
 }
 .deck-brief[data-clipped="true"] {
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    #000 0,
-    #000 calc((var(--brief-lines) - 1) * 1lh),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    #000 0,
-    #000 calc((var(--brief-lines) - 1) * 1lh),
-    transparent 100%
-  );
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 2lh), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 2lh), transparent 100%);
 }
 /* A brief is a READOUT: the renderer already drops every anchor, and the copy
    affordance the code renderer injects would be the one clickable thing left in
@@ -9282,8 +9287,9 @@ a.ref-link--session::before {
   display: none;
 }
 /* A description is not a document. A heading in one is a step of weight and ink
-   inside a five-line box, not the start of a section — the 1.5em of air `chat-md`
-   puts over a heading for a long answer would spend a whole line of the clamp. */
+   inside a header block, not the start of a section — the 1.5em of air `chat-md`
+   puts over a heading for a long answer opens a hole in the middle of a brief
+   whose whole length is four lines. */
 .deck-brief :is(h1, h2, h3, h4, h5, h6) {
   margin-top: 0.6em;
   font-size: 1em;
