@@ -27,6 +27,32 @@ function releaseManifest(version = '0.4.2') {
   }
 }
 
+/** The four platforms a release publishes, and where each one's tarball lives. */
+const FOUR_PLATFORM_URLS: Record<string, string> = {
+  'linux-x86_64': 'https://downloads.test/podium-headless-linux-x64.tar.gz',
+  'linux-aarch64': 'https://downloads.test/podium-headless-linux-arm64.tar.gz',
+  'darwin-aarch64': 'https://downloads.test/podium-headless-darwin-arm64.tar.gz',
+  'darwin-x86_64': 'https://downloads.test/podium-headless-darwin-x64.tar.gz',
+}
+
+function fourPlatformManifest(version = '0.4.2') {
+  return {
+    version,
+    critical: false,
+    artifacts: {
+      headless: {
+        delivery: 'feed',
+        platforms: Object.fromEntries(
+          Object.entries(FOUR_PLATFORM_URLS).map(([platform, url]) => [
+            platform,
+            { url, digest: `sha256-${platform}`, signature: `SIG-${platform}` },
+          ]),
+        ),
+      },
+    },
+  }
+}
+
 function desktopManifest(version = '0.4.2') {
   return {
     version,
@@ -108,6 +134,31 @@ describe('resolveReleaseTarget', () => {
 
     await expect(resolveReleaseTarget('edge', fetchImpl)).rejects.toThrow(
       'headless linux-x86_64 artifact returned HTTP 404',
+    )
+  })
+
+  // A release now names four headless platforms, both Darwin ones included
+  // [spec:SP-6144 section 8b]. The resolver reads whatever the manifest declares rather
+  // than a list of its own, so widening the set needed no change here — these two tests
+  // are what turn that from an assumption into something checked.
+  it('checks every platform a four-platform release names', async () => {
+    const fetchImpl = fetchFixture({ release: fourPlatformManifest() })
+
+    await expect(resolveReleaseTarget('edge', fetchImpl)).resolves.toMatchObject({
+      version: '0.4.2',
+    })
+    const asked = fetchImpl.mock.calls.map(([url]) => String(url))
+    for (const url of Object.values(FOUR_PLATFORM_URLS)) expect(asked).toContain(url)
+  })
+
+  it('does not advertise a release whose darwin artifact is missing from the page', async () => {
+    const fetchImpl = fetchFixture({
+      release: fourPlatformManifest(),
+      artifactStatus: { [FOUR_PLATFORM_URLS['darwin-aarch64'] as string]: 404 },
+    })
+
+    await expect(resolveReleaseTarget('edge', fetchImpl)).rejects.toThrow(
+      'headless darwin-aarch64 artifact returned HTTP 404',
     )
   })
 })

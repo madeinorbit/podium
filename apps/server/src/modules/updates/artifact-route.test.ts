@@ -19,8 +19,15 @@ const signature = sign(null, bytes, privateKey)
 
 // A real file, because the route's job is now to stream one off disk.
 const stage = mkdtempSync(join(tmpdir(), 'podium-dev-bundle-'))
-const artifact = join(stage, 'podium-headless-dev+abc1234-20260812T182015Z.tar.gz')
+const artifact = join(stage, 'podium-headless-dev+abc1234-linux-x86_64-20260812T182015Z.tar.gz')
 writeFileSync(artifact, bytes)
+// A second platform, so the route has something to tell apart from the host's.
+const darwinBytes = new Uint8Array([1, 2, 3, 4, 5])
+const darwinArtifact = join(
+  stage,
+  'podium-headless-dev+abc1234-darwin-aarch64-20260812T182015Z.tar.gz',
+)
+writeFileSync(darwinArtifact, darwinBytes)
 afterAll(() => rmSync(stage, { recursive: true, force: true }))
 
 const built: BuiltDevBundle = {
@@ -29,6 +36,24 @@ const built: BuiltDevBundle = {
   size: bytes.length,
   digest: 'sha256-fixture',
   signature: signature.toString('base64'),
+  artifacts: [
+    {
+      platform: 'linux-x86_64',
+      path: artifact,
+      size: bytes.length,
+      digest: 'sha256-fixture',
+      signature: signature.toString('base64'),
+      version: 'dev+abc1234',
+    },
+    {
+      platform: 'darwin-aarch64',
+      path: darwinArtifact,
+      size: darwinBytes.length,
+      digest: 'sha256-darwin-fixture',
+      signature: signature.toString('base64'),
+      version: 'dev+abc1234',
+    },
+  ],
 }
 
 function appFor(authenticated = true) {
@@ -44,10 +69,16 @@ function appFor(authenticated = true) {
 describe('development artifact route', () => {
   it('builds an origin-relative route with encoded version and authentication token', () => {
     const url = new URL(
-      developmentArtifactUrl('https://podium.example.test:55555', 'dev+abc/123', 'random token/?'),
+      developmentArtifactUrl(
+        'https://podium.example.test:55555',
+        'dev+abc/123',
+        'random token/?',
+        'darwin-aarch64',
+      ),
     )
     expect(url.origin).toBe('https://podium.example.test:55555')
-    expect(url.pathname).toBe('/updates/dev-bundle/dev%2Babc%2F123')
+    // The platform is in the PATH: the URL names which bytes come back.
+    expect(url.pathname).toBe('/updates/dev-bundle/dev%2Babc%2F123/darwin-aarch64')
     expect(url.searchParams.get('token')).toBe('random token/?')
   })
   it('keeps a source publisher enabled for same-host fallback', () => {
@@ -262,6 +293,46 @@ describe('development artifact route', () => {
     expect(response.headers.get('content-length')).toBe(String(bytes.length))
     expect(Array.from(served)).toEqual(Array.from(bytes))
     expect(verify(null, served, publicKey, Buffer.from(built.signature, 'base64'))).toBe(true)
+  })
+
+  it('serves each platform its OWN bundle', async () => {
+    const app = appFor()
+    const linux = await app.request('/updates/dev-bundle/dev%2Babc1234/linux-x86_64', {
+      headers: { authorization: 'Bearer machine-token' },
+    })
+    const darwin = await app.request('/updates/dev-bundle/dev%2Babc1234/darwin-aarch64', {
+      headers: { authorization: 'Bearer machine-token' },
+    })
+    expect(Array.from(new Uint8Array(await linux.arrayBuffer()))).toEqual(Array.from(bytes))
+    expect(Array.from(new Uint8Array(await darwin.arrayBuffer()))).toEqual(Array.from(darwinBytes))
+  })
+
+  it('says not found for a platform this build did not mint', async () => {
+    // NOT a fallback to the host's bundle: handing a Mac a Linux tarball fails its
+    // signature check after a 200 MB download, which is a far worse answer than a 404
+    // it can act on.
+    const app = appFor()
+    const response = await app.request('/updates/dev-bundle/dev%2Babc1234/darwin-x86_64', {
+      headers: { authorization: 'Bearer machine-token' },
+    })
+    expect(response.status).toBe(404)
+  })
+
+  it('still serves the host bundle at the URL minted before platforms were in it', async () => {
+    // A daemon may be holding a pre-multi-platform URL. It only ever meant this host's
+    // bundle, and that is still what it returns.
+    const app = appFor()
+    const response = await app.request('/updates/dev-bundle/dev%2Babc1234', {
+      headers: { authorization: 'Bearer machine-token' },
+    })
+    expect(response.status).toBe(200)
+    expect(Array.from(new Uint8Array(await response.arrayBuffer()))).toEqual(Array.from(bytes))
+  })
+
+  it('authenticates before it looks at the platform', async () => {
+    const app = appFor(false)
+    const response = await app.request('/updates/dev-bundle/dev%2Babc1234/darwin-aarch64')
+    expect(response.status).toBe(401)
   })
 
   it('says not found when the published artifact is no longer on disk', async () => {

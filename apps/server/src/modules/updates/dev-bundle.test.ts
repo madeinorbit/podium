@@ -12,11 +12,14 @@ import {
   type DevBundleFs,
   type DevBundleLock,
   decideDevBuild,
+  devBuildPlatforms,
   devBundleFileName,
   devBundleKeyFingerprint,
   devBundleStamp,
+  developmentPlatformTarget,
   devIdentityTarget,
   devTarget,
+  fleetHeadlessPlatforms,
   listDevBundles,
   parseDevBundleName,
   requireDefinedMigrations,
@@ -338,16 +341,22 @@ function published(input: {
   /** Override the minted version; defaults to a publisher mint on CHECKOUT_BASE. */
   version?: string
   counter?: number
+  /** Defaults to this host's own — the platform a restore requires to be present. */
+  platform?: string
 }) {
   const version = input.version ?? `0.1.0-edge.20.dev.${input.counter ?? 1}+${input.sha}`
+  const platform = input.platform ?? developmentPlatformTarget()
   const path =
-    (input.root ?? '/repo/podium') + '/dist-bun/' + devBundleFileName(version, input.stamp)
+    (input.root ?? '/repo/podium') +
+    '/dist-bun/' +
+    devBundleFileName(version, input.stamp, platform)
   return memoryFs({
     blobs: { [path]: input.bytes },
     text: {
       [path + '.sig']: input.signature + '\n',
       [path + '.meta.json']: JSON.stringify({
         version,
+        platform,
         digest: digestOf(input.bytes),
         size: input.bytes.length,
         keyFingerprint: devBundleKeyFingerprint(input.signingKey),
@@ -467,26 +476,72 @@ describe('development bundle names', () => {
     )
   })
 
-  it('recognises legacy and publisher-minted artifacts', () => {
-    expect(parseDevBundleName('podium-headless-dev+abc1234-20260812T182015Z.tar.gz')).toEqual({
-      name: 'podium-headless-dev+abc1234-20260812T182015Z.tar.gz',
-      sha: 'abc1234',
+  it('recognises legacy and publisher-minted artifacts, on any platform', () => {
+    // Today's shape: a publisher mint, one file per platform.
+    expect(
+      parseDevBundleName(
+        'podium-headless-0.1.0-edge.20.dev.5+656f49b-darwin-aarch64-20260812T182015Z.tar.gz',
+      ),
+    ).toEqual({
+      name: 'podium-headless-0.1.0-edge.20.dev.5+656f49b-darwin-aarch64-20260812T182015Z.tar.gz',
+      sha: '656f49b',
+      platform: 'darwin-aarch64',
       stamp: '20260812T182015Z',
-      version: 'dev+abc1234',
+      version: '0.1.0-edge.20.dev.5+656f49b',
     })
-    // The shape that accumulated before builds were stamped is still ours.
-    expect(parseDevBundleName('podium-headless-dev+abc1234.tar.gz')).toMatchObject({
-      sha: 'abc1234',
-      stamp: '',
-    })
+    // The platform must not be swallowed into the version: a greedy parse would read
+    // the version as `…dev.5+656f49b-darwin-aarch64`, which names no mint anyone can
+    // look up.
+    expect(
+      parseDevBundleName(
+        'podium-headless-0.1.0-edge.20.dev.5+656f49b-darwin-aarch64-20260812T182015Z.tar.gz',
+      )?.version,
+    ).toBe('0.1.0-edge.20.dev.5+656f49b')
+    // A publisher mint with no platform — the shape before one build minted several.
     expect(
       parseDevBundleName('podium-headless-0.1.0-edge.20.dev.5+656f49b-20260812T182015Z.tar.gz'),
     ).toEqual({
       name: 'podium-headless-0.1.0-edge.20.dev.5+656f49b-20260812T182015Z.tar.gz',
       sha: '656f49b',
+      platform: '',
       stamp: '20260812T182015Z',
       version: '0.1.0-edge.20.dev.5+656f49b',
     })
+    // EVERY older shape is still OURS, and that matters: a name this stops recognising
+    // does not become safe, it becomes invisible — a file the retention sweep no longer
+    // knows to delete.
+    expect(
+      parseDevBundleName('podium-headless-dev+abc1234-darwin-aarch64-20260812T182015Z.tar.gz'),
+    ).toEqual({
+      name: 'podium-headless-dev+abc1234-darwin-aarch64-20260812T182015Z.tar.gz',
+      sha: 'abc1234',
+      platform: 'darwin-aarch64',
+      stamp: '20260812T182015Z',
+      version: 'dev+abc1234',
+    })
+    expect(parseDevBundleName('podium-headless-dev+abc1234-20260812T182015Z.tar.gz')).toEqual({
+      name: 'podium-headless-dev+abc1234-20260812T182015Z.tar.gz',
+      sha: 'abc1234',
+      platform: '',
+      stamp: '20260812T182015Z',
+      version: 'dev+abc1234',
+    })
+    expect(parseDevBundleName('podium-headless-dev+abc1234.tar.gz')).toMatchObject({
+      sha: 'abc1234',
+      platform: '',
+      stamp: '',
+    })
+  })
+
+  it('names a file per platform, so one build does not overwrite itself', () => {
+    const names = ['linux-x86_64', 'darwin-aarch64'].map((platform) =>
+      devBundleFileName('dev+abc1234', '20260812T182015Z', platform),
+    )
+    expect(names).toEqual([
+      'podium-headless-dev+abc1234-linux-x86_64-20260812T182015Z.tar.gz',
+      'podium-headless-dev+abc1234-darwin-aarch64-20260812T182015Z.tar.gz',
+    ])
+    expect(new Set(names).size).toBe(2)
   })
 
   it('never claims a release artifact, a sidecar, or a stranger', () => {
@@ -574,6 +629,55 @@ describe('selectDevBundleSweep', () => {
     ])
   })
 
+  it('counts BUILDS per platform, not files, when it has no allowlist to go on', () => {
+    // `keep` means "the last N builds", and a build is now up to four files. Counting
+    // them in one list keeps two and deletes the rest of the build just published — a
+    // Mac in the fleet would be offered a target whose tarball the sweep had removed.
+    //
+    // Production reaches this through the allowlist (`referenced`) instead, which
+    // POD-2502 added; this counting fallback is what an `selectDevBundleSweep(names)`
+    // with no options still does, so it has to be right on its own terms.
+    const build = (counter: number, sha: string, stamp: string, platform: string) =>
+      `podium-headless-0.1.0-edge.20.dev.${counter}+${sha}-${platform}-${stamp}.tar.gz`
+    const newestBuild = ['linux-x86_64', 'darwin-aarch64', 'linux-aarch64', 'darwin-x86_64'].map(
+      (platform) => build(3, '3333333', '20260812T190000Z', platform),
+    )
+    const previousBuild = ['linux-x86_64', 'darwin-aarch64'].map((platform) =>
+      build(2, '2222222', '20260812T180000Z', platform),
+    )
+    const oldestBuild = ['linux-x86_64', 'darwin-aarch64'].map((platform) =>
+      build(1, '1111111', '20260812T170000Z', platform),
+    )
+
+    const doomed = selectDevBundleSweep([...newestBuild, ...previousBuild, ...oldestBuild], {
+      hostPlatform: 'linux-x86_64',
+    })
+
+    // Every file of the two newest builds survives; only the third build goes.
+    expect(doomed.sort()).toEqual([...oldestBuild].sort())
+    for (const name of [...newestBuild, ...previousBuild]) expect(doomed).not.toContain(name)
+  })
+
+  it('drains legacy platform-less names through the host group rather than hoarding them', () => {
+    // A name with no platform predates multi-platform builds, and the only bundle such
+    // a build produced was this host's. Give it a group of its own and its survivors are
+    // retained forever, because nothing new is ever added to push them out.
+    const legacy = [
+      'podium-headless-dev+1111111-20260812T170000Z.tar.gz',
+      'podium-headless-dev+2222222-20260812T180000Z.tar.gz',
+    ]
+    const fresh = ['linux-x86_64', 'darwin-aarch64'].map(
+      (platform) =>
+        `podium-headless-0.1.0-edge.20.dev.9+9999999-${platform}-20260812T190000Z.tar.gz`,
+    )
+    const doomed = selectDevBundleSweep([...fresh, ...legacy], {
+      keep: 1,
+      hostPlatform: 'linux-x86_64',
+    })
+    // keep:1 — the host group holds the fresh linux bundle, so BOTH legacy names go.
+    expect(doomed.sort()).toEqual([...legacy].sort())
+  })
+
   it('never deletes an artifact referenced by current manifests, even if stamp-newest', () => {
     const current = `podium-headless-0.1.0-edge.20.dev.2+ddddddd-20260812T190000Z.tar.gz`
     const retained = `podium-headless-0.1.0-edge.20.dev.1+ccccccc-20260812T180000Z.tar.gz`
@@ -624,6 +728,79 @@ describe('sweepDevBundles', () => {
   })
 })
 
+describe('fleetHeadlessPlatforms', () => {
+  const host = 'linux-x86_64'
+
+  it('always includes this host, which is a consumer of its own feed', () => {
+    expect(fleetHeadlessPlatforms([], host)).toEqual([host])
+  })
+
+  it('adds a platform the moment a machine of that kind has enrolled', () => {
+    expect(
+      fleetHeadlessPlatforms(
+        [
+          { inventory: { os: 'darwin', arch: 'arm64' } },
+          { inventory: { os: 'linux', arch: 'arm64' } },
+        ],
+        host,
+      ),
+    ).toEqual([host, 'darwin-aarch64', 'linux-aarch64'])
+  })
+
+  it('does not mint for a platform nobody runs', () => {
+    // The whole point of fleet-scoping: a dev feed serves a fleet whose members have
+    // all enrolled, so a fourth platform would be two minutes of the live host's CPU
+    // spent on a file that will never be fetched.
+    expect(fleetHeadlessPlatforms([{ inventory: { os: 'darwin', arch: 'arm64' } }], host)).toEqual([
+      host,
+      'darwin-aarch64',
+    ])
+  })
+
+  it('counts each platform once, however many machines run it', () => {
+    expect(
+      fleetHeadlessPlatforms(
+        [
+          { inventory: { os: 'darwin', arch: 'arm64' } },
+          { inventory: { os: 'darwin', arch: 'arm64' } },
+          { inventory: { os: 'linux', arch: 'x64' } },
+        ],
+        host,
+      ),
+    ).toEqual([host, 'darwin-aarch64'])
+  })
+
+  it('contributes nothing for a machine that has not said what it is yet', () => {
+    // Absent inventory is "we do not know", and a guess here mints the wrong bundle.
+    // It will contribute the moment its daemon connects and reports.
+    expect(fleetHeadlessPlatforms([{ inventory: undefined }, {}], host)).toEqual([host])
+  })
+
+  it('skips a platform no bundle is published for', () => {
+    // A key in the manifest with no artifact behind it is a machine that downloads a
+    // 404 forever; saying nothing is the honest answer.
+    expect(fleetHeadlessPlatforms([{ inventory: { os: 'win32', arch: 'x64' } }], host)).toEqual([
+      host,
+    ])
+  })
+})
+
+describe('devBuildPlatforms', () => {
+  it('puts this host first, so a later platform’s failure cannot cost this machine its bundle', () => {
+    expect(devBuildPlatforms(['darwin-aarch64', 'linux-x86_64'], 'linux-x86_64')).toEqual([
+      'linux-x86_64',
+      'darwin-aarch64',
+    ])
+  })
+
+  it('builds each platform once', () => {
+    expect(devBuildPlatforms(['darwin-aarch64', 'darwin-aarch64'], 'linux-x86_64')).toEqual([
+      'linux-x86_64',
+      'darwin-aarch64',
+    ])
+  })
+})
+
 describe('buildDevBundle', () => {
   it('builds a signed dev target and releases the lease after describing the artifact', async () => {
     const { bytes, signature } = signedFixture()
@@ -647,14 +824,15 @@ describe('buildDevBundle', () => {
     expect(built.version).toBe('0.1.0-edge.20.dev.1+1234567')
     // The version a daemon sees is the publisher mint; the FILE also names the build.
     expect(built.path).toBe(
-      '/repo/podium/dist-bun/podium-headless-0.1.0-edge.20.dev.1+1234567-20260812T182015Z.tar.gz',
+      '/repo/podium/dist-bun/podium-headless-0.1.0-edge.20.dev.1+1234567-linux-x86_64-20260812T182015Z.tar.gz',
     )
     expect(built.size).toBe(bytes.length)
     expect(built.digest).toBe(digestOf(bytes))
     expect(events).toEqual(['acquire', 'build:0.1.0-edge.20.dev.1+1234567', 'release'])
     const target = devTarget(built, {
       platform: 'linux-x86_64',
-      artifactUrl: 'http://server.test/updates/dev-bundle/' + encodeURIComponent(built.version),
+      artifactUrl: () =>
+        'http://server.test/updates/dev-bundle/' + encodeURIComponent(built.version),
       sourceRoot: '/repo/podium',
       schemaMigrations: ['20260715135845_baseline'],
     })
@@ -705,7 +883,19 @@ describe('buildDevBundle', () => {
     })
 
     // The descriptor is metadata; there is nowhere for a payload to hide in it.
-    expect(Object.keys(built).sort()).toEqual(['digest', 'path', 'signature', 'size', 'version'])
+    expect(Object.keys(built).sort()).toEqual([
+      'artifacts',
+      'digest',
+      'path',
+      'signature',
+      'size',
+      'version',
+    ])
+    // `artifacts` describes the per-platform files; it is metadata too, with no room
+    // for a payload either.
+    expect(built.artifacts.map((artifact) => Object.keys(artifact).sort())).toEqual([
+      ['digest', 'path', 'platform', 'signature', 'size', 'version'],
+    ])
     expect(built.size).toBe(4096)
     expect(built.digest).toBe(digestOf(big))
   })
@@ -732,14 +922,15 @@ describe('buildDevBundle', () => {
 
     expect(built[0]).not.toBe(built[1])
     // Same HEAD reuses the mint (F6); the FILE still gets a new stamp so a
-    // streaming download of the previous artifact is not overwritten.
-    expect(built[0]).toContain('dev.1+aaaaaaa-20260812T182015Z')
-    expect(built[1]).toContain('dev.1+aaaaaaa-20260812T193045Z')
+    // streaming download of the previous artifact is not overwritten — and both
+    // survive, so a request already streaming the first keeps its file.
+    expect(built[0]).toContain('dev.1+aaaaaaa-linux-x86_64-20260812T182015Z')
+    expect(built[1]).toContain('dev.1+aaaaaaa-linux-x86_64-20260812T193045Z')
     expect(store.names()).toContain(
-      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T182015Z.tar.gz',
+      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz',
     )
     expect(store.names()).toContain(
-      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T193045Z.tar.gz',
+      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-linux-x86_64-20260812T193045Z.tar.gz',
     )
   })
 
@@ -762,6 +953,9 @@ describe('buildDevBundle', () => {
 
     expect(JSON.parse(store.text.get(built.path + '.meta.json') as string)).toEqual({
       version: '0.1.0-edge.20.dev.1+aaaaaaa',
+      // WHICH platform, so a restore can tell one build's files apart without
+      // re-deriving it from the file name.
+      platform: 'linux-x86_64',
       digest: digestOf(bytes),
       size: bytes.length,
       keyFingerprint: devBundleKeyFingerprint(signingKey),
@@ -801,9 +995,166 @@ describe('buildDevBundle', () => {
 
     const tarNames = store.names().filter((n) => n.endsWith('.tar.gz'))
     expect(tarNames).toHaveLength(2)
-    expect(tarNames.some((n) => n.includes('dev.5+5555555'))).toBe(true)
-    expect(tarNames.some((n) => n.includes('dev.6+6666666'))).toBe(true)
+    expect(tarNames.some((n) => n.includes('dev.5+5555555-linux-x86_64'))).toBe(true)
+    expect(tarNames.some((n) => n.includes('dev.6+6666666-linux-x86_64'))).toBe(true)
     expect((await publisher.target())?.version).toBe('0.1.0-edge.20.dev.6+6666666')
+  })
+
+  it('mints a bundle per fleet platform, each from the platform’s own compile', async () => {
+    const { bytes, signature, signingKey } = signedFixture()
+    const store = memoryFs()
+    const targets: string[] = []
+    const built = await buildDevBundle({
+      ...publisherSeams(),
+      root: '/repo/podium',
+      headSha: 'aaaaaaa',
+      signingKey,
+      fs: store.fs,
+      lock: lockFixture([]),
+      now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
+      platforms: ['linux-x86_64', 'darwin-aarch64'],
+      spawnBuild: async ({ artifactPath, bunTarget }) => {
+        targets.push(bunTarget)
+        store.blobs.set(artifactPath, bytes)
+        store.text.set(artifactPath + '.sig', signature + '\n')
+      },
+    })
+
+    // Each platform is a SEPARATE compile with its own bun target — the same flag
+    // scripts/release.ts passes, which is what makes the dev host exercise the release
+    // path rather than one that merely resembles it.
+    expect(targets).toEqual(['bun-linux-x64', 'bun-darwin-arm64'])
+    expect(built.artifacts.map((artifact) => artifact.platform)).toEqual([
+      'linux-x86_64',
+      'darwin-aarch64',
+    ])
+    // Distinct files: one build that overwrote itself would leave the second platform
+    // holding the first platform's bytes.
+    expect(new Set(built.artifacts.map((artifact) => artifact.path)).size).toBe(2)
+    // The flat fields keep describing THIS host's bundle.
+    expect(built.path).toBe(built.artifacts[0]?.path)
+
+    const target = devTarget(built, {
+      sourceRoot: '/repo/podium',
+      // POD-2502: a dev target must declare the schema it can open, or nothing may
+      // converge to it. Not what this test is about, but it cannot be formed without.
+      schemaMigrations: ['20260715135845_baseline'],
+    })
+    const headless = target.artifacts.headless
+    // `bundle` delivery is the shape the dev feed publishes; anything else has no
+    // per-platform artifacts to enumerate.
+    expect(headless?.delivery).toBe('bundle')
+    const platforms = headless?.delivery === 'bundle' ? headless.platforms : {}
+    expect(Object.keys(platforms)).toEqual(['linux-x86_64', 'darwin-aarch64'])
+    // Each platform gets its OWN address; one URL for all of them would hand every
+    // machine the same bytes.
+    expect(new Set(Object.values(platforms).map((artifact) => artifact.url)).size).toBe(2)
+  })
+
+  it('keeps the whole of the last two builds, not the last two files', async () => {
+    // The failure this prevents: a four-platform build publishes, the sweep counts the
+    // newest two files across every platform, and three quarters of the build it just
+    // published are deleted — so a Mac is offered a target whose tarball is gone.
+    const { bytes, signature, signingKey } = signedFixture()
+    const store = memoryFs()
+    const seams = publisherSeams()
+    let minute = 0
+    for (const sha of ['1111111', '2222222', '3333333']) {
+      minute += 10
+      await buildDevBundle({
+        ...seams,
+        root: '/repo/podium',
+        headSha: sha,
+        signingKey,
+        fs: store.fs,
+        lock: lockFixture([]),
+        now: () => Date.UTC(2026, 7, 12, 18, minute, 0),
+        platforms: ['linux-x86_64', 'darwin-aarch64'],
+        spawnBuild: async ({ artifactPath }) => {
+          store.blobs.set(artifactPath, bytes)
+          store.text.set(artifactPath + '.sig', signature + '\n')
+        },
+      })
+    }
+
+    const tarballs = store.names().filter((name) => name.endsWith('.tar.gz'))
+    // BOTH intents, in one assertion: publisher-minted, orderable versions (POD-2502)
+    // and every platform of the retained builds surviving (POD-2504). Two builds, two
+    // platforms each — not "the newest two files", which would have kept only the last
+    // build and left a Mac pointed at a tarball the sweep had removed.
+    expect(tarballs.sort()).toEqual([
+      'podium-headless-0.1.0-edge.20.dev.2+2222222-darwin-aarch64-20260812T182000Z.tar.gz',
+      'podium-headless-0.1.0-edge.20.dev.2+2222222-linux-x86_64-20260812T182000Z.tar.gz',
+      'podium-headless-0.1.0-edge.20.dev.3+3333333-darwin-aarch64-20260812T183000Z.tar.gz',
+      'podium-headless-0.1.0-edge.20.dev.3+3333333-linux-x86_64-20260812T183000Z.tar.gz',
+    ])
+  })
+
+  it('refuses the whole build when one platform comes back unsigned', async () => {
+    // An unsigned bundle is one every machine would reject AFTER downloading it. The
+    // refusal has to name the platform, or the operator is left guessing which compile
+    // to look at.
+    const { bytes, signature, signingKey } = signedFixture()
+    const store = memoryFs()
+    await expect(
+      buildDevBundle({
+        ...publisherSeams(),
+        root: '/repo/podium',
+        headSha: 'aaaaaaa',
+        signingKey,
+        fs: store.fs,
+        lock: lockFixture([]),
+        now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
+        platforms: ['linux-x86_64', 'darwin-aarch64'],
+        spawnBuild: async ({ artifactPath, bunTarget }) => {
+          store.blobs.set(artifactPath, bytes)
+          if (bunTarget !== 'bun-darwin-arm64') {
+            store.text.set(artifactPath + '.sig', signature + '\n')
+          }
+        },
+      }),
+    ).rejects.toThrow(/darwin-aarch64 is unsigned/)
+  })
+
+  it('reclaims a bundle that no longer covers the fleet, so the next build mints it', async () => {
+    // A Mac enrolled since the last build. The bundle on disk is perfectly valid and
+    // perfectly short: publishing it would offer that Mac a manifest with no entry for
+    // it, so recovery must decline and let the build run.
+    const { bytes, signature, signingKey } = signedFixture()
+    const store = published({
+      sha: 'aaaaaaa',
+      stamp: '20260812T182015Z',
+      bytes,
+      signature,
+      signingKey,
+    })
+    let builds = 0
+    const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
+      isSourceRun: true,
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
+      root: '/repo/podium',
+      headSha: () => 'aaaaaaa',
+      signingKey,
+      fs: store.fs,
+      lock: lockFixture([]),
+      now: () => Date.UTC(2026, 7, 12, 19, 0, 0),
+      fleetPlatforms: () => ['linux-x86_64', 'darwin-aarch64'],
+      spawnBuild: async ({ artifactPath }) => {
+        builds++
+        store.blobs.set(artifactPath, bytes)
+        store.text.set(artifactPath + '.sig', signature + '\n')
+      },
+    })
+
+    const built = await publisher.requestBuild(true)
+
+    expect(builds).toBe(2)
+    expect(built?.artifacts.map((artifact) => artifact.platform)).toEqual([
+      'linux-x86_64',
+      'darwin-aarch64',
+    ])
   })
 
   it('reclaims a backlog on restart, from the restore path, without compiling', async () => {
@@ -847,14 +1198,17 @@ describe('buildDevBundle', () => {
 
     expect(builds).toBe(0)
     // Reference-based retention keeps the restored artifact and the previous
-    // recognised publisher bundle (DEV_BUNDLE_RETAINED=2), even after state loss.
+    // recognised publisher bundle (DEV_BUNDLE_RETAINED=2), even after state loss —
+    // and the legacy names (no platform in them) drain through the same group as
+    // today's host bundles rather than being retained forever in a group nothing new
+    // is ever added to.
     expect(store.names().sort()).toEqual(
       [
         'podium-headless-dev+3333333-20260812T180000Z.tar.gz',
         'podium-headless-dev+3333333-20260812T180000Z.tar.gz.sig',
-        'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T190000Z.tar.gz',
-        'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T190000Z.tar.gz.meta.json',
-        'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T190000Z.tar.gz.sig',
+        'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-linux-x86_64-20260812T190000Z.tar.gz',
+        'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-linux-x86_64-20260812T190000Z.tar.gz.meta.json',
+        'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-linux-x86_64-20260812T190000Z.tar.gz.sig',
       ].sort(),
     )
   })
@@ -907,7 +1261,7 @@ describe('buildDevBundle', () => {
     expect(builds).toBe(0)
     expect(restored).toMatchObject({
       version: '0.1.0-edge.20.dev.1+aaaaaaa',
-      path: '/repo/podium/dist-bun/podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T182015Z.tar.gz',
+      path: '/repo/podium/dist-bun/podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz',
       signature,
     })
     expect(restored?.digest).toBe(digestOf(bytes))
@@ -928,7 +1282,7 @@ describe('buildDevBundle', () => {
             signingKey,
           })
           store.text.delete(
-            '/repo/podium/dist-bun/podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T182015Z.tar.gz.meta.json',
+            '/repo/podium/dist-bun/podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz.meta.json',
           )
           return store
         })(),
@@ -954,7 +1308,7 @@ describe('buildDevBundle', () => {
             signingKey,
           })
           store.blobs.set(
-            '/repo/podium/dist-bun/podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T182015Z.tar.gz',
+            '/repo/podium/dist-bun/podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz',
             bytes.slice(0, 2),
           )
           return store
@@ -1155,7 +1509,7 @@ describe('buildDevBundle', () => {
     expect(publisher.unavailable()).toContain('apps/server/src/server.ts')
     // And nothing was reclaimed: a refusal is not a licence to touch the disk.
     expect(store.names()).toContain(
-      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T182015Z.tar.gz',
+      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz',
     )
   })
 
@@ -1574,6 +1928,16 @@ describe('development targets declare the schema they can open', () => {
           size: 1,
           digest: 'sha256-x',
           signature: 'sig',
+          artifacts: [
+            {
+              platform: 'linux-x86_64',
+              path: '/x',
+              size: 1,
+              digest: 'sha256-x',
+              signature: 'sig',
+              version: '0.1.0-edge.20.dev.1+1234567',
+            },
+          ],
         },
         { sourceRoot: '/repo/podium' },
       ),

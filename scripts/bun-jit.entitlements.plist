@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements attached to the ad-hoc signature of the Darwin headless binary
+  (scripts/build-bun.ts, via rcodesign).
+
+  Bun embeds JavaScriptCore, which JITs. macOS refuses to map writable-executable
+  pages without allow-jit, and Bun's own `bun build --compile` linker signature does
+  NOT carry these keys — which is exactly why the build re-signs with rcodesign
+  rather than leaving the linker signature in place. Verified on Apple Silicon by the
+  POD-2501 spike (spec section 8b).
+
+  Keep this list minimal: every key here is a hardened-runtime protection given up.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-executable-page-protection</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

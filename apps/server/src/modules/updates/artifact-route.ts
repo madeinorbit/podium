@@ -60,14 +60,31 @@ async function openDevBundle(path: string): Promise<OpenedDevBundle | null> {
 export function registerDevArtifactRoute(app: Hono, deps: DevArtifactRouteDeps): void {
   const open = deps.open ?? openDevBundle
 
-  app.get('/updates/dev-bundle/:version', async (c) => {
+  /**
+   * Serve one platform's bundle, or nothing.
+   *
+   * A request for a platform this build did not mint is `not found` and NOT a fallback
+   * to the host's bundle: handing a Mac a Linux tarball would fail its signature check
+   * after a 200 MB download, which is a far worse answer than a 404 it can act on.
+   */
+  const serve = async (
+    c: Context,
+    requestedVersion: string,
+    requestedPlatform: string | undefined,
+  ) => {
     if (!(await deps.authenticate(c.req.raw, c))) return c.text('unauthorized', 401)
 
-    const requested = decodeURIComponent(c.req.param('version'))
     const current = deps.current()
-    if (!current || requested !== current.version) return c.text('not found', 404)
+    if (!current || requestedVersion !== current.version) return c.text('not found', 404)
 
-    const opened = await open(current.path)
+    const artifact = requestedPlatform
+      ? current.artifacts.find((candidate) => candidate.platform === requestedPlatform)
+      : // No platform in the URL is the pre-multi-platform form, which only ever named
+        // this host's own bundle — `current.path` is still exactly that.
+        { path: current.path }
+    if (!artifact) return c.text('not found', 404)
+
+    const opened = await open(artifact.path)
     if (!opened) return c.text('not found', 404)
 
     return c.body(opened.stream, 200, {
@@ -75,5 +92,19 @@ export function registerDevArtifactRoute(app: Hono, deps: DevArtifactRouteDeps):
       'content-length': String(opened.size),
       'cache-control': 'no-store',
     })
-  })
+  }
+
+  app.get('/updates/dev-bundle/:version/:platform', async (c) =>
+    serve(
+      c,
+      decodeURIComponent(c.req.param('version')),
+      decodeURIComponent(c.req.param('platform')),
+    ),
+  )
+
+  // Kept for a daemon still holding a URL minted before one build published several
+  // platforms. It serves the host's bundle, which is what that URL always meant.
+  app.get('/updates/dev-bundle/:version', async (c) =>
+    serve(c, decodeURIComponent(c.req.param('version')), undefined),
+  )
 }

@@ -1,5 +1,6 @@
 export * from './convergence'
 export * from './dev-version'
+export * from './platforms'
 export * from './refusal'
 export * from './server-version'
 export * from './target'

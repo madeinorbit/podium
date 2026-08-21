@@ -578,6 +578,33 @@ abduco rebuild, or a change to the signing step.
 
 Evidence write-up:
 `docs/internal/superpowers/spikes/2026-08-21-darwin-cross-compile-spike.md`.
+**LANDED 2026-08-21 (POD-2504).** The spike returned GO and the matrix is
+collapsed. One Linux job (`headless` in `.github/workflows/release.yml`) builds
+all four bundles: `zig cc` cross-compiles the abduco helper from the vendored
+source, content-addressed on that source's hash and CI-cached — nothing is
+checked in, so the shipped helper cannot drift from the source under review —
+and `rcodesign` re-signs each Mach-O ad-hoc with the Bun JIT entitlements Bun's
+own linker signature lacks. Linux helpers now link musl statically, which
+removes the glibc floor the native leg silently imposed; that is the one
+deliberate behavioural difference, and the temporary `ab-check` job confirms it
+on ARM hardware before `publish` runs. The dev host takes the SAME path — every
+dev build passes `--target`, its own platform included — and mints
+fleet-scoped: this host always, plus every platform a registered machine
+actually reported. Per-release CI proves the Darwin artifacts exist, are summed,
+verify under the release key, and carry the right architecture, helper,
+signature and entitlements; it does NOT run them. Mac execution stays manual
+until CI has a Mac verifier (POD-2520). How-to and provenance:
+`docs/internal/headless-cross-compilation.md`.
+
+The spike scripts named above have productized successors, and it is those the
+release job runs: `scripts/spike/linux-assert-darwin-spike.sh` became
+`scripts/assert-headless-bundle.sh` (any of the four platforms, not just Darwin),
+and `scripts/spike/prove-assert-can-fail.sh` became
+`scripts/prove-headless-assertions-can-fail.sh` — which additionally requires each
+mutation to be rejected FOR THE RIGHT REASON, matching the failure line rather than
+merely exiting non-zero. Two of the ten cases were not testing what they claimed
+until that check existed. `scripts/spike/macho-strip-signature.py` moved to
+`scripts/macho-strip-signature.py`; the spike copies remain for the record.
 
 ## 8c. Decisions log (grilling round 1, 2026-08-21)
 

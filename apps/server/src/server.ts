@@ -77,7 +77,7 @@ import {
 } from './modules/server-transfer/journal'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
-import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
+import { DEVELOPMENT_SOURCE_ROOT, fleetHeadlessPlatforms } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
 import {
   createInstalledCoordinatorRestart,
@@ -582,6 +582,10 @@ export async function startServer(
       store.machines
         .listMachines()
         .some((machine) => machine.id !== hostMachineId && machine.podiumManaged),
+    // FLEET-SCOPED darwin production [spec:SP-6144 section 8b]: this host mints a Mac
+    // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
+    // inventories the daemons themselves reported.
+    fleetPlatforms: () => fleetHeadlessPlatforms(store.machines.listMachines()),
     artifactToken: devArtifactToken,
     setTarget: (target) => registry.modules.updates.setTarget(target),
     setTargetUnavailable: (reason) => registry.modules.updates.setTargetUnavailable('dev', reason),
