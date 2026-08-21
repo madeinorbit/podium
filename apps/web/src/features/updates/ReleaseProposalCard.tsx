@@ -1,7 +1,7 @@
 import type { ReleaseProposal } from '@podium/protocol'
 import type { JSX } from 'react'
 import { Button } from '@/components/ui/button'
-import { formatDisplayedVersion } from '@/lib/version-skew'
+import { formatDisplayedVersion } from '@/lib/machine-version-skew'
 
 export function ReleaseProposalCard({
   proposal,
