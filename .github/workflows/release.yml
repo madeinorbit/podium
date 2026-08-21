@@ -66,10 +66,26 @@ jobs:
               "dist-bun/release/podium-headless-${asset}.tar.gz" "$platform" \
               --abduco "dist-bun/abduco-cache/${platform}-${HASH}"
           done
+      # RUN the one bundle this runner can run, BEFORE publishing it. Everything above
+      # interrogates tarballs without executing anything — the only option for the three
+      # platforms a Linux x64 runner cannot run, and no excuse at all for the fourth. A
+      # bundle that passes every static check and then fails to start is precisely the
+      # regression cross-compilation introduces. The published smoke does run it, but
+      # only after publication, which is too late to stop.
+      - name: Run the cross-built linux-x64 bundle
+        run: bash scripts/smoke-headless-bundle.sh dist-bun/release/podium-headless-linux-x64.tar.gz
       # PROVE THE GATE ABOVE CAN SAY NO, on every release, rather than remembering that
       # it once could. A green from a check that cannot go red is a claim nobody made —
       # and this harness earned its place immediately: its first run found that the
       # entitlement check had never been exercised by anything.
+      #
+      # It compiles one throwaway Darwin binary, which is a SECOND darwin compile in this
+      # job. Measured on this hardware: 0.68 s and 67 MB, deleted straight after. It buys the only
+      # honest test of the "was this re-signed, or is it still Bun's linker signature?"
+      # discriminator — no cheaper substitute produces a genuine LINKER_SIGNED binary,
+      # and re-signing the shipped one with a different identifier would prove a
+      # different check. Kept deliberately, at a cost that is a rounding error next to
+      # the four real compiles above.
       - name: Prove the bundle assertions can fail
         run: |
           bash scripts/prove-headless-assertions-can-fail.sh \

@@ -119,6 +119,7 @@ Three scripts, deliberately separate:
 | `assert-release-platform-set.sh` | a release directory | is every platform there, summed, signed and named by the manifest? |
 | `ab-headless-cross-vs-native.sh` | two tarballs, on target hardware | does the cross-built one BEHAVE like the native one? |
 | `prove-headless-assertions-can-fail.sh` | the first script | can the gate say NO, and for the right reason? |
+| `smoke-headless-bundle.sh` | one tarball, on matching hardware | does it actually RUN? |
 
 Everything `assert-headless-bundle.sh` checks, it checks against bytes extracted
 **from the tarball** — never a loose sibling in a build directory, because a
@@ -136,12 +137,42 @@ check had never been exercised by anything: signing an already-signed binary
 preserves its entitlements, so the "empty entitlements" mutation had been
 mutating nothing.
 
-The cases: hello-world stub · Linux ELF as the Darwin payload · wrong-platform
-abduco reference · signature stripped · byte flipped inside the sealed region ·
-empty entitlements · raw Bun output never re-signed · reference helper deleted ·
+The cases: hello-world stub · Linux ELF as the Darwin payload · **the wrong
+platform's helper actually embedded in the bundle** · wrong-platform reference
+supplied · signature stripped · byte flipped inside the sealed region · empty
+entitlements · raw Bun output never re-signed · reference helper deleted ·
 archive root not `headless/` · `VERSION` removed · no `--abduco` and no waiver.
 Plus a positive control, without which a gate that rejected *everything* would
-score a perfect eleven.
+score a perfect twelve.
+
+Two properties of that harness are load-bearing and were both learned the hard
+way:
+
+- **The pattern is matched against the FAILURE LINE alone**, never the whole
+  transcript. The gate prints the platform it expects, and what a signature
+  failure would *mean* on that platform, on every run — so patterns like
+  `signature` or `digest` were being satisfied by output that is always there,
+  quietly collapsing two right-reason checks into "exited non-zero".
+- **The wrong-helper case mutates the BUNDLE, not the reference.** It originally
+  swapped the reference helper, so the gate rejected its own input and the one
+  check the matrix collapse most threatens — does this bundle carry the right
+  platform's helper? — was never exercised per release at all.
+
+Every file operation in the harness is checked, and each mutated tree is deleted
+as soon as it is packed. A bundle tree is ~250 MB; keeping one per case put ~3 GB
+in `TMPDIR`, and on a full disk the copies began to fail silently. Unchecked, that
+produced short tarballs and a *different* case failing on each run — a near-full
+disk truncates writes rather than erroring, so it manufactures confusing evidence
+instead of stopping.
+
+### Executing what can be executed
+
+`smoke-headless-bundle.sh` runs a bundle whose platform matches the machine: the
+binary starts and agrees with the bundle's `VERSION`, the embedded helper
+materializes and runs, and it hosts a detached session that outlives its starter.
+The release job runs it on `linux-x86_64` **before** publishing. The published
+smoke also runs that bundle, but only after publication — which is too late to
+stop a bad one.
 
 ### What a signature failure MEANS is not the same on both Macs
 
@@ -189,7 +220,10 @@ one platform.
 
 **Delete both jobs after the first release that ships both legs**, along with
 `--prepare-arch` in `scripts/release.ts` and
-`scripts/ab-headless-cross-vs-native.sh`.
+`scripts/ab-headless-cross-vs-native.sh`. That removal is tracked as **POD-2529**,
+with the exact list and the removal condition — a temporary control with no
+removal ticket becomes permanent by accident, and this one costs an extra ARM
+runner on every release.
 
 ## What is still not proven here
 
