@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { defaultInstancePorts } from '@podium/runtime/instance'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   enableSystemdUnits,
@@ -124,7 +125,8 @@ describe('renderJanitorUnit', () => {
     const u = renderJanitorUnit({ port: 18787 })
     expect(u).toContain('Description=Podium durable maintenance janitor')
     expect(u).toContain('After=network-online.target podium-server.service')
-    expect(u).toContain('ExecStart=%h/.local/bin/podium janitor --server http://localhost:18787')
+    expect(u).toContain('Environment=PODIUM_PORT=18787')
+    expect(u).toContain('ExecStart=%h/.local/bin/podium janitor\n')
     expect(u).toContain('Restart=always')
     expect(u).toContain('RestartPreventExitStatus=78')
   })
@@ -132,10 +134,9 @@ describe('renderJanitorUnit', () => {
   it('binds a named janitor only to its named server and command', () => {
     const u = renderJanitorUnit({ instanceId: 'blue', port: 23000 })
     expect(u).toContain('Environment=PODIUM_INSTANCE=blue')
+    expect(u).toContain('Environment=PODIUM_PORT=23000')
     expect(u).toContain('After=network-online.target podium-blue-server.service')
-    expect(u).toContain(
-      'ExecStart=%h/.local/bin/podium-blue janitor --server http://localhost:23000',
-    )
+    expect(u).toContain('ExecStart=%h/.local/bin/podium-blue janitor\n')
   })
 })
 
@@ -167,7 +168,9 @@ describe('systemd profile rendering', () => {
     const files = renderSystemdFiles({ profile: 'packaged', instanceId: 'blue', port: 23000 }).units
     expect(Object.keys(files)).toEqual(['podium-blue.service'])
     expect(files['podium-blue.service']).toContain('Environment=PODIUM_INSTANCE=blue')
-    expect(files['podium-blue.service']).toContain('ExecStart=%h/.local/bin/podium-blue parent --takeover')
+    expect(files['podium-blue.service']).toContain(
+      'ExecStart=%h/.local/bin/podium-blue parent --takeover',
+    )
     expect(files['podium-blue.service']).toContain('Environment=PODIUM_PORT=23000')
   })
 
@@ -199,6 +202,43 @@ describe('userUnitDir', () => {
 })
 
 describe('migration systemd operations', () => {
+  it('keeps the configured port authoritative while the legacy three-unit topology is armed', () => {
+    const instanceId = 'update-e2e'
+    const configuredPort = 18_787
+    const derivedDefault = defaultInstancePorts(instanceId).server
+    expect(derivedDefault).not.toBe(configuredPort)
+
+    // This is the population the topology migration starts from, not a fresh
+    // parent-only install: three packaged role units remain live until the new
+    // parent proves healthy. All three must resolve the operator's configured
+    // port through the same runtime source for that entire safety window.
+    const legacyUnits = {
+      server: renderServerUnit({ profile: 'packaged', instanceId, port: configuredPort }),
+      daemon: renderDaemonUnit({
+        profile: 'packaged',
+        instanceId,
+        port: configuredPort,
+        local: true,
+      }),
+      janitor: renderJanitorUnit({ instanceId, port: configuredPort }),
+    }
+    const resolvedPorts = Object.fromEntries(
+      Object.entries(legacyUnits).map(([role, unit]) => [
+        role,
+        unit.match(/^Environment=PODIUM_PORT=(\d+)$/m)?.[1],
+      ]),
+    )
+
+    expect(
+      resolvedPorts,
+      `legacy migration roles must all read configured :${configuredPort}, not named default :${derivedDefault}`,
+    ).toEqual({
+      server: String(configuredPort),
+      daemon: String(configuredPort),
+      janitor: String(configuredPort),
+    })
+  })
+
   it('arms the parent without starting it; start is a separate migration step', () => {
     const commands: Array<{ cmd: string; args: string[] }> = []
     enableSystemdUnits(['podium.service'], {

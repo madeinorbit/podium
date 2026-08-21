@@ -123,6 +123,7 @@ Type=notify
 NotifyAccess=all
 WatchdogSec=30
 Environment=PODIUM_INSTANCE=${c.instanceId}
+Environment=PODIUM_PORT=${c.port}
 Environment=PATH=${USER_RUNTIME_PATH}
 ExecStart=%h/.local/bin/${c.command} server
 Restart=always
@@ -261,7 +262,8 @@ Type=notify
 NotifyAccess=all
 WatchdogSec=30
 Environment=PODIUM_INSTANCE=${c.instanceId}
-ExecStart=%h/.local/bin/${c.command} janitor --server http://localhost:${c.port}
+Environment=PODIUM_PORT=${c.port}
+ExecStart=%h/.local/bin/${c.command} janitor
 Restart=always
 RestartSec=2
 # A protocol/schema mismatch is terminal until the installed bundle catches up.
@@ -294,6 +296,7 @@ Type=notify
 NotifyAccess=all
 WatchdogSec=30
 Environment=PODIUM_INSTANCE=${c.instanceId}
+Environment=PODIUM_PORT=${c.port}
 Environment=PATH=${USER_RUNTIME_PATH}
 ExecStart=${exec}
 Restart=always

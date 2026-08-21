@@ -66,13 +66,13 @@ export function roleUnitBody(
     case 'parent':
       return renderParentUnit({ instanceId: id, port: ctx.port })
     case 'server':
-      return renderServerUnit(id)
+      return renderServerUnit({ instanceId: id, port: ctx.port })
     case 'janitor':
       return renderJanitorUnit({ port: ctx.port, instanceId: id })
     case 'daemon':
       // Bare `podium daemon`: serverUrl + pair code come from config, which the cutover
       // (or promotion) has already rewritten — never pin a stale URL into the unit.
-      return renderDaemonUnit({ instanceId: id })
+      return renderDaemonUnit({ instanceId: id, port: ctx.port })
     case 'all-in-one':
       throw new Error(`no unit exists for the all-in-one role`)
   }

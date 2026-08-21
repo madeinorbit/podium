@@ -255,8 +255,8 @@ describe('server transfer role reconciliation', () => {
 
   it('renders only instance-scoped fixed units', () => {
     expect(roleUnit('server', 'blue')).toBe('podium-blue-server.service')
-    expect(roleUnitBody('daemon', { port: 23000 }, 'blue')).toContain(
-      'ExecStart=%h/.local/bin/podium-blue daemon',
-    )
+    const daemon = roleUnitBody('daemon', { port: 23000 }, 'blue')
+    expect(daemon).toContain('ExecStart=%h/.local/bin/podium-blue daemon')
+    expect(daemon).toContain('Environment=PODIUM_PORT=23000')
   })
 })
