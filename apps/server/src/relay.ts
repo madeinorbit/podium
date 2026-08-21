@@ -523,6 +523,12 @@ export class SessionRegistry {
         resolveReleaseTarget(channel, {
           ...(channel === 'dev' ? { feed: options.devChannelFeed?.() } : {}),
         }),
+      // `dev` on a source host is the one channel this server both PUBLISHES
+      // into and PULLS from, so a refresh must not walk its own newer identity
+      // back to the last release. Asked per call, because a server becomes a
+      // publisher (or stops being one) only across a restart but the fleet's
+      // registration does not.
+      locallyPublished: (channel) => channel === 'dev' && options.devChannelFeed?.() !== undefined,
       concurrency: 3,
       // Read per call for the same reason `MachinesService` reads it per call:
       // Settings → Updates writes the fleet default into config.json, and an

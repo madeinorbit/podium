@@ -791,8 +791,12 @@ describe('target refresh bookkeeping', () => {
   const target = { version: '1.0.0', critical: false, artifacts: {} } as never
 
   const build = (
-    resolveTarget: (channel: 'edge' | 'stable') => Promise<never>,
-    opts: { fleetChannel?: UpdateChannel; machines?: unknown[] } = {},
+    resolveTarget: (channel: UpdateChannel) => Promise<never>,
+    opts: {
+      fleetChannel?: UpdateChannel
+      machines?: unknown[]
+      locallyPublished?: (channel: UpdateChannel) => boolean
+    } = {},
   ) => {
     let clock = 1_000
     const svc = new UpdatesService({
@@ -804,6 +808,7 @@ describe('target refresh bookkeeping', () => {
       nextGrantId: () => 'g1',
       concurrency: 3,
       resolveTarget,
+      ...(opts.locallyPublished ? { locallyPublished: opts.locallyPublished } : {}),
       fleetChannel: () => opts.fleetChannel ?? 'stable',
     })
     return { svc, advance: (ms: number) => (clock += ms) }
@@ -1341,5 +1346,107 @@ describe('UpdatesService.advertisedTarget', () => {
     svc.setTarget('dev', t('dev+aaaaaaa'))
 
     expect(svc.advertisedTarget('host')).toBeUndefined()
+  })
+})
+
+/**
+ * A CHANNEL THIS SERVER ALSO PUBLISHES INTO MUST NOT BE WALKED BACKWARDS.
+ *
+ * `dev` on a source host has two producers for the length of the transition to
+ * the release-proposal flow: the FEED (what has been released) and the local
+ * publisher's identity (what this checkout IS). When HEAD moves without a
+ * release they disagree, and the daily refresh would otherwise pull the last
+ * release over a newer identity — walking the read model back to a previous
+ * commit every time the tick fired.
+ *
+ * The exception is narrow on purpose. Every other channel must still be able to
+ * move BACKWARDS, because the server is authority and a bad release has to be
+ * withdrawable; a resolver that only went forward would make rollback
+ * structurally impossible.
+ */
+describe('a channel this server also publishes into', () => {
+  const versioned = (version: string) =>
+    ({ version, critical: false, artifacts: {} }) as unknown as never
+
+  const publisherHost = (resolveTarget: (channel: UpdateChannel) => Promise<never>) =>
+    new UpdatesService({
+      machines: () => [m('a', { channel: 'dev' })] as never,
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+      resolveTarget,
+      locallyPublished: (channel) => channel === 'dev',
+      fleetChannel: () => 'dev',
+    })
+
+  it('holds its own newer identity against an older release from the feed', async () => {
+    const svc = publisherHost(async () => versioned('0.1.2-dev.4+aaaaaaa'))
+    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+
+    expect(await svc.refreshTarget('dev')).toBe(true)
+
+    expect(svc.target('dev')?.version).toBe('0.1.2-dev.5+bbbbbbb')
+    // The CHECK still succeeded — the feed answered, and saying otherwise would
+    // make Settings read "we have not looked" when we had.
+    expect(svc.channelChecks()[0]?.outcome).toEqual({ status: 'ok' })
+  })
+
+  it('takes a NEWER release from the feed, which is the whole point of pulling', async () => {
+    const svc = publisherHost(async () => versioned('0.1.2-dev.6+ccccccc'))
+    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+
+    await svc.refreshTarget('dev')
+
+    expect(svc.target('dev')?.version).toBe('0.1.2-dev.6+ccccccc')
+  })
+
+  it('takes the same version again, so an identity gains its artifacts', async () => {
+    // The ordinary publish: the identity for this HEAD is already standing, and
+    // the feed answers with the same version now carrying real bytes.
+    const packed = {
+      version: '0.1.2-dev.5+bbbbbbb',
+      critical: false,
+      artifacts: {
+        headless: {
+          delivery: 'feed',
+          platforms: { 'linux-x86_64': { url: 'https://x/a', digest: 'd', signature: 's' } },
+        },
+      },
+    } as unknown as never
+    const svc = publisherHost(async () => packed)
+    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+
+    await svc.refreshTarget('dev')
+
+    expect(svc.target('dev')?.artifacts.headless).toBeDefined()
+  })
+
+  it('holds against an UNORDERABLE answer too, rather than guessing', async () => {
+    const svc = publisherHost(async () => versioned('not-a-version'))
+    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+
+    await svc.refreshTarget('dev')
+
+    expect(svc.target('dev')?.version).toBe('0.1.2-dev.5+bbbbbbb')
+  })
+
+  it('still lets a channel it does NOT publish into roll backwards', async () => {
+    // A withdrawn release. The server is authority and rollback must work.
+    const svc = new UpdatesService({
+      machines: () => [m('a', { channel: 'stable' })] as never,
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+      resolveTarget: async () => versioned('0.4.1'),
+      locallyPublished: (channel) => channel === 'dev',
+      fleetChannel: () => 'stable',
+    })
+    svc.setTarget('stable', versioned('0.4.2'))
+
+    await svc.refreshTarget('stable')
+
+    expect(svc.target('stable')?.version).toBe('0.4.1')
   })
 })

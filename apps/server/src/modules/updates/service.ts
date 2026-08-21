@@ -6,6 +6,7 @@ import type {
   UpdateStatusMessage,
   UpdateTarget,
 } from '@podium/protocol'
+import { isProvablyNewer } from '@podium/protocol'
 import {
   IN_FLIGHT_STATES,
   offeredDeliveries,
@@ -28,6 +29,12 @@ export interface UpdatesDeps {
    * resolution path nothing else exercised.
    */
   resolveTarget?(channel: UpdateChannel): Promise<UpdateTarget>
+  /**
+   * Does THIS server also mint targets for this channel? True for `dev` on a
+   * source host, false everywhere else. See {@link UpdatesService.resolvedMayReplace}
+   * for what it decides and why it is not simply "never go backwards".
+   */
+  locallyPublished?(channel: UpdateChannel): boolean
   /**
    * The instance's fleet default channel, read PER CALL so a Settings write is
    * followed without a restart (the same discipline `MachinesService` uses for
@@ -380,6 +387,47 @@ export class UpdatesService {
     return refresh
   }
 
+  /**
+   * MAY A FRESHLY PULLED TARGET REPLACE THE STANDING ONE?
+   *
+   * Normally yes, unconditionally, and that is load bearing: the server is
+   * authority, so a channel that moves BACKWARDS — a bad release withdrawn, an
+   * edge tag repointed — must be able to roll the fleet back. A resolver that
+   * only ever moved forward would make rollback structurally impossible, which
+   * is the same reasoning `planConvergence` is built on.
+   *
+   * THE ONE EXCEPTION IS A CHANNEL THIS SERVER ALSO PUBLISHES INTO. On a source
+   * host, `dev` has two producers for the length of this transition: the feed
+   * (what has been RELEASED) and the local publisher's identity (what this
+   * checkout IS, spec §6 step 1, until POD-2507 turns it into a release
+   * proposal). When HEAD moves without a release they disagree, and they
+   * disagree in a knowable direction — the identity is a mint on the same
+   * lineage, so it is PROVABLY newer. Letting the daily refresh pull the last
+   * release over it would walk the read model back to a previous commit every
+   * time the tick fired, which is exactly what `devIdentityTarget`'s "never
+   * advertise an older commit's" rule existed to prevent.
+   *
+   * So: never regress a channel whose targets this server also mints. Rollback
+   * on such a channel is not lost — it is the publisher's to perform, by
+   * publishing the version it wants, which is the only actor that could know.
+   *
+   * THE PREDICATE ASKS ABOUT THE CANDIDATE, NOT ABOUT THE STANDING TARGET, and
+   * that direction is the whole fail-closed posture. `isProvablyNewer` answers
+   * false for two different situations — behind, and UNORDERABLE — so asking
+   * "is the standing one newer?" and inverting would ACCEPT an unorderable
+   * answer, which is a feed that has been hand-edited or corrupted saying
+   * something this server cannot reason about. Asking "is the candidate
+   * provably newer?" holds in both cases, which is the conservative reading of
+   * not knowing. (Written the other way round first; the unorderable arm below
+   * is what caught it.)
+   */
+  private resolvedMayReplace(channel: UpdateChannel, resolved: UpdateTarget): boolean {
+    if (this.deps.locallyPublished?.(channel) !== true) return true
+    const standing = this.target(channel)
+    if (!standing || standing.version === resolved.version) return true
+    return isProvablyNewer(resolved.version, standing.version)
+  }
+
   /** True only when this attempt resolved a complete, current target. */
   private async resolveIntoTarget(channel: UpdateChannel): Promise<boolean> {
     // NO SPECIAL CASE FOR `dev` ANY MORE (spec §1). It used to branch here and
@@ -394,10 +442,11 @@ export class UpdatesService {
       return false
     }
     try {
+      const resolved = await this.deps.resolveTarget(channel)
       // setTarget clears any recorded unavailable reason, which is what stops a
       // failed boot-time resolve from being pinned as the eternal truth for the
       // life of the process.
-      this.setTarget(channel, await this.deps.resolveTarget(channel))
+      if (this.resolvedMayReplace(channel, resolved)) this.setTarget(channel, resolved)
       this.recordCheck(channel, { status: 'ok' })
       return true
     } catch (error) {
