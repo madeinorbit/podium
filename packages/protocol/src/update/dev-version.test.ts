@@ -89,6 +89,70 @@ describe('mintDevVersion', () => {
   })
 })
 
+/**
+ * ARMING. Every check in `mintDevVersion` gets a test that fails when THAT
+ * check alone is removed, and the case each one pins is named here so the next
+ * reader can re-run the mutation rather than trust this comment.
+ *
+ * Round 2 of this issue's review found the opposite: two conjuncts in the adopt
+ * gate, each sufficient on its own, so deleting either left 111/111 green. A
+ * suite that cannot tell its own guards apart is not evidence.
+ */
+describe('mintDevVersion arming — each guard is separately detectable', () => {
+  it('adopts on the MINT comparison, not on a base comparison (kills: gate → compareVersions(lineage, state.base) > 0)', () => {
+    // After a stable cut the publisher base is the bumped stable `0.1.2`. The
+    // next edge cut of that core, `0.1.2-edge.1`, sorts BELOW `0.1.2` — so a
+    // base-only gate refuses it and keeps minting `0.1.2-dev.N` forever, losing
+    // disposition 23's form (the mint names the release it builds on). The mint
+    // comparison accepts it, because `0.1.2-edge.1.dev.1` does clear
+    // `0.1.2-dev.1`.
+    const afterStable = mintDevVersion({ base: '0.1.2', counter: 1 }, '0.1.2-edge.1', 'eeeeeee')
+    expect(afterStable.version).toBe('0.1.2-edge.1.dev.1+eeeeeee')
+    expect(afterStable.state).toEqual({ base: '0.1.2-edge.1', counter: 1 })
+    expect(isProvablyNewer(afterStable.version, '0.1.2-dev.1+ddddddd')).toBe(true)
+  })
+
+  it('does not adopt a lineage whose first mint would not clear the last one (kills: gate → true)', () => {
+    // Same base, and a vintage branch. Always-adopting resets the counter to 1
+    // and mints a version the fleet has already seen.
+    expect(
+      mintDevVersion({ base: '0.1.0-edge.20', counter: 4 }, '0.1.0-edge.20', 'bbb2222'),
+    ).toEqual({
+      version: '0.1.0-edge.20.dev.5+bbb2222',
+      state: { base: '0.1.0-edge.20', counter: 5 },
+    })
+    expect(
+      mintDevVersion({ base: '0.1.0-edge.20', counter: 5 }, '0.1.0-edge.18', 'ddd4444'),
+    ).toEqual({
+      version: '0.1.0-edge.20.dev.6+ddd4444',
+      state: { base: '0.1.0-edge.20', counter: 6 },
+    })
+  })
+
+  it('does adopt when the lineage moves forward (kills: gate → false)', () => {
+    expect(
+      mintDevVersion({ base: '0.1.0-edge.20', counter: 99 }, '0.1.0-edge.21', 'ccc3333'),
+    ).toEqual({
+      version: '0.1.0-edge.21.dev.1+ccc3333',
+      state: { base: '0.1.0-edge.21', counter: 1 },
+    })
+    // And across a stable cut, where the lineage bump is what moves it forward.
+    expect(mintDevVersion({ base: '0.1.1-edge.1', counter: 2 }, '0.1.1', 'ccccccc')).toEqual({
+      version: '0.1.2-dev.1+ccccccc',
+      state: { base: '0.1.2', counter: 1 },
+    })
+  })
+
+  it('refuses to mint on a base it cannot order (kills: removing the fail-closed throw)', () => {
+    // A corrupt or hand-edited state file. `formatDevVersion` will happily
+    // produce `garbage-base.dev.3`, and nothing can say whether the fleet has
+    // seen it — so the publisher reports no release rather than guessing.
+    expect(() =>
+      mintDevVersion({ base: 'garbage-base', counter: 2 }, '0.1.0-edge.20', 'fff5555'),
+    ).toThrow(/is not provably newer than previous mint/)
+  })
+})
+
 describe('publisher development version ordering', () => {
   const cases: [candidate: string, current: string, newer: boolean, why: string][] = [
     [
@@ -200,6 +264,10 @@ describe('mint sequences stay monotonic across branches', () => {
     expect(isProvablyNewer(minted[2] as string, '0.1.1')).toBe(true)
     // And stays below the next edge cut of its lineage.
     expect(isProvablyNewer('0.1.2-edge.1', minted[2] as string)).toBe(true)
+    // Once that edge cut is the checkout, the publisher REJOINS the edge train
+    // rather than staying on the bumped stable lineage: disposition 23's form
+    // is "the last release's version with an appended prerelease segment".
+    expect(minted[5]).toBe('0.1.2-edge.1.dev.1+fffffff')
   })
 
   it('an older-base checkout still mints newer-than-fleet after the publisher has advanced', () => {

@@ -83,14 +83,30 @@ export function formatDevVersion(base: string, counter: number, sha: string): st
 /**
  * Advance publisher state and mint the next orderable development version.
  *
- * - Checkout lineage newer than remembered base AND the resulting mint clears
- *   the previous mint → adopt it, reset counter to 1.
- * - Otherwise keep the publisher base (branch-vintage / same base / failed
- *   adopt) and bump N.
+ * - The mint the checkout's lineage would produce clears the previous mint →
+ *   adopt that lineage, reset counter to 1.
+ * - Otherwise keep the publisher base (branch-vintage / same base / a lineage
+ *   whose first mint would not clear) and bump N.
  * - `state === null` seeds from the effective checkout lineage at counter 1.
  *
- * The adopt gate compares the resulting VERSION to the previous MINT, not only
- * the bases — so an edge→stable cut cannot mint backwards.
+ * ONE GATE, ON THE THING THE INVARIANT IS ABOUT. The rule this module owes the
+ * fleet is "every mint is provably newer than the previous mint" — so the gate
+ * asks exactly that question of the version it is about to hand out, and
+ * nothing else. An earlier revision also required `compareVersions(lineage,
+ * state.base) > 0`. That conjunct is implied by this one for every lineage the
+ * release process produces, and having both cost more than it bought: each was
+ * individually sufficient, so removing EITHER left the suite green, and the
+ * guards could not be shown to be doing anything (POD-2502 round-2 review, M2
+ * and M3 both survived). It was also wrong on its own terms — a base-only
+ * comparison keeps the publisher on the bumped stable lineage after the first
+ * stable cut (`0.1.2-dev.N` forever), because `0.1.2-edge.1` sorts BELOW
+ * `0.1.2` even though `0.1.2-edge.1.dev.1` sorts above `0.1.2-dev.1`. The
+ * single gate rejoins the edge train and keeps disposition 23's stated form
+ * (`<last release>.dev.<N>+<sha>`).
+ *
+ * Both remaining checks are separately observable, which is the point: mutate
+ * this gate in either direction, or delete the fail-closed throw below, and a
+ * test goes red (see `dev-version.test.ts`, "arming").
  */
 export function mintDevVersion(
   state: DevPublisherVersionState | null,
@@ -106,13 +122,18 @@ export function mintDevVersion(
 
   const previousMint = formatDevVersion(state.base, state.counter, '0000000')
   const adoptVersion = formatDevVersion(lineage, 1, sha)
-  const baseOrder = compareVersions(lineage, state.base)
 
-  if (baseOrder !== null && baseOrder > 0 && isProvablyNewer(adoptVersion, previousMint)) {
+  if (isProvablyNewer(adoptVersion, previousMint)) {
     const next: DevPublisherVersionState = { base: lineage, counter: 1 }
     return { version: adoptVersion, state: next }
   }
 
+  // FAIL CLOSED on the fallback too. Bumping N on a base this system can order
+  // always clears the previous mint; a base it CANNOT order (a corrupt state
+  // file, a hand-edited base) makes `isProvablyNewer` return false, and minting
+  // a version whose relation to the last one is unknown is how a machine gets
+  // offered an update it already ran. The publisher's callers treat a throw
+  // here as "no release available" (`dev-bundle.ts` `target()`).
   const counter = state.counter + 1
   const version = formatDevVersion(state.base, counter, sha)
   if (!isProvablyNewer(version, previousMint)) {

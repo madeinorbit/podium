@@ -1,5 +1,5 @@
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -1515,6 +1515,34 @@ describe('development targets declare the schema they can open', () => {
       },
     })
     expect((await publisher.target())?.schema).toEqual({ migrations })
+  })
+
+  it('reports a corrupt publisher state as no target instead of throwing', async () => {
+    // `dev-publisher-wiring.ts` calls `publishReadiness()` as a floating promise
+    // with no `.catch`, and that awaits `target()`. Minting reads the checkout's
+    // package.json, reads and rewrites publisher state and fails closed when it
+    // cannot prove the mint is newer — so an unwrapped throw here is an
+    // unhandled rejection on the live server, where the honest answer is "no
+    // release available, and here is why".
+    const stateDir = publisherDir()
+    writeFileSync(join(stateDir, 'dev-publisher-version.json'), '{ not json at all')
+    const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
+      publisherStateDir: stateDir,
+      isSourceRun: true,
+      headSha: () => 'f9485d31b',
+      root: '/repo/podium',
+      migrationsAt: async () => migrations,
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
+      fs: stubFs(),
+      lock: lockFixture([]),
+      spawnBuild: async () => {
+        throw new Error('should not build')
+      },
+    })
+    expect(await publisher.target()).toBeUndefined()
+    expect(publisher.unavailable()).toMatch(/invalid persisted development publisher state/)
   })
 
   it('refuses to publish a target when migrations cannot be declared', async () => {
