@@ -158,12 +158,12 @@ describe('development artifact route', () => {
         },
       })
 
-      for (let i = 0; i < 8; i++) await wiring.publishTarget()
+      for (let i = 0; i < 8; i++) await wiring.proposal()
       expect(reads).toBe(1)
 
       // A commit lands: the stamp moves and the next reader goes back to git.
       writeFileSync(join(root, '.git', 'refs', 'heads', 'main'), `${'b'.repeat(40)}\n`)
-      await wiring.publishTarget()
+      await wiring.proposal()
       expect(reads).toBe(2)
     } finally {
       rmSync(root, { recursive: true, force: true })

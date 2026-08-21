@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
 
@@ -8,7 +8,12 @@ const trpc = {
     info: { query: vi.fn() },
     setChannel: { mutate: vi.fn() },
   },
-  updates: { fleet: { query: vi.fn() }, checkNow: { mutate: vi.fn() } },
+  updates: {
+    fleet: { query: vi.fn() },
+    checkNow: { mutate: vi.fn() },
+    proposal: { query: vi.fn().mockResolvedValue(null) },
+    approveProposal: { mutate: vi.fn().mockResolvedValue(null) },
+  },
   operations: { history: { query: vi.fn() } },
 }
 
@@ -37,7 +42,7 @@ vi.mock('@/lib/use-feature', () => ({ useFeature: () => developing }))
 let webVersion = '0.4.1'
 vi.mock('@/lib/logging/build-version', () => ({ pageBuildVersion: () => webVersion }))
 
-const { UpdatesSection } = await import('./updates')
+const { SETTINGS_RELEASE_PROPOSAL_POLL_MS, UpdatesSection } = await import('./updates')
 
 /**
  * Move the DOCUMENT, not a stub of the source module.
@@ -55,7 +60,10 @@ function pageServedFrom(url: string): void {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  trpc.updates.proposal.query.mockReset().mockResolvedValue(null)
+  trpc.updates.approveProposal.mutate.mockReset().mockResolvedValue(null)
   vi.unstubAllGlobals()
+  vi.useRealTimers()
   pageServedFrom(BROWSER_URL)
   developing = false
   webVersion = '0.4.1'
@@ -82,6 +90,51 @@ function quietHistory(): void {
 }
 
 describe('UpdatesSection', () => {
+  it('tracks a moved proposal and approves exactly the SHA and version on screen', async () => {
+    vi.useFakeTimers()
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    quietHistory()
+    const first = {
+      headSha: 'aaaaaaa',
+      version: '0.4.2-dev.1+aaaaaaa',
+      branch: 'main',
+      commits: [{ sha: 'aaaaaaa', summary: 'First proposal' }],
+      addedMigrations: [],
+      state: 'pending',
+    }
+    const latest = {
+      ...first,
+      headSha: 'bbbbbbb',
+      version: '0.4.2-dev.2+bbbbbbb',
+      commits: [{ sha: 'bbbbbbb', summary: 'Latest proposal' }],
+    }
+    trpc.updates.proposal.query.mockResolvedValueOnce(first).mockResolvedValue(latest)
+
+    render(<UpdatesSection />)
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(screen.getByText('First proposal')).toBeTruthy()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SETTINGS_RELEASE_PROPOSAL_POLL_MS)
+    })
+    expect(screen.getByText('Latest proposal')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build and publish' }))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(trpc.updates.approveProposal.mutate).toHaveBeenCalledWith({
+      headSha: latest.headSha,
+      version: latest.version,
+    })
+  })
+
   it('shows the running version, target, and per-machine version state', async () => {
     trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
     trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })

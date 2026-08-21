@@ -32,6 +32,7 @@ import { useRegisterSW } from '@/app/pwa-register'
 import { serverConfig } from '@/app/trpc'
 import { registerUpdatePanelOpener } from './open-panel'
 import { DONE_COLLAPSE_MS } from './operation-view'
+import { ReleaseProposalCard } from './ReleaseProposalCard'
 import { UpdatePanel } from './UpdatePanel'
 import { publishUpdates, resetUpdates, type UpdatesContextValue } from './updates-panel-context'
 import { type PanelActionKind, useUpdateState } from './use-update-state'
@@ -84,7 +85,17 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   }, [updateServiceWorker])
 
   const resolvedOrigin = httpOrigin ?? serverConfig(window.location).httpOrigin
-  const { view, pending, run, checkNow, acknowledge } = useUpdateState({
+  const {
+    view,
+    pending,
+    run,
+    checkNow,
+    acknowledge,
+    proposal,
+    proposalPending,
+    proposalError,
+    approveProposal,
+  } = useUpdateState({
     httpOrigin: resolvedOrigin,
     needRefresh,
     reload,
@@ -104,7 +115,11 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   // Adjusted during render rather than in an effect: React's own answer for
   // "state derived from a prop that changed", and it repaints once instead of
   // showing the collapsed panel for a frame first.
-  const situation = `${view.state}:${view.operationId ?? view.version ?? ''}`
+  const activeProposal = view.state === 'none' ? proposal : null
+  const showingProposal = activeProposal != null
+  const situation = activeProposal
+    ? `proposal:${activeProposal.headSha}:${activeProposal.state}`
+    : `${view.state}:${view.operationId ?? view.version ?? ''}`
   const [lastSituation, setLastSituation] = useState(situation)
   if (situation !== lastSituation) {
     setLastSituation(situation)
@@ -126,7 +141,7 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     return () => window.clearTimeout(timer)
   }, [acknowledge, doneKey])
 
-  const open = view.state !== 'none' && !collapsed
+  const open = (view.state !== 'none' || showingProposal) && !collapsed
 
   const hide = useCallback(() => {
     setCollapsed(true)
@@ -170,14 +185,35 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
 
   const surface = useMemo<UpdatesContextValue>(
     () => ({
-      indicator: view.indicator,
-      indicatorLabel: view.indicatorLabel,
+      indicator: showingProposal
+        ? activeProposal.state === 'failed'
+          ? 'attention'
+          : activeProposal.state === 'building'
+            ? 'animating'
+            : 'idle-dot'
+        : view.indicator,
+      indicatorLabel: showingProposal
+        ? activeProposal.state === 'building'
+          ? 'Development release is building'
+          : activeProposal.state === 'failed'
+            ? 'Development release build failed'
+            : 'Development release awaits approval'
+        : view.indicatorLabel,
       open,
       toggle,
       show,
       checkNow: onCheckNow,
     }),
-    [onCheckNow, open, show, toggle, view.indicator, view.indicatorLabel],
+    [
+      activeProposal,
+      onCheckNow,
+      open,
+      show,
+      showingProposal,
+      toggle,
+      view.indicator,
+      view.indicatorLabel,
+    ],
   )
 
   /**
@@ -192,7 +228,17 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   }, [surface])
   useEffect(() => resetUpdates, [])
 
-  return open ? (
-    <UpdatePanel view={view} pending={pending} onAction={onAction} onHide={hide} />
-  ) : null
+  if (!open) return null
+  if (activeProposal) {
+    return (
+      <ReleaseProposalCard
+        proposal={activeProposal}
+        pending={proposalPending}
+        {...(proposalError ? { error: proposalError } : {})}
+        onApprove={() => void approveProposal()}
+        onHide={hide}
+      />
+    )
+  }
+  return <UpdatePanel view={view} pending={pending} onAction={onAction} onHide={hide} />
 }

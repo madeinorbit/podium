@@ -3,9 +3,11 @@ import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } fro
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { serverBuildVersion } from '../../build-version'
+import { attributionOf } from '../../command-principal'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
 import type { OperationsModule } from '../operations'
+import { ReleaseApprovalRefusal } from './release-approval'
 import {
   fleetCanTakeTargetNow,
   LIFECYCLE_EXCLUSION_GROUP,
@@ -520,6 +522,10 @@ function throwIfFailedOnStart(operation: Operation | null): void {
 
 export function updateProcedures() {
   return {
+    proposal: t.procedure.query(({ ctx }) => releaseProposalFor(ctx)),
+    approveProposal: t.procedure
+      .input(z.object({ headSha: z.string().min(1), version: z.string().min(1) }))
+      .mutation(({ ctx, input }) => approveReleaseProposal(ctx, input)),
     fleet: t.procedure.query(({ ctx }) => updateFleet(ctx)),
     /**
      * "Check for updates now" (spec §9.2). The daily timer answers "is anything
@@ -624,5 +630,38 @@ export function updateProcedures() {
         state.store.hostMachineId,
       )
     }),
+  }
+}
+
+/** Read policy: a non-admin sees absence, not a control they cannot use. */
+export async function releaseProposalFor(ctx: Context) {
+  if (ctx.capability.role !== 'admin') return null
+  return (await ctx.releaseProposal?.()) ?? null
+}
+
+/** Write policy: re-check admin grade and derive attribution from the transport. */
+export async function approveReleaseProposal(
+  ctx: Context,
+  expected: { headSha: string; version: string },
+) {
+  if (ctx.capability.role !== 'admin') {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'Only an administrator may approve a development release.',
+    })
+  }
+  if (!ctx.approveReleaseProposal) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'This server does not publish development releases.',
+    })
+  }
+  try {
+    return (await ctx.approveReleaseProposal(attributionOf(ctx.principal).actor, expected)) ?? null
+  } catch (error) {
+    if (error instanceof ReleaseApprovalRefusal) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
+    }
+    throw error
   }
 }

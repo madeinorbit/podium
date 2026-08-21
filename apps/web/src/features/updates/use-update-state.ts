@@ -26,6 +26,8 @@ import {
   classifySkew,
   isDevChannelVersion,
   type Operation,
+  type ReleaseProposal,
+  ReleaseProposal as ReleaseProposalSchema,
   parseBuildStamp,
   parseServerVersion,
   type ServerVersion,
@@ -127,6 +129,10 @@ export interface UpdateStateResult {
   server: ServerVersion
   fleet: UpdateFleetState
   pending: PanelActionKind | null
+  proposal: ReleaseProposal | null | undefined
+  proposalPending: boolean
+  proposalError?: string
+  approveProposal: () => Promise<void>
   /** Every action goes through here, and every rejection comes back as view state. */
   run: (kind: PanelActionKind) => Promise<void>
   checkNow: () => Promise<void>
@@ -431,6 +437,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const [actionError, setActionError] = useState<ActionError | undefined>()
   const [note, setNote] = useState<string | undefined>()
   const [pending, setPending] = useState<PanelActionKind | null>(null)
+  const [proposal, setProposal] = useState<ReleaseProposal | null | undefined>()
+  const [proposalPending, setProposalPending] = useState(false)
+  const [proposalError, setProposalError] = useState<string | undefined>()
   const [acknowledged, setAcknowledged] = useState<string | undefined>(() => readAcknowledged())
   const [checkedAt, setCheckedAt] = useState<number | undefined>()
 
@@ -461,7 +470,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   // The shell's own installer, which used to report nothing at all (spec §5).
   useEffect(() => onNativeDesktopUpdateProgress(setDesktopProgress), [])
 
-  const active = isOperationActive(live)
+  const active = isOperationActive(live) || proposal?.state === 'building'
 
   const query = usePolledQuery<{
     operation: Operation | null | undefined
@@ -469,6 +478,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     fleet: UpdateFleetState | undefined
     serverRaw: unknown
     buildRaw: unknown
+    proposal: ReleaseProposal | null | undefined
   }>({
     key: `updates.operation:${options.httpOrigin}`,
     intervalMs: active ? ACTIVE_POLL_MS : IDLE_POLL_MS,
@@ -477,7 +487,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     // panel the operation it could read.
     read: async () => {
       const live = await safelyReadOperation(() => readActiveOperation(trpc))
-      const [latest, fleet, serverRaw, buildRaw] = await Promise.all([
+      const [latest, fleet, serverRaw, buildRaw, proposal] = await Promise.all([
         // The OUTCOME, which `active` cannot carry: it filters terminal states
         // out by design, so "done" and "failed" would blink out of existence at
         // the moment they became true. Only asked when nothing is running.
@@ -493,13 +503,17 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           : Promise.resolve(undefined),
         readJson(`${options.httpOrigin}/version`),
         readJson(`${options.httpOrigin}/${BUILD_STAMP_FILE}`),
+        safely(async () => {
+          const raw = await trpc.updates.proposal.query()
+          return raw === null ? null : ReleaseProposalSchema.parse(raw)
+        }),
       ])
-      return { operation: live, latest, fleet, serverRaw, buildRaw }
+      return { operation: live, latest, fleet, serverRaw, buildRaw, proposal }
     },
     // Folded in the read's OWN turn: a reading routed through `data` and a
     // follow-up effect lands one flush late, and the panel is supposed to move
     // when the answer does.
-    onData: ({ operation: live, latest, fleet, serverRaw, buildRaw }) => {
+    onData: ({ operation: live, latest, fleet, serverRaw, buildRaw, proposal }) => {
       const at = clock()
       if (live) {
         watched.current.add(live.id)
@@ -512,6 +526,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       if (serverRaw !== undefined) setServer(parseServerVersion(serverRaw))
       if (buildRaw !== undefined) setLocalBuild(localBuildFrom(buildRaw))
       if (fleet !== undefined) setFleetState(fleet)
+      if (proposal !== undefined) setProposal(proposal)
       setNow(at)
     },
   })
@@ -786,6 +801,25 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     }
   }, [clock, queryChannel, refresh, trpc])
 
+  const approveProposal = useCallback(async (): Promise<void> => {
+    setProposalPending(true)
+    setProposalError(undefined)
+    try {
+      if (!proposal) throw new Error('There is no development release proposal to approve.')
+      const raw = await trpc.updates.approveProposal.mutate({
+        headSha: proposal.headSha,
+        version: proposal.version,
+      })
+      setProposal(raw === null ? null : ReleaseProposalSchema.parse(raw))
+      refresh()
+    } catch (error) {
+      setProposalError(errorMessage(error) ?? 'The development release was not approved.')
+      refresh()
+    } finally {
+      setProposalPending(false)
+    }
+  }, [proposal, refresh, trpc])
+
   /**
    * "I have seen this outcome." Clears a local action error and, for a terminal
    * operation, stops it coming back — which is what makes Hide honest on a
@@ -805,6 +839,10 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     server,
     fleet,
     pending,
+    proposal,
+    proposalPending,
+    ...(proposalError ? { proposalError } : {}),
+    approveProposal,
     run,
     checkNow,
     acknowledge,

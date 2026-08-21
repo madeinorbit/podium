@@ -29,6 +29,8 @@ const mocks = vi.hoisted(() => ({
   retry: vi.fn(),
   cancel: vi.fn(),
   checkNow: vi.fn(),
+  proposal: vi.fn(),
+  approveProposal: vi.fn(),
 }))
 
 vi.mock('@/app/trpc', async (importOriginal) => ({
@@ -85,6 +87,8 @@ function setupTransport(
   mocks.history.mockResolvedValue([])
   mocks.fleet.mockResolvedValue({ total: 1, behind: 1, converging: 0, failed: 0 })
   mocks.channel.mockResolvedValue('stable')
+  mocks.proposal.mockResolvedValue(null)
+  mocks.approveProposal.mockResolvedValue(null)
   mocks.makeTrpc.mockReturnValue({
     setup: { channel: { query: mocks.channel } },
     operations: {
@@ -98,6 +102,8 @@ function setupTransport(
       start: { mutate: mocks.start },
       retry: { mutate: mocks.retry },
       checkNow: { mutate: mocks.checkNow },
+      proposal: { query: mocks.proposal },
+      approveProposal: { mutate: mocks.approveProposal },
     },
   })
   vi.stubGlobal(
@@ -217,6 +223,29 @@ describe('desktopChannelOf', () => {
 })
 
 describe('useUpdateState — reading the operation', () => {
+  it('approves the exact proposal identity rendered by the global surface', async () => {
+    setupTransport({ appVersion: '0.4.1' })
+    const proposal = {
+      headSha: 'abcdef1',
+      version: '0.4.2-dev.7+abcdef1',
+      branch: 'main',
+      commits: [{ sha: 'abcdef1', summary: 'Displayed proposal' }],
+      addedMigrations: [],
+      state: 'pending',
+    }
+    mocks.proposal.mockResolvedValue(proposal)
+    let current: UpdateStateResult | undefined
+    render(<Probe onResult={(result) => (current = result)} />)
+
+    await waitFor(() => expect(current?.proposal).toMatchObject(proposal))
+    await act(async () => current?.approveProposal())
+
+    expect(mocks.approveProposal).toHaveBeenCalledWith({
+      headSha: proposal.headSha,
+      version: proposal.version,
+    })
+  })
+
   it('waits for a genuine no-operation answer before rendering the offer', async () => {
     setupTransport()
     const active = deferred<null>()

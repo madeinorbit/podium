@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { compareVersions } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { allocateDevPublishVersion, rememberDevArtifact } from './dev-bundle'
 import { readDevPublisherState, writeDevPublisherState } from './dev-publisher-state'
@@ -28,6 +29,7 @@ describe('dev publisher state', () => {
         base: '0.1.0-edge.20',
         counter: 5,
         retainedArtifacts: ['podium-headless-0.1.0-edge.20.dev.5+abc.tar.gz'],
+        lastPublishedSha: 'abc1234',
       },
       dir,
     )
@@ -35,6 +37,7 @@ describe('dev publisher state', () => {
       base: '0.1.0-edge.20',
       counter: 5,
       retainedArtifacts: ['podium-headless-0.1.0-edge.20.dev.5+abc.tar.gz'],
+      lastPublishedSha: 'abc1234',
     })
   })
 
@@ -100,5 +103,33 @@ describe('dev publisher state', () => {
     expect(JSON.parse(readFileSync(join(dir, 'dev-publisher-version.json'), 'utf8')).base).toBe(
       '0.1.0-edge.20',
     )
+  })
+
+  it('keeps the published range anchor and advances across main → old branch → main', () => {
+    const dir = tempDir()
+    writeDevPublisherState(
+      {
+        base: '0.1.0-edge.20',
+        counter: 4,
+        retainedArtifacts: [],
+        lastPublishedSha: 'published',
+      },
+      dir,
+    )
+
+    const vintage = allocateDevPublishVersion({
+      stateDir: dir,
+      checkoutBase: '0.1.0-edge.12',
+      sha: 'branch1',
+    })
+    const main = allocateDevPublishVersion({
+      stateDir: dir,
+      checkoutBase: '0.1.0-edge.20',
+      sha: 'main222',
+    })
+
+    expect(compareVersions(vintage.version, '0.1.0-edge.20.dev.4+published')).toBe(1)
+    expect(compareVersions(main.version, vintage.version)).toBe(1)
+    expect(readDevPublisherState(dir)?.lastPublishedSha).toBe('published')
   })
 })

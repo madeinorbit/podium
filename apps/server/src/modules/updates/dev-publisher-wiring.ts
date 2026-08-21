@@ -19,30 +19,36 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { UpdateTarget } from '@podium/protocol'
+import type { ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import type { Hono } from 'hono'
 import { registerDevFeedRoutes } from './artifact-route'
 import {
   createDevBundlePublisher,
   DEV_ARTIFACT_ROUTE,
+  DevBundleProposalMovedError,
   DevBundleUnavailableError,
   developmentHeadSha,
 } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
 import { createDevWebBuilder, type DevWebBuildState, decideWebDist } from './dev-web-build'
 import { createGitHeadShaCache } from './head-sha-cache'
+import {
+  createReleaseApprovalFlow,
+  ReleaseApprovalRefusal,
+  type ReleaseApprovalTarget,
+} from './release-approval'
 import { type ChannelFeed, DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
 
 const log = createLogger('server:updates')
 
 export interface DevPublisherWiring {
-  /**
-   * Publish the current development target, if there is one.
-   *
-   * Asynchronous because naming the target means reading HEAD, and every git
-   * call this server makes is off its event loop (POD-2048).
-   */
-  readonly publishTarget: () => Promise<UpdateTarget | undefined>
+  /** The admin-only pre-release fact. Undefined means nothing awaits publication. */
+  readonly proposal: () => Promise<ReleaseProposal | undefined>
+  /** Approve BUILD + PUBLISH only; rollout remains the ordinary update offer. */
+  readonly approveRelease: (
+    approvedBy: string,
+    expected: ReleaseApprovalTarget,
+  ) => Promise<ReleaseProposal | undefined>
   /**
    * Ask for a build after the operator has started an update. Merely publishing
    * the current HEAD identity never calls this capability.
@@ -214,12 +220,20 @@ export function wireDevBundlePublisher(deps: {
         // walks the tree off the loop), so the publisher announces it — a
         // caller cannot infer it from `requestBuild` having returned.
         onAdmitted: () => {
-          void publishReadiness()
+          void observeBundleReadiness()
         },
-        prepareWebDist: (headSha, explicit) => {
+        prepareWebDist: (headSha, explicit, buildRoot) => {
           if (!webBuilder) return Promise.resolve()
+          const buildWeb =
+            buildRoot === sourceRoot
+              ? webBuilder
+              : createDevWebBuilder({
+                  root: buildRoot,
+                  instanceId,
+                  headSha: () => headSha,
+                })
           const decision = decideWebDist({
-            current: webBuilder.isCurrent(headSha),
+            current: buildWeb.isCurrent(headSha),
             explicit,
           })
           if (decision === 'ready') return Promise.resolve()
@@ -242,7 +256,7 @@ export function wireDevBundlePublisher(deps: {
           // A web-build failure must arrive as a REFUSAL with its own words, not
           // as a nameless compile error: the operator's next move (look at the
           // vite output) is different from the one a failed compile calls for.
-          return webBuilder.ensure(headSha).catch((error: unknown) => {
+          return buildWeb.ensure(headSha).catch((error: unknown) => {
             throw new DevBundleUnavailableError(
               `development bundle unavailable: the web bundles could not be rebuilt for dev+${headSha}: ` +
                 (error instanceof Error ? error.message : String(error)),
@@ -269,7 +283,6 @@ export function wireDevBundlePublisher(deps: {
     : undefined
 
   let unavailableDiagnostic: string | undefined
-  let publishedReason: string | undefined
   let publishedVersion: string | undefined
   let bundleReady = false
   let bundleFailureDetail: string | undefined
@@ -321,11 +334,6 @@ export function wireDevBundlePublisher(deps: {
     return readiness
   }
 
-  const setSharedTarget = (target: UpdateTarget): void => {
-    publishedVersion = target.version
-    deps.setTarget(target)
-  }
-
   /**
    * PUBLISH, THEN HAND OFF (spec §6 step 4).
    *
@@ -348,67 +356,33 @@ export function wireDevBundlePublisher(deps: {
     return published
   }
 
-  /**
-   * Push the publisher's readiness into the shared read model.
-   *
-   * A dev identity (web digest, no tarball) is still a target. Retracting it
-   * because the headless compile failed hides Update — operators then have no
-   * button to rebuild yesterday's website.
-   */
-  const publishReadiness = async (): Promise<void> => {
-    if (!publisher) return
-    const identity = await publisher.target()
-    if (identity) {
-      setSharedTarget(identity)
-      publishedReason = undefined
-      return
-    }
-    if (!deps.setTargetUnavailable) return
-    const readiness = await observeBundleReadiness()
-    if (!readiness) return
-    const reason =
-      readiness.state === 'failed'
-        ? readiness.publicReason
-        : readiness.state === 'preparing'
-          ? // Name the step actually running. The website is built first and takes
-            // the best part of a minute, so "building the bundle" would be wrong
-            // for most of the wait and leaves an operator watching the wrong log.
-            webBuilder?.state().state === 'building'
-            ? `Rebuilding the website for dev+${readiness.headSha}.`
-            : `Building the development bundle for dev+${readiness.headSha}.`
-          : 'No development bundle has been built for the current commit yet.'
-    if (reason === publishedReason) return
-    publishedReason = reason
-    deps.setTargetUnavailable(reason)
-  }
-
-  const publishTarget = async (): Promise<UpdateTarget | undefined> => {
-    try {
-      const target = await publisher?.target()
-      if (target) {
-        setSharedTarget(target)
-        publishedReason = undefined
-      } else {
-        await publishReadiness()
+  const approval = createReleaseApprovalFlow({
+    proposal: async () => publisher?.proposal(),
+    release: async (approved) => {
+      if (!publisher) throw new Error('This server does not publish development releases.')
+      const blocked = artifactOriginFailure()
+      if (blocked) throw blocked
+      publishFailureDetail = undefined
+      headSha?.invalidate()
+      try {
+        await publisher.requestBuild(true, approved)
+      } catch (error) {
+        if (error instanceof DevBundleProposalMovedError) {
+          throw new ReleaseApprovalRefusal(error.publicReason)
+        }
+        throw error
+      }
+      await observeBundleReadiness()
+      publishedVersion = publisher.current()?.version
+      if (!(await publishToFeed())) {
+        throw new Error('the development feed manifest was not published')
       }
       unavailableDiagnostic = undefined
       publishFailureDetail = undefined
-      return target
-    } catch (error) {
-      // A TYPED refusal reaches the read model; an untyped one is a diagnostic
-      // whose text may name paths, and stays in the log (POD-2227).
-      if (error instanceof DevBundleUnavailableError) {
-        recordPublishFailure(error)
-        return undefined
-      }
-      const diagnostic = error instanceof Error ? error.message : String(error)
-      if (diagnostic !== unavailableDiagnostic) {
-        log.warn('development bundle target unavailable', { diagnostic })
-        unavailableDiagnostic = diagnostic
-      }
-      return undefined
-    }
-  }
+    },
+    failureLogs: (error) =>
+      publisher?.unavailable() ?? (error instanceof Error ? error.message : String(error)),
+  })
 
   return {
     enabled: publisher !== undefined,
@@ -441,7 +415,16 @@ export function wireDevBundlePublisher(deps: {
         ...(failureDetail ? { failureDetail } : {}),
       }
     },
-    publishTarget,
+    proposal: approval.read,
+    approveRelease: async (approvedBy, expected) => {
+      if (!publisher) {
+        throw new DevBundleUnavailableError(
+          'development release publishing is unavailable on an installed server',
+          'This server does not publish development releases.',
+        )
+      }
+      return approval.approve(approvedBy, expected)
+    },
     requestBuild: () => {
       if (!publisher) return Promise.resolve()
       // Refuse before the compile, with the remedy in the sentence, rather than
@@ -462,19 +445,18 @@ export function wireDevBundlePublisher(deps: {
       return publisher.requestBuild(true).then(
         async (built) => {
           await observeBundleReadiness()
+          publishedVersion = built?.version
           // The order is the handoff: write the manifest into the feed, then
-          // ask the resolver to pull it. `publishTarget` refreshes the local
-          // identity either way, so a publish that could not be written still
-          // leaves this host's own `/version` answer correct.
+          // ask the resolver to pull it. This legacy internal entry point is
+          // intentionally not composed into update operations any more; only
+          // proposal approval calls the release path above.
           await publishToFeed()
-          await publishTarget()
           return built
         },
         async (error: unknown) => {
           await observeBundleReadiness()
           // The failure must reach the read model, or a stale target stays
           // published while the only trace of the problem is this log line.
-          await publishReadiness()
           // Log each distinct refusal once. This full text — offending paths
           // included — is the CONSOLE half; only
           // `readiness().publicReason` travels to a client.
