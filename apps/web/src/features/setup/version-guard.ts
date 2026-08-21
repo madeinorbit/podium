@@ -4,10 +4,12 @@ import {
   classifySkew,
   parseServerVersion,
   type ServerVersion,
+  type SkewVerdict,
   WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
 import { reportSkew } from '@/app/skew-notice'
+import { isIterationMode } from '@/lib/iteration-mode'
 import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/lib/reload-budget'
 
 /**
@@ -30,7 +32,7 @@ const log = createLogger('web:version-guard')
 const MAX_RELOADS = 2
 
 /** Result of a version check: matched, a hard-reload was triggered, or the loop guard tripped. */
-export type VersionCheck = 'ok' | 'reloaded' | 'blocked' | 'server-behind'
+export type VersionCheck = 'ok' | 'reloaded' | 'blocked' | 'server-behind' | 'iteration'
 
 /**
  * Evict the PWA service worker + every cache, then hard-reload. Best-effort: a failure in
@@ -122,7 +124,37 @@ function clearReloadCounter(): void {
  *   server that starts serving a different build resets the budget (POD-2253).
  * - Network / parse error → `'ok'` (never block the app on a flaky `/version`).
  */
-export async function checkServerVersion(httpOrigin: string): Promise<VersionCheck> {
+/**
+ * What to say when an iterate page does not match the server it is proxying to.
+ *
+ * NAME THE RIGHT MISMATCH. The common case on a VPS is `schema-skew` — the
+ * installed server was built from an older commit than the branch being
+ * iterated on, so the wire VERSIONS agree and only the schema digest differs.
+ * A message about wire numbers there reads "wire 2 against this bundle's 2",
+ * which is the sentence that sends someone looking for a bug in the numbers.
+ */
+export function iterationSkewMessage(verdict: SkewVerdict): string {
+  const lead = 'ITERATION MODE: this page is the web UI from source'
+  const tail =
+    'Reloading cannot fix it — the fresh bundle is the same source. Release your server-side ' +
+    'changes through a dev release, or keep to UI-only work.'
+  if (verdict === 'schema-skew') {
+    return `${lead}, and the installed server it talks to was built from a different commit, so
+      the two disagree about the wire schema. Some data it sends may not decode. ${tail}`
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+  return `${lead}, and it speaks a ${verdict === 'client-too-new' ? 'newer' : 'older'} wire
+    protocol than the installed server it talks to. ${tail}`
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export async function checkServerVersion(
+  httpOrigin: string,
+  /** Injected for the test; production reads the build define. */
+  iterating: boolean = isIterationMode(),
+): Promise<VersionCheck> {
   let server: ReturnType<typeof parseServerVersion>
   try {
     const res = await fetch(`${httpOrigin}/version`)
@@ -139,6 +171,24 @@ export async function checkServerVersion(httpOrigin: string): Promise<VersionChe
     // be describing a problem that no longer exists.
     clearReloadBudgetNote()
     return 'ok'
+  }
+
+  /**
+   * ITERATION MODE (POD-2513, spec §7): this page is SOURCE, served by
+   * `bun run iterate` in front of the installed server. A mismatch here is the
+   * expected state of any branch that has touched the protocol, and it is the
+   * one mismatch a reload provably cannot fix — the fresh bundle is the same
+   * source. Reloading would burn both attempts and then report the SERVED build
+   * as stale, which is the wrong diagnosis about the wrong build. Say what is
+   * actually true and leave the budget untouched, so a tab that later loads the
+   * installed app starts with a full one.
+   *
+   * The check sits after the `ok` branch on purpose: a matching iterate page is
+   * simply fine, and nothing about this mode should suppress that.
+   */
+  if (iterating) {
+    reportSkew({ source: 'boot-digest', severe: false, message: iterationSkewMessage(verdict) })
+    return 'iteration'
   }
 
   /**

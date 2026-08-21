@@ -30,6 +30,7 @@
  */
 import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense } from 'react'
+import { isIterationMode } from '@/lib/iteration-mode'
 
 const UpdatesEngine = lazy(() =>
   import('./UpdatesEngine').then((module) => ({ default: module.UpdatesEngine })),
@@ -37,10 +38,34 @@ const UpdatesEngine = lazy(() =>
 
 export interface UpdatesProviderProps {
   httpOrigin?: string
+  /** Injected for the test; production reads the build define. */
+  iterating?: boolean
   children?: ReactNode
 }
 
-export function UpdatesProvider({ httpOrigin, children }: UpdatesProviderProps): JSX.Element {
+/**
+ * ITERATION MODE TURNS THE UPDATER OFF AT THE FRONT DOOR (POD-2513, spec §7).
+ *
+ * A `bun run iterate` page is source served by Vite in front of the INSTALLED
+ * server, and the update state it would poll is that server's — real, and
+ * nothing to do with the bundle you are looking at. Two things go wrong if the
+ * engine mounts anyway. The offer is genuine: pressing it starts a real rollout
+ * across the fleet, from a page that is not the installed app and whose own
+ * changes are not in the release being rolled out. And the panel opens ITSELF
+ * on a new situation, so every branch that touches the wire schema greets you
+ * with a modal instead of your UI.
+ *
+ * Not mounting also means the chunk is never fetched, so the whole surface —
+ * poller, view model, panel — is absent rather than merely quiet.
+ *
+ * `children` render either way: this switches off the updater, not the app.
+ */
+export function UpdatesProvider({
+  httpOrigin,
+  iterating = isIterationMode(),
+  children,
+}: UpdatesProviderProps): JSX.Element {
+  if (iterating) return <>{children}</>
   return (
     <>
       {/* `null` is the correct fallback, not a spinner: there is nothing to

@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import { useEffect } from 'react'
+import { isIterationMode } from '@/lib/iteration-mode'
 
 /**
  * THIS PAGE IS NOT THE INSTALLED APP.
@@ -37,7 +38,7 @@ export function iterationTitle(title: string, active: boolean): string {
 const EDGE = '#f5a524'
 
 export function IterationModeFrame({
-  active = import.meta.env.PODIUM_ITERATION_MODE,
+  active = isIterationMode(),
 }: {
   /** Injected for the test; production reads the build-time define. */
   active?: boolean

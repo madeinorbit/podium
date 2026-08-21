@@ -1,143 +1,50 @@
-/**
- * THE DEFERRED ENGINE STILL ARRIVES (POD-2190).
- *
- * The provider was made a loader to get 99 KB of update machinery off the first
- * paint. The thing that must not break in exchange is the reason the surface
- * exists at all: an update must never be unreachable (spec §1.1). So these are
- * the two properties the split has to keep —
- *
- *   1. the panel and the indicator still appear when there is an update, without
- *      anyone touching anything, and
- *   2. the app's own tree neither waits for that chunk nor remounts when it
- *      lands, because a remount would take the store, the replica and the socket
- *      with it.
- *
- * They are asserted through the REAL lazy boundary, not a mocked one: mocking the
- * dynamic import away would leave exactly the failure this file exists to catch —
- * a boundary that never resolves — invisible.
- */
 import { cleanup, render, screen } from '@testing-library/react'
-import type { JSX } from 'react'
-import { useEffect, useRef } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { UpdatePanelView } from './operation-view'
-
-const mocks = vi.hoisted(() => ({
-  useRegisterSW: vi.fn(),
-  useUpdateState: vi.fn(),
-  setNeedRefresh: vi.fn(),
-  run: vi.fn(),
-  checkNow: vi.fn(async () => {}),
-  acknowledge: vi.fn(),
-}))
-
-vi.mock('@/app/pwa-register', () => ({ useRegisterSW: mocks.useRegisterSW }))
-vi.mock('./use-update-state', () => ({ useUpdateState: mocks.useUpdateState }))
-vi.mock('@/app/trpc', () => ({
-  serverConfig: () => ({ httpOrigin: 'http://podium.test' }),
-}))
-
-import { UpdateIndicator } from './UpdateIndicator'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { UpdatesProvider } from './updates-context'
-import { resetUpdates, useUpdates } from './updates-panel-context'
 
-const OFFER: UpdatePanelView = {
-  state: 'offer',
-  title: 'Podium 0.4.3 is available',
-  version: '0.4.3',
-  steps: [],
-  places: [{ kind: 'this-app', label: 'This app', effect: 'will refresh' }],
-  restartNote: 'Your sessions keep running.',
-  primary: { kind: 'start', label: 'Update Podium', pendingLabel: 'Starting…' },
-  awaitingElsewhere: [],
-  indicator: 'idle-dot',
-  indicatorLabel: 'Podium 0.4.3 is available',
-}
+// The engine arrives through `lazy()`, so the real module would suspend and
+// render the provider's `null` fallback in both cases — which would make this
+// suite pass while proving nothing. Standing in for it makes "was it mounted at
+// all" observable, which is the only thing under test here.
+vi.mock('./UpdatesEngine', () => ({
+  UpdatesEngine: () => <div data-testid="updates-engine-mount" />,
+}))
 
-/** Stands in for the shell's own subtree, and counts how often it was mounted. */
-function Child({ onMount }: { onMount: () => void }): JSX.Element {
-  const updates = useUpdates()
-  const mounted = useRef(onMount)
-  useEffect(() => mounted.current(), [])
-  return (
-    <div data-testid="child">
-      <UpdateIndicator
-        state={updates.indicator}
-        label={updates.indicatorLabel}
-        open={updates.open}
-        onToggle={updates.toggle}
-      />
-    </div>
-  )
-}
+afterEach(cleanup)
 
-beforeEach(() => {
-  mocks.useRegisterSW.mockReturnValue({
-    needRefresh: [false, mocks.setNeedRefresh],
-    updateServiceWorker: vi.fn(),
-  })
-  mocks.useUpdateState.mockReturnValue({
-    view: OFFER,
-    operation: null,
-    server: {},
-    fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
-    pending: null,
-    run: mocks.run,
-    checkNow: mocks.checkNow,
-    acknowledge: mocks.acknowledge,
-  })
-})
-
-afterEach(() => {
-  cleanup()
-  resetUpdates()
-  vi.clearAllMocks()
-})
-
-describe('UpdatesProvider', () => {
-  it('loads the engine on mount, so the offered update reaches both halves', async () => {
+/**
+ * ITERATION MODE (POD-2513): a source page in front of the installed server must
+ * not offer an update. The offer it would show is a REAL one — clicking it would
+ * start a real fleet rollout — from a page that is not the installed app, and
+ * that page's own build is not what the rollout would deliver. "Updater fully
+ * off" (updater-convergence spec §7) is this line.
+ */
+describe('UpdatesProvider in iteration mode', () => {
+  it('mounts no update engine', async () => {
     render(
-      <UpdatesProvider httpOrigin="http://podium.test">
-        <Child onMount={() => {}} />
+      <UpdatesProvider iterating={true}>
+        <p>app</p>
       </UpdatesProvider>,
     )
-
-    // Nobody clicked anything and no update was "requested" — mounting is enough.
-    expect(await screen.findByTestId('update-panel')).toBeTruthy()
-    const indicator = await screen.findByTestId('update-indicator')
-    expect(indicator.getAttribute('data-indicator')).toBe('idle-dot')
-    expect(indicator.getAttribute('aria-label')).toBe('Podium 0.4.3 is available')
+    await screen.findByText('app')
+    expect(screen.queryByTestId('updates-engine-mount')).toBeNull()
   })
 
-  it('renders children immediately, and does not remount them when the chunk lands', async () => {
-    const onMount = vi.fn()
+  it('still renders the app around it — the mode changes the updater, not the app', async () => {
     render(
-      <UpdatesProvider httpOrigin="http://podium.test">
-        <Child onMount={onMount} />
+      <UpdatesProvider iterating={true}>
+        <p>app</p>
       </UpdatesProvider>,
     )
-
-    // Present on the FIRST paint: children are siblings of the boundary, never
-    // suspended behind it.
-    expect(screen.getByTestId('child')).toBeTruthy()
-    expect(onMount).toHaveBeenCalledTimes(1)
-
-    await screen.findByTestId('update-panel')
-
-    // Still the same mount. A second one here would mean the shell's store,
-    // replica and socket had been torn down and rebuilt by a bundle-size fix.
-    expect(onMount).toHaveBeenCalledTimes(1)
-    expect(screen.getByTestId('child')).toBeTruthy()
+    expect(await screen.findByText('app')).toBeTruthy()
   })
 
-  /**
-   * Asserted against the store DIRECTLY rather than through the provider: once
-   * the boundary above has resolved once, the module is cached for the rest of
-   * the file, so there is no honest pre-load window left to observe there. The
-   * invariant itself does not need one — it is a property of the store.
-   */
-  it('answers "no update" with no engine mounted, rather than throwing', () => {
-    render(<Child onMount={() => {}} />)
-    expect(screen.queryByTestId('update-indicator')).toBeNull()
+  it('mounts the engine normally when iteration mode is off', async () => {
+    render(
+      <UpdatesProvider iterating={false}>
+        <p>app</p>
+      </UpdatesProvider>,
+    )
+    expect(await screen.findByTestId('updates-engine-mount')).toBeTruthy()
   })
 })
