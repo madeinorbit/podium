@@ -30,7 +30,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   agentFleetStatus,
-  CapabilityAgentItem,
+  CapabilityAgentMenu,
   candidateFromAvailability,
   capabilityHint,
   capabilityReason,
@@ -200,39 +200,6 @@ function MachineMenu({
             </DropdownMenuItem>
           )
         })}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-/** The harness picker uses the same fleet status and refusal rows as every
- * other spawn surface. A harness stays visible when unavailable, with the
- * reason on the row, and is accepted when any candidate host can run it. */
-function AgentMenu({
-  trigger,
-  options,
-  selectedValue,
-  onSelect,
-}: {
-  trigger: ReactNode
-  options: Array<PropertyOption & { status: ReturnType<typeof agentFleetStatus> }>
-  selectedValue: string
-  onSelect: (value: string) => void
-}): JSX.Element {
-  return (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger render={trigger as JSX.Element} />
-      <DropdownMenuContent align="start" className="w-56">
-        {options.map((option) => (
-          <CapabilityAgentItem
-            key={option.value}
-            icon={option.icon}
-            label={option.label}
-            status={option.status}
-            selected={option.value === selectedValue}
-            onSelect={() => onSelect(option.value)}
-          />
-        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -588,7 +555,7 @@ export function NewIssueDialog({
                   segments' own left border so a harness with no effort ladder
                   (EffortPicker renders nothing) cannot leave a hanging rule. */}
               <div className="inline-flex h-[26px] max-w-full flex-none items-stretch overflow-hidden rounded-[7px] bg-[var(--well-floor)] shadow-[inset_0_0_0_1px_var(--hairline-bar)]">
-                <AgentMenu
+                <CapabilityAgentMenu
                   trigger={
                     <button
                       type="button"

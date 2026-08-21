@@ -4,6 +4,7 @@ import type { SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { OperatorFocusProvider } from '@/app/operator-focus'
 import { makeIssue } from '@/lib/test-issue'
 import { IssuePanelView } from './IssuePanelView'
 
@@ -195,7 +196,10 @@ describe('IssuePanelView inspector', () => {
     render(<IssuePanelView cwd="/r" />)
 
     const head = within(screen.getByTestId('dock-inspect-head'))
-    expect(head.getByText('#1')).toBeTruthy()
+    // NO REF EYEBROW (POD-1457). The dock's trail prints the same ref twenty
+    // pixels above this head, so the panel used to open by saying the same
+    // thing twice in the same mono grey.
+    expect(head.queryByText('#1')).toBeNull()
     const title = screen.getByTestId('dock-title')
     expect(title.textContent).toBe('Operator workspace')
     expect(title.className).toContain('line-clamp-2')
@@ -277,16 +281,19 @@ describe('IssuePanelView inspector', () => {
 
   // The current update says WHAT happened and when; who said it is the roster's
   // job, two sections down, and saying it twice is what the operator flagged.
-  it('keeps the update to its words and its age, with one link to the timeline', () => {
+  it('keeps the update to its words and its age, and offers no exit to the Tasks tool', () => {
     mockSessions = [session()]
     render(<IssuePanelView cwd="/r" />)
 
     const update = screen.getByTestId('dock-current-update')
     expect(update.textContent).toContain('Spine direction is fixed')
     expect(update.textContent).not.toContain('Workspace coordinator')
-    expect(within(update).getByTestId('dock-open-full-activity')).toBeTruthy()
-    // Only one exit to the full issue in the whole scroll.
-    expect(screen.getAllByTestId('dock-open-full-activity')).toHaveLength(1)
+    // The "Full update timeline" link crossed into the Tasks tool, and this
+    // panel does not link there any more (POD-1457) — entering that tool is a
+    // decision the operator makes in the toolbar. Recent activity is the next
+    // section down, so nothing left this column.
+    expect(screen.queryByTestId('dock-open-full-activity')).toBeNull()
+    expect(screen.getByTestId('dock-recent-activity')).toBeTruthy()
   })
 
   // A branch is an address, not a verification result.
@@ -443,12 +450,20 @@ describe('IssuePanelView inspector', () => {
     expect(within(feed).queryByText('read')).toBeNull()
   })
 
-  it('links out to the full activity', () => {
-    render(<IssuePanelView cwd="/r" />)
+  it('names the crossing after the view it opens, and offers no other', () => {
+    // THE ISOLATION RULE (POD-1457). The explorer is a place to read tasks from;
+    // the Tasks tool is a place you go on purpose, from the toolbar. The one
+    // crossing this panel offers goes to WORK, and it says so in the label.
+    render(
+      <OperatorFocusProvider missionId="root">
+        <IssuePanelView cwd="/r" onNavigate={vi.fn()} />
+      </OperatorFocusProvider>,
+    )
 
-    fireEvent.click(screen.getByTestId('dock-open-full-activity'))
-    expect(setOpenIssueId).toHaveBeenCalledWith('root')
-    expect(setView).toHaveBeenCalledWith('issues')
+    expect(screen.getByTestId('task-open-in-work').textContent).toContain('Open in Work')
+    fireEvent.click(screen.getByTestId('task-open-in-work'))
+    expect(setView).toHaveBeenCalledWith('workspace')
+    expect(setView).not.toHaveBeenCalledWith('issues')
   })
 
   // The dock shows what the work PRODUCED and what it parked. An agent's todo

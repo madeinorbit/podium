@@ -24,7 +24,7 @@ const browser = await chromium.launch()
 
 for (const scheme of ['dark', 'light'] as const) {
   const ctx = await browser.newContext({
-    viewport: { width: 760, height: 900 },
+    viewport: { width: 1060, height: 900 },
     deviceScaleFactor: 2,
     colorScheme: scheme,
   })
@@ -32,10 +32,7 @@ for (const scheme of ['dark', 'light'] as const) {
   // The shell's theme is an explicit stored mode, not `prefers-color-scheme`
   // (app/theme.tsx defaults to dark), so the context's colorScheme alone would
   // draw two identical dark frames.
-  await page.addInitScript(
-    (mode) => localStorage.setItem('podium.theme.mode', mode),
-    scheme,
-  )
+  await page.addInitScript((mode) => localStorage.setItem('podium.theme.mode', mode), scheme)
   page.on('console', (m) => {
     if (m.type() === 'error') console.log(`[console] ${m.text().slice(0, 300)}`)
   })
@@ -46,7 +43,7 @@ for (const scheme of ['dark', 'light'] as const) {
   await page.waitForSelector('[data-case="plain"]')
   await page.waitForTimeout(800)
 
-  for (const label of ['plain', 'discovered']) {
+  for (const label of ['plain', 'discovered', 'running']) {
     const dock = page.locator(`[data-case="${label}"]`)
     await dock.screenshot({ path: `${OUT}/${STAMP}-${label}-${scheme}.png` })
     console.log(
@@ -54,7 +51,7 @@ for (const scheme of ['dark', 'light'] as const) {
       'launch box =',
       await dock.locator('[data-testid="launch-box"]').count(),
       '· start =',
-      await dock.locator('[data-testid="task-primary-action"]').textContent(),
+      await dock.locator('[data-testid="task-primary-action"]').count(),
       '· fork =',
       await dock.locator('[data-testid="task-placement-trigger"]').count(),
     )

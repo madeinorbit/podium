@@ -21,10 +21,10 @@ import { issueDisplayRef } from '@podium/protocol'
 import {
   ArrowDown,
   ArrowRight,
+  ArrowUpRight,
   Ban,
   Check,
   CircleAlert,
-  ExternalLink,
   FileText,
   Folder,
   History,
@@ -40,7 +40,6 @@ import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/s
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { copyToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
 import { IssueExplorerList } from './explorer/IssueExplorerList'
 import {
@@ -436,30 +435,54 @@ function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
  */
 function InspectHead({
   issue,
-  onWorkOnThis,
+  onOpenInWork,
 }: {
   issue: IssueViewModel
   /** Point the rest of the shell at this task. The ONE control on this surface
    *  that moves the app: the explorer syncs INWARD, so browsing a stranger's
    *  task must never drag the deck along with it, and the operator who does
-   *  want to go there needs one obvious way to say so. It is a BUTTON in the
-   *  control strip since POD-1269, not a text link on the ref line. */
-  onWorkOnThis?: () => void
+   *  want to go there needs one obvious way to say so. */
+  onOpenInWork?: () => void
 }): JSX.Element {
   return (
-    <header className="flex-none px-3.5 pt-2.5 pb-3" data-testid="dock-inspect-head">
-      <div className="flex items-center gap-2 font-mono text-[11px] leading-none text-text-dim">
-        <button
-          data-pressable
-          type="button"
-          className="cursor-pointer hover:text-foreground"
-          title={`${issue.id} — click to copy "${issueDisplayRef(issue)}"`}
-          onClick={() =>
-            copyToClipboard(issueDisplayRef(issue), `Copied ${issueDisplayRef(issue)}`)
-          }
-        >
-          {issueDisplayRef(issue)}
-        </button>
+    // 8 / 6 / 10 / 14 / 14 (POD-1457). Tight where things belong together —
+    // the crossing, the name and the state chips are one group — and the
+    // design's section interval, twice, around the launch box, which is the
+    // only object in the head with equal air on both sides. That is what makes
+    // it read as an instrument rather than as one more chip.
+    <header className="flex-none px-3.5 pt-2 pb-3.5" data-testid="dock-inspect-head">
+      {/* THE CROSSING, NAMED AFTER WHERE IT GOES (POD-1457).
+          It was `Work on this` — a chip in the control strip, filled or
+          outlined depending on what else had resolved, sitting one gap from
+          `Start work`. Two adjacent controls both promising to begin the work,
+          and the operator had to know that only one of them did.
+
+          So it is a LINK, in the head's chrome line, above the name: the tier
+          the trail is on, which is where "where am I / where can I go" already
+          lives, and two tiers away from anything yellow. And it is named for
+          its destination — the toolbar calls that view Work — because a
+          destination link that borrows the destination's own word cannot be
+          read as an intent.
+
+          The line it stands on is the one the POD-#### eyebrow used to hold.
+          That eyebrow printed the ref about twenty pixels under the trail,
+          which prints the same ref: the head opened by saying the same thing
+          twice in the same mono grey. Copying the ref lives on in the overflow
+          menu; the crossing gets the line. */}
+      <div className="flex h-4 items-center justify-end">
+        {onOpenInWork && (
+          <button
+            data-pressable
+            type="button"
+            data-testid="task-open-in-work"
+            className="inline-flex cursor-pointer items-center gap-1 text-[11px] leading-none text-text-dim transition-colors hover:text-foreground"
+            title="Open this task in the Work view"
+            onClick={onOpenInWork}
+          >
+            Open in Work
+            <ArrowUpRight size={12} aria-hidden="true" />
+          </button>
+        )}
       </div>
       <h2
         className="shell-type-reading mt-1.5 line-clamp-2 font-semibold text-secondary-foreground"
@@ -468,7 +491,7 @@ function InspectHead({
       >
         {issue.title}
       </h2>
-      <IssueCompactControls issue={issue} onWorkOnThis={onWorkOnThis} />
+      <IssueCompactControls issue={issue} />
     </header>
   )
 }
@@ -774,26 +797,18 @@ export function IssuePanelView({
    */
   onNavigate?: (issueId: IssueId) => void
 }): JSX.Element {
-  const {
-    sessions,
-    setPane,
-    setView,
-    setOpenIssueId,
-    setSelectedIssueId,
-    markIssueRead,
-    markSessionRead,
-  } = useStoreSelector(
-    (s) => ({
-      sessions: s.sessions,
-      setPane: s.setPane,
-      setView: s.setView,
-      setOpenIssueId: s.setOpenIssueId,
-      setSelectedIssueId: s.setSelectedIssueId,
-      markIssueRead: s.markIssueRead,
-      markSessionRead: s.markSessionRead,
-    }),
-    shallowEqual,
-  )
+  const { sessions, setPane, setView, setSelectedIssueId, markIssueRead, markSessionRead } =
+    useStoreSelector(
+      (s) => ({
+        sessions: s.sessions,
+        setPane: s.setPane,
+        setView: s.setView,
+        setSelectedIssueId: s.setSelectedIssueId,
+        markIssueRead: s.markIssueRead,
+        markSessionRead: s.markSessionRead,
+      }),
+      shallowEqual,
+    )
   const issues = useReplicaIssues()
   // Every task row in this column carries its own status door (POD-1271); the
   // apply and its close guard are shared by all of them, once, here.
@@ -901,11 +916,6 @@ export function IssuePanelView({
   const notesAt = issue.notesUpdatedAt ?? issue.updatedAt
   const parent = issue.parentId ? issueById.get(issue.parentId) : undefined
 
-  const openFullIssue = (): void => {
-    setOpenIssueId(issue.id)
-    setView('issues')
-  }
-
   // WORKABLE: the same predicate the control strip closes on — a closure with a
   // reason, or an archive, is the end of the work. `deckDestinationFor` already
   // refuses an archived or deleted target; this adds the outcome half, which it
@@ -928,7 +938,7 @@ export function IssuePanelView({
             finished or archived task has a history to read, not a seat to take. */}
         <InspectHead
           issue={issue}
-          onWorkOnThis={
+          onOpenInWork={
             onNavigate && workable && deckDestinationFor(issues, sessions, issue.id)
               ? () => showInDeck(issue)
               : undefined
@@ -974,15 +984,11 @@ export function IssuePanelView({
           >
             {issue.activityNotes || 'No status posted yet.'}
           </p>
-          <button
-            data-pressable
-            type="button"
-            onClick={openFullIssue}
-            data-testid="dock-open-full-activity"
-            className="shell-type-micro mt-1 w-full px-1 py-1.5 text-left text-muted-foreground hover:text-foreground"
-          >
-            Full update timeline <ExternalLink size={10} className="inline align-[-1px]" />
-          </button>
+          {/* NO "Full update timeline" LINK (POD-1457). It crossed into the
+              Tasks tool, and this panel does not link there any more — entering
+              that tool is a decision the operator makes in the toolbar, not
+              something a sidebar drags them into. Nothing is lost from this
+              column: Recent activity is the next section down. */}
         </DockPart>
 
         {/* WHAT THE WORK PRODUCED, high (POD-743). The scroll used to be

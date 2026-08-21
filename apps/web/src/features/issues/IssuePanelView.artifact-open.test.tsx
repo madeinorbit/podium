@@ -44,6 +44,7 @@ vi.mock('@/app/store', () => {
       issues: [ISSUE],
       sessions: [],
       machines: [],
+      repos: [],
       setOpenIssueId: vi.fn(),
       setView: vi.fn(),
     }) as never

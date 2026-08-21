@@ -35,16 +35,13 @@ import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
+import { CapabilityAgentMenu } from '@/lib/agent-capability'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
-import {
-  ISSUE_AGENT_KINDS,
-  issueAgentIcon,
-  issueAgentLabel,
-  issueDefaultAgentKind,
-} from '@/lib/issue-agents'
+import { issueAgentLabel, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
+import { useAgentFleetOptions } from './use-agent-fleet-options'
 
 export interface LaunchMachine {
   id: string
@@ -75,7 +72,6 @@ export function LaunchBox({
   commands,
   machines,
   fork,
-  className,
 }: {
   issue: IssueViewModel
   busy: boolean
@@ -99,8 +95,6 @@ export function LaunchBox({
    *  explorer hands in its placement chevron, which then rides the right edge of
    *  Start work as one split control. */
   fork?: ReactNode
-  /** How the caller sizes the frame in its own layout. */
-  className?: string
 }): JSX.Element {
   const agentKind = issueDefaultAgentKind(issue.defaultAgent)
   const started = startedOverride ?? Boolean(issue.worktreePath)
@@ -114,27 +108,24 @@ export function LaunchBox({
   // The same 15px tile the roster rows above wear, one size down: the agent this
   // task launches with and the agents already on it are then the same mark.
   const AgentIcon = agentIconFor(agentKind)
+  // WHICH HARNESSES THIS TASK'S MACHINES CAN ACTUALLY RUN (POD-1457). The same
+  // fleet reading, and the same greyed rows, as every other spawn menu in the
+  // shell — a Cursor this repo's hosts do not have says so here rather than
+  // failing later as a dead session.
+  const agentOptions = useAgentFleetOptions(issue)
   return (
     <div
       data-testid="launch-box"
-      className={cn(
-        'flex flex-col gap-2 rounded-[10px] bg-bar p-2 shadow-[inset_0_0_0_1px_var(--hairline-bar)]',
-        className,
-      )}
+      className="flex flex-col gap-2 rounded-[10px] bg-bar p-2 shadow-[inset_0_0_0_1px_var(--hairline-bar)]"
     >
       <div className="overflow-hidden rounded-lg bg-[var(--well-floor)] shadow-[inset_0_0_0_1px_var(--hairline-bar)]">
         {/* WHO. Its own full-width row: at the rail's 232px of usable width an
             agent name, a model name and an effort in ONE row leaves each about
             seven characters, and "Claude Code" truncated to "Claude…" is a
             worse answer than a second row. */}
-        <PropertyMenu
+        <CapabilityAgentMenu
           selectedValue={agentKind}
-          options={ISSUE_AGENT_KINDS.map((kind) => ({
-            value: kind,
-            label: issueAgentLabel(kind),
-            icon: issueAgentIcon(kind),
-          }))}
-          placeholder="Choose an agent…"
+          options={agentOptions}
           onSelect={commands.setDefaultAgent}
           trigger={
             <Button
