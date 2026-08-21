@@ -5955,6 +5955,13 @@ html[data-density="compact"] .brief-shelf {
 .offer-fold-root {
   container-type: inline-size;
   border-top: 1px solid var(--hairline-soft);
+  /* The seam belongs to the dock and stays full-bleed; the CONTENT keeps a
+     gutter inside it (POD-1462). Without this the signal badge sits flush
+     against the tint band's own left edge the moment the fold opens — and the
+     dismiss/disclosure pair sits flush against the right one — so the row's
+     two ends read as clipped rather than as inset. 12px on both, which is the
+     row inset DESIGN.md's 4px grid already spends elsewhere. */
+  padding-inline: 12px;
   opacity: 1;
   transform: translateY(0);
   transition:
@@ -6054,6 +6061,70 @@ html[data-density="compact"] .brief-shelf {
   cursor: default;
   opacity: 0.5;
 }
+/* THE ALTERNATIVES (POD-1462). Everything in the open fold that sends a turn is
+   a control, and before this only the recommendation looked like one: the other
+   actions were bare text sitting under the evidence strip, where they read as
+   captions for the thumbnails above them rather than as the two other things
+   you could do. They are the same object as the primary now — same geometry,
+   same label mechanics — one tier quieter, because the Signal Rule leaves
+   exactly one yellow in this region and the recommendation already has it. */
+.offer-fold-action {
+  /* The `sm` step off DESIGN.md's button scale, under the recommendation's 31.
+     Press, focus ring, disabled and the transition are the shared
+     `[data-pressable]` contract's — nothing is restated here. */
+  min-height: 28px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--chip);
+  /* Muted, not Dim. Dim is the timestamp tier, and a 600-weight 11px label set
+     in it on a chip fill only two L-points off its ground reads as a DISABLED
+     control — which is the one thing an alternative action must never look
+     like. Muted holds 8.1:1 and leaves Strong free to mean hover. */
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.offer-fold-action:hover {
+  background: var(--secondary);
+  color: var(--text-strong);
+}
+/* The feedback field's own send. It commits the alternative the operator
+   already chose, so it takes the yellow as ink and rim rather than as a fill:
+   a second solid yellow while the recommendation is still on screen would
+   leave the region with two primaries. */
+.offer-fold-action--commit {
+  border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--foreground);
+}
+.offer-fold-action--commit:hover {
+  border-color: color-mix(in srgb, var(--primary) 72%, transparent);
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--text-strong);
+}
+/* Backing out of the feedback field is not a third option — it undoes a click.
+   No box until the pointer is on it. */
+.offer-fold-action--ghost {
+  border-color: transparent;
+  background: transparent;
+}
+.offer-fold-action--ghost:hover {
+  border-color: transparent;
+  background: var(--secondary);
+}
+/* The "this one asks you to type" mark. Optically lighter than the label it
+   trails, and it rides the button's own colour transition. */
+.offer-fold-action-pencil {
+  flex: none;
+  opacity: 0.6;
+}
 .offer-fold-controls {
   display: inline-flex;
   align-items: center;
@@ -6109,7 +6180,11 @@ html[data-density="compact"] .brief-shelf {
 }
 
 .offer-fold-detail-body {
-  padding: 2px 40px 15px 31px;
+  /* Left 31px = the badge (22) plus its gap (9), so every line of the detail
+     hangs under the headline rather than under the signal. Right clears the
+     dismiss/disclosure column. Both are measured from the gutter the root now
+     holds, so the right value is 12px smaller than the 40px it replaces. */
+  padding: 2px 28px 15px 31px;
 }
 .offer-fold-undo {
   min-height: 42px;

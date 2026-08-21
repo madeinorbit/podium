@@ -1,5 +1,5 @@
 import type { SessionMeta, SessionOffer } from '@podium/model/browser'
-import { ChevronDown, Lightbulb, X } from 'lucide-react'
+import { ChevronDown, Lightbulb, Pencil, X } from 'lucide-react'
 import { type JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
@@ -77,6 +77,11 @@ function useOfferFoldLift(
     }
   }, [body, expanded, lift])
   return { lifted: lift !== null, capped }
+}
+
+/** The mark on an action that opens the feedback field instead of sending. */
+function InputMark(): JSX.Element {
+  return <Pencil size={10} aria-hidden="true" className="offer-fold-action-pencil" />
 }
 
 function OfferActionLabel({ label, pending }: { label: string; pending: boolean }): JSX.Element {
@@ -301,7 +306,11 @@ export function OfferBar({
               if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) send()
               if (event.key === 'Escape') setPending(null)
             }}
-            className="min-h-24 w-full resize-none rounded-md border border-primary/40 bg-transparent px-2.5 py-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/70"
+            // Neutral at rest, like the ask card's own free-text field: the
+            // recommendation above is still on screen holding the region's one
+            // yellow, and a four-row box rimmed in the same colour made the
+            // field compete with the decision it is a footnote to (POD-1462).
+            className="min-h-24 w-full resize-none rounded-[7px] border border-border bg-transparent px-2.5 py-2 text-[12.5px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-foreground/30"
           />
           <div className="flex gap-1.5">
             <button
@@ -310,7 +319,7 @@ export function OfferBar({
               disabled={disabled || submitting !== null || !feedback.trim()}
               aria-busy={submitting === pending || undefined}
               onClick={send}
-              className="rounded-md border border-primary/50 bg-primary/[0.12] px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-primary/20 disabled:cursor-default disabled:opacity-50"
+              className="offer-fold-action offer-fold-action--commit"
             >
               <OfferActionLabel label={pendingAction.label} pending={submitting === pending} />
             </button>
@@ -322,7 +331,7 @@ export function OfferBar({
                 setPending(null)
                 setFeedback('')
               }}
-              className="rounded-md border border-transparent px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              className="offer-fold-action offer-fold-action--ghost"
             >
               Cancel
             </button>
@@ -330,22 +339,23 @@ export function OfferBar({
         </div>
       ) : (
         secondaryActions.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-x-[18px] gap-y-2">
+          <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
             {secondaryActions.map((action, offset) => {
               const index = offset + 1
               return (
                 <button
                   data-pressable
+                  data-testid="offer-secondary-action"
                   key={`${action.label}:${action.prompt}`}
                   type="button"
                   disabled={disabled || submitting !== null}
                   aria-busy={submitting === index || undefined}
                   onClick={() => chooseAction(index)}
                   title={action.prompt}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-text-strong disabled:cursor-default disabled:opacity-50"
+                  className="offer-fold-action"
                 >
                   <OfferActionLabel label={action.label} pending={submitting === index} />
-                  {action.input === true && <span className="text-[10px] opacity-70">✎</span>}
+                  {action.input === true && <InputMark />}
                 </button>
               )
             })}
@@ -404,7 +414,7 @@ export function OfferBar({
             className="offer-fold-primary btn-primary-rim"
           >
             <OfferActionLabel label={primaryAction.label} pending={submitting === 0} />
-            {primaryAction.input === true && <span className="text-[10px] opacity-70">✎</span>}
+            {primaryAction.input === true && <InputMark />}
           </button>
         )}
 
