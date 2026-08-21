@@ -50,10 +50,13 @@ export async function reportInventory(
           ? ctx.harnessRuntime.reprobe()
           : ctx.harnessRuntime.current())
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
+      if (!ctx.agentRuntime) throw new Error('machine runtime is not composed')
+      const inventory = await ctx.agentRuntime.inventory()
+      if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       ctx.send({
         type: 'inventoryReport',
         machineId: asMachineId(ctx.machineId),
-        inventory: snapshot.inventory,
+        inventory,
       })
     } catch (err) {
       log.warn('inventory report failed', { err })

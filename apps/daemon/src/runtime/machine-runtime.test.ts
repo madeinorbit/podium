@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createDaemonMachineRuntime } from './machine-runtime'
 
 const SESSION = 'machine-runtime-session' as SessionId
+const NEW_SESSION = 'new-server-session' as SessionId
 const INVENTORY: Inventory = {
   os: 'linux',
   arch: 'x64',
@@ -19,9 +20,25 @@ function server(
     journal?: Record<string, unknown>
   } = {},
 ) {
-  const launch = vi.fn(async () => {})
-  const adoptFromJournal = vi.fn(async () => input.handle)
-  const capabilities = { marker: id }
+  const handles = new Map<SessionId, AgentSessionHandle>()
+  if (input.handle) handles.set(input.handle.binding.sessionId, input.handle)
+  const launch = vi.fn(async (launchInput: { sessionId: SessionId; cwd: string }) => {
+    const launched = {
+      binding: {
+        sessionId: launchInput.sessionId,
+        driver: id,
+        family: 'server',
+        harness,
+        workdir: launchInput.cwd,
+        resume: null,
+        process: { key: `${id}:${launchInput.sessionId}` },
+        bindingVersion: 1,
+      },
+    } as unknown as AgentSessionHandle
+    handles.set(launchInput.sessionId, launched)
+  })
+  const adoptFromJournal = vi.fn(async (sessionId: SessionId) => handles.get(sessionId))
+  const capabilities = { marker: id, placement: 'dedicated' as const }
   return {
     driver: {
       id,
@@ -29,9 +46,9 @@ function server(
       family: 'server',
       capabilities: () => capabilities,
     } as unknown as RuntimeDriver,
-    handleFor: (sessionId: SessionId) => (sessionId === SESSION ? input.handle : undefined),
-    bindings: () => (input.handle ? [input.handle.binding] : []),
-    has: (sessionId: SessionId) => sessionId === SESSION && input.handle !== undefined,
+    handleFor: (sessionId: SessionId) => handles.get(sessionId),
+    bindings: () => [...handles.values()].map((handle) => handle.binding),
+    has: (sessionId: SessionId) => handles.has(sessionId),
     journal: {
       read: (sessionId: SessionId) => (sessionId === SESSION ? input.journal : undefined),
       clear: vi.fn(),
@@ -87,16 +104,48 @@ describe('daemon machine runtime composition', () => {
       grok,
       inventory,
     } as unknown as Parameters<typeof createDaemonMachineRuntime>[0])
-    expect(runtime.inventoryScope).toBe('registered-only')
+    expect(runtime.primitiveSupport).toEqual({
+      import: { supported: false, reason: expect.stringContaining('POD-2415') },
+      list: { scope: 'registered-only' },
+    })
 
     await expect(runtime.inventory()).resolves.toBe(INVENTORY)
-    expect(runtime.capabilities('grok', 'grok-acp')).toEqual({ marker: 'grok-acp' })
+    expect(
+      runtime.resolveDriver({
+        agentKind: 'grok',
+        requested: 'grok-acp',
+        machineDefault: undefined,
+        available: ['generic-pty', 'grok-acp'],
+        platform: 'linux',
+        auth: 'subscription',
+      }),
+    ).toEqual({
+      ok: true,
+      driverId: 'grok-acp',
+      capabilities: { marker: 'grok-acp', placement: 'dedicated' },
+    })
+    expect(runtime.capabilities('grok', 'grok-acp')).toEqual({
+      marker: 'grok-acp',
+      placement: 'dedicated',
+    })
     expect(runtime.handleFor(SESSION)).toBe(handle)
 
-    await runtime.launchServer('grok-acp', {
-      sessionId: 'new-server-session' as SessionId,
-      cwd: '/tmp/grok',
-    })
+    await runtime.create(
+      {
+        harness: 'grok',
+        selection: {
+          auth: 'subscription',
+          platform: 'linux',
+          available: ['grok-acp'],
+          preference: 'grok-acp',
+        },
+        workdir: '/tmp/grok',
+        model: {},
+        instructions: { supported: false, reason: 'fixture' },
+        mcpServers: { supported: false, reason: 'fixture' },
+      },
+      NEW_SESSION,
+    )
     expect(grok.launch).toHaveBeenCalledOnce()
     expect(opencode.launch).not.toHaveBeenCalled()
     expect(codex.launch).not.toHaveBeenCalled()

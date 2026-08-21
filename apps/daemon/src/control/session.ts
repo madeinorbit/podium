@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { RefusalReason } from '@podium/agent-runtime'
+import type { RefusalReason, SessionSpec } from '@podium/agent-runtime'
 import {
   bindHarnessLaunch,
   agentStateProviderFor,
@@ -47,7 +47,6 @@ import {
   droppedDriverPreference,
   isServerDriver,
   isServerDriverId,
-  resolveRuntimeDriver,
   runtimeDriverIntentForSpawn,
   selectionAuthForLogin,
   spawnNamedServerDriver,
@@ -612,7 +611,7 @@ export async function launchSpawn(
       startedAtMs: spawnStartedAt,
       ...(newSessionId ? { newSessionId } : {}),
     })
-    bindRuntimeContract(ctx, msg, false)
+    await bindRuntimeContract(ctx, msg, false)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
     // session. attach() is a no-op for harnesses without a driver.
@@ -676,11 +675,11 @@ export const MISSING_SESSION_BINDING_MESSAGE =
  * claim on this path: no handle, no queue, no observation tap entry, and the
  * legacy machinery above ran exactly as it always has.
  */
-function bindRuntimeContract(
+async function bindRuntimeContract(
   ctx: DaemonContext,
   msg: SpawnControl | ReattachControl,
   rebind: boolean,
-): void {
+): Promise<void> {
   if (!ctx.agentRuntime) return
   if (!runtimeContractEnabledFor(ctx.runtimeContractEnabled, msg.runtimeContract)) return
   const profile = terminalProfileFor(msg.agentKind)
@@ -688,7 +687,7 @@ function bindRuntimeContract(
   // for a driver to be honest about, so the flag simply does not reach it.
   if (!profile) return
   try {
-    ctx.agentRuntime.registerTerminal(
+    await ctx.agentRuntime.bindTerminal(
       {
         sessionId: msg.sessionId,
         agentKind: msg.agentKind,
@@ -1076,7 +1075,16 @@ export async function launchServerDriverSession(
     })
     return { handled: true }
   }
-  const resolution = resolveRuntimeDriver({
+  const runtime = ctx.agentRuntime
+  if (!runtime) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: 'machine runtime is not composed',
+    })
+    return { handled: true }
+  }
+  const resolution = runtime.resolveDriver({
     agentKind: msg.agentKind,
     requested: msg.runtimeContract,
     machineDefault: runtimeDriverByEnv(),
@@ -1094,6 +1102,18 @@ export async function launchServerDriverSession(
     ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message: resolution.reason })
     return { handled: true }
   }
+  if (
+    isServerDriver(msg.agentKind, resolution.driverId) &&
+    resolution.capabilities.placement !== 'dedicated'
+  ) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: `runtime driver '${resolution.driverId}' does not provide dedicated server placement`,
+    })
+    return { handled: true }
+  }
+
   /**
    * THIS SPAWN NAMED A SERVER DRIVER AND DID NOT GET IT — REFUSED (POD-2113).
    *
@@ -1197,22 +1217,25 @@ export async function launchServerDriverSession(
    * by harness would hand the session to whichever registry happened to be
    * first.
    */
-  const runtime = ctx.agentRuntime
-  if (!runtime) {
-    ctx.send({
-      type: 'spawnError',
-      sessionId: msg.sessionId,
-      message: `driver '${resolution.driverId}' is not wired on this daemon`,
-    })
-    return { handled: true }
-  }
   try {
-    await runtime.launchServer(resolution.driverId, {
-      sessionId: msg.sessionId,
-      cwd: msg.cwd,
-      ...(msg.model ? { model: msg.model } : {}),
-      ...(msg.effort ? { effort: msg.effort } : {}),
-      ...(msg.env ? { env: msg.env } : {}),
+    const spec: SessionSpec = {
+      harness: msg.agentKind,
+      selection: {
+        auth: selectionAuth,
+        platform: process.platform,
+        available: [resolution.driverId],
+        preference: resolution.driverId,
+        role: 'interactive',
+      },
+      workdir: msg.cwd,
+      model: {
+        ...(msg.model ? { model: msg.model } : {}),
+        ...(msg.effort ? { effort: msg.effort } : {}),
+      },
+      instructions: {
+        supported: false,
+        reason: 'interactive server instructions are not carried by the spawn frame adapter',
+      },
       /**
        * NO MCP CONFIG IS FORWARDED, AND THAT IS A DECLARED GAP RATHER THAN AN
        * OVERSIGHT (POD-1761 W6).
@@ -1229,7 +1252,14 @@ export async function launchServerDriverSession(
        * session mounts whatever `~/.codex/config.toml` already declares, and the
        * spawn-frame field is POD-1761's to schedule.
        */
-    })
+      mcpServers: {
+        supported: false,
+        reason: 'interactive sessions mount MCP through the harness native config file',
+      },
+      ...(msg.env ? { env: msg.env } : {}),
+      ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
+    }
+    await runtime.create(spec, msg.sessionId)
     reconcileNativeClientTerminal(ctx, msg.sessionId)
   } catch (err) {
     // A server that would not start is a SPAWN ERROR, reported on the frame the
@@ -1330,7 +1360,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         seedOnFrame: false,
       })
     }
-    bindRuntimeContract(ctx, msg, true)
+    await bindRuntimeContract(ctx, msg, true)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     const cmd =
       ctx.backend === 'tmux'
@@ -1471,7 +1501,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     ctx.observers.initSessionObservers(msg, found.session, agentStateProviderFor(msg.agentKind), {
       seedOnFrame: false,
     })
-    bindRuntimeContract(ctx, msg, true)
+    await bindRuntimeContract(ctx, msg, true)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     if (msg.draftSync) {
       ctx.composerEngine.attach(msg.sessionId, msg.agentKind, geometry.cols, geometry.rows)

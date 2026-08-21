@@ -748,7 +748,9 @@ export async function createDaemonHostRuntime(args: {
     codex: codexRuntime,
     grok: grokRuntime,
     inventory: async () =>
-      (await buildMachineInventory({ machineId, ...(homeDir ? { homeDir } : {}) })).inventory,
+      harnessRuntime
+        ? (await harnessRuntime.current()).inventory
+        : (await buildMachineInventory({ machineId, ...(homeDir ? { homeDir } : {}) })).inventory,
   })
   ctx.agentRuntime = agentRuntime
   // Closes the cycle the `let context` declaration above describes. Nothing that

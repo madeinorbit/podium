@@ -59,6 +59,7 @@ import {
   resetCodexAppServerVersionProbe,
 } from './runtime/codex-app-server'
 import { createDaemonCodexRuntime } from './runtime/codex-driver'
+import { createDaemonMachineRuntime } from './runtime/machine-runtime'
 import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './runtime/grok-acp-server'
 import { createDaemonGrokRuntime } from './runtime/grok-driver'
 import { createVersionProbeCache } from './runtime/version-probe'
@@ -1149,6 +1150,39 @@ function defaultGrokRuntime(sent: DaemonMessage[]) {
   }
   return createDaemonGrokRuntime({ send: (msg) => void sent.push(msg), host })
 }
+function unavailableServerRuntime(id: string, harness: string) {
+  return {
+    driver: { id, harness, family: 'server', capabilities: () => ({ placement: 'dedicated' }) },
+    handleFor: () => undefined,
+    bindings: () => [],
+    journal: { read: () => undefined, clear: vi.fn() },
+    async launch() {
+      throw new Error(`driver '${id}' is not wired`)
+    },
+    adoptFromJournal: async () => undefined,
+    dispose: vi.fn(),
+  }
+}
+
+function terminalRuntimeFixture() {
+  return {
+    driverFor(harness: string, profile: { driverId: string }) {
+      return {
+        id: profile.driverId,
+        harness,
+        family: 'terminal',
+        capabilities: () => ({ placement: 'dedicated' }),
+      }
+    },
+    handleFor: () => undefined,
+    bindings: () => [],
+    observe: vi.fn(),
+    onHookPayload: vi.fn(),
+    register: vi.fn(),
+    clear: vi.fn(),
+    dispose: vi.fn(),
+  }
+}
 
 function defaultServerSpawnContext(
   sent: DaemonMessage[],
@@ -1168,20 +1202,13 @@ function defaultServerSpawnContext(
       setLaunchCwd: async () => {},
     },
     harnessLoginState: () => 'in',
-    agentRuntime: {
-      launchServer: (driverId: string, launch: never) => {
-        const runtime =
-          driverId === 'codex-app-server' ? runtimes.codexRuntime : runtimes.grokRuntime
-        if (!runtime) throw new Error("driver '" + driverId + "' is not wired")
-        return runtime.launch(launch)
-      },
-      handleFor: (sessionId: SessionId) =>
-        runtimes.codexRuntime?.handleFor(sessionId) ??
-        runtimes.grokRuntime?.handleFor(sessionId),
-      has: (sessionId: SessionId) =>
-        runtimes.codexRuntime?.handleFor(sessionId) !== undefined ||
-        runtimes.grokRuntime?.handleFor(sessionId) !== undefined,
-    },
+    agentRuntime: createDaemonMachineRuntime({
+      terminal: terminalRuntimeFixture(),
+      opencode: unavailableServerRuntime('opencode-server', 'opencode'),
+      codex: runtimes.codexRuntime ?? unavailableServerRuntime('codex-app-server', 'codex'),
+      grok: runtimes.grokRuntime ?? unavailableServerRuntime('grok-acp', 'grok'),
+      inventory: async () => ({ os: 'linux', arch: 'x64', agents: [], tools: [] }),
+    } as unknown as Parameters<typeof createDaemonMachineRuntime>[0]),
   } as unknown as DaemonContext
 }
 

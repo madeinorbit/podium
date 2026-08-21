@@ -11,22 +11,24 @@ import {
   type AgentSessionHandle,
   createAgentRuntime,
   type DriverId,
+  type DriverCapabilities,
   type MachineAgentRuntime,
   type RuntimeDriver,
+  type SessionBinding,
+  type SessionSpec,
 } from '@podium/agent-runtime'
 import type { AgentKind, SessionId } from '@podium/model'
+import type { RuntimeContractRequest } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type {
   TerminalHarnessProfile,
   TerminalRuntime,
   TerminalSessionRegistration,
 } from './terminal-driver'
-import { terminalProfileFor } from './registry'
-import type { DaemonCodexRuntime, CodexSessionLaunch } from './codex-driver'
-import type { DaemonGrokRuntime, GrokSessionLaunch } from './grok-driver'
-import type { DaemonOpencodeRuntime, OpencodeSessionLaunch } from './opencode-driver'
-
-export type ServerDriverLaunch = OpencodeSessionLaunch | CodexSessionLaunch | GrokSessionLaunch
+import { resolveRuntimeDriver, terminalProfileFor, type DriverResolution } from './registry'
+import type { DaemonCodexRuntime } from './codex-driver'
+import type { DaemonGrokRuntime } from './grok-driver'
+import type { DaemonOpencodeRuntime } from './opencode-driver'
 
 export interface JournalledServerProcess {
   driver: 'opencode' | 'codex' | 'grok'
@@ -44,13 +46,17 @@ export type JournalledAdoption =
       handle?: AgentSessionHandle
     }
 
+export type DaemonDriverResolution =
+  | Exclude<DriverResolution, { ok: true }>
+  | { ok: true; driverId: DriverId; capabilities: DriverCapabilities }
+
 export interface DaemonMachineRuntime extends MachineAgentRuntime {
   observe(message: DaemonMessage): void
   onHookPayload(sessionId: SessionId, payload: unknown): void
-  registerTerminal(
+  bindTerminal(
     registration: TerminalSessionRegistration,
     profile: TerminalHarnessProfile,
-  ): AgentSessionHandle
+  ): Promise<AgentSessionHandle>
   clearTerminal(sessionId: SessionId): void
   /**
    * A kernel OOM kill the scope monitor observed, stated by whichever driver
@@ -58,7 +64,14 @@ export interface DaemonMachineRuntime extends MachineAgentRuntime {
    * cgroups, not families, and the ONE session that matches gets the event.
    */
   reportOomKill(sessionId: SessionId, scopeUnit?: string): void
-  launchServer(driverId: DriverId, input: ServerDriverLaunch): Promise<void>
+  resolveDriver(input: {
+    agentKind: AgentKind
+    requested: RuntimeContractRequest | undefined
+    machineDefault: string | undefined
+    available: readonly DriverId[]
+    platform: NodeJS.Platform
+    auth?: Parameters<typeof resolveRuntimeDriver>[0]['auth']
+  }): DaemonDriverResolution
   adoptJournalled(sessionId: SessionId): Promise<JournalledAdoption>
   serverHandleFor(sessionId: SessionId): AgentSessionHandle | undefined
   journalledServerProcess(sessionId: SessionId): JournalledServerProcess | undefined
@@ -74,6 +87,20 @@ export function createDaemonMachineRuntime(input: {
 }): DaemonMachineRuntime {
   const servers = [input.opencode, input.codex, input.grok] as const
 
+  const journalled = (sessionId: SessionId) => {
+    const found = [
+      [input.opencode, input.opencode.journal.read(sessionId), 'opencode serve'] as const,
+      [input.codex, input.codex.journal.read(sessionId), 'codex app-server'] as const,
+      [input.grok, input.grok.journal.read(sessionId), 'grok agent stdio'] as const,
+    ].filter((entry) => entry[1] !== undefined)
+    return found
+  }
+
+  const terminalAdoptions = new Map<
+    SessionId,
+    { registration: TerminalSessionRegistration; profile: TerminalHarnessProfile }
+  >()
+
   const terminalSource: AgentRuntimeDriverSource = {
     driverFor(harness, driver) {
       const profile = terminalProfileFor(harness as AgentKind)
@@ -82,23 +109,85 @@ export function createDaemonMachineRuntime(input: {
     },
     handleFor: (sessionId) => input.terminal.handleFor(sessionId),
     bindings: () => input.terminal.bindings(),
+    createWithId(sessionId) {
+      const pending = terminalAdoptions.get(sessionId)
+      if (!pending) {
+        throw new Error(`terminal session '${sessionId}' has no pending creation`)
+      }
+      return Promise.resolve(input.terminal.register(pending.registration, pending.profile))
+    },
+    adopt(binding) {
+      const pending = terminalAdoptions.get(binding.sessionId)
+      if (!pending) {
+        throw new Error(`terminal session '${binding.sessionId}' has no pending adoption`)
+      }
+      return Promise.resolve(input.terminal.register(pending.registration, pending.profile))
+    },
   }
 
-  const serverSources: readonly AgentRuntimeDriverSource[] = servers.map((runtime) => ({
+  const serverLaunchFor = (sessionId: SessionId, spec: SessionSpec) => ({
+    sessionId,
+    cwd: spec.workdir,
+    ...(spec.model.model ? { model: spec.model.model } : {}),
+    ...(spec.model.effort ? { effort: spec.model.effort } : {}),
+    ...(spec.env ? { env: spec.env } : {}),
+    ...(spec.initialPrompt ? { initialPrompt: spec.initialPrompt } : {}),
+  })
+
+  const serverSource = (
+    server: DaemonOpencodeRuntime | DaemonCodexRuntime | DaemonGrokRuntime,
+    launch: (sessionId: SessionId, spec: SessionSpec) => Promise<void>,
+  ): AgentRuntimeDriverSource => ({
     driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined {
-      return runtime.driver.harness === harness && runtime.driver.id === driver
-        ? runtime.driver
+      return server.driver.harness === harness && server.driver.id === driver
+        ? server.driver
         : undefined
     },
-    handleFor: (sessionId) => runtime.handleFor(sessionId),
-    bindings: () => runtime.bindings(),
-  }))
+    handleFor: (sessionId) => server.handleFor(sessionId),
+    bindings: () => server.bindings(),
+    async createWithId(sessionId, spec) {
+      const existing = journalled(sessionId)
+      if (existing.length > 0) {
+        throw new Error(`session '${sessionId}' already has a persisted server journal`)
+      }
+      await launch(sessionId, spec)
+      const handle = server.handleFor(sessionId)
+      if (!handle) throw new Error(`server runtime did not index session '${sessionId}'`)
+      return handle
+    },
+    async adopt(binding) {
+      const handle = await server.adoptFromJournal(binding.sessionId)
+      if (!handle) throw new Error(`server session '${binding.sessionId}' could not be rebound`)
+      return handle
+    },
+  })
+
+  const serverSources: readonly AgentRuntimeDriverSource[] = [
+    serverSource(input.opencode, (sessionId, spec) =>
+      input.opencode.launch(serverLaunchFor(sessionId, spec)),
+    ),
+    serverSource(input.codex, (sessionId, spec) =>
+      input.codex.launch(serverLaunchFor(sessionId, spec)),
+    ),
+    serverSource(input.grok, (sessionId, spec) =>
+      input.grok.launch(serverLaunchFor(sessionId, spec)),
+    ),
+  ]
 
   let runtime!: MachineAgentRuntime
   runtime = createAgentRuntime({
     sources: () => [terminalSource, ...serverSources],
+    primitiveSupport: {
+      import: {
+        supported: false,
+        reason: 'archive import requires the daemon archive storage adapter (POD-2415)',
+      },
+      list: { scope: 'registered-only' },
+    },
     async landArchive() {
-      throw new Error('unsupported: archive import requires the daemon archive storage adapter (POD-2415)')
+      throw new Error(
+        'unsupported: archive import requires the daemon archive storage adapter (POD-2415)',
+      )
     },
     async list() {
       const bindings = runtime.registeredBindings()
@@ -113,29 +202,12 @@ export function createDaemonMachineRuntime(input: {
           }
         }),
       )
-      return alive.filter((binding): binding is NonNullable<typeof binding> => binding !== undefined)
+      return alive.filter(
+        (binding): binding is NonNullable<typeof binding> => binding !== undefined,
+      )
     },
     inventory: input.inventory,
   })
-
-  const serverFor = (driverId: DriverId) =>
-    driverId === input.codex.driver.id
-      ? input.codex
-      : driverId === input.grok.driver.id
-        ? input.grok
-        : driverId === input.opencode.driver.id
-          ? input.opencode
-          : undefined
-
-  const journalled = (sessionId: SessionId) => {
-    const found = [
-      [input.opencode, input.opencode.journal.read(sessionId), 'opencode serve'] as const,
-      [input.codex, input.codex.journal.read(sessionId), 'codex app-server'] as const,
-      [input.grok, input.grok.journal.read(sessionId), 'grok agent stdio'] as const,
-    ].filter((entry) => entry[1] !== undefined)
-    return found
-  }
-
 
   return {
     ...runtime,
@@ -145,8 +217,41 @@ export function createDaemonMachineRuntime(input: {
     onHookPayload(sessionId, payload) {
       input.terminal.onHookPayload(sessionId, payload)
     },
-    registerTerminal(registration, profile) {
-      return input.terminal.register(registration, profile)
+    async bindTerminal(registration, profile) {
+      terminalAdoptions.set(registration.sessionId, { registration, profile })
+      try {
+        if (!registration.rebind) {
+          const spec: SessionSpec = {
+            harness: registration.agentKind,
+            selection: {
+              auth: 'unknown',
+              platform: process.platform,
+              available: [profile.driverId],
+              preference: profile.driverId,
+              role: 'interactive',
+            },
+            workdir: registration.cwd,
+            model: {},
+            instructions: { supported: false, reason: 'terminal process is already launched' },
+            mcpServers: { supported: false, reason: 'terminal harness owns its native config' },
+          }
+          return await runtime.create(spec, registration.sessionId)
+        }
+
+        const binding: SessionBinding = {
+          sessionId: registration.sessionId,
+          driver: profile.driverId,
+          family: 'terminal',
+          harness: registration.agentKind,
+          workdir: registration.cwd,
+          resume: registration.resume,
+          process: { key: registration.sessionId },
+          bindingVersion: Math.max(0, (registration.bindingVersion ?? 1) - 1),
+        }
+        return await runtime.adopt(binding)
+      } finally {
+        terminalAdoptions.delete(registration.sessionId)
+      }
     },
     clearTerminal(sessionId) {
       input.terminal.clear(sessionId)
@@ -159,21 +264,45 @@ export function createDaemonMachineRuntime(input: {
       input.terminal.reportOomKill(sessionId, scopeUnit)
       for (const server of servers) server.reportOomKill(sessionId, scopeUnit)
     },
-    async launchServer(driverId, launch) {
-      const existing = journalled(launch.sessionId)
-      if (existing.length > 0) {
-        throw new Error(`session '${launch.sessionId}' already has a persisted server journal`)
+    resolveDriver(selection) {
+      const resolution = resolveRuntimeDriver(selection)
+      if (!resolution.ok) return resolution
+      try {
+        return {
+          ...resolution,
+          capabilities: runtime.capabilities(selection.agentKind, resolution.driverId),
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          reason: error instanceof Error ? error.message : String(error),
+        }
       }
-      const selected = serverFor(driverId)
-      if (!selected) throw new Error("driver '" + driverId + "' is not wired on this daemon")
-      await selected.launch(launch)
     },
     async adoptJournalled(sessionId) {
       const found = journalled(sessionId)
       if (found.length === 0) return { found: false }
       if (found.length > 1) throw new Error(`session '${sessionId}' has duplicate server journals`)
-      const [runtime, entry, what] = found[0]
-      const handle = await runtime.adoptFromJournal(sessionId)
+      const match = found[0]
+      if (!match) return { found: false }
+      const [server, entry, what] = match
+      if (!entry) return { found: false }
+      const binding: SessionBinding = {
+        sessionId,
+        driver: server.driver.id,
+        family: server.driver.family,
+        harness: server.driver.harness,
+        workdir: entry.workdir,
+        resume: null,
+        process: entry.process,
+        bindingVersion: entry.bindingVersion,
+      }
+      let handle: AgentSessionHandle | undefined
+      try {
+        handle = await runtime.adopt(binding)
+      } catch {
+        handle = undefined
+      }
       return { found: true, what, workdir: entry.workdir, ...(handle ? { handle } : {}) }
     },
     serverHandleFor(sessionId) {
@@ -185,7 +314,8 @@ export function createDaemonMachineRuntime(input: {
     },
     journalledServerProcess(sessionId) {
       const matches = journalled(sessionId)
-      if (matches.length > 1) throw new Error(`session '${sessionId}' has duplicate server journals`)
+      if (matches.length > 1)
+        throw new Error(`session '${sessionId}' has duplicate server journals`)
       const opencode = input.opencode.journal.read(sessionId)
       if (opencode) {
         return {

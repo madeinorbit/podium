@@ -42,8 +42,15 @@ import type { SessionSpec } from './session-spec.js'
  */
 export interface AgentRuntime {
   // ---- Sessions (CORE) ----
-  /** Start a new session under the driver `spec.selection` resolves to. */
-  create(spec: SessionSpec): Promise<AgentSessionHandle>
+  /**
+   * Start a new session under the driver `spec.selection` resolves to.
+   *
+   * A host may supply an identity it already authenticated and persisted (the
+   * daemon's spawn frame is that case). The source adapter must explicitly
+   * support fixed identities; the root refuses instead of silently minting a
+   * different id that no production caller can address.
+   */
+  create(spec: SessionSpec, sessionId?: SessionId): Promise<AgentSessionHandle>
   /** Continue a conversation the harness already has on disk. */
   resume(ref: ResumeRef, spec: SessionSpec): Promise<AgentSessionHandle>
   /**
@@ -112,11 +119,26 @@ export interface AgentRuntimeDriverSource {
   driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
   bindings(): readonly SessionBinding[]
+  /** Host adapter for a server-authenticated, already-minted session identity. */
+  createWithId?(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle>
+  /** Host adapter for adoption bookkeeping around the driver's core verb. */
+  adopt?(binding: SessionBinding): Promise<AgentSessionHandle>
+}
+
+export interface RuntimePrimitiveSupport {
+  /** Archive landing is a separate storage adapter; a root must not imply it exists. */
+  readonly import: Declared<true>
+  /** `registered-only` is the foundation scope; process-table discovery lands in POD-2415. */
+  readonly list: {
+    scope: 'process-table' | 'registered-only'
+  }
 }
 
 export interface AgentRuntimeComposition {
   /** Read lazily so a daemon can close its bootstrap wiring cycle once. */
   sources(): readonly AgentRuntimeDriverSource[]
+  /** Honest support declaration for primitives whose mechanics live in host adapters. */
+  primitiveSupport: RuntimePrimitiveSupport
   /** Land harness-native bytes and return the resume ref to continue from. */
   landArchive(archive: SessionArchive, spec: SessionSpec): Promise<ResumeRef>
   /** Authoritative process-table inventory, never a projection of handle maps. */
@@ -130,8 +152,8 @@ export interface AgentRuntimeComposition {
 
 /** The host-facing superset used by daemon command routing. */
 export interface MachineAgentRuntime extends AgentRuntime {
-  /** Scope declaration: this foundation runtime lists indexed handles only. */
-  readonly inventoryScope: 'registered-only'
+  /** Typed truth for partial host composition; callers need not discover it by throwing. */
+  readonly primitiveSupport: RuntimePrimitiveSupport
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
   has(sessionId: SessionId): boolean
   driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined
@@ -155,8 +177,11 @@ const unsupportedLogin = unsupported('this machine does not expose runtime-manag
 export function createAgentRuntime(composition: AgentRuntimeComposition): MachineAgentRuntime {
   const sources = (): readonly AgentRuntimeDriverSource[] => composition.sources()
 
-  const driverFor = (harness: string, driver: DriverId): RuntimeDriver | undefined => {
-    let found: RuntimeDriver | undefined
+  const driverMatchFor = (
+    harness: string,
+    driver: DriverId,
+  ): { source: AgentRuntimeDriverSource; driver: RuntimeDriver } | undefined => {
+    let found: { source: AgentRuntimeDriverSource; driver: RuntimeDriver } | undefined
     for (const source of sources()) {
       const candidate = source.driverFor(harness, driver)
       if (!candidate) continue
@@ -165,22 +190,27 @@ export function createAgentRuntime(composition: AgentRuntimeComposition): Machin
           "runtime driver '" + driver + "' is wired more than once for '" + harness + "'",
         )
       }
-      found = candidate
+      found = { source, driver: candidate }
     }
     return found
   }
 
-  const selectedDriver = (spec: SessionSpec): RuntimeDriver => {
+  const driverFor = (harness: string, driver: DriverId): RuntimeDriver | undefined =>
+    driverMatchFor(harness, driver)?.driver
+
+  const selectedDriver = (
+    spec: SessionSpec,
+  ): { source: AgentRuntimeDriverSource; driver: RuntimeDriver } => {
     const manifest = manifestFor(spec.harness as AgentKind)
     if (!manifest) throw new Error("no runtime manifest for harness '" + spec.harness + "'")
     const driverId = manifest.runtime.select(spec.selection)
-    const driver = driverFor(spec.harness, driverId)
-    if (!driver) {
+    const match = driverMatchFor(spec.harness, driverId)
+    if (!match) {
       throw new Error(
         "runtime driver '" + driverId + "' is not wired for harness '" + spec.harness + "'",
       )
     }
-    return driver
+    return match
   }
 
   const remember = (handle: AgentSessionHandle): AgentSessionHandle => {
@@ -223,12 +253,25 @@ export function createAgentRuntime(composition: AgentRuntimeComposition): Machin
   }
 
   return {
-    inventoryScope: 'registered-only' as const,
-    async create(spec) {
-      return remember(await selectedDriver(spec).create(spec))
+    primitiveSupport: composition.primitiveSupport,
+    async create(spec, sessionId) {
+      const selected = selectedDriver(spec)
+      if (sessionId === undefined) return remember(await selected.driver.create(spec))
+      if (!selected.source.createWithId) {
+        throw new Error(
+          "runtime driver '" + selected.driver.id + "' cannot adopt a host-minted session id",
+        )
+      }
+      const handle = await selected.source.createWithId(sessionId, spec)
+      if (handle.binding.sessionId !== sessionId) {
+        throw new Error(
+          "runtime driver '" + selected.driver.id + "' indexed the wrong session identity",
+        )
+      }
+      return remember(handle)
     },
     async resume(ref, spec) {
-      return remember(await selectedDriver(spec).resume(ref, spec))
+      return remember(await selectedDriver(spec).driver.resume(ref, spec))
     },
     async import(archive, spec) {
       if (archive.harness !== spec.harness) {
@@ -237,16 +280,20 @@ export function createAgentRuntime(composition: AgentRuntimeComposition): Machin
         )
       }
       const ref = await composition.landArchive(archive, spec)
-      return remember(await selectedDriver(spec).resume(ref, spec))
+      return remember(await selectedDriver(spec).driver.resume(ref, spec))
     },
     async adopt(binding) {
-      const driver = driverFor(binding.harness, binding.driver)
-      if (!driver) {
+      const match = driverMatchFor(binding.harness, binding.driver)
+      if (!match) {
         throw new Error(
-          "runtime driver '" + binding.driver + "' is not wired for harness '" + binding.harness + "'",
+          "runtime driver '" +
+            binding.driver +
+            "' is not wired for harness '" +
+            binding.harness +
+            "'",
         )
       }
-      return remember(await driver.adopt(binding))
+      return remember(await (match.source.adopt?.(binding) ?? match.driver.adopt(binding)))
     },
     list: () => composition.list(),
     inventory: () => composition.inventory(),

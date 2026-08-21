@@ -14,6 +14,11 @@ const INVENTORY: Inventory = {
   tools: [],
 }
 
+const PRIMITIVE_SUPPORT = {
+  import: { supported: true, value: true },
+  list: { scope: 'process-table' },
+} as const
+
 function spec(): SessionSpec {
   return {
     harness: 'codex',
@@ -63,6 +68,7 @@ describe('createAgentRuntime', () => {
     const list = vi.fn(async () => [])
     const runtime = createAgentRuntime({
       sources: () => [driverSource],
+      primitiveSupport: PRIMITIVE_SUPPORT,
       landArchive: async (archive) => archive.resume,
       list,
       inventory,
@@ -87,6 +93,7 @@ describe('createAgentRuntime', () => {
     const landArchive = vi.fn(async () => archive.resume)
     const runtime = createAgentRuntime({
       sources: () => [driverSource],
+      primitiveSupport: PRIMITIVE_SUPPORT,
       landArchive,
       list: async () => [],
       inventory: async () => INVENTORY,
@@ -96,9 +103,9 @@ describe('createAgentRuntime', () => {
 
     expect(landArchive).toHaveBeenCalledWith(archive, spec())
     expect(imported.binding.resume).toEqual(archive.resume)
-    await expect(
-      runtime.import({ ...archive, harness: 'opencode' }, spec()),
-    ).rejects.toThrow("archive harness 'opencode' cannot be imported as 'codex'")
+    await expect(runtime.import({ ...archive, harness: 'opencode' }, spec())).rejects.toThrow(
+      "archive harness 'opencode' cannot be imported as 'codex'",
+    )
   })
 
   it('adopts by exact harness and driver and detects duplicate registry ownership', async () => {
@@ -110,6 +117,7 @@ describe('createAgentRuntime', () => {
 
     const runtime = createAgentRuntime({
       sources: () => [driverSource],
+      primitiveSupport: PRIMITIVE_SUPPORT,
       landArchive: async (archive) => archive.resume,
       list: async () => [binding],
       inventory: async () => INVENTORY,
@@ -123,6 +131,7 @@ describe('createAgentRuntime', () => {
     }
     const conflicted = createAgentRuntime({
       sources: () => [source(driver, [adopted]), source(driver, [duplicate])],
+      primitiveSupport: PRIMITIVE_SUPPORT,
       landArchive: async (archive) => archive.resume,
       list: async () => [],
       inventory: async () => INVENTORY,
