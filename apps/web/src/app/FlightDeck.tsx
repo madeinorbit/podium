@@ -2296,37 +2296,83 @@ export function ContinuationCard({
 function MissionBrief({ html, standing }: { html: string; standing?: boolean }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const [clipped, setClipped] = useState(false)
-  // `html` is not READ in here, it is the reason to run again: a new brief in
-  // the same box is new content to measure, and the element identity does not
-  // change to say so.
+  const [content, setContent] = useState(0)
+  const [open, setOpen] = useState(false)
+  // A different mission is a different brief: whatever the operator opened, it
+  // was not this one. Same shape as the measure below — the dependency is the
+  // trigger, not a value the effect reads.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency is the trigger, not a value the effect reads
+  useEffect(() => setOpen(false), [html])
+  // `html` is not READ in the effect below, it is the reason to run again: a new
+  // brief in the same box is new content to measure, and the element identity
+  // does not change to say so.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency is the trigger, not a value the effect reads
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
     // `scrollHeight` is the whole content even while `max-height` hides most of
-    // it, so the question is one read and there is no second box to keep in sync.
-    const measure = (): void => setClipped(el.scrollHeight - el.clientHeight > 1)
+    // it, so one read answers both questions: is anything cut, and how far does
+    // the open state have to travel.
+    const measure = (): void => {
+      setClipped(el.scrollHeight - el.clientHeight > 1)
+      setContent(el.scrollHeight)
+    }
     measure()
     // No layout, no overflow: under happy-dom every box is zero-high, `measure`
     // correctly answers "nothing is cut", and there is no observer to attach.
     if (typeof ResizeObserver === 'undefined') return
-    // The column is resizable, so "does this overflow" has to be answered again
-    // at every width. Nothing this sets changes layout — the fade is a mask — so
-    // the observer cannot feed itself the way a toggle beside the text would.
+    // The ceiling is a share of the WINDOW, so the answer changes when the window
+    // is resized as well as when the column is. Nothing this sets changes the
+    // text's own width — the toggle is on the line UNDER the brief, never beside
+    // it — so the observer cannot feed itself the way `.brief-shelf`'s could.
     const observer = new ResizeObserver(measure)
     observer.observe(el)
     return () => observer.disconnect()
   }, [html])
   return (
-    <div
-      ref={ref}
-      className="deck-brief chat-md"
-      data-testid="deck-brief"
-      data-clipped={clipped ? 'true' : undefined}
-      data-standing={standing ? 'true' : undefined}
-      // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <>
+      <div
+        ref={ref}
+        // One mission header is on screen at a time, so the id is unambiguous —
+        // and the toggle needs one to say what it expands.
+        id="deck-brief-body"
+        className="deck-brief chat-md"
+        data-testid="deck-brief"
+        data-clipped={clipped && !open ? 'true' : undefined}
+        data-open={open ? 'true' : undefined}
+        data-standing={standing ? 'true' : undefined}
+        // OPEN TRAVELS TO A MEASURED NUMBER, not to a keyword: `max-height: none`
+        // does not animate at all, and a cap far above the content eases across
+        // space the text does not occupy. `min()` keeps the second ceiling —
+        // reading the whole of a pasted spec must not leave the spine with
+        // nowhere to be, and past that the brief scrolls inside itself.
+        style={open ? { maxHeight: `min(${content}px, 60vh)` } : undefined}
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {/* THE BRIEF ENDS ON A LINE. Without one it dissolved into the mission's
+          controls: a faded tail and then a row of chips, with nothing saying
+          whether the paragraph had finished or merely stopped. The rule starts
+          on the header's own 16px datum in every state — which is why the
+          toggle takes the RIGHT end rather than the left, where a word would
+          push the line off the datum the title and the text share. */}
+      <div className="deck-brief-end">
+        <span aria-hidden className="deck-brief-rule" />
+        {(clipped || open) && (
+          <button
+            data-pressable
+            type="button"
+            className="deck-brief-more"
+            data-testid="deck-brief-more"
+            aria-expanded={open}
+            aria-controls="deck-brief-body"
+            onClick={() => setOpen((was) => !was)}
+          >
+            {open ? 'Show less' : 'Show more'}
+          </button>
+        )}
+      </div>
+    </>
   )
 }
 
