@@ -6,7 +6,22 @@
  *   2. Compile the server (relay + bun:sqlite; no PTY, no abduco).
  *   3. Compile the daemon via scripts/daemon-compiled.ts (embeds + materializes abduco).
  *
- * Run with: bun scripts/build-bun.ts
+ * Run with: bun scripts/build-bun.ts                       (this machine's platform)
+ *           bun scripts/build-bun.ts --target=bun-darwin-arm64   (cross, from Linux)
+ *
+ * CROSS-COMPILATION [spec:SP-6144 §8b]. With `--target` this builds the bundle for
+ * ANOTHER platform from a Linux box: `bun build --compile --target=…` produces the
+ * foreign executable, `scripts/abduco-cross.ts` produces the foreign abduco helper
+ * with `zig cc`, and a Darwin target is ad-hoc signed with `rcodesign` (Apple Silicon
+ * refuses to execute an unsigned Mach-O, so that signature is what makes the binary
+ * runnable at all — not a formality). That is what collapses the release matrix from
+ * one runner per architecture to one Linux job for all four.
+ *
+ * ONE TARGET PER INVOCATION, and deliberately so: the compiled binary embeds abduco
+ * through a static `with { type: 'file' }` import of the FIXED path dist-bun/abduco.bin,
+ * so two targets building at once would race to leave the wrong helper there. Callers
+ * that want several platforms (scripts/release.ts, the dev publisher) run this script
+ * once per platform, in sequence.
  */
 import { execFileSync } from 'node:child_process'
 import { sign as cryptoSign } from 'node:crypto'
@@ -39,6 +54,7 @@ import {
   hasBunTerminal,
   minTerminalBunVersion,
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
+import { crossBuildAbduco, type HeadlessPlatform, resolveRcodesign } from './abduco-cross'
 
 /**
  * The POSIX-sh launcher shim written to `headless/podium`. It exports PODIUM_HOME (so
@@ -72,6 +88,62 @@ export function bundleNames(platform: NodeJS.Platform = process.platform): {
   return platform === 'win32'
     ? { compiled: 'podium.exe', cli: 'podium-cli.exe', launcher: 'podium.cmd' }
     : { compiled: 'podium', cli: 'podium-cli', launcher: 'podium' }
+}
+
+/**
+ * The four `bun build --compile` targets a release ships, and what each one is called
+ * everywhere else.
+ *
+ * `platform` is the updater's vocabulary — the Tauri updater triple prefix the CLI
+ * derives from its own os/arch (`hostUpdateTarget()`) and the key a manifest uses.
+ * `asset` is the release-asset infix. Holding all three in ONE table is what stops a
+ * bundle built for one platform from being published under another's name.
+ */
+export const BUN_TARGETS = {
+  'bun-linux-x64': { platform: 'linux-x86_64', nodePlatform: 'linux', asset: 'linux-x64' },
+  'bun-linux-arm64': { platform: 'linux-aarch64', nodePlatform: 'linux', asset: 'linux-arm64' },
+  'bun-darwin-arm64': { platform: 'darwin-aarch64', nodePlatform: 'darwin', asset: 'darwin-arm64' },
+  'bun-darwin-x64': { platform: 'darwin-x86_64', nodePlatform: 'darwin', asset: 'darwin-x64' },
+} as const satisfies Record<
+  string,
+  { platform: HeadlessPlatform; nodePlatform: NodeJS.Platform; asset: string }
+>
+
+export type BunTarget = keyof typeof BUN_TARGETS
+
+export function isBunTarget(value: string): value is BunTarget {
+  return Object.hasOwn(BUN_TARGETS, value)
+}
+
+/** The `bun build --compile` target that produces a bundle for `platform`. */
+export function bunTargetForPlatform(platform: HeadlessPlatform): BunTarget {
+  const found = (Object.keys(BUN_TARGETS) as BunTarget[]).find(
+    (target) => BUN_TARGETS[target].platform === platform,
+  )
+  if (!found) throw new Error(`build-bun: no bun --compile target ships ${platform}`)
+  return found
+}
+
+/**
+ * Where a cross-built bundle lands: one directory per platform, so all four survive a
+ * single release job and can be inspected (and asserted over) side by side. A plain
+ * host build keeps writing to dist-bun/ exactly as before — nothing about running this
+ * script with no arguments changes.
+ */
+export function targetOutputRoot(distBun: string, target: BunTarget | undefined): string {
+  return target ? `${distBun}/targets/${BUN_TARGETS[target].platform}` : distBun
+}
+
+export function parseBuildTarget(argv: readonly string[]): BunTarget | undefined {
+  const flag = argv.find((a) => a.startsWith('--target='))
+  if (!flag) return undefined
+  const value = flag.slice('--target='.length)
+  if (!isBunTarget(value)) {
+    throw new Error(
+      `build-bun: unknown --target '${value}' (want ${Object.keys(BUN_TARGETS).join(' | ')})`,
+    )
+  }
+  return value
 }
 
 /**
@@ -225,8 +297,21 @@ function main(): void {
     )
   const root = fileURLToPath(new URL('..', import.meta.url))
   const out = `${root}dist-bun`
-  const names = bundleNames()
-  const win = process.platform === 'win32'
+  const target = parseBuildTarget(process.argv.slice(2))
+  const spec = target ? BUN_TARGETS[target] : undefined
+  if (spec && process.platform !== 'linux') {
+    // Not a portability limit of `bun build --compile` — a limit of what we have
+    // proven. The zig/rcodesign toolchain and the whole §8b evidence trail are for
+    // Linux hosts; letting a Mac quietly cross-build would publish bytes nothing in
+    // CI ever checks.
+    throw new Error(
+      `build-bun: --target cross-compilation is supported from linux only; this host is ${process.platform}`,
+    )
+  }
+  const bundleRoot = targetOutputRoot(out, target)
+  const names = bundleNames(spec?.nodePlatform ?? process.platform)
+  const win = (spec?.nodePlatform ?? process.platform) === 'win32'
+  mkdirSync(bundleRoot, { recursive: true })
   mkdirSync(out, { recursive: true })
 
   // Single source of truth for the version: root package.json `version` (env PODIUM_APP_VERSION
@@ -295,7 +380,15 @@ function main(): void {
     )
   }
 
-  if (!abducoSupported()) {
+  if (spec) {
+    // Cross build: the helper cannot be compiled by the host cc (wrong architecture,
+    // wrong object format), so it comes from the zig-cc cache — built from the SAME
+    // vendored abduco.c, keyed on that source's hash. Copied to the fixed path the
+    // compiled binary's `with { type: 'file' }` import reads.
+    const helper = crossBuildAbduco(spec.platform, { root })
+    cpSync(helper, `${out}/abduco.bin`)
+    console.log(`[build-bun] embedded abduco (${spec.platform}) <- ${helper}`)
+  } else if (!abducoSupported()) {
     // No abduco on Windows (POSIX forkpty) — sessions run on the ConPTY PTY backend
     // without a durable host [spec:SP-7f2c]. The compiled CLI still embeds
     // dist-bun/abduco.bin (a static `with {type:'file'}` import), so write an empty
@@ -317,7 +410,9 @@ function main(): void {
     name: string,
     opts: { extraEntrypoints?: string[]; defines?: Record<string, string> } = {},
   ): void => {
-    console.log(`[build-bun] compiling ${name} (v${version})…`)
+    console.log(
+      `[build-bun] compiling ${name} (v${version}${target ? `, --target=${target}` : ''})…`,
+    )
     const defines: Record<string, string> = {
       // Bake the real version so the compiled server's /version reports it (not 'dev').
       // Inlined at build time wherever process.env.PODIUM_APP_VERSION is read.
@@ -330,6 +425,9 @@ function main(): void {
       [
         'build',
         '--compile',
+        // Absent, Bun compiles for the host. Present, it downloads (and caches) the
+        // target's own Bun runtime and links the bundle against that instead.
+        ...(target ? [`--target=${target}`] : []),
         '--conditions=@podium/source',
         ...defineArgs,
         entry,
@@ -339,10 +437,34 @@ function main(): void {
         // entry, by contrast, always lands at /$bunfs/root/<outfile-basename>.
         ...(opts.extraEntrypoints ?? []),
         '--outfile',
-        `dist-bun/${name}`,
+        `${bundleRoot}/${name}`,
       ],
       { cwd: root, stdio: 'inherit' },
     )
+  }
+
+  /**
+   * Re-sign a Darwin binary ad-hoc, with Bun's JIT entitlements.
+   *
+   * `bun build --compile` already emits an ad-hoc signature for Darwin targets, but it
+   * is a LINKER_SIGNED one with identifier `a.out` and NO entitlements — and Bun's
+   * JavaScriptCore needs `allow-jit` to map its writable-executable pages. So this is
+   * not "add a signature", it is "replace a signature that lacks the entitlements".
+   * The published-bundle assertions check both discriminators (identifier `podium`,
+   * not LINKER_SIGNED) precisely so a silent regression to the linker signature reads
+   * as a failure rather than as a pass.
+   */
+  const signDarwin = (binary: string): void => {
+    const entitlements = `${root}scripts/bun-jit.entitlements.plist`
+    if (!existsSync(entitlements))
+      throw new Error(`build-bun: missing Darwin entitlements at ${entitlements}`)
+    console.log('[build-bun] rcodesign ad-hoc sign (Bun JIT entitlements)…')
+    execFileSync(
+      resolveRcodesign(),
+      ['sign', '--binary-identifier', 'podium', '--entitlements-xml-file', entitlements, binary],
+      { stdio: 'inherit' },
+    )
+    chmodSync(binary, 0o755)
   }
 
   // ONE binary ships. The `podium` CLI runs every role — the split components as
@@ -356,10 +478,11 @@ function main(): void {
   compile('scripts/cli-compiled.ts', names.compiled, {
     extraEntrypoints: [DISCOVERY_WORKER_ENTRY],
   })
-  console.log(`[build-bun] done -> dist-bun/${names.compiled}`)
+  if (spec?.nodePlatform === 'darwin') signDarwin(`${bundleRoot}/${names.compiled}`)
+  console.log(`[build-bun] done -> ${bundleRoot}/${names.compiled}`)
 
   // --- headless bundle: binaries + web + launcher ---------------------------------
-  const headless = `${out}/headless`
+  const headless = `${bundleRoot}/headless`
   // (`webDist` and its stamp were checked before the prebuild — see above.)
   // Re-stamp with this bundle's product version so About / web logs / Update
   // agree with the VERSION file and the compiled /version. A dest publish
@@ -381,14 +504,14 @@ function main(): void {
   // The one compiled binary, plus the launcher shim (below) that execs it as `podium-cli`.
   const bundledCli = `${headless}/${names.cli}`
   if (win) {
-    cpSync(`${out}/${names.compiled}`, bundledCli)
+    cpSync(`${bundleRoot}/${names.compiled}`, bundledCli)
   } else {
     // A running Linux executable cannot be opened for an in-place copy (ETXTBSY),
     // but replacing its directory entry is safe: the old process keeps its inode
     // while new launches see the complete new binary.
     const stagedCli = `${bundledCli}.new-${process.pid}`
     try {
-      cpSync(`${out}/${names.compiled}`, stagedCli)
+      cpSync(`${bundleRoot}/${names.compiled}`, stagedCli)
       chmodSync(stagedCli, 0o755)
       renameSync(stagedCli, bundledCli)
     } finally {
@@ -416,8 +539,11 @@ function main(): void {
 
   // Self-update artifact: a tarball of the headless/ dir the feed can serve. `tar` from the
   // bundle's parent so the archive root is `headless/` (matching runUpdate's extract path).
-  const tarball = updateArtifactPath(out, version, process.env)
-  execFileSync('tar', ['-czf', tarball, '-C', out, 'headless'], { cwd: root, stdio: 'inherit' })
+  const tarball = updateArtifactPath(bundleRoot, version, process.env)
+  execFileSync('tar', ['-czf', tarball, '-C', bundleRoot, 'headless'], {
+    cwd: root,
+    stdio: 'inherit',
+  })
 
   // Sign the tarball bytes (Ed25519) so the feed can serve `signature` and `podium update`
   // can verify before swapping. Key source: env PODIUM_UPDATE_SIGNING_KEY (base64 pkcs8/DER,
