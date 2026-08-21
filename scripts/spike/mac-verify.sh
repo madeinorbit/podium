@@ -93,15 +93,19 @@ mkdir -p "$PODIUM_STATE_DIR"
 INSTANCE="spike-$(date +%s)"
 echo "instance=$INSTANCE state=$PODIUM_STATE_DIR port=$PODIUM_PORT"
 
-# Headless spike has stub web/; run daemon role (connects locally once server is up)
-# or all-in-one. Prefer all-in-one for a single-process smoke.
-"$SIGNED" daemon >"$STATE/daemon.log" 2>&1 &
+# Prefer all-in-one (server+daemon in one process). Bare `daemon` needs a serverUrl.
+"$SIGNED" all-in-one >"$STATE/daemon.log" 2>&1 &
 echo $! >"$STATE/daemon.pid"
-sleep 3
+# Give sqlite store + mirror bootstrap a moment on a cold runner.
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  if [[ -x "$PODIUM_STATE_DIR/bin/abduco" ]]; then break; fi
+  sleep 1
+done
+sleep 2
 if kill -0 "$(cat "$STATE/daemon.pid")" 2>/dev/null; then
-  pass "daemon process still alive after 3s (pid $(cat "$STATE/daemon.pid"))"
+  pass "all-in-one still alive after boot wait (pid $(cat "$STATE/daemon.pid"))"
 else
-  echo "WARN: daemon exited early — log:"
+  echo "WARN: all-in-one exited early — log:"
   tail -80 "$STATE/daemon.log" || true
 fi
 echo "--- daemon.log (tail) ---"
@@ -113,7 +117,8 @@ if [[ -x "$PODIUM_STATE_DIR/bin/abduco" ]]; then
   "$PODIUM_STATE_DIR/bin/abduco" -v 2>&1 || die "materialized abduco -v failed"
   pass "embedded abduco materialized and runs"
 else
-  echo "WARN: no $PODIUM_STATE_DIR/bin/abduco yet — daemon may not have reached materializeEmbeddedAbduco"
+  # --version already materializes into ~/.podium/bin when STATE_DIR unset; force here.
+  die "no $PODIUM_STATE_DIR/bin/abduco — materializeEmbeddedAbduco did not run"
 fi
 
 echo
@@ -124,20 +129,31 @@ pass "standalone prebuilt abduco -v"
 # Create a disposable abduco session, kill the 'daemon' stand-in conceptually by
 # checking the session survives independently.
 SESS="podium-spike-$$"
+# abduco has no GNU-style `--`; the next argv IS the command.
 set +e
-"$ABDUCO" -n "$SESS" -- /bin/sleep 120
+"$ABDUCO" -n "$SESS" /bin/sleep 120
 ABDUCO_CREATE=$?
 set -e
-[[ $ABDUCO_CREATE -eq 0 ]] || die "abduco -n $SESS failed"
+[[ $ABDUCO_CREATE -eq 0 ]] || die "abduco -n $SESS failed (rc=$ABDUCO_CREATE)"
 "$ABDUCO" -l 2>&1 | grep -F "$SESS" || die "session $SESS not listed"
 pass "abduco session created"
 
-# Simulate daemon restart: session must still be listed.
+# Simulate daemon restart: kill all-in-one if still up; session must remain.
+if [[ -f "$STATE/daemon.pid" ]]; then
+  kill "$(cat "$STATE/daemon.pid")" 2>/dev/null || true
+  wait "$(cat "$STATE/daemon.pid")" 2>/dev/null || true
+  rm -f "$STATE/daemon.pid"
+fi
 sleep 1
-"$ABDUCO" -l 2>&1 | grep -F "$SESS" || die "session vanished without daemon"
+"$ABDUCO" -l 2>&1 | grep -F "$SESS" || die "session vanished after killing all-in-one"
 pass "abduco session survives without attached client (daemon-restart stand-in)"
 
-"$ABDUCO" -e "$SESS" 2>/dev/null || "$ABDUCO" -q "$SESS" 2>/dev/null || true
+# Detach/cleanup: send CTRL-A \\ equivalent via -e / kill session key if present.
+"$ABDUCO" -e "$SESS" 2>/dev/null || true
+# Force-reap leftover sleep master if still listed.
+if "$ABDUCO" -l 2>&1 | grep -qF "$SESS"; then
+  pkill -f "abduco.*$SESS" 2>/dev/null || true
+fi
 
 echo
 echo "=== SUMMARY ==="

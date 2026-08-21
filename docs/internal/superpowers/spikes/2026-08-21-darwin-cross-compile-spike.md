@@ -51,6 +51,7 @@ bun --conditions=@podium/source scripts/spike/build-bun-darwin.ts --target=bun-d
 
 ```sh
 rcodesign sign \
+  --binary-identifier podium \
   --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist \
   dist-bun-spike/darwin-arm64/podium
 
