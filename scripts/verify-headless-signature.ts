@@ -25,21 +25,49 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { verifyTarball } from '../packages/runtime/src/update-delivery'
 
+export const USAGE =
+  'usage: verify-headless-signature.ts <tarball> <signature-file-or-base64> [--pubkey <b64>]'
+
+export type SignatureArgs =
+  | { ok: true; tarball: string; signature: string; pubkey?: string }
+  | { ok: false; usage: string }
+
+/**
+ * Split argv into the tarball, the signature and an optional publisher key.
+ *
+ * EXTRACTED AND TESTED because the inline version shipped broken and nothing caught
+ * it. It filtered out `pubkeyIndex` and `pubkeyIndex + 1` unconditionally — and with
+ * `--pubkey` absent `indexOf` returns -1, so `pubkeyIndex + 1` is 0 and the filter ate
+ * the TARBALL. The two-argument form then exited with a usage error having verified
+ * nothing, and that form is the only one the published smoke uses: the release-key
+ * check behind both Mac bundles could never have run.
+ *
+ * Pure, so the cases are a table rather than something only a release can exercise.
+ */
+export function parseSignatureArgs(argv: readonly string[]): SignatureArgs {
+  const rest: string[] = []
+  let pubkey: string | undefined
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--pubkey') {
+      pubkey = argv[i + 1]
+      if (!pubkey) return { ok: false, usage: 'usage: --pubkey needs a base64 SPKI/DER public key' }
+      i++ // consume the value, and ONLY when the flag was actually present
+      continue
+    }
+    rest.push(argv[i] as string)
+  }
+  const [tarball, signature] = rest
+  if (!tarball || !signature) return { ok: false, usage: USAGE }
+  return { ok: true, tarball, signature, ...(pubkey ? { pubkey } : {}) }
+}
+
 function main(): void {
-  const argv = process.argv.slice(2)
-  const pubkeyIndex = argv.indexOf('--pubkey')
-  const pubkey = pubkeyIndex >= 0 ? argv[pubkeyIndex + 1] : undefined
-  if (pubkeyIndex >= 0 && !pubkey) {
-    console.error('usage: --pubkey needs a base64 SPKI/DER public key')
+  const parsed = parseSignatureArgs(process.argv.slice(2))
+  if (!parsed.ok) {
+    console.error(parsed.usage)
     process.exit(2)
   }
-  const [tarball, signatureArg] = argv.filter((_, i) => i !== pubkeyIndex && i !== pubkeyIndex + 1)
-  if (!tarball || !signatureArg) {
-    console.error(
-      'usage: verify-headless-signature.ts <tarball> <signature-file-or-base64> [--pubkey <b64>]',
-    )
-    process.exit(2)
-  }
+  const { tarball, signature: signatureArg, pubkey } = parsed
   if (!existsSync(tarball)) {
     console.error(`FAIL: no such tarball ${tarball}`)
     process.exit(1)
@@ -65,4 +93,7 @@ function main(): void {
   console.log(`PASS: ${tarball} verifies under ${keyName}`)
 }
 
-main()
+// Guarded like every other script here: without it, importing this module to TEST the
+// parser executed main() against vitest's own argv and exited the worker. A script that
+// cannot be imported is a script whose parsing can only be exercised by a release.
+if (import.meta.main) main()
