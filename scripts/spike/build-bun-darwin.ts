@@ -28,7 +28,7 @@ import {
   hasBunTerminal,
   minTerminalBunVersion,
 } from '../../packages/pty/src/backends/bun-terminal-backend.js'
-import { launcherShim } from '../build-bun.ts'
+import { launcherShim } from '../build-bun.js'
 
 type SpikeTarget = 'bun-darwin-arm64' | 'bun-darwin-x64'
 
