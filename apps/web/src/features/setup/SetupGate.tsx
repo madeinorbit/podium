@@ -3,6 +3,7 @@ import { isServerReadiness, type ServerReadiness } from '@podium/model'
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
 import { hasSyncedReplica } from '@/lib/replica-presence'
+import { SetupStaleBuild } from './SetupStaleBuild'
 import { SetupUnreachable } from './SetupUnreachable'
 import { isTooOldForLocalData, localBuildStamp } from './local-build-guard'
 import { restartPodiumShell } from './restart-shell'
@@ -10,9 +11,6 @@ import { checkServerVersion } from './version-guard'
 
 const SetupView = lazy(() =>
   import('./SetupView').then((module) => ({ default: module.SetupView })),
-)
-const SetupStaleBuild = lazy(() =>
-  import('./SetupStaleBuild').then((module) => ({ default: module.SetupStaleBuild })),
 )
 
 type Phase =
@@ -269,11 +267,7 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
     // rather than making a screen that refuses to run depend on a non-null assertion.
     const stamp = localBuildStamp()
     if (stamp) {
-      return (
-        <Suspense fallback={<LoadingScreen />}>
-          <SetupStaleBuild stamp={stamp} onRetry={() => setAttempt((n) => n + 1)} />
-        </Suspense>
-      )
+      return <SetupStaleBuild stamp={stamp} onRetry={() => setAttempt((n) => n + 1)} />
     }
     return <SetupUnreachable httpOrigin={httpOrigin} onRetry={() => setAttempt((n) => n + 1)} />
   }
