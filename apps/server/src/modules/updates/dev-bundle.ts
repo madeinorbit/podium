@@ -6,9 +6,20 @@ import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
-import type { UpdateTarget } from '@podium/protocol'
-import { resolveInstanceId } from '@podium/runtime/config'
+import {
+  commitShaFromDevVersion,
+  isPublisherDevVersion,
+  mintDevVersion,
+  parsePublisherDevVersion,
+  type UpdateTarget,
+} from '@podium/protocol'
+import { resolveInstanceId, stateDir } from '@podium/runtime/config'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
+import {
+  readDevPublisherState,
+  versionStateOf,
+  writeDevPublisherState,
+} from './dev-publisher-state'
 
 const log = createLogger('server:updates')
 
@@ -96,16 +107,15 @@ export function decideDevBuild(ctx: DevBuildDecisionContext): BuildDecision {
 /**
  * SOURCE IDENTITY.
  *
- * A development bundle is published as `dev+<sha>`, and every consumer — the
- * daemon that downloads it, the operator reading /version — takes that string
- * to mean "this was compiled from that commit". `scripts/build-bun.ts` compiles
+ * A development *bundle* is published under a publisher-minted orderable
+ * version (`<base>.dev.<N>+<sha>`, POD-2502). The `+<sha>` build metadata is
+ * still the claim "compiled from that commit". `scripts/build-bun.ts` compiles
  * the LIVE working tree, so an edited checkout would ship code that is not that
  * commit under a name that claims it is.
  *
- * This establishes SOURCE identity, not build reproducibility: two builds of
- * the same clean checkout can still differ byte for byte (bun version, resolved
- * dependencies, embedded paths). The guarantee is only that the source compiled
- * was the named commit — which is the claim `dev+<sha>` actually makes.
+ * Process/log identity on a source host remains `dev+<sha>` (see
+ * `build-version.ts` / `source-version.ts`); only the published target carries
+ * the orderable form.
  *
  * So the check is fail-closed and runs before restore, before build, before
  * publication. Anything git reports as a difference from HEAD blocks it.
@@ -408,40 +418,45 @@ export interface BuiltDevBundle {
 /**
  * NAMING, so that "the previous one" is a fact on disk rather than a guess.
  *
- * `dev+<sha>` is the version a daemon sees and must stay exactly that — it is
- * the claim "compiled from that commit". The FILE, though, also carries the
- * moment it was built, which buys two things a bare sha cannot: rebuilding the
- * same commit produces a new file instead of silently overwriting the one a
- * request may be streaming, and retention can be ordered without stat-ing
- * anything or trusting mtimes that a copy or a restore would reset.
+ * The published version is a publisher mint (`<base>.dev.<N>+<sha>`). The FILE
+ * also carries the moment it was built, which buys two things the version alone
+ * cannot: rebuilding the same commit produces a new file instead of silently
+ * overwriting the one a request may be streaming, and legacy stamp-ordered
+ * listings still have a total order without trusting mtimes.
  *
- * The stamp is fixed-width and lexicographically ordered, so sorting the
- * directory listing IS sorting by build time.
+ * Retention itself is manifest-reference-based (POD-2502): the sweep keeps
+ * artifact basenames referenced by retained publishes, never "newest N by stamp"
+ * alone — a stamp sort could delete a file a current manifest still names.
  */
-export const DEV_BUNDLE_PREFIX = 'podium-headless-dev+'
+export const DEV_BUNDLE_PREFIX = 'podium-headless-'
 export const DEV_BUNDLE_SUFFIX = '.tar.gz'
 export const DEV_BUNDLE_SIGNATURE_SUFFIX = '.sig'
 export const DEV_BUNDLE_METADATA_SUFFIX = '.meta.json'
 
 /**
- * HOW MANY BUNDLES SURVIVE A SWEEP.
+ * HOW MANY PUBLISHED ARTIFACTS THE PUBLISHER REMEMBERS.
  *
- * Only the current HEAD's bundle is reachable — `target()` withholds anything
- * else and the artifact route refuses it — so one would be enough to serve. The
- * second is kept deliberately for the human at the checkout: when a build makes
- * something worse, the bundle it replaced is still on disk to compare against.
- * Everything older is unreachable by construction and goes.
+ * Only the current HEAD's bundle is reachable via the artifact route, so one
+ * would be enough to serve. The second is kept deliberately for the human at
+ * the checkout: when a build makes something worse, the bundle it replaced is
+ * still on disk to compare against. The retained set is the sweep's allowlist.
  */
 export const DEV_BUNDLE_RETAINED = 2
 
-const DEV_BUNDLE_NAME_PATTERN =
+/** Legacy `dev+<sha>` names, with or without a build stamp. */
+const LEGACY_DEV_BUNDLE_NAME =
   /^podium-headless-dev\+([0-9a-f]{7,40})(?:-(\d{8}T\d{6}Z))?\.tar\.gz$/
+/** Stamped publisher artifact: `podium-headless-<version>-<stamp>.tar.gz`. */
+const STAMPED_DEV_BUNDLE_NAME = /^podium-headless-(.+)-(\d{8}T\d{6}Z)\.tar\.gz$/
 
 export interface DevBundleFile {
   name: string
+  /** Commit the artifact claims, when the name carries one. */
   sha: string
   /** Empty for a bundle built before builds were stamped; sorts oldest. */
   stamp: string
+  /** Version label embedded in the filename, when parseable. */
+  version: string
 }
 
 /** `20260812T182015Z` — fixed width, so string order is time order. */
@@ -453,17 +468,32 @@ export function devBundleStamp(at: number): string {
 }
 
 /**
- * Recognise this build's own artifacts and NOTHING else.
+ * Recognise this publisher's own artifacts and NOTHING else.
  *
  * The retention sweep deletes whatever this returns a match for, so the pattern
- * is the safety boundary: `dev+<sha>` only, never a semver name. A release
- * tarball sits in the same directory and `scripts/release.ts` reads it by that
- * name.
+ * is the safety boundary: legacy `dev+<sha>` names and stamped publisher mints,
+ * never an unstamped release semver tarball. A release sits in the same
+ * directory and `scripts/release.ts` reads it by that name.
  */
 export function parseDevBundleName(name: string): DevBundleFile | null {
-  const match = DEV_BUNDLE_NAME_PATTERN.exec(name)
-  if (!match) return null
-  return { name, sha: match[1] as string, stamp: match[2] ?? '' }
+  const legacy = LEGACY_DEV_BUNDLE_NAME.exec(name)
+  if (legacy) {
+    const sha = legacy[1] as string
+    return { name, sha, stamp: legacy[2] ?? '', version: `dev+${sha}` }
+  }
+  const stamped = STAMPED_DEV_BUNDLE_NAME.exec(name)
+  if (!stamped) return null
+  const version = stamped[1] as string
+  // Release artifacts are `podium-headless-<semver>.tar.gz` with no stamp. A
+  // stamped name whose version is neither a legacy identity nor a publisher
+  // mint is not ours to reclaim.
+  if (!version.startsWith('dev+') && !isPublisherDevVersion(version)) return null
+  return {
+    name,
+    sha: commitShaFromDevVersion(version) ?? '',
+    stamp: stamped[2] as string,
+    version,
+  }
 }
 
 export function devBundleFileName(version: string, stamp: string): string {
@@ -488,29 +518,47 @@ export function listDevBundles(names: readonly string[]): DevBundleFile[] {
 /**
  * WHAT A SWEEP DELETES, decided without touching the filesystem.
  *
- * Given a directory listing, the names that may go: every development bundle
- * outside the retention window, plus the sidecars belonging to each — and only
- * sidecars the listing actually shows, so the result is a list of files that
- * exist rather than a list of guesses.
+ * Prefer `referenced`: every recognised development artifact whose basename is
+ * not in that set (nor in `protect`) may go, along with present sidecars. That
+ * is the manifest-reference rule — a file a retained publish still names is
+ * never deleted, regardless of stamp order.
  *
- * `protect` is belt and braces for the artifact currently being served. It is
- * always within the window in practice; naming it explicitly means a future
- * change to the ordering cannot make the sweep delete what it is publishing.
+ * `keep` remains as a fallback when no referenced set is supplied (tests / an
+ * older call site): keep the newest N by stamp, matching the historical window.
  */
 export function selectDevBundleSweep(
   names: readonly string[],
-  options: { keep?: number; protect?: readonly string[] } = {},
+  options: {
+    keep?: number
+    protect?: readonly string[]
+    /** Artifact basenames retained publishes still reference. */
+    referenced?: readonly string[]
+  } = {},
 ): string[] {
-  const keep = options.keep ?? DEV_BUNDLE_RETAINED
   const present = new Set(names)
   const protectedNames = new Set(options.protect ?? [])
   const doomed: string[] = []
+
+  const pushDoomed = (entryName: string) => {
+    doomed.push(entryName)
+    for (const suffix of [DEV_BUNDLE_SIGNATURE_SUFFIX, DEV_BUNDLE_METADATA_SUFFIX]) {
+      if (present.has(entryName + suffix)) doomed.push(entryName + suffix)
+    }
+  }
+
+  if (options.referenced !== undefined) {
+    const referenced = new Set(options.referenced)
+    for (const entry of listDevBundles(names)) {
+      if (referenced.has(entry.name) || protectedNames.has(entry.name)) continue
+      pushDoomed(entry.name)
+    }
+    return doomed
+  }
+
+  const keep = options.keep ?? DEV_BUNDLE_RETAINED
   listDevBundles(names).forEach((entry, index) => {
     if (index < keep || protectedNames.has(entry.name)) return
-    doomed.push(entry.name)
-    for (const suffix of [DEV_BUNDLE_SIGNATURE_SUFFIX, DEV_BUNDLE_METADATA_SUFFIX]) {
-      if (present.has(entry.name + suffix)) doomed.push(entry.name + suffix)
-    }
+    pushDoomed(entry.name)
   })
   return doomed
 }
@@ -622,6 +670,16 @@ export interface DevBundleBuildDeps {
   now?: () => number
   /** Names the transient build unit; passed through to `spawnBuild`. */
   instanceId?: string
+  /**
+   * Instance state directory for publisher version persistence. Defaults to
+   * `stateDir()`. Seam for tests.
+   */
+  publisherStateDir?: string
+  /**
+   * Checkout release base (root package.json version). Seam for tests; defaults
+   * to reading `<root>/package.json`.
+   */
+  checkoutReleaseBase?: string | (() => string)
 }
 
 const SOURCE_ROOT = fileURLToPath(new URL('../../../../..', import.meta.url))
@@ -637,6 +695,123 @@ function shortSha(raw: string): string {
   const sha = raw.trim()
   if (!sha) throw new Error('could not determine the development bundle HEAD sha')
   return sha.slice(0, 7)
+}
+
+/**
+ * The release version the checkout currently declares — seed / ceiling input
+ * for publisher minting. Never used alone as the published version: the
+ * publisher's persisted base may be higher (decision 13).
+ */
+export function readCheckoutReleaseBase(root: string): string {
+  const path = join(root, 'package.json')
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }
+    if (typeof parsed.version === 'string' && parsed.version.trim().length > 0) {
+      return parsed.version.trim()
+    }
+  } catch {
+    // fall through
+  }
+  throw new Error(
+    `could not read a release version from ${path}, so this publisher cannot mint a development version`,
+  )
+}
+
+function resolveCheckoutReleaseBase(deps: DevBundleBuildDeps, root: string): string {
+  if (typeof deps.checkoutReleaseBase === 'function') return deps.checkoutReleaseBase()
+  if (typeof deps.checkoutReleaseBase === 'string') return deps.checkoutReleaseBase
+  return readCheckoutReleaseBase(root)
+}
+
+/**
+ * Assign the next publisher-owned version and persist the counter immediately
+ * so a crash mid-compile cannot reuse N. Call {@link rememberDevArtifact} once
+ * the stamped basename is known so the sweep allowlist includes it.
+ */
+export function allocateDevPublishVersion(input: {
+  stateDir: string
+  checkoutBase: string
+  sha: string
+}): { version: string; base: string; counter: number } {
+  const existing = readDevPublisherState(input.stateDir)
+  const minted = mintDevVersion(versionStateOf(existing), input.checkoutBase, input.sha)
+  writeDevPublisherState(
+    {
+      base: minted.state.base,
+      counter: minted.state.counter,
+      retainedArtifacts: existing?.retainedArtifacts ?? [],
+    },
+    input.stateDir,
+  )
+  return {
+    version: minted.version,
+    base: minted.state.base,
+    counter: minted.state.counter,
+  }
+}
+
+/**
+ * Record a freshly published artifact basename in the retained set and return
+ * the full allowlist the sweep must honour.
+ */
+export function rememberDevArtifact(input: {
+  stateDir: string
+  artifactName: string
+  retain?: number
+}): string[] {
+  const existing = readDevPublisherState(input.stateDir)
+  if (!existing) {
+    throw new Error('cannot remember a development artifact before a version has been minted')
+  }
+  const retain = input.retain ?? DEV_BUNDLE_RETAINED
+  const referenced = [
+    input.artifactName,
+    ...existing.retainedArtifacts.filter((name) => name !== input.artifactName),
+  ].slice(0, retain)
+  writeDevPublisherState({ ...existing, retainedArtifacts: referenced }, input.stateDir)
+  return referenced
+}
+
+/** Basenames the publisher currently promises not to delete. */
+export function referencedDevArtifacts(stateDirPath: string = stateDir()): string[] {
+  return readDevPublisherState(stateDirPath)?.retainedArtifacts ?? []
+}
+
+/**
+ * Recover publisher state from an on-disk artifact when the state file is gone.
+ * Legacy `dev+<sha>` artifacts contribute only the allowlist entry — the next
+ * mint still seeds its base from the checkout.
+ */
+export function seedPublisherStateFromArtifact(input: {
+  stateDir: string
+  version: string
+  artifactName: string
+  retain?: number
+}): string[] {
+  const retain = input.retain ?? DEV_BUNDLE_RETAINED
+  const referenced = [input.artifactName].slice(0, retain)
+  const parsed = parsePublisherDevVersion(input.version)
+  if (parsed) {
+    writeDevPublisherState(
+      {
+        base: parsed.base,
+        counter: parsed.counter,
+        retainedArtifacts: referenced,
+      },
+      input.stateDir,
+    )
+    return referenced
+  }
+  // Legacy identity on disk, no mint yet — allowlist only, no counter.
+  const existing = readDevPublisherState(input.stateDir)
+  if (existing) {
+    return rememberDevArtifact({
+      stateDir: input.stateDir,
+      artifactName: input.artifactName,
+      retain,
+    })
+  }
+  return referenced
 }
 
 function developmentSigningKey(root: string): string {
@@ -718,7 +893,11 @@ async function readMetadata(fs: DevBundleFs, path: string): Promise<DevBundleMet
 export async function sweepDevBundles(
   fs: DevBundleFs,
   dir: string,
-  options: { keep?: number; protect?: readonly string[] } = {},
+  options: {
+    keep?: number
+    protect?: readonly string[]
+    referenced?: readonly string[]
+  } = {},
 ): Promise<string[]> {
   const removed: string[] = []
   try {
@@ -753,14 +932,17 @@ async function readExistingDevBundle(
 ): Promise<BuiltDevBundle | null> {
   const root = deps.root ?? SOURCE_ROOT
   const sha = shortSha(deps.headSha)
-  const version = 'dev+' + sha
   const dir = devBundleDirectory(root)
+  // Prefer the newest artifact whose name (or metadata) claims this commit.
+  // Publisher mints put the sha in build metadata; legacy names used `dev+<sha>`.
   const candidate = listDevBundles(await deps.fs.list(dir)).find((entry) => entry.sha === sha)
   if (!candidate) return null
 
   const path = join(dir, candidate.name)
   const metadata = await readMetadata(deps.fs, path)
-  if (!metadata || metadata.version !== version) return null
+  if (!metadata) return null
+  const metadataSha = commitShaFromDevVersion(metadata.version)
+  if (metadataSha !== sha) return null
   if (metadata.keyFingerprint !== devBundleKeyFingerprint(deps.signingKey)) return null
 
   const signature = (await readOptionalText(deps.fs, path + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
@@ -774,7 +956,13 @@ async function readExistingDevBundle(
   }
   if (actual.digest !== metadata.digest || actual.size !== metadata.size) return null
 
-  return { version, path, size: actual.size, digest: actual.digest, signature }
+  return {
+    version: metadata.version,
+    path,
+    size: actual.size,
+    digest: actual.digest,
+    signature,
+  }
 }
 
 /**
@@ -790,7 +978,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
   const root = deps.root ?? SOURCE_ROOT
   const fs = deps.fs ?? nodeDevBundleFs
   const sha = shortSha(deps.headSha ?? (await developmentHeadSha(root)))
-  const version = 'dev+' + sha
+  const publisherStateDir = deps.publisherStateDir ?? stateDir()
   const lock = deps.lock
   const acquired = await lock.acquire()
   if (acquired === false) throw new Error('could not acquire the development bundle lock')
@@ -810,7 +998,20 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
   try {
     const spawnBuild = deps.spawnBuild ?? deps.build ?? defaultSpawnBuild
     const stamp = devBundleStamp((deps.now ?? Date.now)())
-    const requestedPath = join(devBundleDirectory(root), devBundleFileName(version, stamp))
+    const checkoutBase = resolveCheckoutReleaseBase(deps, root)
+    const allocated = allocateDevPublishVersion({
+      stateDir: publisherStateDir,
+      checkoutBase,
+      sha,
+    })
+    const version = allocated.version
+    const artifactName = devBundleFileName(version, stamp)
+    const referenced = rememberDevArtifact({
+      stateDir: publisherStateDir,
+      artifactName,
+      ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
+    })
+    const requestedPath = join(devBundleDirectory(root), artifactName)
     const result = await spawnBuild({
       root,
       version,
@@ -840,7 +1041,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
       JSON.stringify(metadata, null, 2) + '\n',
     )
     await sweepDevBundles(fs, dirname(artifactPath), {
-      ...(deps.retain !== undefined ? { keep: deps.retain } : {}),
+      referenced,
       protect: [basename(artifactPath)],
     })
     return { version, path: artifactPath, size, digest, signature }
@@ -872,8 +1073,9 @@ export function developmentPlatformTarget(
  * The migration folder names a commit defines, or `undefined` when the tree
  * cannot be read.
  *
- * `undefined` is the honest answer and the daemon treats it as unproven — it
- * refuses rather than swapping on a claim nobody stands behind.
+ * `undefined` is the honest answer for a probe. Publication must not use it —
+ * {@link requireDefinedMigrations} throws rather than shipping silence, the
+ * same posture as `scripts/release.ts` `readDefinedMigrations`.
  */
 export async function migrationsAtRevision(
   root: string,
@@ -891,6 +1093,24 @@ export async function migrationsAtRevision(
   }
 }
 
+/**
+ * Migrations a published development manifest must declare.
+ *
+ * THROWS rather than publishing silence. A manifest with no declaration is one
+ * no machine can ever prove it could open, so a publisher that cannot see the
+ * checkout's migrations has to stop, not ship a target that will be refused for
+ * the rest of its life (POD-2502 / release.ts parity).
+ */
+export function requireDefinedMigrations(
+  migrations: string[] | undefined,
+  sha: string,
+): string[] {
+  if (migrations && migrations.length > 0) return migrations
+  throw new Error(
+    `no migrations found for ${sha}, so this development release cannot declare the schema it can open`,
+  )
+}
+
 export function devTarget(
   built: BuiltDevBundle,
   opts: {
@@ -903,11 +1123,13 @@ export function devTarget(
 ): UpdateTarget {
   const platform = opts.platform ?? developmentPlatformTarget()
   const url = opts.artifactUrl ?? DEV_ARTIFACT_ROUTE + '/' + encodeURIComponent(built.version)
-  const webDigest = opts.webDigest ?? built.version.replace(/^dev\+/, '')
+  const sha = commitShaFromDevVersion(built.version) ?? built.version.replace(/^dev\+/, '')
+  const webDigest = opts.webDigest ?? sha
+  const migrations = requireDefinedMigrations(opts.schemaMigrations, sha)
   return {
     version: built.version,
     critical: false,
-    ...(opts.schemaMigrations ? { schema: { migrations: opts.schemaMigrations } } : {}),
+    schema: { migrations },
     artifacts: {
       headless: {
         delivery: 'bundle',
@@ -923,7 +1145,7 @@ export function devTarget(
         {
           delivery: 'git',
           repo: opts.sourceRoot ?? DEVELOPMENT_SOURCE_ROOT,
-          sha: built.version.replace(/^dev\+/, ''),
+          sha,
         },
       ],
       web: { digest: webDigest },
@@ -932,9 +1154,14 @@ export function devTarget(
 }
 
 /**
- * dev+<sha> as an install identity when there is not yet an honest headless
- * tarball for this HEAD. Update still has something to compare and can rebuild
- * the website. Do not advertise a previous commit's tarball under this label.
+ * `dev+<sha>` as an install identity when there is not yet an honest headless
+ * tarball for this HEAD. Orderable publisher versions exist only for minted
+ * bundles (disposition 23); the identity label stays the forensic source form
+ * so Update can still compare and rebuild the website. Do not advertise a
+ * previous commit's tarball under this label.
+ *
+ * Schema declarations are required when this identity is *published* as a
+ * target — see {@link createDevBundlePublisher} `target()`.
  */
 export function devIdentityTarget(
   headSha: string,
@@ -1056,8 +1283,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     }
   }
 
-  /** Never throws: an unreadable tree publishes no declaration, which the
-   *  daemon reads as unproven and refuses. */
+  /** Probe only — publication goes through {@link requireDefinedMigrations}. */
   const readMigrationsAt = async (sha: string): Promise<string[] | undefined> => {
     const read =
       deps.migrationsAt ?? ((at: string) => migrationsAtRevision(deps.root ?? SOURCE_ROOT, at))
@@ -1134,9 +1360,28 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           current === null
             ? readExistingDevBundle({ ...deps, fs, headSha }).then(async (existing) => {
                 if (!existing) return buildDevBundle({ ...deps, headSha })
+                const artifactName = basename(existing.path)
+                const statePath = deps.publisherStateDir ?? stateDir()
+                // Restoring still counts as publishing that basename. Seed from
+                // the artifact when state was lost so the counter cannot rewind.
+                let referenced: string[]
+                try {
+                  referenced = rememberDevArtifact({
+                    stateDir: statePath,
+                    artifactName,
+                    ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
+                  })
+                } catch {
+                  referenced = seedPublisherStateFromArtifact({
+                    stateDir: statePath,
+                    version: existing.version,
+                    artifactName,
+                    retain: deps.retain,
+                  })
+                }
                 await sweepDevBundles(fs, dirname(existing.path), {
-                  ...(deps.retain !== undefined ? { keep: deps.retain } : {}),
-                  protect: [basename(existing.path)],
+                  referenced,
+                  protect: [artifactName],
                 })
                 return existing
               })
@@ -1218,15 +1463,22 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     target: async () => {
       const headSha = await currentHeadSha()
       if (headSha === null) return undefined
-      // A dev+<sha> label names this commit. A dirty tree is not that commit,
-      // so do not advertise one. Any other failure (stale web dist, compile)
-      // still needs the identity so Update can rebuild.
+      // A source-identity label names this commit. A dirty tree is not that
+      // commit, so do not advertise one. Any other failure (stale web dist,
+      // compile) still needs the identity so Update can rebuild.
       if (failure?.sha === headSha && failure.reason.includes('does not match HEAD')) {
         return undefined
       }
       // Declared for the commit being advertised — the same short sha the git
-      // artifact tells the daemon to check out (POD-2213).
-      const migrations = await readMigrationsAt(headSha)
+      // artifact tells the daemon to check out (POD-2213). Publication fails
+      // closed when the tree cannot be read (POD-2502 / release.ts parity).
+      let migrations: string[]
+      try {
+        migrations = requireDefinedMigrations(await readMigrationsAt(headSha), headSha)
+      } catch (error) {
+        recordFailure(error, headSha)
+        return undefined
+      }
       if (current && builtSha === headSha) {
         const artifactUrl =
           typeof deps.artifactUrl === 'function'
@@ -1236,12 +1488,12 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           artifactUrl,
           platform: deps.platform,
           sourceRoot: deps.root,
-          ...(migrations ? { schemaMigrations: migrations } : {}),
+          schemaMigrations: migrations,
         })
       }
       return devIdentityTarget(headSha, {
         sourceRoot: deps.root,
-        ...(migrations ? { schemaMigrations: migrations } : {}),
+        schemaMigrations: migrations,
       })
     },
   }
