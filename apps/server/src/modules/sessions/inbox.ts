@@ -655,6 +655,25 @@ export class SessionInbox {
         stop()
         return
       }
+      // Re-authorize immediately before EVERY physical attempt. Confirmation
+      // can span an agent turn; during that gap an ack, echo, or cancellation
+      // can settle the source ledger row and make a retry invalid.
+      const authorized = this.deps.authorization.authorizeAtDrain({
+        sessionId,
+        principal: head.principal,
+        sourceMessageId: head.sourceMessageId,
+      })
+      if (!authorized.ok) {
+        removeHead(current, head.id)
+        this.deps.authorization.rejected({
+          queueId: head.id,
+          sourceMessageId: head.sourceMessageId,
+          principal: head.principal,
+          reason: authorized.reason,
+        })
+        afterHead(current)
+        return
+      }
       const needle = confirmationNeedle(head.text)
       // A retry exists ONLY because the last attempt went unwitnessed. If the
       // turn has appeared since, it landed late — settle it rather than send the
@@ -711,24 +730,6 @@ export class SessionInbox {
       const head = this.deps.queue.list(sessionId)[0]
       if (!head) {
         stop()
-        return
-      }
-      // The security boundary is HERE, immediately before the daemon gateway.
-      // Nothing accepted at enqueue is trusted now.
-      const authorized = this.deps.authorization.authorizeAtDrain({
-        sessionId,
-        principal: head.principal,
-        sourceMessageId: head.sourceMessageId,
-      })
-      if (!authorized.ok) {
-        removeHead(current, head.id)
-        this.deps.authorization.rejected({
-          queueId: head.id,
-          sourceMessageId: head.sourceMessageId,
-          principal: head.principal,
-          reason: authorized.reason,
-        })
-        afterHead(current)
         return
       }
       // ATTEMPTS ARE THE ROW'S, NOT THE PASS'S (POD-1242). The cap used to reset

@@ -370,8 +370,9 @@ export class MessagesRepository {
   /**
    * Pending-for-ONE-READER predicate. A row still nags `sessionId` when it is
    * non-terminal, the session did not send it, and the session has no receipt
-   * for it. The last clause bounds history: a session is only responsible for
-   * mail that arrived while it existed — EXCEPT a still-`queued` row, which
+   * or durable delivery stamp for it. The last clause bounds history: a session
+   * is only responsible for mail that arrived while it existed — EXCEPT a
+   * still-`queued` row, which
    * nobody has consumed, so it is exactly the held handoff a newly-arrived
    * session must be told about. A session row that is gone (tests, pre-substrate
    * ids) falls back to the message's own timestamp, i.e. counts.
@@ -383,6 +384,7 @@ export class MessagesRepository {
     AND NOT EXISTS (
       SELECT 1 FROM message_reads r WHERE r.message_id = messages.id AND r.session_id = ?
     )
+    AND (status = 'queued' OR delivered_to IS NULL OR delivered_to <> ?)
     AND (
       status = 'queued'
       OR created_at >= COALESCE((SELECT created_at FROM sessions WHERE id = ?), created_at)
@@ -392,6 +394,7 @@ export class MessagesRepository {
   pendingSummaryForSession(issueId: IssueId, sessionId: SessionId): PendingMessageSummary {
     return this.pendingSummaryForPredicate(MessagesRepository.PENDING_FOR_SESSION, [
       issueId,
+      sessionId,
       sessionId,
       sessionId,
       sessionId,
@@ -432,7 +435,7 @@ export class MessagesRepository {
         `SELECT COUNT(*) AS n FROM messages
          WHERE ${MessagesRepository.PENDING_FOR_SESSION}`,
       )
-      .get(issueId, sessionId, sessionId, sessionId) as { n: number }
+      .get(issueId, sessionId, sessionId, sessionId, sessionId) as { n: number }
     return r.n
   }
 
@@ -443,7 +446,7 @@ export class MessagesRepository {
          WHERE ${MessagesRepository.PENDING_FOR_SESSION}
          ORDER BY from_kind ASC, from_issue ASC, from_session ASC`,
       )
-      .all(issueId, sessionId, sessionId, sessionId) as {
+      .all(issueId, sessionId, sessionId, sessionId, sessionId) as {
       from_kind: MessageRow['fromKind']
       from_issue: string | null
       from_session: string | null
