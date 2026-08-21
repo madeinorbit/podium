@@ -549,16 +549,31 @@ runner. Transcript:
 `state/bin/abduco` and ran; an abduco session was created and survived the
 all-in-one being killed. **No Mac is needed to build Darwin headless payloads.**
 
-What the macOS run does NOT establish, and who closes it:
+**Execution proof (POD-2520, 2026-08-21): GO on BOTH architectures.** GitHub
+Actions run `32513654765` ran the cross-built payloads on real macOS 15 runners —
+`blacksmith-6vcpu-macos-15` executed darwin-arm64 and `macos-15-intel` executed
+darwin-x64. Committed verifier transcripts: Apple Silicon macOS 15
+[`2026-08-21-macos15-apple-silicon-execution.log`](../spikes/2026-08-21-macos15-apple-silicon-execution.log)
+and Intel macOS 15
+[`2026-08-21-macos15-intel-execution.log`](../spikes/2026-08-21-macos15-intel-execution.log).
+Two questions the POD-2501 spike left open are now answered: darwin-x64 really
+runs, and `codesign --verify --strict` — Apple's own verifier, not just the
+descriptive `-dv` — ACCEPTS the `rcodesign` ad-hoc signature, reporting that the
+binary "satisfies its Designated Requirement".
 
-- **darwin-x64 execution.** The x64 payload cross-builds and asserts on Linux, but
-  has never been run on an Intel Mac or under Rosetta. POD-2520 carries an
-  `macos-15-intel` leg.
-- **A real end-user Mac.** The run was a CI VM, not fleet hardware and not a
-  user's laptop. Two consequences follow from that and are open: whether Gatekeeper
-  blocks a quarantined copy (on the CI VM it did not, so "Gatekeeper cleared" is
-  *not* claimed), and whether AMFI enforces the arm64 signature requirement the way
-  a normal Mac does.
+What the macOS runs do NOT establish, and who closes it:
+
+- **Signature ENFORCEMENT.** A signature-stripped binary was executed as a
+  negative control and it RAN (`unsigned exit=0`) — the CI VM does not enforce the
+  arm64 signature requirement, so this proves acceptance but NOT refusal. Recorded
+  as a warning rather than a pass, deliberately. POD-2569 carries real-hardware
+  enforcement.
+- **A real end-user Mac.** The runs were CI VMs, not fleet hardware and not a
+  user's laptop. Whether Gatekeeper blocks a quarantined copy remains open (on the
+  CI VM it did not, so "Gatekeeper cleared" is *not* claimed), as does whether AMFI
+  enforces the arm64 signature requirement the way a normal Mac does.
+- **The native window and watchdog.** Not representable by this headless verifier;
+  they stay with POD-2522's Linux Xvfb desktop harness and remain unproven on macOS.
 - **`codesign --verify`.** The CI run only ran `codesign -dv`, which displays a
   signature without validating the seal. That an rcodesign signature satisfies
   Apple's own verifier is therefore still unproven; the verifier script now runs
