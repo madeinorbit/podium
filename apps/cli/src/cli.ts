@@ -1299,6 +1299,18 @@ export async function main(
   process.env.PODIUM_INSTANCE = selection.instanceId
   const argv = selection.argv
 
+  // Claim the selected state root before ANY shared CLI bootstrap can populate it.
+  // In particular, a packaged `podium-<instance> channel ...` invocation configures
+  // detached file logging before dispatch; if logging creates logs/ first, the channel
+  // write sees a non-empty unmarked named root and correctly refuses to adopt it.
+  try {
+    ensureInstanceStateIdentity({ instanceId: selection.instanceId })
+  } catch (error) {
+    console.error(`podium: ${(error as Error).message}`)
+    process.exitCode = 2
+    return
+  }
+
   // ONE-SHOT CONFIG MIGRATIONS, before anything reads the config (POD-333).
   //
   // Here rather than in `loadConfig` because the loader runs in every process —

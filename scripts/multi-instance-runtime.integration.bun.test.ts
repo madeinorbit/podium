@@ -50,7 +50,7 @@ interface RunningInstance extends InstanceSpec {
 const running: RunningInstance[] = []
 
 const freePorts = (() => {
-  const servers = Array.from({ length: 6 }, () =>
+  const servers = Array.from({ length: 9 }, () =>
     Bun.serve({
       hostname: '127.0.0.1',
       port: 0,
@@ -67,14 +67,14 @@ const freePort = (): number => {
   return port
 }
 
-function makeSpec(id: InstanceSpec['id']): InstanceSpec {
-  const webDir = join(TEST_ROOT, `${id}-web`)
-  const agentHome = join(TEST_ROOT, `${id}-agent-home`)
+function makeSpec(id: InstanceSpec['id'], rootTag: string = id): InstanceSpec {
+  const webDir = join(TEST_ROOT, `${rootTag}-web`)
+  const agentHome = join(TEST_ROOT, `${rootTag}-agent-home`)
   mkdirSync(webDir, { recursive: true })
   mkdirSync(agentHome, { recursive: true })
   return {
     id,
-    stateDir: join(TEST_ROOT, `${id}-state`),
+    stateDir: join(TEST_ROOT, `${rootTag}-state`),
     agentHome,
     webDir,
     port: freePort(),
@@ -144,7 +144,9 @@ function startInstance(
   // Say so explicitly now that an unconfigured process intentionally withholds
   // the operator data plane.
   mkdirSync(spec.stateDir, { recursive: true })
-  writeFileSync(join(spec.stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
+  const configFile = join(spec.stateDir, 'config.json')
+  const config = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')) : {}
+  writeFileSync(configFile, JSON.stringify({ ...config, mode: 'all-in-one' }))
   const child = spawn(
     process.execPath,
     ['--conditions=@podium/source', CLI, '--instance', spec.id, 'all'],
@@ -264,6 +266,33 @@ afterAll(async () => {
 })
 
 describe('multi-instance runtime isolation', () => {
+  it('claims an absent named root before detached logging and starts without adoption', async () => {
+    const namedSpec = makeSpec('blue', 'cold-blue')
+    expect(existsSync(namedSpec.stateDir)).toBe(false)
+
+    const channel = await runCli(namedSpec, ['channel', 'edge'], {
+      PODIUM_ADOPT_STATE: undefined,
+      PODIUM_APP_VERSION: '9.9.9',
+      PODIUM_RUN_MODE: 'detached',
+    })
+    expect(channel.code, channel.stderr).toBe(0)
+    expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'instance.json'), 'utf8'))).toMatchObject(
+      { instanceId: 'blue' },
+    )
+    expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'config.json'), 'utf8'))).toMatchObject({
+      updateChannel: 'edge',
+    })
+
+    const named = startInstance(namedSpec, { PODIUM_ADOPT_STATE: undefined })
+    await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'clean named server')
+    expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'config.json'), 'utf8'))).toMatchObject({
+      mode: 'all-in-one',
+      updateChannel: 'edge',
+    })
+    named.child.kill('SIGKILL')
+    await new Promise<void>((resolve) => named.child.once('exit', () => resolve()))
+  })
+
   it('keeps live runtimes, agents, commands, data, and lifecycle disjoint', async () => {
     const compat = startInstance(makeSpec('default'))
     const namedSpec = makeSpec('blue')
