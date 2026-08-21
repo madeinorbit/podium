@@ -44,6 +44,15 @@ your local dev.
 Override defaults with env vars when needed: `PODIUM_PORT` (backend, default 18787),
 `PODIUM_WEB_PORT` (web, default 55556), `PODIUM_ALLOWED_HOSTS` (comma-separated Vite allowed hosts).
 
+### Changing the UI on a machine that is already running Podium
+
+`bun run host` starts a *second* instance with its own empty state, which is the right thing on
+a laptop and the wrong one on a server whose data and agent sessions are the point. There,
+`bun run iterate` serves the web UI from source with hot reload in front of the **installed**
+server, on its own ports, writing no `dist` and offering no update — see
+[docs/iteration-mode.md](./docs/iteration-mode.md). It covers the web UI only; server-side
+changes go out as a normal dev release.
+
 ### Desktop app (Tauri)
 
 A native window that spawns the bun-compiled backend and serves the same web UI locally. Needs the
