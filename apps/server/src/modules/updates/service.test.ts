@@ -162,7 +162,7 @@ describe('UpdatesService', () => {
       artifacts: {
         web: { digest: '47a01e3' },
         headless: {
-          delivery: 'bundle',
+          delivery: 'feed',
           platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } },
         },
       },
@@ -188,7 +188,7 @@ describe('UpdatesService', () => {
       artifacts: {
         web: { digest: '47a01e3' },
         headless: {
-          delivery: 'bundle',
+          delivery: 'feed',
           platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } },
         },
       },
@@ -885,23 +885,44 @@ describe('target refresh bookkeeping', () => {
     })
   })
 
-  it('records dev as checked without polling anything — dev is publisher-pushed', async () => {
-    const { svc } = build(async () => target, { fleetChannel: 'dev' })
-    await svc.refreshTarget('dev')
-    expect(svc.channelChecks()).toEqual([
-      {
-        channel: 'dev',
-        checkedAt: 1_000,
-        outcome: {
-          status: 'unavailable',
-          reason: 'Development target is not currently published by this source server.',
-        },
-      },
-    ])
+  /**
+   * DEV IS RESOLVED, NOT REPORTED ON (spec §1).
+   *
+   * This used to assert the opposite: `refreshTarget('dev')` polled nothing and
+   * only reported on whatever the publisher had already pushed, because there
+   * was no dev feed to ask. There is one now, so dev takes the same three lines
+   * every other channel takes — including recording the feed's own reason when
+   * it cannot answer, which is what makes "nothing is published" distinguishable
+   * from "we have not looked".
+   */
+  it('resolves dev through the same resolver as every other channel', async () => {
+    const resolveTarget = vi.fn(async (_channel: UpdateChannel) => target)
+    const { svc } = build(resolveTarget as never, { fleetChannel: 'dev' })
 
-    svc.setTarget('dev', target)
     await svc.refreshTarget('dev')
-    expect(svc.channelChecks()[0]?.outcome).toEqual({ status: 'ok' })
+
+    expect(resolveTarget.mock.calls.map(([channel]) => channel)).toEqual(['dev'])
+    expect(svc.target('dev')).toBe(target)
+    expect(svc.channelChecks()).toEqual([
+      { channel: 'dev', checkedAt: 1_000, outcome: { status: 'ok' } },
+    ])
+  })
+
+  it('records the dev feed’s own reason when it cannot answer', async () => {
+    const { svc } = build(
+      async () => {
+        throw new Error('dev target unavailable: release manifest returned HTTP 404')
+      },
+      { fleetChannel: 'dev' },
+    )
+
+    await svc.refreshTarget('dev')
+
+    expect(svc.target('dev')).toBeUndefined()
+    expect(svc.channelChecks()[0]?.outcome).toEqual({
+      status: 'unavailable',
+      reason: 'dev target unavailable: release manifest returned HTTP 404',
+    })
   })
 
   describe('checkNow', () => {

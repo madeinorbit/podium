@@ -52,11 +52,7 @@ describe('buildReport', () => {
     )
     expect(boot.installDir).toBe('/home/u/.local/share/podium')
     expect(boot.build).toMatchObject({ appVersion: '0.4.2', installKind: 'installed' })
-    expect(deliveryCaps(boot.build)).toEqual([
-      'update.delivery.feed',
-      'update.delivery.bundle',
-      'shipping.train.v2',
-    ])
+    expect(deliveryCaps(boot.build)).toEqual(['update.delivery.feed', 'shipping.train.v2'])
   })
 
   it('matches the server source identity for the same checkout', () => {
@@ -110,11 +106,7 @@ describe('desktop-supervised build report', () => {
   it('leaves a standalone installed daemon on the same machine untouched', () => {
     const r = buildReport({ PODIUM_APP_VERSION: '0.4.2' }, '/home/u/.local/share/podium')
     expect(r.supervised).toBeUndefined()
-    expect(deliveryCaps(r)).toEqual([
-      'update.delivery.feed',
-      'update.delivery.bundle',
-      'shipping.train.v2',
-    ])
+    expect(deliveryCaps(r)).toEqual(['update.delivery.feed', 'shipping.train.v2'])
   })
 
   it('reads only the exact flag, never a truthy-looking value', () => {
@@ -132,19 +124,26 @@ describe('desktop-supervised build report', () => {
 })
 
 describe('deliveryCaps', () => {
-  it('offers feed and bundle for an installed build', () => {
+  it('offers the one surviving delivery kind for an installed build', () => {
     expect(deliveryCaps({ installKind: 'installed' })).toEqual([
       'update.delivery.feed',
-      'update.delivery.bundle',
       'shipping.train.v2',
     ])
   })
 
-  it('offers only git for a source run, which cannot swap a bundle', () => {
-    expect(deliveryCaps({ installKind: 'source' })).toEqual([
-      'update.delivery.git',
-      'shipping.train.v2',
-    ])
+  /**
+   * A SOURCE RUN OFFERS NO DELIVERY AT ALL (spec §1, disposition 5).
+   *
+   * It used to offer `update.delivery.git` — "move my checkout to that sha" —
+   * and that kind is retired: exactly one machine runs from source, the
+   * publisher, and it is not a fleet consumer. Reporting `feed` instead would
+   * be worse than reporting nothing: it has no install directory, so it would
+   * download and verify a quarter of a gigabyte and then throw at the swap.
+   *
+   * It keeps the shipping-train capability, which is not about delivery.
+   */
+  it('offers no delivery for a source run, which has nowhere to install one', () => {
+    expect(deliveryCaps({ installKind: 'source' })).toEqual(['shipping.train.v2'])
   })
 
   it('offers nothing at all when a desktop shell owns the bytes', () => {

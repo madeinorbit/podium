@@ -81,10 +81,25 @@ export function captureDaemonBootBuild(
  * empty means "never reported" and is permissive on purpose (an old daemon must
  * not be stranded). Here, empty is a first-person refusal, and the daemon is the
  * only party that can make it fail closed.
+ *
+ * A SOURCE DAEMON OFFERS NO DELIVERY EITHER, and for the same first-person
+ * reason (spec §1, disposition 5). It used to offer `update.delivery.git`,
+ * which meant "move my checkout to that sha" — a delivery kind that has now
+ * been retired, because exactly one machine still runs from source (the
+ * publisher) and it is not a fleet consumer. A source daemon has no install
+ * directory, so a feed artifact is bytes it could verify and then have nowhere
+ * to put; `swapHeadlessBundle` would throw at the last possible moment, after
+ * a quarter-gigabyte download. Reporting no delivery cap makes the fleet's
+ * planner skip it and leaves it honestly `behind` instead — the same outcome
+ * the wave filter already documented for a git-only machine offered a tarball.
+ *
+ * It keeps {@link SHIPPING_TRAIN_CAPABILITY}, which is not about delivery: the
+ * cap set is open and additive, and stripping an unrelated capability would be
+ * a second, unannounced change.
  */
 export function deliveryCaps(build: Pick<PeerBuild, 'installKind' | 'supervised'>): string[] {
   if (build.supervised === true) return []
   return build.installKind === 'source'
-    ? ['update.delivery.git', SHIPPING_TRAIN_CAPABILITY]
-    : ['update.delivery.feed', 'update.delivery.bundle', SHIPPING_TRAIN_CAPABILITY]
+    ? [SHIPPING_TRAIN_CAPABILITY]
+    : ['update.delivery.feed', SHIPPING_TRAIN_CAPABILITY]
 }

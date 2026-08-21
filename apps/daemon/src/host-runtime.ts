@@ -21,13 +21,12 @@ import {
   stateDir,
 } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
-import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
-import { withGitBudget } from '@podium/runtime/update-delivery-git'
 import type { RawData } from 'ws'
+import { type ProvisionedAccountHomeSource, provisionedAccountHome } from './account-home'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
-import { provisionedAccountHome, type ProvisionedAccountHomeSource } from './account-home'
 import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
 import { deliveryCaps } from './build-report'
@@ -45,10 +44,10 @@ import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
-import { createGitRunner } from './git-runner'
 import { createGrantRunner } from './grant-apply'
 import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
+import { DaemonHarnessRuntime } from './harness-runtime'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostLoad, sampleHostMemory } from './host-metrics'
@@ -62,7 +61,6 @@ import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pendin
 import { type PortableStateControl, PortableStateFence } from './portable-state-fence'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
-import { DaemonHarnessRuntime } from './harness-runtime'
 import { createReattachGates } from './reattach-gates'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
@@ -433,19 +431,19 @@ export async function createDaemonHostRuntime(args: {
   const grantRunner = createGrantRunner({
     currentVersion: () => build.appVersion ?? 'dev',
     caps: deliveryCaps(build),
-    fetchArtifact: (asset, delivery, signal, onProgress) =>
-      fetchArtifact(asset, delivery, {
+    fetchArtifact: (asset, trust, signal, onProgress) =>
+      fetchArtifact(asset, {
         fetch: globalThis.fetch,
+        // BOTH ROOTS ARE OFFERED; the TARGET picks. `pubkey` is the baked
+        // release key, `pinnedPubkey` the one this daemon pinned when it paired
+        // — and `trust`, stamped by the server's resolver from the channel, is
+        // what decides between them. This daemon never infers it (spec §1).
         pubkey: PODIUM_UPDATE_PUBKEY,
-        pinnedPubkey: identity.updatePubkey,
+        ...(identity.updatePubkey ? { pinnedPubkey: identity.updatePubkey } : {}),
+        ...(trust ? { trust } : {}),
         // Delivery decides WHEN there is news; `applyGrant` turns each one into
         // an `updateStatus` frame (POD-2101).
         ...(onProgress ? { onProgress } : {}),
-        // One budget per convergence, established at the moment delivery
-        // starts rather than once for the life of the daemon — and bound to
-        // THIS grant's abort, so a superseding grant cancels the git steps
-        // instead of waiting out their timeout.
-        git: { run: withGitBudget(createGitRunner(signal)) },
         ...(signal ? { signal } : {}),
       }),
     swap: (bytes) => {

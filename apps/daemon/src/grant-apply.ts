@@ -3,15 +3,15 @@ import type {
   UpdateArtifact,
   UpdateGrantMessage,
   UpdateStatusMessage,
+  UpdateTrustRoot,
 } from '@podium/protocol'
 import { planConvergence } from '@podium/protocol'
 import type { PendingGrant } from './pending-grant'
 
-type PlatformAsset = Extract<UpdateArtifact, { delivery: 'feed' | 'bundle' }>['platforms'][string]
-type GitArtifact = Extract<UpdateArtifact, { delivery: 'git' }>
+type PlatformAsset = Extract<UpdateArtifact, { delivery: 'feed' }>['platforms'][string]
 
 /** The delivery result is deliberately small: verification happens before this seam. */
-export type GrantArtifact = { bytes: Uint8Array } | { git: true }
+export type GrantArtifact = { bytes: Uint8Array }
 
 /**
  * What a delivery in flight says about itself — structurally `DeliveryProgress`
@@ -38,16 +38,17 @@ export interface GrantApplyDeps {
   platform?: string
   /**
    * Fetch and verify the already-resolved platform asset. The signal is raised
-   * when a newer grant supersedes this one.
+   * when a newer grant supersedes this one, and is honoured mid-flight: every
+   * delivery is now a streamed download, so aborting it really does stop it.
    *
-   * Only the network delivery paths can honour it mid-flight. GIT DELIVERY IS
-   * SYNCHRONOUS: it blocks this thread until its steps finish or hit their own
-   * spawn timeout, so cancellation there means "its result is discarded", not
-   * "it stopped". The guard after the await is what makes that safe.
+   * `trust` is the target's own {@link UpdateTrustRoot} — WHICH KEY the
+   * signature must be under — carried down from the grant rather than inferred
+   * from the delivery kind. The daemon does not decide it and must not: the
+   * server's resolver stamped it from the channel the target came from.
    */
   fetchArtifact(
-    asset: PlatformAsset | GitArtifact,
-    delivery: UpdateArtifact['delivery'],
+    asset: PlatformAsset,
+    trust: UpdateTrustRoot | undefined,
     signal?: AbortSignal,
     onProgress?: (progress: GrantProgress) => void,
   ): Promise<GrantArtifact>
@@ -148,26 +149,29 @@ export async function applyGrant(
   }
   report(deps, grant, 'downloading', current)
   try {
-    const asset = plan.delivery === 'git' ? plan.artifact : plan.asset
     /**
      * THE HEARTBEAT (POD-2101, spec §3.3). Same grant id, same `downloading`
      * state, new numbers — so a server that predates this reads each one as the
      * phase report it already understood, and one that does not sees the
      * download move.
      *
-     * A SUPERSEDED GRANT GOES QUIET. Delivery cancellation is best-effort (git
-     * steps finish what they started), and a report from a grant the server has
+     * A SUPERSEDED GRANT GOES QUIET: a report from a grant the server has
      * replaced would refresh the liveness of a convergence nobody is waiting
      * for.
      */
-    const artifact = await deps.fetchArtifact(asset, plan.delivery, signal, (progress) => {
-      if (signal?.aborted) return
-      report(deps, grant, 'downloading', current, undefined, progress)
-    })
+    const artifact = await deps.fetchArtifact(
+      plan.asset,
+      grant.target.trust,
+      signal,
+      (progress) => {
+        if (signal?.aborted) return
+        report(deps, grant, 'downloading', current, undefined, progress)
+      },
+    )
     // A superseded grant must not swap a binary or write a rollback marker: the
     // grant it would claim to be applying is no longer the one the server holds.
     if (signal?.aborted) return
-    if ('bytes' in artifact) await deps.swap(artifact.bytes)
+    await deps.swap(artifact.bytes)
     deps.writePending({
       grantId: grant.grantId,
       targetVersion: grant.target.version,

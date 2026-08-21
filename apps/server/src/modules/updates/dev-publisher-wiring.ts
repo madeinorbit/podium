@@ -21,15 +21,17 @@
 import { createLogger } from '@podium/logger'
 import type { UpdateTarget } from '@podium/protocol'
 import type { Hono } from 'hono'
-import { registerDevArtifactRoute } from './artifact-route'
+import { registerDevFeedRoutes } from './artifact-route'
 import {
   createDevBundlePublisher,
+  DEV_ARTIFACT_ROUTE,
   DevBundleUnavailableError,
   developmentHeadSha,
 } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
 import { createDevWebBuilder, type DevWebBuildState, decideWebDist } from './dev-web-build'
 import { createGitHeadShaCache } from './head-sha-cache'
+import { type ChannelFeed, DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
 
 const log = createLogger('server:updates')
 
@@ -46,8 +48,18 @@ export interface DevPublisherWiring {
    * the current HEAD identity never calls this capability.
    */
   readonly requestBuild: () => Promise<unknown>
-  /** Mount the authenticated artifact route, when a publisher exists. */
+  /** Mount the authenticated dev feed (manifest + artifacts), when a publisher exists. */
   readonly registerRoute: (app: Hono) => void
+  /**
+   * How `resolveReleaseTarget` reaches THIS server's dev feed — the address, the
+   * origin fence, the trust root and the machine credential, in one descriptor.
+   *
+   * Nothing when this server publishes no feed, or when it cannot name an
+   * address its fleet could fetch from. Both are the same honest answer: there
+   * is no dev feed to pull, so the channel resolves to "unavailable" with a
+   * reason rather than to a target nobody could take delivery of.
+   */
+  readonly channelFeed: () => ChannelFeed | undefined
   /** True when this server can publish a development bundle at all. */
   readonly enabled: boolean
   /**
@@ -83,7 +95,7 @@ export function developmentArtifactUrl(
   artifactToken: string,
   platform: string,
 ): string {
-  return `${origin}/updates/dev-bundle/${encodeURIComponent(version)}/${encodeURIComponent(platform)}?token=${encodeURIComponent(artifactToken)}`
+  return `${origin}${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(version)}/${encodeURIComponent(platform)}?token=${encodeURIComponent(artifactToken)}`
 }
 
 /**
@@ -121,27 +133,6 @@ export function selectDevelopmentArtifactOrigin(input: {
   return input.localOrigin
 }
 
-/**
- * What the shared update service may advertise.
- *
- * A dest identity (web digest, git checkout, no tarball URL) is the destination
- * Update Podium needs on this host. It must enter the service even when there is
- * no publicUrl — otherwise /version shows dest+HEAD and converge throws
- * "No update target is configured."
- *
- * A dest tarball URL is different: without an external origin it is loopback, and
- * a later remote grant must not be handed 127.0.0.1. Strip that URL and keep the
- * dest identity so this host can still rebuild and pack.
- */
-export function targetForSharedReadModel(
-  target: UpdateTarget,
-  artifactOrigin: string | undefined,
-): UpdateTarget {
-  if (artifactOrigin || target.artifacts.headless === undefined) return target
-  const { headless: _headless, ...artifacts } = target.artifacts
-  return { ...target, artifacts }
-}
-
 export function wireDevBundlePublisher(deps: {
   /** Absent (an installed server) disables the whole thing. */
   readonly sourceRoot: string | undefined
@@ -165,6 +156,15 @@ export function wireDevBundlePublisher(deps: {
    * offering an older commit's.
    */
   readonly setTargetUnavailable?: (reason: string) => void
+  /**
+   * Ask the updates service to re-resolve `dev` from its feed, right now.
+   *
+   * The publisher no longer PUSHES a deliverable target; it writes a manifest
+   * and asks the ordinary resolver to pull it. This is that ask — in-process,
+   * because on a source host the publisher and the updater are the same process
+   * (spec dispositions 19, 20).
+   */
+  readonly refreshDevTarget?: () => Promise<unknown>
   readonly locks: DevBundleLockService
   /** Names the transient build units. Defaults to the default instance. */
   readonly instanceId?: string
@@ -323,7 +323,29 @@ export function wireDevBundlePublisher(deps: {
 
   const setSharedTarget = (target: UpdateTarget): void => {
     publishedVersion = target.version
-    deps.setTarget(targetForSharedReadModel(target, artifactOrigin))
+    deps.setTarget(target)
+  }
+
+  /**
+   * PUBLISH, THEN HAND OFF (spec §6 step 4).
+   *
+   * Writing the manifest into the served feed IS the publication; nudging the
+   * refresh is what makes this process notice it in seconds rather than at
+   * tomorrow's tick. The publisher and the updater share one process on a source
+   * host, which is why this is an in-process call and not a second protocol —
+   * and why withdrawal and queued `nextTargets` stay internal events too
+   * (dispositions 19 and 20).
+   *
+   * The nudge goes through the SAME `refreshTarget` the periodic tick calls, so
+   * the two coalesce and the operation-active skip rule applies to both: a
+   * publish landing mid-operation is queued as `nextTarget`, never spliced into
+   * a running wave.
+   */
+  const publishToFeed = async (): Promise<boolean> => {
+    if (!publisher) return false
+    const published = await publisher.publishFeed()
+    if (published) await deps.refreshDevTarget?.()
+    return published
   }
 
   /**
@@ -440,6 +462,11 @@ export function wireDevBundlePublisher(deps: {
       return publisher.requestBuild(true).then(
         async (built) => {
           await observeBundleReadiness()
+          // The order is the handoff: write the manifest into the feed, then
+          // ask the resolver to pull it. `publishTarget` refreshes the local
+          // identity either way, so a publish that could not be written still
+          // leaves this host's own `/version` answer correct.
+          await publishToFeed()
           await publishTarget()
           return built
         },
@@ -461,12 +488,53 @@ export function wireDevBundlePublisher(deps: {
         },
       )
     },
+    channelFeed: () => {
+      if (!publisher) return undefined
+      let origin: string
+      try {
+        origin = selectDevelopmentArtifactOrigin({
+          externalOrigin: artifactOrigin,
+          localOrigin: deps.localArtifactOrigin(),
+          hasRemoteManagedMachines: deps.hasRemoteManagedMachines(),
+        })
+      } catch {
+        // The refusal is already reported through `requestBuild`/`preparation`;
+        // here it just means there is no feed address to hand the resolver.
+        return undefined
+      }
+      const base = `${origin}${DEV_FEED_ROUTE}/`
+      return {
+        manifestUrl: `${base}${DEV_FEED_MANIFEST}`,
+        // The fence is this server's own feed prefix, so a manifest that named
+        // a GitHub URL — or any other origin — is refused before a byte moves.
+        artifactBase: base,
+        // Signed by THIS instance's key, which every paired daemon pinned.
+        trust: 'instance',
+        headers: { authorization: `Bearer ${deps.artifactToken}` },
+      }
+    },
     registerRoute: (app) => {
       if (!publisher) return
-      registerDevArtifactRoute(app, {
+      registerDevFeedRoutes(app, {
         current: () => publisher.current(),
-        authenticate: (request) =>
-          new URL(request.url).searchParams.get('token') === deps.artifactToken,
+        manifestPath: () => publisher.feedManifestPath(),
+        /**
+         * ONE CREDENTIAL, TWO WAYS TO PRESENT IT.
+         *
+         * A daemon fetches an artifact URL taken straight out of the manifest,
+         * so its token has to live in the query string — it has no place to put
+         * a header. The RESOLVER is ordinary code making an ordinary fetch, so
+         * it sends the header, which keeps the credential out of request logs
+         * and out of the manifest URL an operator might paste somewhere.
+         *
+         * Both are the same token and the same authority; accepting only one
+         * would mean minting a second credential for no reason.
+         */
+        authenticate: (request) => {
+          const bearer = request.headers.get('authorization')
+          if (bearer === `Bearer ${deps.artifactToken}`) return true
+          return new URL(request.url).searchParams.get('token') === deps.artifactToken
+        },
       })
     },
   }

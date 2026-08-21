@@ -129,7 +129,7 @@ const DEFAULT_GRANT_SPACING_MS = 5_000
  * who is watching, so two numbers here could only ever drift apart.
  */
 export const RECONCILE_GRANT_DEADLINE_MS =
-  UPDATE_BUDGETS.gitConvergenceMs + UPDATE_BUDGETS.machineSilenceMarginMs
+  UPDATE_BUDGETS.machineDeliverySilenceMs + UPDATE_BUDGETS.machineSilenceMarginMs
 
 /**
  * THE DECISION, as a pure function (the whole point of the split).

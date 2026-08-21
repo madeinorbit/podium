@@ -125,7 +125,9 @@ describe('a machine that cannot take the delivery', () => {
     state: 'current',
     online: true,
     busy: false,
-    deliveryCaps: ['update.delivery.git'],
+    // A source daemon offers no delivery at all: no install directory, nowhere
+    // to put a verified bundle. It keeps unrelated capabilities.
+    deliveryCaps: ['podium.shipping-train'],
     ...over,
   })
   const installed = (over: Partial<WaveMachine> = {}): WaveMachine => ({
@@ -134,7 +136,7 @@ describe('a machine that cannot take the delivery', () => {
     state: 'current',
     online: true,
     busy: false,
-    deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+    deliveryCaps: ['update.delivery.feed', 'podium.shipping-train'],
     ...over,
   })
   const plan = (machines: WaveMachine[], deliveries: string[]) =>
@@ -147,17 +149,24 @@ describe('a machine that cannot take the delivery', () => {
     })
 
   it('is never selected for a target it has no capability for', () => {
-    // The live shape: a dev+<sha> with no packed tarball offers git ALONE, and
-    // the installed machine reported it can only take a feed or a bundle. It
-    // used to be granted anyway and answered "unsupported-delivery", which the
-    // operator read as "The machines do not support this update's delivery
-    // method" partway through a wave (POD-2004).
-    expect(plan([source(), installed()], ['git'])).toEqual(['a-source'])
+    // The live shape has INVERTED with the retirement of git delivery, and the
+    // guard is the same one. It used to be that a bare identity offered git
+    // alone and the INSTALLED machine could not take it; now every target
+    // offers a feed and the SOURCE machine cannot take that. Either way the
+    // machine that cannot take delivery is not selected — it used to be granted
+    // anyway and answer "unsupported-delivery", which the operator read as "The
+    // machines do not support this update's delivery method" partway through a
+    // wave (POD-2004).
+    expect(plan([source(), installed()], ['feed'])).toEqual(['b-installed'])
   })
 
-  it('selects it again as soon as a target it CAN take is published', () => {
-    // The tarball, packed a minute later. Nothing to retry by hand.
-    expect(plan([source(), installed()], ['bundle', 'git'])).toEqual(['a-source', 'b-installed'])
+  it('selects nobody for a target that offers nothing at all', () => {
+    // The identity a source host publishes before a release has been built.
+    // Nobody can take it, so nobody is waved towards it — and the moment a real
+    // release is published the installed machine converges with nothing to
+    // retry by hand.
+    expect(plan([source(), installed()], [])).toEqual(['a-source', 'b-installed'])
+    expect(plan([source(), installed()], ['feed'])).toEqual(['b-installed'])
   })
 
   it('grants a machine that has never reported its capabilities', () => {
@@ -165,7 +174,7 @@ describe('a machine that cannot take the delivery', () => {
     // which is worse than the failure this prevents.
     const unknown = installed({ id: 'c-unknown' })
     delete (unknown as { deliveryCaps?: unknown }).deliveryCaps
-    expect(plan([unknown], ['git'])).toEqual(['c-unknown'])
+    expect(plan([unknown], ['feed'])).toEqual(['c-unknown'])
   })
 
   it('does not filter when the caller offers no delivery list', () => {
@@ -194,9 +203,9 @@ describe('a desktop-supervised daemon', () => {
     state: 'current',
     online: true,
     busy: false,
-    // The shape that makes this dangerous: it reports `installed` with real
-    // bundle caps, so nothing in the caps answer would refuse it.
-    deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+    // The shape that makes this dangerous: it reports `installed` with a real
+    // feed cap, so nothing in the caps answer would refuse it.
+    deliveryCaps: ['update.delivery.feed'],
     supervised: true,
     ...over,
   })
@@ -206,7 +215,7 @@ describe('a desktop-supervised daemon', () => {
       targetVersion: '0.4.2',
       concurrency: 3,
       canaryHealthy: true,
-      deliveries: ['feed', 'bundle'],
+      deliveries: ['feed'],
       ...over,
     })
 
@@ -236,10 +245,16 @@ describe('a desktop-supervised daemon', () => {
   it('answers the delivery question directly, whatever it reported it can take', () => {
     expect(machineCanTakeDelivery({ supervised: true, deliveryCaps: [] }, [])).toBe(false)
     expect(
-      machineCanTakeDelivery({ supervised: true, deliveryCaps: ['update.delivery.git'] }, ['git']),
+      machineCanTakeDelivery({ supervised: true, deliveryCaps: ['update.delivery.feed'] }, [
+        'feed',
+      ]),
     ).toBe(false)
     // Absent is an ordinary fleet machine — the frozen-contract reading.
-    expect(machineCanTakeDelivery({ deliveryCaps: ['update.delivery.git'] }, ['git'])).toBe(true)
+    expect(machineCanTakeDelivery({ deliveryCaps: ['update.delivery.feed'] }, ['feed'])).toBe(true)
+    // A RETIRED cap matches nothing any target offers, which is exactly how an
+    // old daemon stays honestly behind instead of being handed bytes it cannot
+    // install. Caps are open at the wire; they are not accepted by being old.
+    expect(machineCanTakeDelivery({ deliveryCaps: ['update.delivery.git'] }, ['feed'])).toBe(false)
   })
 })
 
@@ -248,15 +263,13 @@ describe('what a target offers', () => {
     expect(
       offeredDeliveries({
         artifacts: {
-          headless: { delivery: 'bundle' },
-          headlessAlternatives: [{ delivery: 'git' }],
+          headless: { delivery: 'feed' },
+          headlessAlternatives: [{ delivery: 'feed' }],
         },
       }),
-    ).toEqual(['bundle', 'git'])
-    // The identity target the server publishes before a tarball exists.
-    expect(
-      offeredDeliveries({ artifacts: { headlessAlternatives: [{ delivery: 'git' }] } }),
-    ).toEqual(['git'])
+    ).toEqual(['feed', 'feed'])
+    // The identity target the server publishes before a release exists offers
+    // nothing at all now that git delivery is retired.
     expect(offeredDeliveries({ artifacts: {} })).toEqual([])
   })
 })

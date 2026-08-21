@@ -6,28 +6,51 @@ export const PlatformAsset = z.object({
   signature: z.string().min(1),
 })
 
+/**
+ * THE ONLY DELIVERY KIND (spec §1, disposition 5).
+ *
+ * There used to be three. `bundle` named "a tarball the source server packed
+ * and pushed", `git` named "converge a checkout to a sha", and `feed` named
+ * "download the signed artifact a manifest points at". Two of those described
+ * WHO minted the bytes rather than HOW they arrive, which is why trust selection
+ * ended up keyed on the delivery kind — the mistake this retirement closes.
+ *
+ * `dev` is now a pulled feed like every other channel, so the artifact is
+ * fetched exactly the same way on all three and the trust root is a fact about
+ * the CHANNEL ({@link UpdateTrustRoot}). `git` goes with it: exactly one machine
+ * runs from source — the publisher — and it is not a fleet consumer.
+ *
+ * The discriminated union is kept, single-armed. A one-kind union still parses
+ * `{ delivery: 'bundle' }` as a REFUSAL rather than silently accepting it, and
+ * leaves the axis named for whatever a later delivery kind turns out to be.
+ */
 export const FeedArtifact = z.object({
   delivery: z.literal('feed'),
   platforms: z.record(z.string(), PlatformAsset),
 })
 
-export const BundleArtifact = z.object({
-  delivery: z.literal('bundle'),
-  platforms: z.record(z.string(), PlatformAsset),
-})
-
-export const GitArtifact = z.object({
-  delivery: z.literal('git'),
-  repo: z.string().min(1),
-  sha: z.string().min(1),
-})
-
-export const UpdateArtifact = z.discriminatedUnion('delivery', [
-  FeedArtifact,
-  BundleArtifact,
-  GitArtifact,
-])
+export const UpdateArtifact = z.discriminatedUnion('delivery', [FeedArtifact])
 export type UpdateArtifact = z.infer<typeof UpdateArtifact>
+
+/**
+ * WHICH KEY A VERIFIER MUST TRUST FOR THIS TARGET'S ARTIFACTS.
+ *
+ * `release` is the baked Podium release key that ships in every build;
+ * `instance` is the Ed25519 key a daemon pinned when it paired with its server.
+ * Edge and stable resolve to the first, `dev` to the second (spec §1).
+ *
+ * RESOLVER-OWNED, NEVER MANIFEST-DECLARED. A manifest is an advertisement
+ * fetched off a network, so letting one name its own trust root would let a
+ * release-channel feed nominate a key Podium never shipped. The resolver stamps
+ * this from the channel it asked for and REFUSES a manifest that carries the
+ * field at all — see `release-target.ts`.
+ *
+ * Optional forever, and absent means `release`: every manifest published before
+ * this existed says nothing, and the baked key is the narrower reading of
+ * silence — a dev artifact verified against it simply fails.
+ */
+export const UpdateTrustRoot = z.enum(['release', 'instance'])
+export type UpdateTrustRoot = z.infer<typeof UpdateTrustRoot>
 
 export const UpdateNotes = z
   .object({
@@ -72,6 +95,11 @@ export type SchemaDeclaration = z.infer<typeof SchemaDeclaration>
 export const UpdateTarget = z
   .object({
     version: z.string().min(1),
+    /**
+     * Stamped by the resolver from the channel it asked for; see
+     * {@link UpdateTrustRoot}. A fetched manifest that declares it is refused.
+     */
+    trust: UpdateTrustRoot.optional(),
     schema: SchemaDeclaration.optional(),
     notes: UpdateNotes.optional(),
     critical: z.boolean().default(false),

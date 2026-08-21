@@ -8,8 +8,33 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 
+/**
+ * A resolved release target, WITH THE ARTIFACT A RESOLVED ONE ALWAYS HAS.
+ *
+ * It used to be `artifacts: {}`, which no resolver can produce —
+ * `resolveReleaseTarget` refuses a manifest with no headless artifact — and
+ * which now means something specific: a descriptor pointing at no bytes, i.e.
+ * a source host's pre-release identity. The fleet is right to refuse to wave
+ * one, so the fixture has to be the thing it stands for.
+ */
 const target = (version = '0.4.2'): UpdateTarget =>
-  ({ version, critical: false, artifacts: {} }) as UpdateTarget
+  ({
+    version,
+    critical: false,
+    trust: 'release',
+    artifacts: {
+      headless: {
+        delivery: 'feed',
+        platforms: {
+          'linux-x86_64': {
+            url: `https://github.com/madeinorbit/podium/releases/download/edge/podium-headless-${version}.tar.gz`,
+            digest: 'sha256-fixture',
+            signature: 'sig',
+          },
+        },
+      },
+    },
+  }) as UpdateTarget
 
 const priorAppVersion = process.env.PODIUM_APP_VERSION
 const priorChannel = process.env.PODIUM_UPDATE_CHANNEL
@@ -573,17 +598,21 @@ describe('updates tRPC', () => {
   })
 
   /**
-   * POD-2195, END TO END. A machine running from source advertises git delivery
-   * and nothing else; the bare `dev+<sha>` identity the publisher puts up names
-   * a repo and a sha, which is everything that machine needs. Spec §9.2: it
-   * needs no build and no download. So the update must reach it WITHOUT the
-   * server first packing a tarball nothing in this plan will read.
+   * POD-2195, END TO END, AS IT STANDS AFTER THE PULL CONVERSION.
    *
-   * Observed on the live box before this fix (POD-2194): the plan was
-   * [prepare, machines, web], the only machine in the fleet advertised
-   * `update.delivery.git` alone, and it sat at "Waiting for the update package."
+   * It used to read: a machine running from source advertises git delivery and
+   * nothing else, and the bare identity the publisher puts up names a repo and
+   * a sha — everything that machine needs — so the update must reach it without
+   * packing a tarball first. Git delivery is retired (spec disposition 5), and
+   * with it that whole path: a source machine advertises NO delivery, and an
+   * identity target names nothing anyone can take.
+   *
+   * What survives is the shape of the original bug, which was a machine left at
+   * "Waiting for the update package." forever. The fleet below is the one the
+   * dev channel actually has now — a machine that CAN take a feed — and the
+   * guarantee is that the ordinary published feed target reaches it.
    */
-  function sourceFleet(requestDestBundle: () => Promise<unknown>) {
+  function devFleet(requestDestBundle: () => Promise<unknown>) {
     const { registry, caller } = harness({ servedWebDigest: '47a01e3', requestDestBundle })
     const grants: unknown[] = []
     registry.modules.machines.setMachineBuild(
@@ -600,30 +629,42 @@ describe('updates tRPC', () => {
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
     registry.modules.machines.setUpdateChannel(asMachineId('source-machine'), 'dev')
-    // The caps a daemon running from a checkout reports (`build-report.ts`):
-    // git and nothing else. It cannot take a tarball, and does not need one.
+    // The caps an INSTALLED daemon reports (`build-report.ts`): a feed, and
+    // nothing else now that the bundle kind is retired.
     registry.modules.machines.setMachineBuild(
       asMachineId('source-machine'),
       { appVersion: 'dev+aaaaaaa' },
-      ['update.delivery.git'],
+      ['update.delivery.feed'],
       '2026-08-13T00:00:00.000Z',
     )
     registry.gateway.attachDaemon('source-machine', (message) => grants.push(message))
+    // A published dev release, as the resolver hands it over: an ordinary feed
+    // artifact, on the instance trust root.
     registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
+      trust: 'instance',
       artifacts: {
         web: { digest: '47a01e3' },
-        headlessAlternatives: [{ delivery: 'git', repo: '/src/podium', sha: '47a01e3' }],
+        headless: {
+          delivery: 'feed',
+          platforms: {
+            'linux-x64': {
+              url: 'http://source.test/updates/feed/dev/artifact/dev%2B47a01e3',
+              digest: 'd',
+              signature: 's',
+            },
+          },
+        },
       },
     } as UpdateTarget)
     return { registry, caller, grants }
   }
 
-  it('grants a source machine its own commit without packing anything', async () => {
+  it('grants a published dev release without asking for another build', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
     const requestDestBundle = vi.fn().mockResolvedValue(undefined)
-    const { registry, caller, grants } = sourceFleet(requestDestBundle)
+    const { registry, caller, grants } = devFleet(requestDestBundle)
 
     const result = await caller.updates.converge()
     expect(result).toMatchObject({
@@ -642,9 +683,9 @@ describe('updates tRPC', () => {
    * asked the target-only question too, so a source fleet's live counts were
    * zeroed for the want of a tarball nobody wanted.
    */
-  it('counts a source machine mid-grant as converging', async () => {
+  it('counts a dev machine mid-grant as converging', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
-    const { registry, caller } = sourceFleet(vi.fn().mockResolvedValue(undefined))
+    const { registry, caller } = devFleet(vi.fn().mockResolvedValue(undefined))
 
     await caller.updates.converge()
     await expect(caller.updates.fleet()).resolves.toMatchObject({ converging: 1 })
@@ -810,7 +851,7 @@ describe('updates tRPC', () => {
       artifacts: {
         web: { digest: '47a01e3' },
         headless: {
-          delivery: 'bundle',
+          delivery: 'feed',
           platforms: {
             'linux-x64': { url: 'http://bundle', digest: 'd', signature: 's' },
           },
@@ -917,7 +958,7 @@ describe('updates tRPC', () => {
       artifacts: {
         web: { digest: '47a01e3' },
         headless: {
-          delivery: 'bundle',
+          delivery: 'feed',
           platforms: { 'linux-x64': { url: 'http://bundle', digest: 'd', signature: 's' } },
         },
       },

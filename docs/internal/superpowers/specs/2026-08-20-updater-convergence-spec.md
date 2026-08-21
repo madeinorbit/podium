@@ -43,6 +43,34 @@ a stable cut, and across branch hops to an older base. Normalisation happens whe
 value ENTERS; on read the stored base is only validated for orderability, never re-bumped
 (re-bumping on read made an unchanged checkout climb 0.1.2 → 0.1.5 over four mints).
 
+AS BUILT (POD-2503, 2026-08-21 — the pull conversion; this paragraph is the authority for
+how a channel's feed and trust root are resolved):
+
+- `resolveReleaseTarget(channel, { fetch?, feed? })` resolves ALL THREE channels. A
+  `ChannelFeed` carries four facts: `manifestUrl`, `artifactBase` (an origin fence),
+  `trust` (`release` | `instance`), and optional `headers` (the machine credential). Edge
+  and stable get a built-in descriptor; `dev`'s is composition-owned — the source server's
+  own origin, `/updates/feed/dev/`, the instance trust root and its artifact token — and a
+  server with no dev feed refuses the channel by name rather than resolving something else.
+- The TRUST ROOT is stamped by the resolver from the channel it was asked for and travels
+  on the target as `trust`. A manifest that declares its own is REFUSED outright, on every
+  channel. `update-delivery.ts` reads that field instead of the delivery kind, and the
+  daemon carries it from the grant without inferring it.
+- The ORIGIN FENCE is new and is what makes "a release manifest offering a dev-feed URL
+  fails closed" a resolve-time refusal with its own sentence, rather than a signature
+  failure after a quarter-gigabyte download.
+- The non-feed-delivery rejection is checked on the RAW manifest, before parsing. After the
+  `UpdateArtifact` union lost its `bundle`/`git` arms, a post-parse check would have been
+  unreachable code — a guard that reads like one and can never say no.
+- `dev` has NO desktop manifest leg: dev never mints a shell (§5, §6 step 3), so pairing a
+  dev headless release with a `latest.json` would block every dev release on a darwin
+  builder. POD-2509 adds the edge-referencing `latest.json` as its own publication.
+- A daemon running from SOURCE now reports no delivery capability at all (it kept
+  `update.delivery.git`), so it is never granted anything and stays honestly `behind`.
+- `devIdentityTarget` survives as an identity ONLY — no artifacts, published internally so
+  a source host's Update surface can still compare the served website. §6 step 1 replaces
+  it with a release proposal (POD-2507); the DELIVERABLE target always comes from the feed.
+
 ## 2. Component update matrix
 
 | Component | Delivered by | Update mechanism (all channels) |

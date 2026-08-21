@@ -188,12 +188,17 @@ export const PeerBuild = z
   .passthrough()
 export type PeerBuild = z.infer<typeof PeerBuild>
 
-export const DELIVERY_CAPS = [
-  /** Delivery methods offered through the additive capability surface. */
-  'update.delivery.feed',
-  'update.delivery.bundle',
-  'update.delivery.git',
-] as const
+/**
+ * Delivery methods offered through the additive capability surface.
+ *
+ * `update.delivery.bundle` and `update.delivery.git` were retired with the
+ * delivery kinds they named (`update/target.ts`). They are not listed here any
+ * more, and they do not need to be: caps are OPEN and additive (D3.3), so an
+ * old daemon that still reports one is not rejected — the token simply matches
+ * nothing any target offers, and that daemon stays honestly `behind` instead of
+ * being handed bytes it cannot install.
+ */
+export const DELIVERY_CAPS = ['update.delivery.feed'] as const
 export type DeliveryCap = (typeof DELIVERY_CAPS)[number]
 
 /**

@@ -277,10 +277,15 @@ const UPDATE_FAILURE_MATCHERS = [
   },
   {
     token: 'delivery-misconfigured',
+    /**
+     * The first two alternatives are RETIRED PRODUCERS kept for daemons that
+     * predate the delivery-kind retirement (see {@link RETIRED_PRODUCER_TOKENS}).
+     * The live producers are the last two, in `update-delivery.ts`.
+     */
     pattern:
-      /(?:git delivery requires a configured checkout runner|platform delivery requires an artifact URL|bundle delivery requires the server update key)/i,
+      /(?:git delivery requires a configured checkout runner|platform delivery requires an artifact URL|bundle delivery requires the server update key|feed delivery requires an artifact URL|this target requires the server update key)/i,
     code: 'machine-delivery-unavailable',
-    example: 'git delivery requires a configured checkout runner',
+    example: 'feed delivery requires an artifact URL',
   },
   {
     token: 'download-http-status',
@@ -356,6 +361,33 @@ export const CODE_FOR_UPDATE_FAILURE_TOKEN = Object.fromEntries(
 export const UPDATE_FAILURE_EXAMPLES = Object.fromEntries(
   UPDATE_FAILURE_MATCHERS.map((matcher) => [matcher.token, matcher.example]),
 ) as Record<UpdateFailureToken, string>
+
+/**
+ * TOKENS THAT OUTLIVED THEIR PRODUCER, named rather than left to drift.
+ *
+ * The `git` and `bundle` delivery kinds were retired when `dev` became a pulled
+ * feed (spec §1, disposition 5), so nothing in THIS build writes these
+ * sentences any more. The rows stay because the wire is older than the build:
+ * a fleet machine still running a daemon from before the retirement can report
+ * one, and dropping the pattern would send that refusal straight back into
+ * `machine-unreachable` — the exact defect this whole table exists to prevent.
+ *
+ * Listed here so the honesty check in `apps/daemon/src/refusal-tokens.test.ts`
+ * stays a ratchet. That test drives every token from a REAL constructor; a
+ * token with no producer would otherwise have to be quietly excused, and an
+ * excuse with no register is how a table fills up with patterns matching
+ * nothing. Anything added here is a deliberate, reviewable claim that the only
+ * producer left is an older peer.
+ */
+export const RETIRED_PRODUCER_TOKENS: readonly UpdateFailureToken[] = [
+  'dirty-working-tree',
+  'invalid-git-reference',
+  'git-status-failed',
+  'git-fetch-failed',
+  'git-checkout-failed',
+  'git-timed-out',
+  'git-cancelled',
+]
 
 /**
  * Which token a `detail` sentence carries, or `undefined` when it carries none.

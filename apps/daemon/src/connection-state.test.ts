@@ -7,10 +7,10 @@ import { type PeerHello, type PeerHelloReply, WIRE_VERSION } from '@podium/proto
 import { developmentSourceVersion } from '@podium/runtime/source-version'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
-import { createDaemonConnection } from './connection-state'
 import { buildReport } from './build-report'
-import { loadIdentity } from './identity'
+import { createDaemonConnection } from './connection-state'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
+import { loadIdentity } from './identity'
 
 const roots: string[] = []
 const MACHINE_ID = asMachineId('11111111-1111-4111-8111-111111111111')
@@ -98,11 +98,12 @@ describe('daemon connection credential state machine', () => {
     expect(hello?.build?.wireSchemaDigest).toBeTypeOf('string')
     expect(hello?.build?.installKind).toBeTypeOf('string')
     if (hello?.build?.installKind === 'source') {
-      expect(hello.caps).toContain('update.delivery.git')
+      // A source daemon offers NO delivery: it has no install directory, so a
+      // verified bundle is bytes it would have nowhere to put (spec §1).
+      expect(hello.caps).not.toContain('update.delivery.feed')
+      expect(hello.caps).toContain('shipping.train.v2')
     } else {
-      expect(hello?.caps).toEqual(
-        expect.arrayContaining(['update.delivery.feed', 'update.delivery.bundle']),
-      )
+      expect(hello?.caps).toEqual(expect.arrayContaining(['update.delivery.feed']))
     }
     await state.close()
   })

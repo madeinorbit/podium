@@ -22,6 +22,7 @@ import {
   versionStateOf,
   writeDevPublisherState,
 } from './dev-publisher-state'
+import { DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
 
 const log = createLogger('server:updates')
 
@@ -396,7 +397,8 @@ export async function assertSourceMatchesHead(
 }
 
 export const DEV_BUNDLE_LOCK_NAME = 'podium:dev-bundle'
-export const DEV_ARTIFACT_ROUTE = '/updates/dev-bundle'
+/** The artifact leg of this server's own dev feed; see `artifact-route.ts`. */
+export const DEV_ARTIFACT_ROUTE = `${DEV_FEED_ROUTE}/artifact`
 
 /**
  * A DESCRIPTOR, NEVER THE BUNDLE.
@@ -1439,6 +1441,17 @@ export function requireDefinedMigrations(migrations: string[] | undefined, sha: 
   )
 }
 
+/**
+ * THE MANIFEST THIS PUBLISHER WRITES INTO ITS FEED (spec §6 step 3).
+ *
+ * Byte-for-byte the shape `scripts/release.ts` writes for edge and stable, and
+ * that is the point: `resolveReleaseTarget` reads it with the same parser, the
+ * same non-feed-delivery rejection and the same origin fence.
+ *
+ * It carries NO trust root. The resolver stamps that from the channel it asked
+ * for, and refuses a manifest that names one — so this publisher cannot, even
+ * by accident, nominate the key its own artifacts are checked against.
+ */
 export function devTarget(
   built: BuiltDevBundle,
   opts: {
@@ -1483,7 +1496,10 @@ export function devTarget(
     schema: { migrations },
     artifacts: {
       headless: {
-        delivery: 'bundle',
+        // `feed`, like every other channel. It used to be `bundle` — a delivery
+        // kind that existed only to mean "signed by the server rather than by
+        // CI", which is a statement about TRUST and now travels as one.
+        delivery: 'feed',
         platforms: Object.fromEntries(
           artifacts.map((artifact) => [
             // The host build is published under the name the caller gave, so a test
@@ -1497,13 +1513,6 @@ export function devTarget(
           ]),
         ),
       },
-      headlessAlternatives: [
-        {
-          delivery: 'git',
-          repo: opts.sourceRoot ?? DEVELOPMENT_SOURCE_ROOT,
-          sha,
-        },
-      ],
       web: { digest: webDigest },
     },
   }
@@ -1515,6 +1524,16 @@ export function devTarget(
  * identity target carries a publisher mint (same form a later build will reuse
  * for this SHA) rather than an unorderable `dev+<sha>`. Do not advertise a
  * previous commit's tarball under this label.
+ *
+ * NOT A FEED DOCUMENT, and never written into one. It names no artifact at all
+ * now that git delivery is retired — it is purely "what commit this source host
+ * IS", published straight into this process's own read model so the Update
+ * surface has something to compare the served website against. A machine cannot
+ * converge to it and the planner says so (`cannot: no-artifact`).
+ *
+ * Spec §6 step 1 replaces it with a release PROPOSAL once the approval flow
+ * exists (POD-2507); until then it is what keeps a source host's Update panel
+ * able to rebuild yesterday's website.
  *
  * Schema declarations are required — same fail-closed posture as {@link devTarget}.
  */
@@ -1535,15 +1554,35 @@ export function devIdentityTarget(
     schema: { migrations },
     artifacts: {
       web: { digest: sha },
-      headlessAlternatives: [
-        {
-          delivery: 'git',
-          repo: opts.sourceRoot ?? DEVELOPMENT_SOURCE_ROOT,
-          sha,
-        },
-      ],
     },
   }
+}
+
+/** Where the publisher writes `podium-update.json` for the served dev feed. */
+export function devFeedManifestPath(root: string): string {
+  return join(devBundleDirectory(root), DEV_FEED_MANIFEST)
+}
+
+/**
+ * PUBLISHING IS WRITING THE MANIFEST (spec §6 step 4).
+ *
+ * Everything after this call is the unchanged shared path: the server nudges
+ * its own target refresh, `resolveReleaseTarget` pulls this document back over
+ * HTTP, and the standard operation runs. Writing it is therefore the handoff,
+ * and the last moment this publisher is special.
+ *
+ * Written whole rather than merged into whatever was there: a manifest is one
+ * release's complete description, and a partial rewrite is how a feed ends up
+ * advertising one version's URL beside another's digest.
+ */
+export async function writeDevFeedManifest(
+  fs: DevBundleFs,
+  root: string,
+  target: UpdateTarget,
+): Promise<string> {
+  const path = devFeedManifestPath(root)
+  await fs.writeText(path, `${JSON.stringify(target, null, 2)}\n`)
+  return path
 }
 
 export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSha'> {
@@ -1627,8 +1666,28 @@ export type DevBundleReadiness =
 export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   requestBuild(explicit?: boolean): Promise<BuiltDevBundle | null>
   current(): BuiltDevBundle | null
-  /** The target for the CURRENT HEAD, or nothing. Never an older commit's. */
+  /**
+   * WHAT THIS SOURCE HOST IS, for the current HEAD — an identity, never a
+   * deliverable (see {@link devIdentityTarget}). Nothing, rather than an older
+   * commit's.
+   *
+   * The target machines actually converge to does NOT come from here any more:
+   * it is pulled back out of the feed by `resolveReleaseTarget`, exactly as on
+   * edge and stable. That split is the whole shape of the pull conversion.
+   */
   target(): Promise<UpdateTarget | undefined>
+  /**
+   * The manifest document for the build published for the CURRENT HEAD, or
+   * nothing when no honest tarball exists for it yet.
+   */
+  feedManifest(): Promise<UpdateTarget | undefined>
+  /**
+   * Write {@link feedManifest} into the served feed directory, and answer
+   * whether there was one to write. This is spec §6 step 4's handoff.
+   */
+  publishFeed(): Promise<boolean>
+  /** Where the manifest is written, so the feed route can serve it. */
+  feedManifestPath(): string
   /** Explicit lifecycle for this HEAD, with a reason safe to show a client. */
   readiness(): Promise<DevBundleReadiness>
   /**
@@ -1813,6 +1872,62 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
    */
   let admissions: Promise<unknown> = Promise.resolve()
 
+  /**
+   * The two facts every publication needs about the current commit, or nothing
+   * when this HEAD may not be advertised at all.
+   *
+   * Shared by the identity target and the feed manifest because they must agree:
+   * a commit whose tree is dirty, or whose migrations cannot be read, is one
+   * neither may name. Two copies of that reasoning is how the two publications
+   * drift apart and start describing different commits.
+   */
+  const settleHead = async (): Promise<{ headSha: string; migrations: string[] } | undefined> => {
+    const headSha = await currentHeadSha()
+    if (headSha === null) return undefined
+    // A source-identity label names this commit. A dirty tree is not that
+    // commit, so do not advertise one. Any other failure (stale web dist,
+    // compile) still needs the identity so Update can rebuild.
+    if (failure?.sha === headSha && failure.reason.includes('does not match HEAD')) {
+      return undefined
+    }
+    // Declared for the commit being advertised (POD-2213). Publication fails
+    // closed when the tree cannot be read (POD-2502 / release.ts parity).
+    try {
+      return {
+        headSha,
+        migrations: requireDefinedMigrations(await readMigrationsAt(headSha), headSha),
+      }
+    } catch (error) {
+      recordFailure(error, headSha)
+      return undefined
+    }
+  }
+
+  const feedManifest = async (): Promise<UpdateTarget | undefined> => {
+    const settled = await settleHead()
+    if (!settled) return undefined
+    // A tarball for a DIFFERENT commit is not this HEAD's release, and writing
+    // it into the feed would advertise one commit's bytes under another's name.
+    if (!current || builtSha !== settled.headSha) return undefined
+    const configured = deps.artifactUrl
+    const hostPlatform = deps.platform ?? developmentPlatformTarget()
+    const artifactUrl =
+      typeof configured === 'function'
+        ? (platform: string) => configured(current.version, platform)
+        : configured !== undefined
+          ? (platform: string) =>
+              platform === hostPlatform
+                ? configured
+                : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(current.version)}/${encodeURIComponent(platform)}`
+          : undefined
+    return devTarget(current, {
+      ...(artifactUrl ? { artifactUrl } : {}),
+      platform: deps.platform,
+      sourceRoot: deps.root,
+      schemaMigrations: settled.migrations,
+    })
+  }
+
   return {
     requestBuild(explicit = false) {
       const admitted = admissions.then(() => admit(explicit))
@@ -1841,48 +1956,8 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       return { state: 'idle', headSha }
     },
     target: async () => {
-      const headSha = await currentHeadSha()
-      if (headSha === null) return undefined
-      // A source-identity label names this commit. A dirty tree is not that
-      // commit, so do not advertise one. Any other failure (stale web dist,
-      // compile) still needs the identity so Update can rebuild.
-      if (failure?.sha === headSha && failure.reason.includes('does not match HEAD')) {
-        return undefined
-      }
-      // Declared for the commit being advertised — the same short sha the git
-      // artifact tells the daemon to check out (POD-2213). Publication fails
-      // closed when the tree cannot be read (POD-2502 / release.ts parity).
-      let migrations: string[]
-      try {
-        migrations = requireDefinedMigrations(await readMigrationsAt(headSha), headSha)
-      } catch (error) {
-        recordFailure(error, headSha)
-        return undefined
-      }
-      if (current && builtSha === headSha) {
-        const configured = deps.artifactUrl
-        const built = current
-        const hostPlatform = deps.platform ?? developmentPlatformTarget()
-        const artifactUrl =
-          typeof configured === 'function'
-            ? (platform: string) => configured(built.version, platform)
-            : configured !== undefined
-              ? // A fixed string names ONE address, which could only ever be honest
-                // while one platform was published. Keep honouring it for the host
-                // bundle and give every other platform its own route URL, rather than
-                // handing every machine the same file.
-                (platform: string) =>
-                  platform === hostPlatform
-                    ? configured
-                    : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(built.version)}/${encodeURIComponent(platform)}`
-              : undefined
-        return devTarget(current, {
-          ...(artifactUrl ? { artifactUrl } : {}),
-          platform: deps.platform,
-          sourceRoot: deps.root,
-          schemaMigrations: migrations,
-        })
-      }
+      const settled = await settleHead()
+      if (!settled) return undefined
       // Allocate (or reuse) an orderable mint for this HEAD so identity
       // targets compare like every other channel (spec §1 / F6).
       //
@@ -1900,15 +1975,34 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         const allocated = allocateDevPublishVersion({
           stateDir: deps.publisherStateDir ?? stateDir(),
           checkoutBase: resolveCheckoutReleaseBase(deps, root),
-          sha: headSha,
+          sha: settled.headSha,
         })
-        return devIdentityTarget(allocated.version, headSha, {
+        return devIdentityTarget(allocated.version, settled.headSha, {
           sourceRoot: deps.root,
-          schemaMigrations: migrations,
+          schemaMigrations: settled.migrations,
         })
       } catch (error) {
-        recordFailure(error, headSha)
+        recordFailure(error, settled.headSha)
         return undefined
+      }
+    },
+    feedManifest,
+    feedManifestPath: () => devFeedManifestPath(deps.root ?? SOURCE_ROOT),
+    publishFeed: async () => {
+      const manifest = await feedManifest()
+      if (!manifest) return false
+      try {
+        const path = await writeDevFeedManifest(fs, deps.root ?? SOURCE_ROOT, manifest)
+        log.info('published a development feed manifest', { version: manifest.version, path })
+        return true
+      } catch (error) {
+        // A manifest that could not be written is a release nobody can pull, so
+        // it is recorded as this HEAD's failure rather than swallowed — the
+        // operator's next move (disk, permissions) is nothing like the moves a
+        // failed compile calls for, and silence here would leave the feed
+        // advertising the PREVIOUS release with no trace of why.
+        recordFailure(error, builtSha)
+        return false
       }
     },
   }

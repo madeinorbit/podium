@@ -4,12 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
 import { afterAll, describe, expect, it } from 'vitest'
-import { registerDevArtifactRoute } from './artifact-route'
+import { registerDevFeedRoutes } from './artifact-route'
 import { type BuiltDevBundle, DevBundleUnavailableError } from './dev-bundle'
 import {
   developmentArtifactUrl,
   selectDevelopmentArtifactOrigin,
-  targetForSharedReadModel,
   wireDevBundlePublisher,
 } from './dev-publisher-wiring'
 
@@ -29,6 +28,11 @@ const darwinArtifact = join(
 )
 writeFileSync(darwinArtifact, darwinBytes)
 afterAll(() => rmSync(stage, { recursive: true, force: true }))
+
+// The manifest leg of the same feed, written where the publisher writes it.
+const manifestPath = join(stage, 'podium-update.json')
+const manifest = { version: 'dev+abc1234', critical: false, artifacts: {} }
+writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`)
 
 const built: BuiltDevBundle = {
   version: 'dev+abc1234',
@@ -58,9 +62,10 @@ const built: BuiltDevBundle = {
 
 function appFor(authenticated = true) {
   const app = new Hono()
-  registerDevArtifactRoute(app, {
+  registerDevFeedRoutes(app, {
     current: () => built,
-    authenticate: (request) =>
+    manifestPath: () => manifestPath,
+    authenticate: (request: Request) =>
       authenticated && request.headers.get('authorization') === 'Bearer machine-token',
   })
   return app
@@ -78,7 +83,7 @@ describe('development artifact route', () => {
     )
     expect(url.origin).toBe('https://podium.example.test:55555')
     // The platform is in the PATH: the URL names which bytes come back.
-    expect(url.pathname).toBe('/updates/dev-bundle/dev%2Babc%2F123/darwin-aarch64')
+    expect(url.pathname).toBe('/updates/feed/dev/artifact/dev%2Babc%2F123/darwin-aarch64')
     expect(url.searchParams.get('token')).toBe('random token/?')
   })
   it('keeps a source publisher enabled for same-host fallback', () => {
@@ -246,46 +251,107 @@ describe('development artifact route', () => {
     }
   })
 
-  it('puts dest identity into the shared read model without a public origin', () => {
-    const identity = {
-      version: 'dev+f3f48c2',
-      critical: false,
-      artifacts: {
-        web: { digest: 'f3f48c2' },
-        headlessAlternatives: [{ delivery: 'git' as const, repo: '/repo', sha: 'f3f48c2' }],
-      },
-    }
-    expect(targetForSharedReadModel(identity, undefined)).toEqual(identity)
-    expect(targetForSharedReadModel(identity, 'https://podium.example.test')).toEqual(identity)
+  /**
+   * WHERE THE LOOPBACK GUARANTEE LIVES NOW.
+   *
+   * Two tests here used to prove that `targetForSharedReadModel` STRIPPED a
+   * loopback artifact URL before a target reached the read model, so a remote
+   * daemon could never be handed `127.0.0.1`. That function is gone, and not
+   * because the guarantee stopped mattering: deliverable targets are PULLED
+   * from the feed now, so a loopback URL never gets as far as a target at all.
+   * The question is settled one step earlier and harder — this server refuses
+   * to name a feed address it knows its fleet cannot reach.
+   *
+   * These are the arms that hold the same line at its new home.
+   */
+  describe('the dev feed descriptor this server hands its own resolver', () => {
+    const wiringFor = (over: Partial<Parameters<typeof wireDevBundlePublisher>[0]> = {}) =>
+      wireDevBundlePublisher({
+        sourceRoot: '/repo/podium',
+        artifactOrigin: 'https://podium.example.test',
+        localArtifactOrigin: () => 'http://127.0.0.1:18787',
+        hasRemoteManagedMachines: () => false,
+        artifactToken: 'random-token',
+        signingKey: 'unused-until-build',
+        setTarget: () => {},
+        locks: {
+          acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
+          cancel: () => {},
+          renew: () => {},
+          release: () => {},
+        },
+        readHeadSha: async () => 'aaaaaaa',
+        ...over,
+      })
+
+    it('names its own feed, fenced to it, on the instance trust root', () => {
+      expect(wiringFor().channelFeed()).toEqual({
+        manifestUrl: 'https://podium.example.test/updates/feed/dev/podium-update.json',
+        artifactBase: 'https://podium.example.test/updates/feed/dev/',
+        trust: 'instance',
+        headers: { authorization: 'Bearer random-token' },
+      })
+    })
+
+    it('fences artifacts to the feed it just named', () => {
+      const feed = wiringFor().channelFeed()
+      expect(
+        developmentArtifactUrl('https://podium.example.test', 'v1', 'random-token', 'linux-x86_64'),
+      ).toMatch(
+        new RegExp(`^${feed?.artifactBase}`),
+      )
+    })
+
+    it('falls back to loopback only for a same-host fleet', () => {
+      expect(wiringFor({ artifactOrigin: undefined }).channelFeed()?.manifestUrl).toBe(
+        'http://127.0.0.1:18787/updates/feed/dev/podium-update.json',
+      )
+    })
+
+    it('names NO feed rather than a loopback one once a remote machine is registered', () => {
+      expect(
+        wiringFor({
+          artifactOrigin: undefined,
+          hasRemoteManagedMachines: () => true,
+        }).channelFeed(),
+      ).toBeUndefined()
+    })
+
+    it('names no feed at all on an installed server', () => {
+      expect(wiringFor({ sourceRoot: undefined }).channelFeed()).toBeUndefined()
+    })
   })
 
-  it('strips a dest tarball URL when there is no public origin', () => {
-    const packed = {
-      version: 'dev+f3f48c2',
-      critical: false,
-      artifacts: {
-        web: { digest: 'f3f48c2' },
-        headless: {
-          delivery: 'feed' as const,
-          platforms: {
-            'linux-x86_64': {
-              url: 'http://127.0.0.1:18787/updates/dev-bundle/dev%2Bf3f48c2?token=x',
-              digest: 'sha256-fixture',
-              signature: 'sig',
-            },
-          },
-        },
-        headlessAlternatives: [{ delivery: 'git' as const, repo: '/repo', sha: 'f3f48c2' }],
-      },
-    }
-    expect(targetForSharedReadModel(packed, undefined).artifacts.headless).toBeUndefined()
-    expect(targetForSharedReadModel(packed, undefined).artifacts.web).toEqual({ digest: 'f3f48c2' })
-    expect(targetForSharedReadModel(packed, 'https://podium.example.test')).toEqual(packed)
+  describe('the manifest leg of the feed', () => {
+    it('serves the published manifest to an authenticated machine', async () => {
+      const response = await appFor().request('/updates/feed/dev/podium-update.json', {
+        headers: { authorization: 'Bearer machine-token' },
+      })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      expect(await response.json()).toEqual(manifest)
+    })
+
+    it('refuses an unauthenticated manifest request', async () => {
+      // The manifest names artifact URLs carrying this server's token, so
+      // handing it over unauthenticated would hand over the credential too.
+      expect((await appFor().request('/updates/feed/dev/podium-update.json')).status).toBe(401)
+    })
+
+    it('says not found when nothing has been published into the feed', async () => {
+      const app = new Hono()
+      registerDevFeedRoutes(app, {
+        current: () => built,
+        manifestPath: () => undefined,
+        authenticate: () => true,
+      })
+      expect((await app.request('/updates/feed/dev/podium-update.json')).status).toBe(404)
+    })
   })
 
   it('streams the exact signed bytes to an authenticated machine', async () => {
     const app = appFor()
-    const response = await app.request('/updates/dev-bundle/dev%2Babc1234', {
+    const response = await app.request('/updates/feed/dev/artifact/dev%2Babc1234', {
       headers: { authorization: 'Bearer machine-token' },
     })
     const served = new Uint8Array(await response.arrayBuffer())
@@ -297,10 +363,10 @@ describe('development artifact route', () => {
 
   it('serves each platform its OWN bundle', async () => {
     const app = appFor()
-    const linux = await app.request('/updates/dev-bundle/dev%2Babc1234/linux-x86_64', {
+    const linux = await app.request('/updates/feed/dev/artifact/dev%2Babc1234/linux-x86_64', {
       headers: { authorization: 'Bearer machine-token' },
     })
-    const darwin = await app.request('/updates/dev-bundle/dev%2Babc1234/darwin-aarch64', {
+    const darwin = await app.request('/updates/feed/dev/artifact/dev%2Babc1234/darwin-aarch64', {
       headers: { authorization: 'Bearer machine-token' },
     })
     expect(Array.from(new Uint8Array(await linux.arrayBuffer()))).toEqual(Array.from(bytes))
@@ -312,7 +378,7 @@ describe('development artifact route', () => {
     // signature check after a 200 MB download, which is a far worse answer than a 404
     // it can act on.
     const app = appFor()
-    const response = await app.request('/updates/dev-bundle/dev%2Babc1234/darwin-x86_64', {
+    const response = await app.request('/updates/feed/dev/artifact/dev%2Babc1234/darwin-x86_64', {
       headers: { authorization: 'Bearer machine-token' },
     })
     expect(response.status).toBe(404)
@@ -322,7 +388,7 @@ describe('development artifact route', () => {
     // A daemon may be holding a pre-multi-platform URL. It only ever meant this host's
     // bundle, and that is still what it returns.
     const app = appFor()
-    const response = await app.request('/updates/dev-bundle/dev%2Babc1234', {
+    const response = await app.request('/updates/feed/dev/artifact/dev%2Babc1234', {
       headers: { authorization: 'Bearer machine-token' },
     })
     expect(response.status).toBe(200)
@@ -331,7 +397,7 @@ describe('development artifact route', () => {
 
   it('authenticates before it looks at the platform', async () => {
     const app = appFor(false)
-    const response = await app.request('/updates/dev-bundle/dev%2Babc1234/darwin-aarch64')
+    const response = await app.request('/updates/feed/dev/artifact/dev%2Babc1234/darwin-aarch64')
     expect(response.status).toBe(401)
   })
 
@@ -339,44 +405,47 @@ describe('development artifact route', () => {
     // Retention, a clean checkout, an operator with a shell: the file can go
     // between publication and a request, and the honest answer is "not here".
     const app = new Hono()
-    registerDevArtifactRoute(app, {
+    registerDevFeedRoutes(app, {
       current: () => ({ ...built, path: join(stage, 'never-written.tar.gz') }),
+      manifestPath: () => manifestPath,
       authenticate: () => true,
     })
-    expect((await app.request('/updates/dev-bundle/dev%2Babc1234')).status).toBe(404)
+    expect((await app.request('/updates/feed/dev/artifact/dev%2Babc1234')).status).toBe(404)
   })
 
   it('opens the artifact only after authentication and version agree', async () => {
     const opened: string[] = []
     const app = new Hono()
-    registerDevArtifactRoute(app, {
+    registerDevFeedRoutes(app, {
       current: () => built,
-      authenticate: (request) => request.headers.get('authorization') === 'Bearer machine-token',
-      open: async (path) => {
+      manifestPath: () => manifestPath,
+      authenticate: (request: Request) =>
+        request.headers.get('authorization') === 'Bearer machine-token',
+      open: async (path: string) => {
         opened.push(path)
         return { stream: new Blob([bytes]).stream(), size: bytes.length }
       },
     })
 
-    await app.request('/updates/dev-bundle/dev%2Babc1234')
-    await app.request('/updates/dev-bundle/dev%2Bold', {
+    await app.request('/updates/feed/dev/artifact/dev%2Babc1234')
+    await app.request('/updates/feed/dev/artifact/dev%2Bold', {
       headers: { authorization: 'Bearer machine-token' },
     })
     expect(opened).toEqual([])
 
-    await app.request('/updates/dev-bundle/dev%2Babc1234', {
+    await app.request('/updates/feed/dev/artifact/dev%2Babc1234', {
       headers: { authorization: 'Bearer machine-token' },
     })
     expect(opened).toEqual([built.path])
   })
 
   it('refuses an unauthenticated request', async () => {
-    const response = await appFor().request('/updates/dev-bundle/dev%2Babc1234')
+    const response = await appFor().request('/updates/feed/dev/artifact/dev%2Babc1234')
     expect(response.status).toBe(401)
   })
 
   it('refuses a version that is not the current build', async () => {
-    const response = await appFor().request('/updates/dev-bundle/dev%2Bold', {
+    const response = await appFor().request('/updates/feed/dev/artifact/dev%2Bold', {
       headers: { authorization: 'Bearer machine-token' },
     })
     expect(response.status).toBe(404)
@@ -385,14 +454,15 @@ describe('development artifact route', () => {
   it('does not expose a stale path after the current build changes', async () => {
     let current: BuiltDevBundle | null = built
     const app = new Hono()
-    registerDevArtifactRoute(app, {
+    registerDevFeedRoutes(app, {
       current: () => current,
+      manifestPath: () => manifestPath,
       authenticate: () => true,
     })
 
     current = { ...built, version: 'dev+new1234' }
-    const stale = await app.request('/updates/dev-bundle/dev%2Babc1234')
-    const fresh = await app.request('/updates/dev-bundle/dev%2Bnew1234')
+    const stale = await app.request('/updates/feed/dev/artifact/dev%2Babc1234')
+    const fresh = await app.request('/updates/feed/dev/artifact/dev%2Bnew1234')
     expect(stale.status).toBe(404)
     expect(fresh.status).toBe(200)
   })

@@ -11,15 +11,24 @@
  * detail: the checked-at time it stamps is what Settings renders ("checked 2 h
  * ago"), so a user can tell "nothing is published" from "we have not looked".
  *
- * `dev` is NOT refreshed here. Its target is pushed by the source server's
- * publisher when HEAD moves; polling it would either find the same thing or race
- * the publisher.
+ * `dev` IS refreshed here now (spec §1, disposition 19/20). It used to be
+ * excluded because its target was pushed by the source server's publisher when
+ * HEAD moved, so polling would either find the same thing or race the push.
+ * The publisher writes a real manifest into a feed the ordinary resolver pulls,
+ * so the race is gone and the exclusion with it: dev is refreshed on the same
+ * clock, skipped by the same operation-active rule, and retried on the same
+ * short cadence when its feed is momentarily incomplete.
+ *
+ * The publisher still NUDGES a refresh in-process the moment it has published,
+ * because it shares the process with the updater on the source host and a
+ * twenty-four-hour tick is not the latency an operator watching a release wants.
+ * That nudge is the same `refresh` this tick calls, so the two coalesce.
  */
 
 import type { UpdateChannel } from '@podium/model'
 
-/** The channels a release feed answers for. `dev` is publisher-pushed. */
-export const REFRESHABLE_CHANNELS: readonly UpdateChannel[] = ['edge', 'stable']
+/** Every channel resolves through a feed, so every channel is refreshable. */
+export const REFRESHABLE_CHANNELS: readonly UpdateChannel[] = ['dev', 'edge', 'stable']
 
 export const REFRESH_INTERVAL_MS = 24 * 60 * 60_000
 /** A publication gap is expected to close in minutes, not at tomorrow's tick. */

@@ -136,8 +136,8 @@ import {
 import { scheduledShipOrderProjectionRows } from './modules/shipping/projection'
 import {
   ShippingEvidenceRegistry,
-  shipwrightApplyPatchThroughRelay,
   ShipwrightService,
+  shipwrightApplyPatchThroughRelay,
 } from './modules/shipping/shipwright'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
@@ -149,7 +149,7 @@ import {
   updateOperationKind,
 } from './modules/updates/operation'
 import { UpdateReconciler } from './modules/updates/reconciler'
-import { resolveReleaseTarget } from './modules/updates/release-target'
+import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/release-target'
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
@@ -180,6 +180,15 @@ interface SessionRegistryOptions {
   targetVersion?: () => string | undefined
   /** Public half of this server's update-signing key, sent on every successful machine hello. */
   updatePubkey?: () => string
+  /**
+   * This installation's own `dev` feed — address, origin fence, trust root and
+   * machine credential. Read PER RESOLVE, because a Settings write to Public URL
+   * or a remote machine joining the fleet both change the answer.
+   *
+   * Absent (an installed server, or a source server that cannot name an address
+   * its fleet could reach) means there is no dev feed to pull.
+   */
+  devChannelFeed?: () => ChannelFeed | undefined
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -506,7 +515,14 @@ export class SessionRegistry {
       send: (machineId, message) => machines.toMachine(machineId, message),
       now: this.now,
       nextGrantId: () => randomUUID(),
-      resolveTarget: resolveReleaseTarget,
+      // EVERY channel through one resolver (spec §1). `dev` needs this
+      // installation's own feed descriptor, which only the composition root can
+      // state; without one the resolver refuses `dev` by name rather than
+      // resolving something else.
+      resolveTarget: (channel) =>
+        resolveReleaseTarget(channel, {
+          ...(channel === 'dev' ? { feed: options.devChannelFeed?.() } : {}),
+        }),
       concurrency: 3,
       // Read per call for the same reason `MachinesService` reads it per call:
       // Settings → Updates writes the fleet default into config.json, and an

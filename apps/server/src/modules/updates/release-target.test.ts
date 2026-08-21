@@ -1,14 +1,27 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  type ChannelFeed,
   desktopReleaseManifestUrl,
+  devFeedManifestUrl,
+  releaseChannelFeed,
   releaseManifestUrl,
   resolveReleaseTarget,
 } from './release-target'
 
-const HEADLESS_URL = 'https://downloads.test/podium-headless-linux-x64.tar.gz'
-const DESKTOP_URL = 'https://downloads.test/Podium.app.tar.gz'
+const RELEASE_BASE = 'https://github.com/madeinorbit/podium/releases/download/edge'
+const HEADLESS_URL = `${RELEASE_BASE}/podium-headless-linux-x64.tar.gz`
+const DESKTOP_URL = `${RELEASE_BASE}/Podium.app.tar.gz`
 
-function releaseManifest(version = '0.4.2') {
+const DEV_ORIGIN = 'https://ludovico.test'
+const DEV_ARTIFACT_URL = `${DEV_ORIGIN}/updates/feed/dev/podium-headless-0.1.2-dev.4-x.tar.gz`
+const DEV_FEED: ChannelFeed = {
+  manifestUrl: devFeedManifestUrl(DEV_ORIGIN),
+  artifactBase: `${DEV_ORIGIN}/updates/feed/dev/`,
+  trust: 'instance',
+  headers: { authorization: 'Bearer machine-token' },
+}
+
+function releaseManifest(version = '0.4.2', url = HEADLESS_URL) {
   return {
     version,
     critical: false,
@@ -17,7 +30,7 @@ function releaseManifest(version = '0.4.2') {
         delivery: 'feed',
         platforms: {
           'linux-x86_64': {
-            url: HEADLESS_URL,
+            url,
             digest: 'sha256-headless',
             signature: 'HEADLESS-SIGNATURE',
           },
@@ -77,7 +90,7 @@ function fetchFixture(input: {
   desktop?: unknown
   artifactStatus?: Partial<Record<string, number>>
 }) {
-  return vi.fn<typeof fetch>(async (request, init) => {
+  return vi.fn<typeof fetch>(async (request) => {
     const url = String(request)
     if (url === releaseManifestUrl('edge')) return json(input.release ?? releaseManifest())
     if (url === desktopReleaseManifestUrl('edge')) {
@@ -87,11 +100,25 @@ function fetchFixture(input: {
   })
 }
 
+/** The dev feed answers only its own manifest; everything else is an artifact HEAD. */
+function devFetchFixture(input: {
+  release?: unknown
+  artifactStatus?: Partial<Record<string, number>>
+}) {
+  return vi.fn<typeof fetch>(async (request) => {
+    const url = String(request)
+    if (url === DEV_FEED.manifestUrl) {
+      return json(input.release ?? releaseManifest('0.1.2-dev.4+abc1234', DEV_ARTIFACT_URL))
+    }
+    return new Response(null, { status: input.artifactStatus?.[url] ?? 200 })
+  })
+}
+
 describe('resolveReleaseTarget', () => {
   it('publishes the target only after the matching desktop build and named artifacts exist', async () => {
     const fetchImpl = fetchFixture({})
 
-    await expect(resolveReleaseTarget('edge', fetchImpl)).resolves.toMatchObject({
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
       version: '0.4.2',
     })
 
@@ -112,7 +139,7 @@ describe('resolveReleaseTarget', () => {
   it('does not advertise a headless version while the desktop feed still names the old build', async () => {
     const fetchImpl = fetchFixture({ desktop: desktopManifest('0.4.1') })
 
-    await expect(resolveReleaseTarget('edge', fetchImpl)).rejects.toThrow(
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
       'desktop build for 0.4.2 is not published yet',
     )
 
@@ -124,7 +151,7 @@ describe('resolveReleaseTarget', () => {
   it('does not advertise a target whose desktop artifact is not fetchable', async () => {
     const fetchImpl = fetchFixture({ artifactStatus: { [DESKTOP_URL]: 404 } })
 
-    await expect(resolveReleaseTarget('edge', fetchImpl)).rejects.toThrow(
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
       'desktop darwin-aarch64 artifact returned HTTP 404',
     )
   })
@@ -132,7 +159,7 @@ describe('resolveReleaseTarget', () => {
   it('does not advertise a target whose headless artifact is not fetchable', async () => {
     const fetchImpl = fetchFixture({ artifactStatus: { [HEADLESS_URL]: 404 } })
 
-    await expect(resolveReleaseTarget('edge', fetchImpl)).rejects.toThrow(
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
       'headless linux-x86_64 artifact returned HTTP 404',
     )
   })
@@ -160,5 +187,128 @@ describe('resolveReleaseTarget', () => {
     await expect(resolveReleaseTarget('edge', fetchImpl)).rejects.toThrow(
       'headless darwin-aarch64 artifact returned HTTP 404',
     )
+  })
+})
+
+/**
+ * THE TRUST ROOT IS A FACT ABOUT THE CHANNEL (spec §1, dispositions 1 and 2).
+ *
+ * Before this, `dev` was pushed by the publisher and edge/stable were pulled,
+ * and the key a daemon verified against was read off the DELIVERY KIND. These
+ * arms are the two halves of the replacement: the resolver stamps the root from
+ * the channel it was asked for, and it refuses a manifest that tries to reach
+ * across into another channel's trust domain.
+ */
+describe('resolveReleaseTarget trust root', () => {
+  it('stamps `release` on a release channel', async () => {
+    await expect(resolveReleaseTarget('edge', { fetch: fetchFixture({}) })).resolves.toMatchObject({
+      trust: 'release',
+    })
+  })
+
+  it('stamps `instance` on the dev channel and carries machine credentials', async () => {
+    const fetchImpl = devFetchFixture({})
+
+    await expect(
+      resolveReleaseTarget('dev', { fetch: fetchImpl, feed: DEV_FEED }),
+    ).resolves.toMatchObject({ version: '0.1.2-dev.4+abc1234', trust: 'instance' })
+
+    // Manifest AND artifact HEAD both authenticated: the dev feed is 401-first,
+    // and a resolver that authenticated only the manifest would resolve targets
+    // whose artifacts nothing could actually fetch.
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
+      DEV_FEED.manifestUrl,
+      DEV_ARTIFACT_URL,
+    ])
+    for (const [, init] of fetchImpl.mock.calls) {
+      expect((init?.headers as Record<string, string>)?.authorization).toBe('Bearer machine-token')
+    }
+  })
+
+  it('sends NO credentials on a release channel', async () => {
+    const fetchImpl = fetchFixture({})
+    await resolveReleaseTarget('edge', { fetch: fetchImpl })
+    for (const [, init] of fetchImpl.mock.calls) expect(init?.headers).toBeUndefined()
+  })
+
+  it('REFUSES a release manifest that names a dev-feed artifact URL', async () => {
+    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', DEV_ARTIFACT_URL) })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+      /headless linux-x86_64 artifact is served from outside the edge feed/,
+    )
+    // Refused at RESOLVE time: nothing was ever downloaded from the other origin.
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).not.toContain(DEV_ARTIFACT_URL)
+  })
+
+  it('REFUSES a dev manifest that names an artifact outside the dev feed', async () => {
+    const fetchImpl = devFetchFixture({
+      release: releaseManifest('0.1.2-dev.4+abc1234', HEADLESS_URL),
+    })
+
+    await expect(resolveReleaseTarget('dev', { fetch: fetchImpl, feed: DEV_FEED })).rejects.toThrow(
+      /artifact is served from outside the dev feed/,
+    )
+  })
+
+  it('REFUSES a manifest that declares its own trust root, on any channel', async () => {
+    const fetchImpl = fetchFixture({ release: { ...releaseManifest(), trust: 'instance' } })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+      'release manifest declared its own trust root',
+    )
+  })
+
+  /**
+   * THE NON-FEED REJECTION, on all three channels and on BOTH artifact slots.
+   *
+   * It is checked against the raw manifest precisely so it can fire: after the
+   * parse it would be unreachable, because the artifact union has one arm. The
+   * `git` alternative case is the one that mattered in practice — a release
+   * manifest could offer a `feed` primary and slip a second descriptor in
+   * beside it, and only the alternatives list would carry it.
+   */
+  it.each([
+    ['edge' as const, 'bundle', undefined],
+    ['stable' as const, 'git', undefined],
+    ['dev' as const, 'bundle', DEV_FEED],
+  ])('REFUSES a %s manifest offering %s delivery', async (channel, delivery, feed) => {
+    const manifest = { ...releaseManifest(), artifacts: { headless: { delivery, platforms: {} } } }
+    const fetchImpl = vi.fn<typeof fetch>(async () => json(manifest))
+
+    await expect(
+      resolveReleaseTarget(channel, { fetch: fetchImpl, ...(feed ? { feed } : {}) }),
+    ).rejects.toThrow(`${channel} target unavailable: release manifest offered a non-feed delivery`)
+  })
+
+  it('REFUSES a non-feed delivery hidden in the ALTERNATIVES beside a good primary', async () => {
+    const fetchImpl = fetchFixture({
+      release: {
+        ...releaseManifest(),
+        artifacts: {
+          ...releaseManifest().artifacts,
+          headlessAlternatives: [{ delivery: 'git', repo: '/repo', sha: 'abc1234' }],
+        },
+      },
+    })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+      /offered a non-feed delivery \(git\)/,
+    )
+  })
+
+  it('refuses the dev channel outright when this server has no dev feed configured', async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+
+    await expect(resolveReleaseTarget('dev', { fetch: fetchImpl })).rejects.toThrow(
+      'no feed is configured for this channel on this server',
+    )
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('has no built-in feed for dev, and a release feed for the other two', () => {
+    expect(releaseChannelFeed('dev')).toBeUndefined()
+    expect(releaseChannelFeed('edge')?.trust).toBe('release')
+    expect(releaseChannelFeed('stable')?.trust).toBe('release')
   })
 })

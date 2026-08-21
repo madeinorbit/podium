@@ -94,7 +94,7 @@ describe('fetchArtifact progress', () => {
     const chunks = [chunk(1, 25), chunk(2, 25), chunk(3, 25), chunk(4, 25)]
     const artifact = artifactOf(chunks)
     const seen: DeliveryProgress[] = []
-    const { bytes } = await fetchArtifact(artifact, 'feed', {
+    const { bytes } = await fetchArtifact(artifact, {
       fetch: streamingFetch(chunks, true),
       pubkey,
       onProgress: (progress) => seen.push(progress),
@@ -114,7 +114,7 @@ describe('fetchArtifact progress', () => {
     const artifact = artifactOf(chunks)
     const seen: DeliveryProgress[] = []
     let clock = 0
-    await fetchArtifact(artifact, 'feed', {
+    await fetchArtifact(artifact, {
       fetch: streamingFetch(chunks, false),
       pubkey,
       onProgress: (progress) => seen.push(progress),
@@ -134,7 +134,7 @@ describe('fetchArtifact progress', () => {
   it('takes the one-shot path, unchanged, when nobody is listening', async () => {
     const chunks = [chunk(7, 8)]
     const artifact = artifactOf(chunks)
-    const { bytes } = await fetchArtifact(artifact, 'feed', {
+    const { bytes } = await fetchArtifact(artifact, {
       fetch: streamingFetch(chunks, true),
       pubkey,
     })
@@ -145,12 +145,113 @@ describe('fetchArtifact progress', () => {
     const chunks = [chunk(1, 16), chunk(2, 16)]
     const artifact = artifactOf(chunks)
     await expect(
-      fetchArtifact({ ...artifact, digest: 'sha256-wrong' }, 'feed', {
-        fetch: streamingFetch(chunks, true),
-        pubkey,
-        onProgress: () => {},
-      }),
+      fetchArtifact(
+        { ...artifact, digest: 'sha256-wrong' },
+        {
+          fetch: streamingFetch(chunks, true),
+          pubkey,
+          onProgress: () => {},
+        },
+      ),
     ).rejects.toThrow(/digest/i)
+  })
+})
+
+/**
+ * WHICH KEY GETS TO SAY YES (spec §1, dispositions 1 and 2).
+ *
+ * This is the whole security content of turning `dev` into a pulled channel.
+ * The selection used to be `delivery === 'bundle' ? pinned : baked`, which asked
+ * about the TRANSPORT; now it asks about the CHANNEL, through the `trust` the
+ * server's resolver stamped on the target.
+ *
+ * Every case below signs a REAL body with a REAL key and pushes it through the
+ * real download path, because the failure this guards against is precisely a
+ * signature check that passes for the wrong reason. Both directions are here:
+ * a target may not be verified against a key it did not name, whichever way
+ * round the mistake is made.
+ */
+describe('fetchArtifact trust root', () => {
+  const instance = generateKeyPairSync('ed25519')
+  const instancePubkey = instance.publicKey
+    .export({ type: 'spki', format: 'der' })
+    .toString('base64')
+
+  /** The same bytes, signed by the instance key instead of the release key. */
+  function instanceSigned(chunks: Uint8Array[]): ReturnType<typeof artifactOf> {
+    const artifact = artifactOf(chunks)
+    return {
+      ...artifact,
+      signature: cryptoSign(null, artifact.bytes, instance.privateKey).toString('base64'),
+    }
+  }
+
+  const body = [chunk(9, 32)]
+
+  it('verifies an instance-trusted target against the PINNED key', async () => {
+    const artifact = instanceSigned(body)
+    const { bytes } = await fetchArtifact(artifact, {
+      fetch: streamingFetch(body, true),
+      pubkey,
+      pinnedPubkey: instancePubkey,
+      trust: 'instance',
+    })
+    expect(bytes.byteLength).toBe(32)
+  })
+
+  it('verifies a release-trusted target against the BAKED key', async () => {
+    const artifact = artifactOf(body)
+    const { bytes } = await fetchArtifact(artifact, {
+      fetch: streamingFetch(body, true),
+      pubkey,
+      pinnedPubkey: instancePubkey,
+      trust: 'release',
+    })
+    expect(bytes.byteLength).toBe(32)
+  })
+
+  it('REFUSES an instance-signed artifact offered on a release-trusted target', async () => {
+    // The acceptance case: a release channel's manifest points at a dev-feed
+    // artifact. The bytes download and hash fine; only the key says no.
+    await expect(
+      fetchArtifact(instanceSigned(body), {
+        fetch: streamingFetch(body, true),
+        pubkey,
+        pinnedPubkey: instancePubkey,
+        trust: 'release',
+      }),
+    ).rejects.toThrow(/signature verification FAILED/i)
+  })
+
+  it('REFUSES a release-signed artifact offered on an instance-trusted target', async () => {
+    await expect(
+      fetchArtifact(artifactOf(body), {
+        fetch: streamingFetch(body, true),
+        pubkey,
+        pinnedPubkey: instancePubkey,
+        trust: 'instance',
+      }),
+    ).rejects.toThrow(/signature verification FAILED/i)
+  })
+
+  it('treats an ABSENT trust root as `release`, never as "whatever verifies"', async () => {
+    await expect(
+      fetchArtifact(instanceSigned(body), {
+        fetch: streamingFetch(body, true),
+        pubkey,
+        pinnedPubkey: instancePubkey,
+      }),
+    ).rejects.toThrow(/signature verification FAILED/i)
+  })
+
+  it('fails closed when an instance-trusted target reaches a daemon with no pinned key', async () => {
+    await expect(
+      fetchArtifact(instanceSigned(body), {
+        fetch: streamingFetch(body, true),
+        pubkey,
+        trust: 'instance',
+      }),
+    ).rejects.toThrow(/pinned at pairing/i)
   })
 })
 

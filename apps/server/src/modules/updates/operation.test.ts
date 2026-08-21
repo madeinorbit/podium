@@ -76,29 +76,35 @@ function devTarget(over: Partial<UpdateTarget> = {}): UpdateTarget {
 }
 
 /**
- * WHAT THE DEV PUBLISHER ACTUALLY PUBLISHES for a bare `dev+<sha>` identity
- * (`devIdentityTarget`): no tarball, and git as the delivery a machine that owns
- * the checkout can take today. `devTarget()` above is the degenerate shape that
- * offers NOTHING — kept, because it is what a plan must refuse to wave.
+ * WHAT THE DEV PUBLISHER PUBLISHES BEFORE A RELEASE HAS BEEN BUILT
+ * (`devIdentityTarget`): a web digest and NOTHING to deliver.
+ *
+ * It used to also carry a `git` alternative — a repo and a sha, which was
+ * everything a machine that owned the checkout needed. Git delivery is retired
+ * (spec disposition 5), so an identity target is now nothing to EVERY machine,
+ * and the only answer to it is to build and publish a real release.
  */
-function gitIdentityTarget(): UpdateTarget {
+function identityTarget(): UpdateTarget {
   return devTarget({
-    artifacts: {
-      web: { digest: WEB_DIGEST },
-      headlessAlternatives: [{ delivery: 'git', repo: '/src/podium', sha: 'abc1234' }],
-    },
+    artifacts: { web: { digest: WEB_DIGEST } },
   } as Partial<UpdateTarget>)
 }
 
-const GIT_CAPS = ['update.delivery.git']
-const BUNDLE_CAPS = ['update.delivery.feed', 'update.delivery.bundle']
+/**
+ * A daemon running from SOURCE. It reports no delivery capability at all now:
+ * it has no install directory, so a feed artifact is bytes it could verify and
+ * then have nowhere to put. Keeping the shipping-train cap makes the point that
+ * this is about DELIVERY and not about the machine being mute.
+ */
+const SOURCE_CAPS = ['podium.shipping-train']
+const FEED_CAPS = ['update.delivery.feed', 'podium.shipping-train']
 
-/** The same dev target once the tarball has been packed for it. */
+/** The same dev target once a release has been built and published for it. */
 function packedTarget(): UpdateTarget {
   return devTarget({
     artifacts: {
       web: { digest: WEB_DIGEST },
-      headless: { delivery: 'bundle', platforms: {} },
+      headless: { delivery: 'feed', platforms: {} },
     },
   } as Partial<UpdateTarget>)
 }
@@ -219,17 +225,19 @@ describe('planUpdateOperation', () => {
    * 325 MB of it. The pack is planned for the machines that CANNOT take what the
    * target already offers, and for nobody else.
    */
-  it('plans no pack when every machine in scope can take git delivery', () => {
+  it('never waves a source machine, which can take no delivery at all', () => {
+    // The protection this replaces was the mirror image: a source machine could
+    // take git and needed no pack. Now it can take nothing, and the honest plan
+    // is to defer it rather than grant it bytes it has nowhere to put — the
+    // fleet must not learn that by failing.
     const plan = planUpdateOperation(
       planInput({
-        target: gitIdentityTarget(),
-        fleet: [machine({ id: 'src', deliveryCaps: GIT_CAPS })],
+        target: packedTarget(),
+        fleet: [machine({ id: 'src', deliveryCaps: SOURCE_CAPS })],
       }),
     )
-    expect(stepIds(plan)).toEqual([UPDATE_STEP_MACHINES, UPDATE_STEP_SERVER, UPDATE_STEP_WEB])
-    expect(plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places).toEqual([
-      expect.objectContaining({ id: 'src' }),
-    ])
+    expect(plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places ?? []).toEqual([])
+    expect(plan.deferred).toEqual([{ id: 'src', name: 'src', reason: 'cannot-take-delivery' }])
   })
 
   /**
@@ -237,23 +245,24 @@ describe('planUpdateOperation', () => {
    * reason: nobody is waiting on a tarball, so nobody is served by building one.
    */
   it('plans no pack for a fleet with no machine behind', () => {
-    const plan = planUpdateOperation(planInput({ target: gitIdentityTarget(), fleet: [] }))
+    const plan = planUpdateOperation(planInput({ target: identityTarget(), fleet: [] }))
     expect(stepIds(plan)).toEqual([UPDATE_STEP_SERVER, UPDATE_STEP_WEB])
   })
 
   /**
-   * THE MIXED FLEET, which is where the pack is genuinely needed. One machine
-   * owns a checkout, one can only take a bundle; the honest plan packs once and
-   * waves BOTH — the installed machine is not deferred for the state of an
-   * artifact this very plan is about to produce.
+   * THE MIXED FLEET. One machine runs from source and can take nothing; one is
+   * installed and can take a feed once there is one. The honest plan publishes
+   * once and waves the installed machine — which is NOT deferred for the state
+   * of an artifact this very plan is about to produce — while the source
+   * machine is deferred, because no step of this plan can make it deliverable.
    */
-  it('plans the pack for the one machine that can only take a bundle, and waves both', () => {
+  it('plans the publish for the installed machine and defers the source one', () => {
     const plan = planUpdateOperation(
       planInput({
-        target: gitIdentityTarget(),
+        target: identityTarget(),
         fleet: [
-          machine({ id: 'src', deliveryCaps: GIT_CAPS }),
-          machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS }),
+          machine({ id: 'src', deliveryCaps: SOURCE_CAPS }),
+          machine({ id: 'vmi', deliveryCaps: FEED_CAPS }),
         ],
       }),
     )
@@ -265,8 +274,8 @@ describe('planUpdateOperation', () => {
     ])
     expect(
       plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places?.map((p) => p.id),
-    ).toEqual(['src', 'vmi'])
-    expect(plan.deferred).toEqual([])
+    ).toEqual(['vmi'])
+    expect(plan.deferred).toEqual([{ id: 'src', name: 'src', reason: 'cannot-take-delivery' }])
   })
 
   /**
@@ -275,11 +284,11 @@ describe('planUpdateOperation', () => {
    * when it wakes — and a bare identity is nothing it could ever take. Not
    * packing here would strand it until a human ran another update.
    */
-  it('packs for a bundle-only machine that is asleep, and defers it', () => {
+  it('packs for a feed machine that is asleep, and defers it', () => {
     const plan = planUpdateOperation(
       planInput({
-        target: gitIdentityTarget(),
-        fleet: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS, online: false })],
+        target: identityTarget(),
+        fleet: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS, online: false })],
       }),
     )
     expect(stepIds(plan)).toContain(UPDATE_STEP_PREPARE)
@@ -287,34 +296,38 @@ describe('planUpdateOperation', () => {
   })
 
   /**
-   * A machine that has never reported a build is not evidence that git will do.
-   * `machineCanTakeDelivery` says yes to unknown caps so nothing is stranded;
-   * the PACK question is the stricter one — do we positively know this machine
-   * can take what we already have — because getting it wrong costs a wave of
-   * rejections rather than a build.
+   * A machine that has never reported a build is not evidence that it could
+   * take what is already published. `machineCanTakeDelivery` says yes to
+   * unknown caps so nothing is stranded; the PACK question is the stricter one
+   * — do we positively know this machine can take what we already have —
+   * because getting it wrong costs a wave of rejections rather than a build.
    */
   it('packs for a machine whose delivery capabilities are unknown', () => {
     const plan = planUpdateOperation(
-      planInput({ target: gitIdentityTarget(), fleet: [machine({ id: 'legacy' })] }),
+      planInput({ target: identityTarget(), fleet: [machine({ id: 'legacy' })] }),
     )
     expect(stepIds(plan)).toContain(UPDATE_STEP_PREPARE)
   })
 
   /**
-   * §9.3 — development is the continuous test of the production mechanism, so
-   * the source path must not need the publisher either. A server that cannot
-   * pack anything can still hand a checkout-owning machine a sha.
+   * A SERVER THAT CANNOT PUBLISH HAS NOTHING TO OFFER AN IDENTITY TARGET.
+   *
+   * This used to be the §9.3 exception: an unpackable server could still hand a
+   * checkout-owning machine a sha. Git delivery is gone, so the exception is
+   * gone with it, and the plan says so instead of waving a machine towards
+   * bytes that do not exist.
    */
-  it('waves a git-capable machine even where nothing can pack', () => {
+  it('waves nobody for an identity target where nothing can publish', () => {
     const plan = planUpdateOperation(
       planInput({
-        target: gitIdentityTarget(),
+        target: identityTarget(),
         canPrepare: false,
-        fleet: [machine({ id: 'src', deliveryCaps: GIT_CAPS })],
+        fleet: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
       }),
     )
-    expect(stepIds(plan)).toContain(UPDATE_STEP_MACHINES)
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
     expect(stepIds(plan)).not.toContain(UPDATE_STEP_PREPARE)
+    expect(plan.deferred).toEqual([{ id: 'vmi', name: 'vmi', reason: 'cannot-take-delivery' }])
   })
 
   it('defers an offline machine instead of letting it hold the outcome open', () => {
@@ -351,7 +364,7 @@ describe('planUpdateOperation', () => {
     const plan = planUpdateOperation(
       planInput({
         target: packedTarget(),
-        fleet: [machine({ id: 'src', deliveryCaps: ['update.delivery.git'] })],
+        fleet: [machine({ id: 'src', deliveryCaps: ['podium.shipping-train'] })],
       }),
     )
     expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
@@ -1272,7 +1285,7 @@ describe('the step runners', () => {
     // all (POD-2195); with nobody needing one the plan would not contain the
     // step this test is about.
     const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })],
+      machines: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
       requestDestBundle,
@@ -1312,7 +1325,7 @@ describe('the step runners', () => {
       publicReason: 'The website has not been built for HEAD (abc1234) yet.',
     })
     const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })],
+      machines: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
       requestDestBundle: () => Promise.reject(refusal),
@@ -1746,39 +1759,19 @@ describe('the step runners', () => {
   })
 
   /**
-   * POD-2195, THE OTHER HALF. Even with the pack out of the plan, the runner
-   * refused to tick until a packed descriptor was published — so the machine
-   * that needed no package sat behind "Waiting for the update package." for the
-   * whole of the step's deadline. The gate is real (never grant what cannot be
-   * delivered) but it is a question about the MACHINES this step is waiting on,
-   * and this one can take what is published today.
+   * POD-2195's GATE, which survives the retirement of the delivery kind that
+   * motivated it. It says: never tick this step towards a grant while the
+   * machines it is waiting on cannot take what is published. It used to have a
+   * counterpart arm — a git-capable machine granted a bare identity without
+   * waiting for any package — and that arm is gone, because no machine can take
+   * a bare identity any more.
+   *
+   * A machine that can take a feed is not handed one to refuse.
    */
-  it('machines: grants a git-capable machine without waiting for any package', async () => {
+  it('machines: waits for the package when no awaited machine can take the identity', async () => {
     const h = harness({
-      machines: [machine({ id: 'src', deliveryCaps: GIT_CAPS })],
-      target: gitIdentityTarget(),
-      appVersion: 'dev+abc1234',
-      servedWebDigest: () => WEB_DIGEST,
-    })
-    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
-    await h.engine.whenSettled('op_1')
-
-    const operation = h.read()
-    expect(stepIds({ steps: operation.steps ?? [] })).toEqual([UPDATE_STEP_MACHINES])
-    expect(
-      operation.steps?.find((step) => step.id === UPDATE_STEP_MACHINES)?.detail ?? '',
-    ).not.toContain('Waiting for the update package')
-    expect(h.sent.map((grant) => grant.machineId)).toEqual(['src'])
-  })
-
-  /**
-   * …and the gate still closes for the fleet it was written for: a machine that
-   * can only take a bundle is not handed a bare identity to refuse.
-   */
-  it('machines: still waits for the package when no awaited machine can take git', async () => {
-    const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })],
-      target: gitIdentityTarget(),
+      machines: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
+      target: identityTarget(),
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
       // The pack "succeeds" without publishing a packed descriptor — which is
@@ -2030,7 +2023,7 @@ describe('surviving the coordinator restart', () => {
    */
   it('fails the update with the configuration remedy instead of waiting for a package', async () => {
     const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })],
+      machines: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
       servedWebDigest: () => WEB_DIGEST,
       appVersion: 'dev+abc1234',
       requestDestBundle: () =>
@@ -2073,7 +2066,7 @@ describe('surviving the coordinator restart', () => {
    * the operation published it instantly with nothing else changed.
    */
   it('completes an operation adopted across a restart, package and all', async () => {
-    const fleet = [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })]
+    const fleet = [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })]
     // The publisher republishes into whichever process is alive — which is the
     // whole point: after the restart that is the successor, with no memory.
     let publisher: UpdatesService | undefined
@@ -2542,7 +2535,7 @@ describe('the budgets nest', () => {
     // Otherwise the machine's real reason — a dead remote, a refused checkout —
     // is replaced by the coordinator's guess that it went quiet.
     expect(UPDATE_BUDGETS.downloadTimeoutMs).toBeLessThan(machines?.silenceMs ?? 0)
-    expect(UPDATE_BUDGETS.gitConvergenceMs).toBeLessThan(machines?.silenceMs ?? 0)
+    expect(UPDATE_BUDGETS.machineDeliverySilenceMs).toBeLessThan(machines?.silenceMs ?? 0)
   })
 
   it('measures the wave against the LONGEST legitimate silence, not the cadence', () => {
@@ -2550,7 +2543,7 @@ describe('the budgets nest', () => {
     // silence for its whole budget. Judging the step on the heartbeat cadence
     // would stall and re-grant that machine mid-transfer, every time.
     expect(machines?.silenceMs).toBe(
-      UPDATE_BUDGETS.gitConvergenceMs + UPDATE_BUDGETS.machineSilenceMarginMs,
+      UPDATE_BUDGETS.machineDeliverySilenceMs + UPDATE_BUDGETS.machineSilenceMarginMs,
     )
     expect(UPDATE_BUDGETS.downloadHeartbeatMs).toBeLessThan(machines?.silenceMs ?? 0)
   })
@@ -2866,10 +2859,19 @@ describe('two machines, one of them dead', () => {
     expect(grantedMachines(h)).toEqual(['a-canary', 'busy', 'silent'])
     const bridge = h.bridge
 
-    // Ten one-minute steps of a perfectly healthy download on the other
-    // machine. Under the step's single clock every one of these re-armed the
-    // budget, and `silent` could not be noticed until `busy` had finished.
-    for (let minute = 1; minute <= 10; minute++) {
+    // One-minute steps of a perfectly healthy download on the other machine,
+    // just past ONE silence budget. Under the step's single clock every one of
+    // these re-armed the budget, and `silent` could not be noticed until `busy`
+    // had finished.
+    //
+    // DERIVED from the budget rather than a round number of minutes: the
+    // budget moved when git convergence retired and took its eight-minute
+    // bound with it, and a hardcoded ten minutes silently became "long enough
+    // to stall TWICE and fail the step", which is a different test.
+    const minutes = Math.ceil(
+      (UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs ?? 0) / 60_000,
+    )
+    for (let minute = 1; minute <= minutes; minute++) {
       h.clock.advance(60_000)
       busyReports(h, bridge, minute * 9)
       await h.engine.whenSettled('op_1')

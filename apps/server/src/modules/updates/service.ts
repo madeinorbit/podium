@@ -21,7 +21,13 @@ export interface UpdatesDeps {
   now(): number
   nextGrantId(): string
   concurrency: number
-  resolveTarget?(channel: 'edge' | 'stable'): Promise<UpdateTarget>
+  /**
+   * Pull one channel's target from its feed. EVERY channel, `dev` included
+   * (spec §1): dev used to be excluded here because its target was pushed by
+   * the publisher, and that exclusion is what made it the one channel whose
+   * resolution path nothing else exercised.
+   */
+  resolveTarget?(channel: UpdateChannel): Promise<UpdateTarget>
   /**
    * The instance's fleet default channel, read PER CALL so a Settings write is
    * followed without a restart (the same discipline `MachinesService` uses for
@@ -376,18 +382,11 @@ export class UpdatesService {
 
   /** True only when this attempt resolved a complete, current target. */
   private async resolveIntoTarget(channel: UpdateChannel): Promise<boolean> {
-    if (channel === 'dev') {
-      // Dev is publisher-pushed, so "refreshing" it is only ever a report on what
-      // the source server has already published.
-      const reason = 'Development target is not currently published by this source server.'
-      if (!this.target('dev')) {
-        this.unavailableReasons.set('dev', reason)
-        this.recordCheck('dev', { status: 'unavailable', reason })
-        return false
-      }
-      this.recordCheck('dev', { status: 'ok' })
-      return true
-    }
+    // NO SPECIAL CASE FOR `dev` ANY MORE (spec §1). It used to branch here and
+    // merely REPORT on whatever the publisher had pushed, because there was no
+    // dev feed to ask. There is one now, so every channel takes the same three
+    // lines below — which is the point of the convergence: the resolve path
+    // production uses is exercised many times a day rather than at release.
     if (!this.deps.resolveTarget) {
       const reason = `${channel} target resolver is not configured.`
       this.unavailableReasons.set(channel, reason)

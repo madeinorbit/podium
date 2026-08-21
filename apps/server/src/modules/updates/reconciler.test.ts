@@ -34,7 +34,7 @@ function target(over: Partial<UpdateTarget> = {}): UpdateTarget {
 /** The same target once it carries a packed tarball, which is what makes the
  *  delivery question answerable at all (an empty artifact set offers nothing). */
 function packedTarget(): UpdateTarget {
-  return target({ artifacts: { headless: { delivery: 'bundle', platforms: {} } } } as never)
+  return target({ artifacts: { headless: { delivery: 'feed', platforms: {} } } } as never)
 }
 
 function machine(over: Partial<WaveMachine> & { id: string }): WaveMachine {
@@ -92,7 +92,11 @@ function fakeClock() {
           const timer = pending[index]
           const best = next === -1 ? undefined : pending[next]
           if (!timer || timer.dueAt > until) continue
-          if (!best || timer.dueAt < best.dueAt || (timer.dueAt === best.dueAt && timer.seq < best.seq))
+          if (
+            !best ||
+            timer.dueAt < best.dueAt ||
+            (timer.dueAt === best.dueAt && timer.seq < best.seq)
+          )
             next = index
         }
         if (next === -1) break
@@ -201,7 +205,7 @@ describe('decideReconciliation', () => {
       name: 'a machine that cannot take this delivery is not handed it anyway',
       over: {
         target: packedTarget(),
-        machine: machine({ id: 'src', deliveryCaps: ['update.delivery.git'] }),
+        machine: machine({ id: 'src', deliveryCaps: ['podium.shipping-train'] }),
       },
       because: 'cannot-take-delivery',
     },
@@ -587,8 +591,6 @@ describe('UpdateReconciler: a grant that goes silent', () => {
    * that moving one of them has to move the other deliberately.
    */
   it('waits exactly as long as the operation would for the same machine', () => {
-    expect(RECONCILE_GRANT_DEADLINE_MS).toBe(
-      UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs,
-    )
+    expect(RECONCILE_GRANT_DEADLINE_MS).toBe(UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs)
   })
 })

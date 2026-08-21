@@ -14,18 +14,19 @@
 import type { UpdateArtifact, UpdateTarget } from './target'
 
 type PlatformAsset = Extract<UpdateArtifact, { delivery: 'feed' }>['platforms'][string]
-type GitArtifact = Extract<UpdateArtifact, { delivery: 'git' }>
 
 /**
- * A feed or bundle plan contains the exact platform asset selected for this
- * daemon. Git remains represented as its platform-independent checkout
- * descriptor; its host-side delivery implementation performs the fetch and
- * checkout after this planner has authorized it.
+ * A plan contains the exact platform asset selected for this daemon.
+ *
+ * `delivery` survives the retirement of `bundle` and `git` as a single-valued
+ * field rather than being deleted: it is the axis the caps negotiation and the
+ * fleet's `cannot: unsupported-delivery` refusal are both phrased in, and a
+ * later delivery kind (a differential patch, say) belongs here rather than in a
+ * second parallel vocabulary.
  */
 export type ConvergencePlan =
   | { action: 'already-current' }
-  | { action: 'converge'; delivery: 'feed' | 'bundle'; asset: PlatformAsset }
-  | { action: 'converge'; delivery: 'git'; artifact: GitArtifact }
+  | { action: 'converge'; delivery: 'feed'; asset: PlatformAsset }
   | {
       action: 'cannot'
       reason: 'no-artifact' | 'unsupported-delivery' | 'unsupported-platform'
@@ -33,8 +34,6 @@ export type ConvergencePlan =
 
 const CAP_FOR_DELIVERY: Record<UpdateArtifact['delivery'], string> = {
   feed: 'update.delivery.feed',
-  bundle: 'update.delivery.bundle',
-  git: 'update.delivery.git',
 }
 
 export function planConvergence(ctx: {
@@ -57,10 +56,6 @@ export function planConvergence(ctx: {
   for (const artifact of artifacts) {
     if (!ctx.caps.includes(CAP_FOR_DELIVERY[artifact.delivery])) continue
     supportsOfferedDelivery = true
-
-    // Git is a platform-independent checkout. Keep the descriptor here so the
-    // host-side delivery seam can fetch and check out the exact granted revision.
-    if (artifact.delivery === 'git') return { action: 'converge', delivery: 'git', artifact }
 
     // Never select another platform's bytes. A signed, digest-matching binary
     // for the wrong architecture is still a bricked daemon. Continue only to

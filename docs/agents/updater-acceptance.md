@@ -125,8 +125,7 @@ the caller. Then confirm the group is released on the terminal transition and a 
 can start.
 
 **Stalled download.** Interrupt the artifact transfer mid-flight (a proxy that accepts the
-connection and then stops sending is the cheapest way) on a machine taking bundle or feed
-delivery. Required behaviour: progress frames stop, the step goes `stalled` rather than
+connection and then stops sending is the cheapest way) on a machine taking feed delivery. Required behaviour: progress frames stop, the step goes `stalled` rather than
 sitting in `downloading` forever, the panel says which machine stopped reporting rather than
 showing a generic spinner, and the download eventually fails on its hard deadline instead of
 holding the operation open. Then let it recover instead of failing, and confirm the stall is
@@ -152,49 +151,57 @@ converge with nobody looking, and no second human decision. What to prove:
   behind, and confirm nothing installs: a new version is an offer, and convergence that
   starts itself is auto-update nobody asked for.
 
-### 4. Source checkout / git delivery drive
+### 4. RETIRED — source checkout / git delivery drive
 
-Use a disposable source checkout on an old commit and a separate target commit. Start it as
-a named instance so its state, ports, daemon, and update target cannot touch the default
-instance. Follow `docs/multi-instance.md` for identity selection.
+**Deleted deliberately, 2026-08-21 (POD-2503, spec §1 and disposition 5).** This section
+required a real UI drive of a machine converging a git checkout to a granted sha, plus two
+negative variants: a dirty checkout that must refuse without `reset`/`clean`/`--hard`, and a
+machine offered no delivery it could take.
 
-In the UI, verify this sequence with real clicks:
+The `git` delivery kind no longer exists. Exactly one machine in the reference topology runs
+from source — the publisher on ludovico — and it is not a fleet consumer; once POD-2512 lands
+it becomes an installed consumer like every other machine. A daemon running from source now
+reports NO delivery capability at all, so it is never granted anything, and there is no code
+path left for either the positive drive or the dirty-checkout refusal to exercise.
 
-1. Disable the checkout HEAD watcher, move the checkout to the target, and prove the
-   coordinating server PID does not change before approval.
-2. The panel names the target version and only the affected development-authority places
-   in user language; edge/stable-selected machines are not counted against the dev target.
-3. Clicking **Update Podium** changes the same non-modal panel to applying.
-4. Every selected development machine reaches the exact target and reconnects as
-   `current` before the coordinating server requests its guarded restart. Prove this
-   from the server's raw post-reconnect machine identity, not an optimistic update status
-   emitted before the old daemon exits.
-5. The source daemon selects git delivery; an installed daemon must not select git merely
-   because it is offered.
-6. Sessions remain usable while the server/daemon reconnect.
-7. The panel reaches current and disappears; `/version`, fleet status, and the checkout HEAD
-   all report the target, while the HEAD watcher remains disabled.
-8. Repeat once more from the new version to catch stale target, pending-marker, and restart
-   state that only appear on the second cycle.
+WHAT WAS LOST AND WHERE IT WENT, so this is a retirement rather than a gap:
 
-Run two negative variants against disposable checkouts:
+- The **dirty-checkout refusal** still exists, but on the PUBLISHER rather than on a
+  consumer: `assertSourceMatchesHead` in `dev-bundle.ts` fails closed before a release is
+  built, because an edited checkout cannot produce a bundle of the commit it claims. That is
+  now covered by drive 5's dev-channel leg (below) — publish from a dirty tree and confirm
+  the release is refused with the offending paths named, and the working tree untouched.
+- The **unsupported-delivery refusal** is unchanged and moves to drive 5: a machine that
+  cannot take what the target offers must be shown as deferred with a reason, never granted
+  and left to fail.
+- The **twice-around** requirement (repeat from the new version, to catch stale target,
+  pending-marker and restart state that only appear on the second cycle) moves to drive 5 and
+  is not optional there.
 
-- make the checkout dirty and confirm the update refuses without reset, clean, `--hard`, or
-  `--force`, preserving the local file exactly;
-- offer no delivery compatible with the machine and confirm a fail-closed refusal, followed
-  by a dismissible panel that explains the next useful action.
+### 5. Installed headless feed drive — INCLUDING the dev channel
 
-The exact launch and target-publication commands should live beside the delivery
-implementation once POD-1738 settles them; do not replace this real UI drive with a pure
-planner test.
+On a disposable installed instance, publish a signed feed target and repeat the UI sequence
+above. Verify the machine uses feed delivery, swaps only its instance-owned install, restarts,
+reconnects, and reports the target version. Repeat with a corrupted artifact and with a
+signature made by the wrong key; both must fail closed and leave the old install bootable.
 
-### 5. Installed headless bundle/feed drive
+Run it on the DEV channel as well as a release channel, because per-channel trust is the one
+thing the two legs do not share (spec §1):
 
-On a disposable installed instance, publish a signed bundle/feed target and repeat the UI
-sequence above. Verify the machine uses bundle or feed delivery, validates the pinned
-per-server key where required, swaps only its instance-owned install, restarts, reconnects,
-and reports the target version. Repeat with a missing/wrong pin and a corrupted artifact;
-both must fail closed and leave the old install bootable.
+- the dev leg must verify against the key the daemon pinned at pairing, and the release leg
+  against the baked release key. Prove BOTH directions of the mistake: a dev-signed artifact
+  offered on a release-channel target, and a release-signed artifact offered on a dev target.
+  Each must be refused with a signature failure and nothing swapped.
+- the dev feed is machine-authenticated: an unauthenticated request for either the manifest
+  or an artifact must be refused with 401 before anything is opened.
+- a release-channel manifest naming an artifact URL outside the release feed must be refused
+  at RESOLVE time, before any download.
+- publish from a dirty checkout and confirm the release is refused, the offending paths are
+  named, and the local files are preserved exactly.
+- offer no delivery the machine can take and confirm a fail-closed refusal, followed by a
+  dismissible panel that explains the next useful action.
+- repeat once more from the new version, to catch stale target, pending-marker and restart
+  state that only appear on the second cycle.
 
 ### 6. Signed desktop release drive
 
@@ -216,8 +223,8 @@ Linux AppImage run does not substitute for this macOS proof.
 
 | Surface | Positive path | Required negative path | Proof of completion |
 | --- | --- | --- | --- |
-| Source checkout | Git delivery and reconnect, twice | Dirty checkout; unsupported delivery | HEAD, `/version`, and fleet target agree |
-| Installed headless | Signed bundle/feed swap | Tamper; missing/wrong pinned key | On-disk version and reconnect agree |
+| Installed headless (release) | Signed feed swap and reconnect, twice | Tamper; wrong signing key | On-disk version and reconnect agree |
+| Installed headless (dev) | Signed feed swap from the pulled dev feed | Cross-channel key; unauthenticated feed request; dirty publisher checkout | On-disk version and reconnect agree; refusals name the cause |
 | Web update panel | Available to applying to current | Connection/delivery failure can be dismissed | Real click observed in branch app |
 | Linux desktop | Signed AppImage replacement | Signature/install failure | Re-launched on-disk AppImage reports target |
 | macOS desktop | Production-signed install and restart | Broken artifact/native fallback | Restarted notarized app reports target |

@@ -2,6 +2,7 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildDevBundle,
@@ -831,26 +832,36 @@ describe('buildDevBundle', () => {
     expect(events).toEqual(['acquire', 'build:0.1.0-edge.20.dev.1+1234567', 'release'])
     const target = devTarget(built, {
       platform: 'linux-x86_64',
-      artifactUrl: () =>
-        'http://server.test/updates/dev-bundle/' + encodeURIComponent(built.version),
+      artifactUrl: (platform) =>
+        'http://server.test/updates/feed/dev/artifact/' +
+        encodeURIComponent(built.version) +
+        '/' +
+        encodeURIComponent(platform),
       sourceRoot: '/repo/podium',
       schemaMigrations: ['20260715135845_baseline'],
     })
     expect(target.schema).toEqual({ migrations: ['20260715135845_baseline'] })
+    // `feed`, like edge and stable: the manifest this publisher writes is
+    // read by the same resolver, with the same parser (spec §1, §6 step 3).
     expect(target.artifacts.headless).toEqual({
-      delivery: 'bundle',
+      delivery: 'feed',
       platforms: {
         'linux-x86_64': {
-          url: 'http://server.test/updates/dev-bundle/' + encodeURIComponent(built.version),
+          url:
+            'http://server.test/updates/feed/dev/artifact/' +
+            encodeURIComponent(built.version) +
+            '/linux-x86_64',
           digest: built.digest,
           signature,
         },
       },
     })
-    expect(target.artifacts.headlessAlternatives).toEqual([
-      { delivery: 'git', repo: '/repo/podium', sha: '1234567' },
-    ])
+    expect(target.artifacts.headlessAlternatives).toBeUndefined()
     expect(target.artifacts.web).toEqual({ digest: '1234567' })
+    // NEVER its own trust root: the resolver stamps that from the channel and
+    // refuses a manifest that names one, so writing it here would make every
+    // dev release unresolvable.
+    expect(target.trust).toBeUndefined()
   })
 
   it('advertises an orderable identity with a web digest when there is no tarball yet', () => {
@@ -861,10 +872,12 @@ describe('buildDevBundle', () => {
     expect(identity.version).toBe('0.1.0-edge.20.dev.1+f9485d3')
     expect(identity.schema).toEqual({ migrations: ['20260715135845_baseline'] })
     expect(identity.artifacts.web).toEqual({ digest: 'f9485d3' })
+    // NOTHING to deliver. The git alternative that used to sit here named a
+    // repo and a sha for a machine that owned the checkout; that delivery kind
+    // is retired, so an identity target is now an identity and nothing else —
+    // a machine cannot converge to it and the planner says `no-artifact`.
     expect(identity.artifacts.headless).toBeUndefined()
-    expect(identity.artifacts.headlessAlternatives).toEqual([
-      { delivery: 'git', repo: '/repo/podium', sha: 'f9485d3' },
-    ])
+    expect(identity.artifacts.headlessAlternatives).toBeUndefined()
   })
 
   it('never holds the bundle, and says how big the one on disk is', async () => {
@@ -1942,5 +1955,116 @@ describe('development targets declare the schema they can open', () => {
         { sourceRoot: '/repo/podium' },
       ),
     ).toThrow(/no migrations found/)
+  })
+})
+
+/**
+ * PUBLISHING IS WRITING THE MANIFEST (spec §6 step 4).
+ *
+ * The publisher used to PUSH a deliverable target straight into the updates
+ * service. It writes a `podium-update.json` into its served feed directory
+ * instead, and the ordinary resolver pulls it back — which is what makes the
+ * dev channel resolve through the same code as edge and stable.
+ *
+ * These arms are about that document: that it is written only for a release
+ * that really exists at THIS commit, that it is a manifest the shared parser
+ * accepts, and that it never names its own trust root.
+ */
+describe('the dev feed manifest the publisher writes', () => {
+  function publisherFor(store: ReturnType<typeof memoryFs>, head: () => string) {
+    const { bytes, signature, signingKey } = signedFixture()
+    return createDevBundlePublisher({
+      ...publisherSeams(),
+      isSourceRun: true,
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
+      root: '/repo/podium',
+      headSha: head,
+      platform: 'linux-x86_64',
+      signingKey,
+      fs: store.fs,
+      lock: lockFixture([]),
+      artifactUrl: (version) =>
+        `https://ludovico.test/updates/feed/dev/artifact/${encodeURIComponent(version)}?token=t`,
+      now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
+      spawnBuild: async ({ artifactPath }) => {
+        store.blobs.set(artifactPath, bytes)
+        store.text.set(`${artifactPath}.sig`, `${signature}\n`)
+      },
+    })
+  }
+
+  it('writes nothing until a release for this commit has actually been built', async () => {
+    const store = memoryFs()
+    const publisher = publisherFor(store, () => 'aaaaaaa')
+
+    expect(await publisher.feedManifest()).toBeUndefined()
+    expect(await publisher.publishFeed()).toBe(false)
+    expect(store.names()).not.toContain('podium-update.json')
+  })
+
+  it('writes a manifest the shared parser accepts, naming this build', async () => {
+    const store = memoryFs()
+    const publisher = publisherFor(store, () => 'aaaaaaa')
+    await publisher.requestBuild(true)
+
+    expect(await publisher.publishFeed()).toBe(true)
+    expect(publisher.feedManifestPath()).toBe('/repo/podium/dist-bun/podium-update.json')
+
+    const parsed = UpdateTarget.parse(
+      JSON.parse(await store.fs.readText(publisher.feedManifestPath())),
+    )
+    expect(parsed.version).toBe(publisher.current()?.version)
+    expect(parsed.schema).toEqual({ migrations: ['20260715135845_baseline'] })
+    expect(parsed.artifacts.headless).toMatchObject({
+      delivery: 'feed',
+      platforms: {
+        'linux-x86_64': {
+          url: `https://ludovico.test/updates/feed/dev/artifact/${encodeURIComponent(
+            publisher.current()?.version ?? '',
+          )}?token=t`,
+          digest: publisher.current()?.digest,
+        },
+      },
+    })
+    // The resolver stamps the trust root and REFUSES a manifest that names one,
+    // so a publisher that wrote one would make its own releases unresolvable.
+    expect(parsed.trust).toBeUndefined()
+  })
+
+  it('refuses to publish a manifest for a commit the build does not belong to', async () => {
+    const store = memoryFs()
+    let head = 'aaaaaaa'
+    const publisher = publisherFor(store, () => head)
+    await publisher.requestBuild(true)
+    expect(await publisher.publishFeed()).toBe(true)
+
+    // A commit lands. The tarball on disk is the PREVIOUS one, and writing it
+    // into the feed under this commit's name would advertise one commit's bytes
+    // under another's.
+    head = 'bbbbbbb'
+    expect(await publisher.feedManifest()).toBeUndefined()
+    expect(await publisher.publishFeed()).toBe(false)
+  })
+
+  it('rewrites the manifest whole on the next release, never merging into it', async () => {
+    const store = memoryFs()
+    let head = 'aaaaaaa'
+    const publisher = publisherFor(store, () => head)
+    await publisher.requestBuild(true)
+    await publisher.publishFeed()
+    const first = JSON.parse(await store.fs.readText(publisher.feedManifestPath())) as {
+      version: string
+    }
+
+    head = 'bbbbbbb'
+    await publisher.requestBuild(true)
+    await publisher.publishFeed()
+    const second = JSON.parse(await store.fs.readText(publisher.feedManifestPath())) as {
+      version: string
+    }
+
+    expect(second.version).not.toBe(first.version)
+    expect(UpdateTarget.parse(second).artifacts.headless).toBeDefined()
   })
 })

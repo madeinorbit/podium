@@ -14,7 +14,6 @@ import {
   DEFAULT_DOWNLOAD_TIMEOUT_MS,
   PROGRESS_REPORT_INTERVAL_MS,
 } from '@podium/runtime/update-delivery'
-import { GIT_CONVERGENCE_BUDGET_MS } from '@podium/runtime/update-delivery-git'
 import type {
   OperationKindDefinition,
   OperationPlan,
@@ -519,16 +518,36 @@ export interface UpdatePlanInput {
   retryOf?: string
 }
 
-/** A dev+ identity with no packed tarball still has to be packed before it can be delivered. */
+/**
+ * A TARGET WITH NOTHING TO DELIVER — the source host's own identity, before its
+ * release has been built and published into the feed.
+ *
+ * ASKED OF THE ARTIFACTS, NOT OF THE VERSION STRING. It used to be
+ * `version.startsWith('dev+')`, which stopped being true the moment development
+ * versions became orderable mints (`0.1.2-dev.4+abc1234`, POD-2502) — and would
+ * stop being true again at the next naming change. The property that actually
+ * matters is the one this names: the descriptor points at no bytes, so nobody
+ * can converge to it, and on a host that can publish, the answer is to build and
+ * publish a release. `canPrepare` is what fences that answer to such a host.
+ */
 export function needsDevelopmentBundle(target: {
   version: string
-  artifacts: { headless?: unknown }
+  artifacts: { headless?: unknown; headlessAlternatives?: readonly unknown[] }
 }): boolean {
-  return target.version.startsWith('dev+') && target.artifacts.headless === undefined
+  return (
+    target.artifacts.headless === undefined &&
+    (target.artifacts.headlessAlternatives ?? []).length === 0
+  )
 }
 
-/** What a pack adds to a bare identity, and the only thing it adds. */
-const PACKED_DELIVERY = 'bundle'
+/**
+ * What publishing adds to a bare identity, and the only thing it adds.
+ *
+ * `feed` on every channel now: `bundle` named "a tarball this server packed and
+ * pushed", which was a statement about who signed it rather than about how it
+ * travels, and it travels as a feed download like everything else (spec §1).
+ */
+const PACKED_DELIVERY = 'feed'
 
 type DeliverableTarget = {
   version: string
@@ -543,10 +562,11 @@ type DeliverableTarget = {
  *
  * The question used to be asked of the target alone — "has it been packed?" —
  * and that is what made git delivery an alternative offered ALONGSIDE the pack
- * rather than a substitute for it (POD-2195). A `dev+<sha>` identity is not
- * empty: it names a repo and a sha, which is everything a machine that owns the
- * checkout needs (spec §9.2 — no build, no download). It is only the machines
- * that cannot fetch git for which that identity is nothing.
+ * rather than a substitute for it (POD-2195). Git delivery is retired, so an
+ * identity target is now nothing to EVERY machine rather than nothing to only
+ * some, and this reduces to "does the descriptor name bytes this machine can
+ * take". The predicate stays because the caps question is still real: a target
+ * can name bytes a particular machine has told us it cannot install.
  */
 export function machineCanTakeTargetNow(
   machine: Pick<WaveMachine, 'deliveryCaps' | 'supervised'>,
@@ -1093,8 +1113,20 @@ export const STEP_HEARTBEAT_INTERVAL_MS = 15_000
 export const UPDATE_BUDGETS = {
   /** `DEFAULT_DOWNLOAD_TIMEOUT_MS` in `@podium/runtime/update-delivery`. */
   downloadTimeoutMs: DEFAULT_DOWNLOAD_TIMEOUT_MS,
-  /** `GIT_CONVERGENCE_BUDGET_MS` — one budget for a whole git convergence. */
-  gitConvergenceMs: GIT_CONVERGENCE_BUDGET_MS,
+  /**
+   * THE LONGEST A HEALTHY MACHINE MAY SAY NOTHING, and where that number comes
+   * from now that git convergence is retired (spec disposition 5).
+   *
+   * It used to be `GIT_CONVERGENCE_BUDGET_MS`: a git convergence had no byte
+   * count to report against, so its whole run was one silence and the server
+   * had to out-wait it. Every delivery is now a feed download, which heartbeats
+   * every two seconds — so the bound that matters is the daemon's own hard
+   * deadline for a download that has stalled. Deriving it from the SAME
+   * constant the daemon enforces is what keeps the daemon failing first; a
+   * server that gives up earlier would age a machine into `stuck` while it was
+   * still working.
+   */
+  machineDeliverySilenceMs: DEFAULT_DOWNLOAD_TIMEOUT_MS,
   /** The daemon's download heartbeat cadence, `PROGRESS_REPORT_INTERVAL_MS`. */
   downloadHeartbeatMs: PROGRESS_REPORT_INTERVAL_MS,
   /** This server's own heartbeat cadence for steps it is watching. */
@@ -1112,11 +1144,11 @@ export const UPDATE_STEP_DEADLINES: Record<string, StepDeadlines> = {
   // Heartbeats now arrive while the pack runs, so this step is judged on
   // silence too rather than on its total alone.
   [UPDATE_STEP_PREPARE]: { silenceMs: 3 * 60_000, totalMs: 20 * 60_000 },
-  // Ten minutes, and now DERIVED: the git convergence budget plus a margin, so
+  // DERIVED: the daemon's own delivery silence bound plus a margin, so
   // whichever moves first stays coherent. Timer-armed by the engine rather than
   // ageing when someone reads `fleet()`.
   [UPDATE_STEP_MACHINES]: {
-    silenceMs: UPDATE_BUDGETS.gitConvergenceMs + UPDATE_BUDGETS.machineSilenceMarginMs,
+    silenceMs: UPDATE_BUDGETS.machineDeliverySilenceMs + UPDATE_BUDGETS.machineSilenceMarginMs,
     totalMs: 60 * 60_000,
   },
   // A restart reports nothing while it happens — this process is the thing
@@ -1189,15 +1221,34 @@ function elapsedLabel(elapsedMs: number): string {
 }
 
 /**
- * `prepare` — pack what the fleet will be handed (§3.1).
+ * `prepare` — RESOLVE AND PREFLIGHT what the fleet will be handed (§3.1, audit
+ * gap 21).
  *
- * REALITY FIRST: a target that already carries a headless artifact needs no
- * pack, whoever packed it. That is also what makes this safe to re-enter after
- * adoption, after a stall retry, and after a retry operation.
+ * The step used to be named for the one thing only a source host ever did:
+ * pack a tarball. That was always the wrong altitude — edge and stable never
+ * packed anything and simply had no such step — and it stopped describing even
+ * the dev channel once `dev` became a pulled feed. What every channel actually
+ * needs before a machine is granted anything is the same two facts, and they
+ * are what this step now stands for:
  *
- * It hands the build out and answers `running` rather than awaiting it. A pack
- * is a compile — awaiting it here would hold the engine's chain, and therefore
- * the tRPC mutation that started the operation, for the length of a build.
+ *  - RESOLVED: the channel's feed advertises exactly the version this operation
+ *    is delivering, pulled through `resolveReleaseTarget` like any other.
+ *  - PREFLIGHTED: that resolve is what HEADs every artifact URL the manifest
+ *    names and refuses a manifest with no schema declaration — so reaching the
+ *    end of this step means the bytes are reachable and the build has said what
+ *    database it can open, BEFORE any machine is told to go and fetch them.
+ *
+ * REALITY FIRST: a target that already carries a headless artifact is already
+ * resolved and preflighted, whoever published it. That is also what makes this
+ * safe to re-enter after adoption, after a stall retry, and after a retry
+ * operation.
+ *
+ * On a source host the fact is not yet true when the step starts, and making it
+ * true means building the release and publishing its manifest into the feed —
+ * the pre-release stage of §6, which is the ONLY channel-specific thing left
+ * here. It hands that build out and answers `running` rather than awaiting it:
+ * a build is a compile, and awaiting it would hold the engine's chain, and
+ * therefore the tRPC mutation that started the operation, for its whole length.
  */
 const prepareRunner: StepRunner<UpdateOperationContext> = {
   // Nothing has been handed to a machine yet, so cancelling costs a build (§3.2).
@@ -1683,11 +1734,25 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
 }
 
 /**
- * `web` — the served website reaching the target commit (§3.1).
+ * `web` — VERIFY THE PAGE ROLLOUT AFTER THE RESTART (§3.1, audit gap 21).
  *
- * Reality first, and the reality is a stamp on disk. In the development flow
- * `prepare` has usually already produced it, so this step's common case is to
- * observe and finish without acting.
+ * Reality first, and the reality is the digest of the website this process is
+ * actually serving. The step's normal outcome is therefore to OBSERVE, not to
+ * act: on every channel the new `web/` dist ships inside the headless bundle
+ * and becomes current the moment the swap-and-restart of the `server` step
+ * completes, so by the time this step is reached the correct answer is usually
+ * already true. That restates dev-web-build's blast-radius rule (audit gap 22)
+ * from the operation's side: the dist only ever moves on an operator-approved
+ * update, and this is the step that confirms it moved.
+ *
+ * The rebuild it can still ask for is the source-host case, where there is no
+ * unpacked bundle behind the served dist and the website has to be produced
+ * from the checkout. That is the same pre-release stage `prepare` runs, and it
+ * is the last channel-specific thing on this path.
+ *
+ * Reloading open TABS is not this step's business and never blocks it: the
+ * reload ask is voluntary (§3.5), because a tab that has not reloaded is a
+ * straggler that self-serves on its next load.
  */
 const webRunner: StepRunner<UpdateOperationContext> = {
   /**

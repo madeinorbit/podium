@@ -84,6 +84,7 @@ import {
   createInstalledCoordinatorRestart,
   createInstalledCoordinatorUpdate,
 } from './modules/updates/installed-restart'
+import type { ChannelFeed } from './modules/updates/release-target'
 import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import { startTargetRefresh, timerSchedule } from './modules/updates/target-refresh'
@@ -434,8 +435,20 @@ export async function startServer(
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
   // SessionRegistry without it produce no mirror traffic.
+  /**
+   * LATE-BOUND, because the two halves are constructed in this order and cannot
+   * be reordered: the updates service (inside the registry) owns the resolver,
+   * and the dev feed's address, fence, trust root and credential all come from
+   * the publisher wiring below, which needs the registry to exist first.
+   *
+   * A function rather than a value, so a Settings write to Public URL — or a
+   * remote machine joining the fleet — is followed without a restart, the same
+   * discipline every other read on this path uses.
+   */
+  let devChannelFeed: (() => ChannelFeed | undefined) | undefined
   const registry = new SessionRegistry(store, undefined, {
     instanceId,
+    devChannelFeed: () => devChannelFeed?.(),
     // The server's baked product label is the Phase 1 target identity. The richer
     // release-manifest descriptor remains an optional /version publication seam.
     targetVersion: () => appVersion,
@@ -628,9 +641,17 @@ export async function startServer(
     artifactToken: devArtifactToken,
     setTarget: (target) => registry.modules.updates.setTarget(target),
     setTargetUnavailable: (reason) => registry.modules.updates.setTargetUnavailable('dev', reason),
+    // The publish handoff (spec §6 step 4). Publisher and updater share this
+    // process on a source host, so "go and pull what I just wrote" is a call.
+    refreshDevTarget: () => registry.modules.updates.refreshTarget('dev'),
     signingKey: updateSigningKey.privateKey,
     locks: registry.modules.locks,
   })
+  // COMPOSITION-OWNED, because only this root knows both halves: the resolver
+  // lives in the updates service and the dev feed's address, fence, trust root
+  // and credential all come from the publisher wiring. Installed servers with
+  // no publisher return nothing here and simply have no dev feed to pull.
+  devChannelFeed = devPublisher.channelFeed
 
   /**
    * ADOPT WHATEVER THE PREVIOUS PROCESS WAS DOING (POD-2097/POD-2098, spec §3.4).
