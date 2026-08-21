@@ -426,18 +426,24 @@ rcodesign-ad-hoc-signed darwin binary must run on macOS and spawn abduco correct
 the fallback if it fails is a Mac CI leg per release and stale dev Mac payloads, which
 this design otherwise avoids.
 
-**Spike status (POD-2501, 2026-08-21): GO** — a Linux-built, rcodesign-ad-hoc-signed
-darwin-arm64 headless binary runs on Apple Silicon. No Mac is required in the
-payload build loop. Mac CI remains only for shell minting (§5).
+**Spike status (POD-2501, 2026-08-21): LINUX-SIDE GO.** Cross-compiling the
+darwin-arm64 headless payload on Linux (Bun target + zig-cc abduco + rcodesign
+ad-hoc) produces Mach-O artifacts whose arch, embedded darwin abduco, ad-hoc
+signature, and updater tarball layout all assert cleanly on Linux
+(`scripts/spike/linux-assert-darwin-spike.sh`). **Mac execution proof is NOT
+YET OBTAINED** — the fleet Mac is offline; no macOS run is claimed here. A
+follow-up under POD-2462 carries the Mac verifier bundle
+(`scripts/spike/package-mac-execution-bundle.sh` → `verify-on-mac.sh`). Until
+that follow-up passes, dependents must not treat Darwin payload execution as
+proven; the Linux-side GO only unblocks "we can *build* the bytes on Linux."
 
 | Step | Result |
 |---|---|
-| Prebuilt abduco via `zig cc` (darwin-arm64 + darwin-x64) | DONE — `scripts/prebuilt/abduco/`, headerpad + `rcodesign sign` |
-| `bun build --compile --target=bun-darwin-arm64` (+ x64) embedding that abduco | DONE — spike script `scripts/spike/build-bun-darwin.ts` |
-| Ad-hoc sign from Linux with Bun JIT entitlements | DONE — `rcodesign sign --binary-identifier podium --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist` → `flags=0x2(adhoc)` on Mac `codesign -dv` |
-| Mac: `--version`, all-in-one boot, abduco session survives restart | **GO** — Actions run [32433063958](https://github.com/madeinorbit/podium/actions/runs/32433063958) on `blacksmith-6vcpu-macos-15`; log `docs/internal/superpowers/spikes/2026-08-21-mac-verify-round2.log` |
-| Unsigned refusal on arm64 | ANOMALY on CI VM (unsigned also ran); keep ad-hoc sign anyway — real Macs / Gatekeeper still want a signature, and Bun docs require JIT entitlements |
-| darwin-x64 on Intel / Rosetta | FOLLOW-UP — binary produced on Linux; Mac runtime not exercised this spike |
+| Prebuilt abduco via `zig cc` (darwin-arm64 + darwin-x64) | LINUX-SIDE GO — Mach-O, not host ELF; `rcodesign` ADHOC |
+| `bun build --compile --target=bun-darwin-arm64` embedding that abduco | LINUX-SIDE GO — spike `scripts/spike/build-bun-darwin.ts` |
+| Ad-hoc sign from Linux with Bun JIT entitlements | LINUX-SIDE GO — `rcodesign sign --binary-identifier podium --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist` → `CodeSignatureFlags(ADHOC)` |
+| Updater tarball layout (`headless/` root) | LINUX-SIDE GO — assert script |
+| Mac: `--version`, daemon boot, abduco survive, Gatekeeper±quarantine | **NOT OBTAINED** (fleet Mac offline) — follow-up issue + `mac-execution-bundle` |
 
 Evidence write-up:
 `docs/internal/superpowers/spikes/2026-08-21-darwin-cross-compile-spike.md`.
