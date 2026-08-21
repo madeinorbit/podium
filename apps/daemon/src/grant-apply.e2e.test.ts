@@ -76,7 +76,21 @@ async function serveFeed(
 ): Promise<{ origin: string; close: () => Promise<void> }> {
   const app = new Hono()
   registerDevFeedRoutes(app, {
-    current: () => ({ version, path: bundlePath, size: 0, digest: '', signature: '' }),
+    // `artifacts` carries every platform the build minted, and this test asks for
+    // `linux-x86_64` by name, so the entry has to be here: the route resolves the
+    // platform out of the URL and answers `not found` when the build did not mint
+    // it, rather than falling back to this host's tarball. An empty list would 404
+    // the download instead of exercising the multi-platform path this feed serves.
+    current: () => ({
+      version,
+      path: bundlePath,
+      size: 0,
+      digest: '',
+      signature: '',
+      artifacts: [
+        { platform: 'linux-x86_64', path: bundlePath, size: 0, digest: '', signature: '', version },
+      ],
+    }),
     manifestPath: () => undefined,
     authenticate: (request) => new URL(request.url).searchParams.get('token') === token,
   })
