@@ -257,6 +257,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       installed,
       source,
       attached: Boolean(options.serverUrl),
+      parentManaged: process.env.PODIUM_UNDER_PARENT === '1',
     })
     if (action === 'backoff') {
       log.error('protocol mismatch — update the daemon to match the server', { source })

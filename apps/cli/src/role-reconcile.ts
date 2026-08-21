@@ -22,6 +22,7 @@ import {
   hasUserSystemd,
   renderDaemonUnit,
   renderJanitorUnit,
+  renderParentUnit,
   renderServerUnit,
   systemdUnitActive,
   systemdUnitManaged,
@@ -52,7 +53,7 @@ export interface ManagedSupervisorDeps {
 /** The user-unit name for a managed role. */
 export function roleUnit(role: RunRole, id: string = resolveInstanceId()): string {
   if (role === 'all-in-one') throw new Error(`the all-in-one role has no unit of its own: ${role}`)
-  return instanceServiceName(role, id)
+  return instanceServiceName(role as 'parent' | 'server' | 'daemon' | 'janitor', id)
 }
 
 /** The rendered unit body for one role, from the shared renderers. */
@@ -62,6 +63,8 @@ export function roleUnitBody(
   id: string = resolveInstanceId(),
 ): string {
   switch (role) {
+    case 'parent':
+      return renderParentUnit({ instanceId: id, port: ctx.port })
     case 'server':
       return renderServerUnit(id)
     case 'janitor':
@@ -99,9 +102,10 @@ export function managedRoleSupervisor(
   const spawnRole =
     deps.spawnRole ??
     ((role, ctx) => {
+      if (role === 'parent') return spawnDetached('parent', { port: ctx.port })
       if (role === 'daemon') return spawnDetached('daemon', {})
       if (role === 'janitor')
-        // The janitor always dials the LOCAL server it keeps house for.
+        // Legacy peer janitor; parent-supervised installs host janitor in-server.
         return spawnDetached('janitor', {
           port: ctx.port,
           serverUrl: localServerUrl(ctx.port),
@@ -232,7 +236,7 @@ export async function retireSourceServingRoles(
     }
   }
   const stopped: RunRole[] = []
-  for (const role of ['server', 'janitor', 'daemon'] as const) {
+  for (const role of ['parent', 'server', 'janitor', 'daemon'] as const) {
     if (!supervisor.roleLive(role) && !supervisor.roleManaged?.(role)) continue
     await supervisor.stopRole(role)
     stopped.push(role)

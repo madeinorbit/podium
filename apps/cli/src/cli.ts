@@ -55,7 +55,7 @@ const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
 /** Tokens the LAUNCH path (mode subcommands / bare invocation) understands. Anything
  *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
  *  silently fall through and boot the stack (issue #18). */
-const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup']
+const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup', 'parent', 'janitor']
 const LAUNCH_VALUE_FLAGS = ['--server', '--pair', '--name']
 const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
 
@@ -148,6 +148,14 @@ export type LaunchPlan =
   | { kind: 'server-transfer-promote'; transferId: string }
   | { kind: 'server-transfer-retire-daemon' }
   | { kind: 'janitor'; serverUrl: string; takeover: boolean }
+  /** Thin parent: supervises server (+ janitor worker) and optional daemon [POD-2505]. */
+  | {
+      kind: 'parent'
+      port: number
+      /** Include the local daemon child (all-in-one). Server-only omits it. */
+      includeDaemon: boolean
+      takeover: boolean
+    }
   | { kind: 'repair-config' }
   | { kind: 'join-setup'; token: string; persistence: 'systemd' | 'detached'; port: number }
   | { kind: 'issue'; args: string[] }
@@ -545,7 +553,8 @@ export function resolvePlan(
   }
   // Internal sibling component [spec:SP-c29e]. It is deliberately not a
   // PodiumMode: operators configure a host/server, and persistence composes the
-  // janitor automatically beside that server.
+  // janitor automatically beside that server. Under the parent model the janitor
+  // runs as a server worker; this subcommand remains for legacy/debug.
   if (argv[0] === 'janitor') {
     const componentArgs = argv.slice(1).filter((arg) => arg !== '--takeover')
     const takeover = argv.includes('--takeover')
@@ -559,6 +568,12 @@ export function resolvePlan(
       kind: 'usage-error',
       message: 'usage: podium janitor [--server <http(s)://url>] [--takeover]',
     }
+  }
+  // Thin parent process [POD-2505]: supervises server + daemon OS children.
+  if (argv[0] === 'parent') {
+    const takeover = argv.includes('--takeover')
+    const includeDaemon = config.mode !== 'server'
+    return { kind: 'parent', port, includeDaemon, takeover }
   }
   // `podium setup --repair` (#21): back up an existing-but-invalid config.json.
   if (argv[0] === 'setup' && argv.includes('--repair')) return { kind: 'repair-config' }
@@ -668,19 +683,13 @@ export function resolvePlan(
   // `daemon` IS a component and runs in-process too.
   if (!forceSetup && bareInvocation && config.persistence) {
     if (config.persistence === 'systemd') {
+      // Parent-supervised topology [POD-2505]: one unit runs the parent; children
+      // are not separate systemd units. Daemon-only joins stay a single daemon unit.
+      // Legacy multi-unit installs are reconciled by the migration issue.
       const units =
         modePlan.mode === 'daemon'
           ? [instanceServiceName('daemon', instanceId)]
-          : modePlan.mode === 'server'
-            ? [
-                instanceServiceName('server', instanceId),
-                instanceServiceName('janitor', instanceId),
-              ]
-            : [
-                instanceServiceName('server', instanceId),
-                instanceServiceName('janitor', instanceId),
-                instanceServiceName('daemon', instanceId),
-              ]
+          : [instanceServiceName('parent', instanceId)]
       return { kind: 'systemd-managed', units, mode: modePlan.mode, port }
     }
     return { kind: 'detached-managed', mode: modePlan.mode, port }
@@ -749,6 +758,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  server                Run only the server',
     '  daemon [--local] [--server <url>] [--pair <code>] [--name <name>]',
     '                        Run only the daemon (connects to a server)',
+    '  parent                Supervise server (+ janitor worker) and daemon children',
     '  client                Nothing to run locally; points at a remote server',
     '',
     '  --instance <id>        Select an isolated Podium instance (default: default)',
@@ -1339,6 +1349,64 @@ export async function main(
     case 'server-transfer-retire-daemon': {
       const { retireTargetDaemon } = await import('./role-reconcile')
       await retireTargetDaemon({ acknowledged: true })
+      return
+    }
+    case 'parent': {
+      ensureInstanceStateIdentity({ instanceId: resolveInstanceId() })
+      const parentLogging = configureProcessLogging({ role: 'parent' })
+      const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
+      if (!plan.takeover) {
+        const holder = liveRecord('parent')
+        if (holder) {
+          console.error(alreadyRunningMessage('parent', holder))
+          process.exit(1)
+        }
+      }
+      try {
+        await registerProcess('parent', {
+          mode: resolveRunRecordMode(process.env),
+          port: plan.port,
+        })
+      } catch (error) {
+        console.error((error as Error).message)
+        process.exit(1)
+      }
+      const { ParentProcess } = await import('@podium/runtime/parent-process')
+      const { fileURLToPath } = await import('node:url')
+      const cliPath = fileURLToPath(new URL('../../../scripts/cli.ts', import.meta.url))
+      const compiled = import.meta.url.includes('/$bunfs/')
+      const children = plan.includeDaemon
+        ? (['server', 'daemon'] as const)
+        : (['server'] as const)
+      const parent = new ParentProcess({
+        port: plan.port,
+        children,
+        env: {
+          ...process.env,
+          ...(compiled ? {} : { PODIUM_PARENT_BIN: process.execPath, PODIUM_PARENT_CLI: cliPath }),
+        },
+        reportSuccessorPid: (pid) => {
+          // Desktop shell reads this on macOS; also useful for operators.
+          console.error(`[podium parent] successor pid ${pid}`)
+        },
+      })
+      console.log(
+        `podium parent up — supervising ${children.join(' + ')} on :${plan.port}`,
+      )
+      await parent.start()
+      const shutdown = (): void => {
+        void parent
+          .stop()
+          .catch(() => {})
+          .finally(() => {
+            void parentLogging
+              .close()
+              .catch(() => {})
+              .finally(() => process.exit(0))
+          })
+      }
+      process.on('SIGINT', shutdown)
+      process.on('SIGTERM', shutdown)
       return
     }
     case 'janitor': {

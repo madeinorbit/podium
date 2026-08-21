@@ -1,10 +1,9 @@
-import { type SpawnOptions, spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { planConvergence, type UpdateTarget } from '@podium/protocol'
 import { resolveInstallDir } from '@podium/runtime/config'
-import { instanceServiceName } from '@podium/runtime/instance'
 import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
+import { requestParentHandover } from '@podium/runtime/parent-control'
 import {
   fetchArtifact,
   PODIUM_UPDATE_PUBKEY,
@@ -12,21 +11,6 @@ import {
 } from '@podium/runtime/update-delivery'
 import { swapHeadlessBundle } from '@podium/runtime/update-install'
 import { createSchemaGate } from '@podium/runtime/update-schema'
-
-const DEFAULT_RESTART_DELAY_MS = 750
-type SpawnedProcess = { unref(): void }
-
-export interface InstalledRestartDeps {
-  instanceId: string
-  port: () => number
-  env?: NodeJS.ProcessEnv
-  execPath?: string
-  /** Detached role preservation: server-only installations have no daemon to restore. */
-  includeDaemon?: boolean
-  delayMs?: number
-  spawnProcess?: (command: string, args: readonly string[], options: SpawnOptions) => SpawnedProcess
-  schedule?: (callback: () => void, delayMs: number) => { unref?: () => void }
-}
 
 type VerifiedDelivery = (
   target: UpdateTarget,
@@ -46,6 +30,19 @@ export interface InstalledUpdateDeps {
   readApplied?: () => readonly string[] | undefined
 }
 
+export interface InstalledRestartDeps {
+  instanceId: string
+  port: () => number
+  env?: NodeJS.ProcessEnv
+  /**
+   * After swap, ask the parent to self-handover. Injectable for tests.
+   * Defaults to {@link requestParentHandover}.
+   */
+  requestHandover?: (expectedVersion: string) => { ok: true; pid: number } | { ok: false; reason: string }
+  /** Last prepared target version; set by createInstalledCoordinatorUpdate. */
+  pendingVersion?: () => string | undefined
+}
+
 function runningPlatform(): string {
   const os = process.platform === 'win32' ? 'windows' : process.platform
   const cpu =
@@ -59,22 +56,28 @@ function installedVersion(installDir: string): string {
 
 /**
  * Ensure an installed coordinator's own shared bundle is the operation's exact
- * target before its process manager restarts server and janitor.
+ * target before the parent self-handovers onto it.
  *
- * An all-in-one headless host normally reaches this point after its local daemon
- * swapped the shared directory, so this is a cheap equality check there. A
- * server-only host has no daemon and therefore performs the same verified feed
- * or pinned-bundle delivery itself. Re-reading VERSION after the atomic swap is
- * the fence against a rolling channel changing underneath an operation.
+ * Schema-gate → verified fetch → atomic swap (retains `.old`) → VERSION re-read
+ * fence. The subsequent restart is parent self-handover, not systemctl/detached
+ * fork (POD-2505).
+ *
+ * Only active when a parent supervises this process (`PODIUM_UNDER_PARENT=1`) or
+ * the legacy installed markers (`INVOCATION_ID` / `PODIUM_RUN_MODE=detached`) are
+ * still present during migration.
  */
 export function createInstalledCoordinatorUpdate(
   deps: InstalledUpdateDeps = {},
 ): ((target: UpdateTarget) => Promise<void>) | undefined {
   const env = deps.env ?? process.env
-  if (!env.INVOCATION_ID && env.PODIUM_RUN_MODE !== 'detached') return undefined
+  const supervised =
+    Boolean(env.INVOCATION_ID) ||
+    env.PODIUM_RUN_MODE === 'detached' ||
+    env.PODIUM_UNDER_PARENT === '1'
+  if (!supervised) return undefined
   const installDir = deps.installDir ?? resolveInstallDir(env)
   const platform = deps.platform ?? runningPlatform()
-  const swap = deps.swap ?? swapHeadlessBundle
+  const swap = deps.swap ?? ((bytes, dir) => swapHeadlessBundle(bytes, dir))
   const deliver: VerifiedDelivery =
     deps.deliver ??
     (async (target, currentVersion) => {
@@ -119,58 +122,56 @@ export function createInstalledCoordinatorUpdate(
 }
 
 /**
- * Restart an installed coordinator after its local daemon has atomically
- * replaced the shared headless bundle. systemd is already a supervisor; the
- * detached setup path has none, so it starts replacement janitor, daemon, and
- * server processes itself, with the server last because its takeover ends this PID.
+ * Ask the supervising parent to self-handover onto the already-swapped bundle.
+ *
+ * Retires the systemd `systemctl restart` and detached `--takeover` fork paths.
+ * When no parent is registered (hand-started foreground), returns a no-op that
+ * logs nothing here — the operation layer surfaces machine-cannot-restart for
+ * unsupervised shapes (disposition 6).
  */
 export function createInstalledCoordinatorRestart(
   deps: InstalledRestartDeps,
 ): (() => void) | undefined {
   const env = deps.env ?? process.env
-  const systemd = Boolean(env.INVOCATION_ID)
-  const detached = env.PODIUM_RUN_MODE === 'detached'
-  if (!systemd && !detached) return undefined
+  const supervised =
+    Boolean(env.INVOCATION_ID) ||
+    env.PODIUM_RUN_MODE === 'detached' ||
+    env.PODIUM_UNDER_PARENT === '1'
+  if (!supervised) return undefined
 
-  const spawnProcess = deps.spawnProcess ?? spawn
-  const schedule = deps.schedule ?? ((callback, delay) => setTimeout(callback, delay))
+  const requestHandover =
+    deps.requestHandover ??
+    ((expectedVersion: string) =>
+      requestParentHandover({ expectedVersion, performSwap: false }))
+
   let requested = false
+  let lastVersion: string | undefined
+
+  // Allow the update step to stash the version for the restart closure.
+  const pending = deps.pendingVersion
+
   return () => {
     if (requested) return
     requested = true
-    const timer = schedule(() => {
-      if (systemd) {
-        const child = spawnProcess(
-          'systemctl',
-          [
-            '--user',
-            '--no-block',
-            'restart',
-            instanceServiceName('janitor', deps.instanceId),
-            instanceServiceName('server', deps.instanceId),
-          ],
-          { detached: true, stdio: 'ignore' },
-        )
-        child.unref()
-        return
-      }
-
-      const nextEnv = { ...env, PODIUM_PORT: String(deps.port()) }
-      const executable = deps.execPath ?? process.execPath
-      const commands = [
-        ['janitor', '--server', `http://127.0.0.1:${deps.port()}`, '--takeover'],
-        ...(deps.includeDaemon === false ? [] : ([['daemon', '--local', '--takeover']] as const)),
-        ['server', '--takeover'],
-      ] as const
-      for (const args of commands) {
-        const child = spawnProcess(executable, args, {
-          detached: true,
-          stdio: 'ignore',
-          env: nextEnv,
-        })
-        child.unref()
-      }
-    }, deps.delayMs ?? DEFAULT_RESTART_DELAY_MS)
-    timer.unref?.()
+    const expectedVersion =
+      pending?.() ??
+      lastVersion ??
+      (() => {
+        try {
+          return installedVersion(resolveInstallDir(env))
+        } catch {
+          return env.PODIUM_APP_VERSION
+        }
+      })()
+    if (!expectedVersion) {
+      throw new Error('parent handover requires an expected version')
+    }
+    lastVersion = expectedVersion
+    const result = requestHandover(expectedVersion)
+    if (!result.ok) {
+      throw new Error(
+        `machine-cannot-restart: no supervising parent to hand over to (${result.reason})`,
+      )
+    }
   }
 }

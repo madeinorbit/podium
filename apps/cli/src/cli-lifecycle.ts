@@ -82,17 +82,20 @@ export function renderStatus(view: StatusView): string {
     `Podium${instanceLabel} — mode: ${config.mode ?? '(unset — run `podium setup`)'}` +
       (config.persistence ? `, persistence: ${config.persistence}` : ''),
   )
-  // Which roles are relevant to this deployment mode. A host (`all-in-one`) box runs the split —
-  // server + janitor + daemon — so that's what we report (the `all-in-one` role is only the
-  // desktop in-process sidecar, which doesn't use this CLI). If an `all-in-one` record is
-  // nonetheless live, surface it too.
+  // Which roles are relevant to this deployment mode. Parent-supervised hosts
+  // report parent + server + daemon (janitor is a server worker). The
+  // `all-in-one` role is only the desktop in-process sidecar.
   const roles: RunRole[] =
     config.mode === 'all-in-one'
       ? byRole.has('all-in-one')
         ? ['all-in-one']
-        : ['server', 'janitor', 'daemon']
+        : byRole.has('parent')
+          ? ['parent', 'server', 'daemon']
+          : ['server', 'janitor', 'daemon']
       : config.mode === 'server'
-        ? ['server', 'janitor']
+        ? byRole.has('parent')
+          ? ['parent', 'server']
+          : ['server', 'janitor']
         : config.mode === 'daemon'
           ? ['daemon']
           : (RunRole.options as RunRole[]) // unknown mode: show whatever is live
@@ -120,8 +123,11 @@ function systemctlUser(args: string[]): void {
   execFileSync('systemctl', ['--user', ...args], { stdio: 'inherit' })
 }
 
-export function selectedUnits(instanceId: string = resolveInstanceId()): [string, string, string] {
+export function selectedUnits(instanceId: string = resolveInstanceId()): string[] {
+  // Prefer the parent unit; keep legacy peers listed so `podium stop` still
+  // tears down pre-migration installs.
   return [
+    instanceServiceName('parent', instanceId),
     instanceServiceName('daemon', instanceId),
     instanceServiceName('janitor', instanceId),
     instanceServiceName('server', instanceId),
@@ -459,12 +465,17 @@ export async function logsCommand(argv: string[]): Promise<void> {
   const config = loadConfig()
   const { follow, pretty, components } = parseLogsArgs(argv)
   if (config.persistence === 'systemd') {
-    const [daemonUnit, janitorUnit, serverUnit] = selectedUnits()
+    const units = selectedUnits()
+    const unitFlags = units.map((u) => `-u ${u}`).join(' ')
+    const parentOrServer =
+      units.find((u) => u.includes('-parent.') || u.endsWith('podium-parent.service')) ??
+      units.find((u) => u.includes('-server.') || u.endsWith('podium-server.service')) ??
+      units[0]
     console.log(
       'Under systemd — view logs with:\n' +
-        `  journalctl --user -u ${serverUnit} -u ${janitorUnit} -u ${daemonUnit} -f\n` +
+        `  journalctl --user ${unitFlags} -f\n` +
         '\nRecords are NDJSON, one object per line. To read them as a table:\n' +
-        `  journalctl --user -u ${serverUnit} -o cat | jq -r '"\\(.ts) \\(.level) \\(.ns) \\(.msg)"'`,
+        `  journalctl --user -u ${parentOrServer} -o cat | jq -r '"\\(.ts) \\(.level) \\(.ns) \\(.msg)"'`,
     )
     return
   }

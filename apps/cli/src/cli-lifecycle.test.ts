@@ -49,6 +49,7 @@ describe('renderStatus', () => {
     expect(out).toContain('Podium [blue]')
     expect(out).toContain('http://localhost:23000')
     expect(selectedUnits('blue')).toEqual([
+      'podium-blue-parent.service',
       'podium-blue-daemon.service',
       'podium-blue-janitor.service',
       'podium-blue-server.service',

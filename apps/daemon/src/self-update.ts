@@ -12,6 +12,12 @@ export function decideOnProtocolMismatch(ctx: {
   source: ProtocolMismatchSource
   /** Attached daemons wait for a server grant; they never self-update on a delta. */
   attached?: boolean
+  /**
+   * Parent-managed daemons never self-update — the parent owns the bundle
+   * (spec §8 disposition 15 / POD-2505). `podium update` remains the
+   * standalone-CLI path only.
+   */
+  parentManaged?: boolean
 }): {
   action: 'self-update' | 'backoff'
 } {
@@ -19,7 +25,7 @@ export function decideOnProtocolMismatch(ctx: {
   // prevents the socket state machine from growing two subtly different update
   // branches as servers roll between envelope and HTTP-level rejection.
   void ctx.source
-  if (ctx.attached) return { action: 'backoff' }
+  if (ctx.attached || ctx.parentManaged) return { action: 'backoff' }
   return ctx.installed ? { action: 'self-update' } : { action: 'backoff' }
 }
 

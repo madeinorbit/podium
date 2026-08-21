@@ -109,6 +109,7 @@ export function instanceCommandName(instanceId: string = resolveInstanceId()): s
 }
 
 export type InstanceServiceRole =
+  | 'parent'
   | 'server'
   | 'daemon'
   | 'janitor'

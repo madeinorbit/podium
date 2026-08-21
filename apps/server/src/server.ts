@@ -266,6 +266,10 @@ export function registerVersionRoute(
      * from one whose phone export is missing — both mean "nothing to say here".
      */
     mobileWeb?: () => MobileWebIdentity
+    /** Parent health gate + settings: is the local daemon connected? */
+    daemonConnected?: () => boolean
+    /** Janitor co-host status for DEGRADED projection [POD-2505]. */
+    janitor?: () => { state: 'running' | 'degraded' | 'stopped'; reason?: string } | undefined
   },
 ): void {
   app.get('/version', async (c) => {
@@ -281,6 +285,12 @@ export function registerVersionRoute(
     } catch {
       mobileWeb = undefined
     }
+    const daemonConnected = deps.daemonConnected?.() === true
+    const janitor = deps.janitor?.()
+    const components = {
+      ...(janitor ? { janitor } : {}),
+      daemon: { state: daemonConnected ? ('connected' as const) : ('disconnected' as const) },
+    }
     return c.json({
       wireVersion: WIRE_VERSION,
       minSupportedVersion: MIN_SUPPORTED_VERSION,
@@ -293,6 +303,8 @@ export function registerVersionRoute(
       appVersion: deps.appVersion?.() ?? process.env.PODIUM_APP_VERSION ?? 'dev',
       instanceId: deps.instanceId,
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
+      daemonConnected,
+      components,
       ...(target ? { target } : {}),
       ...(mobileWeb?.present ? { mobileWeb } : {}),
     })
@@ -568,7 +580,6 @@ export async function startServer(
     : createInstalledCoordinatorRestart({
         instanceId,
         port: () => boundPort,
-        includeDaemon: config.mode === 'all-in-one',
       })
   const prepareCoordinatorUpdate = developmentSourceRoot
     ? undefined
@@ -672,6 +683,7 @@ export async function startServer(
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   devPublisher.registerRoute(app)
+  let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   registerVersionRoute(app, {
     instanceId,
     appVersion: () => appVersion,
@@ -689,6 +701,11 @@ export async function startServer(
       return registry.modules.updates.advertisedTarget(hostMachineId, published)
     },
     mobileWeb: () => servedWebIdentity(phoneWebDir()),
+    daemonConnected: () => registry.modules.machines.onlineMachineIds().length > 0,
+    janitor: () =>
+      janitorHost
+        ? { state: janitorHost.state(), ...(janitorHost.reason() ? { reason: janitorHost.reason() } : {}) }
+        : undefined,
   })
   registerMaintenanceRoute(app, {
     // The maintenance realm is THIS HOST's credential, named by its real id rather
@@ -1034,6 +1051,15 @@ export async function startServer(
 
     settled = true
     boundPort = server.port
+    // Parent-supervised / desktop: co-host the janitor inside this process so
+    // there is no separate janitor OS role [POD-2505]. Refusal stays degraded.
+    void (async () => {
+      const { shouldHostJanitor, startJanitorHost } = await import('./janitor-host')
+      if (!shouldHostJanitor()) return
+      janitorHost = await startJanitorHost({ port: boundPort, token: bootstrapToken })
+    })().catch((error) => {
+      log.warn('janitor host failed to start', { err: error })
+    })
     // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
     // the issue command registry DIRECTLY (not the cookie-gated HTTP /trpc, which would
     // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is
@@ -1219,6 +1245,7 @@ export async function startServer(
             // synchronously, so nothing is buffered and this loses no records —
             // it closes fds a long-lived process would otherwise hold.
             ['logs.close', () => registry.modules.logs.close()],
+            ['janitorHost.close', () => janitorHost?.close()],
             ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
             ['registry.dispose', () => registry.dispose()],
             ['store.close', () => store.close()],

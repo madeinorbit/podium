@@ -69,6 +69,7 @@ interface RenderContext {
   port: number
   home: string
   repoRoot: string
+  parentUnit: string
   serverUnit: string
   janitorUnit: string
   daemonUnit: string
@@ -94,6 +95,7 @@ function context(opts: SystemdRenderOptions = {}): RenderContext {
     port,
     home: opts.home ?? DEV_HOME,
     repoRoot: opts.repoRoot ?? DEV_REPO,
+    parentUnit: instanceServiceName('parent', instanceId),
     serverUnit: instanceServiceName('server', instanceId),
     janitorUnit: instanceServiceName('janitor', instanceId),
     daemonUnit: instanceServiceName('daemon', instanceId),
@@ -215,6 +217,66 @@ export function renderServerUnit(
       : instanceIdOrOptions
   const c = context(opts)
   return generatedUnit(c.profile === 'dev' ? renderDevServer(c) : renderPackagedServer(c))
+}
+
+function renderPackagedParent(c: RenderContext): string {
+  return `[Unit]
+Description=Podium parent supervisor (server + daemon children; janitor as server worker)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Type=notify + MAINPID re-declaration: self-handover keeps the unit active across updates.
+Type=notify
+NotifyAccess=all
+WatchdogSec=90
+Environment=PODIUM_INSTANCE=${c.instanceId}
+Environment=PODIUM_PORT=${c.port}
+Environment=PATH=${USER_RUNTIME_PATH}
+ExecStart=%h/.local/bin/${c.command} parent --takeover
+Restart=always
+RestartSec=2
+# Degraded children never bubble here — only a wedged parent trips the watchdog.
+CPUWeight=900
+IOWeight=500
+MemoryLow=256M
+
+[Install]
+WantedBy=default.target
+`
+}
+
+function renderDevParent(c: RenderContext): string {
+  return `[Unit]
+Description=Podium parent supervisor (source checkout)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+WatchdogSec=90
+WorkingDirectory=${c.repoRoot}
+Environment=HOME=${c.home}
+Environment=PATH=${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PODIUM_PORT=${c.port}
+Environment=PODIUM_INSTANCE=${c.instanceId}
+ExecStart=${c.home}/.local/bin/bun --conditions=@podium/source scripts/cli.ts parent --takeover
+Restart=always
+RestartSec=2
+CPUWeight=900
+IOWeight=500
+MemoryLow=256M
+
+[Install]
+WantedBy=default.target
+`
+}
+
+/** Single parent unit that owns server + daemon children [POD-2505]. */
+export function renderParentUnit(opts: SystemdRenderOptions = {}): string {
+  const c = context(opts)
+  return generatedUnit(c.profile === 'dev' ? renderDevParent(c) : renderPackagedParent(c))
 }
 
 function renderPackagedJanitor(c: RenderContext): string {
@@ -502,6 +564,13 @@ export function renderSystemdFiles(opts: SystemdRenderOptions = {}): RenderedSys
   if (c.profile === 'packaged') {
     return {
       units: {
+        [c.parentUnit]: renderParentUnit({
+          profile: 'packaged',
+          instanceId: c.instanceId,
+          port: c.port,
+        }),
+        // Legacy peer units remain in the artifact set for migration (§4); fresh
+        // installs enable only the parent unit via installSystemd.
         [c.serverUnit]: renderServerUnit({ profile: 'packaged', instanceId: c.instanceId }),
         [c.janitorUnit]: renderJanitorUnit({ port: c.port, instanceId: c.instanceId }),
         [c.daemonUnit]: renderDaemonUnit({ profile: 'packaged', instanceId: c.instanceId }),
@@ -510,6 +579,7 @@ export function renderSystemdFiles(opts: SystemdRenderOptions = {}): RenderedSys
   }
   return {
     units: {
+      [c.parentUnit]: renderParentUnit({ ...opts, profile: 'dev', instanceId: c.instanceId }),
       [c.serverUnit]: renderServerUnit({ ...opts, profile: 'dev', instanceId: c.instanceId }),
       [c.janitorUnit]: generatedUnit(renderDevJanitor(c)),
       [c.daemonUnit]: renderDaemonUnit({ ...opts, profile: 'dev', instanceId: c.instanceId }),
@@ -632,10 +702,9 @@ function removeLegacyUpdateTimer(
 }
 
 /**
- * Render + install the `--user` units for `mode` and enable+start them. Host modes install the
- * server + janitor (and local daemon for all-in-one); `daemon` (a joined worker) installs
- * only the daemon unit (bare `podium daemon`, config-driven remote server). Best-effort: returns
- * {ok:false, reason} when systemd is absent or a step fails, so setup can fall back.
+ * Render + install the `--user` units for `mode` and enable+start them. Host modes install
+ * the single parent unit (POD-2505); `daemon` (a joined worker) installs only the daemon
+ * unit. Best-effort: returns {ok:false, reason} when systemd is absent or a step fails.
  */
 export function installSystemd(
   mode: PodiumConfig['mode'],
@@ -659,8 +728,7 @@ export function installSystemd(
     }
   const dir = (deps.unitDir ?? userUnitDir)()
   const runCommand = deps.run ?? run
-  const serverUnit = instanceServiceName('server', instanceId)
-  const janitorUnit = instanceServiceName('janitor', instanceId)
+  const parentUnit = instanceServiceName('parent', instanceId)
   const daemonUnit = instanceServiceName('daemon', instanceId)
   const units: string[] = []
   try {
@@ -671,17 +739,8 @@ export function installSystemd(
       writeFileSync(join(dir, daemonUnit), renderDaemonUnit({ instanceId }))
       units.push(daemonUnit)
     } else {
-      writeFileSync(join(dir, serverUnit), renderServerUnit(instanceId))
-      units.push(serverUnit)
-      writeFileSync(join(dir, janitorUnit), renderJanitorUnit({ port, instanceId }))
-      units.push(janitorUnit)
-      if (mode === 'all-in-one') {
-        writeFileSync(
-          join(dir, daemonUnit),
-          renderDaemonUnit({ serverUrl: `ws://localhost:${port}`, local: true, instanceId }),
-        )
-        units.push(daemonUnit)
-      }
+      writeFileSync(join(dir, parentUnit), renderParentUnit({ instanceId, port }))
+      units.push(parentUnit)
     }
     runCommand('systemctl', ['--user', 'daemon-reload'])
     // Linger so the units run without an active login session (headless VPS over SSH).

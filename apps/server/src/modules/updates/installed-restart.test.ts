@@ -1,4 +1,3 @@
-import type { SpawnOptions } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,11 +7,6 @@ import {
   createInstalledCoordinatorUpdate,
 } from './installed-restart'
 
-const immediate = (callback: () => void) => {
-  callback()
-  return { unref: vi.fn() }
-}
-
 describe('createInstalledCoordinatorRestart', () => {
   it('is absent without a real restart authority', () => {
     expect(
@@ -20,95 +14,46 @@ describe('createInstalledCoordinatorRestart', () => {
     ).toBeUndefined()
   })
 
-  it('hands a detached coordinator to new janitor, server, and daemon processes', () => {
-    const children: Array<{ unref: ReturnType<typeof vi.fn> }> = []
-    const spawnProcess = vi.fn(() => {
-      const child = { unref: vi.fn() }
-      children.push(child)
-      return child
-    })
+  it('asks the supervising parent to self-handover after a detached swap', () => {
+    const requestHandover = vi.fn(() => ({ ok: true as const, pid: 99 }))
     const restart = createInstalledCoordinatorRestart({
       instanceId: 'default',
       port: () => 19001,
-      env: { PODIUM_RUN_MODE: 'detached' },
-      execPath: '/opt/podium/podium',
-      spawnProcess,
-      schedule: immediate,
+      env: { PODIUM_RUN_MODE: 'detached', PODIUM_APP_VERSION: '0.4.2' },
+      requestHandover,
+      pendingVersion: () => '0.4.2',
     })
 
     restart?.()
 
-    expect(spawnProcess).toHaveBeenNthCalledWith(
-      1,
-      '/opt/podium/podium',
-      ['janitor', '--server', 'http://127.0.0.1:19001', '--takeover'],
-      expect.objectContaining({
-        detached: true,
-        env: expect.objectContaining({ PODIUM_RUN_MODE: 'detached', PODIUM_PORT: '19001' }),
-      }),
-    )
-    expect(spawnProcess).toHaveBeenNthCalledWith(
-      2,
-      '/opt/podium/podium',
-      ['daemon', '--local', '--takeover'],
-      expect.objectContaining({ detached: true }),
-    )
-    expect(spawnProcess).toHaveBeenNthCalledWith(
-      3,
-      '/opt/podium/podium',
-      ['server', '--takeover'],
-      expect.objectContaining({ detached: true }),
-    )
-    expect(children.every((child) => child.unref.mock.calls.length === 1)).toBe(true)
+    expect(requestHandover).toHaveBeenCalledWith('0.4.2')
   })
 
-  it('preserves a detached server-only topology without creating a daemon', () => {
-    const spawnProcess = vi.fn(
-      (_command: string, _args: readonly string[], _options: SpawnOptions) => ({
-        unref: vi.fn(),
-      }),
-    )
-    const restart = createInstalledCoordinatorRestart({
-      instanceId: 'default',
-      port: () => 19001,
-      env: { PODIUM_RUN_MODE: 'detached' },
-      execPath: '/opt/podium/podium',
-      includeDaemon: false,
-      spawnProcess,
-      schedule: immediate,
-    })
-
-    restart?.()
-
-    expect(spawnProcess.mock.calls.map((call) => call[1])).toEqual([
-      ['janitor', '--server', 'http://127.0.0.1:19001', '--takeover'],
-      ['server', '--takeover'],
-    ])
-  })
-
-  it('asks systemd to restart the instance-scoped coordinator roles', () => {
-    const spawnProcess = vi.fn(() => ({ unref: vi.fn() }))
+  it('asks the supervising parent under systemd the same way (no systemctl restart)', () => {
+    const requestHandover = vi.fn(() => ({ ok: true as const, pid: 7 }))
     const restart = createInstalledCoordinatorRestart({
       instanceId: 'blue',
       port: () => 19001,
-      env: { INVOCATION_ID: 'unit-run' },
-      spawnProcess,
-      schedule: immediate,
+      env: { INVOCATION_ID: 'unit-run', PODIUM_APP_VERSION: '1.0.0' },
+      requestHandover,
+      pendingVersion: () => '1.0.0',
     })
 
     restart?.()
 
-    expect(spawnProcess).toHaveBeenCalledWith(
-      'systemctl',
-      [
-        '--user',
-        '--no-block',
-        'restart',
-        'podium-blue-janitor.service',
-        'podium-blue-server.service',
-      ],
-      { detached: true, stdio: 'ignore' },
-    )
+    expect(requestHandover).toHaveBeenCalledWith('1.0.0')
+  })
+
+  it('refuses with machine-cannot-restart when no parent is registered', () => {
+    const restart = createInstalledCoordinatorRestart({
+      instanceId: 'default',
+      port: () => 19001,
+      env: { PODIUM_UNDER_PARENT: '1', PODIUM_APP_VERSION: '1.0.0' },
+      requestHandover: () => ({ ok: false, reason: 'no-parent' }),
+      pendingVersion: () => '1.0.0',
+    })
+
+    expect(() => restart?.()).toThrow(/machine-cannot-restart/)
   })
 })
 
@@ -207,6 +152,23 @@ describe('createInstalledCoordinatorUpdate', () => {
       expect(deliver).not.toHaveBeenCalled()
       expect(swap).not.toHaveBeenCalled()
       expect(readFileSync(join(dir, 'VERSION'), 'utf8').trim()).toBe('0.4.2')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('is available under PODIUM_UNDER_PARENT without legacy markers', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-under-parent-'))
+    try {
+      writeFileSync(join(dir, 'VERSION'), '1.0.0\n')
+      const ensure = createInstalledCoordinatorUpdate({
+        env: { PODIUM_UNDER_PARENT: '1' },
+        installDir: dir,
+        deliver: async () => new Uint8Array(),
+        readApplied: () => undefined,
+      })
+      expect(ensure).toBeTypeOf('function')
+      await ensure?.({ version: '1.0.0', critical: false, artifacts: {} })
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
