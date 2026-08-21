@@ -94,8 +94,11 @@ export function assertDevClientDistMatchesVersion(
   label: string,
   stamp: { sourceSha?: string } | null,
 ): void {
-  if (!version.startsWith('dev+')) return
-  const expected = version.slice('dev+'.length)
+  // Publisher mints are `<base>.dev.<N>+<sha>` (POD-2502); forensic identity is
+  // still `dev+<sha>`. Key on either — packing yesterday's dist under today's
+  // commit claim is the lie this guard exists to catch.
+  const expected = commitShaFromDevChannelVersion(version)
+  if (expected === null) return
   if (!stamp?.sourceSha || stamp.sourceSha !== expected) {
     throw new Error(
       `build-bun: ${label} was not built from ${version} ` +
@@ -103,6 +106,23 @@ export function assertDevClientDistMatchesVersion(
         'Rebuild the client apps, then retry.',
     )
   }
+}
+
+/** Commit a dest-channel version claims, or null when the label is not one. */
+function commitShaFromDevChannelVersion(version: string): string | null {
+  const trimmed = version.trim()
+  if (/^dev\+[0-9a-f]{7,40}$/i.test(trimmed)) {
+    return trimmed.slice('dev+'.length).toLowerCase().slice(0, 7)
+  }
+  const plus = trimmed.lastIndexOf('+')
+  if (plus < 0) return null
+  // Publisher mint: must carry a `.dev.<N>+` or `-dev.<N>+` marker, not every
+  // release that happens to include build metadata.
+  if (!/\.dev\.\d+\+/i.test(trimmed) && !/^\d+\.\d+\.\d+-dev\.\d+\+/i.test(trimmed)) {
+    return null
+  }
+  const meta = trimmed.slice(plus + 1).toLowerCase()
+  return /^[0-9a-f]{7,40}$/.test(meta) ? meta.slice(0, 7) : null
 }
 
 /**
