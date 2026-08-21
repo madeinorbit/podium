@@ -175,16 +175,40 @@ describe('desktop release workflow', () => {
     expect(publishedHeadlessSmoke).toContain('PODIUM_UPDATE_CHANNEL="$CHANNEL"')
   })
 
-  it('builds headless x64 and arm64 natively before one atomic publish', () => {
+  /**
+   * THIS USED TO PIN A PER-ARCHITECTURE MATRIX, and it must not any more.
+   *
+   * The old shape built x64 on an Ubuntu runner and arm64 on a native ARM one,
+   * because the compiled daemon embeds an abduco helper that had to be built on
+   * the architecture that would run it. `zig cc` builds that helper for every
+   * target from one Linux runner, so the runner's own architecture no longer
+   * decides anything and the matrix is gone (spec §8b). Asserting `arch: x64`
+   * here would now pin a design the release deliberately replaced — the failure
+   * mode POD-2556 caught.
+   *
+   * What is worth pinning is the part a mistake could silently undo: that one
+   * job really does produce ALL FOUR platforms, and that both gates still stand
+   * in front of publish.
+   */
+  it('cross-builds every headless platform, gated, before one atomic publish', () => {
     const parsed = Bun.YAML.parse(headlessWorkflow) as {
-      jobs?: { build?: unknown; publish?: { needs?: string } }
+      jobs?: { headless?: { strategy?: unknown }; publish?: { needs?: string[] } }
     }
-    expect(parsed.jobs?.publish?.needs).toBe('build')
-    expect(headlessWorkflow).toContain('arch: x64')
-    expect(headlessWorkflow).toContain('arch: arm64')
-    expect(headlessWorkflow).toContain('runner: ubuntu-24.04-arm')
-    expect(headlessWorkflow).toContain('--prepare-arch ${{ matrix.arch }}')
+    // Publish waits on BOTH, and the second one is the point: `headless` proves the
+    // cross-built arm64 bundle is SHAPED right without running it, and only `ab-check`
+    // on real arm hardware proves it RUNS. Asserting the pair keeps the behavioural
+    // gate in front of publish, so a cross-built bundle that misbehaves on its own
+    // architecture cannot ship.
+    expect(parsed.jobs?.publish?.needs).toEqual(['headless', 'ab-check'])
+    // No matrix: reintroducing one would mean an architecture decided where a bundle
+    // was built again, which is exactly what cross-compilation removed.
+    expect(parsed.jobs?.headless?.strategy).toBeUndefined()
+    expect(headlessWorkflow).toContain('--prepare-cross')
+    // All four platforms, named. A build that quietly stopped minting one would
+    // otherwise publish a release the missing platform's machines cannot resolve.
+    for (const asset of ['linux-x64', 'linux-arm64', 'darwin-arm64', 'darwin-x64']) {
+      expect(headlessWorkflow).toContain(asset)
+    }
     expect(headlessWorkflow).toContain('--publish-dir dist-bun/release')
-    expect(headlessWorkflow).toContain('merge-multiple: true')
   })
 })
