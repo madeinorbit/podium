@@ -50,6 +50,6 @@
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
-    "zod": "^3.24.0"
+    "zod": "^4.4.3"
   }
 }
