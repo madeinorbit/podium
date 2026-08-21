@@ -269,7 +269,14 @@ export function registerVersionRoute(
     /** Parent health gate + settings: is the local daemon connected? */
     daemonConnected?: () => boolean
     /** Janitor co-host status for DEGRADED projection [POD-2505]. */
-    janitor?: () => { state: 'running' | 'degraded' | 'stopped'; reason?: string } | undefined
+    janitor?: () =>
+      | {
+          state: 'running' | 'degraded' | 'stopped'
+          reason?: string
+          /** Advance token the parent's watchdog reads (§8, gap 9). */
+          progressVersion?: number
+        }
+      | undefined
   },
 ): void {
   app.get('/version', async (c) => {
@@ -351,6 +358,13 @@ export async function startServer(
     tls?: { key: string; cert: string }
     /** Advertise the safe local all-in-one first-run default to loopback web clients. */
     localSetupDefault?: boolean
+    /**
+     * The janitor's `startJanitor`, injected by the composition root
+     * (scripts/cli.ts) so this app never imports another app [POD-2505]. When
+     * present AND this shape co-hosts (`shouldHostJanitor`), the janitor runs
+     * inside this process instead of as its own OS role.
+     */
+    startJanitor?: import('./janitor-host').StartJanitorFn
   } = {},
 ): Promise<ServerHandle> {
   const configuredProxyHops = opts.trustedProxyHops ?? proxyHopsFromEnv(process.env)
@@ -575,15 +589,28 @@ export async function startServer(
   // variable as the discriminator misclassified the published binary as source
   // and silently withheld its coordinator restart capability.
   const developmentSourceRoot = process.env.PODIUM_APP_VERSION ? undefined : DEVELOPMENT_SOURCE_ROOT
+  /**
+   * The version the parent installed for THIS operation, which is the version
+   * the handover's health gate must see the successor serving. Written by the
+   * update ask, read by the restart ask — the producer finding 15 said the
+   * parameter did not have.
+   */
+  let pendingCoordinatorVersion: string | undefined
   const requestCoordinatorRestart = developmentSourceRoot
     ? createSourceRedeployRequest({ instanceId })
     : createInstalledCoordinatorRestart({
         instanceId,
         port: () => boundPort,
+        pendingVersion: () => pendingCoordinatorVersion,
       })
   const prepareCoordinatorUpdate = developmentSourceRoot
     ? undefined
-    : createInstalledCoordinatorUpdate({ pinnedPubkey: updateSigningKey.publicKey })
+    : createInstalledCoordinatorUpdate({
+        pinnedPubkey: updateSigningKey.publicKey,
+        onInstalled: (version) => {
+          pendingCoordinatorVersion = version
+        },
+      })
   const devPublisher = wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
     instanceId,
@@ -701,10 +728,22 @@ export async function startServer(
       return registry.modules.updates.advertisedTarget(hostMachineId, published)
     },
     mobileWeb: () => servedWebIdentity(phoneWebDir()),
-    daemonConnected: () => registry.modules.machines.onlineMachineIds().length > 0,
+    /**
+     * THIS HOST's daemon, not "any daemon anywhere". The parent's handover
+     * health gate (disposition 24) asks whether the LOCAL daemon reached the new
+     * server; `onlineMachineIds().length > 0` answered yes on a multi-machine
+     * host with the local daemon dead, which would let a handover complete onto
+     * a stack that is missing a child (review finding 7).
+     */
+    daemonConnected: () =>
+      registry.modules.machines.onlineMachineIds().includes(asMachineId(hostMachineId)),
     janitor: () =>
       janitorHost
-        ? { state: janitorHost.state(), ...(janitorHost.reason() ? { reason: janitorHost.reason() } : {}) }
+        ? {
+            state: janitorHost.state(),
+            progressVersion: janitorHost.progressVersion(),
+            ...(janitorHost.reason() ? { reason: janitorHost.reason() } : {}),
+          }
         : undefined,
   })
   registerMaintenanceRoute(app, {
@@ -1055,8 +1094,14 @@ export async function startServer(
     // there is no separate janitor OS role [POD-2505]. Refusal stays degraded.
     void (async () => {
       const { shouldHostJanitor, startJanitorHost } = await import('./janitor-host')
-      if (!shouldHostJanitor()) return
-      janitorHost = await startJanitorHost({ port: boundPort, token: bootstrapToken })
+      // No injected starter ⇒ this process was not started by the composition
+      // root and does not co-host. The server never reaches into apps/janitor.
+      if (!shouldHostJanitor() || !opts.startJanitor) return
+      janitorHost = await startJanitorHost({
+        port: boundPort,
+        token: bootstrapToken,
+        startJanitor: opts.startJanitor,
+      })
     })().catch((error) => {
       log.warn('janitor host failed to start', { err: error })
     })

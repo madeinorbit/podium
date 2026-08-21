@@ -175,26 +175,97 @@ export function clearJanitorRefusal(snap: ParentSnapshot): ParentSnapshot {
   return { ...snap, refusals, phase }
 }
 
-/** Health probe result the handover gate consumes (spec disposition 24). */
+/**
+ * Health probe result the handover gate consumes (spec disposition 24).
+ *
+ * There is deliberately no separate `daemonRunning` bit. The OLD parent can only
+ * observe the successor's stack across a process boundary, over the successor
+ * server's `GET /version` — it cannot see the successor's child table. A second
+ * field derived from the same HTTP body would be the same bit twice wearing two
+ * names, which is what the first cut of this file did and what made the unit
+ * test for the gate prove nothing (review finding 7). `daemonConnected` is the
+ * one authoritative "the LOCAL daemon reached the new server" signal, and the
+ * server computes it against its own host machine id, not "any machine online".
+ */
 export interface HandoverHealthProbe {
   serverRunning: boolean
-  daemonRunning: boolean
   /** appVersion from GET /version — must equal the swapped release. */
   serverVersion: string | null
-  /** True when the local daemon is connected to the server (not bare /health). */
+  /** True when THIS HOST's daemon is connected to the server (not bare /health). */
   daemonConnected: boolean
+  /**
+   * Janitor co-host state as the server reports it, when it reports one.
+   * Feeds the watchdog's component-advance rule; never gates handover health —
+   * a degraded janitor must not block a release (§8 component-failure policy).
+   */
+  janitor?: { state: 'running' | 'degraded' | 'stopped'; progressVersion?: number }
 }
 
+/**
+ * Handover health (disposition 24): both children up, the server serving the
+ * NEW version over /version, and the local daemon connected — never bare /health.
+ */
 export function isHandoverHealthy(
   probe: HandoverHealthProbe,
   expectedVersion: string,
 ): boolean {
   return (
-    probe.serverRunning &&
-    probe.daemonRunning &&
-    probe.daemonConnected &&
-    probe.serverVersion === expectedVersion
+    probe.serverRunning && probe.daemonConnected && probe.serverVersion === expectedVersion
   )
+}
+
+/**
+ * How long a janitor that claims to be RUNNING may leave its progress token
+ * unchanged before the parent stops petting the systemd watchdog. The janitor's
+ * tick is 30s, so this is 20 ticks: comfortably past a slow tick or a long
+ * maintenance pass, and unambiguous about a wedged worker.
+ */
+export const COMPONENT_WEDGED_MS = 600_000
+
+export interface WatchdogAdvance {
+  /** Last component progress token the parent saw. */
+  progress?: number
+  /** When that token was first observed at its current value. */
+  observedAtMs?: number
+}
+
+/**
+ * Should the parent pet the systemd watchdog this tick (§8, gap 9)?
+ *
+ * The watchdog's contract is "the parent is not wedged", and §8 is explicit that
+ * DEGRADED must never bubble to systemd — a serving server beats a suicide over a
+ * stopped janitor. So a janitor that is stopped, degraded, or simply not reported
+ * always pets. What must become visible is the third state the event loop cannot
+ * see on its own: a component that says it is RUNNING while its progress token
+ * has not moved for {@link COMPONENT_WEDGED_MS}. That withholds the pet, and
+ * systemd restarts the unit.
+ *
+ * Pure so the rule is testable without a notify socket or a real janitor.
+ */
+export function watchdogPetDecision(input: {
+  janitor?: HandoverHealthProbe['janitor']
+  advance: WatchdogAdvance
+  nowMs: number
+  wedgedAfterMs?: number
+}): { pet: boolean; advance: WatchdogAdvance; wedged: boolean } {
+  const wedgedAfterMs = input.wedgedAfterMs ?? COMPONENT_WEDGED_MS
+  const progress = input.janitor?.state === 'running' ? input.janitor.progressVersion : undefined
+  if (progress === undefined) {
+    // No advance signal to judge — liveness of the parent's own loop is the contract.
+    return { pet: true, advance: {}, wedged: false }
+  }
+  if (input.advance.progress !== progress || input.advance.observedAtMs === undefined) {
+    return {
+      pet: true,
+      advance: { progress, observedAtMs: input.nowMs },
+      wedged: false,
+    }
+  }
+  const stalledMs = input.nowMs - input.advance.observedAtMs
+  if (stalledMs >= wedgedAfterMs) {
+    return { pet: false, advance: input.advance, wedged: true }
+  }
+  return { pet: true, advance: input.advance, wedged: false }
 }
 
 /**

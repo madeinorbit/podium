@@ -16,6 +16,7 @@ import {
   markPostUpdate,
   POST_UPDATE_CRASH_LOOP_THRESHOLD,
   rollbackDecision,
+  watchdogPetDecision,
 } from './parent-supervisor'
 
 describe('classifyChildExit', () => {
@@ -90,7 +91,6 @@ describe('handover health gate', () => {
       isHandoverHealthy(
         {
           serverRunning: true,
-          daemonRunning: true,
           serverVersion: '1.2.3',
           daemonConnected: true,
         },
@@ -101,7 +101,6 @@ describe('handover health gate', () => {
       isHandoverHealthy(
         {
           serverRunning: true,
-          daemonRunning: true,
           serverVersion: '1.2.3',
           daemonConnected: false,
         },
@@ -112,10 +111,18 @@ describe('handover health gate', () => {
       isHandoverHealthy(
         {
           serverRunning: true,
-          daemonRunning: true,
           serverVersion: '1.2.2',
           daemonConnected: true,
         },
+        '1.2.3',
+      ),
+    ).toBe(false)
+  })
+
+  it('a server with no daemon down is not healthy just because the port answers', () => {
+    expect(
+      isHandoverHealthy(
+        { serverRunning: false, serverVersion: '1.2.3', daemonConnected: true },
         '1.2.3',
       ),
     ).toBe(false)
@@ -185,5 +192,65 @@ describe('isPostUpdateCrashLoop', () => {
 describe('CHILD_START_ORDER', () => {
   it('starts server before daemon', () => {
     expect(CHILD_START_ORDER).toEqual(['server', 'daemon'])
+  })
+})
+
+describe('watchdogPetDecision', () => {
+  const wedgedAfterMs = 10_000
+
+  it('pets when no component reports an advance token', () => {
+    expect(watchdogPetDecision({ advance: {}, nowMs: 0, wedgedAfterMs }).pet).toBe(true)
+  })
+
+  it('pets for a DEGRADED or STOPPED janitor — degraded never bubbles to systemd', () => {
+    for (const state of ['degraded', 'stopped'] as const) {
+      const decision = watchdogPetDecision({
+        janitor: { state, progressVersion: 7 },
+        advance: { progress: 7, observedAtMs: 0 },
+        nowMs: 10 * wedgedAfterMs,
+        wedgedAfterMs,
+      })
+      expect(decision.pet, `${state} must still pet`).toBe(true)
+      expect(decision.wedged).toBe(false)
+    }
+  })
+
+  it('pets while a running janitor advances, and records the new token', () => {
+    const first = watchdogPetDecision({
+      janitor: { state: 'running', progressVersion: 1 },
+      advance: {},
+      nowMs: 1_000,
+      wedgedAfterMs,
+    })
+    expect(first).toMatchObject({ pet: true, wedged: false })
+    expect(first.advance).toEqual({ progress: 1, observedAtMs: 1_000 })
+
+    const advanced = watchdogPetDecision({
+      janitor: { state: 'running', progressVersion: 2 },
+      advance: first.advance,
+      nowMs: 60_000,
+      wedgedAfterMs,
+    })
+    expect(advanced).toMatchObject({ pet: true, wedged: false })
+    expect(advanced.advance).toEqual({ progress: 2, observedAtMs: 60_000 })
+  })
+
+  it('WITHHOLDS the pet for a janitor that says running while its token is frozen', () => {
+    const advance = { progress: 5, observedAtMs: 1_000 }
+    const stillFine = watchdogPetDecision({
+      janitor: { state: 'running', progressVersion: 5 },
+      advance,
+      nowMs: 1_000 + wedgedAfterMs - 1,
+      wedgedAfterMs,
+    })
+    expect(stillFine.pet).toBe(true)
+
+    const wedged = watchdogPetDecision({
+      janitor: { state: 'running', progressVersion: 5 },
+      advance,
+      nowMs: 1_000 + wedgedAfterMs,
+      wedgedAfterMs,
+    })
+    expect(wedged).toMatchObject({ pet: false, wedged: true })
   })
 })

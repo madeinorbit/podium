@@ -1,9 +1,19 @@
 /**
  * Host the janitor inside the server process [POD-2505].
  *
- * Spec allows a worker thread or in-process loop; this host starts the janitor
- * package's `startJanitor` off the listen path and reports refusal as DEGRADED
- * instead of exiting the server (component-failure policy §8).
+ * Spec §3: "the janitor runs inside the server process as a worker (worker
+ * thread or in-process loop — implementation detail)". This is the in-process
+ * loop; it starts the janitor off the listen path and reports refusal as
+ * DEGRADED instead of exiting the server (component-failure policy §8).
+ *
+ * THE JANITOR MODULE IS INJECTED, NEVER IMPORTED. `apps/server` importing
+ * `apps/janitor` is an app→app edge that the dependency-boundary lint forbids
+ * (scripts/check-boundaries.ts rule 1), and the seam already exists: the
+ * composition root (scripts/cli.ts) is the one place allowed to compose apps,
+ * and it already hands the CLI a `startJanitor`. So the server takes one too.
+ * There is no fallback deep import — a missing injection means "this shape does
+ * not co-host the janitor", which is the truth for every server started without
+ * the composition root.
  */
 import { createLogger } from '@podium/logger'
 import { localServerUrl } from '@podium/runtime/config'
@@ -14,26 +24,42 @@ const log = createLogger('server:janitor-host')
 export type JanitorComponentState = 'running' | 'degraded' | 'stopped'
 
 export interface JanitorHost {
+  /**
+   * Monotonic token the janitor advances as it completes work. The parent's
+   * watchdog rule reads it: a host that claims to be RUNNING while this stops
+   * moving is wedged, and that is the one component state systemd should see
+   * (§8, gap 9).
+   */
   progressVersion(): number
   state(): JanitorComponentState
   reason(): string | undefined
   close(): void
 }
 
+/** The shape of `apps/janitor`'s `startJanitor`, as the server needs it. */
+export type StartJanitorFn = (opts: {
+  serverUrl: string
+  token: string
+  onCompatibilityRefusal?: (error: Error) => void
+}) => Promise<{ service: { progressVersion(): number }; close(): void }>
+
 export interface JanitorHostDeps {
   port: number
   serverUrl?: string
   token?: string
-  /** Injectable start — production loads apps/janitor. */
-  startJanitor?: (opts: {
-    serverUrl: string
-    token: string
-  }) => Promise<{ service: { progressVersion(): number }; close(): void }>
+  /** Injected by the composition root. Absent ⇒ this process does not co-host. */
+  startJanitor: StartJanitorFn
 }
 
 /**
- * Start the janitor co-hosted with the server. Compatibility refusal parks the
- * worker stopped and surfaces a reason; the server keeps serving.
+ * Start the janitor co-hosted with the server.
+ *
+ * BOTH refusal paths park the janitor and leave the server serving:
+ *  - at START (the schema check on the first handshake), and
+ *  - MID-RUN, when the DB advances under a janitor that is already ticking.
+ * The mid-run one is the path that actually fires in production — the schema
+ * changes while the janitor is running — and it is the one that used to reach
+ * `process.exit(78)` and take the whole server with it (review finding 3).
  */
 export async function startJanitorHost(deps: JanitorHostDeps): Promise<JanitorHost> {
   const serverUrl = deps.serverUrl ?? localServerUrl(deps.port)
@@ -43,34 +69,33 @@ export async function startJanitorHost(deps: JanitorHostDeps): Promise<JanitorHo
   let reason: string | undefined
   let handle: { service: { progressVersion(): number }; close(): void } | undefined
 
-  const start =
-    deps.startJanitor ??
-    (async (opts) => {
-      const { startJanitor } = await import('../../janitor/src/janitor')
-      return startJanitor(opts)
-    })
+  const refuse = (error: Error, when: 'start' | 'mid-run'): void => {
+    state = 'degraded'
+    reason = error.message
+    log.warn(`janitor refused ${when} — server stays up (degraded)`, { reason })
+  }
 
   try {
-    handle = await start({ serverUrl, token })
+    handle = await deps.startJanitor({
+      serverUrl,
+      token,
+      onCompatibilityRefusal: (error) => {
+        // The janitor has already stopped its own tick; freeze the progress
+        // token at its last value so the watchdog does not read a stopped
+        // component as a wedged one.
+        progress = handle ? handle.service.progressVersion() : progress
+        refuse(error, 'mid-run')
+      },
+    })
     state = 'running'
     progress = handle.service.progressVersion()
     log.info('janitor host started', { serverUrl })
   } catch (error) {
-    const name = (error as Error).name
-    reason = (error as Error).message
-    if (name === 'MaintenanceCompatibilityError') {
-      state = 'degraded'
-      log.warn('janitor refused at start — server stays up (degraded)', { reason })
-    } else {
-      state = 'degraded'
-      log.warn('janitor failed to start — server stays up (degraded)', { reason })
-    }
+    refuse(error as Error, 'start')
   }
 
-  // Poll progress from a live handle; refusal mid-run is observed via tick errors
-  // that stop advancing progressVersion (watchdog pets require advance).
   const timer = setInterval(() => {
-    if (!handle) return
+    if (!handle || state !== 'running') return
     try {
       progress = handle.service.progressVersion()
     } catch {
@@ -80,7 +105,8 @@ export async function startJanitorHost(deps: JanitorHostDeps): Promise<JanitorHo
   timer.unref?.()
 
   return {
-    progressVersion: () => (handle ? handle.service.progressVersion() : progress),
+    progressVersion: () =>
+      handle && state === 'running' ? handle.service.progressVersion() : progress,
     state: () => state,
     reason: () => reason,
     close: () => {

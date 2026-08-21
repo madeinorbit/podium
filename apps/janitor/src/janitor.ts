@@ -1188,6 +1188,19 @@ export async function startJanitor(options: {
   token: string
   dbPath?: string
   tickMs?: number
+  /**
+   * What a MID-RUN compatibility refusal means for this host process.
+   *
+   * As its own OS process the janitor exits 78 (EX_CONFIG) and its supervisor
+   * parks it stopped — that is the §8 REFUSAL class. But the janitor is now
+   * normally CO-HOSTED INSIDE THE SERVER (POD-2505), where `process.exit(78)`
+   * would take the server down with it and the parent would park the SERVER
+   * refused: a schema check on a background housekeeping loop would end all
+   * serving, permanently, which is the exact inverse of the policy. A host that
+   * passes this callback owns the refusal instead; the default is the standalone
+   * exit that existing supervision expects.
+   */
+  onCompatibilityRefusal?: (error: Error) => void
 }): Promise<JanitorHandle> {
   const shutdown = new AbortController()
   const client = createMaintenanceHttpClient(
@@ -1236,6 +1249,16 @@ export async function startJanitor(options: {
   const timer = setInterval(() => {
     void service.tick().catch((error) => {
       if (error instanceof MaintenanceCompatibilityError) {
+        if (options.onCompatibilityRefusal) {
+          // Stop ticking: a refusal is not retried until the next successful
+          // update (§8). The host reports DEGRADED and keeps serving.
+          clearInterval(timer)
+          log.error('maintenance compatibility check failed — janitor stopping (degraded)', {
+            err: error,
+          })
+          options.onCompatibilityRefusal(error)
+          return
+        }
         log.error('maintenance compatibility check failed — exiting', { err: error })
         process.exit(78)
         return
