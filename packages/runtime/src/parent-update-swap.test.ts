@@ -136,3 +136,60 @@ describe('releaseCarriesNewMigrations', () => {
     expect(releaseCarriesNewMigrations({ schema: { migrations: ['a', 'z'] } }, ['a'])).toBe(true)
   })
 })
+
+/**
+ * Trust is stamped on the TARGET. The parent's default deliver closure must
+ * read it — injecting `deliver` would hide a root that never reached
+ * `fetchArtifact`. These used to live on the server; the parent now fetches.
+ */
+describe('parent delivery reads the target trust root', () => {
+  const asset = { url: 'https://feed.test/a.tgz', digest: 'd', signature: 's' }
+  const targetFor = (trust?: 'release' | 'instance') => ({
+    version: '0.4.2',
+    critical: false,
+    ...(trust ? { trust } : {}),
+    artifacts: {
+      headless: { delivery: 'feed' as const, platforms: { 'linux-x86_64': asset } },
+    },
+  })
+
+  async function deliveryAttempt(trust?: 'release' | 'instance', pinnedPubkey?: string) {
+    const dir = installDirAt('0.4.1')
+    const seen: string[] = []
+    const run = createParentUpdateSwap({
+      installDir: dir,
+      platform: 'linux-x86_64',
+      pubkey: 'baked-release-key',
+      ...(pinnedPubkey ? { pinnedPubkey } : {}),
+      readApplied: () => undefined,
+      swap: async () => {},
+      fetch: (async (url: string) => {
+        seen.push(String(url))
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+      }) as unknown as typeof fetch,
+    })
+    let error: unknown
+    await run(targetFor(trust)).catch((thrown: unknown) => {
+      error = thrown
+    })
+    return { seen, error }
+  }
+
+  it('fails closed on an instance-trusted target when nothing was pinned', async () => {
+    const { seen, error } = await deliveryAttempt('instance')
+    expect((error as Error).message).toMatch(/pinned at pairing/)
+    expect(seen).toEqual([])
+  })
+
+  it('proceeds to the download once the pinned key this target names exists', async () => {
+    const { seen, error } = await deliveryAttempt('instance', 'pinned-instance-key')
+    expect(seen).toEqual([asset.url])
+    expect((error as Error).message).toMatch(/verification FAILED/)
+  })
+
+  it('needs no pinned key at all when the target names the release root', async () => {
+    const { seen, error } = await deliveryAttempt('release')
+    expect(seen).toEqual([asset.url])
+    expect((error as Error).message).not.toMatch(/pinned at pairing/)
+  })
+})

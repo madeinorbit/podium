@@ -99,21 +99,20 @@ export function createParentUpdateSwap(
       const plan = planConvergence({
         current: currentVersion,
         target,
-        caps: ['update.delivery.feed', 'update.delivery.bundle'],
+        caps: ['update.delivery.feed'],
         platform,
       })
       if (plan.action === 'already-current') return new Uint8Array()
-      if (plan.action === 'cannot' || plan.delivery === 'git') {
-        const reason = plan.action === 'cannot' ? plan.reason : 'git delivery is not installed'
-        throw new Error(`this machine cannot take ${target.version}: ${reason}`)
+      if (plan.action === 'cannot') {
+        throw new Error(`this machine cannot take ${target.version}: ${plan.reason}`)
       }
       const deliveryDeps: DeliveryDeps = {
         fetch: deps.fetch ?? fetch,
         pubkey: deps.pubkey ?? PODIUM_UPDATE_PUBKEY,
         ...(deps.pinnedPubkey ? { pinnedPubkey: deps.pinnedPubkey } : {}),
+        ...(target.trust ? { trust: target.trust } : {}),
       }
-      const artifact = await fetchArtifact(plan.asset, plan.delivery, deliveryDeps)
-      if (!('bytes' in artifact)) throw new Error('delivery produced no bundle bytes')
+      const artifact = await fetchArtifact(plan.asset, deliveryDeps)
       return artifact.bytes
     })
 

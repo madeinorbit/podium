@@ -1057,8 +1057,8 @@ describe('buildDevBundle', () => {
     const headless = target.artifacts.headless
     // `bundle` delivery is the shape the dev feed publishes; anything else has no
     // per-platform artifacts to enumerate.
-    expect(headless?.delivery).toBe('bundle')
-    const platforms = headless?.delivery === 'bundle' ? headless.platforms : {}
+    expect(headless?.delivery).toBe('feed')
+    const platforms = headless?.delivery === 'feed' ? headless.platforms : {}
     expect(Object.keys(platforms)).toEqual(['linux-x86_64', 'darwin-aarch64'])
     // Each platform gets its OWN address; one URL for all of them would hand every
     // machine the same bytes.

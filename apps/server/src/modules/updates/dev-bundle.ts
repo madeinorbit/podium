@@ -1909,18 +1909,19 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     // A tarball for a DIFFERENT commit is not this HEAD's release, and writing
     // it into the feed would advertise one commit's bytes under another's name.
     if (!current || builtSha !== settled.headSha) return undefined
+    const built = current
     const configured = deps.artifactUrl
     const hostPlatform = deps.platform ?? developmentPlatformTarget()
     const artifactUrl =
       typeof configured === 'function'
-        ? (platform: string) => configured(current.version, platform)
+        ? (platform: string) => configured(built.version, platform)
         : configured !== undefined
           ? (platform: string) =>
               platform === hostPlatform
                 ? configured
-                : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(current.version)}/${encodeURIComponent(platform)}`
+                : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(built.version)}/${encodeURIComponent(platform)}`
           : undefined
-    return devTarget(current, {
+    return devTarget(built, {
       ...(artifactUrl ? { artifactUrl } : {}),
       platform: deps.platform,
       sourceRoot: deps.root,
