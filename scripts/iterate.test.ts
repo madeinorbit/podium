@@ -21,6 +21,7 @@ import {
   iterateChildEnv,
   iterateScopeUnit,
   resolveIterateConfig,
+  TEARDOWN_SIGNALS,
   tailnetHostFromStatus,
   tailscaleServeArgv,
   tailscaleServeOffArgv,
@@ -223,5 +224,24 @@ describe('dist guardrail', () => {
   it('reports a dist that appeared during the session', () => {
     const dir = seedDist()
     expect(describeDistDrift(null, distFingerprint(dir))).toMatch(/dist/i)
+  })
+})
+
+/**
+ * The measured failure (POD-2513 review): SIGHUP was not forwarded, so closing
+ * an ssh session killed the parent before teardown — leaving vite listening
+ * under a surviving scope and a live tailnet HTTPS mount, and refusing the next
+ * start on that port. This locks the list so the signal cannot quietly go away
+ * again; the end-to-end hangup is measured by hand with `setsid` (never
+ * `nohup`, which sets SIGHUP to ignored and fakes a pass).
+ */
+describe('TEARDOWN_SIGNALS', () => {
+  it('includes the hangup an ssh session sends when it closes', () => {
+    expect(TEARDOWN_SIGNALS).toContain('SIGHUP')
+  })
+
+  it('still covers Ctrl-C and a service stop', () => {
+    expect(TEARDOWN_SIGNALS).toContain('SIGINT')
+    expect(TEARDOWN_SIGNALS).toContain('SIGTERM')
   })
 })
