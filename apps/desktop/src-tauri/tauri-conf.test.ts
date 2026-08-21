@@ -5,8 +5,10 @@ import { describe, expect, it } from 'vitest'
 
 const conf = JSON.parse(readFileSync(join(__dirname, 'tauri.conf.json'), 'utf8'))
 const mainSource = readFileSync(join(__dirname, 'src/main.rs'), 'utf8')
+const bootstrapSource = readFileSync(join(__dirname, 'src/bootstrap.rs'), 'utf8')
 const cargoSource = readFileSync(join(__dirname, 'Cargo.toml'), 'utf8')
 const webStyles = readFileSync(join(__dirname, '../../web/src/styles.css'), 'utf8')
+const webMainSource = readFileSync(join(__dirname, '../../web/src/app/main.tsx'), 'utf8')
 
 describe('tauri desktop config', () => {
   it('keeps stable as the packaged fallback endpoint', () => {
@@ -30,6 +32,28 @@ describe('tauri desktop config', () => {
     expect(conf.bundle.resources).toEqual(['resources/payload'])
     expect(mainSource).toContain('"PODIUM_MOBILE_WEB_DIR"')
     expect(mainSource).toContain('.join("mobile")')
+  })
+
+  it('strips quarantine before publishing the one-time external seed', () => {
+    expect(bootstrapSource).toContain('Command::new("/usr/bin/xattr")')
+    expect(bootstrapSource).toContain('.args(["-dr", "com.apple.quarantine"])')
+    const seed = bootstrapSource.slice(
+      bootstrapSource.indexOf('pub fn seed_payload_if_absent'),
+      bootstrapSource.indexOf('pub fn ensure_executable'),
+    )
+    expect(seed.indexOf('strip_payload_quarantine(&staging)')).toBeGreaterThan(-1)
+    expect(seed.indexOf('std::fs::rename(&staging, install)')).toBeGreaterThan(
+      seed.indexOf('strip_payload_quarantine(&staging)'),
+    )
+  })
+
+  it('keeps repair reachable from the baked fallback when the payload cannot serve', () => {
+    expect(mainSource).toContain('window.__PODIUM_PAYLOAD_UNAVAILABLE__ = true')
+    expect(mainSource).toContain('repairPayload: () =>')
+    expect(mainSource).toContain("invoke('repair_payload')")
+    expect(webMainSource).toContain('function PayloadUnavailablePage()')
+    expect(webMainSource).toContain("label: repairing ? 'Repairing…' : 'Repair payload'")
+    expect(webMainSource).toContain('nativeDesktopBridge()?.repairPayload')
   })
 
   it('loads the all-in-one UI from the local server with a stable port (POD-2510)', () => {
