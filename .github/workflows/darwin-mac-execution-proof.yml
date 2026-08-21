@@ -25,7 +25,7 @@ concurrency:
 
 env:
   ZIG_VERSION: '0.16.0'
-  RCODESIGN_VERSION: '0.29.0'
+  APPLE_CODESIGN_VERSION: '0.29.0'
   BUN_VERSION: '1.3.14'
 
 jobs:
@@ -49,7 +49,7 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-          key: cargo-rcodesign-${{ env.RCODESIGN_VERSION }}-${{ runner.os }}
+          key: cargo-rcodesign-${{ env.APPLE_CODESIGN_VERSION }}-${{ runner.os }}
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install zig + rcodesign
@@ -61,7 +61,7 @@ jobs:
           sudo ln -sfn "/opt/zig-x86_64-linux-${ZIG_VERSION}/zig" /usr/local/bin/zig
           zig version
           command -v rcodesign >/dev/null \
-            || cargo install apple-codesign --locked --bin rcodesign --version "${RCODESIGN_VERSION}"
+            || cargo install apple-codesign --locked --bin rcodesign --version "${APPLE_CODESIGN_VERSION}"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           rcodesign --version
 
