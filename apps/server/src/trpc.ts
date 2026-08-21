@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type { MobileWebIdentity, UpdateTarget } from '@podium/protocol'
+import type { MobileWebIdentity, ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import type { TelemetryEmitter } from '@podium/telemetry'
 import { initTRPC } from '@trpc/server'
 import type { CloudRuntimeProvider } from './cloud-runtime'
@@ -90,6 +90,10 @@ export interface Context {
     bundleReady: boolean
     failureDetail?: string
   }
+  /** Source-host pre-release stage. Reads are hidden from non-admin callers. */
+  releaseProposal?: () => Promise<ReleaseProposal | undefined>
+  /** Admin approval admits build + publication only, never rollout. */
+  approveReleaseProposal?: (approvedBy: string) => Promise<ReleaseProposal | undefined>
   /** Install identity currently served from apps/web/dist, if any. */
   servedWebDigest?: () => string | undefined
   /** The phone website served from apps/mobile/dist, present or not (POD-1980).

@@ -1262,7 +1262,7 @@ describe('UpdatesService.operationChannel', () => {
  *
  * The panel's whole OFFER is derived from `server.target` — `use-update-state`
  * reads `/version` and `describeUpdate` has nothing to show without it. That
- * target used to be `devPublisher.publishTarget() ?? updates.target()`, and
+ * target used to be assembled from publisher identity or `updates.target()`, and
  * `target()` defaults to `dev`: both halves asked the development authority. On
  * a stable installation the publisher is disabled and the dev authority has
  * nothing, so `/version` carried no target at all and a machine that was
@@ -1294,36 +1294,16 @@ describe('UpdatesService.advertisedTarget', () => {
     expect(svc.advertisedTarget('host')?.version).toBe('0.1.3')
   })
 
-  /**
-   * The drive's exact configuration: a SOURCE host pinned to stable, whose dev
-   * publisher is alive and offering a `dev+` identity. The publisher must not
-   * speak for an authority the host does not follow — that is precisely the
-   * `dev+03a2892` the panel showed while the operation planned `0.1.3`.
-   */
-  it('does not let the development publisher speak for a stable-pinned host', () => {
+  it('does not let a development feed speak for a stable-pinned host', () => {
     const svc = shipped([m('host', { channel: 'stable' })])
     svc.setTarget('stable', t('0.1.3'))
+    svc.setTarget('dev', t('0.1.2-dev.3+03a2892'))
 
-    expect(svc.advertisedTarget('host', t('dev+03a2892'))?.version).toBe('0.1.3')
+    expect(svc.advertisedTarget('host')?.version).toBe('0.1.3')
   })
 
-  /** A development coordinator is unchanged: the publisher still wins, and the
-   *  service's own dev target is still the fallback when it has nothing. */
-  it('still prefers the published development bundle on a dev-pinned host', () => {
+  it('advertises only a feed-published development target on a dev-pinned host', () => {
     const svc = shipped([m('host', { channel: 'dev' })])
-    svc.setTarget('dev', t('dev+aaaaaaa'))
-
-    expect(svc.advertisedTarget('host', t('dev+bbbbbbb'))?.version).toBe('dev+bbbbbbb')
-    expect(svc.advertisedTarget('host')?.version).toBe('dev+aaaaaaa')
-  })
-
-  /**
-   * `/version` awaits `publishTarget()` on every read and hands that identity
-   * in as `publishedDevTarget`. Once the feed target for the same version is
-   * standing, advertising the identity would hide the package the resolver
-   * just pulled — same defect as setTarget, on the probe the panel reads.
-   */
-  it('does not advertise a same-version identity over a standing deliverable', () => {
     const packed = {
       version: '0.1.2-dev.5+bbbbbbb',
       critical: false,
@@ -1341,17 +1321,15 @@ describe('UpdatesService.advertisedTarget', () => {
         },
       },
     } as unknown as never
-    const identity = {
-      version: '0.1.2-dev.5+bbbbbbb',
-      critical: false,
-      artifacts: { web: { digest: 'bbbbbbb' } },
-    } as unknown as never
-    const svc = shipped([m('host', { channel: 'dev' })])
     svc.setTarget('dev', packed)
-
-    const advertised = svc.advertisedTarget('host', identity)
+    const advertised = svc.advertisedTarget('host')
     expect(advertised?.artifacts.headless).toBeDefined()
     expect(advertised?.version).toBe('0.1.2-dev.5+bbbbbbb')
+  })
+
+  it('advertises no update when HEAD has only a pre-release proposal', () => {
+    const svc = shipped([m('host', { channel: 'dev' })])
+    expect(svc.advertisedTarget('host')).toBeUndefined()
   })
 
   /**

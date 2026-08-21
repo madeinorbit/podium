@@ -3,6 +3,7 @@ import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } fro
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { serverBuildVersion } from '../../build-version'
+import { attributionOf } from '../../command-principal'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
 import type { OperationsModule } from '../operations'
@@ -520,6 +521,8 @@ function throwIfFailedOnStart(operation: Operation | null): void {
 
 export function updateProcedures() {
   return {
+    proposal: t.procedure.query(({ ctx }) => releaseProposalFor(ctx)),
+    approveProposal: t.procedure.mutation(({ ctx }) => approveReleaseProposal(ctx)),
     fleet: t.procedure.query(({ ctx }) => updateFleet(ctx)),
     /**
      * "Check for updates now" (spec §9.2). The daily timer answers "is anything
@@ -625,4 +628,27 @@ export function updateProcedures() {
       )
     }),
   }
+}
+
+/** Read policy: a non-admin sees absence, not a control they cannot use. */
+export async function releaseProposalFor(ctx: Context) {
+  if (ctx.capability.role !== 'admin') return null
+  return (await ctx.releaseProposal?.()) ?? null
+}
+
+/** Write policy: re-check admin grade and derive attribution from the transport. */
+export async function approveReleaseProposal(ctx: Context) {
+  if (ctx.capability.role !== 'admin') {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'Only an administrator may approve a development release.',
+    })
+  }
+  if (!ctx.approveReleaseProposal) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'This server does not publish development releases.',
+    })
+  }
+  return (await ctx.approveReleaseProposal(attributionOf(ctx.principal).actor)) ?? null
 }

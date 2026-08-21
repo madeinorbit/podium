@@ -697,12 +697,6 @@ export async function startServer(
       ...(devPublisher.requestWebRebuild
         ? { requestWebRebuild: devPublisher.requestWebRebuild }
         : {}),
-      ...(devPublisher.enabled
-        ? {
-            requestDestBundle: () => devPublisher.requestBuild(),
-            preparation: devPublisher.preparation,
-          }
-        : {}),
       servedWebDigest: () => servedWebSourceDigest(desktopWebDir()),
       servedMobileWeb: () => servedWebIdentity(phoneWebDir()),
     })
@@ -753,16 +747,10 @@ export async function startServer(
     // Straight through to the Authority, which delegates to the policy object it
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
-    // THE HOST'S OWN AUTHORITY, not the dev one (POD-2222). `publishTarget` is
-    // still awaited on every read whatever the channel: it refreshes the cheap
-    // dev identity target for machines that follow dev. It never admits a
-    // build; only a confirmed update operation may do that.
-    // `advertisedTarget` then decides which authority this host is entitled to
-    // advertise — see `UpdatesService.advertisedTarget`.
-    updateTarget: async () => {
-      const published = await devPublisher.publishTarget()
-      return registry.modules.updates.advertisedTarget(hostMachineId, published)
-    },
+    // A source checkout's HEAD is a RELEASE PROPOSAL, not an update target.
+    // Only a manifest already published into the feed may become the normal
+    // update offer returned here.
+    updateTarget: async () => registry.modules.updates.advertisedTarget(hostMachineId),
     mobileWeb: () => servedWebIdentity(phoneWebDir()),
     /**
      * THIS HOST's daemon, not "any daemon anywhere". The parent's handover
@@ -982,8 +970,8 @@ export async function startServer(
             : {}),
           ...(devPublisher.enabled
             ? {
-                requestDestBundle: () => devPublisher.requestBuild(),
-                updatePreparation: devPublisher.preparation,
+                releaseProposal: devPublisher.proposal,
+                approveReleaseProposal: devPublisher.approveRelease,
               }
             : {}),
           servedWebDigest: () => servedWebSourceDigest(desktopWebDir()),

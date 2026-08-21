@@ -13,6 +13,7 @@ import {
   mintDevVersion,
   parsePublisherDevVersion,
   platformTargetFor,
+  type ReleaseProposal,
   type UpdateTarget,
 } from '@podium/protocol'
 import { resolveInstanceId, stateDir } from '@podium/runtime/config'
@@ -22,6 +23,7 @@ import {
   versionStateOf,
   writeDevPublisherState,
 } from './dev-publisher-state'
+import { releaseProposalFacts, type ReleaseProposalFacts } from './release-proposal'
 import { DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
 
 const log = createLogger('server:updates')
@@ -779,6 +781,8 @@ export interface DevBundleBuildDeps {
    * `stateDir()`. Seam for tests.
    */
   publisherStateDir?: string
+  /** Version reserved by the approved proposal for this exact `headSha`. */
+  releaseVersion?: string
   /**
    * Checkout release base (root package.json version). Seam for tests; defaults
    * to reading `<root>/package.json`.
@@ -871,6 +875,7 @@ export function allocateDevPublishVersion(input: {
   const minted = mintDevVersion(versionStateOf(existing), input.checkoutBase, sha)
   writeDevPublisherState(
     {
+      ...existing,
       base: minted.state.base,
       counter: minted.state.counter,
       retainedArtifacts: existing?.retainedArtifacts ?? [],
@@ -1256,12 +1261,20 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
     // ONE version for the whole build. Every platform of one publish carries the same
     // label — a manifest whose platforms disagreed about their version would be a
     // release nobody could reason about.
-    const allocated = allocateDevPublishVersion({
-      stateDir: publisherStateDir,
-      checkoutBase,
-      sha,
-    })
-    const version = allocated.version
+    const version = deps.releaseVersion
+      ? (() => {
+          if (commitShaFromDevVersion(deps.releaseVersion) !== sha) {
+            throw new Error(
+              `approved development version ${deps.releaseVersion} does not name commit ${sha}`,
+            )
+          }
+          return deps.releaseVersion
+        })()
+      : allocateDevPublishVersion({
+          stateDir: publisherStateDir,
+          checkoutBase,
+          sha,
+        }).version
 
     // Host first, then whatever else the fleet needs. Host first matters: if a later
     // platform's compile fails, the host has already produced the bundle this machine
@@ -1646,6 +1659,11 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    * identity target costs nothing, a broken page costs every open tab.
    */
   prepareWebDist?: (headSha: string, explicit: boolean) => Promise<void>
+  /** Git proposal facts seam; production reads the checkout relative to the last publish. */
+  proposalFacts?: (input: {
+    headSha: string
+    sinceSha?: string
+  }) => Promise<ReleaseProposalFacts>
 }
 
 /**
@@ -1664,7 +1682,10 @@ export type DevBundleReadiness =
   | { state: 'failed'; headSha: string | null; reason: string; publicReason: string }
 
 export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
-  requestBuild(explicit?: boolean): Promise<BuiltDevBundle | null>
+  requestBuild(
+    explicit?: boolean,
+    approved?: Pick<ReleaseProposal, 'headSha' | 'version'>,
+  ): Promise<BuiltDevBundle | null>
   current(): BuiltDevBundle | null
   /**
    * WHAT THIS SOURCE HOST IS, for the current HEAD — an identity, never a
@@ -1686,6 +1707,8 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
    * whether there was one to write. This is spec §6 step 4's handoff.
    */
   publishFeed(): Promise<boolean>
+  /** The one collapsing, unbuilt release proposal for current HEAD. */
+  proposal(): Promise<ReleaseProposal | undefined>
   /** Where the manifest is written, so the feed route can serve it. */
   feedManifestPath(): string
   /** Explicit lifecycle for this HEAD, with a reason safe to show a client. */
@@ -1739,7 +1762,10 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
    */
   type Admission = { result: Promise<BuiltDevBundle | null> } | { error: unknown }
 
-  const admit = async (explicit: boolean): Promise<Admission> => {
+  const admit = async (
+    explicit: boolean,
+    approved?: Pick<ReleaseProposal, 'headSha' | 'version'>,
+  ): Promise<Admission> => {
     // The commit this attempt actually read, kept where the catch below can
     // still see it — so a refusal is recorded against the commit it refused
     // rather than against a second, later read of HEAD.
@@ -1747,6 +1773,12 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     try {
       const headSha = shortSha(await deps.headSha())
       attempted = headSha
+      if (approved !== undefined && headSha !== shortSha(approved.headSha)) {
+        throw new DevBundleUnavailableError(
+          `development release approval named ${shortSha(approved.headSha)}, but HEAD is ${headSha}`,
+          'HEAD changed after this development release was approved. Review and approve the new proposal.',
+        )
+      }
       const decision = decideDevBuild({
         isSourceRun: typeof deps.isSourceRun === 'function' ? deps.isSourceRun() : deps.isSourceRun,
         headSha,
@@ -1789,12 +1821,18 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       // Read fresh, per build: a Mac that enrolled since the last one must be served by
       // the NEXT build, not by the next restart.
       const platforms = devBuildPlatforms(deps.fleetPlatforms?.())
-      const build = () => buildDevBundle({ ...deps, headSha, platforms })
+      const build = () =>
+        buildDevBundle({
+          ...deps,
+          headSha,
+          platforms,
+          ...(approved ? { releaseVersion: approved.version } : {}),
+        })
       const requested = prepared
         .then(() =>
           current === null
             ? readExistingDevBundle({ ...deps, fs, headSha, platforms }).then(async (existing) => {
-                if (!existing) return build()
+                if (!existing || (approved && existing.version !== approved.version)) return build()
                 // The WHOLE publish, not just this host's file: the allowlist is what
                 // stops the sweep reclaiming the other platforms' bundles.
                 const artifactNames = existing.artifacts.map((artifact) => basename(artifact.path))
@@ -1929,9 +1967,76 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     })
   }
 
+  const proposal = async (): Promise<ReleaseProposal | undefined> => {
+    // A proposal is ABOUT committed HEAD. A dirty working tree is a build
+    // refusal, not a reason to hide the commit or the failure from the card.
+    const headSha = await currentHeadSha()
+    if (!headSha) return undefined
+    const statePath = deps.publisherStateDir ?? stateDir()
+    try {
+      const before = readDevPublisherState(statePath)
+      if (before?.lastPublishedSha === headSha) return undefined
+      const allocated = allocateDevPublishVersion({
+        stateDir: statePath,
+        checkoutBase: resolveCheckoutReleaseBase(deps, deps.root ?? SOURCE_ROOT),
+        sha: headSha,
+      })
+      const facts = deps.proposalFacts
+        ? await deps.proposalFacts({
+            headSha,
+            ...(before?.lastPublishedSha ? { sinceSha: before.lastPublishedSha } : {}),
+          })
+        : await releaseProposalFacts({
+            root: deps.root ?? SOURCE_ROOT,
+            headSha,
+            ...(before?.lastPublishedSha ? { sinceSha: before.lastPublishedSha } : {}),
+          })
+      return {
+        headSha,
+        version: allocated.version,
+        branch: facts.branch,
+        commits: facts.commits,
+        addedMigrations: facts.addedMigrations,
+        state: 'pending',
+      }
+    } catch (error) {
+      recordFailure(error, headSha)
+      return undefined
+    }
+  }
+
+  /**
+   * The build admitted by the approval remains publishable if HEAD advances
+   * while it compiles. Approval releases HEAD-at-approval-time; the newly landed
+   * commit becomes the next collapsing proposal instead of silently replacing
+   * the consent already given.
+   */
+  const builtManifest = async (): Promise<UpdateTarget | undefined> => {
+    if (!current || !builtSha) return undefined
+    const migrations = requireDefinedMigrations(await readMigrationsAt(builtSha), builtSha)
+    const built = current
+    const configured = deps.artifactUrl
+    const hostPlatform = deps.platform ?? developmentPlatformTarget()
+    const artifactUrl =
+      typeof configured === 'function'
+        ? (platform: string) => configured(built.version, platform)
+        : configured !== undefined
+          ? (platform: string) =>
+              platform === hostPlatform
+                ? configured
+                : `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(built.version)}/${encodeURIComponent(platform)}`
+          : undefined
+    return devTarget(built, {
+      ...(artifactUrl ? { artifactUrl } : {}),
+      platform: deps.platform,
+      sourceRoot: deps.root,
+      schemaMigrations: migrations,
+    })
+  }
+
   return {
-    requestBuild(explicit = false) {
-      const admitted = admissions.then(() => admit(explicit))
+    requestBuild(explicit = false, approved) {
+      const admitted = admissions.then(() => admit(explicit, approved))
       admissions = admitted.catch(() => undefined)
       return admitted.then((admission) =>
         'error' in admission ? Promise.reject(admission.error) : admission.result,
@@ -1987,13 +2092,24 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         return undefined
       }
     },
+    proposal,
     feedManifest,
     feedManifestPath: () => devFeedManifestPath(deps.root ?? SOURCE_ROOT),
     publishFeed: async () => {
-      const manifest = await feedManifest()
+      const manifest = await builtManifest()
       if (!manifest) return false
       try {
+        if (!builtSha) throw new Error('cannot publish a development release without its commit')
         const path = await writeDevFeedManifest(fs, deps.root ?? SOURCE_ROOT, manifest)
+        const statePath = deps.publisherStateDir ?? stateDir()
+        const publisherState = readDevPublisherState(statePath)
+        if (!publisherState) {
+          throw new Error('cannot record a published development release before a version is minted')
+        }
+        writeDevPublisherState(
+          { ...publisherState, lastPublishedSha: builtSha },
+          statePath,
+        )
         log.info('published a development feed manifest', { version: manifest.version, path })
         return true
       } catch (error) {

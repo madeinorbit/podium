@@ -1157,40 +1157,14 @@ export class UpdatesService {
    * same question the ACTION already asks, so the offer and the update it
    * starts can no longer name different versions.
    *
-   * The published development bundle keeps its precedence on a dev-following
-   * host, where it is the freshest statement of that authority: it is HEAD,
-   * read this request, against a `dev` target that was set when HEAD last
-   * moved. It is offered as an argument rather than fetched here because
-   * publishing is the composition root's business and this service must stay
-   * free of it.
+   * A source checkout's HEAD does not participate here: it is a pre-release
+   * proposal until an admin builds and publishes it. Only the standing target
+   * pulled from that channel's feed can become an offer.
    */
-  advertisedTarget(
-    hostMachineId?: string,
-    publishedDevTarget?: UpdateTarget,
-  ): UpdateTarget | undefined {
+  advertisedTarget(hostMachineId?: string): UpdateTarget | undefined {
     const channel = this.operationChannel(hostMachineId)
-    const raw = channel === 'dev' ? this.devAdvertisement(publishedDevTarget) : this.target(channel)
+    const raw = this.target(channel)
     return raw ? withoutArtifactCredentials(raw) : undefined
-  }
-
-  /**
-   * The development publisher's identity is HEAD, not the package. Once the
-   * feed has delivered the same version with bytes, that standing target is
-   * what `/version` must advertise — otherwise every poll hides the package
-   * behind an artifact-less descriptor of the same number.
-   */
-  private devAdvertisement(published?: UpdateTarget): UpdateTarget | undefined {
-    const standing = this.target('dev')
-    if (!published) return standing
-    if (
-      standing &&
-      standing.version === published.version &&
-      hasHeadlessBytes(standing) &&
-      !hasHeadlessBytes(published)
-    ) {
-      return standing
-    }
-    return published
   }
 
   private rollout(channel: UpdateChannel): ChannelRolloutState {

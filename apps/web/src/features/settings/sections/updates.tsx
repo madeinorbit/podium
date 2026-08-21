@@ -1,7 +1,7 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { MachineWire } from '@podium/model/browser'
-import type { Operation } from '@podium/protocol'
-import { parseOperation } from '@podium/protocol'
+import type { Operation, ReleaseProposal } from '@podium/protocol'
+import { parseOperation, ReleaseProposal as ReleaseProposalSchema } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -122,6 +122,9 @@ export function UpdatesSection(): JSX.Element {
   const [openRow, setOpenRow] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
   const [checkNote, setCheckNote] = useState<string | null>(null)
+  const [proposal, setProposal] = useState<ReleaseProposal | null>(null)
+  const [approvingProposal, setApprovingProposal] = useState(false)
+  const [proposalError, setProposalError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -134,6 +137,29 @@ export function UpdatesSection(): JSX.Element {
       })
       .catch((e) => {
         if (!cancelled) setChannelError(e instanceof Error ? e.message : String(e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [trpc])
+
+  useEffect(() => {
+    let cancelled = false
+    const proposalQuery = (
+      trpc.updates as typeof trpc.updates & {
+        proposal?: { query: () => Promise<unknown> }
+      }
+    ).proposal
+    if (!proposalQuery) return undefined
+    proposalQuery
+      .query()
+      .then((raw) => {
+        if (cancelled) return
+        setProposal(raw === null ? null : ReleaseProposalSchema.parse(raw))
+      })
+      // Older servers and non-publisher profiles simply have no card.
+      .catch(() => {
+        if (!cancelled) setProposal(null)
       })
     return () => {
       cancelled = true
@@ -225,6 +251,25 @@ export function UpdatesSection(): JSX.Element {
       )
     } finally {
       setChecking(false)
+    }
+  }, [trpc])
+
+  const approveProposal = useCallback(async () => {
+    setApprovingProposal(true)
+    setProposalError(null)
+    try {
+      const approvalMutation = (
+        trpc.updates as typeof trpc.updates & {
+          approveProposal?: { mutate: () => Promise<unknown> }
+        }
+      ).approveProposal
+      if (!approvalMutation) throw new Error('This server cannot approve development releases.')
+      const raw = await approvalMutation.mutate()
+      setProposal(raw === null ? null : ReleaseProposalSchema.parse(raw))
+    } catch (error) {
+      setProposalError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setApprovingProposal(false)
     }
   }, [trpc])
 
@@ -404,6 +449,74 @@ export function UpdatesSection(): JSX.Element {
           )}
         </code>
       </Row>
+
+      {proposal && (
+        <Row
+          label="Development release"
+          description="A landed commit is proposed first. Approval builds and publishes it; rollout remains the normal update offer."
+        >
+          <div
+            className="flex w-full flex-col gap-2 rounded-md border border-border/70 bg-muted/15 px-3 py-2"
+            data-testid="settings-release-proposal"
+          >
+            <div>
+              <p className="settings-prose text-foreground">
+                {formatDisplayedVersion(proposal.version)}
+              </p>
+              <p className="settings-micro">
+                {proposal.branch} · {proposal.headSha}
+              </p>
+            </div>
+            {proposal.commits.length > 0 && (
+              <ul className="flex flex-col gap-1" aria-label="Commits in proposed release">
+                {proposal.commits.map((commit) => (
+                  <li key={commit.sha} className="settings-micro">
+                    <code className="mr-2">{commit.sha}</code>
+                    {commit.summary}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {proposal.addedMigrations.length > 0 && (
+              <p
+                className="settings-micro text-warning"
+                data-testid="settings-release-proposal-migration-warning"
+              >
+                Adds {proposal.addedMigrations.length}{' '}
+                {proposal.addedMigrations.length === 1 ? 'migration' : 'migrations'}; releasing
+                commits fleet databases to this branch until it merges.
+              </p>
+            )}
+            {proposal.approval && (
+              <p className="settings-micro">
+                Approved by <code>{proposal.approval.approvedBy}</code>.
+              </p>
+            )}
+            {proposal.failure && (
+              <details className="settings-micro text-destructive">
+                <summary>{proposal.failure.message}</summary>
+                <pre className="mt-2 whitespace-pre-wrap">{proposal.failure.logs}</pre>
+              </details>
+            )}
+            {proposalError && (
+              <p className="settings-micro text-destructive" role="alert">
+                {proposalError}
+              </p>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              className="w-fit"
+              disabled={approvingProposal || proposal.state === 'building'}
+              pending={approvingProposal || proposal.state === 'building'}
+              pendingLabel="Building…"
+              onClick={() => void approveProposal()}
+            >
+              {proposal.state === 'failed' ? 'Try build again' : 'Build and publish'}
+            </Button>
+          </div>
+        </Row>
+      )}
 
       {/* §9.2: the cadence is part of the contract — a daily timer, on-panel-open,
           and this button — so the page says when each channel was last asked and

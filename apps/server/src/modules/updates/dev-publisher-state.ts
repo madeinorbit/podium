@@ -27,6 +27,8 @@ export interface PersistedDevPublisherState extends DevPublisherVersionState {
    */
   lastSha?: string
   lastVersion?: string
+  /** Commit whose manifest was last written into the served feed. */
+  lastPublishedSha?: string
 }
 
 function invalidState(path: string): Error {
@@ -43,6 +45,7 @@ function parsePersistedState(path: string, raw: string): PersistedDevPublisherSt
       retainedArtifacts?: unknown
       lastSha?: unknown
       lastVersion?: unknown
+      lastPublishedSha?: unknown
     }
     if (typeof candidate.base !== 'string' || candidate.base.trim().length === 0) {
       throw invalidState(path)
@@ -79,12 +82,17 @@ function parsePersistedState(path: string, raw: string): PersistedDevPublisherSt
       typeof candidate.lastVersion === 'string' && candidate.lastVersion.length > 0
         ? candidate.lastVersion
         : undefined
+    const lastPublishedSha =
+      typeof candidate.lastPublishedSha === 'string' && candidate.lastPublishedSha.length > 0
+        ? candidate.lastPublishedSha
+        : undefined
     return {
       base: candidate.base.trim(),
       counter: candidate.counter,
       retainedArtifacts,
       ...(lastSha ? { lastSha } : {}),
       ...(lastVersion ? { lastVersion } : {}),
+      ...(lastPublishedSha ? { lastPublishedSha } : {}),
     }
   } catch (error) {
     if (
@@ -133,6 +141,7 @@ export function writeDevPublisherState(
       retainedArtifacts: state.retainedArtifacts,
       ...(state.lastSha ? { lastSha: state.lastSha } : {}),
       ...(state.lastVersion ? { lastVersion: state.lastVersion } : {}),
+      ...(state.lastPublishedSha ? { lastPublishedSha: state.lastPublishedSha } : {}),
     },
     null,
     2,
