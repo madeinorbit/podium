@@ -45,7 +45,7 @@ import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { formatDisplayedVersion, machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
+import { formatDisplayedVersion, machineVersionSkew, useServerAppVersion } from '@/lib/version-skew'
 
 const SERVER_TRANSFER_PHASES = [
   { key: 'preparing', label: 'Preparing' },
@@ -946,9 +946,18 @@ function MachineRow({
 
   // POD-838/POD-1873: surface skew against this machine's selected channel target.
   const daemonVersion = machine.inventory?.podiumVersion
-  const needsUpdate = machineNeedsUpdate(machine, serverAppVersion)
   const updateTargetVersion =
     machine.targetVersion !== undefined ? machine.targetVersion : serverAppVersion
+  /**
+   * WHY THE PILL IS NOT ALWAYS A WARNING (updater-convergence spec §2.2b).
+   *
+   * Nothing applies an update on its own on any channel (§8c decision 14), so a
+   * machine behind its target is normally just waiting for someone to press the
+   * button on the line below — the mechanism working, not a fault. The warning
+   * colour is kept for the machine that took the grant and never arrived, which
+   * is the one nobody can fix by pressing anything.
+   */
+  const skew = machineVersionSkew(machine, serverAppVersion, convergence?.state ?? null)
 
   const revoke = async () => {
     setRevoking(true)
@@ -1067,13 +1076,24 @@ function MachineRow({
                 </Badge>
               )}
 
-              {needsUpdate && (
+              {skew.badge && (
                 <Badge
-                  variant="warning"
+                  variant={skew.mark === 'unexpected' ? 'warning' : 'outline'}
                   className="h-4 flex-none px-1.5 text-[11px]"
-                  title={`This machine runs Podium ${daemonVersion ? formatDisplayedVersion(daemonVersion) : daemonVersion}; its selected update target is ${updateTargetVersion ? formatDisplayedVersion(updateTargetVersion) : updateTargetVersion}.`}
+                  // BOTH INTENTS, and neither is decoration. POD-2502's display
+                  // form keeps a minted dev version readable (`dev.5 (656f49b)`
+                  // rather than the raw lineage string), and the reason sentence
+                  // is what separates a machine waiting for someone to accept an
+                  // offer from one that took the grant and never arrived.
+                  title={`${skew.note ? `${skew.note} ` : ''}This machine runs Podium ${
+                    daemonVersion ? formatDisplayedVersion(daemonVersion) : daemonVersion
+                  }; its selected update target is ${
+                    updateTargetVersion
+                      ? formatDisplayedVersion(updateTargetVersion)
+                      : updateTargetVersion
+                  }.`}
                 >
-                  update available
+                  {skew.badge}
                 </Badge>
               )}
             </div>

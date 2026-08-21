@@ -47,6 +47,7 @@ import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholde
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
+import { RefreshOffer } from '../components/RefreshOffer'
 import { HeaderButton, Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { TaskSheet } from '../components/TaskSheet'
@@ -324,6 +325,7 @@ export function WorkScreen() {
       {/* Never silent (ADR 6 D4.4): storage degradation is owed to the user, not
           a log line. Outside the crossfade so the skeleton cannot hide it. */}
       <StorageNoticeAlert />
+      <RefreshOffer />
       {searchOpen ? (
         <View style={styles.searchBand}>
           <Icon as={Search} size={15} color={color.textFaint} />

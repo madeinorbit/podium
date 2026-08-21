@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Phone refresh offer — mobile harness</title>
+    <style>
+      html,
+      body,
+      #root {
+        margin: 0;
+        background: #16171a;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Metro defines `global`; a browser does not, and react-native-web's
+         reduced-motion listener reaches for it. -->
+    <script>
+      window.global = window
+    </script>
+    <script type="module" src="/harness/refresh-offer-entry.tsx"></script>
+  </body>
+</html>

@@ -9,7 +9,13 @@ import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/clipboard'
 import { pageBuildVersion } from '@/lib/logging/build-version'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { uiSource } from '@/lib/ui-source'
 import { useFeature } from '@/lib/use-feature'
+import {
+  formatDisplayedVersion,
+  machineVersionSkew,
+  type VersionSkewVerdict,
+} from '@/lib/version-skew'
 import { Row, Section } from './shared'
 import {
   CHANNEL_LABELS,
@@ -22,6 +28,7 @@ import {
   type HistoryRow,
   historyRows,
 } from './updates-view'
+import { componentVersions } from './version-rows'
 
 interface FleetMachine {
   id: string
@@ -41,6 +48,12 @@ interface FleetSnapshot {
   }
   targetVersion: string | null
   machines: FleetMachine[]
+  /**
+   * Every registered machine, whatever its channel — which is what this page
+   * needs, since `machines` is only the wave the global dialog accounts for.
+   * Absent on a server too old to project it (P8), so it is never assumed.
+   */
+  allMachines?: FleetMachine[]
   /** POD-2100, additive: absent on a server older than the field (P8). */
   channelChecks?: ChannelCheck[]
 }
@@ -49,18 +62,12 @@ interface VersionInfo {
   appVersion?: string
 }
 
-interface ComponentVersionRow {
-  label: string
-  value: string
-}
-
-type VersionState = 'unreported' | 'current' | 'behind' | 'ahead'
-
 interface MachineVersionRow {
   id: string
   label: string
   version: string
-  versionState: VersionState
+  /** Expected-or-not, in the same vocabulary the component rows above use. */
+  skew: VersionSkewVerdict
   /** The machine's own pin, or null when it follows the fleet default (POD-1882). */
   channelOverride: FleetChannel | null
   /**
@@ -71,8 +78,6 @@ interface MachineVersionRow {
    * is what `channelUnavailableProse` is for.
    */
   targetUnavailableReason: string | null
-  /** This daemon's bytes belong to Podium Desktop; no wave will ever move it (POD-2099). */
-  supervised: boolean
 }
 
 /** How many operations §9.2.6 retains, and therefore how many are worth asking for. */
@@ -235,7 +240,14 @@ export function UpdatesSection(): JSX.Element {
       : []),
   ]
 
-  const fleetMachines = fleet?.machines ?? []
+  const serverVersion = fleet?.appVersion ?? versionInfo?.appVersion
+
+  /**
+   * `allMachines` and not `machines`: the latter is the dev-authority wave the
+   * global dialog accounts for, and this page owes one row per machine — an
+   * edge or stable machine has its own convergence to show.
+   */
+  const fleetMachines = fleet?.allMachines ?? fleet?.machines ?? []
   const machineRows: MachineVersionRow[] =
     machines.length > 0
       ? machines.map((machine: MachineWire) => {
@@ -243,45 +255,34 @@ export function UpdatesSection(): JSX.Element {
           return {
             id: machine.id,
             label: machine.name || machine.hostname || machine.id,
-            version: machine.appVersion ?? wave?.version ?? 'unreported',
+            version: formatDisplayedVersion(machine.appVersion ?? wave?.version ?? 'unreported'),
             channelOverride: (machine.updateChannelOverride ?? null) as FleetChannel | null,
             targetUnavailableReason: machine.targetUnavailableReason ?? null,
-            supervised: machine.supervised === true,
-            versionState:
-              machine.versionState ??
-              (wave && fleet?.targetVersion
-                ? wave.version === fleet.targetVersion
-                  ? 'current'
-                  : 'behind'
-                : 'unreported'),
+            // Behind-with-a-grant-in-flight, behind-and-stuck and
+            // behind-and-waiting-for-a-person are three different situations,
+            // and the convergence phase is the only thing that tells them apart
+            // (spec §2.2b, §8c decision 14).
+            skew: machineVersionSkew(machine, serverVersion ?? null, wave?.state ?? null),
           }
         })
       : fleetMachines.map((machine) => ({
           id: machine.id,
           label: machine.id,
-          version: machine.version,
+          version: formatDisplayedVersion(machine.version),
           channelOverride: null,
           targetUnavailableReason: null,
-          supervised: false,
-          versionState: fleet?.targetVersion
-            ? machine.version === fleet.targetVersion
-              ? 'current'
-              : 'behind'
-            : 'unreported',
+          skew: machineVersionSkew(
+            {
+              versionState: fleet?.targetVersion
+                ? machine.version === fleet.targetVersion
+                  ? 'current'
+                  : 'behind'
+                : 'unreported',
+            } as Parameters<typeof machineVersionSkew>[0],
+            serverVersion ?? null,
+            machine.state,
+          ),
         }))
-
-  const versionStateLabel = (state: VersionState): string => {
-    switch (state) {
-      case 'current':
-        return 'Current'
-      case 'behind':
-        return 'Behind target'
-      case 'ahead':
-        return 'Ahead of target'
-      default:
-        return 'Not reported'
-    }
-  }
 
   /**
    * A channel's target version, read back from the machines that are on it.
@@ -317,38 +318,31 @@ export function UpdatesSection(): JSX.Element {
 
   const rows: HistoryRow[] = history ? historyRows(history, Date.now()) : []
 
-  const serverVersion = fleet?.appVersion ?? versionInfo?.appVersion
-  const webVersion = pageBuildVersion()
-  const desktopVersion = nativeDesktopBridge()?.currentVersion
-  const phone = fleet?.servedMobileWeb?.present ? fleet.servedMobileWeb : undefined
-  // A source digest is comparison evidence, not a product version. Use it to expose
-  // divergence, but describe that mismatch in words instead of printing a hash.
-  const phoneBuildDiffers = Boolean(
-    phone?.digest && fleet?.servedWebDigest && phone.digest !== fleet.servedWebDigest,
-  )
-  const componentRows: ComponentVersionRow[] = [
-    ...(serverVersion ? [{ label: 'Server', value: serverVersion }] : []),
-    { label: 'Web app', value: webVersion },
-    ...(phone
-      ? [
-          {
-            label: 'Phone app',
-            value: phoneBuildDiffers
-              ? 'Different build from web app'
-              : (phone.appVersion ??
-                (phone.digest === fleet?.servedWebDigest
-                  ? 'Same build as web app'
-                  : 'Version unavailable')),
-          },
-        ]
-      : []),
-    ...(desktopVersion ? [{ label: 'Desktop app', value: desktopVersion }] : []),
-  ]
-  const reportedVersions = [serverVersion, webVersion, phone?.appVersion, desktopVersion].filter(
-    (version): version is string => version !== undefined,
-  )
-  const versionsDiffer = reportedVersions.some((version) => version !== reportedVersions[0])
-  const showComponentVersions = fleet !== null && (versionsDiffer || phoneBuildDiffers)
+  /**
+   * §2.2b: ONE LINE WHEN EVERYTHING AGREES, the breakdown when it does not.
+   *
+   * Each version below comes from the artefact that is running it and from
+   * nowhere else — the server's from `/version`, this window's from its own
+   * build stamp, the shell's from the bridge, the phone's from the bundle this
+   * server serves. Deriving any of them from a sibling or from the channel's
+   * target would make the display agree with itself in exactly the cases where
+   * the truth is that it should not.
+   */
+  const versions = componentVersions({
+    serverVersion,
+    page: { version: pageBuildVersion(), source: uiSource() },
+    phone: fleet?.servedMobileWeb,
+    servedWebDigest: fleet?.servedWebDigest,
+    desktopVersion: nativeDesktopBridge()?.currentVersion,
+    channel,
+  })
+  const showComponentVersions = fleet !== null && versions.single === null
+  // Every version this panel prints goes through the same display form, so a
+  // minted development target reads `dev.8 (77f0e91)` here exactly as it does
+  // in the rows above it (POD-2502).
+  const targetVersionLabel = fleet?.targetVersion
+    ? formatDisplayedVersion(fleet.targetVersion)
+    : null
 
   return (
     <Section
@@ -357,17 +351,44 @@ export function UpdatesSection(): JSX.Element {
     >
       <Row label="Running version">
         {showComponentVersions ? (
-          <dl className="flex w-full flex-col gap-1" data-testid="component-version-breakdown">
-            {componentRows.map((component) => (
-              <div key={component.label} className="flex items-baseline justify-between gap-4">
-                <dt className="settings-micro">{component.label}</dt>
-                <dd className="settings-value text-right font-mono">{component.value}</dd>
+          <dl className="flex w-full flex-col gap-2" data-testid="component-version-breakdown">
+            {versions.rows.map((component) => (
+              <div key={component.key} data-testid={`component-version-${component.key}`}>
+                <div className="flex items-baseline justify-between gap-4">
+                  <dt className="settings-micro">{component.label}</dt>
+                  <dd className="settings-value text-right">
+                    {component.prefix && (
+                      <span className="settings-micro font-sans">{component.prefix} · </span>
+                    )}
+                    <span className="font-mono">{component.value}</span>
+                  </dd>
+                </div>
+                {/* An expected difference is the mechanism working (a frame
+                    released on its own cadence, a tab that has not reloaded
+                    yet); an unexpected one is someone's problem. Same row
+                    shape, different ink, so the warning colour keeps meaning
+                    something. */}
+                {component.note && (
+                  // The tone goes on a CHILD span, never beside `settings-micro`
+                  // on the same element: the component class wins that cascade
+                  // and the warning silently renders in the ordinary ink.
+                  <p className="settings-micro">
+                    {component.mark === 'unexpected' ? (
+                      <span className="text-warning">{component.note}</span>
+                    ) : (
+                      <>
+                        {component.mark === 'expected' ? 'Expected. ' : ''}
+                        {component.note}
+                      </>
+                    )}
+                  </p>
+                )}
               </div>
             ))}
           </dl>
         ) : (
-          <code className="settings-value">
-            {serverVersion ?? <span className="settings-micro font-sans">Loading…</span>}
+          <code className="settings-value" data-testid="running-version">
+            {versions.single ?? <span className="settings-micro font-sans">Loading…</span>}
           </code>
         )}
       </Row>
@@ -379,9 +400,7 @@ export function UpdatesSection(): JSX.Element {
           {fleet === null ? (
             <span className="settings-micro font-sans">Loading…</span>
           ) : (
-            (fleet.targetVersion ?? (
-              <span className="settings-micro font-sans">None published</span>
-            ))
+            (targetVersionLabel ?? <span className="settings-micro font-sans">None published</span>)
           )}
         </code>
       </Row>
@@ -441,7 +460,10 @@ export function UpdatesSection(): JSX.Element {
         </div>
       </Row>
 
-      <Row label="Machines" description="Each machine's reported version compared with the target.">
+      <Row
+        label="Machines"
+        description="Each machine's reported version compared with the target. Podium never applies an update on its own, so a machine with one available is waiting to be told to take it."
+      >
         <div className="w-full overflow-hidden rounded-md border border-border/70 bg-muted/15">
           {machineRows.length === 0 ? (
             <p className="settings-prose px-3 py-2">
@@ -464,7 +486,23 @@ export function UpdatesSection(): JSX.Element {
                     <code className="settings-micro font-mono">{machine.version}</code>
                   </div>
                   <span className="settings-micro text-right">
-                    {versionStateLabel(machine.versionState)}
+                    {/* Behind is not one state. A machine waiting for someone to
+                        accept an offer is the mechanism working — nothing on any
+                        channel applies itself (§8c decision 14) — and a machine
+                        that took the grant and never arrived is not. The verdict
+                        below is the same one the machine rows in Settings →
+                        Machines wear, so the two pages say one thing. */}
+                    <span className={machine.skew.mark === 'unexpected' ? 'text-warning' : ''}>
+                      {machine.skew.label}
+                    </span>
+                    {/* Only the rows that are somebody's problem carry their
+                        reason. The expected case is said ONCE, in this row's
+                        description — a fleet of ten waiting machines repeating
+                        the same sentence ten times is noise, and noise is what
+                        makes the two lines that matter unreadable. */}
+                    {machine.skew.mark === 'unexpected' && machine.skew.note && (
+                      <span className="block max-w-[36ch]">{machine.skew.note}</span>
+                    )}
                     {/* An override is disclosed HERE, on the page that is always
                         visible, so hiding the per-machine selector behind the
                         Podium-development flag can never hide the fact that a
@@ -474,11 +512,6 @@ export function UpdatesSection(): JSX.Element {
                         Pinned: {CHANNEL_LABELS[machine.channelOverride]}
                       </span>
                     )}
-                    {/* A supervised daemon is never behind in a way anyone here can
-                        fix: Podium Desktop owns its bytes and no wave delivers to it
-                        (POD-2099). Saying only "Behind target" would be an accusation
-                        against a machine that is doing exactly what it should. */}
-                    {machine.supervised && <span className="block">Managed by Podium Desktop</span>}
                     {machine.targetUnavailableReason && (
                       <span
                         className="block max-w-[36ch] text-warning"

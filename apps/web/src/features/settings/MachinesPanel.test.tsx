@@ -169,11 +169,55 @@ describe('MachinesPanel hosting affordances', () => {
 // POD-838/POD-1873: each row shows the daemon's reported build version and compares it
 // with that machine's selected channel target. Legacy projections fall back to the server.
 describe('MachinesPanel version skew', () => {
-  function setTrpcWithVersion(appVersion: string) {
+  function setTrpcWithVersion(appVersion: string, allMachines: unknown[] = []) {
     storeState.trpc = {
       setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null, appVersion }) } },
+      updates: { fleet: { query: vi.fn().mockResolvedValue({ machines: [], allMachines }) } },
     } as unknown as Store['trpc']
   }
+
+  /**
+   * §2.2b / §8c decision 14: two machines can both be "behind", and only one of
+   * them is anybody's problem. Nothing applies itself, so a pending offer is the
+   * mechanism working; a machine that took the grant and never arrived is not.
+   */
+  it('keeps the warning colour for the machine that is stuck, not the one that is waiting', async () => {
+    const behind = {
+      inventory: {
+        os: 'linux' as const,
+        arch: 'x64' as const,
+        podiumVersion: '0.4.1',
+        agents: [],
+        tools: [],
+      },
+      appVersion: '0.4.1',
+      targetVersion: '0.5.0',
+      versionState: 'behind' as const,
+    }
+    storeState.machines = [machine(behind)]
+    setTrpcWithVersion('0.5.0')
+    const waiting = render(<MachinesPanel />)
+
+    const pending = await screen.findByText(/update available/i)
+    expect(pending.className).not.toContain('warning')
+    waiting.unmount()
+
+    storeState.machines = [machine(behind)]
+    setTrpcWithVersion('0.5.0', [
+      {
+        id: storeState.machines[0]?.id,
+        version: '0.4.1',
+        state: 'stuck',
+        online: true,
+        busy: false,
+      },
+    ])
+    render(<MachinesPanel />)
+
+    const stuck = await screen.findByText('stuck')
+    expect(stuck.className).toContain('warning')
+    expect(screen.queryByText(/update available/i)).toBeNull()
+  })
 
   it('shows the daemon version and badges a machine behind the server', async () => {
     storeState.machines = [
