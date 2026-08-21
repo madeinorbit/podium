@@ -62,10 +62,23 @@ answer: SW-cached assets + IndexedDB, eviction accepted as a "be online once" re
    support is **degraded** (see verification below); the design tolerates that. In
    browsers this is all there is — same accepted risk as Linear (`/refresh`-style
    repair, "be online once" recovery).
-3. **Baked dist in the .app** — last resort, potentially stale. Guarded: if its build
-   stamp is too old for the local replica (existing skew machinery), show a clear
-   "connect once to update Podium" error instead of running stale code against newer
-   local data.
+3. **Baked dist in the .app** — last resort, potentially stale. Guarded: if it is too
+   old for the local replica, show a clear "connect once to update Podium" error
+   instead of running stale code against newer local data. The ordinary skew machinery
+   cannot answer this — it grades the page against a REACHABLE server's `/version`, and
+   this is the case where nothing answers. So the comparison is against a LOCAL record:
+   the shell persists the build identity (`wireVersion`, `minSupportedVersion`,
+   `wireSchemaDigest`, `appVersion`) of the local server it last actually read, and
+   injects it into local documents as `__PODIUM_LOCAL_BUILD__`
+   (`bootstrap::local_build_injection_script`). `SetupGate` grades this build against it
+   on the unreachable path only, and blocks on `client-too-old` — this build is below
+   the recorded wire version, or below the minimum that build supported. A digest
+   difference at the SAME wire version deliberately does not block: wire-compatible
+   builds decode each other's rows, dev builds differ by digest constantly, and the
+   existing skew notice already speaks to that case. Residual: the stamp a page holds
+   is fixed at window creation (an initialization script cannot be rewritten), so a
+   server updated in place mid-session leaves the open window's copy one build behind;
+   the watchdog refreshes the PERSISTED stamp every ~30s so the next boot is accurate.
 
 **Boot order (shell):** reachable connected server → load its http(s) origin; else
 baked `frontendDist` (tauri scheme) with reconnect injection. SW cache is not a
