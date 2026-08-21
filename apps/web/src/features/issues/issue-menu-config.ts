@@ -167,7 +167,16 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
   {
     kind: 'action',
     id: 'open',
-    label: 'Open',
+    // NAMES WHERE IT LANDS, WHEN IT TRAVELS (POD-1470). From the sidebar and
+    // from the palette this one leaves the workspace for the Tasks tool
+    // (`openIssuePage`, `setView('issues')`) — a destination change the bare
+    // word never admitted to, next to items that all act in place. The board's
+    // Open raises the detail pane inside the tool you are already in and the
+    // deck's selects the strip in the column you are already reading; neither
+    // goes anywhere, so neither says it does. (The dock offers no Open at all —
+    // POD-1457 — and is named here only so the rule has no hole.)
+    label: (data) =>
+      data.surface === 'board' || data.surface === 'deck' ? 'Open' : 'Open in tasks',
     icon: 'external-link',
     section: 'main',
     when: has('canOpen'),
@@ -250,6 +259,15 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
     label: (data) => (isIssueStartable(data.first) ? 'Run now' : 'Assign agent'),
     icon: 'agent',
     section: 'main',
+    // OFF EVERY LIST (POD-1470), in both its faces — `canAssignAgent` is where
+    // that is decided. "Run now" launched an agent from a row that named neither
+    // the harness nor the model it was about to use, and "Assign agent" put a
+    // SECOND one on a task whose first the row does not show either. Both belong
+    // to a surface that can show what it is doing: the task page's Sessions
+    // block, or the start controls the lists already carry in their own chrome.
+    //
+    // The `start` action below is NOT this entry: a host opts into it explicitly
+    // (the deck, for a proposal) and it says "Start issue" in its own words.
     when: (data) =>
       data.eligibility.canAssignAgent && !(data.primaryStart && isIssueStartable(data.first)),
     options: (data) => {
