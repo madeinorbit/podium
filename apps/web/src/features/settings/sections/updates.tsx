@@ -11,7 +11,11 @@ import { pageBuildVersion } from '@/lib/logging/build-version'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { uiSource } from '@/lib/ui-source'
 import { useFeature } from '@/lib/use-feature'
-import { machineVersionSkew, type VersionSkewVerdict } from '@/lib/version-skew'
+import {
+  formatDisplayedVersion,
+  machineVersionSkew,
+  type VersionSkewVerdict,
+} from '@/lib/version-skew'
 import { Row, Section } from './shared'
 import {
   CHANNEL_LABELS,
@@ -251,7 +255,7 @@ export function UpdatesSection(): JSX.Element {
           return {
             id: machine.id,
             label: machine.name || machine.hostname || machine.id,
-            version: machine.appVersion ?? wave?.version ?? 'unreported',
+            version: formatDisplayedVersion(machine.appVersion ?? wave?.version ?? 'unreported'),
             channelOverride: (machine.updateChannelOverride ?? null) as FleetChannel | null,
             targetUnavailableReason: machine.targetUnavailableReason ?? null,
             // Behind-with-a-grant-in-flight, behind-and-stuck and
@@ -264,7 +268,7 @@ export function UpdatesSection(): JSX.Element {
       : fleetMachines.map((machine) => ({
           id: machine.id,
           label: machine.id,
-          version: machine.version,
+          version: formatDisplayedVersion(machine.version),
           channelOverride: null,
           targetUnavailableReason: null,
           skew: machineVersionSkew(
@@ -333,6 +337,12 @@ export function UpdatesSection(): JSX.Element {
     channel,
   })
   const showComponentVersions = fleet !== null && versions.single === null
+  // Every version this panel prints goes through the same display form, so a
+  // minted development target reads `dev.8 (77f0e91)` here exactly as it does
+  // in the rows above it (POD-2502).
+  const targetVersionLabel = fleet?.targetVersion
+    ? formatDisplayedVersion(fleet.targetVersion)
+    : null
 
   return (
     <Section
@@ -390,9 +400,7 @@ export function UpdatesSection(): JSX.Element {
           {fleet === null ? (
             <span className="settings-micro font-sans">Loading…</span>
           ) : (
-            (fleet.targetVersion ?? (
-              <span className="settings-micro font-sans">None published</span>
-            ))
+            (targetVersionLabel ?? <span className="settings-micro font-sans">None published</span>)
           )}
         </code>
       </Row>

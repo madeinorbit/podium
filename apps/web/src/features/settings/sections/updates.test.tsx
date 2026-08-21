@@ -39,10 +39,24 @@ vi.mock('@/lib/logging/build-version', () => ({ pageBuildVersion: () => webVersi
 
 const { UpdatesSection } = await import('./updates')
 
+/**
+ * Move the DOCUMENT, not a stub of the source module.
+ *
+ * `uiSource()` decides the built-in-copy case from the page's own origin, so
+ * driving that origin is what proves the row consults the real source rather
+ * than naming one. A mocked module would leave a hard-coded "Live server" in
+ * the component looking exactly as correct as the real call.
+ */
+const BROWSER_URL = 'http://podium.local/'
+function pageServedFrom(url: string): void {
+  ;(window as unknown as { happyDOM: { setURL: (u: string) => void } }).happyDOM.setURL(url)
+}
+
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   vi.unstubAllGlobals()
+  pageServedFrom(BROWSER_URL)
   developing = false
   webVersion = '0.4.1'
   machines[0]!.updateChannelOverride = null
@@ -198,6 +212,70 @@ describe('UpdatesSection', () => {
     expect(screen.getByText('Interface')).toBeTruthy()
     expect(screen.getByText('Phone')).toBeTruthy()
     expect(screen.queryByText('Desktop app')).toBeNull()
+  })
+
+  /**
+   * Spec §2.1 durability layer 3, and the reason the Interface row exists at
+   * all: the shell fell back to the copy baked into the .app, which can be
+   * frozen at whatever shipped. Every version agrees here, so the ONLY thing
+   * that can open the breakdown is the row having actually asked where this
+   * document came from.
+   */
+  it('opens the breakdown for the built-in copy, even when every version agrees', async () => {
+    pageServedFrom('tauri://localhost/')
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'edge', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({ ...emptyFleet, appVersion: '0.4.1' })
+
+    render(<UpdatesSection />)
+
+    const source = await screen.findByTestId('component-version-interface')
+    expect(source.textContent).toContain('Built-in copy')
+    expect(source.textContent).toContain('fell back to the interface built into the app')
+    expect(screen.queryByTestId('running-version')).toBeNull()
+  })
+
+  it('collapses on the same data when the page came from the server', async () => {
+    // The twin of the case above, one fact apart: same versions, ordinary
+    // origin. If the row stopped consulting the real source, one of this pair
+    // would have to be wrong.
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'edge', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({ ...emptyFleet, appVersion: '0.4.1' })
+
+    render(<UpdatesSection />)
+
+    expect((await screen.findByTestId('running-version')).textContent).toBe('0.4.1')
+    expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
+  })
+
+  it('shows every version in the operator display form', async () => {
+    // POD-2502: a minted development version reads `dev.8 (77f0e91)`, never the
+    // raw lineage string, and that holds for every row this panel prints.
+    vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'macos', currentVersion: '0.1.1-edge.4' })
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.1.1-edge.4.dev.7+ab12cd3' })
+    quietHistory()
+    webVersion = '0.1.1-edge.4.dev.7+ab12cd3'
+    trpc.updates.fleet.query.mockResolvedValue({
+      ...emptyFleet,
+      appVersion: '0.1.1-edge.4.dev.7+ab12cd3',
+      targetVersion: '0.1.1-edge.4.dev.8+77f0e91',
+    })
+
+    render(<UpdatesSection />)
+
+    expect((await screen.findByTestId('component-version-server')).textContent).toContain(
+      'dev.7 (ab12cd3)',
+    )
+    expect(screen.getByTestId('component-version-interface').textContent).toContain(
+      'dev.7 (ab12cd3)',
+    )
+    expect(screen.getByText('dev.8 (77f0e91)')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('0.1.1-edge.4.dev.7+ab12cd3')
+    expect(document.body.textContent).not.toContain('0.1.1-edge.4.dev.8+77f0e91')
   })
 
   it('says where the running interface came from', async () => {

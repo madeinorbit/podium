@@ -23,6 +23,7 @@ import {
   formatDuration,
   presentOperationError,
 } from '@/features/updates/operation-view'
+import { formatDisplayedVersion } from '@/lib/version-skew'
 
 /** Mirrors @podium/model's UpdateChannel; inlined so the bundle never pulls node:fs. */
 export type FleetChannel = 'stable' | 'edge' | 'dev'
@@ -101,7 +102,10 @@ export function describeChannelStatus(
     return { status: channelUnavailableProse(channel, outcome.reason), tone: 'warning' }
   }
   if (targetVersion) {
-    return { status: `Podium ${targetVersion} is published on ${label}.`, tone: 'ok' }
+    return {
+      status: `Podium ${formatDisplayedVersion(targetVersion)} is published on ${label}.`,
+      tone: 'ok',
+    }
   }
   // Checked, and it answered — but this server has no machine on the channel to
   // resolve a concrete version through, so saying one would be inventing it.
@@ -216,7 +220,7 @@ export function historyRows(operations: readonly Operation[], now: number): Hist
     }
     return {
       id: operation.id,
-      version: version ? `Podium ${version}` : 'No version recorded',
+      version: version ? `Podium ${formatDisplayedVersion(version)}` : 'No version recorded',
       outcome,
       startedRelative:
         started === undefined

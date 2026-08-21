@@ -23,7 +23,7 @@
  */
 
 import type { UiSource } from '@/lib/ui-source'
-import type { SkewMark } from '@/lib/version-skew'
+import { formatDisplayedVersion, type SkewMark } from '@/lib/version-skew'
 import { CHANNEL_LABELS, type FleetChannel } from './updates-view'
 
 /** The same expected/unexpected question the machine rows answer. */
@@ -82,13 +82,15 @@ export function componentVersions(input: ComponentVersionsInput): ComponentVersi
   /** Anything that must keep the breakdown open, whether or not it is a fault. */
   let divergent = false
 
-  if (serverVersion) rows.push({ key: 'server', label: 'Server', value: serverVersion })
+  if (serverVersion) {
+    rows.push({ key: 'server', label: 'Server', value: formatDisplayedVersion(serverVersion) })
+  }
 
   const pageDiffers = serverVersion !== undefined && page.version !== serverVersion
   const interfaceRow: ComponentVersionRow = {
     key: 'interface',
     label: 'Interface',
-    value: page.version,
+    value: formatDisplayedVersion(page.version),
     // An unknown source says nothing at all rather than putting "Not reported"
     // where the answer belongs: the build stamp beside it is still true.
     ...(page.source.kind === 'unknown' ? {} : { prefix: page.source.label }),
@@ -122,7 +124,7 @@ export function componentVersions(input: ComponentVersionsInput): ComponentVersi
       phone.digest && servedWebDigest && phone.digest !== servedWebDigest,
     )
     if (phone.appVersion) {
-      row.value = phone.appVersion
+      row.value = formatDisplayedVersion(phone.appVersion)
       if (serverVersion !== undefined && phone.appVersion !== serverVersion) {
         row.mark = 'unexpected'
         row.note = 'The phone interface on this server is from a different build than the server.'
@@ -149,7 +151,11 @@ export function componentVersions(input: ComponentVersionsInput): ComponentVersi
   }
 
   if (desktopVersion) {
-    const row: ComponentVersionRow = { key: 'desktop', label: 'Desktop app', value: desktopVersion }
+    const row: ComponentVersionRow = {
+      key: 'desktop',
+      label: 'Desktop app',
+      value: formatDisplayedVersion(desktopVersion),
+    }
     if (serverVersion !== undefined && desktopVersion !== serverVersion) {
       row.mark = 'expected'
       row.note = desktopNote(channel)
@@ -158,5 +164,11 @@ export function componentVersions(input: ComponentVersionsInput): ComponentVersi
     rows.push(row)
   }
 
-  return { single: serverVersion && !divergent ? serverVersion : null, rows }
+  // Compared RAW, shown SHORT: the comparisons above decide identity and must
+  // never be made on a label, while every string that reaches the screen goes
+  // through the display form POD-2502 introduced.
+  return {
+    single: serverVersion && !divergent ? formatDisplayedVersion(serverVersion) : null,
+    rows,
+  }
 }

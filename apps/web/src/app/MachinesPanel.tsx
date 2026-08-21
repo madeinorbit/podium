@@ -45,11 +45,7 @@ import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import {
-  formatDisplayedVersion,
-  machineVersionSkew,
-  useServerAppVersion,
-} from '@/lib/version-skew'
+import { formatDisplayedVersion, machineVersionSkew, useServerAppVersion } from '@/lib/version-skew'
 
 const SERVER_TRANSFER_PHASES = [
   { key: 'preparing', label: 'Preparing' },
@@ -1092,7 +1088,9 @@ function MachineRow({
                   title={`${skew.note ? `${skew.note} ` : ''}This machine runs Podium ${
                     daemonVersion ? formatDisplayedVersion(daemonVersion) : daemonVersion
                   }; its selected update target is ${
-                    updateTargetVersion ? formatDisplayedVersion(updateTargetVersion) : updateTargetVersion
+                    updateTargetVersion
+                      ? formatDisplayedVersion(updateTargetVersion)
+                      : updateTargetVersion
                   }.`}
                 >
                   {skew.badge}
