@@ -10,9 +10,8 @@ A darwin-arm64 headless payload built entirely on Linux — Bun
 signature with Bun's JIT entitlements — **was executed on an Apple Silicon macOS 15
 runner and passed**. No Mac is needed to build Darwin headless payloads.
 
-Two things this verdict does not cover, both owned by POD-2520: execution on
-darwin-x64, and execution on real end-user Mac hardware (a CI VM is not a laptop —
-see the open questions below).
+That first run did not cover darwin-x64 or real end-user Mac hardware (a CI VM is
+not a laptop). POD-2520 later closed the x64 CI question; real hardware remains open.
 
 ---
 
@@ -54,6 +53,13 @@ accepted both rcodesign-produced seals. Quarantine did not block either signed b
 on these CI VMs. A genuinely signature-stripped arm64 binary also ran, proving that
 the Apple Silicon VM does not enforce the arm64 signature requirement; it does not
 prove that signing is optional on real hardware.
+
+Committed platform transcripts:
+
+- Apple Silicon macOS 15:
+  [`2026-08-21-macos15-apple-silicon-execution.log`](./2026-08-21-macos15-apple-silicon-execution.log)
+- Intel macOS 15:
+  [`2026-08-21-macos15-intel-execution.log`](./2026-08-21-macos15-intel-execution.log)
 
 1. **Real user hardware.** Gatekeeper with quarantine and AMFI signature enforcement
    remain unproven on a normal Mac; CI VM behavior cannot clear either boundary.
@@ -188,8 +194,9 @@ proof can be repeated after a Bun bump, an abduco rebuild, or a signing change.
 
 ## Follow-ups
 
-1. **POD-2520** — macOS execution proof as a CI job: arm64 re-confirmation with
-   `codesign --verify` and the real unsigned probe, plus the darwin-x64 leg.
+1. **POD-2520 complete for CI** — arm64 + x64 execution, Apple strict verifier,
+   quarantine-present observation, and the genuinely stripped probe are recorded in
+   run `32513654765`; real-hardware enforcement remains POD-2569.
 2. Land the spike adaptations into release `build-bun.ts` / the release matrix
    (POD-2504) — carrying the entitlements finding above.
 3. Gatekeeper/AMFI behaviour on real user hardware, if the shipping story needs it.

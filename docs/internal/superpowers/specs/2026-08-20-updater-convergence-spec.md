@@ -455,6 +455,11 @@ which means the Apple Silicon CI VM does not enforce the arm64 signature require
 the load-bearing AMFI probe still needs real hardware, and this result is not evidence
 that signing is unnecessary.
 
+Committed verifier transcripts: Apple Silicon macOS 15
+[`2026-08-21-macos15-apple-silicon-execution.log`](../spikes/2026-08-21-macos15-apple-silicon-execution.log)
+and Intel macOS 15
+[`2026-08-21-macos15-intel-execution.log`](../spikes/2026-08-21-macos15-intel-execution.log).
+
 What the combined macOS runs still do NOT establish:
 
 - **A real end-user Mac.** Both runners were CI VMs. Gatekeeper-with-quarantine and
