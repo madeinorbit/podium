@@ -287,6 +287,45 @@ describe('resolveReleaseTarget trust root', () => {
     ])
   })
 
+  /**
+   * THE SPELLING `new URL().href.startsWith(base)` WOULD PASS. `new URL`
+   * resolves `../`, `%2e%2e`, and `.%2e` as dot segments; it does NOT decode
+   * `%2f` before that, so `..%2f..%2fattacker` stays a path that still string-
+   * prefixes the fence. Only a later, lenient origin server would decode it.
+   * Per-segment decode-and-split is what refuses it here.
+   */
+  it('REFUSES a literal-dot encoded-slash traversal that href.startsWith would accept', async () => {
+    const escaped = `${RELEASE_BASE}/..%2f..%2f..%2f..%2fattacker/x.tar.gz`
+    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', escaped) })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+      /headless linux-x86_64 artifact is served from outside the edge feed/,
+    )
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
+      releaseManifestUrl('edge'),
+      desktopReleaseManifestUrl('edge'),
+    ])
+  })
+
+  /**
+   * Same origin, path inside the fence, credentials in the userinfo. `fetch`
+   * turns that into an Authorization header, so a manifest that names
+   * `https://user:pw@github.com/...` is not a feed artifact — it is a request
+   * made as someone else.
+   */
+  it('REFUSES an artifact URL that carries userinfo', async () => {
+    const withUserinfo = HEADLESS_URL.replace('https://', 'https://user:pw@')
+    const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', withUserinfo) })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+      /headless linux-x86_64 artifact is served from outside the edge feed/,
+    )
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
+      releaseManifestUrl('edge'),
+      desktopReleaseManifestUrl('edge'),
+    ])
+  })
+
   it('REFUSES an artifact URL that does not parse', async () => {
     const fetchImpl = fetchFixture({ release: releaseManifest('0.4.2', 'https://[broken') })
 

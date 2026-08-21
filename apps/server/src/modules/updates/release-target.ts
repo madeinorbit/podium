@@ -252,9 +252,11 @@ function normalisedPathSegments(pathname: string): string[] {
 }
 
 /**
- * Whether `url` is genuinely under `artifactBase`: same origin, and a path
- * that is a descendant after normalisation. A URL that fails to parse is
- * not inside the feed.
+ * Whether `url` is genuinely under `artifactBase`: same origin, no userinfo,
+ * and a path that is a descendant after normalisation. A URL that fails to
+ * parse is not inside the feed. `new URL().href.startsWith(base)` is not
+ * enough: `..%2f` is not a dot-segment to the parser, so the path still
+ * string-prefixes the fence until each segment is decoded and split.
  */
 function artifactUrlBelongsToFeed(url: string, artifactBase: string): boolean {
   let artifact: URL
@@ -266,6 +268,10 @@ function artifactUrlBelongsToFeed(url: string, artifactBase: string): boolean {
     return false
   }
   if (artifact.protocol !== 'http:' && artifact.protocol !== 'https:') return false
+  // Userinfo is not origin. `fetch` turns `https://user:pw@host/...` into an
+  // Authorization header, so a path that sits inside the fence is still a
+  // request made as someone else.
+  if (artifact.username !== '' || artifact.password !== '') return false
   if (artifact.origin !== feed.origin) return false
   const feedPath = normalisedPathSegments(feed.pathname)
   const artifactPath = normalisedPathSegments(artifact.pathname)
