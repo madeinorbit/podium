@@ -145,6 +145,8 @@ jobs:
           grep -q 'PASS  version: podium-cli --version runs' "$log"
           grep -q 'PASS  codesign: --verify --strict accepts' "$log"
           grep -q 'PASS  entitlements: allow-jit present' "$log"
+          grep -Eq '^(PASS|WARN)  gatekeeper: quarantine (blocked execution|did not block)' "$log"
+          grep -Eq '^(PASS|WARN)  unsigned: a signature-stripped binary' "$log"
           grep -q 'PASS  daemon: all-in-one boot' "$log"
           grep -q 'PASS  abduco: embedded helper materialized' "$log"
           grep -q 'PASS  abduco: session survives daemon kill' "$log"
