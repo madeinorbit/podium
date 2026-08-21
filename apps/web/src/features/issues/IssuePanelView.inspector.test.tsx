@@ -99,6 +99,11 @@ const eventsQuery = vi.fn(async (input?: unknown) => {
   return subject ? eventRows.filter((row) => row.subject === subject) : eventRows
 })
 
+// The task head's launch box carries model + effort segments, and those read
+// the live catalog through a hook that hangs off the REAL store provider rather
+// than the mock below.
+vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
+
 vi.mock('@/app/store', () => {
   const state = () => ({
     trpc: {

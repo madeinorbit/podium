@@ -12,6 +12,9 @@ import {
 } from './IssueCompactControls'
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
+// The launch box's model/effort segments read the live catalog through this
+// shim, which hangs off the REAL store provider rather than the mock below.
+vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
 
 const setOpenIssueId = vi.fn()
 const setView = vi.fn()
@@ -219,6 +222,59 @@ describe('IssueCompactControls', () => {
     expect(action.textContent).toBe('Start work')
     fireEvent.click(action)
     expect(start).toHaveBeenCalledWith({ id: 'i' })
+  })
+
+  /**
+   * THE LAUNCH BOX (POD-1457). The panel's start used to be a bare chip: it
+   * could say whether to start, and — for discovered work — where, but never
+   * with what. Setting an agent meant leaving the explorer for the full issue
+   * page. It is now the same box the page's Sessions block wears.
+   */
+  describe('the launch box', () => {
+    it('stands where the start chip stood, with the agent this task launches with', () => {
+      render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+
+      const box = screen.getByTestId('launch-box')
+      expect(box.contains(screen.getByTestId('task-primary-action'))).toBe(true)
+      expect(screen.getByLabelText('Agent').textContent).toContain('Claude Code')
+    })
+
+    it('writes the picked agent to the issue, resetting the model it is not for', async () => {
+      // Models are per-agent ([spec:SP-7ff1]) — the write that changes the
+      // harness clears the model and effort with it, so the optimistic row never
+      // shows the previous agent's model.
+      render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+
+      fireEvent.click(screen.getByLabelText('Agent'))
+      fireEvent.click(await screen.findByText('Codex'))
+
+      expect(updateIssue).toHaveBeenCalledWith('i', {
+        defaultAgent: 'codex',
+        defaultModel: 'auto',
+        defaultEffort: 'auto',
+      })
+    })
+
+    it('offers Start work on a task whose checkout outlived its agents', () => {
+      // A worktree left behind by an exited session is not work in progress.
+      // The issue page's aside reads one as "started" and offers + Session; this
+      // surface only mounts the box when NOBODY is on the task, so the honest
+      // face is the one it has always shown.
+      render(<IssueCompactControls issue={makeIssue({ id: 'i', worktreePath: '/r/wt' })} />)
+
+      expect(screen.getByTestId('task-primary-action').textContent).toBe('Start work')
+    })
+
+    it('is absent while sessions are working the task, and on a closed one', () => {
+      mockSessions = [session({ sessionId: 'coord' })]
+      render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+      expect(screen.queryByTestId('launch-box')).toBeNull()
+
+      cleanup()
+      mockSessions = []
+      render(<IssueCompactControls issue={makeIssue({ id: 'i', closedReason: 'done' })} />)
+      expect(screen.queryByTestId('launch-box')).toBeNull()
+    })
   })
 
   /**

@@ -2,7 +2,8 @@
  * The Sessions block of the properties aside: who is on this task, the ghosts of
  * sessions that moved on, and — in one launch box — the agent / model / effort /
  * machine the next one starts with, plus the button that starts it. Split out of
- * issue-page-properties.tsx (POD-646); the box is {@link LaunchBox} (POD-1224).
+ * issue-page-properties.tsx (POD-646); the box is {@link LaunchBox} (POD-1224),
+ * shared with the right dock's task panel since POD-1457.
  *
  * PARTIAL WORLD, TWICE OVER.
  *
@@ -19,31 +20,17 @@
  *     alike as "another issue".
  */
 import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
-import {
-  asMachineId,
-  type IssueWire,
-  type SessionId,
-  type SessionMeta,
-} from '@podium/model/browser'
+import type { IssueWire, SessionId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { ChevronDown } from 'lucide-react'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
-import { Button } from '@/components/ui/button'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
-import {
-  ISSUE_AGENT_KINDS,
-  issueAgentIcon,
-  issueAgentLabel,
-  issueDefaultAgentKind,
-} from '@/lib/issue-agents'
-import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PhaseTimer } from '@/lib/motion'
-import { PropertyMenu } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import { issueRefLong } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
+import { LaunchBox, type LaunchMachine } from '../LaunchBox'
 import { SectionHeading } from './chrome'
 import { edgeIssue, useIssueEdgeResolver } from './issue-edges'
 
@@ -113,192 +100,6 @@ function SessionRosterRow({
   )
 }
 
-/**
- * THE LAUNCH BOX (POD-1224) — the four decisions that make a session, and the
- * button that spends them, inside one frame.
- *
- * They were four separate objects scattered down the band: a model pill and an
- * effort pill on one line, a machine pill sometimes beside them, the roster in
- * between, and a split "Start work" button at the foot whose hidden dropdown was
- * the ONLY way to say which agent to run. So the most consequential choice on
- * the page lived behind a chevron, and the three pills above it looked like
- * properties of the issue rather than the settings the button was about to use.
- *
- * It is now the same instrument the empty-state prompt box wears
- * (features/setup/ColdStartComposer.tsx): one well cut into a card, segments
- * divided by hairlines, and the launch action under it. Same grammar, same
- * tokens — a well floor that is an alpha over whatever surface it lands on, so
- * one value reads as a recess in both modes.
- *
- * PICKING AN AGENT IS A WRITE, not a one-off. `defaultAgent` is what the issue
- * launches with everywhere — the CLI, the board, the next session started from
- * here — so the well sets it and the button simply starts. That also deletes the
- * old menu's two-headed copy ("Start with Claude Code (default)" beside "Start
- * with Codex"), which asked the operator to choose an agent and to know which
- * one was already the default in the same list.
- */
-function LaunchBox({
-  issue,
-  busy,
-  commands,
-  machines,
-}: {
-  issue: IssueViewModel
-  busy: boolean
-  commands: IssuePageCommands
-  machines: { id: string; name: string; online: boolean }[]
-}): JSX.Element {
-  const agentKind = issueDefaultAgentKind(issue.defaultAgent)
-  const started = Boolean(issue.worktreePath)
-  // THE SIGNAL RULE (POD-635). IssueGitBlock already stopped spending Superade
-  // Yellow on a merge with nothing to land; this slab was still the loudest
-  // pixel on every CLOSED task, offering to start work that has already
-  // finished. Yellow marks what is being asked of the operator — a closed task
-  // asks nothing, so the control stays, in outline.
-  const spent = issue.closedReason != null || issue.stage === 'done' || issue.archived
-  const machine = machines.find((m) => m.id === issue.machineId)
-  // The same 15px tile the roster rows above wear, one size down: the agent this
-  // task launches with and the agents already on it are then the same mark.
-  const AgentIcon = agentIconFor(agentKind)
-  return (
-    <div className="flex flex-col gap-2 rounded-[10px] bg-bar p-2 shadow-[inset_0_0_0_1px_var(--hairline-bar)]">
-      <div className="overflow-hidden rounded-lg bg-[var(--well-floor)] shadow-[inset_0_0_0_1px_var(--hairline-bar)]">
-        {/* WHO. Its own full-width row: at the rail's 232px of usable width an
-            agent name, a model name and an effort in ONE row leaves each about
-            seven characters, and "Claude Code" truncated to "Claude…" is a
-            worse answer than a second row. */}
-        <PropertyMenu
-          selectedValue={agentKind}
-          options={ISSUE_AGENT_KINDS.map((kind) => ({
-            value: kind,
-            label: issueAgentLabel(kind),
-            icon: issueAgentIcon(kind),
-          }))}
-          placeholder="Choose an agent…"
-          onSelect={commands.setDefaultAgent}
-          trigger={
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              aria-label="Agent"
-              title={`Sessions on this task launch with ${issueAgentLabel(agentKind)}`}
-              className="h-7 w-full justify-start gap-1.5 rounded-none px-2.5 font-normal text-[12px] text-text-strong"
-            >
-              <span
-                className={cn(
-                  'flex size-[15px] flex-none items-center justify-center rounded-[4px] border',
-                  agentFleetTileTint(agentKind),
-                )}
-                aria-hidden="true"
-              >
-                {AgentIcon ? <AgentIcon size={10} strokeWidth={1.8} /> : '✳'}
-              </span>
-              <span className="min-w-0 truncate">{issueAgentLabel(agentKind)}</span>
-              <ChevronDown size={13} aria-hidden="true" className="ml-auto text-text-faint" />
-            </Button>
-          }
-        />
-        <div className="h-px bg-hairline-bar" aria-hidden="true" />
-        {/* HOW HARD, AND WHERE. Equal shares of one row; each segment truncates
-            rather than pushing its own chevron out of the well.
-
-            The seams are each segment's own LEFT BORDER, not `<span className="w-px">`
-            dividers between them: a model with no effort ladder (Haiku, and
-            several dated Sonnet slugs) makes `EffortPicker` render nothing at
-            all, and a standalone divider would then be left drawing a seam
-            against nothing. A border belongs to the segment it introduces, so it
-            leaves with it. The buttons already reserve a 1px transparent border,
-            so colouring one edge costs no layout. */}
-        <div className="flex items-stretch">
-          <ModelPicker
-            variant="composer"
-            className="min-w-0 shrink flex-1 justify-between"
-            agentKind={agentKind}
-            machineId={issue.machineId}
-            value={issue.defaultModel}
-            onChange={commands.setDefaultModel}
-          />
-          <EffortPicker
-            variant="composer"
-            className="min-w-0 shrink flex-1 justify-between border-l-hairline-bar"
-            agentKind={agentKind}
-            machineId={issue.machineId}
-            model={issue.defaultModel}
-            value={issue.defaultEffort}
-            onChange={commands.setDefaultEffort}
-          />
-          {/* The machine pin only exists as a question when there is more than
-              one machine to pin to ('auto' = repo affinity). */}
-          {machines.length > 1 && (
-            <PropertyMenu
-              selectedValue={issue.machineId ?? 'auto'}
-              options={[
-                { value: 'auto', label: 'auto machine' },
-                ...machines.map((m) => ({
-                  value: m.id,
-                  label: m.online ? m.name : `${m.name} (offline)`,
-                })),
-              ]}
-              onSelect={(v) => commands.setMachine(v === 'auto' ? null : asMachineId(v))}
-              trigger={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy}
-                  aria-label="Machine"
-                  className="h-7 min-w-0 shrink flex-1 justify-between gap-1 rounded-none border-l-hairline-bar px-2.5 font-mono text-[11px] font-normal text-text-dim"
-                >
-                  <span className="min-w-0 truncate">{machine?.name ?? 'auto'}</span>
-                  <ChevronDown size={13} aria-hidden="true" className="text-text-faint" />
-                </Button>
-              }
-            />
-          )}
-        </div>
-      </div>
-
-      {started ? (
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="flex-1"
-            disabled={busy}
-            onClick={() => commands.addSession()}
-          >
-            + Session
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="flex-1"
-            disabled={busy}
-            onClick={commands.addShell}
-          >
-            + Shell
-          </Button>
-        </div>
-      ) : (
-        <Button
-          type="button"
-          variant={spent ? 'outline' : 'default'}
-          size="sm"
-          className="w-full"
-          disabled={busy}
-          onClick={() => commands.startWork()}
-        >
-          Start work
-        </Button>
-      )}
-    </div>
-  )
-}
-
 export function IssueSessionsBlock({
   issue,
   busy,
@@ -316,7 +117,7 @@ export function IssueSessionsBlock({
    *  "No agents" was misread as work lost — the honest shape is "the agent moved
    *  on to POD-x". */
   movedOn: SessionMeta[]
-  machines: { id: string; name: string; online: boolean }[]
+  machines: LaunchMachine[]
   onOpenSession: (session: { sessionId: SessionId }) => void
 }): JSX.Element {
   const resolve = useIssueEdgeResolver()

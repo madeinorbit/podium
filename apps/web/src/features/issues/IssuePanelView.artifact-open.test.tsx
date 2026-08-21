@@ -28,6 +28,11 @@ const ISSUE = makeIssue({
 const openFileInWorktree = vi.fn()
 const openArtifact = vi.fn()
 
+// The task head's launch box carries model + effort segments, and those read
+// the live catalog through a hook that hangs off the REAL store provider rather
+// than the mock below.
+vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
+
 vi.mock('@/app/store', () => {
   const state = () =>
     ({
@@ -38,6 +43,7 @@ vi.mock('@/app/store', () => {
       uiState: { get: () => null, set: vi.fn() },
       issues: [ISSUE],
       sessions: [],
+      machines: [],
       setOpenIssueId: vi.fn(),
       setView: vi.fn(),
     }) as never
