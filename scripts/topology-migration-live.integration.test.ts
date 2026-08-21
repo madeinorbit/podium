@@ -161,7 +161,11 @@ function enableState(env: NodeJS.ProcessEnv, unit: string): string {
 
 async function startManager(runtimeDir: string, configHome: string): Promise<PrivateManager> {
   mkdirSync(runtimeDir, { recursive: true, mode: 0o700 })
-  const env = {
+  // Widened deliberately: this repo types process.env to its KNOWN keys, so the
+  // three deletes below are exactly the keys that type does not admit. The point
+  // of this env is to strip inherited session plumbing before starting a private
+  // systemd, so it has to be able to name keys the narrow type does not.
+  const env: Record<string, string | undefined> = {
     ...process.env,
     XDG_RUNTIME_DIR: runtimeDir,
     XDG_CONFIG_HOME: configHome,
@@ -377,8 +381,12 @@ describe('single-unit migration live kill matrix', () => {
           expect(unitState(manager.env, parentUnit)).toBe('inactive')
         }
       } else {
+        // AWAITED on purpose: workingParent is async, so the unawaited call
+        // returned a Promise, which is always truthy — this waited for nothing
+        // and passed instantly without ever checking that the parent came back.
+        // `until` accepts an async reader, so the fix is to await it here.
         await until(
-          () => (workingParent(port) ? true : undefined),
+          async () => ((await workingParent(port)) ? true : undefined),
           `working parent after SIGKILL at ${phase}`,
         )
         expect(['active', 'activating']).toContain(unitState(manager.env, parentUnit))
@@ -398,7 +406,7 @@ describe('single-unit migration live kill matrix', () => {
         expect(checkpoint.remaining).toBeGreaterThan(0)
       }
       if (phase === 'after-all-legacy-stopped-before-remove') {
-        expect(legacyUnits.map((unit) => unitState(manager.env, unit))).toEqual([
+        expect(legacyUnits.map((unit) => unitState(manager!.env, unit))).toEqual([
           'inactive',
           'inactive',
           'inactive',
