@@ -54,6 +54,48 @@ struct DesktopSuccessorState {
     file: Mutex<Option<std::path::PathBuf>>,
 }
 
+/// A local backend restart is different from an outage: while supervision is deliberately
+/// bringing the process back, the served document must stay put. The watchdog owns the health
+/// check that ends this pause because `spawn()` only proves that a process exists, not that its
+/// identity-checked HTTP endpoint is ready. The startup probe already allows 30 seconds, so the
+/// same budget bounds this state; after it expires the ordinary six-failure fallback resumes.
+#[derive(Default)]
+struct LocalRestartPause {
+    started: Mutex<Option<std::time::Instant>>,
+}
+
+impl LocalRestartPause {
+    const BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+    fn begin(&self) {
+        if let Ok(mut started) = self.started.lock() {
+            started.get_or_insert_with(std::time::Instant::now);
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        self.started.lock().is_ok_and(|started| started.is_some())
+    }
+
+    fn should_stand_down(&self, server_ready: bool) -> bool {
+        self.should_stand_down_at(server_ready, std::time::Instant::now())
+    }
+
+    fn should_stand_down_at(&self, server_ready: bool, now: std::time::Instant) -> bool {
+        let Ok(mut started) = self.started.lock() else {
+            return false;
+        };
+        let Some(since) = *started else {
+            return false;
+        };
+        if server_ready || now.saturating_duration_since(since) >= Self::BUDGET {
+            *started = None;
+            return false;
+        }
+        true
+    }
+}
+
 #[derive(Clone)]
 struct PayloadRepairPaths {
     seed: std::path::PathBuf,
@@ -196,8 +238,20 @@ const LOCAL_BUILD_STAMP_REFRESH_POLLS: u32 = 30;
 ///   which is not ours to move.
 /// - The liveness poll is cheap (`/health`), but RETURNING to the served origin requires the
 ///   identity-checked probe, because that is a decision to LOAD a page from that origin.
-fn spawn_local_document_watchdog(app: AppHandle, port: u16, shutting_down: Arc<AtomicBool>) {
+fn spawn_local_document_watchdog(
+    app: AppHandle,
+    port: u16,
+    shutting_down: Arc<AtomicBool>,
+    local_restart: Arc<LocalRestartPause>,
+) {
     std::thread::spawn(move || {
+        if cfg!(debug_assertions)
+            && std::env::var("PODIUM_DESKTOP_RUNTIME_PROBE").as_deref()
+                == Ok("server-down-disabled")
+        {
+            log::warn!("runtime probe deliberately disabled the local document watchdog");
+            return;
+        }
         let (Ok(served), Ok(baked)) = (
             Url::parse(&bootstrap::local_served_http_url(port)),
             Url::parse(bootstrap::baked_document_url()),
@@ -226,6 +280,21 @@ fn spawn_local_document_watchdog(app: AppHandle, port: u16, shutting_down: Arc<A
                 log::info!("local document watchdog stopping: window is on {current}");
                 return;
             };
+            if local_restart.is_active() {
+                let server_ready = bootstrap::probe_local_server(port);
+                if local_restart.should_stand_down(server_ready) {
+                    watch = bootstrap::ServedOriginWatch::default();
+                    log::info!("local document watchdog standing down for supervised restart");
+                    continue;
+                }
+                // A successful identity probe or the bounded boot budget ends the pause. In
+                // either case discard any pre-restart streak; the next ordinary poll begins a
+                // new observation window.
+                watch = bootstrap::ServedOriginWatch::default();
+                if server_ready {
+                    continue;
+                }
+            }
             let healthy = match showing {
                 bootstrap::LocalDocument::Served => bootstrap::local_server_alive(port),
                 bootstrap::LocalDocument::Baked => bootstrap::probe_local_server(port),
@@ -245,6 +314,16 @@ fn spawn_local_document_watchdog(app: AppHandle, port: u16, shutting_down: Arc<A
                 bootstrap::LocalDocument::Served => (served.clone(), "local server"),
             };
             log::info!("local server is {healthy}; moving the window to the {label}");
+            // `current` was sampled before a probe that may block for 1.5 seconds. A transfer
+            // can retarget the window during that gap; re-read immediately before navigation
+            // so this watchdog never drags a transferred window back to its baked document.
+            let Ok(latest) = window.url() else { continue };
+            if latest != current {
+                log::info!(
+                    "local document watchdog skipped {label}: window moved from {current} to {latest}"
+                );
+                continue;
+            }
             if let Err(error) = window.navigate(url) {
                 log::warn!("could not move the window to the {label}: {error}");
             }
@@ -456,8 +535,21 @@ fn await_child_exit(
     child_state: &Arc<Mutex<Option<std::process::Child>>>,
     shutting_down: &Arc<AtomicBool>,
     poll: std::time::Duration,
+    successor: Option<&Arc<DesktopSuccessorState>>,
+    local_restart: Option<&Arc<LocalRestartPause>>,
 ) -> Option<Option<std::process::ExitStatus>> {
     loop {
+        if let (Some(successor), Some(local_restart)) = (successor, local_restart) {
+            let handover_started = successor
+                .file
+                .lock()
+                .ok()
+                .and_then(|path| path.clone())
+                .is_some_and(|path| path.exists());
+            if handover_started {
+                local_restart.begin();
+            }
+        }
         {
             let mut guard = child_state.lock().unwrap();
             match guard.as_mut() {
@@ -486,6 +578,7 @@ fn spawn_respawn_monitor<F, S, D>(
     child_state: Arc<Mutex<Option<std::process::Child>>>,
     shutting_down: Arc<AtomicBool>,
     successor: Arc<DesktopSuccessorState>,
+    local_restart: Option<Arc<LocalRestartPause>>,
     app_handle: AppHandle,
     source_cookie_url: Option<Url>,
     spawn_fn: F,
@@ -500,10 +593,21 @@ fn spawn_respawn_monitor<F, S, D>(
     std::thread::spawn(move || {
         let mut backoff_ms: u64 = 500;
         let mut transferred_server_url: Option<String> = None;
+        let mut paused_exit_pid: Option<u32> = None;
         const BACKOFF_CAP_MS: u64 = 5_000;
 
         loop {
-            let Some(exited) = await_child_exit(&child_state, &shutting_down, SUPERVISION_POLL)
+            let observed_pid = child_state
+                .lock()
+                .ok()
+                .and_then(|guard| guard.as_ref().map(std::process::Child::id));
+            let Some(exited) = await_child_exit(
+                &child_state,
+                &shutting_down,
+                SUPERVISION_POLL,
+                Some(&successor),
+                local_restart.as_ref(),
+            )
             else {
                 break;
             };
@@ -564,6 +668,12 @@ fn spawn_respawn_monitor<F, S, D>(
             };
 
             if !intentional_transfer {
+                if let Some(local_restart) = local_restart.as_ref() {
+                    if observed_pid.is_some() && observed_pid != paused_exit_pid {
+                        local_restart.begin();
+                        paused_exit_pid = observed_pid;
+                    }
+                }
                 log::warn!(
                     "backend exited ({exited:?}); \
                      respawning in {backoff_ms}ms {label}"
@@ -705,6 +815,54 @@ fn native_desktop_hook(
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
             close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){update_commands}{open_external}{set_theme}{enable_hosting}
         }});"#
+    )
+}
+
+fn runtime_probe_enabled() -> bool {
+    cfg!(debug_assertions)
+        && matches!(
+            std::env::var("PODIUM_DESKTOP_RUNTIME_PROBE").as_deref(),
+            Ok("1" | "server-down" | "server-down-disabled")
+        )
+}
+
+/// Report what a real debug webview rendered to the isolated runtime harness. This is an
+/// initialization script rather than a Rust-side URL log because the acceptance boundary is the
+/// document body: only JavaScript running inside WebKitGTK can prove the reconnect UI rendered
+/// instead of the engine's network-error page.
+fn runtime_probe_script() -> String {
+    if !runtime_probe_enabled() {
+        return String::new();
+    }
+    let Ok(raw) = std::env::var("PODIUM_DESKTOP_RUNTIME_TRACE_URL") else {
+        return String::new();
+    };
+    let Ok(endpoint) = Url::parse(&raw) else {
+        return String::new();
+    };
+    if endpoint.scheme() != "http" || endpoint.host_str() != Some("127.0.0.1") {
+        log::warn!("runtime probe trace URL must be an isolated loopback HTTP endpoint");
+        return String::new();
+    }
+    let literal = serde_json::to_string(endpoint.as_str()).unwrap_or_else(|_| "\"\"".to_string());
+    format!(
+        r#"(() => {{
+          const endpoint = {literal};
+          const report = () => {{
+            const bridge = window.__PODIUM_DESKTOP__;
+            const payload = JSON.stringify({{
+              at: Date.now(),
+              href: window.location.href,
+              launchMode: bridge && bridge.launchMode,
+              readyState: document.readyState,
+              bodyText: (document.body && document.body.innerText || '').slice(0, 6000)
+            }});
+            fetch(endpoint, {{ method: 'POST', mode: 'no-cors', body: payload }}).catch(() => {{}});
+          }};
+          window.addEventListener('DOMContentLoaded', report);
+          window.addEventListener('load', report);
+          setInterval(report, 500);
+        }})()"#
     )
 }
 
@@ -966,6 +1124,7 @@ fn main() {
             app.manage(child_state.clone());
             let successor = Arc::new(DesktopSuccessorState::default());
             app.manage(successor.clone());
+            let local_restart = Arc::new(LocalRestartPause::default());
             let payload_repair = Arc::new(PayloadRepairState::default());
             app.manage(payload_repair.clone());
 
@@ -1081,6 +1240,7 @@ fn main() {
                                             child_state.clone(),
                                             shutting_down.clone(),
                                             successor.clone(),
+                                            Some(local_restart.clone()),
                                             monitor_app,
                                             Some(source_cookie_url),
                                             move || {
@@ -1153,6 +1313,7 @@ fn main() {
                                             child_state.clone(),
                                             shutting_down.clone(),
                                             successor.clone(),
+                                            None,
                                             app.handle().clone(),
                                             None,
                                             move || {
@@ -1380,9 +1541,7 @@ fn main() {
 
             // Build the tray icon with Open / Quit menu items.
             // The debug-only runtime proof uses a minimal scratch X server with no icon theme.
-            if !(cfg!(debug_assertions)
-                && std::env::var("PODIUM_DESKTOP_RUNTIME_PROBE").as_deref() == Ok("1"))
-            {
+            if !runtime_probe_enabled() {
                 let open = MenuItem::with_id(app, "open", "Open Podium ADE", true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&open, &quit])?;
@@ -1436,6 +1595,7 @@ fn main() {
                 machine_id.as_deref(),
             );
             let opener_shim = bootstrap::opener_shim_script();
+            let runtime_probe = runtime_probe_script();
             // Remote modes already resolved webview_url + window_injection. Local modes
             // fill them after the readiness probe inside the spawn below.
             let remote_init_injection = window_injection;
@@ -1504,7 +1664,7 @@ fn main() {
                 };
                 // External-link shim (ALL modes): route window.open/_blank to the OS browser.
                 let init = format!(
-                    "{resolved_injection}\n{restart_hook}\n{native_desktop_hook}\n{opener_shim}\n{native_crash_report}"
+                    "{resolved_injection}\n{restart_hook}\n{native_desktop_hook}\n{opener_shim}\n{native_crash_report}\n{runtime_probe}"
                 );
                 let handle2 = handle.clone();
                 let _ = handle.run_on_main_thread(move || {
@@ -1587,7 +1747,12 @@ fn main() {
                 // server comes and goes (see spawn_local_document_watchdog). Remote modes have
                 // no local server to watch, and the web client owns their reconnect.
                 if let Some(port) = wait_local_port {
-                    spawn_local_document_watchdog(handle, port, watchdog_shutting_down);
+                    spawn_local_document_watchdog(
+                        handle,
+                        port,
+                        watchdog_shutting_down,
+                        local_restart,
+                    );
                 }
             });
             Ok(())
@@ -1706,7 +1871,7 @@ mod tests {
         let supervised = child_state.clone();
         let flag = shutting_down.clone();
         let supervision = std::thread::spawn(move || {
-            await_child_exit(&supervised, &flag, Duration::from_millis(5))
+            await_child_exit(&supervised, &flag, Duration::from_millis(5), None, None)
         });
 
         // Give supervision time to settle into its wait before contending for the lock.
@@ -1747,12 +1912,34 @@ mod tests {
         let child_state = Arc::new(Mutex::new(Some(child)));
         let shutting_down = Arc::new(AtomicBool::new(false));
 
-        let exited = await_child_exit(&child_state, &shutting_down, Duration::from_millis(5))
-            .expect("a live slot reports the exit rather than ending supervision");
+        let exited = await_child_exit(
+            &child_state,
+            &shutting_down,
+            Duration::from_millis(5),
+            None,
+            None,
+        )
+        .expect("a live slot reports the exit rather than ending supervision");
         assert!(
             exited.expect("exit status is readable").success(),
             "`true` exits 0"
         );
+    }
+
+    #[test]
+    fn supervised_restart_pause_ends_only_on_identity_or_the_boot_budget() {
+        let pause = LocalRestartPause::default();
+        let started = std::time::Instant::now();
+        *pause.started.lock().unwrap() = Some(started);
+
+        assert!(pause.should_stand_down_at(false, started + std::time::Duration::from_secs(8)));
+        assert!(pause.is_active());
+        assert!(!pause.should_stand_down_at(true, started + std::time::Duration::from_secs(9)));
+        assert!(!pause.is_active(), "an identity-checked ready server resumes watching");
+
+        *pause.started.lock().unwrap() = Some(started);
+        assert!(!pause.should_stand_down_at(false, started + LocalRestartPause::BUDGET));
+        assert!(!pause.is_active(), "a wedged restart cannot suppress fallback forever");
     }
 
     #[test]
