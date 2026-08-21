@@ -1371,17 +1371,13 @@ export async function main(
       ensureInstanceStateIdentity({ instanceId: resolveInstanceId() })
       const parentLogging = configureProcessLogging({ role: 'parent' })
       const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
-      const { ParentProcess, PARENT_SUCCESSOR_ENV } = await import(
-        '@podium/runtime/parent-process'
-      )
+      const { ParentProcess, PARENT_SUCCESSOR_ENV } = await import('@podium/runtime/parent-process')
       const { createParentUpdateSwap } = await import('@podium/runtime/parent-update-swap')
       const { resolveInstallDir } = await import('@podium/runtime/config')
       const { fileURLToPath } = await import('node:url')
       const cliPath = fileURLToPath(new URL('../../../scripts/cli.ts', import.meta.url))
       const compiled = import.meta.url.includes('/$bunfs/')
-      const children = plan.includeDaemon
-        ? (['server', 'daemon'] as const)
-        : (['server'] as const)
+      const children = plan.includeDaemon ? (['server', 'daemon'] as const) : (['server'] as const)
       /**
        * A SUCCESSOR is a parent spawned by a live predecessor during
        * self-handover. It must not touch the `parent` pidfile on the way up:

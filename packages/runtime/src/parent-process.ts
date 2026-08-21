@@ -24,7 +24,7 @@
  *     parent drained and exited the moment its last child died — which is
  *     precisely the crash the backoff ladder and the rollback exist for.
  */
-import { type ChildProcess, spawn, type SpawnOptions } from 'node:child_process'
+import { type ChildProcess, type SpawnOptions, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, openSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
@@ -44,17 +44,17 @@ import {
   clearPostUpdate,
   componentsProjection,
   emptyParentSnapshot,
+  type HandoverHealthProbe,
   isHandoverHealthy,
   isPostUpdateCrashLoop,
   markPostUpdate,
-  type HandoverHealthProbe,
   type ParentSnapshot,
+  rollbackDecision,
   type SupervisedChild,
   type WatchdogAdvance,
-  rollbackDecision,
   watchdogPetDecision,
 } from './parent-supervisor'
-import { parseUpdateTarget, type ParentUpdateSwapResult } from './parent-update-swap'
+import { type ParentUpdateSwapResult, parseUpdateTarget } from './parent-update-swap'
 import { logDir } from './run-registry'
 import { sdNotify, watchdogPetIntervalMs } from './sd-notify'
 import { oldBundlePresent, pruneOldBundle, restoreOldBundle } from './update-install'
@@ -432,6 +432,7 @@ export class ParentProcess {
     // it at spawn time would have reclaimed — that is, SIGTERMed — the parent
     // still supervising the serving stack.
     await this.deps.claimRole?.()
+    this.pruneStaleOldBundle(healthy)
     this.deps.notify('READY=1')
     // First pet immediately, so a stall right after boot has the full
     // WatchdogSec budget rather than that minus one pet interval.
@@ -442,6 +443,23 @@ export class ParentProcess {
     this.tickTimer = setInterval(() => {
       void this.tick()
     }, 500)
+  }
+
+  /**
+   * Drop a `.old` bundle left behind by something that had no parent to prune it
+   * — the standalone `podium update` path, which retains the backup and has
+   * nobody to declare the new bundle healthy (review finding 17). Only on a
+   * HEALTHY, non-post-update boot: inside the post-update window `.old` is the
+   * rollback target and the outgoing parent prunes it after its own gate.
+   */
+  private pruneStaleOldBundle(healthy: boolean): void {
+    if (!healthy) return
+    if (this.snap.postUpdateSinceMs !== undefined) return
+    if (!oldBundlePresent(this.installDir)) return
+    log.info('pruning a .old bundle left by an unsupervised install', {
+      installDir: this.installDir,
+    })
+    pruneOldBundle(this.installDir)
   }
 
   private async readInstalledVersion(): Promise<string> {
@@ -708,7 +726,7 @@ export class ParentProcess {
         log.info('handover complete; old parent exiting', { successorPid, expectedVersion })
         await this.deps.onExit?.(0)
         if (this.deps.exit) this.deps.exit(0)
-    else process.exit(0)
+        else process.exit(0)
         return
       }
       await this.deps.sleep(250)

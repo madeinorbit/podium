@@ -133,15 +133,15 @@ export function createInstalledCoordinatorRestart(
   if (!hasParent()) return undefined
 
   const requestHandover =
-    deps.requestHandover ?? ((expectedVersion: string) => requestParentHandover({ expectedVersion }))
+    deps.requestHandover ??
+    ((expectedVersion: string) => requestParentHandover({ expectedVersion }))
 
   let requested = false
   const pending = deps.pendingVersion
 
   return () => {
     if (requested) return
-    const expectedVersion =
-      pending?.() ?? installedVersionOnDisk(env) ?? env.PODIUM_APP_VERSION
+    const expectedVersion = pending?.() ?? installedVersionOnDisk(env) ?? env.PODIUM_APP_VERSION
     if (!expectedVersion) {
       throw new Error('parent handover requires an expected version')
     }

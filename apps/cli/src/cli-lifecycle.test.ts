@@ -1,7 +1,7 @@
-import { asMachineId } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import { CRASH_MAX_EVENTS, type CrashEvent } from '@podium/runtime/crash-store'
 import type { RunRecord } from '@podium/runtime/run-registry'
 import { describe, expect, it } from 'vitest'
@@ -203,11 +203,16 @@ describe('podium logs', () => {
         // nowhere else, so it must not be filtered out.
         writeFileSync(join(dir, 'server.log'), '')
         writeFileSync(join(dir, 'daemon.ndjson'), '')
+        // The supervisor's own log, and it comes FIRST: it is the process that
+        // starts the others and the only one that can say why one is missing.
+        writeFileSync(join(dir, 'parent.ndjson'), '')
         expect(logFilesFor([], dir)).toEqual([
+          join(dir, 'parent.ndjson'),
           join(dir, 'server.ndjson'),
           join(dir, 'server.log'),
           join(dir, 'daemon.ndjson'),
         ])
+        expect(logFilesFor(['parent'], dir)).toEqual([join(dir, 'parent.ndjson')])
         expect(logFilesFor(['daemon'], dir)).toEqual([join(dir, 'daemon.ndjson')])
         expect(logFilesFor(['janitor'], dir)).toEqual([])
       } finally {

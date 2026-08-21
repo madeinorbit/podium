@@ -33,7 +33,12 @@ describe('createParentUpdateSwap', () => {
     const swap = vi.fn(async (_bytes: Uint8Array, installDir: string) => {
       writeFileSync(join(installDir, 'VERSION'), '0.4.2\n')
     })
-    const run = createParentUpdateSwap({ installDir: dir, deliver, swap, readApplied: () => undefined })
+    const run = createParentUpdateSwap({
+      installDir: dir,
+      deliver,
+      swap,
+      readApplied: () => undefined,
+    })
 
     const result = await run({ version: '0.4.2', critical: false, artifacts: {} })
 

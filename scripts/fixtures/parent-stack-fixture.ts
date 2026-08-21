@@ -22,14 +22,7 @@
  *   FIXTURE_SERVER_NEVER_HEALTHY=1              — bind, but never report the daemon connected
  *   FIXTURE_SERVER_REFUSE_START=1               — exit before binding
  */
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const role = process.argv[2]
@@ -192,8 +185,10 @@ async function runParent(): Promise<void> {
   const { registerProcess } = await import('../../packages/runtime/src/run-registry')
   const { sdNotify } = await import('../../packages/runtime/src/sd-notify')
   const isSuccessor = process.env[PARENT_SUCCESSOR_ENV] === '1'
-  const children = (process.env.FIXTURE_PARENT_CHILDREN?.split(',') ?? ['server', 'daemon']) as
-    Array<'server' | 'daemon'>
+  const children = (process.env.FIXTURE_PARENT_CHILDREN?.split(',') ?? [
+    'server',
+    'daemon',
+  ]) as Array<'server' | 'daemon'>
   const notifyLog = join(runDir, 'fixture-notify.log')
   const parent = new ParentProcess({
     port,

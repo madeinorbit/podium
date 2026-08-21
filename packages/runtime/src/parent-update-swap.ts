@@ -23,11 +23,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { planConvergence, UpdateTarget } from '@podium/protocol'
 import { canonicalMigrationName, readAppliedMigrations } from './migration-ledger'
-import {
-  fetchArtifact,
-  PODIUM_UPDATE_PUBKEY,
-  type DeliveryDeps,
-} from './update-delivery'
+import { type DeliveryDeps, fetchArtifact, PODIUM_UPDATE_PUBKEY } from './update-delivery'
 import { swapHeadlessBundle } from './update-install'
 import { createSchemaGate } from './update-schema'
 

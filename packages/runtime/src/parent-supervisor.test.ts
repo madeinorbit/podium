@@ -61,11 +61,19 @@ describe('applyChildExit', () => {
     let snap = markPostUpdate(emptyParentSnapshot('running'), 0)
     snap = applyChildRunning(snap, 'server', 10)
     snap = applyChildExit(snap, 'server', { exitCode: 1, nowMs: 5_000 })
-    expect(snap.children.server).toMatchObject({ status: 'restarting', attempts: 0, nextAtMs: 6_000 })
+    expect(snap.children.server).toMatchObject({
+      status: 'restarting',
+      attempts: 0,
+      nextAtMs: 6_000,
+    })
     expect(snap.postUpdateCrashes).toEqual([5_000])
 
     snap = applyChildExit(snap, 'server', { exitCode: 1, nowMs: 6_500 })
-    expect(snap.children.server).toMatchObject({ status: 'restarting', attempts: 1, nextAtMs: 8_500 })
+    expect(snap.children.server).toMatchObject({
+      status: 'restarting',
+      attempts: 1,
+      nextAtMs: 8_500,
+    })
   })
 })
 

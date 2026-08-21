@@ -18,11 +18,10 @@
  * then FAILS if any grandchild survived — a leak in the code under test must not
  * be able to escape as a leak on the machine.
  */
-import { execFileSync } from 'node:child_process'
-import { spawn, type ChildProcess } from 'node:child_process'
-import { createServer } from 'node:net'
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -202,10 +201,7 @@ afterEach(async () => {
   }
   observedPids.clear()
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
-  expect(
-    stubborn,
-    `${stubborn.length} process(es) ignored SIGTERM and needed SIGKILL`,
-  ).toEqual([])
+  expect(stubborn, `${stubborn.length} process(es) ignored SIGTERM and needed SIGKILL`).toEqual([])
 })
 
 describe('parent lifecycle (real processes)', () => {
@@ -221,13 +217,10 @@ describe('parent lifecycle (real processes)', () => {
    */
   it('ARM A — SIGTERM DURING BOOT shuts the children down instead of orphaning them', async () => {
     const stack = await startStack({ FIXTURE_SERVER_NEVER_HEALTHY: '1' })
-    const kids = await until(
-      () => {
-        const found = childrenOf(stack.parentPid)
-        return found.length >= 2 ? found : undefined
-      },
-      'both children spawned',
-    )
+    const kids = await until(() => {
+      const found = childrenOf(stack.parentPid)
+      return found.length >= 2 ? found : undefined
+    }, 'both children spawned')
     for (const pid of kids) observedPids.add(pid)
     // The parent is still inside its health gate — start() has NOT returned.
     expect(stack.notifications(), 'READY must not have been sent yet').not.toContain('READY=1')
@@ -391,9 +384,9 @@ describe('parent lifecycle (real processes)', () => {
 
     // Finding 1's core: the successor must own the pidfile, and must have taken
     // it WITHOUT reclaiming — the old parent exited on its own terms, code 0.
-    const record = JSON.parse(
-      readFileSync(join(stack.stateDir, 'run', 'parent.pid'), 'utf8'),
-    ) as { pid: number }
+    const record = JSON.parse(readFileSync(join(stack.stateDir, 'run', 'parent.pid'), 'utf8')) as {
+      pid: number
+    }
     expect(record.pid).toBe(successorPid)
     for (const pid of childrenOf(successorPid)) observedPids.add(pid)
   }, 60_000)
@@ -426,13 +419,10 @@ describe('parent lifecycle (real processes)', () => {
     )
     process.kill(stack.parentPid, 'SIGUSR1')
 
-    const successorPid = await until(
-      () => {
-        const pids = stack.spawns('parent')
-        return pids.length > before ? (pids[before] as number) : undefined
-      },
-      'successor parent spawned',
-    )
+    const successorPid = await until(() => {
+      const pids = stack.spawns('parent')
+      return pids.length > before ? (pids[before] as number) : undefined
+    }, 'successor parent spawned')
     observedPids.add(successorPid)
 
     // The gate is 90s; assert what must hold WHILE it runs rather than waiting it out.

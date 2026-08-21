@@ -139,9 +139,7 @@ describe('requestParentSwap', () => {
             kind: 'swap',
             ok: result.ok,
             ...(result.error ? { error: result.error } : {}),
-            ...(result.migrations !== undefined
-              ? { releaseHadMigrations: result.migrations }
-              : {}),
+            ...(result.migrations !== undefined ? { releaseHadMigrations: result.migrations } : {}),
             completedAt: new Date().toISOString(),
           },
           dir,

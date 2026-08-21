@@ -107,7 +107,11 @@ export function applyChildExit(
 
   if (kind === 'refusal') {
     const reason = input.reason ?? `exit ${input.exitCode}`
-    children[child] = { status: 'refused', reason, exitCode: input.exitCode ?? CHILD_REFUSAL_EXIT_CODE }
+    children[child] = {
+      status: 'refused',
+      reason,
+      exitCode: input.exitCode ?? CHILD_REFUSAL_EXIT_CODE,
+    }
     refusals[child] = reason
     if (phase === 'running' || phase === 'booting' || phase === 'degraded') phase = 'degraded'
     return { ...snap, phase, children, refusals, postUpdateCrashes }
@@ -205,13 +209,8 @@ export interface HandoverHealthProbe {
  * Handover health (disposition 24): both children up, the server serving the
  * NEW version over /version, and the local daemon connected — never bare /health.
  */
-export function isHandoverHealthy(
-  probe: HandoverHealthProbe,
-  expectedVersion: string,
-): boolean {
-  return (
-    probe.serverRunning && probe.daemonConnected && probe.serverVersion === expectedVersion
-  )
+export function isHandoverHealthy(probe: HandoverHealthProbe, expectedVersion: string): boolean {
+  return probe.serverRunning && probe.daemonConnected && probe.serverVersion === expectedVersion
 }
 
 /**

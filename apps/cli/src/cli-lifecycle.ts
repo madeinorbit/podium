@@ -226,6 +226,10 @@ export async function stopBackend(): Promise<void> {
 
 /** The components `podium logs` knows how to tail, in the order it shows them. */
 const LOG_COMPONENTS = [
+  // The supervisor, first because it is the process that starts the others and
+  // the only one that can explain why one of them is missing [POD-2505]. Without
+  // a name here its log existed and nothing showed it.
+  'parent',
   'server',
   'janitor',
   'daemon',

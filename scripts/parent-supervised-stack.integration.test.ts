@@ -26,10 +26,9 @@
  * exits) is the lifecycle suite's, where a bundle swap can be simulated by
  * rewriting VERSION.
  */
-import { spawn, type ChildProcess } from 'node:child_process'
-import { execFileSync } from 'node:child_process'
-import { createServer } from 'node:net'
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -236,14 +235,12 @@ describe('parent-supervised stack', () => {
             'SELECT generation_id, protocol_version, schema_version FROM maintenance_leases WHERE name = ?',
           )
           .get('janitor') as { generation_id: string } | undefined
-        const parentRec = await readFile(
-          join(stack.stateDir, 'run', 'parent.pid'),
-          'utf8',
-        ).catch(() => undefined)
-        const serverRec = await readFile(
-          join(stack.stateDir, 'run', 'server.pid'),
-          'utf8',
-        ).catch(() => undefined)
+        const parentRec = await readFile(join(stack.stateDir, 'run', 'parent.pid'), 'utf8').catch(
+          () => undefined,
+        )
+        const serverRec = await readFile(join(stack.stateDir, 'run', 'server.pid'), 'utf8').catch(
+          () => undefined,
+        )
         return lease && parentRec && serverRec ? { lease, parentRec, serverRec } : undefined
       } finally {
         db.close()
