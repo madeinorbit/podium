@@ -235,9 +235,8 @@ describe('fresh VPS activation', () => {
 })
 
 /**
- * THE DEFECT (POD-1288): the step rendered a copyable command from a guessed
- * `stable` channel, whose `releases/latest/download/install.sh` 404s while only
- * the edge prerelease is published — a fast copy pasted an install that failed.
+ * The command must wait for the server-resolved channel: the installer URL differs per channel,
+ * so guessing or substituting one can put a new VPS on a different release train than this app.
  */
 describe('the VPS command waits for the channel', () => {
   it('does not turn an unread channel into stable', () => {
@@ -267,7 +266,7 @@ describe('the VPS command waits for the channel', () => {
     expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy()
   })
 
-  it('never pastes the stable installer while no stable release is published', async () => {
+  it('pastes a stable installer command when this Podium is stable', async () => {
     renderStep(
       trpcWith(
         vi.fn(async () => undefined),
@@ -276,14 +275,13 @@ describe('the VPS command waits for the channel', () => {
     )
 
     const command = await screen.findByText(/setup --vps/)
-    expect(command.textContent).not.toContain('/releases/latest/download/install.sh')
-    expect(command.textContent).toContain('/releases/download/edge/install.sh')
-    expect(command.textContent).toContain('--channel edge')
-    // Substituted, never silently: the page says which train it fell back to.
-    expect(screen.getByText(/no stable release is published yet/)).toBeTruthy()
+    expect(command.textContent).toContain('/releases/latest/download/install.sh')
+    expect(command.textContent).toContain('--channel stable')
+    expect(command.textContent).not.toContain('/releases/download/edge/install.sh')
+    expect(command.textContent).not.toContain('--channel edge')
   })
 
-  it('says nothing about a substitution when the instance is already on edge', async () => {
+  it('pastes an edge installer command when this Podium is edge', async () => {
     renderStep(
       trpcWith(
         vi.fn(async () => undefined),
@@ -291,8 +289,9 @@ describe('the VPS command waits for the channel', () => {
       ),
     )
 
-    await screen.findByText(/setup --vps/)
-    expect(screen.queryByText(/no stable release is published yet/)).toBeNull()
+    const command = await screen.findByText(/setup --vps/)
+    expect(command.textContent).toContain('/releases/download/edge/install.sh')
+    expect(command.textContent).toContain('--channel edge')
   })
 
   it('leaves a failed channel query unread, and reads it again on request', async () => {
