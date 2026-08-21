@@ -23,6 +23,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
+import { duplicateReport } from './web-bundle-duplicates'
 
 interface SourceMap {
   readonly sources: readonly string[]
@@ -131,47 +132,17 @@ const BROWSER_HOSTILE_SOURCES = [
 const BROWSER_HOSTILE_EXCEPTIONS = ['packages/harness/src/browser.ts'] as const
 
 /**
- * PACKAGES THAT MUST BE BUNDLED EXACTLY ONCE (POD-2469).
+ * THE DUPLICATE CHECK LIVES NEXT DOOR, in web-bundle-duplicates.ts: the
+ * packages a second copy BREAKS (SINGLETON_PACKAGES), the ones a second copy may
+ * legitimately be signed off for (ACCEPTED_DUPLICATE_PACKAGES), and the pure
+ * detection over source paths.
  *
- * Like BROWSER_HOSTILE_SOURCES above, this is a correctness check wearing a size
- * check's clothes. Every package here hands out objects that its own code then
- * recognises with `instanceof` or by reference, so a second copy in the bundle
- * does not cost bytes — it breaks the feature. `@codemirror/state` is the one
- * that taught us: `EditorState.create` walks the extension set, meets a `Facet`
- * minted by the other copy, fails the check and throws "Unrecognized extension
- * value in extension set". The file panel died on mount in edit and
- * side-by-side mode; view mode renders a preview, so it looked fine.
- *
- * `@lezer/highlight` is the quiet one. Its `tags` are the objects a grammar
- * marks its tree with AND the objects `HighlightStyle` matches against, so a
- * split there throws nothing at all — the code just stops being coloured.
- *
- * WHAT MAKES A COPY. One entry in the lockfile is not one module: what counts
- * is the resolved path on disk, and a mixed node_modules yields two of them for
- * the same version. `apps/web/node_modules/@codemirror/` carries symlinks into
- * `node_modules/.bun/` for some of these and not others, so some imports landed
- * on the `.bun` copy and the rest on the hoisted root one. That is why the fix
- * is `resolve.dedupe` in apps/web/vite.config.ts rather than an install step,
- * and why this check counts DISTINCT RESOLVED PATHS rather than chunks.
- *
- * If this fires, something reached one of these packages by a path `dedupe` does
- * not cover — a new dependency of its own, or a specifier not on that list.
+ * It is a separate module because THIS file reads `apps/web/dist` at module
+ * scope: importing anything from it requires a built website standing by, so a
+ * check kept here could only ever be exercised by building one. That is how the
+ * gate came to have no test of its own ability to refuse — the only proof was a
+ * dist in a sibling worktree, which is deleted with the worktree (POD-2530).
  */
-const SINGLETON_PACKAGES = [
-  '@codemirror/state',
-  '@codemirror/view',
-  '@codemirror/language',
-  '@codemirror/autocomplete',
-  '@codemirror/commands',
-  '@codemirror/search',
-  '@codemirror/lint',
-  '@lezer/common',
-  '@lezer/highlight',
-  '@lezer/lr',
-  'react',
-  'react-dom',
-] as const
-
 const args = process.argv.slice(2)
 const checkBudget = args.includes('--check')
 const dist = resolve(args.find((arg) => !arg.startsWith('--')) ?? 'apps/web/dist')
@@ -262,61 +233,30 @@ const allChunkSourcePaths = allChunks.flatMap((chunk) =>
   chunk.sources.map((source) => resolve(join(dist, 'assets'), source)),
 )
 
-/** Distinct on-disk installations of `pkg` that reached the bundle. Keyed by the
- *  directory the sources sit in rather than by version or lockfile entry: one
- *  entry can still be two modules, and it is the module identity that decides
- *  whether `instanceof` holds. See SINGLETON_PACKAGES. */
-function packageInstallations(sourcePaths: readonly string[], pkg: string): string[] {
-  const needle = `node_modules/${pkg}/`
-  return [
-    ...new Set(
-      sourcePaths.flatMap((path) => {
-        const at = path.lastIndexOf(needle)
-        return at < 0 ? [] : [path.slice(0, at + needle.length - 1)]
-      }),
-    ),
-  ].sort()
-}
-
 /**
- * EVERY package in the bundle, so the duplicate check does not need a list
+ * WHAT IS IN THE BUNDLE MORE THAN ONCE — over every package, not a list
  * (POD-2527).
  *
  * SINGLETON_PACKAGES is a list of packages a second copy BREAKS. It was read as
  * if it were the list of packages a second copy MATTERS for, and the gap between
  * those two readings is the whole of POD-2527. `@dnd-kit/core` is not a
- * singleton — two copies throw
- * nothing — but the eager source budget counts `sourcesContent`, so a split put
- * 104,325 bytes of vendor text into the total twice. With `@dnd-kit/utilities`
- * and `clsx` that is 112,673 bytes, and the build said `eager parsed source
- * bytes: 7757776 exceeds 7700000`. Read as 58KB of app growth, it sent a whole
- * issue looking for a module to lazy-load. There was none: the same commit
- * measured 7,645,103 in a checkout that resolved those three once.
+ * singleton — two copies throw nothing — but the eager source budget counts
+ * `sourcesContent`, so a split put 104,325 bytes of vendor text into the total
+ * twice. With `@dnd-kit/utilities` (7,960), `@trpc/server` (3,663) and `clsx`
+ * (388) that is 116,336 bytes, and the build said `eager parsed source bytes:
+ * 7757776 exceeds 7700000`. Read as 58KB of app growth, it sent a whole issue
+ * looking for a module to lazy-load. There was none: 7,757,776 less those four
+ * second copies is 7,641,440, which is what the same source measured in a
+ * checkout that resolved them once.
  *
- * So the scan is now over whatever is actually in the bundle. A package name is
- * the segment after the LAST `node_modules/` in a resolved path — `@scope/name`
- * counts as one, and the `.bun` store's nested spelling collapses onto the same
- * name as the hoisted one, which is the point: those two are exactly the pair
- * that splits.
+ * (The figure first recorded here was 112,673 over three packages — the same
+ * measurement with `@trpc/server` missed, and 3,663 bytes short. Corrected in
+ * POD-2530 by re-deriving it from the failing dist.)
+ *
+ * The detection itself, and the accept list beside it, are in
+ * web-bundle-duplicates.ts, where they can be tested without a built website.
  */
-function bundledPackageNames(sourcePaths: readonly string[]): string[] {
-  const marker = '/node_modules/'
-  const names = new Set<string>()
-  for (const path of sourcePaths) {
-    const at = path.lastIndexOf(marker)
-    if (at < 0) continue
-    const [first, second] = path.slice(at + marker.length).split('/')
-    if (!first) continue
-    if (first.startsWith('@')) {
-      if (second) names.add(`${first}/${second}`)
-    } else names.add(first)
-  }
-  return [...names].sort()
-}
-
-/** Membership test for the list above, which is `as const` and so cannot take a
- *  plain string. Only the message reads it: a split is an error either way. */
-const singletonPackages = new Set<string>(SINGLETON_PACKAGES)
+const duplicates = duplicateReport(allChunkSourcePaths)
 
 const report = {
   dist,
@@ -349,12 +289,10 @@ const report = {
     commandSources: matchingSources([settings], 'packages/commands/src/'),
   },
   allBrowserChunks: {
-    duplicatedPackages: bundledPackageNames(allChunkSourcePaths).flatMap((pkg) => {
-      const installations = packageInstallations(allChunkSourcePaths, pkg)
-      return installations.length > 1
-        ? [{ package: pkg, installations, breaksTheFeature: singletonPackages.has(pkg) }]
-        : []
-    }),
+    duplicatedPackages: duplicates.duplicated,
+    acceptedDuplicatePackages: duplicates.accepted,
+    unusedDuplicateAcceptances: duplicates.unusedAcceptances,
+    illegalDuplicateAcceptances: duplicates.illegalAcceptances,
     ownershipMatrixSources: matchingSources(allChunks, 'packages/model/src/annotations/matrix.ts'),
     browserHostileSources: BROWSER_HOSTILE_SOURCES.flatMap((fragment) =>
       matchingSources(allChunks, fragment).filter(
@@ -501,9 +439,19 @@ if (checkBudget) {
   if (report.allBrowserChunks.duplicatedPackages.length > 0) {
     const { duplicatedPackages: duplicated } = report.allBrowserChunks
     const breaking = duplicated.filter(({ breaksTheFeature }) => breaksTheFeature)
+    const outgrown = duplicated.filter(({ acceptedInstallations }) => acceptedInstallations)
     errors.push(
       `${duplicated.length} package(s) are in the bundle more than once: ` +
         `${duplicated.map(({ package: pkg, installations }) => `${pkg} (${installations.length})`).join(', ')}. ` +
+        (outgrown.length > 0
+          ? `${outgrown
+              .map(
+                ({ package: pkg, installations, acceptedInstallations }) =>
+                  `${pkg} has an accepted split of ${acceptedInstallations}, and there are now ${installations.length}`,
+              )
+              .join('; ')} — that is a NEW copy standing behind an old decision, so read it as a ` +
+            `fresh split rather than as the one on the list. `
+          : '') +
         `A second copy is never free: it is counted twice in the eager source budget, so it ` +
         `also shows up there as growth with no feature behind it. ` +
         (breaking.length > 0
@@ -517,10 +465,31 @@ if (checkBudget) {
         `One lockfile entry is not one module, and the second copy is often not even in this ` +
         `checkout: .worktrees/ sits inside the main checkout, so a worktree missing ` +
         `apps/web/node_modules walks up past its own root into the main one. Pin the specifier in ` +
-        `resolve.dedupe in apps/web/vite.config.ts. Installations: ` +
+        `resolve.dedupe in apps/web/vite.config.ts — or, if the two copies are DELIBERATE and ` +
+        `both versions are needed, record them in ACCEPTED_DUPLICATE_PACKAGES in ` +
+        `scripts/web-bundle-duplicates.ts with what each one is for; dedupe is the wrong advice ` +
+        `for a split somebody chose. Installations: ` +
         `${duplicated.flatMap(({ installations }) => installations).join(', ')}`,
     )
   }
+
+  // An accept list that only ever grows stops being a set of decisions and
+  // becomes a set of holes. Both of these are faults in the LIST, not in the
+  // bundle, and both are fixed by deleting the entry.
+  if (report.allBrowserChunks.unusedDuplicateAcceptances.length > 0)
+    errors.push(
+      `${report.allBrowserChunks.unusedDuplicateAcceptances.join(', ')} sits in ` +
+        `ACCEPTED_DUPLICATE_PACKAGES but is not bundled more than once any more. Delete the ` +
+        `entry: kept, it would silently accept the next split of that package, which nobody has ` +
+        `agreed to.`,
+    )
+
+  if (report.allBrowserChunks.illegalDuplicateAcceptances.length > 0)
+    errors.push(
+      `${report.allBrowserChunks.illegalDuplicateAcceptances.join(', ')} cannot be accepted as a ` +
+        `duplicate: it is in SINGLETON_PACKAGES, where a second copy does not cost bytes but ` +
+        `breaks the feature outright. Remove the entry and fix the split.`,
+    )
 
   // Deliberately phrased as a crash, not as weight: this is the one check here
   // whose breach means a route does not render at all. See

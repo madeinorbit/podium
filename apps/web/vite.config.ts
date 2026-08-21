@@ -334,9 +334,13 @@ export default defineConfig(({ mode }) => {
        * double. That is how a build in an agent worktree came to report
        * `eager parsed source bytes: 7757776 exceeds 7700000` and be read as 58KB
        * of app growth. It was not growth: @dnd-kit/core (104,325), @dnd-kit/
-       * utilities (7,960) and clsx (388) were each in the bundle twice, which is
-       * 112,673 bytes — the whole overage. The same commit measured 7,645,103 in
-       * a checkout that resolved them once.
+       * utilities (7,960), @trpc/server (3,663) and clsx (388) were each in the
+       * bundle twice, which is 116,336 bytes — more than the whole overage.
+       * 7,757,776 less those four second copies is 7,641,440, which is what the
+       * same source measured in a checkout that resolved them once.
+       *
+       * That figure was first written here as 112,673 over THREE packages,
+       * missing @trpc/server. Re-derived from the failing dist in POD-2530.
        *
        * WHERE THE SECOND COPY CAME FROM. Not from a version conflict: it was the
        * SAME version, from another checkout. `.worktrees/` sits inside the main
