@@ -34,6 +34,19 @@ const manifestPath = join(stage, 'podium-update.json')
 const manifest = { version: 'dev+abc1234', critical: false, artifacts: {} }
 writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`)
 
+const desktopManifestPath = join(stage, 'latest.json')
+const desktopManifest = {
+  version: '0.4.2-edge.7',
+  bridgeVersion: 1,
+  platforms: {
+    'linux-x86_64': {
+      url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium.AppImage',
+      signature: 'EDGE-SIGNATURE',
+    },
+  },
+}
+writeFileSync(desktopManifestPath, JSON.stringify(desktopManifest) + '\n')
+
 const built: BuiltDevBundle = {
   version: 'dev+abc1234',
   path: artifact,
@@ -65,6 +78,7 @@ function appFor(authenticated = true) {
   registerDevFeedRoutes(app, {
     current: () => built,
     manifestPath: () => manifestPath,
+    desktopManifestPath: () => desktopManifestPath,
     authenticate: (request: Request) =>
       authenticated && request.headers.get('authorization') === 'Bearer machine-token',
   })
@@ -297,9 +311,7 @@ describe('development artifact route', () => {
       const feed = wiringFor().channelFeed()
       expect(
         developmentArtifactUrl('https://podium.example.test', 'v1', 'random-token', 'linux-x86_64'),
-      ).toMatch(
-        new RegExp(`^${feed?.artifactBase}`),
-      )
+      ).toMatch(new RegExp(`^${feed?.artifactBase}`))
     })
 
     it('falls back to loopback only for a same-host fleet', () => {
@@ -323,6 +335,13 @@ describe('development artifact route', () => {
   })
 
   describe('the manifest leg of the feed', () => {
+    it('serves the edge-referencing shell manifest without machine credentials', async () => {
+      const response = await appFor(false).request('/updates/feed/dev/latest.json')
+      expect(response.status).toBe(200)
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      expect(await response.json()).toEqual(desktopManifest)
+    })
+
     it('serves the published manifest to an authenticated machine', async () => {
       const response = await appFor().request('/updates/feed/dev/podium-update.json', {
         headers: { authorization: 'Bearer machine-token' },

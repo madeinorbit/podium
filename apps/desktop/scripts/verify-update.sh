@@ -17,8 +17,9 @@
 # recorded in $PODIUM_STATE_DIR/update-ownership and reports INCONCLUSIVE, naming that
 # cause, rather than a vacuous pass or an unexplained failure (POD-2104).
 #
-# The arms run sequentially on the same port because the feed endpoint is baked into
-# each build. Exit: 0 both verified, 2 no upgrade, 3 the corrupted artifact was not
+# The arms run sequentially on the same port. Each isolated state directory selects the
+# dev channel and persists this feed's static latest.json endpoint. Exit: 0 both verified,
+# 2 no upgrade, 3 the corrupted artifact was not
 # rejected (3 wins — a bad artifact getting through is worse than an update not landing).
 #
 # The full chain exercised: updater.check() reaches the feed -> sees 0.1.1 ->
@@ -55,9 +56,14 @@ cp "$CONF" "$CONF_BAK"; cp package.json "$PKG_BAK"
 restore_conf() { cp "$CONF_BAK" "$CONF"; cp "$PKG_BAK" package.json; rm -f "$CONF_BAK" "$PKG_BAK"; }
 
 set_version() { # $1 = version — Tauri reads version from tauri.conf.json.
-  # Also: point the updater at the local feed port + allow the http:// (test) endpoint.
+  # Permit the http:// test endpoint. Runtime channel selection below replaces the baked URL.
   node -e "const fs=require('fs');const f='$CONF';const o=JSON.parse(fs.readFileSync(f,'utf8'));o.version='$1';o.plugins=o.plugins||{};o.plugins.updater=o.plugins.updater||{};o.plugins.updater.dangerousInsecureTransportProtocol=true;o.plugins.updater.endpoints=['http://127.0.0.1:$PORT/update/{{target}}/{{arch}}/{{current_version}}'];fs.writeFileSync(f,JSON.stringify(o,null,2)+'\n')"
   node -e "const fs=require('fs');const f='package.json';const o=JSON.parse(fs.readFileSync(f,'utf8'));o.version='$1';fs.writeFileSync(f,JSON.stringify(o,null,2)+'\n')"
+}
+
+configure_dev_feed() { # $1 = isolated desktop state directory
+  mkdir -p "$1"
+  node -e "const fs=require('fs');const dir='$1';const config={updateChannel:'dev',updateFeedEndpoint:'http://127.0.0.1:$PORT/updates/feed/dev/latest.json'};fs.writeFileSync(dir+'/config.json',JSON.stringify(config,null,2)+'\n')"
 }
 
 build() { # $1 = version
@@ -112,8 +118,8 @@ kill_stale_desktop() {
 # AND it still boots afterwards still reporting its ORIGINAL version. A half-written
 # or replaced-then-broken AppImage is the dangerous outcome this arm exists to catch.
 #
-# The feed endpoint (host AND port) is baked into the build by set_version, so this arm
-# cannot use a second port: it runs on the SAME $PORT, sequentially, BEFORE the good
+# This arm persists the dev feed endpoint into its isolated config and runs on the SAME
+# $PORT, sequentially, BEFORE the good
 # feed of ARM B starts.
 #
 # ARMEDNESS: "intact + launchable" is also what you get if the app never checked for an
@@ -147,6 +153,7 @@ chmod +x "$BAD_APP010"
 BAD_ABS="$(readlink -f "$BAD_APP010")"
 BAD_HASH_PRE="$(sha256sum "$BAD_ABS" | cut -d' ' -f1)"
 BAD_STATE="$(mktemp -d)"
+configure_dev_feed "$BAD_STATE"
 kill_stale_desktop
 PODIUM_UPDATE_TEST_AUTOCONFIRM=1 PODIUM_STATE_DIR="$BAD_STATE" APPIMAGE="$BAD_ABS" \
   timeout 90 xvfb-run -a "$BAD_APP010" >/tmp/update-corrupt.log 2>&1 || true
@@ -200,7 +207,7 @@ trap 'kill $FEED 2>/dev/null || true; restore_conf' EXIT
 sleep 1
 echo "=== FEED up (pid $FEED) on :$PORT ==="
 # prove the manifest serves
-curl -fsS "http://127.0.0.1:$PORT/update/linux-x86_64/x86_64/0.1.0" | head -c 400; echo
+curl -fsS "http://127.0.0.1:$PORT/updates/feed/dev/latest.json" | head -c 400; echo
 
 echo "=== single-instance pre-flight: killing stale desktop instances ==="
 kill_stale_desktop
@@ -210,6 +217,7 @@ kill_stale_desktop
 # no-ops (single-instance focus-exit, or setup() never runs), running-version is ABSENT,
 # which is a DETECTABLE failure rather than a stale 0.1.0 that would mask it.
 SMOKE_STATE="$(mktemp -d)"
+configure_dev_feed "$SMOKE_STATE"
 APP010="dist-verify/0.1.0/Podium_0.1.0_amd64.AppImage"
 chmod +x "$APP010"
 ABS_APP010="$(readlink -f "$APP010")"

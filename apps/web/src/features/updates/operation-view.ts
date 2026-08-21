@@ -501,6 +501,11 @@ function errorCopy(
         nextAction: 'Try again once the reason above is resolved.',
       }
     // The desktop shell's half of the taxonomy (POD-2135).
+    case 'desktop-bridge-incompatible':
+      return {
+        message: message ?? 'This Podium server needs a newer desktop shell.',
+        nextAction: 'Update Podium Desktop before continuing.',
+      }
     case 'debug-build':
       return {
         message: 'Desktop updates are turned off in this development build.',
@@ -746,7 +751,8 @@ function computeView(input: OperationViewInput): UpdatePanelView {
         : input.actionError.code === 'no-release-on-channel' ||
             input.actionError.code === 'invalid-update-channel' ||
             input.actionError.code === 'updater-unavailable' ||
-            input.actionError.code === 'update-check-failed'
+            input.actionError.code === 'update-check-failed' ||
+            input.actionError.code === 'desktop-bridge-incompatible'
           ? undefined
           : { kind: 'retry' as const, label: 'Try again', pendingLabel: 'Trying again…' }
     return {

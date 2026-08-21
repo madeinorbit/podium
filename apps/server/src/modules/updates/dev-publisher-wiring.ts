@@ -518,6 +518,7 @@ export function wireDevBundlePublisher(deps: {
       registerDevFeedRoutes(app, {
         current: () => publisher.current(),
         manifestPath: () => publisher.feedManifestPath(),
+        desktopManifestPath: () => publisher.desktopManifestPath(),
         /**
          * ONE CREDENTIAL, TWO WAYS TO PRESENT IT.
          *

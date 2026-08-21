@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type NativeDesktopBridge, nativeDesktopBridge } from './nativeDesktop'
+import {
+  desktopUpdateEndpoint,
+  type NativeDesktopBridge,
+  nativeDesktopBridge,
+  persistNativeDesktopUpdateChannel,
+} from './nativeDesktop'
 
 const desktopGlobal = globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }
 
@@ -37,6 +42,29 @@ describe('nativeDesktopBridge', () => {
     desktopGlobal.__PODIUM_DESKTOP__ = bridge
 
     expect(nativeDesktopBridge()?.installUpdate).toBeTypeOf('function')
+  })
+
+  it('persists dev with this server latest.json and release channels without an endpoint', async () => {
+    const persist = vi.fn(async () => {})
+    desktopGlobal.__PODIUM_DESKTOP__ = {
+      platform: 'linux',
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      setUpdateChannel: persist,
+    }
+
+    expect(desktopUpdateEndpoint('dev', 'https://podium.test/')).toBe(
+      'https://podium.test/updates/feed/dev/latest.json',
+    )
+    await persistNativeDesktopUpdateChannel('dev', 'https://podium.test/')
+    await persistNativeDesktopUpdateChannel('edge', 'https://podium.test/')
+    expect(persist).toHaveBeenNthCalledWith(
+      1,
+      'dev',
+      'https://podium.test/updates/feed/dev/latest.json',
+    )
+    expect(persist).toHaveBeenNthCalledWith(2, 'edge', undefined)
   })
 
   it('tolerates an older shell that has none of the update commands', () => {

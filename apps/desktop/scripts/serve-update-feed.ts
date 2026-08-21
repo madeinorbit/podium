@@ -28,8 +28,8 @@ serve({
   hostname: '127.0.0.1',
   fetch(req) {
     const url = new URL(req.url)
-    if (url.pathname.startsWith('/update/')) {
-      // Tauri appends /<target>/<arch>/<current_version>; respond with the manifest.
+    if (url.pathname === '/updates/feed/dev/latest.json' || url.pathname.startsWith('/update/')) {
+      // The dev channel uses latest.json; keep the legacy dynamic path for older harnesses.
       console.error(`[feed] manifest request: ${url.pathname} -> v${version}`)
       return Response.json({
         version,
@@ -47,4 +47,6 @@ serve({
     return new Response('not found', { status: 404 })
   },
 })
-console.error(`update feed for v${version} on :${port} (artifact ${appImage.byteLength} bytes, sig ${sig.length} chars)`)
+console.error(
+  `update feed for v${version} on :${port} (artifact ${appImage.byteLength} bytes, sig ${sig.length} chars)`,
+)

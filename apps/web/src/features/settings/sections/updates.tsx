@@ -8,7 +8,7 @@ import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/clipboard'
 import { pageBuildVersion } from '@/lib/logging/build-version'
-import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { nativeDesktopBridge, persistNativeDesktopUpdateChannel } from '@/lib/nativeDesktop'
 import { uiSource } from '@/lib/ui-source'
 import { useFeature } from '@/lib/use-feature'
 import {
@@ -188,15 +188,12 @@ export function UpdatesSection(): JSX.Element {
       const result = await trpc.setup.setChannel.mutate({ channel: next })
       setChannel(result.channel)
       setEnvForced(result.envForced)
-      // The server owns the fleet choice, while this bridge owns the installed shell's native
-      // fallback. Development uses the edge desktop feed; desktop has no third release channel.
-      const persist = nativeDesktopBridge()?.setUpdateChannel
-      if (persist) {
-        try {
-          await persist(result.channel === 'stable' ? 'stable' : 'edge')
-        } catch (e) {
-          setChannelError(e instanceof Error ? e.message : String(e))
-        }
+      // Keep the shell's native fallback on this server's channel. Dev points at
+      // this server's public shell manifest; the signed artifact itself remains on GitHub.
+      try {
+        await persistNativeDesktopUpdateChannel(result.channel, window.location.origin)
+      } catch (e) {
+        setChannelError(e instanceof Error ? e.message : String(e))
       }
     } catch (e) {
       setChannel(prev)

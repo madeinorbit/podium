@@ -63,6 +63,8 @@ export type UpdateNotes = z.infer<typeof UpdateNotes>
 export const MinRequired = z
   .object({
     desktop: z.string().optional(),
+    /** Minimum native shell bridge contract understood by this payload. */
+    desktopBridge: z.number().int().nonnegative().optional(),
     web: z.string().optional(),
     mobile: z
       .object({ ios: z.string().optional(), android: z.string().optional() })

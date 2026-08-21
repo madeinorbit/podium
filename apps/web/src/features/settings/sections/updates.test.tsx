@@ -332,7 +332,7 @@ describe('UpdatesSection', () => {
 
     await waitFor(() => {
       expect(trpc.setup.setChannel.mutate).toHaveBeenCalledWith({ channel: 'stable' })
-      expect(persist).toHaveBeenCalledWith('stable')
+      expect(persist).toHaveBeenCalledWith('stable', undefined)
     })
     expect(screen.getByRole('button', { name: 'Stable' }).getAttribute('aria-pressed')).toBe('true')
   })

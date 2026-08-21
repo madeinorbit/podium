@@ -6,6 +6,7 @@ import {
   buildDesktopManifest,
   desktopReleaseTag,
   prepareDesktopRelease,
+  referencedDesktopAssets,
   resolveNotes,
   staleDesktopAssets,
   validateDesktopManifest,
@@ -44,6 +45,7 @@ describe('desktop release manifest', () => {
     })
     expect(JSON.parse(text)).toEqual({
       version: '0.2.0-edge.1',
+      bridgeVersion: 1,
       notes: 'CRITICAL: signing-key migration',
       platforms: {
         'linux-x86_64': {
@@ -173,6 +175,11 @@ describe('desktop release manifest', () => {
     expect(readFileSync(result.downloadPaths[0] ?? '', 'utf8')).toBe('DMG')
     expect(readFileSync(result.downloadPaths[1] ?? '', 'utf8')).toBe('INTEL-DMG')
     const manifest = JSON.parse(readFileSync(result.manifestPath, 'utf8'))
+    expect(manifest.bridgeVersion).toBe(1)
+    expect(manifest.downloads).toEqual([
+      'https://github.com/madeinorbit/podium/releases/download/v0.2.0/Podium_0.2.0_aarch64.dmg',
+      'https://github.com/madeinorbit/podium/releases/download/v0.2.0/Podium_0.2.0_x64.dmg',
+    ])
     expect(manifest.platforms['linux-x86_64']).toEqual({
       url: 'https://github.com/madeinorbit/podium/releases/download/v0.2.0/Podium_0.2.0_amd64.AppImage',
       signature: 'LINUX-SIGNATURE',
@@ -217,6 +224,22 @@ describe('desktop release manifest', () => {
       'Podium_0.1.4-edge.3_amd64.AppImage.sig',
       'Podium_0.1.4-edge.3_aarch64.app.tar.gz',
       'Podium_0.1.4-edge.3_aarch64.app.tar.gz.sig',
+    ])
+  })
+
+  it('derives the kept edge assets from latest.json references', () => {
+    const manifest = buildDesktopManifest({
+      version: '0.2.0-edge.1',
+      channel: 'edge',
+      artifacts: [linuxArtifact, macArtifact],
+      downloads: ['Podium_0.2.0-edge.1_aarch64.dmg'],
+    })
+    expect(referencedDesktopAssets([manifest])).toEqual([
+      linuxArtifact.artifactName,
+      linuxArtifact.artifactName + '.sig',
+      macArtifact.artifactName,
+      macArtifact.artifactName + '.sig',
+      'Podium_0.2.0-edge.1_aarch64.dmg',
     ])
   })
 

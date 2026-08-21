@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
 import type { Context, Hono } from 'hono'
 import type { BuiltDevBundle } from './dev-bundle'
-import { DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
+import { DEV_DESKTOP_MANIFEST, DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
 
 export const DEV_BUNDLE_CONTENT_TYPE = 'application/gzip'
 
@@ -24,6 +24,8 @@ export interface DevFeedRouteDeps {
    * few hundred bytes and it changes underneath this process every publish.
    */
   manifestPath(): string | undefined
+  /** Public shell manifest; it contains only release-key-signed GitHub asset URLs. */
+  desktopManifestPath?(): string | undefined
   /** Machine authentication is mandatory, even when the human UI is open-mode. */
   authenticate(request: Request, context: Context): boolean | Promise<boolean>
   /** Seam for tests; defaults to a read stream over the published path. */
@@ -70,11 +72,11 @@ async function readManifestFile(path: string): Promise<string | null> {
  * three channels resolve through one code path. Nothing about the dev channel
  * is special here except who signed the artifact and who is allowed to ask.
  *
- * AUTHENTICATED, 401-FIRST, ON BOTH LEGS (disposition 3). The manifest names
- * artifact URLs carrying this server's artifact token; handing it to an
- * unauthenticated caller would hand over the credential too. Authentication is
- * still not a substitute for verification — the daemon checks the digest and
- * the signature against its pinned key regardless.
+ * The headless manifest and artifact are AUTHENTICATED and 401-FIRST
+ * (disposition 3): that manifest names artifact URLs carrying this server's
+ * credential. The desktop `latest.json` is deliberately public because Tauri's
+ * updater cannot attach machine credentials; it contains only GitHub URLs whose
+ * bytes remain protected by the shell's baked release minisign key.
  *
  * NOTHING IS BUFFERED on the artifact leg. A headless bundle is ~264 MB and
  * this server shares its host with the daemon and every agent session; reading
@@ -120,6 +122,16 @@ export function registerDevFeedRoutes(app: Hono, deps: DevFeedRouteDeps): void {
       'cache-control': 'no-store',
     })
   }
+
+  app.get(DEV_FEED_ROUTE + '/' + DEV_DESKTOP_MANIFEST, async (c) => {
+    const path = deps.desktopManifestPath?.()
+    const body = path ? await readManifest(path) : null
+    if (!body) return c.text('not found', 404)
+    return c.body(body, 200, {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+    })
+  })
 
   app.get(`${DEV_FEED_ROUTE}/${DEV_FEED_MANIFEST}`, async (c) => {
     if (!(await deps.authenticate(c.req.raw, c))) return c.text('unauthorized', 401)

@@ -67,7 +67,7 @@ describe('desktop release workflow', () => {
     // All desktop asset names embed the version, so --clobber never replaces them: without
     // pruning, every past edge build — including pre-notarization installers and updater
     // archives — stays downloadable from the release page.
-    expect(desktopWorkflow).toContain('--list-stale')
+    expect(desktopWorkflow).toContain('--list-stale --manifest dist-desktop/latest.json')
     expect(desktopWorkflow).toContain('gh release delete-asset edge "$asset" --yes')
     // Only the rolling edge release accumulates; stable releases are immutable per-tag cuts.
     expect(desktopWorkflow).toMatch(/if \[ "\$CHANNEL" = edge ]; then\n\s+gh release view edge/)
@@ -75,6 +75,17 @@ describe('desktop release workflow', () => {
     const upload = desktopWorkflow.indexOf('gh release upload "$target_tag"')
     const prune = desktopWorkflow.indexOf('gh release delete-asset')
     expect(prune).toBeGreaterThan(upload)
+  })
+
+  it('mints only when shell inputs change and carries the standing shell otherwise', () => {
+    expect(desktopWorkflow).toContain(
+      'git ls-files -s apps/desktop/src-tauri apps/desktop/scripts/stage-sidecar.ts',
+    )
+    expect(desktopWorkflow).toContain('desktop-shell-input.sha256')
+    expect(desktopWorkflow).toContain("if: needs.validate.outputs.build_shell == 'true'")
+    expect(headlessWorkflow).toContain('Carry forward the standing desktop shell reference')
+    expect(headlessWorkflow).toContain('latest.json desktop-shell-input.sha256')
+    expect(releaseSource).toContain('validateReferencedDesktopManifest')
   })
 
   it('builds both macOS architectures with the same signing pipeline', () => {

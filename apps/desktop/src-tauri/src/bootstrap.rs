@@ -106,6 +106,7 @@ pub fn local_served_http_url(port: u16) -> String {
 /// Desktop release channel persisted in the shared Podium config or stamped into the build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateChannel {
+    Dev,
     Stable,
     Edge,
 }
@@ -113,6 +114,7 @@ pub enum UpdateChannel {
 impl UpdateChannel {
     pub fn from_config(value: Option<&str>) -> Option<Self> {
         match value {
+            Some("dev") => Some(Self::Dev),
             Some("stable") => Some(Self::Stable),
             Some("edge") => Some(Self::Edge),
             _ => None,
@@ -121,6 +123,7 @@ impl UpdateChannel {
 
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Dev => "dev",
             Self::Stable => "stable",
             Self::Edge => "edge",
         }
@@ -148,6 +151,8 @@ pub struct DesktopConfig {
     /// A valid user choice from config.json. Absence and unknown values deliberately remain
     /// distinguishable so the updater can fall back to the channel stamped into this build.
     pub update_channel: Option<UpdateChannel>,
+    /// Manifest endpoint supplied by the attached source server for the dev channel.
+    pub update_feed_endpoint: Option<String>,
 }
 
 /// What the shell should do at launch, derived purely from the config.
@@ -261,6 +266,11 @@ pub fn read_config() -> DesktopConfig {
         update_channel: UpdateChannel::from_config(
             json.get("updateChannel").and_then(|v| v.as_str()),
         ),
+        update_feed_endpoint: json
+            .get("updateFeedEndpoint")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .map(str::to_string),
     }
 }
 
@@ -476,7 +486,10 @@ pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
 /// Persist the desktop updater's production channel without disturbing config fields owned by
 /// the server. Unlike the hosting transition this is valid before config.json exists: choosing a
 /// channel in the app is enough to create the user's override.
-pub fn write_update_channel(channel: UpdateChannel) -> Result<(), String> {
+pub fn write_update_channel(
+    channel: UpdateChannel,
+    feed_endpoint: Option<&str>,
+) -> Result<(), String> {
     let path = state_dir().join("config.json");
     let mut json = match std::fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str::<serde_json::Value>(&text)
@@ -493,6 +506,22 @@ pub fn write_update_channel(channel: UpdateChannel) -> Result<(), String> {
         "updateChannel".to_string(),
         serde_json::Value::String(channel.as_str().to_string()),
     );
+    if channel == UpdateChannel::Dev {
+        let endpoint = feed_endpoint
+            .map(str::trim)
+            .filter(|endpoint| !endpoint.is_empty())
+            .ok_or_else(|| "the dev desktop channel needs a feed endpoint".to_string())?;
+        let url = Url::parse(endpoint).map_err(|e| format!("invalid dev update endpoint: {e}"))?;
+        if !matches!(url.scheme(), "http" | "https") {
+            return Err("the dev update endpoint must use http or https".to_string());
+        }
+        obj.insert(
+            "updateFeedEndpoint".to_string(),
+            serde_json::Value::String(endpoint.to_string()),
+        );
+    } else {
+        obj.remove("updateFeedEndpoint");
+    }
     let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(state_dir())
         .map_err(|e| format!("cannot create {}: {e}", state_dir().display()))?;
@@ -515,7 +544,7 @@ pub fn initialize_update_channel(
     if let Some(channel) = configured {
         return Ok(channel);
     }
-    write_update_channel(build)?;
+    write_update_channel(build, None)?;
     Ok(build)
 }
 
@@ -1840,7 +1869,7 @@ mod tests {
             "channel-persist",
             Some(r#"{"mode":"client","extra":42}"#),
             || {
-                write_update_channel(UpdateChannel::Stable).expect("channel write failed");
+                write_update_channel(UpdateChannel::Stable, None).expect("channel write failed");
                 let persisted = read_config().update_channel;
                 assert_eq!(persisted, Some(UpdateChannel::Stable));
                 assert_eq!(
@@ -1854,6 +1883,23 @@ mod tests {
                 assert_eq!(raw["extra"], 42);
             },
         );
+    }
+
+    #[test]
+    fn dev_channel_persists_its_server_manifest_endpoint() {
+        with_state_dir("dev-channel", Some(r#"{"extra":42}"#), || {
+            write_update_channel(
+                UpdateChannel::Dev,
+                Some("https://podium.test/updates/feed/dev/latest.json"),
+            )
+            .expect("dev channel write failed");
+            let config = read_config();
+            assert_eq!(config.update_channel, Some(UpdateChannel::Dev));
+            assert_eq!(
+                config.update_feed_endpoint.as_deref(),
+                Some("https://podium.test/updates/feed/dev/latest.json")
+            );
+        });
     }
 
     #[test]

@@ -2008,6 +2008,16 @@ describe('the dev feed manifest the publisher writes', () => {
       lock: lockFixture([]),
       artifactUrl: (version) =>
         `https://ludovico.test/updates/feed/dev/artifact/${encodeURIComponent(version)}?token=t`,
+      edgeDesktopManifest: async () => ({
+        version: '0.4.2-edge.7',
+        bridgeVersion: 1,
+        platforms: {
+          'linux-x86_64': {
+            url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium_0.4.2-edge.7_amd64.AppImage',
+            signature: 'EDGE-SIGNATURE',
+          },
+        },
+      }),
       now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
       spawnBuild: async ({ artifactPath }) => {
         store.blobs.set(artifactPath, bytes)
@@ -2032,6 +2042,11 @@ describe('the dev feed manifest the publisher writes', () => {
 
     expect(await publisher.publishFeed()).toBe(true)
     expect(publisher.feedManifestPath()).toBe('/repo/podium/dist-bun/podium-update.json')
+    expect(publisher.desktopManifestPath()).toBe('/repo/podium/dist-bun/latest.json')
+    expect(JSON.parse(await store.fs.readText(publisher.desktopManifestPath()))).toMatchObject({
+      version: '0.4.2-edge.7',
+      bridgeVersion: 1,
+    })
 
     const parsed = UpdateTarget.parse(
       JSON.parse(await store.fs.readText(publisher.feedManifestPath())),

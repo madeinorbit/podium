@@ -70,6 +70,7 @@ function fourPlatformManifest(version = '0.4.2') {
 function desktopManifest(version = '0.4.2') {
   return {
     version,
+    bridgeVersion: 1,
     platforms: {
       'darwin-aarch64': {
         url: DESKTOP_URL,
@@ -116,7 +117,7 @@ function devFetchFixture(input: {
 }
 
 describe('resolveReleaseTarget', () => {
-  it('publishes the target only after the matching desktop build and named artifacts exist', async () => {
+  it('publishes the target only after the standing desktop build and named artifacts exist', async () => {
     const fetchImpl = fetchFixture({})
 
     await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
@@ -142,16 +143,34 @@ describe('resolveReleaseTarget', () => {
     ).toBe(true)
   })
 
-  it('does not advertise a headless version while the desktop feed still names the old build', async () => {
+  it('keeps advertising a headless release while latest.json references the standing shell', async () => {
     const fetchImpl = fetchFixture({ desktop: desktopManifest('0.4.1') })
 
-    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-      'desktop build for 0.4.2 is not published yet',
-    )
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
+      version: '0.4.2',
+    })
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+  })
 
-    // The version mismatch is sufficient proof of the publication window; no
-    // download can make these two manifests describe one installable release.
-    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  it('refuses a standing shell outside the declared compatibility window', async () => {
+    const release = {
+      ...releaseManifest(),
+      minRequired: { desktop: '0.4.2', desktopBridge: 2 },
+    }
+    const fetchImpl = fetchFixture({ release, desktop: desktopManifest('0.4.1') })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+      'desktop shell 0.4.1 is below required 0.4.2',
+    )
+  })
+
+  it('refuses a standing shell whose bridge is below the declared compatibility window', async () => {
+    const release = { ...releaseManifest(), minRequired: { desktopBridge: 2 } }
+    const fetchImpl = fetchFixture({ release, desktop: desktopManifest('0.4.2') })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+      'desktop bridge 1 is below required 2',
+    )
   })
 
   it('does not advertise a target whose desktop artifact is not fetchable', async () => {
