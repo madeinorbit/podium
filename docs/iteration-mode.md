@@ -24,12 +24,15 @@ Requirements:
 The command is **foreground only**. Ctrl-C tears it down (including any
 temporary Tailscale HTTPS mount it created). It is never auto-started.
 
-Only a `kill -9` can leave the mount behind, because nothing runs after one.
-Remove it by hand if that happens — it is scoped to its own port, so this cannot
-disturb the live `:55555` mount:
+Ctrl-C, `SIGTERM` and a terminal hangup (`SIGHUP` — closing the ssh session is
+the ordinary way this ends on a VPS) all tear down. Only `SIGKILL` can leave
+something behind, because nothing runs after one. Two things to give back, and
+the scope matters as much as the mount — a scoped process survives its parent,
+so the dev server keeps the port and the next start on it refuses:
 
 ```sh
-tailscale serve --https=55565 off
+tailscale serve --https=55565 off              # the HTTPS mount, its port only
+systemctl --user stop podium-iterate-55566.scope   # the dev server itself
 ```
 
 ## What you get
@@ -91,9 +94,17 @@ UI-only work on a branch whose protocol matches the live server never sees this.
 
 ## Guardrails
 
-- Never runs `vite build` / `preview` — argv is refused if it would.
-- Fingerprints `apps/web/dist` around the session (path, size, content hash — not
-  timestamps, which Bun cannot resolve finely enough) and reports if it changed.
+- The spawn plan is `bun run dev` and nothing else; `assertNoBuildArgs` refuses a
+  plan containing `build` / `build:*` / `preview`. It is an **edit-time
+  tripwire** — it cannot fire today, and that is the point: it stops this
+  command from ever being changed into one that writes the served bundle.
+- Fingerprints **this checkout's** `apps/web/dist` around the session (path,
+  size, content hash — not timestamps, which Bun cannot resolve finely enough).
+  A worktree usually has no `dist` at all, and the command then says so rather
+  than reporting "untouched" about a directory it never read. Note what this does
+  and does not cover: the dist the installed server actually serves lives in its
+  own install, which iterate never has a handle on — the real assurance there is
+  that the command runs a dev server and never a build.
 - Refuses to start without a local `node_modules`, so Vite can never resolve out
   of a sibling checkout and hot-reload code you are not editing.
 - Publishes no release, so the updater offer path is untouched.

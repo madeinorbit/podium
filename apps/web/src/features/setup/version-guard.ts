@@ -114,17 +114,6 @@ function clearReloadCounter(): void {
 }
 
 /**
- * Fetch the server's `/version` and hard-reload when this cached bundle is out of sync with it:
- * either the bundle predates the server's `minSupportedVersion`, or the two `wireVersion`s differ.
- *
- * - Matched → `'ok'`, clears the loop counter.
- * - Mismatch → `forceReload()`, returns `'reloaded'` (the page is now reloading).
- * - Mismatch persisting after `MAX_RELOADS` reloads AT THE SAME SERVED BUILD → `'blocked'`
- *   (logged), no reload, so a broken deploy can't spin the tab in an endless reload loop. A
- *   server that starts serving a different build resets the budget (POD-2253).
- * - Network / parse error → `'ok'` (never block the app on a flaky `/version`).
- */
-/**
  * What to say when an iterate page does not match the server it is proxying to.
  *
  * NAME THE RIGHT MISMATCH. The common case on a VPS is `schema-skew` — the
@@ -150,6 +139,19 @@ export function iterationSkewMessage(verdict: SkewVerdict): string {
     .trim()
 }
 
+/**
+ * Fetch the server's `/version` and hard-reload when this cached bundle is out of sync with it:
+ * either the bundle predates the server's `minSupportedVersion`, or the two `wireVersion`s differ.
+ *
+ * - Matched → `'ok'`, clears the loop counter.
+ * - Mismatch → `forceReload()`, returns `'reloaded'` (the page is now reloading).
+ * - Mismatch persisting after `MAX_RELOADS` reloads AT THE SAME SERVED BUILD → `'blocked'`
+ *   (logged), no reload, so a broken deploy can't spin the tab in an endless reload loop. A
+ *   server that starts serving a different build resets the budget (POD-2253).
+ * - Mismatch in ITERATION MODE → `'iteration'`, never a reload: the page is source and the
+ *   fresh bundle would be the same source (POD-2513).
+ * - Network / parse error → `'ok'` (never block the app on a flaky `/version`).
+ */
 export async function checkServerVersion(
   httpOrigin: string,
   /** Injected for the test; production reads the build define. */

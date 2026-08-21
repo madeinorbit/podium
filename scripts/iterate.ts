@@ -190,6 +190,19 @@ export function iterateScopeUnit(webPort: number): string {
 }
 
 /**
+ * Signals this session must outlive by just long enough to give the box back.
+ *
+ * SIGHUP EARNS ITS PLACE BY MEASUREMENT (POD-2513 review). It was missing, and a
+ * hangup — which is what closing the ssh session sends, the ordinary ending for
+ * a foreground command on a VPS — killed the parent outright: the dev server
+ * kept the port under its surviving scope, the tailnet HTTPS mount stayed in
+ * tailscaled's config, and the next start on that port refused because the
+ * reclaim will not stop a live scope. Self-perpetuating, and recoverable only by
+ * hand. Keep this list and `teardown` together.
+ */
+export const TEARDOWN_SIGNALS: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP']
+
+/**
  * What actually gets spawned: `bun run dev` in `apps/web`, optionally wrapped in
  * a batch-tier scope. Pure, so the unscoped fallback (macOS, a container) is a
  * table rather than a branch nobody can see.
@@ -373,6 +386,17 @@ async function main(): Promise<void> {
   const distDir = join(repoRoot, 'apps', 'web', 'dist')
   const distBefore = distFingerprint(distDir)
 
+  /**
+   * OUTSIDE THE TLS BRANCH, and that placement is the bug fix (POD-2513 review).
+   * The tailnet name is the `Host` a browser sends on BOTH URLs — Vite refuses a
+   * host it was not told about either way. Resolved here, `--no-tls` still
+   * answers at `http://<tailnet-name>:<port>`, which is the URL the docs give.
+   */
+  const tailnetHost = tailnetHostFromStatus(tailscaleJson(['status', '--json']))
+  if (tailnetHost && !config.allowedHosts.includes(tailnetHost)) {
+    config.allowedHosts.push(tailnetHost)
+  }
+
   let tlsPort = config.tlsPort
   if (tlsPort !== null) {
     const status = tailscaleJson(['serve', 'status', '--json'])
@@ -385,11 +409,6 @@ async function main(): Promise<void> {
           'Pick another with --tls-port=, or run with --no-tls.',
       )
       process.exit(1)
-    } else {
-      const tailnetHost = tailnetHostFromStatus(tailscaleJson(['status', '--json']))
-      if (tailnetHost && !config.allowedHosts.includes(tailnetHost)) {
-        config.allowedHosts.push(tailnetHost)
-      }
     }
   }
 
@@ -421,16 +440,43 @@ async function main(): Promise<void> {
     if (!mounted) say(`could not mount tailscale TLS on :${tlsPort} — plain HTTP only`)
   }
 
+  /**
+   * EVERYTHING THIS SESSION PUT ON THE BOX COMES OFF AGAIN.
+   *
+   * Idempotent and fully synchronous, which is what lets it also run from
+   * `process.on('exit')` — the backstop that covers every way out except
+   * SIGKILL, including an unhandled signal and a throw.
+   *
+   * STOPPING THE SCOPE IS PART OF IT (POD-2513 review). A scoped process
+   * SURVIVES its parent and reparents to the user manager — build-scope.ts says
+   * so, and it was measured here: after a hangup the parent was gone while vite
+   * still held the port and the scope was still active. Worse, the next
+   * `iterate` on that port then refuses, because the reclaim deliberately never
+   * stops a live scope (it cannot tell someone else's from an orphan). This can,
+   * because it is stopping the unit THIS session created, at a name it already
+   * verified was free.
+   */
+  let torndown = false
   const teardown = () => {
+    if (torndown) return
+    torndown = true
     if (mounted && tlsPort !== null) {
       spawnSync('tailscale', tailscaleServeOffArgv(tlsPort), { stdio: 'ignore' })
       mounted = false
     }
+    if (scoped && unitIsActive(unit, env)) {
+      spawnSync('systemctl', ['--user', 'stop', unit], { stdio: 'ignore', env })
+    }
     const drift = describeDistDrift(distBefore, distFingerprint(distDir))
     if (drift) {
       console.error(`[iterate] GUARDRAIL: ${drift}. The installed UI may have changed — check it.`)
+    } else if (distBefore === null) {
+      // SAY WHAT WAS ACTUALLY CHECKED. This checkout has never built, so the
+      // guardrail read nothing — reporting "untouched" would be a pass issued by
+      // an instrument that never looked (POD-2513 review, finding 3).
+      say(`no built dist at ${distDir} — nothing here for an iterate session to disturb`)
     } else {
-      say('apps/web/dist untouched; the installed app and the updater are as you left them')
+      say(`${distDir} untouched; the installed app and the updater are as you left them`)
     }
   }
 
@@ -443,12 +489,31 @@ async function main(): Promise<void> {
   const child = spawn(plan.file, plan.args, { cwd: plan.cwd, env, stdio: 'inherit' })
   let closing = false
   const forward = (signal: NodeJS.Signals) => {
-    if (closing) return
+    // A second signal means the first one did not take. Stop asking politely:
+    // tear down what we put on the box and go, rather than hanging on a child
+    // that is not listening.
+    if (closing) {
+      teardown()
+      process.exit(1)
+    }
     closing = true
     child.kill(signal)
   }
-  process.on('SIGINT', () => forward('SIGINT'))
-  process.on('SIGTERM', () => forward('SIGTERM'))
+  /**
+   * SIGHUP IS THE ORDINARY ENDING HERE, not an exotic one (POD-2513 review):
+   * this is a foreground command on a VPS, so closing the ssh session is how it
+   * usually stops. Left unhandled it killed the parent outright — teardown never
+   * ran, vite kept the port, the scope stayed active and the tailscale mount
+   * stayed in tailscaled's config, and the next start on that port refused.
+   *
+   * (Measure a hangup with `setsid`, never `nohup`: nohup sets SIGHUP to IGNORED
+   * in the child, so the test passes without proving anything. Check bit 0 of
+   * SigIgn in /proc/PID/status.)
+   */
+  for (const signal of TEARDOWN_SIGNALS) process.on(signal, () => forward(signal))
+  // The last line of defence: any exit path that reaches here — a throw, a
+  // signal nobody handled — still gives back the port, the scope and the mount.
+  process.on('exit', teardown)
 
   const status = await new Promise<number>((resolve) => {
     child.once('error', (error) => {
