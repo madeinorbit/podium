@@ -33,6 +33,11 @@ test-results/
 
 # bun build --compile artifacts
 dist-bun/
+dist-bun-spike/
+
+# POD-2501 spike: Mach-O abduco payloads (rebuild via scripts/spike/build-prebuilt-abduco.sh)
+scripts/prebuilt/abduco/darwin-arm64/
+scripts/prebuilt/abduco/darwin-x64/
 
 # Headless self-update DEV signing key (private half; pubkey is committed). Never commit.
 scripts/.podium-update-dev.key

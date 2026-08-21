@@ -426,6 +426,22 @@ rcodesign-ad-hoc-signed darwin binary must run on macOS and spawn abduco correct
 the fallback if it fails is a Mac CI leg per release and stale dev Mac payloads, which
 this design otherwise avoids.
 
+**Spike status (POD-2501, 2026-08-21):** Linux production path is proven;
+Mac runtime GO/NO-GO is **PENDING** a Mac run of the packaged verifier.
+
+| Step | Result |
+|---|---|
+| Prebuilt abduco via `zig cc` (darwin-arm64 + darwin-x64) | DONE — `scripts/prebuilt/abduco/`, headerpad + `rcodesign sign` |
+| `bun build --compile --target=bun-darwin-arm64` (+ x64) embedding that abduco | DONE — `dist-bun-spike/`, spike script `scripts/spike/build-bun-darwin.ts` |
+| Ad-hoc sign from Linux with Bun JIT entitlements | DONE — `rcodesign sign --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist` → `CodeSignatureFlags(ADHOC)` |
+| Mac: `--version`, daemon boot, abduco survives restart, unsigned fails | **PENDING** — run `mac-verify.sh` from the spike tarball |
+
+Evidence write-up:
+`docs/internal/superpowers/spikes/2026-08-21-darwin-cross-compile-spike.md`.
+Exact invocations and failure-mode probes (unsigned vs ad-hoc, quarantine xattr,
+bun:sqlite/FFI/discovery-worker via daemon boot) are recorded there. Attach Mac
+log to POD-2501 and POD-2462 before flipping this to GO or escalating NO-GO.
+
 ## 8c. Decisions log (grilling round 1, 2026-08-21)
 
 1. **Proposal pile-up**: one collapsing proposal, always offering latest HEAD;

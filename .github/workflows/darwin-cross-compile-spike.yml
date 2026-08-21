@@ -1,0 +1,102 @@
+# POD-2501 decisive spike: build darwin-arm64 headless on Linux, verify on macOS.
+# workflow_dispatch only — not a standing gate. Delete or park after GO/NO-GO.
+name: darwin-cross-compile-spike
+on:
+  workflow_dispatch:
+concurrency:
+  group: darwin-cross-compile-spike-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ hashFiles('bun.lock') }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: cargo-rcodesign-0.29.0-${{ runner.os }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install zig + rcodesign
+        run: |
+          set -euo pipefail
+          ZIG_VER=0.16.0
+          curl -fsSL -o /tmp/zig.tar.xz \
+            "https://ziglang.org/download/${ZIG_VER}/zig-x86_64-linux-${ZIG_VER}.tar.xz"
+          sudo tar -xJf /tmp/zig.tar.xz -C /opt
+          sudo ln -sfn "/opt/zig-x86_64-linux-${ZIG_VER}/zig" /usr/local/bin/zig
+          zig version
+          if ! command -v rcodesign >/dev/null; then
+            cargo install apple-codesign --locked --bin rcodesign --version 0.29.0
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rcodesign --version
+
+      - name: bun install
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Cross-compile abduco + podium (darwin-arm64)
+        run: |
+          set -euo pipefail
+          chmod +x scripts/spike/build-prebuilt-abduco.sh
+          scripts/spike/build-prebuilt-abduco.sh
+          bun --conditions=@podium/source scripts/spike/build-bun-darwin.ts --target=bun-darwin-arm64
+          cp scripts/spike/mac-verify.sh dist-bun-spike/darwin-arm64/
+          cp scripts/spike/bun-jit.entitlements.plist dist-bun-spike/darwin-arm64/
+          chmod +x dist-bun-spike/darwin-arm64/mac-verify.sh
+          tar -czf podium-headless-spike-darwin-arm64.tar.gz \
+            -C dist-bun-spike/darwin-arm64 \
+            headless podium podium.unsigned abduco mac-verify.sh bun-jit.entitlements.plist
+          ls -lah podium-headless-spike-darwin-arm64.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darwin-arm64-spike
+          path: podium-headless-spike-darwin-arm64.tar.gz
+          retention-days: 7
+
+  verify-macos:
+    needs: build-linux
+    # Same Apple Silicon pool desktop-release uses; fallback label commented for forks.
+    runs-on: blacksmith-6vcpu-macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: darwin-arm64-spike
+      - name: Unpack and verify
+        run: |
+          set -euo pipefail
+          mkdir -p spike && tar -xzf podium-headless-spike-darwin-arm64.tar.gz -C spike
+          cd spike
+          chmod +x mac-verify.sh headless/podium-cli podium.unsigned abduco
+          # Capture log even if a soft WARN path exits non-zero later.
+          set +e
+          bash mac-verify.sh | tee mac-verify.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "mac-verify exit=$rc"
+          # Hard gates for GO: signed --version must have passed (script dies otherwise).
+          grep -q 'PASS: signed --version' mac-verify.log
+          grep -q 'PASS: standalone prebuilt abduco -v' mac-verify.log
+          grep -q 'PASS: abduco session survives' mac-verify.log
+          exit "$rc"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-verify-log
+          path: spike/mac-verify.log
+          retention-days: 30
