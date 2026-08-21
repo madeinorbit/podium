@@ -152,3 +152,25 @@ export function sanitizeRenderedMarkdown(unsafeHtml: string): string {
 export function renderMarkdown(text: string): string {
   return sanitizeRenderedMarkdown(renderMarkdownUnsafe(text))
 }
+
+/**
+ * Markdown → sanitized HTML for a READOUT, not a document (POD-1455).
+ *
+ * A task's description is written the way everything else in this product is
+ * written — a lead-in line, a blank line, a list of things to do — and until now
+ * every surface printed that as one run of text with the hyphens still in it.
+ * The structure is the meaning, so it gets rendered.
+ *
+ * WHAT IT DOES NOT RENDER IS THE POINT. `renderMarkdown` is the transcript's
+ * path: ref chips, file links and external anchors, each of which only works
+ * because the chat surface installs a click handler for it. A brief in the
+ * flight deck's header sits INSIDE the mission's own click target, so an anchor
+ * there is either dead or a second thing to hit by accident. Anchors and images
+ * are dropped and their text kept, which leaves exactly the structure — breaks,
+ * paragraphs, lists, emphasis, inline code — and nothing to click.
+ */
+export function renderReadoutMarkdown(text: string): string {
+  return DOMPurify.sanitize(renderMarkdownUnsafe(text), {
+    FORBID_TAGS: ['a', 'img', 'button', 'iframe'],
+  })
+}

@@ -9202,6 +9202,93 @@ a.ref-link--session::before {
   }
 }
 
+/* ── THE MISSION'S BRIEF (POD-1455) ──────────────────────────────────────────
+   The header's paragraph, in the shell's reading register rather than in a
+   caption's. `chat-md` supplies the setting and every block rule it needs — a
+   list keeps its markers, a paragraph keeps its air, a lead-in stays attached
+   to the list it introduces — so this rule only says the three things that are
+   the DECK's rather than the transcript's.
+
+   INK. `chat-md` writes an answer in `--foreground`, because in the feed it IS
+   the content. Here it sits under a 17px column title and above the mission's
+   controls, so it takes the secondary ink the header's paragraph has always
+   had; the title stays the loudest thing in the block.
+
+   HEIGHT. Five of its OWN lines, `1lh` at whatever density the shell is in —
+   the same mechanism `.brief-shelf-text` uses, and for the same reason: a pixel
+   constant written next to a line-height it cannot see clamps at three lines
+   and a sliver the moment compact density moves one of them.
+
+   THE CUT SAYS SO. `line-clamp`'s ellipsis needs a single run of inline text,
+   and this box has blocks in it, so the last visible line fades instead. It is
+   gated on `data-clipped` — measured, because nothing in CSS can answer it —
+   so a two-line brief is never dimmed for a cut that did not happen. */
+.deck-brief.chat-md {
+  --brief-lines: 5;
+  max-height: calc(var(--brief-lines) * 1lh);
+  overflow: hidden;
+  color: var(--muted-foreground);
+}
+/* BLOCK RHYTHM IS THE COLUMN'S, NOT THE FEED'S. `chat-md`'s intervals are set
+   for a turn in a transcript, where a paragraph has a whole stage to breathe in
+   and two thirds of a line between thoughts is right. Inside a five-line clamp
+   in a 300px column the same intervals spend a fifth of the box on air: the
+   lead-in and its list arrived a line and a half apart, and the brief showed
+   less than the 12px slab it replaced. Tighter here, and the list is pulled back
+   onto the header's own 16px datum — a bullet indented past the title it sits
+   under reads as a second, narrower column. */
+.deck-brief p {
+  margin: 0.55em 0;
+}
+.deck-brief :is(ul, ol) {
+  margin: 0.45em 0;
+  /* An `outside` marker is drawn in this padding, and the clamp above is
+     `overflow: hidden` — so a padding tuned to the text's indent alone shaves
+     the left of every bullet off. 1.35em is the disc plus its gap, which is as
+     close to the datum as the marker can come without being cut. */
+  padding-left: 1.35em;
+}
+.deck-brief ol {
+  padding-left: 1.9em;
+}
+.deck-brief li {
+  margin: 0.2em 0;
+}
+/* Not the operator's words: the standing sentence, and the guidance a draft
+   mission carries until its first prompt lands. One step down the ink ramp is
+   the whole difference — same slot, same setting — so "somebody wrote this
+   down" is legible without a label. */
+.deck-brief[data-standing="true"] {
+  color: var(--text-dim);
+}
+.deck-brief[data-clipped="true"] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 calc((var(--brief-lines) - 1) * 1lh),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 calc((var(--brief-lines) - 1) * 1lh),
+    transparent 100%
+  );
+}
+/* A brief is a READOUT: the renderer already drops every anchor, and the copy
+   affordance the code renderer injects would be the one clickable thing left in
+   a block that is not meant to be operated. */
+.deck-brief .code-copy {
+  display: none;
+}
+/* A description is not a document. A heading in one is a step of weight and ink
+   inside a five-line box, not the start of a section — the 1.5em of air `chat-md`
+   puts over a heading for a long answer would spend a whole line of the clamp. */
+.deck-brief :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: 0.6em;
+  font-size: 1em;
+}
+
 /* ── THE MISSION GAUGE — "the split readout" (POD-710) ───────────────────────
    The flight deck's mission bar is a row of bands, one per state, each sized by
    how many tasks it holds and each carrying its own count INSIDE itself. A band

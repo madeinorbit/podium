@@ -250,6 +250,68 @@ describe('the cold deck (POD-1112)', () => {
   })
 })
 
+describe("the mission's brief (POD-1455)", () => {
+  const brief = (): HTMLElement => screen.getByTestId('deck-brief')
+
+  it('keeps the shape the author wrote — a lead-in, then a list', () => {
+    harness.issues = [
+      issue('root', {
+        title: 'Mission',
+        description: 'in the footer bar: make sure:\n\n- agents count is live\n- burn: the same',
+      }),
+    ]
+    harness.sessions = []
+    deck()
+    const el = brief()
+    expect(el.querySelectorAll('li')).toHaveLength(2)
+    expect(el.querySelector('li')?.textContent).toBe('agents count is live')
+    // The hyphens are the list now, not text with hyphens in it.
+    expect(el.textContent).not.toContain('- agents count')
+  })
+
+  it('breaks a single newline, because a brief is written the way it is typed', () => {
+    harness.issues = [issue('root', { title: 'Mission', description: 'first line\nsecond line' })]
+    harness.sessions = []
+    deck()
+    expect(brief().querySelectorAll('br')).toHaveLength(1)
+  })
+
+  /* THE ANCHOR-AND-SCRIPT HALF OF `renderReadoutMarkdown` IS NOT TESTABLE HERE.
+     DOMPurify decides at import whether the environment supports it, and under
+     happy-dom it does not — `sanitize` hands the input straight back, so a
+     `queryByRole('link')` assertion in this file would pass or fail for reasons
+     that have nothing to do with this component. Verified in a real browser
+     instead (Chromium, against the deck harness): a description carrying
+     `[the spec](https://example.com/spec)`, a `<script>` and an `<img onerror>`
+     renders as `<p>see the spec </p>` and the list below it, with the link's
+     words kept and every tag gone. What IS environment-independent — that the
+     structure the author wrote survives — is what the tests here assert. */
+
+  it("marks the column's standing sentence as not the operator's words", () => {
+    harness.issues = [issue('root', { title: 'Mission' })]
+    harness.sessions = []
+    deck()
+    expect(brief().getAttribute('data-standing')).toBe('true')
+  })
+
+  it('drops the standing mark the moment somebody writes one', () => {
+    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
+    harness.sessions = []
+    deck()
+    expect(brief().getAttribute('data-standing')).toBeNull()
+  })
+
+  it("falls through to the agent's own note when nobody wrote a description", () => {
+    harness.issues = [
+      issue('root', { title: 'Mission', activityNotes: 'Rebasing onto main before review.' }),
+    ]
+    harness.sessions = []
+    deck()
+    expect(brief().textContent).toContain('Rebasing onto main')
+    expect(brief().getAttribute('data-standing')).toBeNull()
+  })
+})
+
 describe('flight deck mission agent action', () => {
   it('adds the selected agent to the mission root, even while a sub-task is focused', async () => {
     harness.issues = harness.issues.map((candidate) =>
