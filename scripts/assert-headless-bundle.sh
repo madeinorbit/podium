@@ -133,9 +133,16 @@ pass "shipped podium-cli is $EXPECT_FORMAT $EXPECT_ARCH, $size bytes"
 # --- The embedded abduco helper is the one built FOR THIS PLATFORM ---
 if [ "$ABDUCO_IDENTITY" = required ]; then
   [ -f "$ABDUCO_REF" ] || fail "reference abduco missing: $ABDUCO_REF (regenerate with scripts/abduco-cross.ts)"
+  # BOTH format and architecture, in order, and no looser alternative. This used to
+  # accept `*<arch>*` on its own, which made the FORMAT optional — so the check read as
+  # "is this an ELF aarch64?" while only asking "does the word aarch64 appear?". Among
+  # the four platforms we ship I could not construct a pair that actually exploited it
+  # (`file` prints x86-64 for ELF and x86_64 for Mach-O, arm64 for Mach-O and ARM
+  # aarch64 for ELF), so this is not a fixed bug — it is a check that now says what it
+  # means, and cannot be widened by a fifth platform arriving.
   ref_file="$(file -b "$ABDUCO_REF")"
   case "$ref_file" in
-    *"$EXPECT_FORMAT"*"$EXPECT_ARCH"*|*"$EXPECT_ARCH"*) : ;;
+    *"$EXPECT_FORMAT"*"$EXPECT_ARCH"*) : ;;
     *) fail "reference abduco is not $EXPECT_FORMAT $EXPECT_ARCH (got: $ref_file)" ;;
   esac
   OTHER_REF="$ROOT/dist-bun/abduco-cache/$OTHER_PLATFORM-$(basename "$ABDUCO_REF" | sed "s/^$PLATFORM-//")"

@@ -34,7 +34,13 @@ DARWIN_REF="$ROOT/dist-bun/abduco-cache/darwin-aarch64-$HASH"
 LINUX_REF="$ROOT/dist-bun/abduco-cache/linux-x86_64-$HASH"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-negctl-XXXXXX")"
-trap 'rm -rf "$WORK"' EXIT
+# When a case fails, the first question is always "what was actually in that tarball?".
+# Set PODIUM_KEEP_NEGCTL_WORK=1 to keep the mutated bundles for inspection.
+if [ -n "${PODIUM_KEEP_NEGCTL_WORK:-}" ]; then
+  echo "keeping mutated bundles in $WORK"
+else
+  trap 'rm -rf "$WORK"' EXIT
+fi
 
 PASSED=0
 FAILED=0
@@ -49,42 +55,85 @@ tar -xzf "$DARWIN_TARBALL" -C "$WORK" || { echo "ABORT: cannot extract $DARWIN_T
 # with a sentence that names what is actually wrong. A case that goes red for a
 # different reason than the one it was built to trigger is reported as a FAILURE of
 # this harness, because it means the check under test was never exercised.
+#
+# THE PATTERN IS MATCHED AGAINST THE FAILURE LINE ALONE, never the whole transcript.
+# Matching the transcript is how a right-reason check quietly degrades into "exited
+# non-zero": the gate prints the platform it expects, and what a signature failure would
+# MEAN on this platform, on every run whether it passes or not — so patterns like
+# `signature` or `digest` were being satisfied by output that is always there. Two cases
+# were in exactly that state.
 check() {
   local label="$1" expect="$2" platform="$3" abduco="$4" tarball="$5"
-  local out status
-  out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" ${abduco:+--abduco "$abduco"} ${abduco:+} 2>&1)"
-  status=$?
-  if [ -z "$abduco" ]; then
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" 2>&1)"; status=$?
+  local out status line
+  if [ -n "$abduco" ]; then
+    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --abduco "$abduco" 2>&1)"
+  else
+    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" 2>&1)"
   fi
+  status=$?
   if [ "$status" -eq 0 ]; then
     echo "HARNESS FAILURE [$label]: the gate ACCEPTED a bundle it must reject"
     FAILED=$((FAILED + 1))
     return
   fi
-  if ! printf '%s' "$out" | grep -qi -- "$expect"; then
-    echo "HARNESS FAILURE [$label]: rejected, but for the wrong reason"
-    echo "  wanted a message matching: $expect"
-    echo "  got: $(printf '%s' "$out" | grep -iE '^(FAIL|ABORT)' | head -1)"
+  line="$(printf '%s\n' "$out" | grep -iE '^(FAIL|ABORT)' | head -1)"
+  if [ -z "$line" ]; then
+    echo "HARNESS FAILURE [$label]: the gate exited $status but printed no FAIL/ABORT line"
     FAILED=$((FAILED + 1))
     return
   fi
-  echo "REJECTED (right reason) [$label]: $(printf '%s' "$out" | grep -iE '^(FAIL|ABORT)' | head -1)"
+  if ! printf '%s' "$line" | grep -qi -- "$expect"; then
+    echo "HARNESS FAILURE [$label]: rejected, but for the wrong reason"
+    echo "  wanted the FAILURE LINE to match: $expect"
+    echo "  got: $line"
+    FAILED=$((FAILED + 1))
+    return
+  fi
+  echo "REJECTED (right reason) [$label]: $line"
   PASSED=$((PASSED + 1))
 }
 
 # Build a mutated tarball from the pristine tree; `$1` is a function that edits $CASE.
+#
+# EVERY STEP IS CHECKED, and the case directory is deleted as soon as it is packed.
+# Both of those are scar tissue. A bundle tree is ~250 MB; keeping one per case put
+# ~3 GB in TMPDIR, and on a 97%-full disk those copies began to fail. Nothing checked
+# them, so the harness packed short trees and reported "rejected, but for the wrong
+# reason" — with a DIFFERENT case failing on each run. A near-full disk truncates
+# writes rather than erroring, so unchecked file operations do not fail loudly here:
+# they manufacture confusing evidence, which is worse than failing.
 mutate() {
   local name="$1" edit="$2"
   local case_dir="$WORK/case-$name"
-  rm -rf "$case_dir"; mkdir -p "$case_dir"
-  cp -a "$WORK/headless" "$case_dir/headless"
+  rm -rf "$case_dir"
+  mkdir -p "$case_dir" || { echo "ABORT: cannot create $case_dir (disk full?)" >&2; exit 1; }
+  cp -a "$WORK/headless" "$case_dir/headless" \
+    || { echo "ABORT: could not copy the bundle tree for '$name' (disk full?)" >&2; exit 1; }
   # STDOUT OF THIS FUNCTION IS THE TARBALL PATH AND NOTHING ELSE. An edit that prints
   # (macho-strip-signature.py reports what it removed) would otherwise be spliced into
   # the path, and the case would "fail" with `no such tarball` — a red for a reason
   # that has nothing to do with what it was built to test.
   CASE="$case_dir" $edit >&2
-  ( cd "$case_dir" && tar -czf "$WORK/$name.tar.gz" headless ) >&2
+  ( cd "$case_dir" && tar -czf "$WORK/$name.tar.gz" headless ) >&2 \
+    || { echo "ABORT: could not pack the mutated bundle for '$name' (disk full?)" >&2; exit 1; }
+  # The gate reads the TARBALL; the tree has done its job. Deleting it here is what
+  # holds peak usage at one bundle instead of one per case.
+  rm -rf "$case_dir"
+  # A short archive means a truncated write, not a mutation. Say so, rather than letting
+  # the gate report a missing file as though this case had caused it.
+  #
+  # The listing is CAPTURED before it is searched, deliberately. `tar | grep -q` looks
+  # equivalent and is not: grep exits at the first match and closes the pipe, tar takes
+  # SIGPIPE, and under `pipefail` the pipeline reports failure — so this guard fired on
+  # every healthy tarball, aborted the subshell, and returned an empty path. Every case
+  # then ran with shifted arguments and failed for a reason that had nothing to do with
+  # what it was testing.
+  local listing
+  listing="$(tar -tzf "$WORK/$name.tar.gz" 2>/dev/null)"
+  case "$listing" in
+    *"headless/podium-cli"*) : ;;
+    *) echo "ABORT: the packed bundle for '$name' is incomplete — truncated write (disk full?)" >&2; exit 1 ;;
+  esac
   echo "$WORK/$name.tar.gz"
 }
 
@@ -95,21 +144,46 @@ echo
 # 1. A hello-world stub in place of the real binary. The case POD-2501's first
 #    assertion script would have PASSED, because it checked a sibling in the build dir.
 edit_stub() { printf '#!/bin/sh\necho hi\n' > "$CASE/headless/podium-cli"; chmod +x "$CASE/headless/podium-cli"; }
-check "hello-world stub" "is not Mach-O" darwin-aarch64 "$DARWIN_REF" "$(mutate stub edit_stub)"
+check "hello-world stub" "shipped podium-cli is not Mach-O" darwin-aarch64 "$DARWIN_REF" "$(mutate stub edit_stub)"
 
 # 2. A Linux ELF shipped as the Darwin payload.
 if [ -n "$LINUX_TARBALL" ] && [ -f "$LINUX_TARBALL" ]; then
-  rm -rf "$WORK/linux"; mkdir -p "$WORK/linux"; tar -xzf "$LINUX_TARBALL" -C "$WORK/linux"
+  # Only ONE file is wanted out of the Linux bundle; extracting just that keeps this
+  # from being another quarter-gigabyte tree on a disk that has already bitten us.
+  rm -rf "$WORK/linux"; mkdir -p "$WORK/linux"
+  tar -xzf "$LINUX_TARBALL" -C "$WORK/linux" headless/podium-cli \
+    || { echo "ABORT: could not extract the linux payload" >&2; exit 1; }
   edit_elf() { cp "$WORK/linux/headless/podium-cli" "$CASE/headless/podium-cli"; }
-  check "linux ELF as the darwin payload" "is not Mach-O" darwin-aarch64 "$DARWIN_REF" "$(mutate elf edit_elf)"
+  check "linux ELF as the darwin payload" "shipped podium-cli is not Mach-O" \
+    darwin-aarch64 "$DARWIN_REF" "$(mutate elf edit_elf)"
+  rm -rf "$WORK/linux"
 else
   echo "SKIPPED [linux ELF as the darwin payload]: no linux tarball passed"
 fi
 
-# 3. The WRONG platform's abduco embedded — the exact regression a matrix-to-cross
-#    migration introduces, and the one no format check can see.
+# 3a. THE WRONG PLATFORM'S HELPER ACTUALLY EMBEDDED IN THE BUNDLE.
+#
+#     The regression the matrix collapse most threatens, and the one no format check can
+#     see: a perfectly good Darwin Mach-O carrying the Linux abduco. It is also the case
+#     this harness got WRONG at first — it swapped the REFERENCE rather than the bundle,
+#     so the gate rejected its own input and the check that actually matters was never
+#     exercised per release at all.
+#
+#     The overwrite also breaks the code signature, but the embedded-helper check runs
+#     BEFORE the signature checks, so the failure line is unambiguous — and pinning that
+#     ordering is itself worth something.
+edit_wrong_helper() {
+  python3 scripts/embed-wrong-abduco.py "$CASE/headless/podium-cli" "$DARWIN_REF" "$LINUX_REF"
+}
+check "wrong-platform helper EMBEDDED in the bundle" "does NOT appear inside the shipped binary" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate wronghelper edit_wrong_helper)"
+
+# 3b. The reference the gate is asked to check AGAINST is the wrong platform's. Weaker
+#     than 3a, and a distinct failure: it proves the gate validates its own input rather
+#     than trusting whatever path CI hands it.
 edit_noop() { :; }
-check "wrong-platform abduco reference" "reference abduco is not" darwin-aarch64 "$LINUX_REF" "$(mutate wrongabduco edit_noop)"
+check "wrong-platform abduco reference supplied" "reference abduco is not" \
+  darwin-aarch64 "$LINUX_REF" "$(mutate wrongref edit_noop)"
 
 # 4. Signature stripped off the shipped binary.
 # `bun build --compile` output is ALREADY ad-hoc signed, so there is no "unsigned"
@@ -120,7 +194,7 @@ edit_strip() {
     && chmod +x "$CASE/headless/podium-cli"
 }
 STRIPPED="$(mutate stripped edit_strip)"
-check "signature stripped" "signature\|ADHOC\|LINKER_SIGNED" darwin-aarch64 "$DARWIN_REF" "$STRIPPED"
+check "signature stripped" "has NO code signature" darwin-aarch64 "$DARWIN_REF" "$STRIPPED"
 
 # 5. A byte flipped INSIDE the sealed region: the signature is still there and still
 #    parses, but it no longer seals these bytes.
@@ -135,7 +209,8 @@ with open(p, 'r+b') as f:
     f.write(bytes([b[0] ^ 0xFF]))
 PY
 }
-check "byte flipped inside the sealed region" "digest mismatch\|signature" darwin-aarch64 "$DARWIN_REF" "$(mutate flipped edit_flip)"
+check "byte flipped inside the sealed region" "does not seal the shipped bytes" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate flipped edit_flip)"
 
 # 6. Re-signed with EMPTY entitlements: ad-hoc, identifier podium, not LINKER_SIGNED —
 #    everything the other signature checks look for — and unable to JIT. This isolates
@@ -152,15 +227,22 @@ edit_noent() {
     && chmod +x "$CASE/headless/podium-cli" \
     && rcodesign sign --binary-identifier podium "$CASE/headless/podium-cli"
 }
-check "empty entitlements" "entitlements missing" darwin-aarch64 "$DARWIN_REF" "$(mutate noent edit_noent)"
+check "empty entitlements" "entitlements missing com.apple.security.cs.allow-jit" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate noent edit_noent)"
 
 # 7. Raw `bun build --compile` output: already ad-hoc signed, but LINKER_SIGNED with
 #    identifier a.out and NO entitlements. The regression that looks most like success.
 RAW="$WORK/raw-podium"
+# The compiled binary embeds dist-bun/abduco.bin, which holds whatever the LAST build
+# left there — often another platform's helper. Put the darwin one back first, so the
+# only thing wrong with this binary is its signature. Otherwise the embedded-helper
+# check fires first and this case silently stops testing LINKER_SIGNED at all.
+cp "$DARWIN_REF" dist-bun/abduco.bin 2>/dev/null
 if bun build --compile --target=bun-darwin-arm64 --conditions=@podium/source \
      scripts/cli-compiled.ts --outfile "$RAW" >/dev/null 2>&1; then
   edit_raw() { cp "$RAW" "$CASE/headless/podium-cli"; chmod +x "$CASE/headless/podium-cli"; }
-  check "raw Bun output, never re-signed" "LINKER_SIGNED\|identifier is not" darwin-aarch64 "$DARWIN_REF" "$(mutate raw edit_raw)"
+  check "raw Bun output, never re-signed" "still carries Bun's LINKER_SIGNED" \
+    darwin-aarch64 "$DARWIN_REF" "$(mutate raw edit_raw)"
   rm -f "$RAW"
 else
   echo "HARNESS FAILURE [raw Bun output]: could not produce the raw compile to test against"
@@ -171,31 +253,28 @@ fi
 #    skips here reads as a pass. It must be given a good tarball, or it dies on the
 #    tarball's own defects and this check is never reached — which is what the first
 #    version of this case did.
-check "reference abduco deleted" "prebuilt abduco missing\|reference abduco missing\|no such\|missing" \
+check "reference abduco deleted" "reference abduco missing" \
   darwin-aarch64 "$WORK/does-not-exist" "$DARWIN_TARBALL"
 
 # 9. Wrong archive layout: the updater joins the staged dir with `headless`, so any
 #    other root silently installs nothing.
 rm -rf "$WORK/case-layout"; mkdir -p "$WORK/case-layout/podium"
-cp -a "$WORK/headless/." "$WORK/case-layout/podium/"
-( cd "$WORK/case-layout" && tar -czf "$WORK/layout.tar.gz" podium )
-check "archive root is not headless/" "missing headless/podium-cli\|entries outside headless" \
+cp -a "$WORK/headless/." "$WORK/case-layout/podium/" \
+  || { echo "ABORT: could not build the wrong-layout case (disk full?)" >&2; exit 1; }
+( cd "$WORK/case-layout" && tar -czf "$WORK/layout.tar.gz" podium ) \
+  || { echo "ABORT: could not pack the wrong-layout case (disk full?)" >&2; exit 1; }
+rm -rf "$WORK/case-layout"
+check "archive root is not headless/" "tarball missing headless/podium-cli" \
   darwin-aarch64 "$DARWIN_REF" "$WORK/layout.tar.gz"
 
 # 10. A file the bundle cannot work without is absent.
 edit_noversion() { rm -f "$CASE/headless/VERSION"; }
-check "VERSION removed" "missing headless/VERSION" darwin-aarch64 "$DARWIN_REF" "$(mutate noversion edit_noversion)"
+check "VERSION removed" "tarball missing headless/VERSION" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate noversion edit_noversion)"
 
-# 11. (ours) No --abduco and no explicit waiver: an omitted input must be an error,
+# 11. (ours) No --abduco and no explicit waiver: an omitted input must be an ERROR,
 #     never a silent skip that reads as a green.
-out="$(bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 2>&1)"
-if [ $? -eq 0 ]; then
-  echo "HARNESS FAILURE [no abduco flag]: the gate ran without being told what to check against"
-  FAILED=$((FAILED + 1))
-else
-  echo "REJECTED (right reason) [no abduco flag]: $(printf '%s' "$out" | grep -iE '^(FAIL|ABORT)' | head -1)"
-  PASSED=$((PASSED + 1))
-fi
+check "no abduco flag" "pass --abduco" darwin-aarch64 "" "$DARWIN_TARBALL"
 
 # THE CONTROL FOR THE CONTROLS: the pristine bundle must still PASS. Without this a
 # gate that rejected everything would score a perfect ten above.
