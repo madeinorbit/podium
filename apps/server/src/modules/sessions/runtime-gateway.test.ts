@@ -75,7 +75,7 @@ function makeGateway(
         return { ok: true, position: 3 }
       }),
   }
-  const durableEvents: import('@podium/protocol').RuntimeEvent[] = []
+  const durableEvents: import('@podium/protocol/daemon').RuntimeEvent[] = []
   return {
     gateway: new SessionRuntimeGateway({
       rpc,
