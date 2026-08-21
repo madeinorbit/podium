@@ -2,6 +2,12 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+// scripts/ already depends on apps/ (build-bun compiles the CLI and daemon entries), so
+// this import runs with the grain. It is here to hold the server's own copy of the
+// platform → bun-target mapping to this one: the server may not import the build scripts,
+// so the arithmetic exists twice, and a test is the only thing that can stop the two
+// drifting silently.
+import { bunTargetForPlatform as serverBunTargetForPlatform } from '../apps/server/src/modules/updates/dev-bundle'
 import {
   ABDUCO_TARGETS,
   abducoCachePath,
@@ -51,6 +57,15 @@ describe('the headless platform set', () => {
   it('marks exactly the Darwin platforms as needing a code signature', () => {
     const signed = HEADLESS_PLATFORMS.filter((p) => ABDUCO_TARGETS[p].darwin)
     expect([...signed].sort()).toEqual(['darwin-aarch64', 'darwin-x86_64'])
+  })
+
+  it('has the server derive the same bun target the build table names', () => {
+    // The dev publisher passes `--target` to the same script a release does. If its
+    // three lines of arithmetic ever disagreed with this table, the dev host would
+    // quietly compile a bundle for the wrong machine.
+    for (const platform of HEADLESS_PLATFORMS) {
+      expect(serverBunTargetForPlatform(platform)).toBe(bunTargetForPlatform(platform))
+    }
   })
 
   it('rejects a platform name it does not publish', () => {
