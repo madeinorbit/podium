@@ -12,6 +12,13 @@
  * verifier, because it reads as a pass.
  *
  *   bun scripts/verify-headless-signature.ts <tarball> <signature-file-or-base64>
+ *   bun scripts/verify-headless-signature.ts <tarball> <sig> --pubkey <base64-spki-der>
+ *
+ * `--pubkey` exists because there is more than one legitimate publisher: production
+ * releases are signed with Podium's release key, and the development host signs its own
+ * dev bundles with the dev key. It is an explicit argument rather than an environment
+ * variable so that nothing can weaken the published smoke by accident — that path never
+ * passes it, and therefore always checks against the release key.
  *
  * Exit 0 = verified, 1 = REJECTED. Nothing else prints a green line.
  */
@@ -19,9 +26,18 @@ import { existsSync, readFileSync } from 'node:fs'
 import { verifyTarball } from '../packages/runtime/src/update-delivery'
 
 function main(): void {
-  const [tarball, signatureArg] = process.argv.slice(2)
+  const argv = process.argv.slice(2)
+  const pubkeyIndex = argv.indexOf('--pubkey')
+  const pubkey = pubkeyIndex >= 0 ? argv[pubkeyIndex + 1] : undefined
+  if (pubkeyIndex >= 0 && !pubkey) {
+    console.error('usage: --pubkey needs a base64 SPKI/DER public key')
+    process.exit(2)
+  }
+  const [tarball, signatureArg] = argv.filter((_, i) => i !== pubkeyIndex && i !== pubkeyIndex + 1)
   if (!tarball || !signatureArg) {
-    console.error('usage: verify-headless-signature.ts <tarball> <signature-file-or-base64>')
+    console.error(
+      'usage: verify-headless-signature.ts <tarball> <signature-file-or-base64> [--pubkey <b64>]',
+    )
     process.exit(2)
   }
   if (!existsSync(tarball)) {
@@ -37,14 +53,16 @@ function main(): void {
     console.error(`FAIL: empty signature for ${tarball}`)
     process.exit(1)
   }
-  if (!verifyTarball(new Uint8Array(readFileSync(tarball)), signature)) {
+  const keyName = pubkey ? 'the supplied publisher key' : "Podium's release key"
+  const bytes = new Uint8Array(readFileSync(tarball))
+  if (pubkey ? !verifyTarball(bytes, signature, pubkey) : !verifyTarball(bytes, signature)) {
     console.error(
-      `FAIL: ${tarball} does NOT verify under Podium's release key — ` +
+      `FAIL: ${tarball} does NOT verify under ${keyName} — ` +
         'the shipped updater would reject this artifact',
     )
     process.exit(1)
   }
-  console.log(`PASS: ${tarball} verifies under Podium's release key`)
+  console.log(`PASS: ${tarball} verifies under ${keyName}`)
 }
 
 main()
