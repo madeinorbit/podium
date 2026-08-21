@@ -117,19 +117,15 @@ check_caller_client_root() {
 
 check_caller_client_root
 
-# Run the release process's internal continuity comparison. The expected root is computed
-# inside this invocation from the still-fresh build output; it never enters as an argument.
+# Try to route fabricated bytes through the retired raw packager. It must refuse before
+# looking at either the forged archive or an attacker-computed root: only the wrapper that
+# actually runs package:clients can mint the in-process session build-bun requires.
 check_release_capture() {
   local label="$1" tarball="$2" out status
-  out="$(bun -e '
-    import { assertPackagedClientsMatchCapturedBuild } from "./scripts/release.ts";
-    import { clientBuildRootDigestFromSites } from "./scripts/client-build-root-digest.ts";
-    const captured = clientBuildRootDigestFromSites({web:"apps/web/dist",mobile:"apps/mobile/dist"});
-    assertPackagedClientsMatchCapturedBuild(process.argv.at(-1), captured);
-  ' "$tarball" 2>&1)"
+  out="$(PODIUM_BUNDLE_ARTIFACT="$tarball" bun scripts/build-bun.ts 2>&1)"
   status=$?
-  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qi -- 'packaged clients differ from the fresh build'; then
-    echo "REJECTED (right reason) [$label]: packaged clients differ from the fresh build"
+  if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -qi -- 'direct headless packaging is forbidden'; then
+    echo "REJECTED (right reason) [$label]: direct headless packaging is forbidden"
     PASSED=$((PASSED + 1))
   else
     echo "HARNESS FAILURE [$label]: expected the process-local captured digest mismatch"
@@ -368,8 +364,8 @@ check "stub web/index.html" "build provenance hash mismatch for index.html" \
   darwin-aarch64 "$DARWIN_REF" "$(mutate stubweb edit_stub_web)"
 
 # 13b. Forge plausible bytes, a public release stamp and an exact internal manifest.
-#      The archive is internally self-consistent; only the release process's root captured
-#      before packaging can prove the bytes changed after the fresh build completed.
+#      The archive is internally self-consistent; the raw packager must still refuse because
+#      it has no module-branded evidence that this invocation ran a fresh client build.
 edit_forged_web() {
   rm -rf "$CASE/headless/web/assets"
   python3 - "$CASE/headless/web" "$CASE/headless/VERSION" "$SOURCE_COMMIT" <<'PY'
@@ -427,13 +423,7 @@ check "NOTICE missing" "tarball missing headless/NOTICE" \
 # THE CONTROL FOR THE CONTROLS: the pristine bundle must still PASS. Without this a
 # gate that rejected everything would score a perfect set above.
 echo
-if bun -e '
-  import { assertPackagedClientsMatchCapturedBuild } from "./scripts/release.ts";
-  import { clientBuildRootDigestFromSites } from "./scripts/client-build-root-digest.ts";
-  const captured = clientBuildRootDigestFromSites({web:"apps/web/dist",mobile:"apps/mobile/dist"});
-  assertPackagedClientsMatchCapturedBuild(process.argv.at(-1), captured);
-' "$DARWIN_TARBALL" >/dev/null 2>&1 && \
-  bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
+if bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
     --source-commit "$SOURCE_COMMIT" --abduco "$DARWIN_REF" >/dev/null 2>&1; then
   echo "ACCEPTED (control): the unmutated bundle still passes"
   PASSED=$((PASSED + 1))

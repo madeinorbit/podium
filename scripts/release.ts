@@ -22,17 +22,7 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 // Imported from source, not the `@podium/protocol` entry point: that entry resolves to
 // `dist/`, which the release workflow never builds (`bun install --ignore-scripts`), so a
@@ -42,12 +32,17 @@ import {
   type MinRequired as MinRequiredShape,
 } from '../packages/protocol/src/update/target'
 import { HEADLESS_PLATFORMS, type HeadlessPlatform, isHeadlessPlatform } from './abduco-cross'
-import { BUN_TARGETS, bunTargetForPlatform, targetOutputRoot } from './build-bun'
+import {
+  beginFreshClientPackagingSession,
+  BUN_TARGETS,
+  bunTargetForPlatform,
+  packageHeadlessForFreshClients,
+  type PackagedHeadlessBundle,
+} from './build-bun'
 import { extractRelease } from './changelog'
 import {
   assertNoCallerSuppliedClientRootDigest,
   CLIENT_ROOT_DIGEST_FILE,
-  clientBuildRootDigestFromSites,
 } from './client-build-root-digest'
 import { buildManifest } from './release-manifest'
 import { validateReferencedDesktopManifest } from './desktop-release'
@@ -187,61 +182,23 @@ function descriptorName(asset: string): string {
 }
 
 /**
- * Compare the bytes that will ship with the identity captured from the fresh client
- * output before packaging. This proves continuity, not correctness: it catches a stale
- * or wrong directory being packed, a partial/corrupt copy, or bytes substituted between
- * build and packaging. A broken build can still agree with its own captured identity.
- *
- * `capturedClientRootDigest` is an internal test seam. The production CLI rejects every
- * caller-supplied spelling and only reaches this function with state computed inside
- * {@link prepareHeadlessCross} or {@link prepareHeadlessArchitecture}.
- */
-export function assertPackagedClientsMatchCapturedBuild(
-  tarball: string,
-  capturedClientRootDigest: string,
-): void {
-  if (!/^[0-9a-f]{64}$/.test(capturedClientRootDigest)) {
-    throw new Error('captured fresh-client root is not a SHA-256 digest')
-  }
-  const extracted = mkdtempSync(join(tmpdir(), 'podium-release-client-proof-'))
-  try {
-    execFileSync('tar', ['-xzf', tarball, '-C', extracted])
-    const packagedClientRootDigest = clientBuildRootDigestFromSites({
-      web: join(extracted, 'headless/web'),
-      mobile: join(extracted, 'headless/mobile'),
-    })
-    if (packagedClientRootDigest !== capturedClientRootDigest) {
-      throw new Error(
-        `packaged clients differ from the fresh build ` +
-          `(captured=${capturedClientRootDigest}, packaged=${packagedClientRootDigest})`,
-      )
-    }
-  } finally {
-    rmSync(extracted, { recursive: true, force: true })
-  }
-}
-
-/**
  * Copy one built bundle out of its build root into the release staging dir and record
  * the descriptor the publisher reads. Shared by the cross and native paths so the two
  * legs cannot drift in what they stage or in what they claim about it.
  */
 function stagePrepared(p: {
   platform: HeadlessPlatform
-  bundleRoot: string
+  packaged: PackagedHeadlessBundle
   outDir: string
   mode: 'cross' | 'native'
-  clientRootDigest: string
 }): PreparedHeadless {
   const asset = headlessAsset(p.platform)
-  const version = readFileSync(join(p.bundleRoot, 'headless/VERSION'), 'utf8').trim()
-  const built = join(p.bundleRoot, `podium-headless-${version}.tar.gz`)
+  const version = readFileSync(join(p.packaged.bundleRoot, 'headless/VERSION'), 'utf8').trim()
+  const built = p.packaged.tarball
   const builtSig = `${built}.sig`
   if (!existsSync(built) || !existsSync(builtSig)) {
     throw new Error(`headless build did not produce signed artifact ${built}`)
   }
-  assertPackagedClientsMatchCapturedBuild(built, p.clientRootDigest)
-
   mkdirSync(p.outDir, { recursive: true })
   cpSync(built, join(p.outDir, asset))
   cpSync(builtSig, join(p.outDir, `${asset}.sig`))
@@ -250,8 +207,8 @@ function stagePrepared(p: {
     target: p.platform,
     asset,
     signature: readFileSync(builtSig, 'utf8').trim(),
-    webDigest: packagedWebDigest(join(p.bundleRoot, 'headless')),
-    clientRootDigest: p.clientRootDigest,
+    webDigest: packagedWebDigest(join(p.packaged.bundleRoot, 'headless')),
+    clientRootDigest: p.packaged.clientRootDigest,
     mode: p.mode,
   }
   writeFileSync(join(p.outDir, descriptorName(asset)), `${JSON.stringify(prepared)}\n`)
@@ -285,33 +242,21 @@ export function prepareHeadlessCross(
   // systemd units + web + mobile, once for the whole set. Stamp the fresh client
   // output with the FINAL product version before capturing its process-local root;
   // packaging is forbidden from restamping after this point.
-  const version = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version
-  execFileSync('bun', ['run', 'package:clients'], {
-    stdio: 'inherit',
-    env: { ...process.env, PODIUM_APP_VERSION: version },
-  })
-  const clientRootDigest = clientBuildRootDigestFromSites({
-    web: 'apps/web/dist',
-    mobile: 'apps/mobile/dist',
-  })
+  const session = beginFreshClientPackagingSession([], process.env)
   mkdirSync(outDir, { recursive: true })
-  writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${clientRootDigest}\n`)
+  writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)
 
   const prepared: PreparedHeadless[] = []
   for (const platform of platforms) {
     const target = bunTargetForPlatform(platform)
     console.log(`[release] cross-building ${platform} (--target=${target})`)
-    execFileSync('bun', ['scripts/build-bun.ts', `--target=${target}`], {
-      stdio: 'inherit',
-      env: { ...process.env },
-    })
+    const packaged = packageHeadlessForFreshClients(session, [`--target=${target}`], process.env)
     prepared.push(
       stagePrepared({
         platform,
-        bundleRoot: targetOutputRoot('dist-bun', target),
+        packaged,
         outDir,
         mode: 'cross',
-        clientRootDigest,
       }),
     )
   }
@@ -337,27 +282,15 @@ export function prepareHeadlessArchitecture(
     )
   }
 
-  const version = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version
-  execFileSync('bun', ['run', 'package:clients'], {
-    stdio: 'inherit',
-    env: { ...process.env, PODIUM_APP_VERSION: version },
-  })
-  const clientRootDigest = clientBuildRootDigestFromSites({
-    web: 'apps/web/dist',
-    mobile: 'apps/mobile/dist',
-  })
+  const session = beginFreshClientPackagingSession([], process.env)
   mkdirSync(outDir, { recursive: true })
-  writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${clientRootDigest}\n`)
-  execFileSync('bun', ['scripts/build-bun.ts'], {
-    stdio: 'inherit',
-    env: { ...process.env },
-  })
+  writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)
+  const packaged = packageHeadlessForFreshClients(session, [], process.env)
   return stagePrepared({
     platform: config.target,
-    bundleRoot: 'dist-bun',
+    packaged,
     outDir,
     mode: 'native',
-    clientRootDigest,
   })
 }
 

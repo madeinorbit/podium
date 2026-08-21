@@ -1,8 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
 import { createReadStream, existsSync, readFileSync } from 'node:fs'
-import { mkdtemp, readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -18,7 +17,6 @@ import {
   type UpdateTarget,
 } from '@podium/protocol'
 import { resolveInstanceId, stateDir } from '@podium/runtime/config'
-import { clientBuildRootDigestFromSites } from '@podium/runtime/client-build-provenance'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
 import { type DevBuildSnapshot, withDevBuildSnapshot } from './dev-build-snapshot'
 import {
@@ -1054,14 +1052,6 @@ function developmentSigningKey(root: string): string {
  * one (macOS, Windows, a container without a user manager). See `build-scope.ts`.
  */
 async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
-  // Capture inside the production packager, after the approved-SHA web build settled and
-  // before any archive is written. This is continuity evidence, not build correctness:
-  // it catches a stale/wrong directory, partial copy, corruption, or substitution between
-  // this point and packaging. A bad build can still agree with its own captured identity.
-  const capturedClientRootDigest = clientBuildRootDigestFromSites({
-    web: join(ctx.root, 'apps/web/dist'),
-    mobile: join(ctx.root, 'apps/mobile/dist'),
-  })
   const signingKey = ctx.signingKey ?? developmentSigningKey(ctx.root)
   await runLowTierBuild({
     unit: devBuildScopeUnit(DEV_BUNDLE_BUILD_ROLE, ctx.instanceId ?? resolveInstanceId()),
@@ -1071,7 +1061,9 @@ async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
     // too, so the dev host exercises the exact path that produces what ships rather
     // than a nearby one — including the cross-compiled abduco helper, which is the part
     // of a bundle a native build would have got from somewhere else.
-    args: ['scripts/build-bun.ts', `--target=${ctx.bunTarget}`],
+    // package-headless owns the fresh-build session. Calling build-bun directly
+    // refuses, so this path cannot accidentally package an old approved-SHA dist.
+    args: ['scripts/package-headless.ts', `--target=${ctx.bunTarget}`],
     cwd: ctx.root,
     env: {
       ...process.env,
@@ -1082,23 +1074,6 @@ async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
       PODIUM_UPDATE_SIGNING_KEY: signingKey,
     },
   })
-
-  const extracted = await mkdtemp(join(tmpdir(), 'podium-dev-client-proof-'))
-  try {
-    await execFileAsync('tar', ['-xzf', ctx.artifactPath, '-C', extracted])
-    const packagedClientRootDigest = clientBuildRootDigestFromSites({
-      web: join(extracted, 'headless/web'),
-      mobile: join(extracted, 'headless/mobile'),
-    })
-    if (packagedClientRootDigest !== capturedClientRootDigest) {
-      throw new Error(
-        `development bundle clients differ from the fresh approved-SHA build ` +
-          `(captured=${capturedClientRootDigest}, packaged=${packagedClientRootDigest})`,
-      )
-    }
-  } finally {
-    await rm(extracted, { recursive: true, force: true })
-  }
 }
 
 /**

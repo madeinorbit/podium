@@ -29,7 +29,7 @@ import {
   assertNoCallerSuppliedClientRootDigest,
   clientBuildRootDigest,
 } from './client-build-root-digest'
-import { assertPackagedClientsMatchCapturedBuild } from './release'
+import { packageHeadlessForFreshClients, type FreshClientPackagingSession } from './build-bun'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
@@ -232,10 +232,10 @@ describe('assert-headless-bundle production layout', () => {
     expect(failLine).toMatch(/build provenance file set mismatch/)
   })
 
-  it('refuses fabricated bytes even when their in-archive manifest matches perfectly', () => {
+  it('refuses a forged session even when its digest matches fabricated bytes perfectly', () => {
     const root = scratch()
     const headless = join(root, 'headless')
-    const capturedDigest = writeProductionTree(headless)
+    writeProductionTree(headless)
     const web = join(headless, 'web')
     writeFileSync(
       join(web, 'index.html'),
@@ -246,8 +246,12 @@ describe('assert-headless-bundle production layout', () => {
     writeFileSync(join(web, 'podium-build.json'), `${JSON.stringify(forgedStamp, null, 2)}\n`)
     writeBuildManifest(web, forgedStamp)
 
-    expect(() => assertPackagedClientsMatchCapturedBuild(pack(root), capturedDigest)).toThrow(
-      /packaged clients differ from the fresh build/,
+    const attackerSession = Object.freeze({
+      clientRootDigest: clientBuildRootDigest(headless),
+      version: TEST_VERSION,
+    }) as FreshClientPackagingSession
+    expect(() => packageHeadlessForFreshClients(attackerSession, [], {})).toThrow(
+      /requires a fresh-client session minted by this invocation/,
     )
   })
 
@@ -307,6 +311,16 @@ describe('assert-headless-bundle production layout', () => {
       /--client-root-digest is forbidden/,
     )
 
+    const packageCli = spawnSync(
+      'bun',
+      ['scripts/package-headless.ts', `--client-root-digest=${'a'.repeat(64)}`],
+      { encoding: 'utf8', cwd: repoRoot },
+    )
+    expect(packageCli.status).not.toBe(0)
+    expect(`${packageCli.stdout ?? ''}${packageCli.stderr ?? ''}`).toMatch(
+      /--client-root-digest is forbidden/,
+    )
+
     const buildCli = spawnSync('bun', ['scripts/build-bun.ts'], {
       encoding: 'utf8',
       cwd: repoRoot,
@@ -318,6 +332,15 @@ describe('assert-headless-bundle production layout', () => {
     expect(buildCli.status).not.toBe(0)
     expect(`${buildCli.stdout ?? ''}${buildCli.stderr ?? ''}`).toMatch(
       /PODIUM_EXPECTED_CLIENT_ROOT_DIGEST is forbidden/,
+    )
+
+    const noProofBuildCli = spawnSync('bun', ['scripts/build-bun.ts'], {
+      encoding: 'utf8',
+      cwd: repoRoot,
+    })
+    expect(noProofBuildCli.status).not.toBe(0)
+    expect(`${noProofBuildCli.stdout ?? ''}${noProofBuildCli.stderr ?? ''}`).toMatch(
+      /direct headless packaging is forbidden/,
     )
   })
 
@@ -394,9 +417,8 @@ describe('assert-headless-bundle production layout', () => {
     // is the proof the layout checks accepted the tree — a gate that rejected
     // everything would never get here.
     const root = scratch()
-    const capturedDigest = writeProductionTree(join(root, 'headless'))
+    writeProductionTree(join(root, 'headless'))
     const tarball = pack(root)
-    expect(() => assertPackagedClientsMatchCapturedBuild(tarball, capturedDigest)).not.toThrow()
     const { status, failLine } = runGate(tarball)
     expect(status).not.toBe(0)
     expect(failLine).toMatch(/shipped podium-cli/)
@@ -441,9 +463,21 @@ describe('the gate and the signing step name the same JIT keys', () => {
     expect(workflow).toContain('scripts/prove-headless-assertions-can-fail.sh')
   })
 
-  it('keeps self-capture wired into the production staging path', () => {
+  it('keeps fresh-build session branding wired into every production packaging path', () => {
     const release = readFileSync(join(repoRoot, 'scripts/release.ts'), 'utf8')
-    expect(release).toContain('assertPackagedClientsMatchCapturedBuild(built, p.clientRootDigest)')
-    expect(release).toContain('This proves continuity, not correctness')
+    const buildBun = readFileSync(join(repoRoot, 'scripts/build-bun.ts'), 'utf8')
+    const packageHeadless = readFileSync(join(repoRoot, 'scripts/package-headless.ts'), 'utf8')
+    const packageJson = readFileSync(join(repoRoot, 'package.json'), 'utf8')
+    const windowsSmoke = readFileSync(join(repoRoot, '.github/workflows/windows-smoke.yml'), 'utf8')
+    expect(release).toContain('const session = beginFreshClientPackagingSession([], process.env)')
+    expect(release).toContain('packageHeadlessForFreshClients(')
+    expect(buildBun).toContain('freshClientPackagingSessions.has(session)')
+    expect(buildBun).toContain('direct headless packaging is forbidden')
+    expect(buildBun).toContain('continuity, not correctness')
+    expect(packageHeadless).toContain('beginFreshClientPackagingSession(argv, process.env)')
+    expect(packageHeadless).toContain('packageHeadlessForFreshClients(session, argv, process.env)')
+    expect(packageJson).toContain('"package:headless": "bun scripts/package-headless.ts"')
+    expect(windowsSmoke).toContain('run: bun run package:headless')
+    expect(windowsSmoke).not.toContain('bun scripts/build-bun.ts')
   })
 })

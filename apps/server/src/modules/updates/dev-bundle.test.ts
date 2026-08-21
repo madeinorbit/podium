@@ -838,11 +838,11 @@ describe('buildDevBundle', () => {
     ).rejects.toThrow(/caller-supplied clientRootDigest is forbidden/)
   })
 
-  it('keeps process-local capture and tarball comparison wired into the production spawn', () => {
+  it('routes the production spawn through the fresh-build packaging entry point', () => {
     const source = readFileSync(new URL('./dev-bundle.ts', import.meta.url), 'utf8')
-    expect(source).toContain('const capturedClientRootDigest = clientBuildRootDigestFromSites')
-    expect(source).toContain("await execFileAsync('tar', ['-xzf', ctx.artifactPath")
-    expect(source).toContain('packagedClientRootDigest !== capturedClientRootDigest')
+    expect(source).toContain("args: ['scripts/package-headless.ts', `--target=${ctx.bunTarget}`]")
+    expect(source).toContain('package-headless owns the fresh-build session')
+    expect(source).not.toContain("args: ['scripts/build-bun.ts'")
   })
 
   it('builds a signed dev target and releases the lease after describing the artifact', async () => {

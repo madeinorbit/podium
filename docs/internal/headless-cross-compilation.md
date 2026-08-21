@@ -96,8 +96,8 @@ minimal: every key is a hardened-runtime protection given up.
 ## Building
 
 ```sh
-bun scripts/build-bun.ts                            # this machine's platform
-bun scripts/build-bun.ts --target=bun-darwin-arm64  # cross, from Linux
+bun run package:headless                                      # this machine's platform
+bun scripts/package-headless.ts --target=bun-darwin-arm64     # cross, from Linux
 bun scripts/release.ts --prepare-cross              # all four, staged for publish
 ```
 
@@ -127,10 +127,11 @@ Three scripts, deliberately separate:
 Everything `assert-headless-bundle.sh` checks, it checks against bytes extracted
 **from the tarball** — never a loose sibling in a build directory, because a
 build tree can be right while the archive is wrong. Client continuity is checked
-by the release entry point itself: the same process runs the fresh client build,
-captures its root digest, packages, extracts the resulting tarball, and compares
-the packaged entry set to that process-local value. No expected digest is accepted
-from a caller, environment variable, sidecar, or the archive itself. This catches
+by the packaging entry point itself: the same process runs the fresh client build,
+brands that session in memory, packages, extracts the resulting tarball, and compares
+the packaged entry set to that process-local value. Direct `build-bun.ts` invocation
+refuses, and no expected digest is accepted from a caller, environment variable, sidecar,
+or the archive itself. This catches
 a stale or wrong directory being packaged, partial/corrupt copies, and bytes changed
 between build and packaging; it does **not** prove the build itself is correct, because
 a broken build can agree with its own captured identity. The tarball gate still verifies

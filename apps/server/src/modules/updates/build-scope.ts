@@ -34,7 +34,7 @@
  * needs `--wait` to report status at all and sends its output somewhere else.
  *
  * THE RECLAIM. Because the orphan survives, the next server would otherwise
- * build concurrently with it — and two `bun scripts/build-bun.ts` runs share
+ * build concurrently with it — and two `bun scripts/package-headless.ts` runs share
  * `dist-bun/podium` and `dist-bun/headless/`, so one build's tarball could carry
  * the other's binary. That is exactly the lie the dev+<sha> identity checks
  * exist to prevent. The unit name is therefore DETERMINISTIC and every launch

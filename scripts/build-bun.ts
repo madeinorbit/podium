@@ -6,8 +6,8 @@
  *   2. Compile the server (relay + bun:sqlite; no PTY, no abduco).
  *   3. Compile the daemon via scripts/daemon-compiled.ts (embeds + materializes abduco).
  *
- * Run with: bun scripts/build-bun.ts                       (this machine's platform)
- *           bun scripts/build-bun.ts --target=bun-darwin-arm64   (cross, from Linux)
+ * Run with: bun run package:headless                            (this machine's platform)
+ *           bun scripts/package-headless.ts --target=bun-darwin-arm64 (cross, from Linux)
  *
  * CROSS-COMPILATION [spec:SP-6144 §8b]. With `--target` this builds the bundle for
  * ANOTHER platform from a Linux box: `bun build --compile --target=…` produces the
@@ -32,12 +32,15 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
@@ -166,6 +169,69 @@ export function parseBuildTarget(argv: readonly string[]): BunTarget | undefined
     )
   }
   return value
+}
+
+export type FreshClientPackagingSession = Readonly<{
+  clientRootDigest: string
+  version: string
+}>
+
+export type PackagedHeadlessBundle = Readonly<{
+  bundleRoot: string
+  clientRootDigest: string
+  tarball: string
+}>
+
+const freshClientPackagingSessions = new WeakSet<object>()
+
+function packageVersion(root: string, env: Record<string, string | undefined>): string {
+  const pkgVersion = (() => {
+    try {
+      return (
+        JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as {
+          version?: string
+        }
+      ).version
+    } catch {
+      return undefined
+    }
+  })()
+  const version = env.PODIUM_APP_VERSION ?? pkgVersion
+  if (!version) {
+    throw new Error(
+      'build-bun: could not determine the version — root package.json has no `version` field ' +
+        'and PODIUM_APP_VERSION is unset. Root package.json is the single source of truth.',
+    )
+  }
+  return version
+}
+
+/**
+ * Run the client build and retain its identity as a module-branded object. Packaging
+ * accepts only an object minted here, so a direct build-bun invocation cannot turn a
+ * stale dist or a caller-computed digest into provenance evidence.
+ */
+export function beginFreshClientPackagingSession(
+  argv: readonly string[] = [],
+  env: Record<string, string | undefined> = process.env,
+): FreshClientPackagingSession {
+  assertNoCallerSuppliedClientRootDigest(argv, env)
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const version = packageVersion(root, env)
+  execFileSync('bun', ['run', 'package:clients'], {
+    cwd: root,
+    stdio: 'inherit',
+    env: { ...env, PODIUM_APP_VERSION: version },
+  })
+  const session = Object.freeze({
+    clientRootDigest: clientBuildRootDigestFromSites({
+      web: `${root}apps/web/dist`,
+      mobile: `${root}apps/mobile/dist`,
+    }),
+    version,
+  })
+  freshClientPackagingSessions.add(session)
+  return session
 }
 
 /**
@@ -305,8 +371,17 @@ exec "$DIR/podium-cli" "$@"
 `
 }
 
-function main(): void {
-  assertNoCallerSuppliedClientRootDigest(process.argv.slice(2), process.env)
+export function packageHeadlessForFreshClients(
+  session: FreshClientPackagingSession,
+  argv: readonly string[] = [],
+  env: Record<string, string | undefined> = process.env,
+): PackagedHeadlessBundle {
+  assertNoCallerSuppliedClientRootDigest(argv, env)
+  if (!freshClientPackagingSessions.has(session)) {
+    throw new Error(
+      'build-bun: headless packaging requires a fresh-client session minted by this invocation',
+    )
+  }
   // Refuse to compile with a Bun whose terminal PTY API is missing (feature-detected, not
   // version-guessed). The compiled daemon's ONLY PTY is Bun's terminal — `bun build --compile`
   // can't embed node-pty's native addon — so an old build Bun would silently ship a binary
@@ -320,7 +395,7 @@ function main(): void {
     )
   const root = fileURLToPath(new URL('..', import.meta.url))
   const out = `${root}dist-bun`
-  const target = parseBuildTarget(process.argv.slice(2))
+  const target = parseBuildTarget(argv)
   const spec = target ? BUN_TARGETS[target] : undefined
   if (spec && process.platform !== 'linux') {
     // Not a portability limit of `bun build --compile` — a limit of what we have
@@ -340,23 +415,13 @@ function main(): void {
   // Single source of truth for the version: root package.json `version` (env PODIUM_APP_VERSION
   // wins for one-off builds). Drives the headless VERSION stamp AND the value baked into the
   // compiled server's /version (process.env.PODIUM_APP_VERSION via --define below).
-  const pkgVersion = (() => {
-    try {
-      return (
-        JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as {
-          version?: string
-        }
-      ).version
-    } catch {
-      return undefined
-    }
-  })()
-  const version = process.env.PODIUM_APP_VERSION ?? pkgVersion
-  if (!version)
+  const version = packageVersion(root, env)
+  if (version !== session.version) {
     throw new Error(
-      'build-bun: could not determine the version — root package.json has no `version` field ' +
-        'and PODIUM_APP_VERSION is unset. Root package.json is the single source of truth.',
+      `build-bun: package version changed after the fresh client build ` +
+        `(built=${session.version}, packaging=${version})`,
     )
+  }
 
   // THE WEB PRECONDITION, CHECKED BEFORE ANYTHING EXPENSIVE.
   //
@@ -411,6 +476,16 @@ function main(): void {
     throw new Error(
       'build-bun: apps/web/dist and apps/mobile/dist were built from different commits ' +
         `(web=${webStamp?.sourceSha ?? 'missing'}, mobile=${mobileStamp?.sourceSha ?? 'missing'}).`,
+    )
+  }
+  const currentClientRootDigest = clientBuildRootDigestFromSites({
+    web: webDist,
+    mobile: mobileDist,
+  })
+  if (currentClientRootDigest !== session.clientRootDigest) {
+    throw new Error(
+      `build-bun: client output changed after the fresh build ` +
+        `(captured=${session.clientRootDigest}, current=${currentClientRootDigest})`,
     )
   }
   if (spec) {
@@ -519,31 +594,16 @@ function main(): void {
 
   // --- headless bundle: binaries + web + launcher ---------------------------------
   const headless = `${bundleRoot}/headless`
-  // (`webDist` and its stamp were checked before the prebuild — see above.)
-  // Re-stamp with this bundle's product version so About / web logs / Update
-  // agree with the VERSION file and the compiled /version. A dest publish
-  // already wrote dev+<sha>; a channel package overwrites dev+<sha> with
-  // PODIUM_APP_VERSION / package.json (e.g. 0.4.2).
+  // The fresh build was stamped with the session's final product version. Packaging
+  // never repairs or restamps it: a mismatch means the build/package chain broke.
   if (webStamp?.appVersion !== version || mobileStamp?.appVersion !== version) {
-    for (const clientDist of [webDist, mobileDist]) {
-      execFileSync(
-        'bun',
-        ['--conditions=@podium/source', 'scripts/write-web-build-stamp.ts', clientDist],
-        {
-          cwd: root,
-          stdio: 'inherit',
-          env: { ...process.env, PODIUM_APP_VERSION: version },
-        },
-      )
-    }
+    throw new Error(
+      `build-bun: fresh client build version does not match package version ` +
+        `(web=${webStamp?.appVersion ?? 'missing'}, mobile=${mobileStamp?.appVersion ?? 'missing'}, package=${version})`,
+    )
   }
-  // Capture immediately before copying. This local guard catches a partial or wrong
-  // copy into headless/; the enclosing release flow separately retains the digest it
-  // captured before invoking this packager and checks the final tarball against it.
-  const packagingClientRootDigest = clientBuildRootDigestFromSites({
-    web: webDist,
-    mobile: mobileDist,
-  })
+  // The module-branded session retained the fresh-build root before compilation.
+  // Compare every later representation against that same in-process value.
   mkdirSync(headless, { recursive: true })
   // Release units are generated from the same renderer used by runtime setup and the dev host.
   writeSystemdFiles(`${headless}/systemd`, {
@@ -556,10 +616,10 @@ function main(): void {
     web: `${headless}/web`,
     mobile: `${headless}/mobile`,
   })
-  if (copiedClientRootDigest !== packagingClientRootDigest) {
+  if (copiedClientRootDigest !== session.clientRootDigest) {
     throw new Error(
       `build-bun: client output changed while it was copied into the bundle ` +
-        `(captured=${packagingClientRootDigest}, copied=${copiedClientRootDigest})`,
+        `(captured=${session.clientRootDigest}, copied=${copiedClientRootDigest})`,
     )
   }
 
@@ -601,7 +661,7 @@ function main(): void {
 
   // Self-update artifact: a tarball of the headless/ dir the feed can serve. `tar` from the
   // bundle's parent so the archive root is `headless/` (matching runUpdate's extract path).
-  const tarball = updateArtifactPath(bundleRoot, version, process.env)
+  const tarball = updateArtifactPath(bundleRoot, version, env)
   execFileSync('tar', ['-czf', tarball, '-C', bundleRoot, 'headless'], {
     cwd: root,
     stdio: 'inherit',
@@ -612,7 +672,7 @@ function main(): void {
   // the operator's production key at release) else the gitignored dev key. The matching public
   // key is committed in packages/runtime/src/update-delivery.ts — keep the two in lockstep on release.
   const signingKeyB64 = (() => {
-    if (process.env.PODIUM_UPDATE_SIGNING_KEY) return process.env.PODIUM_UPDATE_SIGNING_KEY.trim()
+    if (env.PODIUM_UPDATE_SIGNING_KEY) return env.PODIUM_UPDATE_SIGNING_KEY.trim()
     const devKey = `${root}scripts/.podium-update-dev.key`
     if (existsSync(devKey)) return readFileSync(devKey, 'utf8').trim()
     return undefined
@@ -633,8 +693,35 @@ function main(): void {
     console.log(`[build-bun] headless update signature -> ${tarball}.sig`)
   }
 
+  // Re-open the archive and compare it with the module-branded fresh build. This is
+  // continuity, not correctness: it catches stale/wrong paths, partial copies,
+  // corruption, and substitution between the build and packaging. A bad build can
+  // still agree with its own manifest.
+  const extracted = mkdtempSync(join(tmpdir(), 'podium-packaged-client-proof-'))
+  try {
+    execFileSync('tar', ['-xzf', tarball, '-C', extracted])
+    const packagedClientRootDigest = clientBuildRootDigestFromSites({
+      web: join(extracted, 'headless/web'),
+      mobile: join(extracted, 'headless/mobile'),
+    })
+    if (packagedClientRootDigest !== session.clientRootDigest) {
+      throw new Error(
+        `build-bun: packaged clients differ from the fresh build ` +
+          `(captured=${session.clientRootDigest}, packaged=${packagedClientRootDigest})`,
+      )
+    }
+  } finally {
+    rmSync(extracted, { recursive: true, force: true })
+  }
+
   console.log(`[build-bun] headless bundle -> ${headless} (VERSION ${version})`)
   console.log(`[build-bun] headless update artifact -> ${tarball}`)
+  return { bundleRoot, clientRootDigest: session.clientRootDigest, tarball }
 }
 
-if (import.meta.main) main()
+if (import.meta.main) {
+  assertNoCallerSuppliedClientRootDigest(process.argv.slice(2), process.env)
+  throw new Error(
+    'build-bun: direct headless packaging is forbidden; run `bun run package:headless` so this invocation fresh-builds the clients first',
+  )
+}
