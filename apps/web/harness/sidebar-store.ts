@@ -19,7 +19,13 @@
  */
 type Selector<T> = (store: unknown) => T
 
-const ROWS = Number(new URLSearchParams(location.search).get('rows') ?? 24)
+const params = new URLSearchParams(location.search)
+const ROWS = Number(params.get('rows') ?? 24)
+/** `?started=1` gives the working rows a worktree — the ALREADY-RUNNING task,
+ *  which the row menu answers differently from an unstarted one (POD-1470:
+ *  "Run now" becomes "Assign agent"). Off by default so the fixture the other
+ *  harness shots were measured against does not move. */
+const STARTED = params.get('started') === '1'
 
 const rows = new Map<string, string>()
 const listeners = new Set<() => void>()
@@ -165,6 +171,7 @@ const issues = [
   ...TITLES.slice(5, ROWS).map((t, i) =>
     issue(`work-${i}`, 969 - i, t, {
       ...(i % 3 === 0 ? { childCount: 9, childDoneCount: 4 } : {}),
+      ...(STARTED ? { worktreePath: `/repo/.worktrees/work-${i}`, branch: `work-${i}` } : {}),
     }),
   ),
   // A closed tail, so the fold under the group has something to open.

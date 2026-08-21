@@ -16,6 +16,7 @@ import type { JSX } from 'react'
 import { createRoot } from 'react-dom/client'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
+import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import '@/index.css'
 import '@/styles.css'
 
@@ -66,6 +67,9 @@ function Harness(): JSX.Element {
   )
 }
 
+// The row's right-click menu raises the app-wide confirm for Archive and
+// Delete (POD-1077) and throws without its provider, which `AppShell` supplies
+// in the real tree. The harness is only honest about the menu if it has one.
 createRoot(document.getElementById('root') as HTMLElement).render(
-  params.get('rail') ? <RailHarness /> : <Harness />,
+  <ConfirmProvider>{params.get('rail') ? <RailHarness /> : <Harness />}</ConfirmProvider>,
 )
