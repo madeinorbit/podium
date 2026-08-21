@@ -569,15 +569,47 @@ pub fn local_served_injection_script(port: u16) -> String {
     format!("if (window.location.origin === {origin}) {{ window.__PODIUM_LOCAL_SETUP__ = true; }}")
 }
 
+/// The JS condition that is true on EITHER document a local window can show — the baked
+/// tauri-scheme fallback, or this shell's served-local origin — and false everywhere else,
+/// notably after a runtime transfer has retargeted the window to a remote server.
+fn local_document_condition(port: u16) -> String {
+    let origin = serde_json::to_string(&local_served_http_url(port))
+        .unwrap_or_else(|_| "\"\"".to_string());
+    format!("(window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost' || window.location.origin === {origin})")
+}
+
+/// Tell the page which build last owned this device's local data, so the BAKED fallback can
+/// refuse to run when it is too old for it.
+///
+/// This is the local half of the skew machinery and it exists because the other half cannot
+/// work here: the page normally grades itself against a reachable server's `/version`, and the
+/// baked fallback is by definition the case where no server answers. The stamp is a local
+/// record — the last `/version` this shell actually read from its own server, persisted across
+/// restarts — so the page can still ask "is the UI in the .app older than the data on this
+/// disk?" with nothing on the network. [spec:§2.1 durability layer 3]
+///
+/// Origin-guarded like everything else in the local injection: a remote server's page grades
+/// itself against that server, not against this box's history.
+pub fn local_build_injection_script(port: u16, stamp: Option<&str>) -> String {
+    match stamp {
+        Some(stamp) => format!(
+            "if {} {{ window.__PODIUM_LOCAL_BUILD__ = {stamp}; }}",
+            local_document_condition(port)
+        ),
+        None => String::new(),
+    }
+}
+
 /// The one injection a LOCAL (all-in-one / server) window carries, correct at EITHER document
 /// this shell can show it: the served `http://127.0.0.1:<port>` origin, or the baked
-/// tauri-scheme fallback. Both halves are origin-guarded, so the same script stays right when
+/// tauri-scheme fallback. Every half is origin-guarded, so the same script stays right when
 /// the window MOVES between them ([`ServedOriginWatch`]) or is retargeted to a remote server.
-pub fn local_injection_script(port: u16) -> String {
+pub fn local_injection_script(port: u16, local_build_stamp: Option<&str>) -> String {
     format!(
-        "{}\n{}",
+        "{}\n{}\n{}",
         injection_script(port),
-        local_served_injection_script(port)
+        local_served_injection_script(port),
+        local_build_injection_script(port, local_build_stamp)
     )
 }
 
@@ -954,6 +986,76 @@ pub fn local_server_alive(port: u16) -> bool {
     }
 }
 
+/// Where the last-seen local build stamp is kept, so it survives a restart into the offline
+/// case that needs it.
+fn local_build_stamp_path() -> PathBuf {
+    state_dir().join("desktop-local-build.json")
+}
+
+/// The build-identity subset of a `/version` body, as a compact JSON object.
+///
+/// Deliberately only the fields `classifySkew` reads plus `appVersion` for the message the
+/// user sees: the stamp is injected verbatim into a page, so it carries what the decision
+/// needs and nothing else.
+pub fn local_build_stamp_from_version(body: &str) -> Option<String> {
+    let slice = json_object_slice(body)?;
+    let value: serde_json::Value = serde_json::from_str(slice).ok()?;
+    let object = value.as_object()?;
+    let mut stamp = serde_json::Map::new();
+    for field in [
+        "wireVersion",
+        "minSupportedVersion",
+        "wireSchemaDigest",
+        "appVersion",
+    ] {
+        if let Some(value) = object.get(field) {
+            stamp.insert(field.to_string(), value.clone());
+        }
+    }
+    // Without a wire version there is nothing to compare, and a stamp that cannot decide
+    // anything is worse than none: it would look like an answer.
+    stamp.get("wireVersion")?;
+    serde_json::to_string(&serde_json::Value::Object(stamp)).ok()
+}
+
+/// The stamp written by an earlier run, if any. Best-effort in every direction — a missing or
+/// unreadable stamp means the guard has nothing to say, which is the safe answer.
+pub fn read_local_build_stamp() -> Option<String> {
+    let text = std::fs::read_to_string(local_build_stamp_path()).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    value.as_object()?.get("wireVersion")?;
+    serde_json::to_string(&value).ok()
+}
+
+/// Persist the stamp for the next boot. Best-effort: this is a guard's input, never a gate on
+/// opening the window.
+pub fn write_local_build_stamp(stamp: &str) {
+    let path = local_build_stamp_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(error) = std::fs::write(&path, stamp) {
+        log::warn!("could not record the local build stamp: {error}");
+    }
+}
+
+/// Read the local server's `/version`, record the build stamp it carries, and return it.
+/// Falls back to the persisted stamp when the read fails, so a flaky probe never erases what
+/// an earlier run established.
+pub fn record_local_build_stamp(port: u16) -> Option<String> {
+    let fresh = local_http_get(port, "/version", std::time::Duration::from_millis(1500))
+        .ok()
+        .filter(|(status, _)| *status == 200)
+        .and_then(|(_, body)| local_build_stamp_from_version(&body));
+    match fresh {
+        Some(stamp) => {
+            write_local_build_stamp(&stamp);
+            Some(stamp)
+        }
+        None => read_local_build_stamp(),
+    }
+}
+
 /// Block until this instance's Podium server answers on `port`, or the budget runs out.
 /// Returns true if it did.
 pub fn wait_for_local_server(port: u16, attempts: u32, delay_ms: u64) -> bool {
@@ -1197,11 +1299,56 @@ mod tests {
     fn local_injection_script_is_correct_at_both_documents_a_local_window_can_show() {
         // One script, installed once, guarding each half by the origin it belongs to — the
         // window MOVES between the served origin and the baked dist while it runs.
-        let script = local_injection_script(18787);
+        let script = local_injection_script(18787, None);
         assert!(script.contains("window.location.protocol === 'tauri:'"));
         assert!(script.contains("ws://127.0.0.1:18787"));
         assert!(script.contains("window.location.origin === \"http://127.0.0.1:18787\""));
         assert_eq!(script.matches("__PODIUM_LOCAL_SETUP__ = true").count(), 2);
+        // No stamp recorded yet — the guard gets nothing rather than a value that cannot
+        // decide anything.
+        assert!(!script.contains("__PODIUM_LOCAL_BUILD__"));
+    }
+
+    #[test]
+    fn local_build_injection_hands_the_page_the_stamp_on_local_documents_only() {
+        let stamp = "{\"wireVersion\":7,\"wireSchemaDigest\":\"abc\"}";
+        let script = local_build_injection_script(18787, Some(stamp));
+        assert!(script.contains(&format!("window.__PODIUM_LOCAL_BUILD__ = {stamp};")));
+        assert!(script.contains("window.location.protocol === 'tauri:'"));
+        assert!(script.contains("window.location.origin === \"http://127.0.0.1:18787\""));
+        assert_eq!(local_build_injection_script(18787, None), "");
+    }
+
+    #[test]
+    fn local_build_stamp_keeps_the_fields_the_skew_decision_reads() {
+        let body = "{\"wireVersion\":7,\"minSupportedVersion\":5,\"wireSchemaDigest\":\"abc\",\"appVersion\":\"0.1.1\",\"instanceId\":\"default\",\"feedScoping\":\"device-scoped\"}";
+        let stamp = local_build_stamp_from_version(body).expect("a /version body yields a stamp");
+        let value: serde_json::Value = serde_json::from_str(&stamp).expect("stamp is JSON");
+        let object = value.as_object().expect("stamp is an object");
+        assert_eq!(object.len(), 4, "only the decision's fields travel: {stamp}");
+        assert_eq!(object["wireVersion"], serde_json::json!(7));
+        assert_eq!(object["minSupportedVersion"], serde_json::json!(5));
+        assert_eq!(object["wireSchemaDigest"], serde_json::json!("abc"));
+        assert_eq!(object["appVersion"], serde_json::json!("0.1.1"));
+        // A stamp that cannot decide anything would look like an answer, so there is none.
+        assert_eq!(
+            local_build_stamp_from_version("{\"appVersion\":\"0.1.1\"}"),
+            None
+        );
+        assert_eq!(local_build_stamp_from_version("not json"), None);
+    }
+
+    #[test]
+    fn local_build_stamp_round_trips_through_the_state_dir() {
+        with_state_dir("local-build-stamp", None, || {
+            assert_eq!(read_local_build_stamp(), None);
+            write_local_build_stamp("{\"wireVersion\":7,\"wireSchemaDigest\":\"abc\"}");
+            let stamp = read_local_build_stamp().expect("the stamp survives the write");
+            assert!(stamp.contains("\"wireVersion\":7"));
+            // Garbage on disk reads as "nothing recorded", never as a decision.
+            write_local_build_stamp("{\"appVersion\":\"0.1.1\"}");
+            assert_eq!(read_local_build_stamp(), None);
+        });
     }
 
     #[test]

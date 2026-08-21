@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WIRE_VERSION } from '@podium/protocol'
 
 const connect = vi.hoisted(() => vi.fn().mockResolvedValue({ mode: 'all-in-one' }))
 
@@ -26,6 +27,7 @@ afterEach(() => {
   localStorage.clear()
   ;(globalThis as { __PODIUM_SKIP_SETUP__?: boolean }).__PODIUM_SKIP_SETUP__ = undefined
   ;(globalThis as { __PODIUM_LOCAL_SETUP__?: boolean }).__PODIUM_LOCAL_SETUP__ = undefined
+  ;(globalThis as { __PODIUM_LOCAL_BUILD__?: unknown }).__PODIUM_LOCAL_BUILD__ = undefined
   connect.mockClear()
 })
 
@@ -39,6 +41,12 @@ function seedSyncedReplica(principal: string): void {
     `podium.kernel-replica.principal.${encodeURIComponent(principal)}.namespace.v1`,
     JSON.stringify({ principal, lastUsedAt: Date.now() }),
   )
+}
+
+/** What the desktop shell injects into a local document: the build that last owned this
+ *  device's data (bootstrap::local_build_injection_script). */
+function stubShellLocalBuild(stamp: Record<string, unknown>): void {
+  ;(globalThis as { __PODIUM_LOCAL_BUILD__?: unknown }).__PODIUM_LOCAL_BUILD__ = stamp
 }
 
 /** Drive the bounded backoff to exhaustion. */
@@ -270,6 +278,40 @@ describe('SetupGate', () => {
 
     expect(screen.getByText('APP-READY')).toBeTruthy()
     expect(screen.queryByRole('heading', { name: /the backend went quiet/i })).toBeNull()
+  })
+
+  it('refuses to run a built-in UI older than the data on this device', async () => {
+    // The baked-fallback stale guard (spec §2.1, durability layer 3). The shell fell back to
+    // the UI inside the .app, nothing is answering, and that copy predates the build that last
+    // wrote this box's replica — so it must not open the workspace, cached or not.
+    vi.useFakeTimers()
+    seedSyncedReplica('user-1')
+    stubShellLocalBuild({ wireVersion: WIRE_VERSION + 1, appVersion: '9.9.9' })
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    render(<SetupGate>{child}</SetupGate>)
+    await exhaustRetries()
+
+    expect(screen.getByRole('heading', { name: /too old to open your work/i })).toBeTruthy()
+    expect(screen.getByText(/9\.9\.9/)).toBeTruthy()
+    expect(screen.queryByText('APP-READY')).toBeNull()
+    expect(screen.queryByRole('heading', { name: /the backend went quiet/i })).toBeNull()
+  })
+
+  it('leaves a reachable server to its own handshake, however old this build is', async () => {
+    // The guard answers one question — "no server AND the UI is older than the data". With a
+    // server answering, the wire-version handshake in version-guard.ts is better informed and
+    // owns the outcome; blocking here would ground a device that can fix itself.
+    vi.useFakeTimers()
+    stubShellLocalBuild({ wireVersion: WIRE_VERSION + 1, appVersion: '9.9.9' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ status: 200, ok: true, json: async () => ({}) }),
+    )
+    render(<SetupGate>{child}</SetupGate>)
+    await exhaustRetries()
+
+    expect(screen.getByText('APP-READY')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /too old to open your work/i })).toBeNull()
   })
 
   it('keeps the recovery console when the device holds more than one principal', async () => {
