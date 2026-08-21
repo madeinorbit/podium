@@ -438,3 +438,21 @@ deliberate, that sentence is the test's specification.
 Fourth face, from the same issue's close: when a claim lives in more than one home
 (a rule stated in three comments; a count in a message and a state line), the homes
 are ONE artefact and drift is the default — edit them as one or they will contradict.
+
+### Lesson: stopping a session deletes its checkout, and the next spawn dies in the hole
+
+`podium session stop` FREES the worktree — the directory is removed and `git worktree list`
+shows the entry `prunable`. A subsequent `podium agent spawn --issue <same issue>` still
+REPORTS placement at that path and hands back a session id; the agent then exits within
+seconds with ZERO transcript items, and the parent sees only "exited without reporting" —
+the same signal a crashed agent gives, with nothing to diagnose.
+
+Measured on POD-2410 (2026-08-21): a reviewer was parked to hand the checkout to an
+implementer; the implementer died instantly; `git worktree prune && git worktree add <path>
+<branch>` followed by a respawn worked first try. The recreated worktree has no
+node_modules, so the replacement brief must order `bun install` before any gate.
+
+Two rules from it. Before parking a session whose issue still has work, decide who takes
+the checkout next — a stop is a handoff, not a cleanup. And treat "exited without reporting
+with an empty transcript" as a placement question first: check the cwd exists before
+re-reading the brief. Filed as POD-2563.
