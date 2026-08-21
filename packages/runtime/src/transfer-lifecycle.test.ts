@@ -247,9 +247,13 @@ describe('server transfer lifecycle', () => {
     )
 
     expect(result.proven).toBe(true)
+    // `parent`, not `janitor`: the janitor became a WORKER INSIDE THE SERVER and is
+    // no longer a peer role, while a parent now supervises the server and daemon
+    // (POD-2505, spec §3). Promotion therefore starts the supervising parent and
+    // its server; a janitor here would mean the old three-unit topology came back.
     expect(result.roleTransition).toEqual({
       stopped: [],
-      started: ['server', 'janitor'],
+      started: ['parent', 'server'],
       disarmed: [],
       serverUp: true,
     })
