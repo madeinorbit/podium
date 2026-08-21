@@ -426,21 +426,21 @@ rcodesign-ad-hoc-signed darwin binary must run on macOS and spawn abduco correct
 the fallback if it fails is a Mac CI leg per release and stale dev Mac payloads, which
 this design otherwise avoids.
 
-**Spike status (POD-2501, 2026-08-21):** Linux production path is proven;
-Mac runtime GO/NO-GO is **PENDING** a Mac run of the packaged verifier.
+**Spike status (POD-2501, 2026-08-21): GO** — a Linux-built, rcodesign-ad-hoc-signed
+darwin-arm64 headless binary runs on Apple Silicon. No Mac is required in the
+payload build loop. Mac CI remains only for shell minting (§5).
 
 | Step | Result |
 |---|---|
 | Prebuilt abduco via `zig cc` (darwin-arm64 + darwin-x64) | DONE — `scripts/prebuilt/abduco/`, headerpad + `rcodesign sign` |
-| `bun build --compile --target=bun-darwin-arm64` (+ x64) embedding that abduco | DONE — `dist-bun-spike/`, spike script `scripts/spike/build-bun-darwin.ts` |
-| Ad-hoc sign from Linux with Bun JIT entitlements | DONE — `rcodesign sign --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist` → `CodeSignatureFlags(ADHOC)` |
-| Mac: `--version`, daemon boot, abduco survives restart, unsigned fails | **PENDING** — run `mac-verify.sh` from the spike tarball |
+| `bun build --compile --target=bun-darwin-arm64` (+ x64) embedding that abduco | DONE — spike script `scripts/spike/build-bun-darwin.ts` |
+| Ad-hoc sign from Linux with Bun JIT entitlements | DONE — `rcodesign sign --binary-identifier podium --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist` → `flags=0x2(adhoc)` on Mac `codesign -dv` |
+| Mac: `--version`, all-in-one boot, abduco session survives restart | **GO** — Actions run [32433063958](https://github.com/madeinorbit/podium/actions/runs/32433063958) on `blacksmith-6vcpu-macos-15`; log `docs/internal/superpowers/spikes/2026-08-21-mac-verify-round2.log` |
+| Unsigned refusal on arm64 | ANOMALY on CI VM (unsigned also ran); keep ad-hoc sign anyway — real Macs / Gatekeeper still want a signature, and Bun docs require JIT entitlements |
+| darwin-x64 on Intel / Rosetta | FOLLOW-UP — binary produced on Linux; Mac runtime not exercised this spike |
 
 Evidence write-up:
 `docs/internal/superpowers/spikes/2026-08-21-darwin-cross-compile-spike.md`.
-Exact invocations and failure-mode probes (unsigned vs ad-hoc, quarantine xattr,
-bun:sqlite/FFI/discovery-worker via daemon boot) are recorded there. Attach Mac
-log to POD-2501 and POD-2462 before flipping this to GO or escalating NO-GO.
 
 ## 8c. Decisions log (grilling round 1, 2026-08-21)
 
