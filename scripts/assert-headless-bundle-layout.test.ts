@@ -203,6 +203,18 @@ function runGate(tarball: string): {
 }
 
 describe('assert-headless-bundle production layout', () => {
+  it('refuses an empty client inventory consistently with the shipped-bytes verifier', () => {
+    const clients = scratch()
+    for (const site of ['web', 'mobile']) {
+      mkdirSync(join(clients, site), { recursive: true })
+      writeFileSync(
+        join(clients, site, 'podium-build-manifest.json'),
+        '{"manifestVersion":1,"files":{}}\n',
+      )
+    }
+    expect(() => clientBuildRootDigest(clients)).toThrow(/has no v1 file inventory/)
+  })
+
   it('refuses a bundle with systemd/ removed', () => {
     const root = scratch()
     const headless = join(root, 'headless')

@@ -53,6 +53,9 @@ MANIFEST="$DIR/podium-update.json"
 TARGET_VERSION="$(jq -er '.version' "$MANIFEST")" || fail "manifest has no version"
 TARGET_SOURCE="$(jq -er '.artifacts.web.digest' "$MANIFEST")" \
   || fail "manifest has no approved client source commit"
+# This value travelled in unsigned manifest metadata with the artifacts. It is a
+# cross-platform consistency check here, not an independent binding to the approved
+# source commit; the release job supplies that independent commit when it gates output.
 # The root sidecar is useful inspection metadata, but it is not trusted here: it travelled
 # with the artifact. Build-to-package continuity was already checked against process-local
 # state by scripts/release.ts before this directory was staged.
