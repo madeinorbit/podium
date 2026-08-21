@@ -8,6 +8,10 @@
 
 <p align="center" style="text-align:center"><a href="https://github.com/madeinorbit/podium/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/madeinorbit/podium?label=release&color=d97706"></a> <a href="./LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a></p>
 
+<p align="center">
+  <img src="docs/assets/readme-hero.jpg" alt="Podium ADE macOS app working on issues across two projects and showing a live agent terminal reporting finished work with a merge offer" width="960" />
+</p>
+
 ## Download
 
 **Desktop app**
