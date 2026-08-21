@@ -55,6 +55,7 @@ import {
   spawnedByTag,
 } from '@podium/model'
 import type { SessionBindingSpawnPrincipal } from '@podium/protocol'
+import type { Refusal, RuntimeAttachmentRef } from '@podium/protocol/daemon'
 
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
@@ -134,6 +135,7 @@ export type MailSendPort = (input: {
   body: string
   urgency?: 'fyi' | 'next-turn' | 'interrupt'
   lifecycle?: 'wait' | 'wake'
+  attachments?: readonly RuntimeAttachmentRef[]
 }) => Promise<unknown>
 
 /** The daemon round-trip `uploadImage` is (bytes to the session's machine, an
@@ -157,7 +159,13 @@ export interface SessionCommandDeps {
   /** Compensate only the draft created by this launch when createSession throws. */
   discardUnlaunchedDraft(issueId: IssueId): boolean
   issueOwner(issueId: IssueId): import('@podium/model').UserId | undefined
-  /** The daemon control leg for `uploadImage`. */
+  /** The runtime-contract staging leg for live sessions. */
+  stageAttachment(input: {
+    sessionId: SessionId
+    source: { bytes: Uint8Array; filename: string; mediaType: string }
+  }): Promise<RuntimeAttachmentRef | Refusal>
+  runtimeContractActive(sessionId: SessionId): boolean
+  /** The legacy daemon control leg for pre-contract and cold-start uploads. */
   rpc(): SessionDaemonRpc
   access: SessionAccessDeps
   ownership: MachineOwnershipIndex
@@ -402,7 +410,7 @@ export function createdOwnership(
  */
 type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
 type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
-type SendInput = { sessionId: SessionId; text: string; mutationId?: MutationId }
+type SendInput = z.infer<typeof sessionCommandPlaneInputs.sendText>
 type TargetInput = { sessionId: SessionId }
 type AnswerInput = { sessionId: SessionId; choices?: AnswerChoice[]; skip?: true }
 
@@ -445,6 +453,7 @@ async function substrateSend(
   const { ok, queued, reason, disposition } = (await ctx.deps.mailSend({
     to: input.sessionId,
     body: input.text,
+    ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     urgency: 'next-turn',
     lifecycle,
   })) as SubstrateOutcome
@@ -684,6 +693,18 @@ export const SESSION_COMMAND_HANDLERS = {
     const row = ctx.sessions.sessionById(input.sessionId)
     const machineId = row?.machineId ?? input.machineId
     if (machineId !== undefined) ctx.assertMachineUse(machineId)
+    if (ctx.deps.runtimeContractActive(input.sessionId)) {
+      const staged = await ctx.deps.stageAttachment({
+        sessionId: input.sessionId,
+        source: {
+          bytes: new Uint8Array(Buffer.from(input.dataBase64, 'base64')),
+          filename: input.filename,
+          mediaType: input.mimeType,
+        },
+      })
+      if ('reason' in staged) return { refusal: staged }
+      return { path: staged.path, attachment: staged }
+    }
     const result = await ctx.deps
       .rpc()
       .uploadImage({ ...input, ...(machineId ? { machineId } : {}) })

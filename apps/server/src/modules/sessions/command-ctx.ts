@@ -82,6 +82,8 @@ export function sessionCommandCtx(
   })
   const deps: SessionCommandDeps = {
     sessions: () => commandSessions,
+    stageAttachment: (input) => sessions.runtimeGateway.stageAttachment(input),
+    runtimeContractActive: (sessionId) => sessions.receiptSender.onContract(sessionId),
     // THE CHAT PATHS' SEND, as a dispatch of the `mail.send` contract (POD-729).
     //
     // The capability is closed over HERE, at the composition root, so no handler

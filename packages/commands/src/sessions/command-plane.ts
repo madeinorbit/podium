@@ -56,6 +56,7 @@ import {
   SessionIdField,
 } from '@podium/model'
 import { RuntimeContractRequest } from '@podium/protocol'
+import { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { z } from 'zod'
 import type { CommandDef } from '../framework'
 import { defineCommands } from '../framework'
@@ -71,12 +72,19 @@ const mutationId = z.string().max(128).optional()
 /** Every existing-target lifecycle command takes exactly this. */
 const targetInput = z.object({ sessionId: SessionIdField })
 
-/** Both chat sends take exactly this — same bounds the router shipped. */
-const sendInput = z.object({
-  sessionId: SessionIdField,
-  text: z.string().min(1).max(32_768),
-  mutationId,
-})
+/** Both chat sends take this shape. A staged attachment may be the whole turn,
+ * so emptiness is checked across text + refs rather than on text alone. */
+const sendInput = z
+  .object({
+    sessionId: SessionIdField,
+    text: z.string().max(32_768),
+    attachments: z.array(RuntimeAttachmentRef).min(1).max(20).optional(),
+    mutationId,
+  })
+  .superRefine((input, ctx) => {
+    if (input.text.length > 0 || input.attachments?.length) return
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'text or an attachment is required' })
+  })
 
 /**
  * The harness a session runs, and the durable conversation pointer — THE MODEL'S

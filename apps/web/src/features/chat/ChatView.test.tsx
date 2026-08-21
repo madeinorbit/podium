@@ -623,6 +623,52 @@ describe('ChatView composer', () => {
     )
   })
 
+  it('sends a staged attachment ref without pasting its path into message text', async () => {
+    const attachment = {
+      id: 'staged-1',
+      path: '/staged/shot.png',
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    fakeTrpc.sessions.uploadImage.mutate.mockResolvedValueOnce({
+      path: attachment.path,
+      attachment,
+    } as never)
+    storeDrafts = { s1: 'describe this image' }
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    const input = container.querySelector<HTMLInputElement>('input[type=file]')
+    const textarea = container.querySelector('textarea')
+    expect(input).not.toBeNull()
+    expect(textarea).not.toBeNull()
+    if (!input || !textarea) return
+
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [new File(['pixels'], 'shot.png', { type: 'image/png' })],
+    })
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await vi.waitFor(() => expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1))
+    })
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+    })
+
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: asSessionId('s1'),
+        text: 'describe this image',
+        attachments: [attachment],
+      }),
+    )
+  })
+
   it('does not submit Enter when the browser only reports IME keyCode 229', async () => {
     storeDrafts = { s1: '中文' }
     act(() => {

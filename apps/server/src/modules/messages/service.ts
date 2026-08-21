@@ -48,13 +48,8 @@ import {
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
-import {
-  asDelegationRef,
-} from '@podium/protocol'
-import {
-  type QueueDrainAbandonedReason,
-  type TurnReceipt,
-} from '@podium/protocol/daemon'
+import { asDelegationRef } from '@podium/protocol'
+import { type QueueDrainAbandonedReason, type TurnReceipt } from '@podium/protocol/daemon'
 import type { CommandPrincipal } from '../../command-principal'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
@@ -843,6 +838,7 @@ export class MessageDeliveryService {
       urgency,
       lifecycle,
       body: input.body,
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       expiresAt: input.expiresAt ?? null,
       createdAt: this.deps.now(),
       status: 'queued',
@@ -1173,6 +1169,7 @@ export class MessageDeliveryService {
     const input = {
       sessionId,
       text,
+      ...(message.attachments?.length ? { attachments: message.attachments } : {}),
       inputOrigin: message.fromKind === 'operator' ? ('controller' as const) : ('mail' as const),
       principal,
       sourceMessageId: message.id,
@@ -1967,6 +1964,13 @@ export class MessageDeliveryService {
           }
         : {}),
     })
+    if (
+      receipt.outcome === 'refused' &&
+      receipt.refusal.reason === 'unsupported' &&
+      message.attachments?.length
+    ) {
+      this.deadLetter(message, receipt.refusal.detail ?? 'file attachments are unsupported')
+    }
   }
 
   /** queued → delivered: the PUSH is confirmed [POD-834]. `via` records HOW it was

@@ -519,16 +519,17 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const submitDraft = useCallback(
     (draft: string) => {
       const text = draft.trim()
-      const { paths, tags } = attachments.ready()
+      const { paths, legacyPaths, refs, tags } = attachments.ready()
       if (!text && paths.length === 0) return
       if (attachments.uploading) return
       lastSubmittedPromptRef.current = text || null
       setDraft('')
       attachments.clear()
       void send.send(
-        paths.length > 0 ? `${paths.join('\n')}\n${text}` : text,
+        legacyPaths.length > 0 ? [legacyPaths.join('\n'), text].filter(Boolean).join('\n') : text,
         tags.length > 0 ? tags : undefined,
         paths.length > 0 ? paths : undefined,
+        refs.length > 0 ? refs : undefined,
       )
     },
     [attachments, setDraft, send],

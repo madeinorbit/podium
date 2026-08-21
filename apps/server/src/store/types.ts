@@ -18,13 +18,8 @@ import type {
   UserId,
   VisibilityClass,
 } from '@podium/model'
-import type {
-  ObservationProvider,
-  SessionObservationCheckpointV1,
-} from '@podium/protocol'
-import type {
-  QueueDrainAbandonedReason,
-} from '@podium/protocol/daemon'
+import type { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
+import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 
 /** ALIASES @podium/model's PinKind (POD-380). The three literals had four
  *  declarations — here, router.ts, the presence contract and the model family — and
@@ -572,6 +567,9 @@ export interface MessageRow {
   urgency: MessageUrgency
   lifecycle: MessageLifecycle
   body: string
+  /** Runtime-staged files carried by this turn. Persisted so a retry cannot
+   * silently degrade an attachment send into a text-only send. */
+  attachments?: readonly import('@podium/protocol/daemon').RuntimeAttachmentRef[]
   expiresAt: string | null
   createdAt: string
   status: MessageStatus

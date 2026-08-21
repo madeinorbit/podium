@@ -606,7 +606,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
    */
   bag.receiptSender = new ReceiptSender({
     legacy: bag.inbox,
-    contract: bag.runtimeGateway,
+    contract: { send: (input) => bag.runtimeGateway.send(input) },
     queue: durableQueue,
     // REPORTED BY THE DAEMON ON BIND, never computed here: the daemon ORs a
     // machine-wide env var it owns with the per-spawn field and declines the flag

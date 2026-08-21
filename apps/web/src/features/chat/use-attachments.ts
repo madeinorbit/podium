@@ -1,4 +1,5 @@
 import type { MachineId, SessionId } from '@podium/model/browser'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import { hasFileItems } from './transfer-items'
@@ -8,9 +9,9 @@ import { hasFileItems } from './transfer-items'
  *
  * One part owning the whole path a file takes into a prompt: picked from the
  * file dialog, dropped on the composer or pasted from the clipboard, read as
- * base64, uploaded to the session's workspace, and finally turned into the path
- * prefix the agent receives. The composer renders the strip; this owns the state
- * machine behind each chip (`uploading` → `ready` | `failed`).
+ * base64, staged through the live runtime contract, and finally sent as an
+ * out-of-band attachment reference. Cold-start and pre-contract sessions retain
+ * the legacy path prefix. The composer owns each chip state transition.
  *
  * IMAGES WERE NEVER THE POINT, only the first case (POD-1203). Everything below
  * the mime check was already format-blind — the harness reads an attachment by
@@ -35,6 +36,8 @@ export interface Attachment {
    *  — a document chip shows its name and nothing else. */
   previewUrl: string
   path?: string
+  ref?: RuntimeAttachmentRef
+  error?: string
   state: 'uploading' | 'ready' | 'failed'
   /** The picked bytes, kept so the upload can be REDONE against a different
    *  machine (POD-1203). The home composer's target is a dropdown the operator
@@ -57,8 +60,13 @@ export interface UseAttachmentsResult {
   clear: () => void
   /** True while any chip is still uploading — the send button waits for it. */
   uploading: boolean
-  /** The uploaded paths ready to ride into the prompt, with their chip labels. */
-  ready: () => { paths: string[]; tags: { kind: 'image' | 'file'; label: string }[] }
+  /** Legacy paths still prefix cold-start prose; staged refs travel out-of-band. */
+  ready: () => {
+    paths: string[]
+    legacyPaths: string[]
+    refs: RuntimeAttachmentRef[]
+    tags: { kind: 'image' | 'file'; label: string }[]
+  }
   /** DOM handlers for the composer box. Grouped so the shell spreads them
    *  rather than re-deriving four closures. */
   dropHandlers: {
@@ -100,15 +108,39 @@ export function useAttachments(opts: {
         const res = await trpc.sessions.uploadImage.mutate({
           sessionId,
           filename: file.name,
-          mimeType: file.type,
+          mimeType: file.type || 'application/octet-stream',
           dataBase64,
           ...(target ? { machineId: target } : {}),
         })
+        if ('refusal' in res) {
+          const error =
+            res.refusal.detail ??
+            (res.refusal.reason === 'unsupported'
+              ? 'This agent cannot accept file attachments.'
+              : 'This file could not be attached.')
+          setAttachments((prev) =>
+            prev.map((a) => (a.id === id ? { ...a, error, state: 'failed' } : a)),
+          )
+          return
+        }
         setAttachments((prev) =>
-          prev.map((a) => (a.id === id ? { ...a, path: res.path, state: 'ready' } : a)),
+          prev.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  path: res.path,
+                  ...('attachment' in res ? { ref: res.attachment } : {}),
+                  state: 'ready' as const,
+                }
+              : a,
+          ),
         )
       } catch {
-        setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, state: 'failed' } : a)))
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.id === id ? { ...a, error: 'This file could not be attached.', state: 'failed' } : a,
+          ),
+        )
       }
     },
     [sessionId, trpc],
@@ -153,7 +185,11 @@ export function useAttachments(opts: {
     const again = latest.current.filter((a) => a.file)
     if (again.length === 0) return
     setAttachments((prev) =>
-      prev.map((a) => (a.file ? { ...a, state: 'uploading' as const, path: undefined } : a)),
+      prev.map((a) =>
+        a.file
+          ? { ...a, state: 'uploading' as const, path: undefined, ref: undefined, error: undefined }
+          : a,
+      ),
     )
     for (const a of again) void upload(a.id, a.file as File, machineId)
   }, [machineId, upload])
@@ -162,6 +198,8 @@ export function useAttachments(opts: {
     const readyOnes = attachments.filter((a) => a.state === 'ready' && a.path)
     return {
       paths: readyOnes.map((a) => a.path as string),
+      legacyPaths: readyOnes.filter((a) => !a.ref).map((a) => a.path as string),
+      refs: readyOnes.flatMap((a) => (a.ref ? [a.ref] : [])),
       // The tag kind is what the transcript renders the chip as, and `previewUrl`
       // is already the answer to "can this be shown as a picture?" — reuse it
       // rather than testing the mime a second time and getting a different answer.

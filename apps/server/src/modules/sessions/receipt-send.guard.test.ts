@@ -39,10 +39,16 @@ const LEGACY_CALL = /\.(sendText|queueText|interruptText|resumeAndSend)\(/
 const ALLOWED = new Map<string, string>([
   ['modules/sessions/inbox.ts', 'the legacy verbs themselves'],
   ['modules/sessions/receipt-send.ts', 'the seam’s own flag-off branch'],
-  ['modules/sessions/session-wiring.ts', 'binds the verbs onto the service, and the durable-FIFO port'],
+  [
+    'modules/sessions/session-wiring.ts',
+    'binds the verbs onto the service, and the durable-FIFO port',
+  ],
   ['modules/messages/service.ts', 'C1’s flag-off branch in injectAndMark / deliverBatch'],
   ['modules/superagent/answer-delivery.ts', 'C4’s flag-off branch for the answer text fallback'],
-  ['modules/automations/service.ts', 'calls its own ports, which the composition root points at the seam'],
+  [
+    'modules/automations/service.ts',
+    'calls its own ports, which the composition root points at the seam',
+  ],
   ['gateway/ws-server.ts', 'a WebSocket frame write — a different sendText entirely'],
 ])
 
@@ -85,6 +91,7 @@ describe('W4 guard: the legacy send verbs have a closed set of callers (C5)', ()
 describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () => {
   const sender = (onContract: boolean, queueNotEmpty = false) => {
     const forwarded: string[] = []
+    const forwardedAttachments: unknown[] = []
     const enqueued: string[] = []
     const s = new ReceiptSender({
       legacy: {
@@ -96,7 +103,14 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
       contract: {
         send: async (input) => {
           forwarded.push(input.delivery)
-          return { outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready', provenBy: 'hook', at: 'now' }
+          forwardedAttachments.push(input.attachments)
+          return {
+            outcome: 'accepted',
+            turnEpoch: 1,
+            deliveredAs: 'when-ready',
+            provenBy: 'hook',
+            at: 'now',
+          }
         },
       },
       queue: {
@@ -116,7 +130,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
       }),
       now: () => 0,
     })
-    return { s, forwarded, enqueued }
+    return { s, forwarded, forwardedAttachments, enqueued }
   }
 
   it('completes a queued send on the server and forwards nothing', () => {
@@ -128,6 +142,39 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     // THE PRECONDITION. `authorizeAtDrain` has no daemon provider, so a queue
     // that reached the machine would drain unauthorized.
     expect(forwarded).toEqual([])
+  })
+
+  it('forwards staged refs on a live send and refuses to drop them into the durable queue', async () => {
+    const attachment = {
+      id: 'att-1',
+      path: '/staged/shot.png',
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    const live = sender(true)
+    expect(
+      live.s.send('now', {
+        sessionId: asSessionId('s1'),
+        text: 'describe it',
+        attachments: [attachment],
+      }),
+    ).toEqual({ ok: true })
+    expect(live.forwardedAttachments).toEqual([[attachment]])
+
+    const receipts: string[] = []
+    const queued = sender(true)
+    expect(
+      queued.s.send(
+        'queue',
+        { sessionId: asSessionId('s1'), text: 'describe it', attachments: [attachment] },
+        (receipt) =>
+          receipts.push(receipt.outcome === 'refused' ? receipt.refusal.reason : receipt.outcome),
+      ),
+    ).toMatchObject({ ok: false })
+    expect(queued.enqueued).toEqual([])
+    expect(receipts).toEqual(['unsupported'])
+    await Promise.resolve()
   })
 
   it('carries the idempotency key and the ledger id into the durable row', () => {
@@ -245,7 +292,9 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     expect(s.send('now', { sessionId: asSessionId('s1'), text: 'orphan' })).toEqual({ ok: true })
 
     s.send('now', { sessionId: asSessionId('s1'), text: 'watched' }, (receipt) => {
-      seen.push(receipt.outcome === 'refused' ? `refused:${receipt.refusal.reason}` : receipt.outcome)
+      seen.push(
+        receipt.outcome === 'refused' ? `refused:${receipt.refusal.reason}` : receipt.outcome,
+      )
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(seen).toEqual(['refused:not_running'])

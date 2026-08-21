@@ -120,10 +120,29 @@ describe('the command-plane table', () => {
     expect(create.safeParse({ cwd: '/p' }).success).toBe(true)
     // A non-uuid client id must be refused before it can reach the durable-label
     // path — POD-379 pins that refusal.
-    expect(create.safeParse({ cwd: '/p', sessionId: asSessionId('../../evil') }).success).toBe(false)
+    expect(create.safeParse({ cwd: '/p', sessionId: asSessionId('../../evil') }).success).toBe(
+      false,
+    )
     const send = sessionCommandPlane.defs.sendText.input
     expect(send.safeParse({ sessionId: asSessionId('s'), text: '' }).success).toBe(false)
-    expect(send.safeParse({ sessionId: asSessionId('s'), text: 'x'.repeat(32_769) }).success).toBe(false)
+    expect(
+      send.safeParse({
+        sessionId: asSessionId('s'),
+        text: '',
+        attachments: [
+          {
+            id: 'staged-1',
+            path: '/staged/a.png',
+            filename: 'a.png',
+            mediaType: 'image/png',
+            kind: 'image',
+          },
+        ],
+      }).success,
+    ).toBe(true)
+    expect(send.safeParse({ sessionId: asSessionId('s'), text: 'x'.repeat(32_769) }).success).toBe(
+      false,
+    )
   })
 
   it('answerAskUserQuestion cannot express a payload-supplied answerer at all', () => {
@@ -171,19 +190,20 @@ describe('the command-plane table', () => {
     ).toBe(false)
   })
 
-  it.each(['first line\nsecond line', 'first line\rsecond line', 'first line\r\nsecond line'])(
-    'answerAskUserQuestion rejects line breaks in free text: %j',
-    (freeText) => {
-      const input = sessionCommandPlane.defs.answerAskUserQuestion.input
+  it.each([
+    'first line\nsecond line',
+    'first line\rsecond line',
+    'first line\r\nsecond line',
+  ])('answerAskUserQuestion rejects line breaks in free text: %j', (freeText) => {
+    const input = sessionCommandPlane.defs.answerAskUserQuestion.input
 
-      expect(
-        input.safeParse({
-          sessionId: asSessionId('s'),
-          choices: [{ freeText, otherIndex: 3 }],
-        }).success,
-      ).toBe(false)
-    },
-  )
+    expect(
+      input.safeParse({
+        sessionId: asSessionId('s'),
+        choices: [{ freeText, otherIndex: 3 }],
+      }).success,
+    ).toBe(false)
+  })
 })
 
 /**

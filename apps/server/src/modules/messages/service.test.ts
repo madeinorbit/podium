@@ -340,7 +340,18 @@ function queuedRow(id: string): MessageRow {
 describe('MessagesRepository (store CRUD)', () => {
   it('round-trips a row and walks the ledger', () => {
     const store = new SessionStore(':memory:')
-    const m = queuedRow('msg_1')
+    const m = {
+      ...queuedRow('msg_1'),
+      attachments: [
+        {
+          id: 'staged-1',
+          path: '/staged/shot.png',
+          filename: 'shot.png',
+          mediaType: 'image/png',
+          kind: 'image' as const,
+        },
+      ],
+    }
     store.messages.addMessage(m)
     expect(store.messages.getMessage('msg_1')).toEqual(m)
     expect(store.messages.listMessagesFor({ kind: 'issue', id: 'iss_a' })).toEqual([m])

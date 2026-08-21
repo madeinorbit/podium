@@ -1903,6 +1903,7 @@ export const messages = sqliteTable(
     urgency: text().default('fyi').notNull(),
     lifecycle: text().default('wait').notNull(),
     body: text().notNull(),
+    attachmentsJson: text('attachments_json'),
     expiresAt: text('expires_at'),
     createdAt: text('created_at').notNull(),
     status: text().default('queued').notNull(),

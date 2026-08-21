@@ -7,6 +7,7 @@ import type {
 } from '@podium/client-core/viewmodels'
 import { chatSendRoute } from '@podium/client-core/viewmodels'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
@@ -84,9 +85,14 @@ export interface UseChatSendResult {
   justSent: boolean
   /** The issue seq the last compact turn rode in with, for the answer's label. */
   ctxSeq: number | null
-  /** Send composed text (already image-path-prefixed). Resolves when delivered
+  /** Send composed text plus out-of-band staged refs. Resolves when delivered
    *  or rejected — never throws to the caller. */
-  send: (fullText: string, tags?: PendingItem['tags'], toolPaths?: string[]) => Promise<void>
+  send: (
+    fullText: string,
+    tags?: PendingItem['tags'],
+    toolPaths?: string[],
+    attachments?: readonly RuntimeAttachmentRef[],
+  ) => Promise<void>
   /** Send an agent-authored offer prompt as a normal turn. Throws on failure so
    *  the offer bar can un-hide itself. */
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
@@ -265,7 +271,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
 
   /** Deliver `text` along the decided route. Throws on rejection. */
   const deliver = useCallback(
-    async (text: string, onQueued: () => void) => {
+    async (text: string, onQueued: () => void, attachments?: readonly RuntimeAttachmentRef[]) => {
       // THE SURFACE YOU SENT FROM IS THE SURFACE YOU STAY ON (POD-762).
       //
       // A parked session shows its transcript no matter which mode is persisted
@@ -282,6 +288,9 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       // free; the parked case is the one it exists for. Headless superagent
       // threads are excluded: their "session id" is a thread, not a panel.
       if (route.kind === 'session' || route.kind === 'resume') setPanelMode(sessionId, 'chat')
+      if (attachments?.length && route.kind !== 'session') {
+        throw new Error('file attachments require a live agent session')
+      }
       switch (route.kind) {
         case 'superagent-turn':
         case 'concierge':
@@ -322,6 +331,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           const result = await trpc.sessions.sendText.mutate({
             sessionId,
             text,
+            ...(attachments?.length ? { attachments: [...attachments] } : {}),
             mutationId: randomUUID(),
           })
           assertSendAccepted(result)
@@ -364,7 +374,12 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   )
 
   const send = useCallback(
-    async (fullText: string, tags?: PendingItem['tags'], toolPaths?: string[]) => {
+    async (
+      fullText: string,
+      tags?: PendingItem['tags'],
+      toolPaths?: string[],
+      attachments?: readonly RuntimeAttachmentRef[],
+    ) => {
       pinToBottom()
       const id = `pending-${++pendingSeq.current}`
       setPending((p) => [
@@ -380,8 +395,10 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       ])
       setJustSent(true)
       try {
-        await deliver(fullText, () =>
-          setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
+        await deliver(
+          fullText,
+          () => setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
+          attachments,
         )
       } catch {
         setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))

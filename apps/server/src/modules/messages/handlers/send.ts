@@ -61,6 +61,7 @@ export async function sendHandler(
   const payload = {
     to,
     body: input.body,
+    ...(input.attachments ? { attachments: input.attachments } : {}),
     ...(input.urgency ? { urgency: input.urgency } : {}),
     ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
     ...(input.expectResponse ? { expectsResponse: true } : {}),

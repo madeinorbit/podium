@@ -13,6 +13,7 @@
  */
 
 import type { Attribution, IssueId, SessionId, ThreadId } from '@podium/model'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type {
   IssueMessageRow,
   MessageKind,
@@ -58,6 +59,8 @@ export type MessageSender = MessageSenderIdentity & {
 export interface MessageSendInput {
   to: { kind: 'issue' | 'session' | 'operator'; id?: string }
   body: string
+  /** Staged machine-local refs, never paths spliced into the human's prose. */
+  attachments?: readonly RuntimeAttachmentRef[]
   kind?: MessageKind
   urgency?: MessageUrgency
   lifecycle?: MessageLifecycle

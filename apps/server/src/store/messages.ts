@@ -16,9 +16,7 @@ import {
   type IssueId,
   type SessionId,
 } from '@podium/model'
-import type {
-  QueueDrainAbandonedReason,
-} from '@podium/protocol/daemon'
+import { RuntimeAttachmentRef, type QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
@@ -54,8 +52,19 @@ function storedActor(r: Record<string, unknown>): ActorRef | null {
   return actorSystem(id)
 }
 
+function storedAttachments(value: unknown): MessageRow['attachments'] {
+  if (typeof value !== 'string') return undefined
+  try {
+    const parsed = RuntimeAttachmentRef.array().safeParse(JSON.parse(value))
+    return parsed.success ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function mapMessage(r: Record<string, unknown>): MessageRow {
   const actor = storedActor(r)
+  const attachments = storedAttachments(r.attachments_json)
   return {
     id: r.id as string,
     threadId: asThreadId(r.thread_id as string),
@@ -84,6 +93,7 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     urgency: r.urgency as MessageRow['urgency'],
     lifecycle: r.lifecycle as MessageRow['lifecycle'],
     body: r.body as string,
+    ...(attachments ? { attachments } : {}),
     expiresAt: (r.expires_at as string | null) ?? null,
     createdAt: r.created_at as string,
     status: r.status as MessageStatus,
@@ -115,10 +125,10 @@ export class MessagesRepository {
         `INSERT INTO messages
            (id, thread_id, in_reply_to, from_kind, from_session, from_name, from_issue,
             actor_kind, actor_id, on_behalf_of, delegation_ref,
-            to_kind, to_id, kind, urgency, lifecycle, body, expires_at,
+            to_kind, to_id, kind, urgency, lifecycle, body, attachments_json, expires_at,
             created_at, status, delivered_at, delivered_to, acked_by, hop, clamped_from,
             expects_response, fact_key, fact_target)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         m.id,
@@ -144,6 +154,7 @@ export class MessagesRepository {
         m.urgency,
         m.lifecycle,
         m.body,
+        m.attachments?.length ? JSON.stringify(m.attachments) : null,
         m.expiresAt,
         m.createdAt,
         m.status,

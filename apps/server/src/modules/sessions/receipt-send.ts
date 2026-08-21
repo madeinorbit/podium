@@ -56,13 +56,8 @@
  */
 
 import type { MutationId, SessionId } from '@podium/model'
-import type {
-  ObservationInputOrigin,
-} from '@podium/protocol'
-import type {
-  TurnDelivery,
-  TurnReceipt,
-} from '@podium/protocol/daemon'
+import type { ObservationInputOrigin } from '@podium/protocol'
+import type { RuntimeAttachmentRef, TurnDelivery, TurnReceipt } from '@podium/protocol/daemon'
 import type { InboxPrincipalReference } from './inbox'
 import type { RuntimeDurableQueuePort } from './runtime-gateway'
 
@@ -81,6 +76,7 @@ export type ReceiptSendVia = 'now' | 'queue' | 'interrupt' | 'wake'
 export interface ReceiptSendInput {
   sessionId: SessionId
   text: string
+  attachments?: readonly RuntimeAttachmentRef[]
   inputOrigin?: ObservationInputOrigin
   principal?: InboxPrincipalReference
   sourceMessageId?: string
@@ -113,6 +109,7 @@ export interface ReceiptSendContractPort {
     text: string
     origin: ObservationInputOrigin
     delivery: Exclude<TurnDelivery, 'queue' | 'steer'>
+    attachments?: readonly RuntimeAttachmentRef[]
     principal?: InboxPrincipalReference
   }): Promise<TurnReceipt>
 }
@@ -187,7 +184,12 @@ export class ReceiptSender {
     input: ReceiptSendInput,
     onReceipt?: ReceiptReconciler,
   ): ReceiptSendResult {
-    if (!this.ports.onContract(input.sessionId)) return this.legacy(via, input)
+    if (!this.ports.onContract(input.sessionId)) {
+      if (input.attachments?.length) {
+        return this.refuseAttachments(via, 'this agent cannot accept file attachments', onReceipt)
+      }
+      return this.legacy(via, input)
+    }
 
     // THE DURABLE MODES COMPLETE HERE, synchronously, through the same table the
     // gateway uses — so the caller's answer is as immediate and as true as it was
@@ -220,6 +222,13 @@ export class ReceiptSender {
       orderingHold ||
       (via === 'wake' && !this.ports.liveWithEmptyQueue(input.sessionId))
     ) {
+      if (input.attachments?.length) {
+        return this.refuseAttachments(
+          via,
+          'files cannot wait behind another turn; try again when pending messages have delivered',
+          onReceipt,
+        )
+      }
       return this.enqueue(via, input, onReceipt)
     }
 
@@ -235,6 +244,7 @@ export class ReceiptSender {
       text: input.text,
       origin: input.inputOrigin ?? 'controller',
       delivery,
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       principal: input.principal ?? this.ports.systemPrincipal(),
     })
     // THE REJECTION IS HANDLED WHETHER OR NOT ANYONE IS LISTENING, and the
@@ -270,6 +280,15 @@ export class ReceiptSender {
     // on their way; the receipt says whether they landed. This is the same claim
     // `sendText` makes today, made by a path that will later correct itself.
     return { ok: true }
+  }
+
+  private refuseAttachments(
+    via: ReceiptSendVia,
+    detail: string,
+    onReceipt?: ReceiptReconciler,
+  ): ReceiptSendResult {
+    onReceipt?.({ outcome: 'refused', refusal: { reason: 'unsupported', detail } }, via)
+    return { ok: false, reason: detail }
   }
 
   private enqueue(
