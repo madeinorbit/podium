@@ -25,13 +25,18 @@ import { registerDevFeedRoutes } from './artifact-route'
 import {
   createDevBundlePublisher,
   DEV_ARTIFACT_ROUTE,
+  DevBundleProposalMovedError,
   DevBundleUnavailableError,
   developmentHeadSha,
 } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
 import { createDevWebBuilder, type DevWebBuildState, decideWebDist } from './dev-web-build'
 import { createGitHeadShaCache } from './head-sha-cache'
-import { createReleaseApprovalFlow } from './release-approval'
+import {
+  createReleaseApprovalFlow,
+  ReleaseApprovalRefusal,
+  type ReleaseApprovalTarget,
+} from './release-approval'
 import { type ChannelFeed, DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
 
 const log = createLogger('server:updates')
@@ -40,7 +45,10 @@ export interface DevPublisherWiring {
   /** The admin-only pre-release fact. Undefined means nothing awaits publication. */
   readonly proposal: () => Promise<ReleaseProposal | undefined>
   /** Approve BUILD + PUBLISH only; rollout remains the ordinary update offer. */
-  readonly approveRelease: (approvedBy: string) => Promise<ReleaseProposal | undefined>
+  readonly approveRelease: (
+    approvedBy: string,
+    expected: ReleaseApprovalTarget,
+  ) => Promise<ReleaseProposal | undefined>
   /**
    * Ask for a build after the operator has started an update. Merely publishing
    * the current HEAD identity never calls this capability.
@@ -214,10 +222,18 @@ export function wireDevBundlePublisher(deps: {
         onAdmitted: () => {
           void observeBundleReadiness()
         },
-        prepareWebDist: (headSha, explicit) => {
+        prepareWebDist: (headSha, explicit, buildRoot) => {
           if (!webBuilder) return Promise.resolve()
+          const buildWeb =
+            buildRoot === sourceRoot
+              ? webBuilder
+              : createDevWebBuilder({
+                  root: buildRoot,
+                  instanceId,
+                  headSha: () => headSha,
+                })
           const decision = decideWebDist({
-            current: webBuilder.isCurrent(headSha),
+            current: buildWeb.isCurrent(headSha),
             explicit,
           })
           if (decision === 'ready') return Promise.resolve()
@@ -240,7 +256,7 @@ export function wireDevBundlePublisher(deps: {
           // A web-build failure must arrive as a REFUSAL with its own words, not
           // as a nameless compile error: the operator's next move (look at the
           // vite output) is different from the one a failed compile calls for.
-          return webBuilder.ensure(headSha).catch((error: unknown) => {
+          return buildWeb.ensure(headSha).catch((error: unknown) => {
             throw new DevBundleUnavailableError(
               `development bundle unavailable: the web bundles could not be rebuilt for dev+${headSha}: ` +
                 (error instanceof Error ? error.message : String(error)),
@@ -348,7 +364,14 @@ export function wireDevBundlePublisher(deps: {
       if (blocked) throw blocked
       publishFailureDetail = undefined
       headSha?.invalidate()
-      await publisher.requestBuild(true, approved)
+      try {
+        await publisher.requestBuild(true, approved)
+      } catch (error) {
+        if (error instanceof DevBundleProposalMovedError) {
+          throw new ReleaseApprovalRefusal(error.publicReason)
+        }
+        throw error
+      }
       await observeBundleReadiness()
       publishedVersion = publisher.current()?.version
       if (!(await publishToFeed())) {
@@ -393,14 +416,14 @@ export function wireDevBundlePublisher(deps: {
       }
     },
     proposal: approval.read,
-    approveRelease: async (approvedBy) => {
+    approveRelease: async (approvedBy, expected) => {
       if (!publisher) {
         throw new DevBundleUnavailableError(
           'development release publishing is unavailable on an installed server',
           'This server does not publish development releases.',
         )
       }
-      return approval.approve(approvedBy)
+      return approval.approve(approvedBy, expected)
     },
     requestBuild: () => {
       if (!publisher) return Promise.resolve()

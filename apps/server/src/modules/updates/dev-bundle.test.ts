@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { matchUpdateFailureToken, UpdateTarget } from '@podium/protocol'
@@ -29,6 +30,7 @@ import {
   sweepDevBundles,
 } from './dev-bundle'
 import { createServerDevBundleLock } from './dev-bundle-lock'
+import { withDevBuildSnapshot } from './dev-build-snapshot'
 
 const CHECKOUT_BASE = '0.1.0-edge.20'
 const publisherDirs: string[] = []
@@ -2014,6 +2016,7 @@ describe('the dev feed manifest the publisher writes', () => {
       root: '/repo/podium',
       headSha: head,
       proposalFacts,
+      snapshotBuild: async (_approvedSha, build) => build('/repo/podium-snapshot'),
       ...(prepareWebDist ? { prepareWebDist } : {}),
       platform: 'linux-x86_64',
       signingKey,
@@ -2051,6 +2054,64 @@ describe('the dev feed manifest the publisher writes', () => {
       /approval named aaaaaaa, but HEAD is bbbbbbb/,
     )
     expect(store.names()).not.toContain('podium-update.json')
+  })
+
+  it('keeps tracked snapshot byte drift unpublished after a platform compile', async () => {
+    const parent = publisherDir()
+    const root = join(parent, 'repo')
+    mkdirSync(root)
+    execFileSync('git', ['init', '--quiet'], { cwd: root })
+    execFileSync('git', ['config', 'user.email', 'bundle@test.invalid'], { cwd: root })
+    execFileSync('git', ['config', 'user.name', 'Bundle Test'], { cwd: root })
+    writeFileSync(join(root, 'package.json'), '{"version":"0.1.0-edge.20"}\n')
+    writeFileSync(join(root, 'approved-source.ts'), 'export const bytes = "approved"\n')
+    execFileSync('git', ['add', '.'], { cwd: root })
+    execFileSync('git', ['commit', '--quiet', '-m', 'approved'], { cwd: root })
+    const sha = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], {
+      cwd: root,
+      encoding: 'utf8',
+    }).trim()
+    const store = memoryFs()
+    const { bytes, signature, signingKey } = signedFixture()
+    const publisher = createDevBundlePublisher({
+      ...publisherSeams(),
+      root,
+      isSourceRun: true,
+      headSha: () => sha,
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
+      proposalFacts: async () => ({
+        branch: 'main',
+        commits: [{ sha, summary: 'Approved' }],
+        addedMigrations: [],
+      }),
+      snapshotBuild: (approvedSha, build) =>
+        withDevBuildSnapshot(
+          { sourceRoot: root, approvedSha, install: async () => {} },
+          build,
+        ),
+      prepareWebDist: async () => {},
+      signingKey,
+      fs: store.fs,
+      lock: lockFixture([]),
+      platform: 'linux-x86_64',
+      spawnBuild: async ({ root: snapshotRoot, artifactPath }) => {
+        store.blobs.set(artifactPath, bytes)
+        store.text.set(`${artifactPath}.sig`, `${signature}\n`)
+        writeFileSync(
+          join(snapshotRoot, 'approved-source.ts'),
+          'export const bytes = "mutated during compile"\n',
+        )
+      },
+    })
+    const approved = await publisher.proposal()
+    expect(approved).toBeDefined()
+
+    await expect(publisher.requestBuild(true, approved)).rejects.toThrow(
+      /snapshot .* changed while building; refusing to publish/i,
+    )
+    expect(await publisher.publishFeed()).toBe(false)
+    expect(store.names()).toEqual([])
   })
 
   it('writes a manifest the shared parser accepts, naming this build', async () => {

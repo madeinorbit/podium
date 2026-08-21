@@ -82,6 +82,7 @@ interface MachineVersionRow {
 
 /** How many operations §9.2.6 retains, and therefore how many are worth asking for. */
 const HISTORY_LIMIT = 20
+export const SETTINGS_RELEASE_PROPOSAL_POLL_MS = 5_000
 
 /**
  * THE OPERATOR'S VIEW OF UPDATES (POD-2103, spec §3.7 / §6.3 / §9.2).
@@ -143,28 +144,37 @@ export function UpdatesSection(): JSX.Element {
     }
   }, [trpc])
 
-  useEffect(() => {
-    let cancelled = false
+  const readProposal = useCallback(async (): Promise<ReleaseProposal | null> => {
     const proposalQuery = (
       trpc.updates as typeof trpc.updates & {
         proposal?: { query: () => Promise<unknown> }
       }
     ).proposal
-    if (!proposalQuery) return undefined
-    proposalQuery
-      .query()
+    if (!proposalQuery) return null
+    const raw = await proposalQuery.query()
+    return raw === null ? null : ReleaseProposalSchema.parse(raw)
+  }, [trpc])
+
+  useEffect(() => {
+    let cancelled = false
+    const refresh = (): void => {
+      void readProposal()
       .then((raw) => {
         if (cancelled) return
-        setProposal(raw === null ? null : ReleaseProposalSchema.parse(raw))
+        setProposal(raw)
       })
       // Older servers and non-publisher profiles simply have no card.
       .catch(() => {
         if (!cancelled) setProposal(null)
       })
+    }
+    refresh()
+    const timer = window.setInterval(refresh, SETTINGS_RELEASE_PROPOSAL_POLL_MS)
     return () => {
       cancelled = true
+      window.clearInterval(timer)
     }
-  }, [trpc])
+  }, [readProposal])
 
   useEffect(() => {
     let cancelled = false
@@ -260,18 +270,31 @@ export function UpdatesSection(): JSX.Element {
     try {
       const approvalMutation = (
         trpc.updates as typeof trpc.updates & {
-          approveProposal?: { mutate: () => Promise<unknown> }
+          approveProposal?: {
+            mutate: (input: { headSha: string; version: string }) => Promise<unknown>
+          }
         }
       ).approveProposal
       if (!approvalMutation) throw new Error('This server cannot approve development releases.')
-      const raw = await approvalMutation.mutate()
+      if (!proposal) throw new Error('There is no development release proposal to approve.')
+      const raw = await approvalMutation.mutate({
+        headSha: proposal.headSha,
+        version: proposal.version,
+      })
       setProposal(raw === null ? null : ReleaseProposalSchema.parse(raw))
     } catch (error) {
       setProposalError(error instanceof Error ? error.message : String(error))
+      // A proposal-moved refusal is immediately actionable only if the stale
+      // card is replaced with the proposal the server just named.
+      try {
+        setProposal(await readProposal())
+      } catch {
+        // Keep the refusal visible; the poller will retry server truth.
+      }
     } finally {
       setApprovingProposal(false)
     }
-  }, [trpc])
+  }, [proposal, readProposal, trpc])
 
   // Development is appended, never substituted: the released channels stay in the
   // same place and the same order whether or not the flag is on. A machine already

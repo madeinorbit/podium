@@ -2,6 +2,8 @@ import type { ReleaseProposal } from '@podium/protocol'
 
 export class ReleaseApprovalRefusal extends Error {}
 
+export type ReleaseApprovalTarget = Pick<ReleaseProposal, 'headSha' | 'version'>
+
 export function createReleaseApprovalFlow(deps: {
   proposal: () => Promise<ReleaseProposal | undefined>
   release: (proposal: ReleaseProposal) => Promise<void>
@@ -9,7 +11,10 @@ export function createReleaseApprovalFlow(deps: {
   now?: () => number
 }): {
   read(): Promise<ReleaseProposal | undefined>
-  approve(approvedBy: string): Promise<ReleaseProposal | undefined>
+  approve(
+    approvedBy: string,
+    expected: ReleaseApprovalTarget,
+  ): Promise<ReleaseProposal | undefined>
 } {
   let inFlight = false
   let proposalHead: string | undefined
@@ -35,7 +40,7 @@ export function createReleaseApprovalFlow(deps: {
 
   return {
     read,
-    async approve(approvedBy) {
+    async approve(approvedBy, expected) {
       // Set before the first await: two tabs arriving in one turn cannot both
       // pass admission while proposal/git reads are still outstanding.
       if (inFlight) {
@@ -48,6 +53,12 @@ export function createReleaseApprovalFlow(deps: {
         const base = await deps.proposal()
         if (!base) {
           throw new ReleaseApprovalRefusal('There is no development release proposal to approve.')
+        }
+        if (base.headSha !== expected.headSha || base.version !== expected.version) {
+          throw new ReleaseApprovalRefusal(
+            `The development release proposal moved from ${expected.version} (${expected.headSha}) ` +
+              `to ${base.version} (${base.headSha}). Review and approve the new proposal.`,
+          )
         }
         proposalHead = base.headSha
         approval = { approvedBy, approvedAt: now() }

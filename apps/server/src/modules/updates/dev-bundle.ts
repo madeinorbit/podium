@@ -18,6 +18,7 @@ import {
 } from '@podium/protocol'
 import { resolveInstanceId, stateDir } from '@podium/runtime/config'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
+import { type DevBuildSnapshot, withDevBuildSnapshot } from './dev-build-snapshot'
 import {
   readDevPublisherState,
   versionStateOf,
@@ -316,6 +317,11 @@ export class DevBundleUnavailableError extends Error {
     super(message)
     this.name = 'DevBundleUnavailableError'
   }
+}
+
+/** The displayed proposal ceased to name live HEAD before build admission. */
+export class DevBundleProposalMovedError extends DevBundleUnavailableError {
+  override name = 'DevBundleProposalMovedError'
 }
 
 /** The public half of any refusal, including one from an unexpected error. */
@@ -765,7 +771,10 @@ export type DevBuildSpawnResult =
 
 export interface DevBundleBuildDeps {
   lock: DevBundleLock
+  /** Immutable build source. Artifacts may be written back to `artifactRoot`. */
   root?: string
+  /** Persistent checkout root that owns `dist-bun`; defaults to `root`. */
+  artifactRoot?: string
   headSha?: string
   spawnBuild?: (ctx: DevBuildSpawnContext) => Promise<DevBuildSpawnResult> | DevBuildSpawnResult
   build?: (ctx: DevBuildSpawnContext) => Promise<DevBuildSpawnResult> | DevBuildSpawnResult
@@ -1291,7 +1300,10 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
 
     const artifacts: DevBundleArtifact[] = []
     for (const [index, platform] of platforms.entries()) {
-      const requestedPath = join(devBundleDirectory(root), artifactNames[index] as string)
+      const requestedPath = join(
+        devBundleDirectory(deps.artifactRoot ?? root),
+        artifactNames[index] as string,
+      )
       const result = await spawnBuild({
         root,
         version,
@@ -1658,7 +1670,9 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    * the server straight after. Polling and start-up leave it alone: an unpacked
    * identity target costs nothing, a broken page costs every open tab.
    */
-  prepareWebDist?: (headSha: string, explicit: boolean) => Promise<void>
+  prepareWebDist?: (headSha: string, explicit: boolean, buildRoot: string) => Promise<void>
+  /** Approved builds use a detached worktree; tests may supply an equivalent snapshot. */
+  snapshotBuild?: DevBuildSnapshot
   /** Git proposal facts seam; production reads the checkout relative to the last publish. */
   proposalFacts?: (input: {
     headSha: string
@@ -1774,7 +1788,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       const headSha = shortSha(await deps.headSha())
       attempted = headSha
       if (approved !== undefined && headSha !== shortSha(approved.headSha)) {
-        throw new DevBundleUnavailableError(
+        throw new DevBundleProposalMovedError(
           `development release approval named ${shortSha(approved.headSha)}, but HEAD is ${headSha}`,
           'HEAD changed after this development release was approved. Review and approve the new proposal.',
         )
@@ -1810,73 +1824,102 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       // left behind — and residue that only accumulates when something went
       // wrong is exactly the kind that grows unnoticed for months.
       //
-      // The website is settled first, because the compile cannot pack a
-      // dev+<sha> tarball around another commit's dist. `explicit` travels
-      // with the request: it decides whether a stale dist is REBUILT (this
-      // server is about to be at that commit) or merely REFUSED (it is not,
-      // and moving the page ahead of it would break every open tab). Costs a
-      // single small file read when the dist is already current, which is the
-      // common case on the `/version` path.
-      const prepared = deps.prepareWebDist?.(headSha, explicit) ?? Promise.resolve()
       // Read fresh, per build: a Mac that enrolled since the last one must be served by
       // the NEXT build, not by the next restart.
       const platforms = devBuildPlatforms(deps.fleetPlatforms?.())
-      const build = () =>
-        buildDevBundle({
-          ...deps,
-          headSha,
-          platforms,
-          ...(approved ? { releaseVersion: approved.version } : {}),
-        })
-      const requested = prepared
-        .then(() =>
-          current === null
-            ? readExistingDevBundle({ ...deps, fs, headSha, platforms }).then(async (existing) => {
-                if (!existing || (approved && existing.version !== approved.version)) return build()
-                // The WHOLE publish, not just this host's file: the allowlist is what
-                // stops the sweep reclaiming the other platforms' bundles.
-                const artifactNames = existing.artifacts.map((artifact) => basename(artifact.path))
-                const statePath = deps.publisherStateDir ?? stateDir()
-                // Restoring still counts as publishing those basenames. Seed from
-                // the artifacts when state was lost so the counter cannot rewind.
-                let referenced: string[]
-                try {
-                  referenced = rememberDevArtifact({
-                    stateDir: statePath,
-                    artifactNames,
-                    ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
-                  })
-                } catch {
-                  const knownNames = await fs.list(dirname(existing.path))
-                  referenced = seedPublisherStateFromArtifact({
-                    stateDir: statePath,
-                    version: existing.version,
-                    artifactNames,
-                    knownNames,
-                    ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
-                  })
-                }
-                await sweepDevBundles(fs, dirname(existing.path), {
-                  referenced,
-                  protect: artifactNames,
+      const liveRoot = deps.root ?? SOURCE_ROOT
+      const buildFrom = async (buildRoot: string): Promise<BuiltDevBundle> => {
+        // The website is built INSIDE the same immutable snapshot the platform
+        // compiles read. Nothing in an approved release reads the live checkout
+        // after admission.
+        await (deps.prepareWebDist?.(headSha, explicit, buildRoot) ?? Promise.resolve())
+        const build = () =>
+          buildDevBundle({
+            ...deps,
+            root: buildRoot,
+            artifactRoot: liveRoot,
+            headSha,
+            platforms,
+            ...(approved ? { releaseVersion: approved.version } : {}),
+          })
+        return current === null
+          ? readExistingDevBundle({ ...deps, fs, headSha, platforms }).then(async (existing) => {
+              if (!existing || (approved && existing.version !== approved.version)) return build()
+              // The WHOLE publish, not just this host's file: the allowlist is what
+              // stops the sweep reclaiming the other platforms' bundles.
+              const artifactNames = existing.artifacts.map((artifact) => basename(artifact.path))
+              const statePath = deps.publisherStateDir ?? stateDir()
+              // Restoring still counts as publishing those basenames. Seed from
+              // the artifacts when state was lost so the counter cannot rewind.
+              let referenced: string[]
+              try {
+                referenced = rememberDevArtifact({
+                  stateDir: statePath,
+                  artifactNames,
+                  ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
                 })
-                return existing
+              } catch {
+                const knownNames = await fs.list(dirname(existing.path))
+                referenced = seedPublisherStateFromArtifact({
+                  stateDir: statePath,
+                  version: existing.version,
+                  artifactNames,
+                  knownNames,
+                  ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
+                })
+              }
+              await sweepDevBundles(fs, dirname(existing.path), {
+                referenced,
+                protect: artifactNames,
               })
-            : build(),
-        )
-        .then(
-          (built) => {
-            current = built
-            builtSha = headSha
-            unavailable = undefined
-            failure = undefined
-            return built
-          },
-          (error: unknown) => {
-            recordFailure(error, headSha)
-            throw error
-          },
-        )
+              return existing
+            })
+          : build()
+      }
+      const snapshotBuild =
+        deps.snapshotBuild ??
+        (<T>(approvedSha: string, build: (snapshotRoot: string) => Promise<T>) =>
+          withDevBuildSnapshot({ sourceRoot: liveRoot, approvedSha }, async (snapshotRoot) => {
+            const result = await build(snapshotRoot)
+            // Re-arm BOTH original identity guards after every platform has
+            // compiled: tracked drift and ignored importable source are equally
+            // capable of producing bytes the approved commit does not contain.
+            await assertSourceMatchesHead(snapshotRoot, approvedSha)
+            return result
+          }))
+      let approvedBuilt: BuiltDevBundle | null | undefined
+      const buildApproved = () =>
+        snapshotBuild(headSha, async (snapshotRoot) => {
+          approvedBuilt = await buildFrom(snapshotRoot)
+          return approvedBuilt
+        }).catch(async (error: unknown) => {
+          // A complete build rejected by ANY snapshot identity fence must never
+          // become a recoverable candidate on the next approval or restart.
+          // Its bytes, signature and server-authored metadata all go.
+          if (approvedBuilt) {
+            await Promise.all(
+              approvedBuilt.artifacts.flatMap((artifact) => [
+                fs.remove(artifact.path),
+                fs.remove(artifact.path + DEV_BUNDLE_SIGNATURE_SUFFIX),
+                fs.remove(artifact.path + DEV_BUNDLE_METADATA_SUFFIX),
+              ]),
+            )
+          }
+          throw error
+        })
+      const requested = (approved ? buildApproved() : buildFrom(liveRoot)).then(
+        (built) => {
+          current = built
+          builtSha = headSha
+          unavailable = undefined
+          failure = undefined
+          return built
+        },
+        (error: unknown) => {
+          recordFailure(error, headSha)
+          throw error
+        },
+      )
       inFlight = requested
       void requested.then(
         () => {

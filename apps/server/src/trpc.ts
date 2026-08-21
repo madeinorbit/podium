@@ -93,7 +93,10 @@ export interface Context {
   /** Source-host pre-release stage. Reads are hidden from non-admin callers. */
   releaseProposal?: () => Promise<ReleaseProposal | undefined>
   /** Admin approval admits build + publication only, never rollout. */
-  approveReleaseProposal?: (approvedBy: string) => Promise<ReleaseProposal | undefined>
+  approveReleaseProposal?: (
+    approvedBy: string,
+    expected: Pick<ReleaseProposal, 'headSha' | 'version'>,
+  ) => Promise<ReleaseProposal | undefined>
   /** Install identity currently served from apps/web/dist, if any. */
   servedWebDigest?: () => string | undefined
   /** The phone website served from apps/mobile/dist, present or not (POD-1980).

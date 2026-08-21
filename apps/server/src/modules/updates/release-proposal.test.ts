@@ -1,5 +1,39 @@
-import { describe, expect, it } from 'vitest'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import { releaseProposalFacts } from './release-proposal'
+
+const roots: string[] = []
+
+afterEach(() => {
+  while (roots.length > 0) {
+    const root = roots.pop()
+    if (root) rmSync(root, { recursive: true, force: true })
+  }
+})
+
+function commit(root: string, message: string): string {
+  execFileSync('git', ['add', '-A'], { cwd: root })
+  execFileSync('git', ['commit', '--quiet', '-m', message], { cwd: root })
+  return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+}
+
+function repository(): { root: string; base: string; migration: string } {
+  const root = mkdtempSync(join(tmpdir(), 'podium-proposal-range-'))
+  roots.push(root)
+  execFileSync('git', ['init', '--quiet'], { cwd: root })
+  execFileSync('git', ['config', 'user.email', 'proposal@test.invalid'], { cwd: root })
+  execFileSync('git', ['config', 'user.name', 'Proposal Test'], { cwd: root })
+  const migration = join(
+    root,
+    'apps/server/src/migrations/drizzle/20260821090000_existing/migration.sql',
+  )
+  mkdirSync(join(migration, '..'), { recursive: true })
+  writeFileSync(migration, 'CREATE TABLE existing(id TEXT);\n')
+  return { root, base: commit(root, 'base migration'), migration }
+}
 
 describe('releaseProposalFacts', () => {
   it('uses the published-to-HEAD range and flags only added migration definitions', async () => {
@@ -48,6 +82,31 @@ describe('releaseProposalFacts', () => {
       },
     })
     expect(facts.branch).toBe('detached@ccccccc')
+    expect(facts.addedMigrations).toEqual([])
+  })
+
+  it('does not flag a migration added and then reverted inside the proposal range', async () => {
+    const { root, base } = repository()
+    const added = join(
+      root,
+      'apps/server/src/migrations/drizzle/20260821110000_reverted/migration.sql',
+    )
+    mkdirSync(join(added, '..'), { recursive: true })
+    writeFileSync(added, 'CREATE TABLE reverted(id TEXT);\n')
+    commit(root, 'add migration temporarily')
+    rmSync(join(added, '..'), { recursive: true })
+    const headSha = commit(root, 'revert temporary migration')
+
+    const facts = await releaseProposalFacts({ root, sinceSha: base, headSha })
+    expect(facts.addedMigrations).toEqual([])
+  })
+
+  it('does not flag a proposal that only modifies an existing migration file', async () => {
+    const { root, base, migration } = repository()
+    writeFileSync(migration, 'CREATE TABLE existing(id TEXT, name TEXT);\n')
+    const headSha = commit(root, 'touch existing migration')
+
+    const facts = await releaseProposalFacts({ root, sinceSha: base, headSha })
     expect(facts.addedMigrations).toEqual([])
   })
 })

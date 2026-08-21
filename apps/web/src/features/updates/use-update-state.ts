@@ -787,7 +787,11 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     setProposalPending(true)
     setProposalError(undefined)
     try {
-      const raw = await trpc.updates.approveProposal.mutate()
+      if (!proposal) throw new Error('There is no development release proposal to approve.')
+      const raw = await trpc.updates.approveProposal.mutate({
+        headSha: proposal.headSha,
+        version: proposal.version,
+      })
       setProposal(raw === null ? null : ReleaseProposalSchema.parse(raw))
       refresh()
     } catch (error) {
@@ -796,7 +800,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     } finally {
       setProposalPending(false)
     }
-  }, [refresh, trpc])
+  }, [proposal, refresh, trpc])
 
   /**
    * "I have seen this outcome." Clears a local action error and, for a terminal
