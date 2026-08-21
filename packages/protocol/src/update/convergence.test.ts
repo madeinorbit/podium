@@ -42,6 +42,18 @@ describe('planConvergence', () => {
     ).toEqual({ action: 'already-current' })
   })
 
+  it('re-delivers an exact match when an explicit repair was granted', () => {
+    expect(
+      planConvergence({
+        current: '0.4.2',
+        target: target('0.4.2'),
+        caps: ALL_CAPS,
+        platform: HOST,
+        repair: true,
+      }),
+    ).toMatchObject({ action: 'converge', delivery: 'feed' })
+  })
+
   it('converges upward', () => {
     const p = planConvergence({
       current: '0.4.1',

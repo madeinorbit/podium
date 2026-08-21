@@ -40,10 +40,10 @@ describe('machineVersionSkew', () => {
     }
   })
 
-  it('reads a Podium Desktop machine as expected, not as behind', () => {
+  it('reads a Podium Desktop machine like every other fleet machine', () => {
     const verdict = machineVersionSkew(machine({ supervised: true }))
     expect(verdict.mark).toBe('expected')
-    expect(verdict.label).toBe('Managed by Podium Desktop')
+    expect(verdict.label).toBe('Update available')
   })
 
   it('reads a stuck supervised machine as stuck all the same', () => {

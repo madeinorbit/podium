@@ -94,16 +94,11 @@ describe('machine build report over a live daemon socket', () => {
   })
 
   /**
-   * POD-2099, through the REAL composition root. The wave planner reads a
-   * projection assembled in `relay.ts`, and a field that never reaches it is a
-   * filter that never fires — the flag is asserted where the planner sees it,
-   * not only where the store writes it.
-   *
-   * Note the caps this daemon offers are the ordinary installed ones: the
-   * exclusion must not be riding on the empty cap list a real supervised daemon
-   * also sends.
+   * POD-2508, through the REAL composition root. Supervision now describes
+   * process ownership only: the external payload remains an ordinary fleet
+   * install and must stay deliverable after its report crosses the live relay.
    */
-  it('marks a desktop-supervised daemon undeliverable in the planner projection', async () => {
+  it('keeps a desktop-supervised daemon deliverable in the planner projection', async () => {
     const ws = await connect({
       appVersion: '0.4.1',
       wireSchemaDigest: 'abc',
@@ -115,7 +110,7 @@ describe('machine build report over a live daemon socket', () => {
 
     const planned = server.registry.modules.updates.fleet()[0]
     expect(planned?.supervised).toBe(true)
-    expect(machineCanTakeDelivery(planned as WaveMachine, ['feed'])).toBe(false)
+    expect(machineCanTakeDelivery(planned as WaveMachine, ['feed'])).toBe(true)
     await close(ws)
   })
 })

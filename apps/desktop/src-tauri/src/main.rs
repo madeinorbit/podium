@@ -11,7 +11,7 @@ mod updater;
 
 use std::path::Path;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem};
 #[cfg(target_os = "macos")]
@@ -25,6 +25,7 @@ use updater::{check_update, claim_update_ownership, install_update, set_update_c
 
 const DESKTOP_SUPERVISED_ENV: &str = "PODIUM_DESKTOP_SUPERVISED";
 const PODIUM_CLI_PATH_ENV: &str = "PODIUM_CLI_PATH";
+const DESKTOP_SUCCESSOR_FILE_ENV: &str = "PODIUM_DESKTOP_SUCCESSOR_FILE";
 /// This shell's own PID, handed to every backend we spawn so the backend can tie its
 /// lifetime to ours (POD-1228). The reap below only runs on a deliberate quit — a GUI
 /// crash, a SIGKILL, or a plain SIGTERM executes none of our exit code at all, and the
@@ -43,8 +44,27 @@ const NATIVE_WINDOW_PERMISSIONS: &[&str] = &[
     "allow-check-update",
     "allow-install-update",
     "allow-set-update-channel",
+    "allow-repair-payload",
     "process:allow-restart",
 ];
+
+#[derive(Default)]
+struct DesktopSuccessorState {
+    pid: AtomicU32,
+    file: Mutex<Option<std::path::PathBuf>>,
+}
+
+#[derive(Clone)]
+struct PayloadRepairPaths {
+    seed: std::path::PathBuf,
+    install: std::path::PathBuf,
+}
+
+#[derive(Default)]
+struct PayloadRepairState {
+    paths: Mutex<Option<PayloadRepairPaths>>,
+    busy: AtomicBool,
+}
 
 fn local_host_sidecar_command(
     runnable: &Path,
@@ -56,9 +76,15 @@ fn local_host_sidecar_command(
     let mut command = Command::new(runnable);
     command
         .args(sidecar_args)
-        // The daemon makes this exact signed CLI authoritative for every managed session.
-        // It remains inside the app bundle on macOS. [spec:SP-d6e8]
+        // The daemon makes this exact fleet-managed CLI authoritative for every session.
         .env(PODIUM_CLI_PATH_ENV, runnable)
+        .env(
+            DESKTOP_SUCCESSOR_FILE_ENV,
+            runnable
+                .parent()
+                .expect("payload entrypoint has an install directory")
+                .join(".desktop-successor-pid"),
+        )
         .env("PODIUM_PORT", port.to_string())
         .env("PODIUM_WEB_DIR", web_dir.to_string_lossy().to_string())
         .env(
@@ -278,6 +304,140 @@ fn reap_backend(child: &mut std::process::Child) {
     let _ = child.wait();
 }
 
+#[cfg(target_os = "linux")]
+fn process_executable(pid: u32) -> Option<std::path::PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+}
+
+#[cfg(target_os = "macos")]
+fn process_executable(pid: u32) -> Option<std::path::PathBuf> {
+    #[link(name = "proc")]
+    unsafe extern "C" {
+        fn proc_pidpath(pid: i32, buffer: *mut std::ffi::c_void, buffersize: u32) -> i32;
+    }
+    let mut buffer = [0_u8; 4096];
+    let length = unsafe {
+        proc_pidpath(
+            pid as i32,
+            buffer.as_mut_ptr().cast::<std::ffi::c_void>(),
+            buffer.len() as u32,
+        )
+    };
+    if length <= 0 {
+        return None;
+    }
+    let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(length as usize);
+    Some(std::path::PathBuf::from(
+        std::ffi::OsStr::from_bytes(&buffer[..end]),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+use std::os::unix::ffi::OsStrExt;
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn process_executable(_pid: u32) -> Option<std::path::PathBuf> {
+    None
+}
+
+#[cfg(unix)]
+fn process_is_alive(pid: u32) -> bool {
+    unsafe extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    if pid <= 1 {
+        return false;
+    }
+    let result = unsafe { kill(pid as i32, 0) };
+    result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(1)
+}
+
+#[cfg(not(unix))]
+fn process_is_alive(_pid: u32) -> bool {
+    false
+}
+
+fn successor_is_payload_parent(pid: u32, successor_file: &Path) -> bool {
+    let Some(install) = successor_file.parent() else {
+        return false;
+    };
+    let expected = install.join(if cfg!(windows) {
+        "podium-cli.exe"
+    } else {
+        "podium-cli"
+    });
+    let (Ok(expected), Some(actual)) = (expected.canonicalize(), process_executable(pid)) else {
+        return false;
+    };
+    actual.canonicalize().is_ok_and(|path| path == expected)
+}
+
+fn take_live_successor_pid(path: &Path) -> Option<u32> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let _ = std::fs::remove_file(path);
+    let pid = raw.trim().parse::<u32>().ok()?;
+    if pid == std::process::id() {
+        return None;
+    }
+    (process_is_alive(pid) && successor_is_payload_parent(pid, path)).then_some(pid)
+}
+
+fn reap_successor_pid(pid: u32, successor_file: &Path) {
+    #[cfg(unix)]
+    {
+        unsafe extern "C" {
+            fn kill(pid: i32, sig: i32) -> i32;
+        }
+        const SIGTERM: i32 = 15;
+        const SIGKILL: i32 = 9;
+        if pid <= 1 || !successor_is_payload_parent(pid, successor_file) {
+            log::warn!("refusing to signal unverified successor pid {pid}");
+            return;
+        }
+        unsafe {
+            kill(pid as i32, SIGTERM);
+        }
+        let deadline = std::time::Instant::now() + REAP_GRACE;
+        while std::time::Instant::now() < deadline {
+            if !process_is_alive(pid) {
+                return;
+            }
+            std::thread::sleep(REAP_POLL);
+        }
+        if successor_is_payload_parent(pid, successor_file) {
+            unsafe {
+                kill(pid as i32, SIGKILL);
+            }
+        }
+    }
+}
+
+fn follow_successor_chain(
+    successor_file: &Path,
+    first_pid: u32,
+    successor: &Arc<DesktopSuccessorState>,
+    shutting_down: &Arc<AtomicBool>,
+) -> bool {
+    let mut pid = first_pid;
+    loop {
+        successor.pid.store(pid, Ordering::Release);
+        log::info!("desktop supervision followed parent handover to pid {pid}");
+        while process_is_alive(pid) && successor_is_payload_parent(pid, successor_file) {
+            if shutting_down.load(Ordering::Acquire) {
+                return true;
+            }
+            std::thread::sleep(SUPERVISION_POLL);
+        }
+        match take_live_successor_pid(successor_file) {
+            Some(next) => pid = next,
+            None => {
+                successor.pid.store(0, Ordering::Release);
+                return false;
+            }
+        }
+    }
+}
+
 /// Wait for the supervised child to exit **without holding the child slot's lock while it runs**.
 ///
 /// The lock is the hand-off between this thread and the quit path: `RunEvent::Exit` and
@@ -325,6 +485,7 @@ fn await_child_exit(
 fn spawn_respawn_monitor<F, S, D>(
     child_state: Arc<Mutex<Option<std::process::Child>>>,
     shutting_down: Arc<AtomicBool>,
+    successor: Arc<DesktopSuccessorState>,
     app_handle: AppHandle,
     source_cookie_url: Option<Url>,
     spawn_fn: F,
@@ -349,6 +510,20 @@ fn spawn_respawn_monitor<F, S, D>(
 
             if shutting_down.load(Ordering::Acquire) {
                 break;
+            }
+
+            let successor_file = successor.file.lock().ok().and_then(|path| path.clone());
+            if let Some((path, pid)) = successor_file
+                .as_deref()
+                .and_then(|path| take_live_successor_pid(path).map(|pid| (path, pid)))
+            {
+                // The direct child is the outgoing parent and has already exited. From this
+                // point the detached successor is the crash-supervision subject.
+                let _ = child_state.lock().map(|mut child| child.take());
+                if follow_successor_chain(path, pid, &successor, &shutting_down) {
+                    break;
+                }
+                log::warn!("supervised parent successor exited; restoring the payload parent");
             }
 
             let decision = if transferred_server_url.is_some() {
@@ -485,7 +660,7 @@ fn native_desktop_hook(
     };
     // Desktop updates are available in every launch mode. The page may be remote or older
     // than this shell, so these methods are always present and are feature-detected by the page.
-    let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: (channel, expectedVersion) => window.__TAURI_INTERNALS__.invoke('install_update', { channel, expectedVersion }),\n            setUpdateChannel: (channel, endpoint) => window.__TAURI_INTERNALS__.invoke('set_update_channel', { channel, endpoint })";
+    let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: (channel, expectedVersion) => window.__TAURI_INTERNALS__.invoke('install_update', { channel, expectedVersion }),\n            setUpdateChannel: (channel, endpoint) => window.__TAURI_INTERNALS__.invoke('set_update_channel', { channel, endpoint }),\n            repairPayload: () => window.__TAURI_INTERNALS__.invoke('repair_payload')";
     // Hand a URL to the OS browser on purpose. The injected opener shim only rescues
     // CROSS-origin links (bootstrap::opener_shim_script); a page that wants the real browser
     // for one of the server's OWN URLs — "Open in browser" on a file — has no other route,
@@ -533,6 +708,16 @@ fn native_desktop_hook(
     )
 }
 
+/// Initialization for the baked document when the external payload cannot start. Keep this
+/// entirely in the signed shell: recovery UI must not depend on bytes it is meant to recover.
+fn payload_unavailable_injection(error: &str) -> String {
+    let error_literal =
+        serde_json::to_string(error).unwrap_or_else(|_| "\"payload startup failed\"".to_string());
+    format!(
+        "window.__PODIUM_PAYLOAD_UNAVAILABLE__ = true;\nwindow.__PODIUM_PAYLOAD_ERROR__ = {error_literal};"
+    )
+}
+
 /// [spec:SP-3701] In-app "host sessions on this device": rewrite the local config from client
 /// to daemon mode with a hub-minted pairing code. The web UI then triggers a shell restart
 /// (__PODIUM_RESTART__) so `resolve_launch` picks up daemon mode and spawns the sidecar,
@@ -551,6 +736,103 @@ fn remote_capability_pattern(server_url: &str) -> Result<String, String> {
     let url = tauri::Url::parse(&bootstrap::webview_http_url(server_url))
         .map_err(|error| error.to_string())?;
     Ok(format!("{}/*", url.origin().ascii_serialization()))
+}
+
+fn reap_tracked_successor(app: &AppHandle) {
+    let Some(state) = app.try_state::<Arc<DesktopSuccessorState>>() else {
+        return;
+    };
+    let pid = state.pid.swap(0, Ordering::AcqRel);
+    if pid == 0 {
+        return;
+    }
+    let path = state.file.lock().ok().and_then(|path| path.clone());
+    match path {
+        Some(path) => reap_successor_pid(pid, &path),
+        None => log::warn!("cannot reap successor pid {pid}: bridge path is unavailable"),
+    }
+}
+
+#[tauri::command]
+fn repair_payload(
+    app: AppHandle,
+    repair: tauri::State<'_, Arc<PayloadRepairState>>,
+    child_state: tauri::State<'_, Arc<Mutex<Option<std::process::Child>>>>,
+    successor: tauri::State<'_, Arc<DesktopSuccessorState>>,
+) -> Result<(), String> {
+    repair
+        .busy
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .map_err(|_| "payload repair is already running".to_string())?;
+
+    let result = (|| {
+        let paths = repair
+            .paths
+            .lock()
+            .map_err(|_| "payload repair state is unavailable".to_string())?
+            .clone()
+            .ok_or_else(|| "this desktop mode has no local payload".to_string())?;
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_nanos();
+        let parent = paths
+            .install
+            .parent()
+            .ok_or_else(|| "payload install has no parent directory".to_string())?;
+        let staged = parent.join(format!(".payload-repair-staged-{nonce}"));
+        let backup = parent.join(format!(".payload-repair-backup-{nonce}"));
+
+        bootstrap::seed_payload_if_absent(&paths.seed, &staged)
+            .map_err(|error| format!("cannot stage signed recovery payload: {error}"))?;
+
+        // Stage first, then cross the process boundary and filesystem boundary together.
+        // Holding the child slot through the rename prevents the monitor from observing
+        // the exit and respawning from the old path in the middle of the transaction.
+        let mut child_guard = child_state
+            .lock()
+            .map_err(|_| "payload process state is unavailable".to_string())?;
+        if let Some(child) = child_guard.as_mut() {
+            let _ = child.kill();
+        }
+        let successor_pid = successor.pid.swap(0, Ordering::AcqRel);
+        if successor_pid != 0 {
+            let successor_file = successor
+                .file
+                .lock()
+                .ok()
+                .and_then(|path| path.clone())
+                .ok_or_else(|| "successor bridge path is unavailable".to_string())?;
+            reap_successor_pid(successor_pid, &successor_file);
+        }
+
+        let had_install = paths.install.exists();
+        if had_install {
+            std::fs::rename(&paths.install, &backup)
+                .map_err(|error| format!("cannot preserve current payload: {error}"))?;
+        }
+        if let Err(error) = std::fs::rename(&staged, &paths.install) {
+            if had_install {
+                let _ = std::fs::rename(&backup, &paths.install);
+            }
+            return Err(format!("cannot install recovery payload: {error}"));
+        }
+        drop(child_guard);
+        log::info!(
+            "restored signed seed payload at {:?}; prior payload retained at {:?}",
+            paths.install,
+            had_install.then_some(backup)
+        );
+        Ok(())
+    })();
+
+    repair.busy.store(false, Ordering::Release);
+    if result.is_ok() {
+        // An initial spawn failure has no live supervisor to restart the restored payload.
+        // Restart the signed frame so setup retries from the newly installed bytes.
+        app.restart();
+    }
+    result
 }
 
 fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Result<(), String> {
@@ -572,6 +854,7 @@ fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Resu
         .permission("allow-check-update")
         .permission("allow-install-update")
         .permission("allow-set-update-channel")
+        .permission("allow-repair-payload")
         // Same reason as the startup grant below: without listen/unlisten the
         // transferred origin can invoke the install but never hear it report.
         .permission("core:event:allow-listen")
@@ -626,7 +909,8 @@ fn main() {
             claim_update_ownership,
             check_update,
             install_update,
-            set_update_channel
+            set_update_channel,
+            repair_payload
         ])
         .setup(|app| {
             // TEST AID: record the running app version so the e2e can deterministically
@@ -680,6 +964,10 @@ fn main() {
             // (if anything) we spawned. ClientOnly leaves it None.
             let child_state: Arc<Mutex<Option<std::process::Child>>> = Arc::new(Mutex::new(None));
             app.manage(child_state.clone());
+            let successor = Arc::new(DesktopSuccessorState::default());
+            app.manage(successor.clone());
+            let payload_repair = Arc::new(PayloadRepairState::default());
+            app.manage(payload_repair.clone());
 
             // Injection for remote modes (set below). Local modes decide injection after the
             // sidecar readiness probe — served-local vs baked fallback differ.
@@ -696,101 +984,134 @@ fn main() {
             // stable loopback URL; remote modes use the configured serverUrl.
             let remote_window_server_url: Option<String>;
 
-            // mode=server (#176): the sidecar gets the explicit `server` subcommand so it runs
-            // the SERVER role only — no local daemon/agents — and bypasses the CLI's
-            // persistence-managed dispatch (which would start systemd units and exit, leaving
-            // nothing on our resolved port to supervise).
-            let server_only = action == bootstrap::LaunchAction::LocalServerOnly;
             let initial_action = action.clone();
+
+            // Backend-bearing modes seed the complete external payload before the parent
+            // starts. Client-only shells install no payload at all. Presence of the install
+            // directory is the sole seed decision; after this point the fleet updater owns it.
+            let mut payload_start_error: Option<String> = None;
+            let payload_install = if matches!(&action, bootstrap::LaunchAction::ClientOnly { .. }) {
+                None
+            } else {
+                let seed = app
+                    .path()
+                    .resolve("resources/payload", BaseDirectory::Resource)?;
+                let app_data = app.path().app_data_dir()?;
+                let install = bootstrap::payload_home(&app_data);
+                *payload_repair.paths.lock().unwrap() = Some(PayloadRepairPaths {
+                    seed: seed.clone(),
+                    install: install.clone(),
+                });
+                match bootstrap::seed_payload_if_absent(&seed, &install) {
+                    Ok(true) => log::info!("seeded desktop payload at {install:?}"),
+                    Ok(false) => log::info!("using fleet-managed desktop payload at {install:?}"),
+                    Err(error) => {
+                        let reason = format!("payload seed failed: {error}");
+                        log::error!("{reason}");
+                        payload_start_error = Some(reason);
+                    }
+                }
+                Some(install)
+            };
 
             match action {
                 bootstrap::LaunchAction::LocalAllInOne
                 | bootstrap::LaunchAction::LocalServerOnly => {
                     // Shared local path: stable port (SW/cookie/IDB origin), spawn the sidecar,
                     // load the UI from that server when reachable.
-                    // `--takeover`: the desktop SUPERVISES its sidecar — an orphan left by a
+                    // `--takeover`: the desktop SUPERVISES the thin parent — an orphan left by a
                     // force-killed desktop must be reclaimed, so it opts into the CLI's
                     // otherwise-refused displacement of a live same-role instance (#18).
-                    let sidecar_args: Vec<String> = if server_only {
-                        vec!["server".to_string(), "--takeover".to_string()]
-                    } else {
-                        vec!["--takeover".to_string()]
-                    };
+                    let sidecar_args: Vec<String> =
+                        vec!["parent".to_string(), "--takeover".to_string()];
                     let port = bootstrap::resolve_local_port(&cfg);
 
-                    // Resolve the bundled podium binary (plain resource, never patchelf'd).
-                    let podium_res = app
-                        .path()
-                        .resolve("resources/podium", BaseDirectory::Resource)?;
-                    // Bundled web resource dir the sidecar serves (external clients + this
-                    // webview once it loads the server origin). Baked `frontendDist` stays in
-                    // the .app as the offline fallback only.
-                    let web_dir = app
-                        .path()
-                        .resolve("resources/web", BaseDirectory::Resource)?;
-                    let mobile_web_dir = app
-                        .path()
-                        .resolve("resources/mobile", BaseDirectory::Resource)?;
-
-                    // Ensure the binary is on a writable, executable filesystem.
-                    // AppImage mounts are read-only; ensure_executable copies it to ~/.podium/bin/.
-                    let runnable = bootstrap::ensure_executable(&podium_res).map_err(|e| {
-                        log::error!("ensure_executable failed: {e}");
-                        e
-                    })?;
-
-                    log::info!(
-                        "spawning {runnable:?} {sidecar_args:?} on port {port}"
-                    );
-
-                    // Spawn the initial sidecar child process.
-                    let child = local_host_sidecar_command(
-                        &runnable,
-                        &sidecar_args,
-                        port,
-                        &web_dir,
-                        &mobile_web_dir,
-                    )
-                        .spawn()
-                        .map_err(|e| {
-                            log::error!("spawn failed: {e}");
-                            e
-                        })?;
-                    *child_state.lock().unwrap() = Some(child);
-
-                    // FIX 2: supervision monitor thread — waits on the child, and if it exits
-                    // while the app is NOT shutting down, respawns it on the same port with
-                    // bounded backoff (500ms → cap 5s). The web client auto-reconnects over WS.
-                    let runnable2 = runnable.clone();
-                    let runnable_daemon = runnable.clone();
-                    let web_dir2 = web_dir.clone();
-                    let mobile_web_dir2 = mobile_web_dir.clone();
-                    let sidecar_args2 = sidecar_args.clone();
-                    let transition_action = initial_action.clone();
-                    let monitor_app = app.handle().clone();
-                    let source_cookie_url = Url::parse(&bootstrap::local_served_http_url(port))
-                        .expect("loopback desktop URL is valid");
-                    spawn_respawn_monitor(
-                        child_state.clone(),
-                        shutting_down.clone(),
-                        monitor_app,
-                        Some(source_cookie_url),
-                        move || {
-                            local_host_sidecar_command(
-                                &runnable2,
-                                &sidecar_args2,
-                                port,
-                                &web_dir2,
-                                &mobile_web_dir2,
-                            )
+                    let install = payload_install
+                        .as_ref()
+                        .expect("a local host has an external payload");
+                    let web_dir = install.join("web");
+                    let mobile_web_dir = install.join("mobile");
+                    if payload_start_error.is_none() {
+                        match bootstrap::ensure_executable(&install.join("podium")) {
+                            Err(error) => {
+                                let reason = format!("payload is not executable: {error}");
+                                log::error!("{reason}");
+                                payload_start_error = Some(reason);
+                            }
+                            Ok(runnable) => {
+                                let successor_file = install.join(".desktop-successor-pid");
+                                // A marker is meaningful only when written by the parent started
+                                // below. Discard a stale crash-era marker before the first child.
+                                let _ = std::fs::remove_file(&successor_file);
+                                *successor.file.lock().unwrap() = Some(successor_file);
+                                log::info!(
+                                    "spawning {runnable:?} {sidecar_args:?} on port {port}"
+                                );
+                                match local_host_sidecar_command(
+                                    &runnable,
+                                    &sidecar_args,
+                                    port,
+                                    &web_dir,
+                                    &mobile_web_dir,
+                                )
                                 .spawn()
-                        },
-                        move |server_url| {
-                            replacement_daemon_command(&runnable_daemon, server_url).spawn()
-                        },
-                        move || bootstrap::backend_exit_decision(&transition_action),
-                        format!("on port {port}"),
-                    );
+                                {
+                                    Err(error) => {
+                                        let reason = format!("payload spawn failed: {error}");
+                                        log::error!("{reason}");
+                                        payload_start_error = Some(reason);
+                                    }
+                                    Ok(child) => {
+                                        *child_state.lock().unwrap() = Some(child);
+
+                                        // Supervise only a child that actually started. A failed
+                                        // first spawn is recovered by the baked repair window.
+                                        let runnable2 = runnable.clone();
+                                        let runnable_daemon = runnable.clone();
+                                        let web_dir2 = web_dir.clone();
+                                        let mobile_web_dir2 = mobile_web_dir.clone();
+                                        let sidecar_args2 = sidecar_args.clone();
+                                        let transition_action = initial_action.clone();
+                                        let monitor_app = app.handle().clone();
+                                        let source_cookie_url = Url::parse(
+                                            &bootstrap::local_served_http_url(port),
+                                        )
+                                        .expect("loopback desktop URL is valid");
+                                        spawn_respawn_monitor(
+                                            child_state.clone(),
+                                            shutting_down.clone(),
+                                            successor.clone(),
+                                            monitor_app,
+                                            Some(source_cookie_url),
+                                            move || {
+                                                local_host_sidecar_command(
+                                                    &runnable2,
+                                                    &sidecar_args2,
+                                                    port,
+                                                    &web_dir2,
+                                                    &mobile_web_dir2,
+                                                )
+                                                .spawn()
+                                            },
+                                            move |server_url| {
+                                                replacement_daemon_command(
+                                                    &runnable_daemon,
+                                                    server_url,
+                                                )
+                                                .spawn()
+                                            },
+                                            move || {
+                                                bootstrap::backend_exit_decision(
+                                                    &transition_action,
+                                                )
+                                            },
+                                            format!("on port {port}"),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     // Grant IPC to the served-local origin even before the readiness probe:
                     // when the sidecar is up we load it; grants for an unused origin are
@@ -804,38 +1125,58 @@ fn main() {
                     // Spawn the local `podium`; it reads config → daemon mode → connects to the
                     // remote server. There is NO local server, so do not force PODIUM_PORT and do
                     // not wait for a local /health — the web client connects to the remote.
-                    let podium_res = app
-                        .path()
-                        .resolve("resources/podium", BaseDirectory::Resource)?;
-                    let runnable = bootstrap::ensure_executable(&podium_res).map_err(|e| {
-                        log::error!("ensure_executable failed: {e}");
-                        e
-                    })?;
-
-                    log::info!("spawning daemon {runnable:?} → {server_url}");
-                    let child = replacement_daemon_command(&runnable, &server_url)
-                        .spawn()
-                        .map_err(|e| {
-                        log::error!("daemon spawn failed: {e}");
-                        e
-                    })?;
-                    *child_state.lock().unwrap() = Some(child);
-
-                    let runnable2 = runnable.clone();
-                    let runnable_daemon = runnable.clone();
-                    let respawn_server_url = server_url.clone();
-                    spawn_respawn_monitor(
-                        child_state.clone(),
-                        shutting_down.clone(),
-                        app.handle().clone(),
-                        None,
-                        move || replacement_daemon_command(&runnable2, &respawn_server_url).spawn(),
-                        move |server_url| {
-                            replacement_daemon_command(&runnable_daemon, server_url).spawn()
-                        },
-                        || bootstrap::BackendExitDecision::Respawn,
-                        "(daemon)".to_string(),
-                    );
+                    let install = payload_install
+                        .as_ref()
+                        .expect("a daemon host has an external payload");
+                    if payload_start_error.is_none() {
+                        match bootstrap::ensure_executable(&install.join("podium")) {
+                            Err(error) => {
+                                let reason = format!("payload is not executable: {error}");
+                                log::error!("{reason}");
+                                payload_start_error = Some(reason);
+                            }
+                            Ok(runnable) => {
+                                log::info!("spawning daemon {runnable:?} → {server_url}");
+                                match replacement_daemon_command(&runnable, &server_url).spawn() {
+                                    Err(error) => {
+                                        let reason =
+                                            format!("daemon payload spawn failed: {error}");
+                                        log::error!("{reason}");
+                                        payload_start_error = Some(reason);
+                                    }
+                                    Ok(child) => {
+                                        *child_state.lock().unwrap() = Some(child);
+                                        let runnable2 = runnable.clone();
+                                        let runnable_daemon = runnable.clone();
+                                        let respawn_server_url = server_url.clone();
+                                        spawn_respawn_monitor(
+                                            child_state.clone(),
+                                            shutting_down.clone(),
+                                            successor.clone(),
+                                            app.handle().clone(),
+                                            None,
+                                            move || {
+                                                replacement_daemon_command(
+                                                    &runnable2,
+                                                    &respawn_server_url,
+                                                )
+                                                .spawn()
+                                            },
+                                            move |server_url| {
+                                                replacement_daemon_command(
+                                                    &runnable_daemon,
+                                                    server_url,
+                                                )
+                                                .spawn()
+                                            },
+                                            || bootstrap::BackendExitDecision::Respawn,
+                                            "(daemon)".to_string(),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     remote_window_server_url = Some(server_url.clone());
                     (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
@@ -898,6 +1239,7 @@ fn main() {
                 .permission("allow-claim-update-ownership")
                 .permission("allow-check-update")
                 .permission("allow-install-update")
+                .permission("allow-repair-payload")
                 .permission("core:event:allow-listen")
                 .permission("core:event:allow-unlisten");
             if let Some(server_url) = remote_window_server_url {
@@ -1098,8 +1440,12 @@ fn main() {
             // fill them after the readiness probe inside the spawn below.
             let remote_init_injection = window_injection;
             let watchdog_shutting_down = shutting_down.clone();
+            let payload_start_error_for_window = payload_start_error;
             std::thread::spawn(move || {
-                let (resolved_url, resolved_injection) = if let Some(port) = wait_local_port {
+                let (resolved_url, resolved_injection) = if let Some(error) = payload_start_error_for_window {
+                    log::error!("opening signed payload repair surface: {error}");
+                    (WebviewUrl::default(), payload_unavailable_injection(&error))
+                } else if let Some(port) = wait_local_port {
                     // Native runtime proof seam: debug builds may force the scratch host
                     // origin so a tiny test server can set an HttpOnly cookie before the
                     // committed transition. It is not a Podium server, so it must skip the
@@ -1142,13 +1488,16 @@ fn main() {
                                 local_build_stamp.as_deref().unwrap_or("none recorded")
                             );
                         }
-                        (
-                            bootstrap::local_window_target(port, ready),
-                            bootstrap::local_injection_script(
-                                port,
-                                local_build_stamp.as_deref(),
-                            ),
-                        )
+                        let mut injection = bootstrap::local_injection_script(
+                            port,
+                            local_build_stamp.as_deref(),
+                        );
+                        if !ready {
+                            injection.push_str(&payload_unavailable_injection(
+                                "the local payload started but did not become ready",
+                            ));
+                        }
+                        (bootstrap::local_window_target(port, ready), injection)
                     }
                 } else {
                     (webview_url, remote_init_injection)
@@ -1287,6 +1636,7 @@ fn main() {
                             }
                         }
                     }
+                    reap_tracked_successor(app);
                 }
                 _ => {}
             }
@@ -1315,6 +1665,7 @@ fn main() {
                         reap_backend(&mut child);
                     }
                 }
+                reap_tracked_successor(app_handle);
             }
         }
     });
@@ -1408,7 +1759,7 @@ mod tests {
     fn every_daemon_the_desktop_starts_is_marked_supervised() {
         let host = local_host_sidecar_command(
             Path::new("podium"),
-            &["--takeover".to_string()],
+            &["parent".to_string(), "--takeover".to_string()],
             18787,
             Path::new("web"),
             Path::new("mobile"),
@@ -1437,6 +1788,15 @@ mod tests {
             "a native-hosted server must serve the bundled Expo web app"
         );
         assert_eq!(
+            command_env(&host, DESKTOP_SUCCESSOR_FILE_ENV).as_deref(),
+            Some(".desktop-successor-pid"),
+            "the parent must have a bridge for reporting each handover successor"
+        );
+        assert_eq!(
+            host.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>(),
+            ["parent", "--takeover"],
+        );
+        assert_eq!(
             daemon
                 .get_args()
                 .map(|arg| arg.to_string_lossy().into_owned())
@@ -1453,7 +1813,7 @@ mod tests {
     fn every_backend_the_desktop_starts_knows_whose_death_to_exit_on() {
         let host = local_host_sidecar_command(
             Path::new("podium"),
-            &["--takeover".to_string()],
+            &["parent".to_string(), "--takeover".to_string()],
             18787,
             Path::new("web"),
             Path::new("mobile"),
@@ -1488,6 +1848,7 @@ mod tests {
                 "allow-check-update",
                 "allow-install-update",
                 "allow-set-update-channel",
+                "allow-repair-payload",
                 "process:allow-restart",
             ]
         );
@@ -1557,6 +1918,8 @@ mod tests {
             assert!(hook.contains("invoke('install_update', { channel, expectedVersion })"));
             assert!(hook.contains("setUpdateChannel: (channel, endpoint)"));
             assert!(hook.contains("invoke('set_update_channel', { channel, endpoint })"));
+            assert!(hook.contains("repairPayload: () =>"));
+            assert!(hook.contains("invoke('repair_payload')"));
         }
     }
 

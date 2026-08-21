@@ -5,8 +5,10 @@ import { describe, expect, it } from 'vitest'
 
 const conf = JSON.parse(readFileSync(join(__dirname, 'tauri.conf.json'), 'utf8'))
 const mainSource = readFileSync(join(__dirname, 'src/main.rs'), 'utf8')
+const bootstrapSource = readFileSync(join(__dirname, 'src/bootstrap.rs'), 'utf8')
 const cargoSource = readFileSync(join(__dirname, 'Cargo.toml'), 'utf8')
 const webStyles = readFileSync(join(__dirname, '../../web/src/styles.css'), 'utf8')
+const webMainSource = readFileSync(join(__dirname, '../../web/src/app/main.tsx'), 'utf8')
 
 describe('tauri desktop config', () => {
   it('keeps stable as the packaged fallback endpoint', () => {
@@ -26,15 +28,77 @@ describe('tauri desktop config', () => {
       expect(existsSync(join(__dirname, icon)), icon).toBe(true)
     }
   })
-  it('bundles both server-served web clients beside the native sidecar', () => {
-    expect(conf.bundle.resources).toEqual([
-      'resources/web',
-      'resources/mobile',
-      'resources/podium',
-      'resources/licenses',
-    ])
+  it('bundles one complete headless payload as the first-run seed', () => {
+    expect(conf.bundle.resources).toEqual(['resources/payload'])
     expect(mainSource).toContain('"PODIUM_MOBILE_WEB_DIR"')
-    expect(mainSource).toContain('.resolve("resources/mobile", BaseDirectory::Resource)')
+    expect(mainSource).toContain('.join("mobile")')
+  })
+
+  it('strips quarantine before publishing the one-time external seed', () => {
+    expect(bootstrapSource).toContain('Command::new("/usr/bin/xattr")')
+    expect(bootstrapSource).toContain('.args(["-dr", "com.apple.quarantine"])')
+    const seed = bootstrapSource.slice(
+      bootstrapSource.indexOf('pub fn seed_payload_if_absent'),
+      bootstrapSource.indexOf('pub fn ensure_executable'),
+    )
+    expect(seed.indexOf('strip_payload_quarantine(&staging)')).toBeGreaterThan(-1)
+    expect(seed.indexOf('std::fs::rename(&staging, install)')).toBeGreaterThan(
+      seed.indexOf('strip_payload_quarantine(&staging)'),
+    )
+  })
+
+  it('keeps repair reachable from the baked fallback when the payload cannot serve', () => {
+    expect(mainSource).toContain('window.__PODIUM_PAYLOAD_UNAVAILABLE__ = true')
+    expect(mainSource).toContain('repairPayload: () =>')
+    expect(mainSource).toContain("invoke('repair_payload')")
+    expect(webMainSource).toContain('function PayloadUnavailablePage(')
+    expect(webMainSource).toContain("label: repairing ? 'Repairing…' : 'Repair payload'")
+    expect(webMainSource).toContain('nativeDesktopBridge()?.repairPayload')
+  })
+
+  it('routes a broken installed payload to signed repair and leaves healthy startup alone', () => {
+    const payloadStartup = mainSource.slice(
+      mainSource.indexOf('let mut payload_start_error'),
+      mainSource.indexOf('// One canonical list backs both startup'),
+    )
+    const windowRouting = mainSource.slice(
+      mainSource.indexOf('let payload_start_error_for_window'),
+      mainSource.indexOf('// External-link shim (ALL modes)'),
+    )
+
+    // Present-but-unrunnable is not reseeded and must not abort setup: executable and spawn
+    // failures become data consumed by the signed window-construction path.
+    expect(payloadStartup).toContain('match bootstrap::ensure_executable')
+    expect(payloadStartup).not.toContain(
+      'bootstrap::ensure_executable(&install.join("podium")).map_err',
+    )
+    expect(payloadStartup).toContain('payload_start_error = Some(reason)')
+    expect(payloadStartup).toContain('payload spawn failed: {error}')
+    expect(payloadStartup).toContain('daemon payload spawn failed: {error}')
+
+    // A broken startup selects the baked document and its native repair bridge first. With no
+    // error, the same code continues through the existing healthy local and remote targets.
+    expect(windowRouting.indexOf('if let Some(error) = payload_start_error_for_window')).toBeLessThan(
+      windowRouting.indexOf('else if let Some(port) = wait_local_port'),
+    )
+    expect(windowRouting).toContain(
+      '(WebviewUrl::default(), payload_unavailable_injection(&error))',
+    )
+    expect(windowRouting).toContain('(bootstrap::local_window_target(port, ready), injection)')
+    expect(windowRouting).toContain('(webview_url, remote_init_injection)')
+    expect(mainSource).toContain('window.__PODIUM_PAYLOAD_ERROR__ = {error_literal}')
+    expect(mainSource).toContain('app.restart();')
+    expect(webMainSource).toContain('<PayloadUnavailablePage reason={payloadStartupError} />')
+    expect(webMainSource).toContain("label: 'Startup failure'")
+  })
+
+  it('keeps crash supervision attached across parent self-handover', () => {
+    expect(mainSource).toContain(
+      'const DESKTOP_SUCCESSOR_FILE_ENV: &str = "PODIUM_DESKTOP_SUCCESSOR_FILE"',
+    )
+    expect(mainSource).toContain('take_live_successor_pid(path)')
+    expect(mainSource).toContain('follow_successor_chain(path, pid, &successor, &shutting_down)')
+    expect(mainSource).toContain('reap_tracked_successor(app)')
   })
 
   it('loads the all-in-one UI from the local server with a stable port (POD-2510)', () => {
@@ -94,7 +158,11 @@ describe('served-local launchMode classification (POD-2510)', () => {
 
   it('calls the baked fallback document local too', () => {
     expect(
-      classify({ protocol: 'tauri:', hostname: 'localhost', origin: 'tauri://localhost' }),
+      classify({
+        protocol: 'tauri:',
+        hostname: 'localhost',
+        origin: 'tauri://localhost',
+      }),
     ).toBe('all-in-one')
     expect(
       classify({

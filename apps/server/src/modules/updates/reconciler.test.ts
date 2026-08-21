@@ -196,12 +196,6 @@ describe('decideReconciliation', () => {
       because: 'offline',
     },
     {
-      /** The shell owns a supervised daemon's bytes; no fleet path may (§4, P5). */
-      name: 'a desktop-supervised daemon is never the reconciler‘s to update',
-      over: { machine: machine({ id: 'macbook', supervised: true }) },
-      because: 'supervised',
-    },
-    {
       name: 'a machine that cannot take this delivery is not handed it anyway',
       over: {
         target: packedTarget(),

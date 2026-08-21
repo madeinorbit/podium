@@ -70,7 +70,6 @@ export type ReconcileRefusal =
   | 'no-target'
   | 'at-target'
   | 'offline'
-  | 'supervised'
   | 'cannot-take-delivery'
   | 'in-flight'
   | 'terminal'
@@ -151,10 +150,6 @@ export function decideReconciliation(facts: ReconcileFacts): ReconcileDecision {
   if (!facts.target) return { converge: false, because: 'no-target' }
   if (machine.version === facts.target.version) return { converge: false, because: 'at-target' }
   if (!machine.online) return { converge: false, because: 'offline' }
-  // A supervised daemon is part of a signed application bundle; the shell
-  // updates it, and no fleet path ever may (§4, P5). Named separately from the
-  // caps refusal below because it is not a question about delivery methods.
-  if (machine.supervised === true) return { converge: false, because: 'supervised' }
   if (!machineCanTakeDelivery(machine, offeredDeliveries(facts.target))) {
     return { converge: false, because: 'cannot-take-delivery' }
   }
@@ -442,7 +437,10 @@ export class UpdateReconciler {
       // owes anything: dropping its counter is what lets a LATER target start
       // from zero even if the version label is one this fleet has seen before.
       if (decision.because === 'at-target' && key !== undefined) this.attempts.delete(key)
-      log.debug('reconciler left a machine alone', { machineId, because: decision.because })
+      log.debug('reconciler left a machine alone', {
+        machineId,
+        because: decision.because,
+      })
       return 'refused'
     }
 

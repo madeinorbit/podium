@@ -100,6 +100,43 @@ export function disarmExitSeam(input: { provided?: () => void; shape: ProcessSha
   return refuseConvergence(input.shape) !== undefined
 }
 
+export interface GrantRestartDeps {
+  provided?: () => void
+  parentManaged: boolean
+  requestHandover(expectedVersion: string):
+    | { ok: true; pid: number }
+    | { ok: false; reason: string }
+  exit(code: number): void
+}
+
+/**
+ * Finish a successfully swapped machine grant through the process owner.
+ *
+ * A parent-managed desktop must replace its server and daemon together, so its
+ * child asks the parent to self-handover onto the exact granted version. A
+ * daemon-only desktop remains a direct shell child and takes the ordinary exit
+ * path; the shell respawns it from the external payload home.
+ */
+export function restartAfterGrant(
+  expectedVersion: string,
+  deps: GrantRestartDeps,
+): void {
+  if (deps.provided) {
+    deps.provided()
+    return
+  }
+  if (!deps.parentManaged) {
+    deps.exit(0)
+    return
+  }
+  const result = deps.requestHandover(expectedVersion)
+  if (!result.ok) {
+    throw new Error(
+      `machine-cannot-restart: no supervising parent to hand over to (${result.reason})`,
+    )
+  }
+}
+
 /**
  * THE REFUSAL A MACHINE WITH A MIGRATED DATABASE OWES ITS OPERATOR (POD-2213).
  *

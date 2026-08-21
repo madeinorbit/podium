@@ -1098,77 +1098,92 @@ pub fn wait_for_local_server(port: u16, attempts: u32, delay_ms: u64) -> bool {
     false
 }
 
-/// Copy `src` to `<cache_dir>/podium-sidecar` (chmod 0o755 on unix), re-copying when
-/// missing/size-differs/source-newer; return the runnable path.
-fn ensure_executable_into(src: &Path, cache_dir: &Path) -> std::io::Result<PathBuf> {
+/// The mutable desktop payload install. Tauri's app-data directory is Application
+/// Support on macOS and the platform data directory elsewhere; tests and managed
+/// installations may pin the same location explicitly.
+pub fn payload_home(app_data_dir: &Path) -> PathBuf {
+    std::env::var("PODIUM_PAYLOAD_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| app_data_dir.join("payload"))
+}
+
+fn copy_payload_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
     use std::fs;
-
-    let dst = cache_dir.join("podium-sidecar");
-
-    // Re-copy if: cache missing, OR sizes differ, OR source is newer than cache.
-    let src_meta = fs::metadata(src)?;
-    let needs_copy = match fs::metadata(&dst) {
-        Err(_) => true,
-        Ok(dst_meta) => {
-            if dst_meta.len() != src_meta.len() {
-                true
-            } else {
-                // Compare mtimes — re-copy if source is strictly newer.
-                match (src_meta.modified(), dst_meta.modified()) {
-                    (Ok(src_mtime), Ok(dst_mtime)) => src_mtime > dst_mtime,
-                    // If mtime is unavailable (some platforms), be conservative and copy.
-                    _ => true,
-                }
-            }
+    fs::create_dir(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_payload_tree(&from, &to)?;
+        } else {
+            fs::copy(from, to)?;
         }
-    };
-
-    if needs_copy {
-        fs::create_dir_all(cache_dir)?;
-        fs::copy(src, &dst)?;
     }
+    Ok(())
+}
 
-    // Ensure executable bit.
+/// Strip the download quarantine from the copied seed. The signed app is assessed
+/// by Gatekeeper; the mutable payload is subsequently authenticated by the feed's
+/// signature and must not inherit the app download's translocation marker.
+fn strip_payload_quarantine(path: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("/usr/bin/xattr")
+            .args(["-dr", "com.apple.quarantine"])
+            .arg(path)
+            .status()?;
+        if !status.success() {
+            return Err(std::io::Error::other(format!(
+                "xattr exited with {status} while clearing the payload quarantine"
+            )));
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = path;
+    Ok(())
+}
+
+/// Seed the external payload exactly once. Presence of the directory is the only
+/// decision: no version, health, or content judgment can overwrite an install that
+/// the fleet updater owns. Copying into a sibling and renaming keeps a crash from
+/// turning a partial seed into a permanently-present payload directory.
+pub fn seed_payload_if_absent(seed: &Path, install: &Path) -> std::io::Result<bool> {
+    if install.exists() {
+        return Ok(false);
+    }
+    let parent = install
+        .parent()
+        .ok_or_else(|| std::io::Error::other("payload install has no parent"))?;
+    std::fs::create_dir_all(parent)?;
+    let staging = parent.join(format!(".payload-seed-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&staging);
+    if let Err(error) = copy_payload_tree(seed, &staging)
+        .and_then(|_| ensure_executable(&staging.join("podium")))
+        .and_then(|_| ensure_executable(&staging.join("podium-cli")))
+        .and_then(|_| strip_payload_quarantine(&staging))
+        .and_then(|_| std::fs::rename(&staging, install))
+    {
+        let _ = std::fs::remove_dir_all(&staging);
+        if install.exists() {
+            return Ok(false);
+        }
+        return Err(error);
+    }
+    Ok(true)
+}
+
+/// Ensure a payload entrypoint is executable without ever copying or refreshing it.
+/// First-run seeding and fleet grants are the only writers of the payload directory.
+pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&dst)?.permissions();
+        let mut perms = std::fs::metadata(path)?.permissions();
         perms.set_mode(0o755);
-        fs::set_permissions(&dst, perms)?;
+        std::fs::set_permissions(path, perms)?;
     }
-
-    Ok(dst)
-}
-
-/// Return a path to an executable copy of `path`.
-///
-/// AppImage mounts are read-only and may not preserve the executable bit, so we
-/// copy the binary to a writable cache dir and chmod it there.  We re-copy when
-/// the cache is missing, the source size differs, or the source is newer than the cache.
-///
-/// Cache location: `$PODIUM_STATE_DIR/bin/podium-sidecar` if set,
-/// otherwise `~/.podium/bin/podium-sidecar`.
-///
-/// macOS is exempt: the sidecar runs from inside the .app, never a copy. Copying it out is what
-/// produced `"podium-sidecar" is damaged and can't be opened` on the first notarized build, for
-/// two independent reasons, either fatal on its own:
-///
-///   1. The notarization ticket is stapled to `Podium.app`, not to each nested binary. A lone copy
-///      in ~/.podium/bin has no ticket, so Gatekeeper cannot validate it offline.
-///   2. `fs::copy` on macOS copies extended attributes, carrying `com.apple.quarantine` from the
-///      downloaded bundle onto the copy — which is what makes Gatekeeper assess it at all.
-///
-/// Neither problem the copy solves exists here: a .app is not a read-only AppImage mount, and the
-/// bundled binary is already executable, signed, and covered by the app's stapled ticket.
-pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
-    if cfg!(target_os = "macos") {
-        return Ok(path.to_path_buf());
-    }
-    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.podium")
-    });
-    ensure_executable_into(path, &std::path::Path::new(&base).join("bin"))
+    Ok(path.to_path_buf())
 }
 
 #[cfg(test)]
@@ -2068,114 +2083,68 @@ mod tests {
     }
 
     #[test]
-    fn ensure_executable_runs_in_place_on_macos_and_copies_elsewhere() {
-        use std::fs;
-        // Both halves assert here rather than under #[cfg(target_os = "macos")], because the only
-        // lane that runs these tests is ubuntu — a macOS-gated test compiles to nothing there and
-        // would never run, which is the exact hole scripts/test-rust.ts exists to close.
-        //
-        // macOS must run the sidecar where it was notarized: a copy in ~/.podium/bin sits outside
-        // the app's stapled ticket and inherits com.apple.quarantine, which Gatekeeper reports as
-        // `"podium-sidecar" is damaged and can't be opened`. Linux still needs the copy, because
-        // an AppImage mount is read-only and may drop the executable bit.
-        let src_dir =
-            std::env::temp_dir().join(format!("podium-ensure-exec-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&src_dir);
-        fs::create_dir_all(&src_dir).expect("temp dir");
-        let src = src_dir.join("podium");
-        fs::write(&src, b"#!/bin/sh\nexit 0\n").expect("write src");
-
-        // with_state_dir keeps the copying branch out of the developer's real ~/.podium.
-        with_state_dir("ensure-exec", None, || {
-            let resolved = ensure_executable(&src).expect("ensure_executable failed");
-            if cfg!(target_os = "macos") {
-                assert_eq!(resolved, src, "macOS must run the sidecar in place");
-            } else {
-                assert_ne!(resolved, src, "non-macOS must run a writable copy");
-                assert!(
-                    resolved.ends_with("bin/podium-sidecar"),
-                    "unexpected copy location: {resolved:?}"
-                );
-            }
-        });
-
-        let _ = fs::remove_dir_all(&src_dir);
+    fn payload_home_is_inside_the_platform_application_data_dir() {
+        let app_data = Path::new("/Application Support/app.podium.desktop");
+        assert_eq!(payload_home(app_data), app_data.join("payload"));
     }
 
     #[test]
-    fn ensure_executable_into_returns_path_to_existing_executable() {
+    fn seed_payload_copies_the_complete_bundle_once_and_never_overwrites() {
         use std::fs;
-        use std::io::Write;
+        let tmp = std::env::temp_dir().join(format!("podium-payload-seed-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let seed = tmp.join("resource");
+        let install = tmp.join("application-support/payload");
+        fs::create_dir_all(seed.join("web")).unwrap();
+        fs::write(seed.join("podium"), b"#!/bin/sh\n").unwrap();
+        fs::write(seed.join("podium-cli"), b"seed-binary").unwrap();
+        fs::write(seed.join("VERSION"), b"0.4.2\n").unwrap();
+        fs::write(seed.join("web/index.html"), b"seed-web").unwrap();
 
-        // Separate temp dirs for source and cache (no env mutation).
-        let tmp =
-            std::env::temp_dir().join(format!("podium-ensure-exe-test-{}", std::process::id()));
-        let src_dir = tmp.join("src");
-        let cache_dir = tmp.join("cache");
-        fs::create_dir_all(&src_dir).unwrap();
+        assert!(seed_payload_if_absent(&seed, &install).unwrap());
+        assert_eq!(fs::read(install.join("podium-cli")).unwrap(), b"seed-binary");
+        assert_eq!(fs::read(install.join("web/index.html")).unwrap(), b"seed-web");
 
-        let src = src_dir.join("fake-podium");
-        fs::File::create(&src)
-            .unwrap()
-            .write_all(b"#!/bin/sh\necho hello\n")
-            .unwrap();
-
-        let result =
-            ensure_executable_into(&src, &cache_dir).expect("ensure_executable_into failed");
-
-        assert!(result.exists(), "result path does not exist: {result:?}");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = fs::metadata(&result).unwrap().permissions().mode();
-            assert!(mode & 0o111 != 0, "file is not executable, mode={mode:o}");
-        }
-
+        fs::write(seed.join("podium-cli"), b"new-shell-seed").unwrap();
+        assert!(!seed_payload_if_absent(&seed, &install).unwrap());
+        assert_eq!(
+            fs::read(install.join("podium-cli")).unwrap(),
+            b"seed-binary",
+            "a later shell must never overwrite the fleet-owned payload"
+        );
         let _ = fs::remove_dir_all(&tmp);
     }
 
     #[test]
-    fn ensure_executable_into_recopy_when_source_differs() {
+    fn an_existing_broken_payload_is_not_health_judged_or_reseeded() {
         use std::fs;
-        use std::io::Write;
+        let tmp = std::env::temp_dir().join(format!("podium-payload-broken-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let seed = tmp.join("resource");
+        let install = tmp.join("application-support/payload");
+        fs::create_dir_all(&seed).unwrap();
+        fs::write(seed.join("podium"), b"seed").unwrap();
+        fs::create_dir_all(&install).unwrap();
 
-        let tmp =
-            std::env::temp_dir().join(format!("podium-freshness-test-{}", std::process::id()));
-        let src_dir = tmp.join("src");
-        let cache_dir = tmp.join("cache");
-        fs::create_dir_all(&src_dir).unwrap();
+        assert!(!seed_payload_if_absent(&seed, &install).unwrap());
+        assert!(fs::read_dir(&install).unwrap().next().is_none());
+        let _ = fs::remove_dir_all(&tmp);
+    }
 
-        let src = src_dir.join("fake-podium");
-
-        // First copy: write initial content.
-        fs::File::create(&src)
-            .unwrap()
-            .write_all(b"version-1")
-            .unwrap();
-        let result = ensure_executable_into(&src, &cache_dir).expect("first copy failed");
-        assert_eq!(fs::read(&result).unwrap(), b"version-1");
-
-        // Second copy: different size → must re-copy regardless of mtime.
-        fs::File::create(&src)
-            .unwrap()
-            .write_all(b"version-2-longer")
-            .unwrap();
-
-        let result2 = ensure_executable_into(&src, &cache_dir).expect("second copy failed");
-        assert_eq!(
-            fs::read(&result2).unwrap(),
-            b"version-2-longer",
-            "cache was not refreshed when source size changed"
-        );
-
-        // Third copy: same content again — should NOT re-copy (idempotent).
-        let result3 = ensure_executable_into(&src, &cache_dir).expect("third copy failed");
-        assert_eq!(
-            fs::read(&result3).unwrap(),
-            b"version-2-longer",
-            "cache content changed unexpectedly on idempotent call"
-        );
-
+    #[test]
+    fn ensure_executable_only_touches_the_external_entrypoint() {
+        use std::fs;
+        let tmp = std::env::temp_dir().join(format!("podium-payload-exec-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let executable = tmp.join("podium");
+        fs::write(&executable, b"#!/bin/sh\n").unwrap();
+        assert_eq!(ensure_executable(&executable).unwrap(), executable);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_ne!(fs::metadata(&executable).unwrap().permissions().mode() & 0o111, 0);
+        }
         let _ = fs::remove_dir_all(&tmp);
     }
 }

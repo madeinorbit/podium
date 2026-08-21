@@ -812,6 +812,34 @@ export class UpdatesService {
       : { result: 'offline' }
   }
 
+  /**
+   * Re-deliver the selected machine's CURRENT target through the ordinary grant
+   * protocol. Unlike Apply, equality is not success: replacing equal-version bytes
+   * is the purpose of repair. Every schema, signature, progress, restart and rollback
+   * guard below the grant remains unchanged.
+   */
+  repairMachine(machineId: MachineId): MachineApplyOutcome {
+    const machine = this.project().machines.find((candidate) => candidate.id === machineId)
+    if (!machine) return { result: 'unknown-machine' }
+    const channel = this.channelOf(machine)
+    const target = this.target(channel)
+    if (!target) {
+      return {
+        result: 'no-target',
+        reason: this.targetUnavailableReasonFor(machineId) ?? 'No target is available.',
+      }
+    }
+    if (IN_FLIGHT_STATES.has(machine.state)) {
+      return { result: 'in-flight', state: machine.state }
+    }
+    if (!machine.online) return { result: 'offline' }
+    this.clearMachineVerdicts(channel, [machineId], { keepCanaryProof: true })
+    const issued = this.issueGrants(channel, target, [machine], [machine.id], true)
+    return issued.includes(machineId)
+      ? { result: 'granted', version: target.version }
+      : { result: 'offline' }
+  }
+
   tick(channel: UpdateChannel = 'dev'): string[] {
     const target = this.target(channel)
     const rollout = this.rollout(channel)
@@ -879,7 +907,10 @@ export class UpdatesService {
    * Both are idempotent, both are true the moment the handshake landed, and
    * neither sends anything to a machine.
    */
-  private project(): { machines: WaveMachine[]; continuing: Set<UpdateChannel> } {
+  private project(): {
+    machines: WaveMachine[]
+    continuing: Set<UpdateChannel>
+  } {
     const channelsReadyToContinue = new Set<UpdateChannel>()
     const fleet: WaveMachine[] = this.deps.machines().map((machine) => {
       const channel = this.channelOf(machine)
@@ -1052,12 +1083,14 @@ export class UpdatesService {
     target: UpdateTarget,
     machines: readonly WaveMachine[],
     selected: readonly string[],
+    repair = false,
   ): string[] {
     const issued: string[] = []
     for (const machineId of selected) {
       const grant: UpdateGrantMessage = {
         type: 'updateGrant',
         grantId: this.deps.nextGrantId(),
+        ...(repair ? { repair: true } : {}),
         target,
       }
       this.deps.send(asMachineId(machineId), grant)

@@ -231,7 +231,11 @@ export function updateOperationContext(input: {
   requestCoordinatorRestart?: () => void
   requestWebRebuild?: () => void
   requestDestBundle?: () => Promise<unknown>
-  preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
+  preparation?: () => {
+    webReady: boolean
+    bundleReady: boolean
+    failureDetail?: string
+  }
 }): UpdateOperationContext {
   // ONE WEBSITE, TWO DISTS: the operation's `web` step is about the WEBSITE, so
   // it reads the same combined answer the old path did (POD-1980).
@@ -273,7 +277,11 @@ export function updateOperationContext(input: {
 
 function contextFor(
   ctx: Context,
-  extra: { onlyMachines?: readonly string[]; retryOf?: string; surface?: UpdateSurface } = {},
+  extra: {
+    onlyMachines?: readonly string[]
+    retryOf?: string
+    surface?: UpdateSurface
+  } = {},
   options: { includeDatabaseSnapshot?: boolean } = {},
 ): UpdateOperationContext {
   const state = familyState(ctx)
@@ -325,7 +333,10 @@ export function updateStartability(input: UpdatePlanInput): UpdateStartability {
   const plan = planUpdateOperation(input)
   if (plan.steps.length === 0 && (plan.awaiting ?? []).length === 0) {
     if ((plan.deferred ?? []).length > 0) return { startable: true }
-    return { startable: false, reason: 'Podium is already at this version everywhere.' }
+    return {
+      startable: false,
+      reason: 'Podium is already at this version everywhere.',
+    }
   }
   const expectedWeb = input.target.artifacts.web?.digest
   const webBehind = expectedWeb !== undefined && input.servedWebDigest !== expectedWeb
@@ -385,8 +396,16 @@ export function missingTargetReason(channel: UpdateChannel, failureDetail?: stri
  */
 export async function startUpdateOperation(
   ctx: Context,
-  extra: { onlyMachines?: readonly string[]; retryOf?: string; surface?: UpdateSurface } = {},
-): Promise<{ operationId: string; operation: Operation | null; alreadyRunning: boolean }> {
+  extra: {
+    onlyMachines?: readonly string[]
+    retryOf?: string
+    surface?: UpdateSurface
+  } = {},
+): Promise<{
+  operationId: string
+  operation: Operation | null
+  alreadyRunning: boolean
+}> {
   const state = familyState(ctx)
   const context = contextFor(ctx, extra, { includeDatabaseSnapshot: true })
   const updates = state.modules.updates
@@ -399,7 +418,9 @@ export async function startUpdateOperation(
   assertUpdateStartable(planInputFrom(context))
 
   const engine = state.modules.operations.engine
-  const result = await engine.start(UPDATE_OPERATION_KIND, context, { createdBy: 'user' })
+  const result = await engine.start(UPDATE_OPERATION_KIND, context, {
+    createdBy: 'user',
+  })
   if (!result.started) {
     if ('alreadyRunning' in result) {
       const row = engine.active(LIFECYCLE_EXCLUSION_GROUP)
@@ -414,7 +435,11 @@ export async function startUpdateOperation(
       message: 'This server cannot run update operations.',
     })
   }
-  return { operationId: result.operation.id, operation: result.operation, alreadyRunning: false }
+  return {
+    operationId: result.operation.id,
+    operation: result.operation,
+    alreadyRunning: false,
+  }
 }
 
 /** The fleet read model used by the dialog and Settings. */
@@ -534,6 +559,24 @@ export function updateProcedures() {
      * held-down button is one feed request, not a loop.
      */
     checkNow: t.procedure.mutation(({ ctx }) => familyState(ctx).modules.updates.checkNow()),
+    /** Explicit byte repair: same target and same grant machinery, equality notwithstanding. */
+    repairPayload: t.procedure
+      .input(z.object({ id: z.string().min(1).optional() }).optional())
+      .mutation(({ ctx, input }) => {
+        const state = familyState(ctx)
+        const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
+        const outcome = state.modules.updates.repairMachine(machineId)
+        if (outcome.result !== 'granted' && outcome.result !== 'in-flight') {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message:
+              outcome.result === 'no-target'
+                ? outcome.reason
+                : `Payload repair is ${outcome.result}.`,
+          })
+        }
+        return { outcome, fleet: updateFleet(ctx) }
+      }),
     repairCompatibility: t.procedure.mutation(({ ctx }) => {
       if (!ctx.requestCoordinatorRestart) {
         throw new TRPCError({
@@ -571,7 +614,10 @@ export function updateProcedures() {
       const engine = familyState(ctx).modules.operations.engine
       const row = engine.history(UPDATE_OPERATION_KIND, 100).find((r) => r.id === input.id)
       if (!row) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'That update is no longer on record.' })
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'That update is no longer on record.',
+        })
       }
       const previous = row.operation
       const machinesStep = (previous?.steps ?? []).find((step) => step.id === UPDATE_STEP_MACHINES)

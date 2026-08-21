@@ -11,6 +11,7 @@
  * combinatorial matrix is unit-testable without spawning anything.
  */
 
+import { renameSync, writeFileSync } from 'node:fs'
 import { asSessionId, isAgentKind, type MachineId } from '@podium/model'
 import {
   ApprovalChannelTarget,
@@ -136,7 +137,12 @@ export type LaunchPlan =
   | { kind: 'approval-request'; op: ApprovalOp }
   | { kind: 'approval-status'; id: string }
   | { kind: 'version' }
-  | { kind: 'update'; channel: 'stable' | 'edge'; feedOverride: string | undefined }
+  | {
+      kind: 'update'
+      channel: 'stable' | 'edge'
+      feedOverride: string | undefined
+    }
+  | { kind: 'repair-payload'; serverUrl: string; pairedDaemon: boolean }
   | { kind: 'channel'; target: string | undefined }
   /** `podium telemetry [status|on|off|show|reset-id]` [spec:SP-f933]. */
   | { kind: 'telemetry'; args: string[] }
@@ -158,7 +164,12 @@ export type LaunchPlan =
       takeover: boolean
     }
   | { kind: 'repair-config' }
-  | { kind: 'join-setup'; token: string; persistence: 'systemd' | 'detached'; port: number }
+  | {
+      kind: 'join-setup'
+      token: string
+      persistence: 'systemd' | 'detached'
+      port: number
+    }
   | { kind: 'issue'; args: string[] }
   | { kind: 'session'; args: string[] }
   | { kind: 'mail'; args: string[] }
@@ -176,7 +187,11 @@ export type LaunchPlan =
   | { kind: 'logs'; args: string[] }
   /** Malformed invocation: print `message` to stderr and exit 2. */
   | { kind: 'usage-error'; message: string }
-  | { kind: 'interactive-setup'; port: number; reason: 'explicit' | 'first-run' }
+  | {
+      kind: 'interactive-setup'
+      port: number
+      reason: 'explicit' | 'first-run'
+    }
   | { kind: 'interactive-vps-setup'; port: number }
   | { kind: 'client'; serverUrl: string | undefined }
   /** Headless-managed install: this box runs the backend as INDEPENDENT processes.
@@ -310,19 +325,32 @@ function automationSchedulePlan(argv: string[]): LaunchPlan {
   for (let i = 2; i < argv.length; i++) {
     const token = argv[i] ?? ''
     if (token === '--fresh') {
-      if (fresh) return { kind: 'usage-error', message: 'podium automation: duplicate --fresh' }
+      if (fresh)
+        return {
+          kind: 'usage-error',
+          message: 'podium automation: duplicate --fresh',
+        }
       fresh = true
       continue
     }
     if (!valueFlags.has(token)) {
-      return { kind: 'usage-error', message: `podium automation: unknown option ${token}` }
+      return {
+        kind: 'usage-error',
+        message: `podium automation: unknown option ${token}`,
+      }
     }
     const value = argv[++i]
     if (!value || value.startsWith('--')) {
-      return { kind: 'usage-error', message: `podium automation: ${token} needs a value` }
+      return {
+        kind: 'usage-error',
+        message: `podium automation: ${token} needs a value`,
+      }
     }
     if (values.has(token)) {
-      return { kind: 'usage-error', message: `podium automation: duplicate ${token}` }
+      return {
+        kind: 'usage-error',
+        message: `podium automation: duplicate ${token}`,
+      }
     }
     values.set(token, value)
   }
@@ -332,7 +360,10 @@ function automationSchedulePlan(argv: string[]): LaunchPlan {
   if (!at || !prompt) return { kind: 'usage-error', message: AUTOMATION_SCHEDULE_USAGE }
   const timestamp = Date.parse(at)
   if (!Number.isFinite(timestamp)) {
-    return { kind: 'usage-error', message: `podium automation: invalid --at timestamp '${at}'` }
+    return {
+      kind: 'usage-error',
+      message: `podium automation: invalid --at timestamp '${at}'`,
+    }
   }
 
   const selectedSession = values.get('--session')
@@ -484,6 +515,13 @@ export function resolvePlan(
     return automationSchedulePlan(argv)
   }
   if (agentSession) {
+    if (argv[0] === 'update' && argv[1] === '--repair') {
+      return {
+        kind: 'usage-error',
+        message:
+          'podium update --repair is an explicit operator repair; run it outside a managed agent session',
+      }
+    }
     if (argv[0] === 'update') return { kind: 'approval-request', op: { kind: 'update' } }
     if (argv[0] === 'stop') return { kind: 'approval-request', op: { kind: 'stop' } }
     if (argv[0] === 'channel' && argv[1]) {
@@ -493,20 +531,50 @@ export function resolvePlan(
       // request `dev` after the operator path learned it (POD-2199).
       const target = ApprovalChannelTarget.safeParse(argv[1])
       return target.success
-        ? { kind: 'approval-request', op: { kind: 'channel', target: target.data } }
+        ? {
+            kind: 'approval-request',
+            op: { kind: 'channel', target: target.data },
+          }
         : {
             kind: 'usage-error',
-            message: `podium channel must be ${ApprovalChannelTarget.options.join(', ')} (got '${argv[1]}')`,
+            message: `podium channel must be ${ApprovalChannelTarget.options.join(
+              ', ',
+            )} (got '${argv[1]}')`,
           }
     }
     if (argv[0] === 'set-server' && argv[1]) {
-      return { kind: 'approval-request', op: { kind: 'set-server', target: argv[1] } }
+      return {
+        kind: 'approval-request',
+        op: { kind: 'set-server', target: argv[1] },
+      }
     }
   }
 
   // ---- utility subcommands (historical dispatch order preserved) ----
   // `podium update`: self-update the headless bundle from the configured feed.
   if (argv[0] === 'update') {
+    if (argv[1] === '--repair') {
+      if (argv.length !== 2) {
+        return {
+          kind: 'usage-error',
+          message: 'usage: podium update --repair',
+        }
+      }
+      if (config.mode === 'client') {
+        return {
+          kind: 'usage-error',
+          message: 'podium update --repair needs a local payload',
+        }
+      }
+      const pairedDaemon = config.mode === 'daemon'
+      const serverUrl = pairedDaemon ? config.serverUrl : localServerUrl(port)
+      return serverUrl
+        ? { kind: 'repair-payload', serverUrl, pairedDaemon }
+        : {
+            kind: 'usage-error',
+            message: 'podium update --repair needs the paired server URL',
+          }
+    }
     return {
       kind: 'update',
       channel: resolveUpdateChannel(config, env) === 'stable' ? 'stable' : 'edge',
@@ -671,7 +739,11 @@ export function resolvePlan(
   // headless-managed. Every branch below is a real launch mode.
 
   if ((forceSetup || modePlan.showSetupHint) && tty) {
-    return { kind: 'interactive-setup', port, reason: forceSetup ? 'explicit' : 'first-run' }
+    return {
+      kind: 'interactive-setup',
+      port,
+      reason: forceSetup ? 'explicit' : 'first-run',
+    }
   }
 
   if (!forceSetup && modePlan.mode === 'client') {
@@ -791,6 +863,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '',
     'Self-update:',
     '  update                Self-update from the configured channel feed',
+    '  update --repair       Re-download this machine payload through its coordinator',
     '  channel [stable|edge|dev]',
     '                        Show or switch the update channel',
     '',
@@ -1309,6 +1382,19 @@ export async function main(
       )
       return
     }
+    case 'repair-payload': {
+      const { runPayloadRepair } = await import('./payload-repair')
+      try {
+        await runPayloadRepair({
+          serverUrl: plan.serverUrl,
+          pairedDaemon: plan.pairedDaemon,
+        })
+      } catch (error) {
+        console.error(`podium: payload repair failed — ${(error as Error).message}`)
+        process.exit(1)
+      }
+      return
+    }
     case 'channel': {
       const { applyChannel } = await import('./cli-channel')
       try {
@@ -1407,7 +1493,12 @@ export async function main(
         children,
         env: {
           ...process.env,
-          ...(compiled ? {} : { PODIUM_PARENT_BIN: process.execPath, PODIUM_PARENT_CLI: cliPath }),
+          ...(compiled
+            ? {}
+            : {
+                PODIUM_PARENT_BIN: process.execPath,
+                PODIUM_PARENT_CLI: cliPath,
+              }),
         },
         // Disposition 11: schema-gate → verified fetch → swap → VERSION re-read
         // run HERE, in the parent, not in the server that is about to be replaced.
@@ -1429,7 +1520,18 @@ export async function main(
           await parentLogging.close().catch(() => {})
         },
         reportSuccessorPid: (pid) => {
-          // Desktop shell reads this on macOS; also useful for operators.
+          const destination = process.env.PODIUM_DESKTOP_SUCCESSOR_FILE
+          if (destination) {
+            const temporary = `${destination}.${process.pid}.tmp`
+            try {
+              writeFileSync(temporary, `${pid}\n`, { mode: 0o600 })
+              renameSync(temporary, destination)
+            } catch (error) {
+              console.error(
+                `[podium parent] could not report successor pid: ${(error as Error).message}`,
+              )
+            }
+          }
           console.error(`[podium parent] successor pid ${pid}`)
         },
       })
@@ -1523,7 +1625,9 @@ export async function main(
       const { startWatchdog } = await import('@podium/runtime/sd-notify')
       // A live timer is not proof that maintenance advances: only completed
       // janitor state-machine phases may keep the watchdog green [spec:SP-c29e].
-      const stopWatchdog = startWatchdog({ readProgress: () => handle.service.progressVersion() })
+      const stopWatchdog = startWatchdog({
+        readProgress: () => handle.service.progressVersion(),
+      })
       const shutdown = (): void => {
         stopWatchdog?.()
         handle.close()
@@ -1678,7 +1782,10 @@ export async function main(
     case 'interactive-setup': {
       const { runCliSetup } = await import('./cli-setup')
       const { createInterface } = await import('node:readline/promises')
-      const rl = createInterface({ input: process.stdin, output: process.stdout })
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      })
       await runCliSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, plan.port)
       rl.close()
       return
@@ -1686,14 +1793,19 @@ export async function main(
     case 'interactive-vps-setup': {
       const { runVpsSetup } = await import('./cli-setup')
       const { createInterface } = await import('node:readline/promises')
-      const rl = createInterface({ input: process.stdin, output: process.stdout })
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      })
       await runVpsSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, plan.port)
       rl.close()
       return
     }
     case 'client': {
       console.log(
-        `podium client mode — open the web UI pointed at ${plan.serverUrl ?? '(no serverUrl configured)'}`,
+        `podium client mode — open the web UI pointed at ${
+          plan.serverUrl ?? '(no serverUrl configured)'
+        }`,
       )
       console.log('(run `podium setup` to reconfigure this install)')
       return

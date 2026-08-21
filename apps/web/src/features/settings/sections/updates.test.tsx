@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -13,6 +14,7 @@ const trpc = {
     checkNow: { mutate: vi.fn() },
     proposal: { query: vi.fn().mockResolvedValue(null) },
     approveProposal: { mutate: vi.fn().mockResolvedValue(null) },
+    repairPayload: { mutate: vi.fn() },
   },
   operations: { history: { query: vi.fn() } },
 }
@@ -390,6 +392,39 @@ describe('UpdatesSection', () => {
     expect(screen.getByRole('button', { name: 'Stable' }).getAttribute('aria-pressed')).toBe('true')
   })
 
+  it('repairs this Mac payload through its ordinary machine grant', async () => {
+    ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      launchMode: 'all-in-one',
+      machineId: asMachineId('machine-ludovico'),
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+    }
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    trpc.updates.repairPayload.mutate.mockResolvedValue({
+      outcome: { result: 'granted', version: '0.4.1' },
+      fleet: emptyFleet,
+    })
+
+    render(<UpdatesSection />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Repair payload' }))
+
+    await waitFor(() =>
+      expect(trpc.updates.repairPayload.mutate).toHaveBeenCalledWith({
+        id: 'machine-ludovico',
+      }),
+    )
+    expect(
+      await screen.findByText(
+        'Repair granted. Podium will download the current payload and restart.',
+      ),
+    ).toBeTruthy()
+  })
+
   /**
    * POD-1882. The fleet-default selector is ordinary operation, so it is always
    * here; only Development is gated. These four cases are the whole contract.
@@ -539,7 +574,7 @@ describe('UpdatesSection', () => {
       expect(document.body.textContent).not.toContain('No target:')
     })
 
-    it('says a supervised machine is the desktop app’s to update', async () => {
+    it('shows a desktop-supervised machine as an ordinary fleet update', async () => {
       trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
       trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
       quietHistory()
@@ -548,10 +583,8 @@ describe('UpdatesSection', () => {
 
       render(<UpdatesSection />)
 
-      expect(await screen.findByText('Managed by Podium Desktop')).toBeTruthy()
-      // An expected state gets its label and nothing more: the reason is said
-      // once in the row's description, not once per machine.
-      expect(document.body.textContent).not.toContain('owns this machine’s files')
+      expect(await screen.findByText('Update available')).toBeTruthy()
+      expect(document.body.textContent).not.toContain('Managed by Podium Desktop')
     })
 
     /**

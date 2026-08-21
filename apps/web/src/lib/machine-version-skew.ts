@@ -70,10 +70,7 @@ function versionStateOf(
 }
 
 export function machineVersionSkew(
-  machine: Pick<
-    MachineWire,
-    'inventory' | 'targetVersion' | 'versionState' | 'supervised' | 'appVersion'
-  >,
+  machine: Pick<MachineWire, 'inventory' | 'targetVersion' | 'versionState' | 'appVersion'>,
   serverAppVersion: string | null = null,
   convergenceState: MachineConvergenceState | null = null,
 ): VersionSkewVerdict {
@@ -110,20 +107,10 @@ export function machineVersionSkew(
       note: 'This machine took the update and never arrived on it.',
     }
   }
-  // A supervised daemon's bytes belong to Podium Desktop and no wave will ever
-  // move it (POD-2099): saying only "behind" would be an accusation against a
-  // machine doing exactly what it should.
-  if (machine.supervised === true) {
-    return {
-      // The label names the OWNER, because that is the question a machine
-      // sitting behind its target raises: who moves it, if not the button on
-      // this page? The badge says the same thing the other way round.
-      label: 'Managed by Podium Desktop',
-      badge: 'updates with the app',
-      mark: 'expected',
-      note: 'Podium Desktop owns this machine’s files, so it moves when the app updates.',
-    }
-  }
+  // There is deliberately NO "managed by Podium Desktop" case here any more.
+  // The macOS payload moved out of the .app (POD-2508), so a Mac is an ordinary
+  // fleet machine that waves move like any other — the old branch would now
+  // excuse a machine that really is just waiting to be updated.
   return {
     label: 'Update available',
     badge: 'update available',

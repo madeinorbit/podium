@@ -347,16 +347,13 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred).toHaveLength(1)
   })
 
-  /**
-   * A supervised daemon lives inside a signed application bundle. It is
-   * EXCLUDED, not deferred: deferred means "we will do this later", and this one
-   * is never ours to do (§4, P5 — no surface updates someone else's native app).
-   */
-  it('excludes a desktop-supervised daemon from the wave and from the deferred list', () => {
+  /** Desktop supervision owns crashes; the external payload remains fleet-managed. */
+  it('includes a desktop-supervised daemon in the ordinary fleet wave', () => {
     const plan = planUpdateOperation(
       planInput({ fleet: [machine({ id: 'macbook', supervised: true })] }),
     )
-    expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
+    expect(stepIds(plan)).toContain(UPDATE_STEP_MACHINES)
+    expect(plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places?.[0]?.id).toBe('macbook')
     expect(plan.deferred).toEqual([])
   })
 
@@ -371,25 +368,19 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred?.[0]).toMatchObject({ id: 'src', reason: 'cannot-take-delivery' })
   })
 
-  /**
-   * §5: in all-in-one the shell carries server + daemon + web atomically, so
-   * there is nothing a runner may do. The plan is empty and the ask is REQUIRED,
-   * which is precisely what makes the engine settle it into `waiting`.
-   */
-  it('plans an all-in-one install as a required ask and no steps at all', () => {
+  /** The all-in-one host is the first ordinary member of its own fleet. */
+  it('plans an all-in-one payload through the machine step without a desktop ask', () => {
     const plan = planUpdateOperation(
       planInput({
         hostMachineId: 'macbook',
         fleet: [machine({ id: 'macbook', supervised: true, name: 'macbook' })],
       }),
     )
-    expect(plan.steps).toEqual([])
-    expect(plan.awaiting).toEqual([
-      expect.objectContaining({ id: DESKTOP_INSTALL_ASK, required: true, place: 'macbook' }),
-    ])
+    expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
+    expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
-  it('updates other connected machines before asking the all-in-one shell to install', () => {
+  it('updates the all-in-one host alongside its other connected machines', () => {
     const plan = planUpdateOperation(
       planInput({
         hostMachineId: 'macbook',
@@ -401,10 +392,8 @@ describe('planUpdateOperation', () => {
       }),
     )
     expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
-    expect(plan.steps[1]?.places?.map((place) => place.id)).toEqual(['linux-a', 'linux-b'])
-    expect(plan.awaiting).toEqual([
-      expect.objectContaining({ id: DESKTOP_INSTALL_ASK, required: true, place: 'macbook' }),
-    ])
+    expect(plan.steps[1]?.places?.map((place) => place.id)).toEqual(['macbook', 'linux-a', 'linux-b'])
+    expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
     expect(plan.deferred).toEqual([])
   })
 
@@ -418,58 +407,22 @@ describe('planUpdateOperation', () => {
     )
     expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
     expect(plan.steps[1]?.places?.map((place) => place.id)).toEqual(['linux-a'])
-    expect(plan.awaiting).toEqual([
-      expect.objectContaining({
-        id: DESKTOP_INSTALL_ASK,
-        required: true,
-        place: 'desktop-server',
-      }),
-    ])
+    expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
-  /**
-   * POD-2182. The test above cannot see this defect: its machine's name and id
-   * are the same word, so `place: host.id` and `place: host.name` are the same
-   * string and the assertion passes either way. Here they differ, which is the
-   * ordinary case — an id is `m_01j…` and a name is what its owner typed.
-   *
-   * `place` is read by exactly one thing, the panel's `askLine`, which appends
-   * "on <place>" unless the chosen sentence already contains it. So the two
-   * fields have to agree as STRINGS, not merely refer to the same machine:
-   * disagreeing left a person reading "Finish this in Podium Desktop on
-   * ludovico. on m_01jhost". Nothing resolves an ask by its place — the engine
-   * matches on `id` — so there is no identity to preserve here.
-   */
-  it('names the host in the ask the way the detail does, never by machine id', () => {
-    const plan = planUpdateOperation(
-      planInput({
-        hostMachineId: 'm_01jhost',
-        fleet: [machine({ id: 'm_01jhost', supervised: true, name: 'ludovico' })],
-      }),
-    )
-    const ask = plan.awaiting?.[0]
-    expect(ask?.place).toBe('ludovico')
-    expect(ask?.detail).toBe('Finish this in Podium Desktop on ludovico.')
-    expect(ask?.detail).toContain(ask?.place)
-  })
-
-  /**
-   * The fallback stays coherent for the same reason: an unnamed machine has
-   * only its id to be called, and both fields must then use it — otherwise the
-   * guard misses again in the other direction.
-   */
-  it('falls back to the id in both fields when the host has no name', () => {
-    const plan = planUpdateOperation(
-      planInput({
-        hostMachineId: 'm_01jhost',
-        // `name: undefined` deliberately: the helper defaults `name` to the id,
-        // which would make this assertion pass without the fallback existing.
-        fleet: [machine({ id: 'm_01jhost', supervised: true, name: undefined })],
-      }),
-    )
-    const ask = plan.awaiting?.[0]
-    expect(ask?.place).toBe('m_01jhost')
-    expect(ask?.detail).toBe('Finish this in Podium Desktop on m_01jhost.')
+  it('never mints the legacy desktop ask for named or unnamed all-in-one hosts', () => {
+    for (const host of [
+      machine({ id: 'm_01jhost', supervised: true, name: 'ludovico' }),
+      machine({ id: 'm_01jhost', supervised: true, name: undefined }),
+    ]) {
+      const plan = planUpdateOperation(
+        planInput({
+          hostMachineId: host.id,
+          fleet: [host],
+        }),
+      )
+      expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
+    }
   })
 
   /**
@@ -1178,7 +1131,7 @@ describe('the update operation, driven', () => {
     expect(h.store.history(UPDATE_OPERATION_KIND).length).toBe(1)
   })
 
-  it('settles an all-in-one operation into waiting on its required ask', async () => {
+  it('keeps an all-in-one operation running on its ordinary machine step', async () => {
     const h = harness({
       machines: [machine({ id: 'macbook', supervised: true })],
       hostMachineId: 'macbook',
@@ -1188,21 +1141,12 @@ describe('the update operation, driven', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     const operation = h.read()
-    expect(operation.state).toBe('waiting')
-    expect(operation.awaiting?.[0]?.id).toBe(DESKTOP_INSTALL_ASK)
+    expect(operation.state).toBe('running')
+    expect(stepState(operation, UPDATE_STEP_MACHINES)).toBe('running')
+    expect(operation.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
-  /**
-   * NOBODY CLICKED (POD-2186).
-   *
-   * The panel appeared, the person closed the window, and ten minutes later the
-   * grace fired. The framework's default is to complete — right when the steps
-   * did the work and only a surface-local courtesy went unanswered, and wrong
-   * here, where the plan has zero steps and the ask WAS the update. Completing
-   * put "0.4.4 · succeeded" in Settings history against a machine still running
-   * 0.4.3 and made §3.7's answer to *did last night's update finish?* a lie.
-   */
-  it('fails an ignored all-in-one operation rather than recording an update that never happened', async () => {
+  it('does not turn a pending all-in-one machine grant into a desktop ask', async () => {
     const h = harness({
       machines: [machine({ id: 'macbook', supervised: true, name: 'macbook' })],
       hostMachineId: 'macbook',
@@ -1211,21 +1155,8 @@ describe('the update operation, driven', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('waiting')
-
-    h.clock.advance(DEFAULT_WAITING_GRACE_MS)
-    await h.engine.whenSettled('op_1')
-
-    const operation = h.read()
-    expect(operation.state).toBe('failed')
-    expect(operation.error?.code).toBe(UPDATE_NOT_INSTALLED_ERROR_CODE)
-    // §7: a sentence a person reads, naming where it was offered — and one the
-    // panel renders through its unknown-code fallback, so a bundle that predates
-    // the code still owes the operator the truth.
-    expect(operation.error?.message).toContain('macbook')
-    expect(operation.error?.message).toContain('nobody installed it')
-    // The ask stays listed. Failing is not pretending it was answered either.
-    expect(operation.awaiting?.[0]?.id).toBe(DESKTOP_INSTALL_ASK)
+    expect(h.read().state).toBe('running')
+    expect(h.read().awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
   /**
@@ -1888,16 +1819,8 @@ describe('surviving the coordinator restart', () => {
     expect(h.read().state).toBe('done')
   })
 
-  /**
-   * THE ALL-IN-ONE ACCEPTANCE (§5, POD-2104): one click, one restart, the SAME
-   * operation id reading `done` on the other side.
-   *
-   * This is the one shape with no steps at all, so every assertion the drills
-   * above make is unavailable — there is no `server` step whose state proves the
-   * restart happened. The ask is the whole operation, and the successor's own
-   * version is the only evidence that it was answered.
-   */
-  async function killWaitingOnTheDesktopAsk(appVersion: string) {
+  /** Simulate parent self-handover while retaining the same fleet operation. */
+  async function restartAllInOneAt(appVersion: string) {
     const h = harness({
       machines: [machine({ id: 'macbook', supervised: true })],
       hostMachineId: 'macbook',
@@ -1906,9 +1829,8 @@ describe('surviving the coordinator restart', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('waiting')
-    // The user pressed Restart Podium. The shell installs and execs; this
-    // process — the embedded server — dies with it.
+    expect(h.read().state).toBe('running')
+    // The grant swapped the payload and asked the parent to self-handover.
     h.engine.stop()
 
     const successor = h.successor()
@@ -1925,8 +1847,8 @@ describe('surviving the coordinator restart', () => {
     return h.read()
   }
 
-  it('completes the all-in-one operation when the shell came back at the target', async () => {
-    const operation = await killWaitingOnTheDesktopAsk('dev+abc1234')
+  it('completes the all-in-one machine step when the parent came back at the target', async () => {
+    const operation = await restartAllInOneAt('dev+abc1234')
     expect(operation.state).toBe('done')
     expect(operation.awaiting ?? []).toEqual([])
   })
@@ -1937,10 +1859,10 @@ describe('surviving the coordinator restart', () => {
    * never got had been applied, and the panel would stop offering the one
    * button that could still finish it.
    */
-  it('keeps the desktop ask when the shell came back on the old version', async () => {
-    const operation = await killWaitingOnTheDesktopAsk('0.4.1')
-    expect(operation.state).toBe('waiting')
-    expect(operation.awaiting?.[0]?.id).toBe(DESKTOP_INSTALL_ASK)
+  it('keeps the machine step running when the parent came back on the old version', async () => {
+    const operation = await restartAllInOneAt('0.4.1')
+    expect(operation.state).toBe('running')
+    expect(operation.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
   /**
@@ -2431,9 +2353,8 @@ describe('the fleet bridge', () => {
     expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
-  /** A daemon that became desktop-supervised while it slept is the SHELL's now,
-   *  whatever the plan said when it was still an ordinary fleet machine (§4, P5). */
-  it('does not admit a reconnected machine a desktop app has since claimed', async () => {
+  /** Crash supervision does not change ownership of a deferred fleet payload. */
+  it('admits a reconnected machine after it becomes desktop-supervised', async () => {
     const fleet = [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })]
     const h = harness({
       machines: fleet,
@@ -2452,21 +2373,17 @@ describe('the fleet bridge', () => {
     }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+    expect(h.read().deferred).toEqual([])
     const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
-    expect(step?.places?.map((place) => place.id)).toEqual(['vmi'])
+    expect(step?.places?.map((place) => place.id)).toEqual(['vmi', 'laptop'])
   })
 
   /**
-   * …and the same exclusion when the caps question CANNOT answer it.
-   *
-   * The case above is guarded twice over: a packed target offers a delivery, and
-   * `machineCanTakeDelivery` refuses a supervised daemon whatever its caps say.
-   * While the target is still a bare `dev+<sha>` identity it offers NOTHING, so
-   * that question is skipped for everyone — and the supervised exclusion is the
-   * only thing standing between a wave and the inside of a signed .app.
+   * A target identity with no delivery descriptor does not filter any machine.
+   * Supervision is equally irrelevant here: it describes the process owner, not
+   * the external payload's delivery eligibility.
    */
-  it('excludes a supervised daemon even from a target that offers no delivery yet', () => {
+  it('admits a supervised daemon when a target offers no delivery filter yet', () => {
     const fleet = [machine({ id: 'laptop', supervised: true })]
     const h = harness({ machines: fleet })
     const operation = {
@@ -2479,7 +2396,7 @@ describe('the fleet bridge', () => {
     expect(offeredDeliveries(devTarget())).toEqual([])
     expect(
       admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, h.updates),
-    ).toEqual([])
+    ).toEqual([{ id: 'laptop', name: 'laptop', state: 'pending' }])
   })
 })
 

@@ -208,7 +208,11 @@ export function MachinesPanel({
   showOwnershipTransfer?: boolean
 } = {}): JSX.Element {
   const { machines, trpc, setSettingsTab } = useStoreSelector(
-    (s) => ({ machines: s.machines, trpc: s.trpc, setSettingsTab: s.setSettingsTab }),
+    (s) => ({
+      machines: s.machines,
+      trpc: s.trpc,
+      setSettingsTab: s.setSettingsTab,
+    }),
     shallowEqual,
   )
   const [now, setNow] = useState(() => Date.now())
@@ -996,7 +1000,10 @@ function MachineRow({
     setTransferring(true)
     setTransferError(null)
     try {
-      await trpc.machines.transferOwnership.mutate({ id: machine.id, newOwnerUserId: recipient })
+      await trpc.machines.transferOwnership.mutate({
+        id: machine.id,
+        newOwnerUserId: recipient,
+      })
       setTransferOpen(false)
       setRecipientId('')
       setConfirmName('')
@@ -1362,12 +1369,20 @@ const CONVERGENCE_PROGRESS_LABELS: Record<string, string> = {
 
 /** The outcome vocabulary the machine row speaks, keyed off the server's verdict. */
 export function describeApplyOutcome(
-  outcome: { result: string; state?: string; reason?: string; version?: string },
+  outcome: {
+    result: string
+    state?: string
+    reason?: string
+    version?: string
+  },
   machineName: string,
 ): { tone: 'progress' | 'ok' | 'error'; message: string } {
   switch (outcome.result) {
     case 'granted':
-      return { tone: 'progress', message: `Updating ${machineName} to ${outcome.version}…` }
+      return {
+        tone: 'progress',
+        message: `Updating ${machineName} to ${outcome.version}…`,
+      }
     case 'already-current':
       return { tone: 'ok', message: `${machineName} is already up to date.` }
     case 'in-flight':
@@ -1381,7 +1396,10 @@ export function describeApplyOutcome(
         message: `${machineName} is not connected. Bring it online, then apply again.`,
       }
     case 'unknown-machine':
-      return { tone: 'error', message: `${machineName} is no longer paired with this server.` }
+      return {
+        tone: 'error',
+        message: `${machineName} is no longer paired with this server.`,
+      }
     case 'no-target':
       return {
         tone: 'error',
@@ -1390,7 +1408,10 @@ export function describeApplyOutcome(
           : `No update is available for ${machineName} on its selected update source.`,
       }
     default:
-      return { tone: 'error', message: `Podium could not start the update on ${machineName}.` }
+      return {
+        tone: 'error',
+        message: `Podium could not start the update on ${machineName}.`,
+      }
   }
 }
 
@@ -1498,7 +1519,7 @@ function MachineUpdateControls({
   }
 
   const applyUpdate = async (): Promise<void> => {
-    if (busy || changingChannel || supervised || !machine.online || !targetVersion) return
+    if (busy || changingChannel || !machine.online || !targetVersion) return
     setApplying(true)
     setUpdateError(null)
     setUpdateStatus(null)
@@ -1523,14 +1544,6 @@ function MachineUpdateControls({
 
   const alreadyCurrent =
     targetVersion !== null && machine.appVersion !== null && machine.appVersion === targetVersion
-  /**
-   * This daemon lives inside the signed Podium Desktop bundle, which owns its
-   * bytes (POD-2099, spec §4). No wave delivers to it and no Apply here ever
-   * could: the shell update is the only thing that moves it. Offering the button
-   * anyway was the dead end §6.1 bans — a control whose only outcome is a
-   * refusal the user cannot act on.
-   */
-  const supervised = machine.supervised === true
   const targetLabel = targetVersion
     ? `Target ${formatDisplayedVersion(targetVersion)}`
     : 'Target unavailable'
@@ -1557,11 +1570,7 @@ function MachineUpdateControls({
           readable either way — the Target chip below never hides, and Settings →
           Updates discloses every machine that is pinned away from the fleet default,
           so an override can never become invisible by turning the flag off. */}
-      {supervised ? (
-        <span className="flex-none settings-micro" data-machine-supervised={machine.id}>
-          Managed by Podium Desktop
-        </span>
-      ) : developing ? (
+      {developing ? (
         <Select
           value={channel ?? FLEET_DEFAULT_VALUE}
           disabled={changingChannel || busy}
@@ -1625,40 +1634,24 @@ function MachineUpdateControls({
         variant="outline"
         size="sm"
         className="ml-auto flex-none"
-        disabled={
-          busy ||
-          changingChannel ||
-          supervised ||
-          !machine.online ||
-          !targetVersion ||
-          alreadyCurrent
-        }
+        disabled={busy || changingChannel || !machine.online || !targetVersion || alreadyCurrent}
         aria-busy={busy}
         aria-label={`Apply update to ${machine.name}`}
         title={
-          supervised
-            ? `Managed by Podium Desktop on this machine — it updates when the app does.`
-            : !machine.online
-              ? 'This machine must be online to apply its selected target.'
-              : (unavailableReason ?? undefined)
+          !machine.online
+            ? 'This machine must be online to apply its selected target.'
+            : (unavailableReason ?? undefined)
         }
         onClick={() => void applyUpdate()}
       >
         {busy ? 'Applying…' : alreadyCurrent ? 'Current' : retryable ? 'Try again' : 'Apply'}
       </Button>
 
-      {(supervised || unavailableReason || updateError || updateStatus) && (
+      {(unavailableReason || updateError || updateStatus) && (
         // min-w-0 as well as basis-full: a flex item's automatic minimum is its
         // min-content width, and these lines are `truncate` (nowrap), so without
         // it the longest reason set the row's width and ran off the pane.
         <div className="flex min-w-0 basis-full flex-col gap-0.5">
-          {/* The reason a disabled control is disabled belongs on the page, not
-              only in a title attribute nobody hovers. */}
-          {supervised && (
-            <span className="min-w-0 settings-micro">
-              Managed by Podium Desktop on this machine — it updates when the app does.
-            </span>
-          )}
           {unavailableReason && (
             <span
               className="min-w-0 truncate settings-micro text-warning!"

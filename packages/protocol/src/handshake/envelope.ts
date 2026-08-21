@@ -178,10 +178,10 @@ export const PeerBuild = z
     wireSchemaDigest: z.string().optional(),
     installKind: z.enum(['installed', 'source']).optional(),
     /**
-     * This daemon lives inside a desktop app that supervises it, so its bytes
-     * belong to a signed application bundle no fleet wave may rewrite. ABSENT
-     * MEANS FALSE (frozen-contract law): every daemon that predates this field
-     * is a standalone one, which is the reading that keeps working.
+     * This daemon's process is supervised by a desktop shell. Payload ownership
+     * is deliberately not implied: current desktop payloads are external fleet
+     * installs. ABSENT MEANS FALSE (frozen-contract law), preserving older
+     * standalone daemon reports.
      */
     supervised: z.boolean().optional(),
   })

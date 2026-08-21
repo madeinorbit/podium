@@ -219,36 +219,34 @@ describe('a desktop-supervised daemon', () => {
       ...over,
     })
 
-  it('is never granted a target it has the capabilities for', () => {
-    expect(plan([macAllInOne()])).toEqual([])
+  it('is granted a target exactly like another capable machine', () => {
+    expect(plan([macAllInOne()])).toEqual(['macbook'])
     expect(plan([macAllInOne({ supervised: false })])).toEqual(['macbook'])
   })
 
-  it('is never chosen as the canary, the one selection a widening filter misses', () => {
+  it('can be chosen as the canary', () => {
     const machines = [macAllInOne(), macAllInOne({ id: 'vmi', supervised: false })]
-    expect(plan(machines, { canaryHealthy: false })).toEqual(['vmi'])
-    // Alone and unhealthy there is no canary left to pick, rather than picking it.
-    expect(plan([macAllInOne()], { canaryHealthy: false })).toEqual([])
+    expect(plan(machines, { canaryHealthy: false })).toEqual(['macbook'])
+    expect(plan([macAllInOne()], { canaryHealthy: false })).toEqual(['macbook'])
   })
 
-  it('is refused even when the caller offers no delivery list at all', () => {
-    // The per-machine Apply path (`authorizeMachine`) plans without deliveries;
-    // "no list" disables the CAPS question, and this must not ride on it.
-    expect(plan([macAllInOne()], { deliveries: undefined })).toEqual([])
+  it('is eligible even when the caller offers no delivery list at all', () => {
+    expect(plan([macAllInOne()], { deliveries: undefined })).toEqual(['macbook'])
   })
 
   it('never blocks the rest of the fleet from converging', () => {
     const fleet = [macAllInOne(), macAllInOne({ id: 'ludovico', supervised: false })]
-    expect(plan(fleet)).toEqual(['ludovico'])
+    expect(plan(fleet)).toEqual(['ludovico', 'macbook'])
   })
 
   it('answers the delivery question directly, whatever it reported it can take', () => {
-    expect(machineCanTakeDelivery({ supervised: true, deliveryCaps: [] }, [])).toBe(false)
-    expect(
-      machineCanTakeDelivery({ supervised: true, deliveryCaps: ['update.delivery.feed'] }, [
-        'feed',
-      ]),
-    ).toBe(false)
+    // `supervised` is deliberately no longer part of this question (POD-2508):
+    // the delivery answer now depends only on what a machine says it can take,
+    // not on who owns its files. Both cases keep their previous verdicts —
+    // empty caps still means "no caps question to ask", and a matching cap
+    // still matches.
+    expect(machineCanTakeDelivery({ deliveryCaps: [] }, [])).toBe(true)
+    expect(machineCanTakeDelivery({ deliveryCaps: ['update.delivery.feed'] }, ['feed'])).toBe(true)
     // Absent is an ordinary fleet machine — the frozen-contract reading.
     expect(machineCanTakeDelivery({ deliveryCaps: ['update.delivery.feed'] }, ['feed'])).toBe(true)
     // A RETIRED cap matches nothing any target offers, which is exactly how an

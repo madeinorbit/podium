@@ -41,10 +41,15 @@ export function planConvergence(ctx: {
   target: UpdateTarget
   caps: readonly string[]
   platform: string
+  /** Re-deliver equal-version bytes for an explicit repair request. */
+  repair?: boolean
 }): ConvergencePlan {
   // Equality FIRST. A machine already on the target is fine regardless of what
-  // it could or could not have downloaded; it never needed delivery.
-  if (ctx.current === ctx.target.version) return { action: 'already-current' }
+  // it could or could not have downloaded, except when a human explicitly asked
+  // to replace those bytes because their health is no longer trusted.
+  if (ctx.current === ctx.target.version && ctx.repair !== true) {
+    return { action: 'already-current' }
+  }
 
   const artifacts = [
     ...(ctx.target.artifacts.headless ? [ctx.target.artifacts.headless] : []),
