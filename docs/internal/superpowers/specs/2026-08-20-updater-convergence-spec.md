@@ -426,24 +426,74 @@ rcodesign-ad-hoc-signed darwin binary must run on macOS and spawn abduco correct
 the fallback if it fails is a Mac CI leg per release and stale dev Mac payloads, which
 this design otherwise avoids.
 
-**Spike status (POD-2501, 2026-08-21): LINUX-SIDE GO.** Cross-compiling the
-darwin-arm64 headless payload on Linux (Bun target + zig-cc abduco + rcodesign
-ad-hoc) produces Mach-O artifacts whose arch, embedded darwin abduco, ad-hoc
-signature, and updater tarball layout all assert cleanly on Linux
-(`scripts/spike/linux-assert-darwin-spike.sh`). **Mac execution proof is NOT
-YET OBTAINED** — the fleet Mac is offline; no macOS run is claimed here. A
-follow-up under POD-2462 carries the Mac verifier bundle
-(`scripts/spike/package-mac-execution-bundle.sh` → `verify-on-mac.sh`). Until
-that follow-up passes, dependents must not treat Darwin payload execution as
-proven; the Linux-side GO only unblocks "we can *build* the bytes on Linux."
+**Spike status (POD-2501, 2026-08-21): GO.** The whole darwin-arm64 headless
+payload was cross-compiled on Linux (Bun `--target=bun-darwin-arm64` + a `zig cc`
+prebuilt abduco + an `rcodesign` ad-hoc signature carrying Bun's JIT entitlements),
+and that payload was then **executed and passed on an Apple Silicon macOS 15 CI
+runner** — GitHub Actions run `32433063958`, job `verify-macos`, host
+`Darwin 24.6.0 … RELEASE_ARM64_VMAPPLE arm64`, a GitHub-hosted VM on a blacksmith
+runner. Transcript:
+`docs/internal/superpowers/spikes/2026-08-21-mac-verify-round2.log` (round 1:
+`…-round1.log`). On that run: `--version` printed `podium spike-darwin+0.1.1-edge.1`;
+`all-in-one` booted server + janitor + daemon against a throwaway `PODIUM_STATE_DIR`
+(so `bun:sqlite` in a cross-built binary works); the embedded abduco materialized to
+`state/bin/abduco` and ran; an abduco session was created and survived the
+all-in-one being killed. **No Mac is needed to build Darwin headless payloads.**
+
+What the macOS run does NOT establish, and who closes it:
+
+- **darwin-x64 execution.** The x64 payload cross-builds and asserts on Linux, but
+  has never been run on an Intel Mac or under Rosetta. POD-2520 carries an
+  `macos-15-intel` leg.
+- **A real end-user Mac.** The run was a CI VM, not fleet hardware and not a
+  user's laptop. Two consequences follow from that and are open: whether Gatekeeper
+  blocks a quarantined copy (on the CI VM it did not, so "Gatekeeper cleared" is
+  *not* claimed), and whether AMFI enforces the arm64 signature requirement the way
+  a normal Mac does.
+- **`codesign --verify`.** The CI run only ran `codesign -dv`, which displays a
+  signature without validating the seal. That an rcodesign signature satisfies
+  Apple's own verifier is therefore still unproven; the verifier script now runs
+  `codesign --verify --strict`.
+- **The discovery-worker entrypoint** is compiled in as a second entrypoint but was
+  never executed, and abduco was invoked directly rather than through a podium
+  agent session — materialization is proven, the daemon→abduco→session path is not.
+- **The spike `headless/` is not the production layout** (no `systemd/`, no
+  NOTICE/LICENSE, stub web/mobile `index.html`). POD-2504 must not assume the full
+  bundle layout was exercised; the Mac boot logged "Served web bundle has no valid
+  build stamp" for exactly that reason.
+
+**What `rcodesign` actually contributes: the entitlements, not the signature.**
+`bun build --compile --target=bun-darwin-*` already emits an ad-hoc signed Mach-O —
+verified on the Linux box: `CodeSignatureFlags(ADHOC | LINKER_SIGNED)`, identifier
+`a.out`. The `rcodesign sign` pass replaces that with `ADHOC`, identifier `podium`,
+plus the five Bun JIT entitlement keys. So an earlier reading of the CI log —
+"unsigned ran anyway, AMFI anomaly" — was wrong: that binary was never unsigned, and
+nothing in the run showed AMFI to be lenient. If the release job ever drops
+`rcodesign`, what breaks is JIT, not code signing. A genuine unsigned probe needs the
+signature stripped on purpose (`scripts/spike/macho-strip-signature.py`), which the
+Mac verifier now does.
+
+The Linux-side assertions run against the binary **inside the shipped tarball**
+(`scripts/spike/linux-assert-darwin-spike.sh`), and
+`scripts/spike/prove-assert-can-fail.sh` demonstrates all ten of their failure modes
+going red — a hello-world binary, a Linux ELF, a build with the Linux abduco
+embedded, a stripped signature, a flipped sealed byte, empty entitlements, Bun's raw
+linker-signed output, a deleted input, the wrong tarball layout, and a missing file.
 
 | Step | Result |
 |---|---|
-| Prebuilt abduco via `zig cc` (darwin-arm64 + darwin-x64) | LINUX-SIDE GO — Mach-O, not host ELF; `rcodesign` ADHOC |
-| `bun build --compile --target=bun-darwin-arm64` embedding that abduco | LINUX-SIDE GO — spike `scripts/spike/build-bun-darwin.ts` |
-| Ad-hoc sign from Linux with Bun JIT entitlements | LINUX-SIDE GO — `rcodesign sign --binary-identifier podium --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist` → `CodeSignatureFlags(ADHOC)` |
-| Updater tarball layout (`headless/` root) | LINUX-SIDE GO — assert script |
-| Mac: `--version`, daemon boot, abduco survive, Gatekeeper±quarantine | **NOT OBTAINED** (fleet Mac offline) — follow-up issue + `mac-execution-bundle` |
+| Prebuilt abduco via `zig cc` (darwin-arm64 + darwin-x64) | GO — Mach-O, not host ELF; `rcodesign` ADHOC |
+| `bun build --compile --target=bun-darwin-arm64` embedding that abduco | GO — spike `scripts/spike/build-bun-darwin.ts`; the darwin abduco is present verbatim in the shipped binary and no ELF header is |
+| Ad-hoc sign from Linux with Bun JIT entitlements | GO — `rcodesign sign --binary-identifier podium --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist`; adds the entitlements on top of Bun's own linker signature |
+| Updater tarball layout (`headless/` root) | GO — matches `update-install.ts` |
+| macOS arm64: `--version`, all-in-one boot, abduco materialize + session survives | **GO — executed on Apple Silicon macOS 15 CI runner, Actions run 32433063958** |
+| macOS arm64 on real user hardware: Gatekeeper w/ quarantine, AMFI signature enforcement, `codesign --verify` | NOT PROVEN — POD-2520 |
+| macOS x64 execution | NOT PROVEN — POD-2520 `macos-15-intel` leg |
+
+Re-running the execution proof: `.github/workflows/darwin-mac-execution-proof.yml`
+(`workflow_dispatch`). It is deliberately **not** a per-release gate — no Mac sits in
+the build loop — but it exists so the proof can be repeated after a Bun bump, an
+abduco rebuild, or a change to the signing step.
 
 Evidence write-up:
 `docs/internal/superpowers/spikes/2026-08-21-darwin-cross-compile-spike.md`.

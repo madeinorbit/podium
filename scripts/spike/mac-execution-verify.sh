@@ -5,7 +5,8 @@
 # Bundle layout (produced by scripts/spike/package-mac-execution-bundle.sh):
 #   mac-execution-bundle/
 #     verify-on-mac.sh          ← this file (copied as verify-on-mac.sh)
-#     podium-headless-darwin-arm64.tar.gz   ← updater layout (root = headless/)
+#     podium-headless-<platform>.tar.gz     ← updater layout (root = headless/)
+#     podium-cli.nosig          ← same binary, signature removed (unsigned probe)
 #     README.md
 #
 # Usage:
@@ -15,7 +16,7 @@
 set -euo pipefail
 
 BUNDLE_DIR="$(cd "$(dirname "$0")" && pwd)"
-TARBALL="$BUNDLE_DIR/podium-headless-darwin-arm64.tar.gz"
+TARBALL="$(ls "$BUNDLE_DIR"/podium-headless-darwin-*.tar.gz 2>/dev/null | head -1)"
 WORK="$(mktemp -d /tmp/podium-mac-proof-XXXXXX)"
 STATE="$WORK/state"
 LOG="$WORK/verify.log"
@@ -38,7 +39,7 @@ echo "work: $WORK"
 echo
 
 [[ "$(uname -s)" == "Darwin" ]] || { echo "FATAL: not Darwin"; exit 2; }
-[[ -f "$TARBALL" ]] || { echo "FATAL: missing $TARBALL"; exit 2; }
+[[ -n "$TARBALL" && -f "$TARBALL" ]] || { echo "FATAL: no podium-headless-darwin-*.tar.gz in $BUNDLE_DIR"; exit 2; }
 
 tar -xzf "$TARBALL" -C "$WORK"
 CLI="$WORK/headless/podium-cli"
@@ -48,6 +49,27 @@ LAUNCHER="$WORK/headless/podium"
 echo "--- file / codesign ---"
 file "$CLI" || true
 codesign -dv --verbose=4 "$CLI" 2>&1 || true
+echo
+
+# `codesign -dv` only DISPLAYS a signature; it does not validate the seal.
+# This is the check that says whether an rcodesign-produced signature is
+# acceptable to Apple's own verifier.
+echo "--- codesign --verify --strict ---"
+if codesign --verify --strict --verbose=4 "$CLI" 2>&1; then
+  pass "codesign: --verify --strict accepts the rcodesign ad-hoc signature"
+else
+  fail "codesign: --verify --strict REJECTED the rcodesign ad-hoc signature"
+fi
+echo
+
+echo "--- entitlements ---"
+ents="$(codesign -d --entitlements - --xml "$CLI" 2>/dev/null || codesign -d --entitlements - "$CLI" 2>/dev/null || true)"
+echo "$ents"
+if echo "$ents" | grep -q 'com.apple.security.cs.allow-jit'; then
+  pass "entitlements: allow-jit present on the shipped binary"
+else
+  fail "entitlements: allow-jit MISSING — Bun's JIT will not be permitted"
+fi
 echo
 
 # --- version ---
@@ -83,6 +105,33 @@ if [[ $q_rc -ne 0 ]]; then
   pass "gatekeeper: quarantine blocked execution (expected on real Macs)"
 else
   warn "gatekeeper: quarantine did not block (AMFI may be lenient on this host)"
+fi
+
+# --- unsigned must be REFUSED on arm64 ---
+# The spike's original probe used the build's `podium.unsigned`, which was never
+# unsigned: `bun build --compile --target=bun-darwin-*` already emits an ad-hoc
+# LINKER_SIGNED Mach-O. It ran, and that was misread as "AMFI is lenient".
+# podium-cli.nosig has had its LC_CODE_SIGNATURE removed for real.
+NOSIG="$BUNDLE_DIR/podium-cli.nosig"
+if [[ -f "$NOSIG" ]]; then
+  cp "$NOSIG" "$WORK/podium-cli.nosig"
+  chmod +x "$WORK/podium-cli.nosig"
+  echo "--- unsigned probe ---"
+  codesign -dv "$WORK/podium-cli.nosig" 2>&1 | head -3 || true
+  set +e
+  u_out="$("$WORK/podium-cli.nosig" --version 2>&1)"
+  u_rc=$?
+  set -e
+  echo "unsigned exit=$u_rc"
+  echo "$u_out" | head -5
+  if [[ $u_rc -ne 0 ]]; then
+    pass "unsigned: a signature-stripped binary is refused on arm64 (exit $u_rc)"
+  else
+    fail "unsigned: a signature-stripped binary RAN — this host does not enforce the arm64 signature requirement, so nothing here proves the signature is load-bearing"
+  fi
+  echo
+else
+  warn "unsigned: podium-cli.nosig not in the bundle — signature requirement not probed"
 fi
 
 # --- daemon / all-in-one boot on throwaway state ---
