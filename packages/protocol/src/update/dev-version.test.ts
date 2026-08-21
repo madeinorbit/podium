@@ -1,33 +1,52 @@
 import { describe, expect, it } from 'vitest'
 import {
   commitShaFromDevVersion,
+  type DevPublisherVersionState,
+  effectiveMintBase,
   formatDevVersion,
   formatDevVersionShort,
   isDevChannelVersion,
   isPublisherDevVersion,
   mintDevVersion,
   parsePublisherDevVersion,
-  type DevPublisherVersionState,
 } from './dev-version'
 import { compareVersions, isProvablyNewer } from './version-order'
 
-describe('formatDevVersion', () => {
-  it('appends .dev.N onto an edge prerelease base and keeps the commit as build metadata', () => {
-    expect(formatDevVersion('0.1.0-edge.20', 5, '656F49Bdead')).toBe(
-      '0.1.0-edge.20.dev.5+656f49b',
-    )
+describe('effectiveMintBase', () => {
+  it('passes edge bases through', () => {
+    expect(effectiveMintBase('0.1.1-edge.1')).toBe('0.1.1-edge.1')
   })
 
-  it('starts a -dev.N prerelease when the base is a stable release', () => {
-    expect(formatDevVersion('0.1.0', 1, 'abc1234')).toBe('0.1.0-dev.1+abc1234')
+  it('bumps a bare stable release to the next patch lineage', () => {
+    expect(effectiveMintBase('0.1.1')).toBe('0.1.2')
+    expect(effectiveMintBase('0.1.0')).toBe('0.1.1')
+  })
+})
+
+describe('formatDevVersion', () => {
+  it('appends .dev.N onto an edge prerelease lineage and keeps the commit as build metadata', () => {
+    expect(formatDevVersion('0.1.0-edge.20', 5, '656F49Bdead')).toBe('0.1.0-edge.20.dev.5+656f49b')
+  })
+
+  it('starts a -dev.N prerelease on a next-patch lineage base', () => {
+    // Lineage is already the next patch (effectiveMintBase output), not the
+    // stable cut itself — minting on 0.1.0-dev.N would sort below 0.1.0.
+    expect(formatDevVersion('0.1.1', 1, 'abc1234')).toBe('0.1.1-dev.1+abc1234')
   })
 })
 
 describe('mintDevVersion', () => {
-  it('seeds from the checkout base at counter 1', () => {
+  it('seeds from the effective checkout lineage at counter 1', () => {
     expect(mintDevVersion(null, '0.1.0-edge.20', 'aaa1111')).toEqual({
       version: '0.1.0-edge.20.dev.1+aaa1111',
       state: { base: '0.1.0-edge.20', counter: 1 },
+    })
+  })
+
+  it('seeds a stable checkout onto the next-patch lineage', () => {
+    expect(mintDevVersion(null, '0.1.1', 'aaa1111')).toEqual({
+      version: '0.1.2-dev.1+aaa1111',
+      state: { base: '0.1.2', counter: 1 },
     })
   })
 
@@ -54,6 +73,20 @@ describe('mintDevVersion', () => {
       state: { base: '0.1.0-edge.20', counter: 6 },
     })
   })
+
+  it('survives the edge.N → stable X.Y.Z cut this repo actually ships', () => {
+    let state: DevPublisherVersionState | null = null
+    const first = mintDevVersion(state, '0.1.1-edge.1', 'aaaaaaa')
+    state = first.state
+    const second = mintDevVersion(state, '0.1.1-edge.1', 'bbbbbbb')
+    state = second.state
+    // package.json becomes the stable release of the same core.
+    const afterStable = mintDevVersion(state, '0.1.1', 'ccccccc')
+    expect(afterStable.version).toBe('0.1.2-dev.1+ccccccc')
+    expect(isProvablyNewer(afterStable.version, second.version)).toBe(true)
+    expect(isProvablyNewer(afterStable.version, '0.1.1')).toBe(true)
+    expect(isProvablyNewer('0.1.2-edge.1', afterStable.version)).toBe(true)
+  })
 })
 
 describe('publisher development version ordering', () => {
@@ -64,12 +97,7 @@ describe('publisher development version ordering', () => {
       true,
       'appended .dev.N ranks above the edge cut it builds on',
     ],
-    [
-      '0.1.0-edge.20.dev.5+656f49b',
-      '0.1.0-edge.21',
-      false,
-      'and below the next edge cut',
-    ],
+    ['0.1.0-edge.20.dev.5+656f49b', '0.1.0-edge.21', false, 'and below the next edge cut'],
     [
       '0.1.0-edge.20.dev.5+aaa',
       '0.1.0-edge.20.dev.4+bbb',
@@ -87,6 +115,18 @@ describe('publisher development version ordering', () => {
       '0.1.0-edge.20.dev.5+bbb',
       false,
       'same mint identity — sha is build metadata only',
+    ],
+    [
+      '0.1.2-dev.1+ccccccc',
+      '0.1.1-edge.1.dev.2+bbbbbbb',
+      true,
+      'next-patch lineage after a stable cut clears the prior edge mint',
+    ],
+    [
+      '0.1.2-dev.1+ccccccc',
+      '0.1.1',
+      true,
+      'a mint sorts ABOVE the release it builds on (disposition 23)',
     ],
   ]
 
@@ -131,6 +171,37 @@ describe('mint sequences stay monotonic across branches', () => {
     expect(compareVersions(minted[5] as string, '0.1.0-edge.21')).toBe(-1)
   })
 
+  it('stays monotonic across the edge → stable → next-edge cadence this repo ships', () => {
+    const checkouts: { base: string; sha: string }[] = [
+      { base: '0.1.1-edge.1', sha: 'aaaaaaa' },
+      { base: '0.1.1-edge.1', sha: 'bbbbbbb' },
+      { base: '0.1.1', sha: 'ccccccc' }, // stable cut of the same core
+      { base: '0.1.1', sha: 'ddddddd' },
+      { base: '0.1.0-edge.20', sha: 'eeeeeee' }, // vintage branch
+      { base: '0.1.2-edge.1', sha: 'fffffff' }, // next edge after the bump lineage
+    ]
+
+    let state: DevPublisherVersionState | null = null
+    const minted: string[] = []
+    for (const step of checkouts) {
+      const result = mintDevVersion(state, step.base, step.sha)
+      state = result.state
+      minted.push(result.version)
+    }
+
+    for (let i = 1; i < minted.length; i++) {
+      expect(
+        isProvablyNewer(minted[i] as string, minted[i - 1] as string),
+        `${minted[i]} should be newer than ${minted[i - 1]}`,
+      ).toBe(true)
+    }
+
+    // The first post-stable mint clears the release it builds on.
+    expect(isProvablyNewer(minted[2] as string, '0.1.1')).toBe(true)
+    // And stays below the next edge cut of its lineage.
+    expect(isProvablyNewer('0.1.2-edge.1', minted[2] as string)).toBe(true)
+  })
+
   it('an older-base checkout still mints newer-than-fleet after the publisher has advanced', () => {
     let state: DevPublisherVersionState | null = null
     const onMain = mintDevVersion(state, '0.1.0-edge.20', 'aaaaaaa')
@@ -143,18 +214,18 @@ describe('mint sequences stay monotonic across branches', () => {
 })
 
 describe('parse / short form / predicates', () => {
-  it('parses both edge-base and stable-base mints', () => {
+  it('parses both edge-base and next-patch lineage mints', () => {
     expect(parsePublisherDevVersion('0.1.0-edge.20.dev.5+656f49b')).toEqual({
       base: '0.1.0-edge.20',
       counter: 5,
       sha: '656f49b',
       version: '0.1.0-edge.20.dev.5+656f49b',
     })
-    expect(parsePublisherDevVersion('0.1.0-dev.3+abc1234')).toEqual({
-      base: '0.1.0',
+    expect(parsePublisherDevVersion('0.1.2-dev.3+abc1234')).toEqual({
+      base: '0.1.2',
       counter: 3,
       sha: 'abc1234',
-      version: '0.1.0-dev.3+abc1234',
+      version: '0.1.2-dev.3+abc1234',
     })
     expect(parsePublisherDevVersion('dev+656f49b')).toBeNull()
     expect(parsePublisherDevVersion('0.1.0-edge.20')).toBeNull()

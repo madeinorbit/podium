@@ -6,7 +6,12 @@
  * see where the update lands and what they will notice there, not implementation
  * details about how those places are connected.
  */
-import type { ServerVersion, SkewVerdict, UpdateNotes } from '@podium/protocol'
+import {
+  isDevChannelVersion,
+  type ServerVersion,
+  type SkewVerdict,
+  type UpdateNotes,
+} from '@podium/protocol'
 /**
  * THE SUBPATH IS LOAD-BEARING (POD-2241, POD-2190).
  *
@@ -105,7 +110,7 @@ function affectedMachineLabel(input: UpdateInput): string {
 
   const shown = names.slice(0, 3)
   const remaining = Math.max(0, input.fleet.behind - shown.length)
-  return remaining > 0 ? shown.join(', ') + ', and ' + remaining + ' more' : shown.join(', ')
+  return remaining > 0 ? `${shown.join(', ')}, and ${remaining} more` : shown.join(', ')
 }
 
 function targetNotes(
@@ -170,19 +175,12 @@ function placesFor(input: UpdateInput): Place[] {
   const places: Place[] = []
   const affected = affectedPlaces(input)
 
-  // Dev channel: forensic `dev+<sha>` identity OR a publisher mint
-  // (`<base>.dev.<N>+<sha>`, POD-2502). Both mean the page follows this server.
-  const targetVersion = input.server.target?.version ?? ''
-  const isDevChannelTarget =
-    targetVersion.startsWith('dev+') ||
-    /\.dev\.\d+\+[0-9a-f]{7,40}$/i.test(targetVersion) ||
-    /^\d+\.\d+\.\d+-dev\.\d+\+[0-9a-f]{7,40}$/i.test(targetVersion)
-
+  // Dev channel (forensic or publisher mint) — page follows this server.
   const sourceAppAndServer =
     affected.app &&
     affected.server &&
     (input.surface === 'web' || input.surface === 'mobile') &&
-    isDevChannelTarget
+    isDevChannelVersion(input.server.target?.version ?? '')
 
   if (sourceAppAndServer) {
     const server = input.serverName ? `your server (${input.serverName})` : 'your server'

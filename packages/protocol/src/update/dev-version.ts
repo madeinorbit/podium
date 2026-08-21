@@ -1,45 +1,74 @@
 /**
  * PUBLISHER-OWNED DEVELOPMENT VERSIONS.
  *
- * A minted development release is `<base>.dev.<N>+<sha>` (or `<base>-dev.<N>+<sha>`
- * when `<base>` has no prerelease yet). `<base>` is the highest release version
- * this publisher has ever minted on — persisted publisher state, not the
- * checkout's package.json alone — and `<N>` is a monotonic counter on that base.
- * Build metadata carries the commit; semver §10 discards it for precedence.
+ * A minted development release is `<lineage>.dev.<N>+<sha>` (or
+ * `<lineage>-dev.<N>+<sha>` when the lineage has no prerelease). The lineage is
+ * publisher-owned monotonic state — not the checkout's package.json alone —
+ * and `<N>` increments on that lineage. Build metadata carries the commit;
+ * semver §10 discards it for precedence.
  *
  * Spec: updater-convergence §1, disposition 23, decision 13 (POD-2502).
  *
+ * Stable cuts: a bare `X.Y.Z` checkout is minted on the NEXT PATCH lineage
+ * (`X.Y.(Z+1)-dev.N+sha`) so the mint sorts above the release it builds on and
+ * above every prior `X.Y.Z-edge.*.dev.*` mint. Minting on `X.Y.Z-dev.N` would
+ * sort *below* both — the trap this module exists to close.
+ *
  * Source checkouts still report `dev+<sha>` for log / process identity
- * ({@link ../product-version.ts}); only publisher-minted *bundles* carry this
- * orderable form.
+ * ({@link ../product-version.ts}); published targets (bundle or identity) carry
+ * this orderable form.
  */
 
-import { compareVersions } from './version-order'
+import { compareVersions, isProvablyNewer } from './version-order'
 
 /** Monotonic minting state owned by one publisher instance. */
 export interface DevPublisherVersionState {
-  /** Highest release base this publisher has minted on (e.g. `0.1.0-edge.20`). */
+  /**
+   * Mint lineage base (e.g. `0.1.0-edge.20`, or `0.1.2` after a stable `0.1.1`
+   * cut bumped to the next patch). Never a bare stable that still needs bumping.
+   */
   base: string
   /** Counter on {@link base}; increments on every mint at that base. */
   counter: number
 }
 
 const SOURCE_IDENTITY = /^dev\+[0-9a-f]{7,40}$/i
+const STABLE_CORE = /^(\d+)\.(\d+)\.(\d+)$/
 /**
- * Prerelease base form: `0.1.0-edge.20.dev.5+656f49b`.
- * Base is everything before the final `.dev.<N>+<sha>` (non-greedy from the left).
+ * Prerelease lineage form: `0.1.0-edge.20.dev.5+656f49b`.
+ * Base is everything before the final `.dev.<N>+<sha>`.
  */
 const PUBLISHER_DEV = /^(.*?)\.dev\.(\d+)\+([0-9a-f]{7,40})$/i
-/** Stable base form: `0.1.0-dev.5+656f49b` (hyphen starts the prerelease). */
-const PUBLISHER_DEV_STABLE_BASE = /^(\d+\.\d+\.\d+)-dev\.(\d+)\+([0-9a-f]{7,40})$/i
+/** Next-patch lineage form: `0.1.2-dev.5+656f49b`. */
+const PUBLISHER_DEV_STABLE_LINEAGE = /^(\d+\.\d+\.\d+)-dev\.(\d+)\+([0-9a-f]{7,40})$/i
 
 export function shortCommitSha(sha: string): string {
   return sha.trim().toLowerCase().slice(0, 7)
 }
 
 /**
- * Format a publisher mint. Appends `.dev.<N>` onto an existing prerelease base,
- * or starts `-dev.<N>` when the base is a bare `X.Y.Z`.
+ * Map a checkout release version onto the mint lineage base.
+ *
+ * Edge/prerelease checkouts pass through. A bare `X.Y.Z` becomes `X.Y.(Z+1)` so
+ * `-dev.N` mints sort above that release and above its edge lineage.
+ */
+export function effectiveMintBase(checkoutBase: string): string {
+  const trimmed = checkoutBase.trim()
+  if (!trimmed) throw new Error('checkout release base is required')
+  const stable = STABLE_CORE.exec(trimmed)
+  if (!stable) return trimmed
+  const major = stable[1] as string
+  const minor = stable[2] as string
+  const patch = Number(stable[3])
+  return `${major}.${minor}.${patch + 1}`
+}
+
+/**
+ * Format a publisher mint from an already-resolved lineage base.
+ *
+ * Pass {@link effectiveMintBase} output (or a stored state.base), not a raw
+ * stable cut — a bare `X.Y.Z` here still produces `X.Y.Z-dev.N`, which sorts
+ * below that release. Minting goes through {@link mintDevVersion}.
  */
 export function formatDevVersion(base: string, counter: number, sha: string): string {
   if (!Number.isInteger(counter) || counter < 1) {
@@ -54,38 +83,44 @@ export function formatDevVersion(base: string, counter: number, sha: string): st
 /**
  * Advance publisher state and mint the next orderable development version.
  *
- * - Checkout base newer than remembered base → adopt it, reset counter to 1.
- * - Otherwise keep the publisher base (branch-vintage / same base) and bump N.
- * - `state === null` seeds from the checkout base at counter 1.
+ * - Checkout lineage newer than remembered base AND the resulting mint clears
+ *   the previous mint → adopt it, reset counter to 1.
+ * - Otherwise keep the publisher base (branch-vintage / same base / failed
+ *   adopt) and bump N.
+ * - `state === null` seeds from the effective checkout lineage at counter 1.
+ *
+ * The adopt gate compares the resulting VERSION to the previous MINT, not only
+ * the bases — so an edge→stable cut cannot mint backwards.
  */
 export function mintDevVersion(
   state: DevPublisherVersionState | null,
   checkoutBase: string,
   sha: string,
 ): { version: string; state: DevPublisherVersionState } {
-  const checkout = checkoutBase.trim()
-  if (!checkout) {
-    throw new Error('checkout release base is required to mint a development version')
-  }
+  const lineage = effectiveMintBase(checkoutBase)
 
-  let base: string
-  let counter: number
   if (state === null) {
-    base = checkout
-    counter = 1
-  } else {
-    const order = compareVersions(checkout, state.base)
-    if (order !== null && order > 0) {
-      base = checkout
-      counter = 1
-    } else {
-      base = state.base
-      counter = state.counter + 1
-    }
+    const next: DevPublisherVersionState = { base: lineage, counter: 1 }
+    return { version: formatDevVersion(lineage, 1, sha), state: next }
   }
 
-  const next: DevPublisherVersionState = { base, counter }
-  return { version: formatDevVersion(base, counter, sha), state: next }
+  const previousMint = formatDevVersion(state.base, state.counter, '0000000')
+  const adoptVersion = formatDevVersion(lineage, 1, sha)
+  const baseOrder = compareVersions(lineage, state.base)
+
+  if (baseOrder !== null && baseOrder > 0 && isProvablyNewer(adoptVersion, previousMint)) {
+    const next: DevPublisherVersionState = { base: lineage, counter: 1 }
+    return { version: adoptVersion, state: next }
+  }
+
+  const counter = state.counter + 1
+  const version = formatDevVersion(state.base, counter, sha)
+  if (!isProvablyNewer(version, previousMint)) {
+    throw new Error(
+      `development mint ${version} is not provably newer than previous mint ${previousMint}`,
+    )
+  }
+  return { version, state: { base: state.base, counter } }
 }
 
 export interface ParsedPublisherDevVersion {
@@ -112,8 +147,8 @@ function parsedMint(
 /** Parse a publisher-minted development version, or `null` when it is not one. */
 export function parsePublisherDevVersion(raw: string): ParsedPublisherDevVersion | null {
   const value = raw.trim()
-  // Stable-base form first: more specific (`X.Y.Z-dev.N+sha`).
-  const stable = PUBLISHER_DEV_STABLE_BASE.exec(value)
+  // Next-patch lineage form first: more specific (`X.Y.Z-dev.N+sha`).
+  const stable = PUBLISHER_DEV_STABLE_LINEAGE.exec(value)
   if (stable) {
     return parsedMint(stable[1] as string, stable[2] as string, stable[3] as string, value)
   }
