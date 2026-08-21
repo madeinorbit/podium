@@ -1,7 +1,13 @@
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { asIssueId, asMachineId } from '@podium/model'
+import {
+  asIssueId,
+  asMachineId,
+  asSessionId,
+  type GitRepositoryWire,
+  type SessionMeta,
+} from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ColdStartComposer } from './ColdStartComposer'
@@ -14,11 +20,18 @@ const focusIssueSession = vi.fn(async () => null)
 const uploadImage = vi.fn()
 const uiValues = new Map<string, string>()
 const machineId = asMachineId('machine-a')
+const initialRepo = {
+  path: '/work/podium',
+  name: 'podium',
+  kind: 'repository' as const,
+  branch: 'main',
+  worktrees: [],
+  machineId,
+} as GitRepositoryWire
 
 const store = {
-  repos: [
-    { path: '/work/podium', kind: 'repository' as const, branch: 'main', worktrees: [], machineId },
-  ],
+  repos: [initialRepo],
+  sessions: [] as SessionMeta[],
   machines: [
     {
       id: machineId,
@@ -76,6 +89,9 @@ vi.mock('@/lib/ModelEffortPicker', () => ({
 afterEach(() => {
   cleanup()
   uiValues.clear()
+  store.repos.splice(0, store.repos.length, initialRepo)
+  store.sessions.splice(0)
+  store.machines.splice(1)
   create.mockReset()
   start.mockReset()
   focusIssueSession.mockReset()
@@ -94,6 +110,27 @@ function fileInput(): HTMLInputElement {
 function attach(file: File): void {
   Object.defineProperty(fileInput(), 'files', { value: [file], configurable: true })
   fireEvent.change(fileInput())
+}
+
+function recentSession(cwd: string): SessionMeta {
+  return {
+    sessionId: asSessionId('recent-session'),
+    agentKind: 'claude-code',
+    title: 'Recent session',
+    cwd,
+    status: 'live',
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 0,
+    createdAt: '2026-08-20T00:00:00.000Z',
+    lastActiveAt: '2026-08-21T00:00:00.000Z',
+    origin: { kind: 'spawn' },
+    archived: false,
+    busy: false,
+    readAt: null,
+    unread: false,
+  } as unknown as SessionMeta
 }
 
 /* The headline's accessible name is the SENTENCE, not the sentence with the
@@ -170,6 +207,55 @@ describe('ColdStartComposer', () => {
     expect(
       screen.getByRole('heading', { name: /What do you want to work on in podium/ }),
     ).toBeTruthy()
+  })
+
+  it('deduplicates multi-machine repos and selects and lists them by recent use', () => {
+    const machineB = asMachineId('machine-b')
+    store.repos.splice(
+      0,
+      store.repos.length,
+      {
+        path: '/work/alpha',
+        name: 'alpha',
+        kind: 'repository',
+        branch: 'main',
+        worktrees: [],
+        machineId,
+        originUrl: 'https://example.com/acme/alpha.git',
+      } as GitRepositoryWire,
+      {
+        path: '/work/beta',
+        name: 'beta',
+        kind: 'repository',
+        branch: 'main',
+        worktrees: [],
+        machineId,
+        originUrl: 'https://example.com/acme/beta.git',
+      } as GitRepositoryWire,
+      {
+        path: '/srv/beta',
+        name: 'beta',
+        kind: 'repository',
+        branch: 'main',
+        worktrees: [],
+        machineId: machineB,
+        originUrl: 'https://example.com/acme/beta.git',
+      } as GitRepositoryWire,
+    )
+    store.machines.push({
+      ...store.machines[0]!,
+      id: machineB,
+      name: 'Build host',
+      hostname: 'builder',
+    })
+    store.sessions.push(recentSession('/srv/beta'))
+
+    render(<ColdStartComposer first={false} />)
+
+    const picker = screen.getByRole('button', { name: 'Project: beta' })
+    fireEvent.click(picker)
+    const repoItems = screen.getAllByRole('menuitem').map((item) => item.textContent?.trim())
+    expect(repoItems).toEqual(['beta', 'alpha'])
   })
 
   /* POD-1169. The instrument strip clips its own contents (`overflow-hidden`)
