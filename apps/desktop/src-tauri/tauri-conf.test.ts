@@ -365,6 +365,56 @@ describe('served-local launchMode classification (POD-2510)', () => {
     expect(navigate).toBeGreaterThan(movedGuard)
   })
 
+  it('arms and consumes the bounded watchdog pause for supervised local restarts', () => {
+    const watchdogStart = mainSource.indexOf('fn spawn_local_document_watchdog(')
+    const watchdogEnd = mainSource.indexOf('/// How often supervision checks', watchdogStart)
+    const waiterStart = mainSource.indexOf('fn await_child_exit(')
+    const waiterEnd = mainSource.indexOf('/// Supervise the backend child.', waiterStart)
+    const monitorStart = mainSource.indexOf('fn spawn_respawn_monitor<')
+    const monitorEnd = mainSource.indexOf('/// Best-effort, log-only read', monitorStart)
+    const localModeStart = mainSource.indexOf('// Shared local path: stable port')
+    const daemonModeStart = mainSource.indexOf(
+      'bootstrap::LaunchAction::LocalDaemon',
+      localModeStart,
+    )
+
+    expect(watchdogStart).toBeGreaterThan(-1)
+    expect(watchdogEnd).toBeGreaterThan(watchdogStart)
+    expect(waiterStart).toBeGreaterThan(-1)
+    expect(waiterEnd).toBeGreaterThan(waiterStart)
+    expect(monitorStart).toBeGreaterThan(-1)
+    expect(monitorEnd).toBeGreaterThan(monitorStart)
+    expect(localModeStart).toBeGreaterThan(-1)
+    expect(daemonModeStart).toBeGreaterThan(localModeStart)
+
+    const watchdog = mainSource.slice(watchdogStart, watchdogEnd)
+    const waiter = mainSource.slice(waiterStart, waiterEnd)
+    const monitor = mainSource.slice(monitorStart, monitorEnd)
+    const localMode = mainSource.slice(localModeStart, daemonModeStart)
+    const standDown = watchdog.indexOf('if local_restart.is_active()')
+    const identityProbe = watchdog.indexOf('bootstrap::probe_local_server(port)', standDown)
+    const pauseDecision = watchdog.indexOf(
+      'local_restart.should_stand_down(server_ready)',
+      identityProbe,
+    )
+    const ordinaryHealthProbe = watchdog.indexOf('let healthy = match showing')
+
+    expect(standDown).toBeGreaterThan(-1)
+    expect(identityProbe).toBeGreaterThan(standDown)
+    expect(pauseDecision).toBeGreaterThan(identityProbe)
+    expect(ordinaryHealthProbe).toBeGreaterThan(pauseDecision)
+    expect(watchdog.slice(pauseDecision, ordinaryHealthProbe)).toContain('continue;')
+    expect(waiter).toContain('if handover_started')
+    expect(waiter).toContain('local_restart.begin();')
+    expect(monitor).toContain('if !intentional_transfer')
+    expect(monitor).toContain('observed_pid != paused_exit_pid')
+    expect(monitor).toContain('local_restart.begin();')
+    expect(mainSource.match(/local_restart\.begin\(\);/g)).toHaveLength(2)
+    expect(localMode).toContain('Some(local_restart.clone())')
+    expect(mainSource).toContain(
+      'spawn_local_document_watchdog(\n                        handle,\n                        port,\n                        watchdog_shutting_down,\n                        local_restart,',
+    )
+  })
   it('never closes the main window from Cmd+W', () => {
     expect(mainSource).toContain('MenuItemBuilder::with_id("close-tab", "Close Tab")')
     expect(mainSource).toContain('.accelerator("CmdOrCtrl+W")')
