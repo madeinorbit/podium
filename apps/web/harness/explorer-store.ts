@@ -19,6 +19,11 @@ const noop = async (): Promise<undefined> => undefined
 export const state = {
   issues: [] as unknown[],
   sessions: [] as unknown[],
+  /** The fleet a harness entry wants the shell to see. Empty by default, which
+   *  is what POD-1277's entry has always rendered against; POD-1457's entry
+   *  fills it so the launch box's agent menu has real availability to grey. */
+  repos: [] as unknown[],
+  machines: [] as unknown[],
   ui: new Map<string, string>(),
   listeners: new Set<() => void>(),
 }
@@ -61,8 +66,8 @@ const store = (): Record<string, unknown> => ({
   httpOrigin: '',
   sessions: state.sessions,
   issues: state.issues,
-  repos: [],
-  machines: [],
+  repos: state.repos,
+  machines: state.machines,
   worktrees: [],
   selectedIssueId: null,
   paneA: null,

@@ -46,24 +46,29 @@
  */
 import {
   type AgentRowStatus,
+  agentFleetStatus,
+  spawnAgentLabel as agentLabel,
+  candidateFromAvailability,
   agentCapabilityHint as capabilityHint,
   agentCapabilityReason as capabilityReason,
-  agentFleetStatus,
   agentLoginWarning as loginWarning,
-  candidateFromAvailability,
   SIGNED_OUT_HINT,
-  spawnAgentLabel as agentLabel,
 } from '@podium/client-core/viewmodels'
 import { Check } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { MENU_HINT } from '@/lib/menu-surface'
 
 export {
   type AgentRowStatus,
-  agentLabel,
   agentFleetStatus,
+  agentLabel,
   candidateFromAvailability,
   capabilityHint,
   capabilityReason,
@@ -126,5 +131,47 @@ export function CapabilityAgentItem({
         {selected && <Check className="size-3 flex-none text-text-faint" aria-hidden="true" />}
       </DropdownMenuItem>
     </CapabilityTooltip>
+  )
+}
+
+/**
+ * A WHOLE PICKER of capability rows — the shared shape of every "which harness"
+ * menu in the shell (POD-1457).
+ *
+ * `NewIssueDialog` owned a private copy of this; the launch box needed the same
+ * list, and two menus that grey the same harness for the same reason must not be
+ * two pieces of code. `modal={false}` matches the rest of the shell's property
+ * menus: a modal dropdown locks body scroll, which fights a type-ahead's focus
+ * on touch.
+ */
+export function CapabilityAgentMenu({
+  trigger,
+  options,
+  selectedValue,
+  onSelect,
+  align = 'start',
+}: {
+  trigger: JSX.Element
+  options: Array<{ value: string; label: string; icon?: ReactNode; status: AgentRowStatus }>
+  selectedValue: string
+  onSelect: (value: string) => void
+  align?: 'start' | 'end'
+}): JSX.Element {
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger render={trigger} />
+      <DropdownMenuContent align={align} className="w-56">
+        {options.map((option) => (
+          <CapabilityAgentItem
+            key={option.value}
+            icon={option.icon}
+            label={option.label}
+            status={option.status}
+            selected={option.value === selectedValue}
+            onSelect={() => onSelect(option.value)}
+          />
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

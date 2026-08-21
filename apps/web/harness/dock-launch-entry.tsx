@@ -39,6 +39,7 @@ const PLAIN = makeIssue({
   description:
     'The burn figure in the footer keeps the number from the scan that was current when the view mounted, so it disagrees with the deck above it until the tab is reopened.',
   stage: 'backlog',
+  repoPath: '/r',
   worktreePath: null,
   branch: null,
   activityNotes: '',
@@ -63,6 +64,7 @@ const DISCOVERED = makeIssue({
     'Found while reworking the spine: a card with more than three sessions renders the stack empty instead of overflowing it.',
   stage: 'proposed',
   startedBySession: 's-agent',
+  repoPath: '/r',
   worktreePath: null,
   branch: null,
   activityNotes: '',
@@ -70,7 +72,64 @@ const DISCOVERED = makeIssue({
   updatedAt: '2026-08-21T08:55:00.000Z',
 })
 
-state.issues = [PLAIN, DISCOVERED, ORIGIN]
+/** ONE HOST, WITH AN OPINION. Claude Code is installed and signed in; Codex is
+ *  installed but signed out; Cursor is not installed at all. That is what the
+ *  agent menu has to draw — a refusal, a condition, and a plain row — and none
+ *  of it renders against an empty fleet. */
+state.repos = [{ path: '/r', branch: 'main', machineId: 'mine', worktrees: [] }]
+state.machines = [
+  {
+    id: 'mine',
+    name: 'mine',
+    hostname: 'mine',
+    online: true,
+    inventory: {
+      agents: [
+        { kind: 'claude-code', installed: true, login: { state: 'in' } },
+        { kind: 'codex', installed: true, login: { state: 'out' } },
+        { kind: 'grok', installed: true, login: { state: 'in' } },
+        { kind: 'opencode', installed: false, login: { state: 'unknown' } },
+        { kind: 'cursor', installed: false, login: { state: 'unknown' } },
+      ],
+    },
+  },
+]
+
+/** WORK THAT HAS BEGUN. `Start work` would name the wrong move here, so the
+ *  box's foot becomes `+ Session` / `+ Shell` instead (POD-1457). */
+const RUNNING = makeIssue({
+  id: 'i-1457',
+  seq: 1457,
+  displayRef: 'POD-1457',
+  title: 'Launch box in issue explorer',
+  description:
+    'The right dock could start a task but never say with what: its start was one chip, and choosing an agent meant leaving the explorer for the full page.',
+  stage: 'in_progress',
+  repoPath: '/r',
+  worktreePath: '/r/.worktrees/issue-1457',
+  branch: 'issue/1457-launch-box-in-issue-explorer',
+  activityNotes: 'Head reworked around the box; shooting the before/after frames now.',
+  notesUpdatedAt: '2026-08-21T10:20:00.000Z',
+  updatedAt: '2026-08-21T10:20:00.000Z',
+  memberSessionIds: ['s-dock'],
+  sessionSummary: { total: 1, byPhase: { working: 1 } },
+})
+
+state.sessions = [
+  {
+    sessionId: 's-dock',
+    issueId: 'i-1457',
+    agentKind: 'claude-code',
+    title: 'Dock launch box',
+    cwd: '/r/.worktrees/issue-1457',
+    repoPath: '/r',
+    archived: false,
+    status: 'live',
+    lastActiveAt: '2026-08-21T10:20:00.000Z',
+  },
+]
+
+state.issues = [PLAIN, DISCOVERED, RUNNING, ORIGIN]
 
 function PointAt({ id }: { id: string }): JSX.Element {
   const { retarget } = useIssueExplorer()
@@ -112,6 +171,7 @@ if (root) {
         <OperatorFocusProvider missionId={null}>
           <Dock id="i-1451" label="plain" />
           <Dock id="i-1456" label="discovered" />
+          <Dock id="i-1457" label="running" />
         </OperatorFocusProvider>
       </ConfirmProvider>
     </ThemeProvider>,

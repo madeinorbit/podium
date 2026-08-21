@@ -93,6 +93,7 @@ vi.mock('@/app/store', () => {
       issues: [PARENT, CHILD, RELATED, EMPTY_DRAFT, FINISHED],
       sessions: [CHILD_SESSION],
       machines: [],
+      repos: [],
       setPane,
       setView,
       setSelectedIssueId,
@@ -146,10 +147,13 @@ describe('IssuePanelView subissue rows', () => {
     expect(setView).not.toHaveBeenCalled()
   })
 
-  // ...and "Work on this" is the one control that still does move it.
-  it('moves the shell from Work on this, and only offers it inside the explorer', () => {
+  // ...and `Open in Work` is the one control that still does move it. It was a
+  // chip called "Work on this", sitting one gap from `Start work` — two
+  // adjacent controls both promising to begin the work. It is now a link in the
+  // head's chrome line, named after the view it opens (POD-1457).
+  it('moves the shell from Open in Work, and only offers it inside the explorer', () => {
     const { unmount } = render(<IssuePanelView cwd="/r" />)
-    expect(screen.queryByTestId('task-work-on-this')).toBeNull()
+    expect(screen.queryByTestId('task-open-in-work')).toBeNull()
     unmount()
 
     render(
@@ -157,7 +161,7 @@ describe('IssuePanelView subissue rows', () => {
         <IssuePanelView cwd="/r" onNavigate={vi.fn()} />
       </OperatorFocusProvider>,
     )
-    fireEvent.click(screen.getByTestId('task-work-on-this'))
+    fireEvent.click(screen.getByTestId('task-open-in-work'))
     expect(setView).toHaveBeenCalledWith('workspace')
   })
 
@@ -174,7 +178,7 @@ describe('IssuePanelView subissue rows', () => {
         <IssuePanelView cwd="/r" issueId={'c' as never} onNavigate={vi.fn()} />
       </OperatorFocusProvider>,
     )
-    fireEvent.click(screen.getByTestId('task-work-on-this'))
+    fireEvent.click(screen.getByTestId('task-open-in-work'))
 
     // The MISSION is the parent — that is the row the sidebar can highlight —
     // while the pane still opens the child's own session, so the operator lands
@@ -192,7 +196,7 @@ describe('IssuePanelView subissue rows', () => {
     )
     // The mission resolves to nothing, so the deck would answer this jump with
     // its empty state. A link that lands nowhere is worse than no link.
-    expect(screen.queryByTestId('task-work-on-this')).toBeNull()
+    expect(screen.queryByTestId('task-open-in-work')).toBeNull()
   })
 
   it('offers no crossing on a task that is no longer workable', () => {
@@ -201,9 +205,9 @@ describe('IssuePanelView subissue rows', () => {
         <IssuePanelView cwd="/r" issueId={'f' as never} onNavigate={vi.fn()} />
       </OperatorFocusProvider>,
     )
-    // Closed with a reason: the deck could show it, but "Work on this" would be
-    // an invitation to work that is over.
-    expect(screen.queryByTestId('task-work-on-this')).toBeNull()
+    // Closed with a reason: the deck could show it, but a seat at work that is
+    // over is not a seat worth offering.
+    expect(screen.queryByTestId('task-open-in-work')).toBeNull()
   })
 
   it('shows the target status icon in relation rows', () => {

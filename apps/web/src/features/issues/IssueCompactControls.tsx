@@ -19,7 +19,6 @@ import {
   type SessionMeta,
 } from '@podium/model/browser'
 import {
-  ArrowRight,
   ArrowUpRight,
   Check,
   ChevronDown,
@@ -59,6 +58,17 @@ const SessionContextMenu = lazy(() =>
 )
 
 const isSystemOwnedIssueStage = (stage: IssueStage): boolean => stage === 'shipping'
+
+/** Stages whose own name says somebody has picked the work up. Mirrors the
+ *  flight deck's `UNDERWAY` bucket (client-core/viewmodels/mission.ts) with
+ *  `review` added: work under review has been done too, and neither reads as
+ *  something to "start". */
+const BEGUN_STAGES: ReadonlySet<IssueStage> = new Set<IssueStage>([
+  'planning',
+  'in_progress',
+  'review',
+  'shipping',
+])
 
 /**
  * The dock's reading scale (POD-725 §7). Written out rather than taken from
@@ -489,30 +499,24 @@ function PlacementMenu({
  * issue's state resolves to, and the shared issue context menu. Every other
  * lifecycle affordance lives in that menu rather than competing for the row.
  */
-export function IssueCompactControls({
-  issue,
-  onWorkOnThis,
-}: {
-  issue: IssueViewModel
-  /** Take the whole shell to this task: the work tool, with the task selected
-   *  in the sidebar and its agent in the pane. Passed only by a surface that
-   *  can actually go somewhere — the explorer — and only for a task that is
-   *  still workable; see {@link IssuePanelView}. */
-  onWorkOnThis?: () => void
-}): JSX.Element {
-  const { trpc, sessions, machines, setOpenIssueId, setView, updateIssue, closeIssue } =
-    useStoreSelector(
-      (s) => ({
-        trpc: s.trpc,
-        sessions: s.sessions,
-        machines: s.machines,
-        setOpenIssueId: s.setOpenIssueId,
-        setView: s.setView,
-        updateIssue: s.updateIssue,
-        closeIssue: s.closeIssue,
-      }),
-      shallowEqual,
-    )
+export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.Element {
+  // NO CROSSING INTO WORK HERE, SINCE POD-1457. A `Work on this` chip stood in
+  // this strip, filled or outlined depending on what else had resolved, and it
+  // sat one gap away from `Start work` — two adjacent controls whose labels both
+  // promised to begin the work, only one of which did. Going to the Work view is
+  // NAVIGATION, so it left the action row entirely: it is now a named link in
+  // the panel's head (`InspectHead`), above the title, where the trail and the
+  // other "where am I" chrome lives.
+  const { trpc, sessions, machines, updateIssue, closeIssue } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      sessions: s.sessions,
+      machines: s.machines,
+      updateIssue: s.updateIssue,
+      closeIssue: s.closeIssue,
+    }),
+    shallowEqual,
+  )
   const issues = useReplicaIssues()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
@@ -520,10 +524,6 @@ export function IssueCompactControls({
   const [closing, setClosing] = useState(false)
   const [starting, setStarting] = useState(false)
 
-  const openFull = (id: IssueId = issue.id): void => {
-    setOpenIssueId(id)
-    setView('issues')
-  }
   const active = issueSessions(issue, sessions).filter(isOpenSession)
   const action = resolveTaskAction(issue, active)
   const closed = Boolean(issue.closedReason) || issue.archived
@@ -671,154 +671,153 @@ export function IssueCompactControls({
     },
   }
 
-  // The panel's ONE launch surface, and the only place it starts work since
-  // POD-1457. It stands where the bare `Start work` chip stood — the strip's
-  // second line — so the primary action has not moved, it has only stopped
-  // being the one control on this task that could not say WITH WHAT.
-  // A closed task gets none: the strip offers Reopen there instead.
-  const launchable = !closed && action?.kind === 'start-work'
+  /**
+   * WORK HAS BEGUN — so the box wears its `+ Session` / `+ Shell` face and
+   * offers no `Start work` at all (POD-1457).
+   *
+   * Three independent proofs, any one of which settles it: an agent on it right
+   * now, a checkout it already delivers on, or a stage whose own NAME says
+   * somebody picked it up. The stage half is what the old reading missed — an
+   * `in_progress` task whose agent has exited is not unstarted work, and
+   * offering to "start" it named the wrong move for the state it was in.
+   *
+   * `review` is in the set on purpose: work under review has been done. What you
+   * might still want there is another session to act on the review, which is
+   * exactly what the other face offers.
+   */
+  const begun = active.length > 0 || Boolean(issue.worktreePath) || BEGUN_STAGES.has(issue.stage)
+
+  /**
+   * WHETHER THE BOX APPEARS AT ALL.
+   *
+   * Not on a finished task — a closure, an archive, or the `done` lane is the
+   * end of the work, and the strip offers Reopen there instead. Not while the
+   * panel is asking the operator to Mark done either: that state means the work
+   * has LEFT for a spin-off, so starting is not the move, and it keeps the
+   * panel's one-yellow-object rule intact.
+   */
+  const launchable = !closed && issue.stage !== 'done' && action?.kind !== 'mark-done'
 
   return (
-    // WRAPS, since POD-1269. The strip can hold four objects — status, a
-    // resolved Mark done, the crossing into the work tool, the overflow menu —
-    // and the dock is 300px wide at its narrowest. Wrapping is safe where a
-    // clamp would not be: the head must not grow with DATA, and a line break
-    // here is a function of width, not of how much this task has to say.
+    // TWO TIERS, AND THE GAP BETWEEN THEM IS THE POINT (POD-1457).
     //
-    // The launch box is a full-width item, so it takes the next line of the
-    // same wrap rather than nesting a second row. It is bounded the same way —
-    // two picker rows and a button, whatever the task holds — so the dock's
-    // fixed region stays fixed (POD-1457).
-    <div className="mt-2.5 flex flex-wrap items-center gap-2">
-      {/* STATUS, exposed as a first-class dock action. Built from the shell's
-          own dropdown rather than a native <select>, which exists nowhere in
-          this chrome. One flat Linear-shaped list (POD-1074): the open lanes,
-          a rule, then the terminal outcomes as STATES — Done, Cancelled,
-          Duplicate — rather than the operations they used to be named after
-          ("Close: wontfix"). The terminal entries still route through the close
-          dialog so a reason is always recorded and the guard always runs; that
-          split is invisible in the menu, which is the point.
-          `ghost` + an explicit card fill rather than `outline`: the dock's
-          surface is --engraved, which sits ABOVE --background in the paper
-          ramp, so the outline variant's --background fill made the pill sink
-          into the panel instead of lifting off it. */}
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label="Status"
-              className="h-7 flex-none gap-1.5 border-border bg-card px-2.5 text-[11.5px] font-medium text-text-strong"
-            >
-              <StatusGlyph status={issueStatusOf(issue)} size={12} />
-              {issueStatusLabel(issue)}
-              <ChevronDown size={13} className="size-[13px] text-text-faint" aria-hidden="true" />
-            </Button>
-          }
-        />
-        {/* The closed row keeps the WHOLE list rather than hiding the terminal
-            half: correcting a closure (done → duplicate) is one pick, and
-            picking an open lane reopens, which is what the reopen button beside
-            this does in one step. */}
-        <DropdownMenuContent align="start">
-          {issueStatusMenuEntries().map((entry) => (
-            <Fragment key={entry.status}>
-              {entry.startsGroup && <DropdownMenuSeparator />}
-              <DropdownMenuItem
-                className="whitespace-nowrap"
-                onClick={() => selectStatus(entry.value)}
+    // The chips say what STATE this task is in; the launch box is the
+    // INSTRUMENT you act with. Those are different kinds of object, and while
+    // the box sat in the chip row's own 8px wrap it was spaced exactly like a
+    // chip — proximity said it was one. 14px is the design's section interval
+    // (`sheetGap`, and the dock section's own `mb-3.5`), so the box now reads as
+    // its own tier, with the head's matching 14px of foot under it.
+    //
+    // The chip line still WRAPS, since POD-1269: status, a resolved Mark done
+    // and the overflow menu at 300px of dock. Wrapping is safe where a clamp
+    // would not be — the head must not grow with DATA, and a line break here is
+    // a function of width, not of how much this task has to say. The box is
+    // bounded the same way: two picker rows and a button, whatever it holds.
+    <div className="mt-2.5 flex flex-col gap-3.5">
+      <div className="flex flex-wrap items-center gap-2">
+        {/* STATUS, exposed as a first-class dock action. Built from the shell's
+            own dropdown rather than a native <select>, which exists nowhere in
+            this chrome. One flat Linear-shaped list (POD-1074): the open lanes,
+            a rule, then the terminal outcomes as STATES — Done, Cancelled,
+            Duplicate — rather than the operations they used to be named after
+            ("Close: wontfix"). The terminal entries still route through the close
+            dialog so a reason is always recorded and the guard always runs; that
+            split is invisible in the menu, which is the point.
+            `ghost` + an explicit card fill rather than `outline`: the dock's
+            surface is --engraved, which sits ABOVE --background in the paper
+            ramp, so the outline variant's --background fill made the pill sink
+            into the panel instead of lifting off it. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label="Status"
+                className="h-7 flex-none gap-1.5 border-border bg-card px-2.5 text-[11.5px] font-medium text-text-strong"
               >
-                <StatusGlyph status={entry.status} size={12} />
-                {entry.label}
-                {currentStatusValue === entry.value && (
-                  <Check size={12} className="ml-auto text-text-faint" aria-hidden="true" />
-                )}
-              </DropdownMenuItem>
-            </Fragment>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {closed ? (
+                <StatusGlyph status={issueStatusOf(issue)} size={12} />
+                {issueStatusLabel(issue)}
+                <ChevronDown size={13} className="size-[13px] text-text-faint" aria-hidden="true" />
+              </Button>
+            }
+          />
+          {/* The closed row keeps the WHOLE list rather than hiding the terminal
+              half: correcting a closure (done → duplicate) is one pick, and
+              picking an open lane reopens, which is what the reopen button beside
+              this does in one step. */}
+          <DropdownMenuContent align="start">
+            {issueStatusMenuEntries().map((entry) => (
+              <Fragment key={entry.status}>
+                {entry.startsGroup && <DropdownMenuSeparator />}
+                <DropdownMenuItem
+                  className="whitespace-nowrap"
+                  onClick={() => selectStatus(entry.value)}
+                >
+                  <StatusGlyph status={entry.status} size={12} />
+                  {entry.label}
+                  {currentStatusValue === entry.value && (
+                    <Check size={12} className="ml-auto text-text-faint" aria-hidden="true" />
+                  )}
+                </DropdownMenuItem>
+              </Fragment>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {closed ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 px-3 text-[11.5px]"
+            onClick={() =>
+              updateIssue(issue.id, { stage: 'backlog' }).catch((error: unknown) =>
+                toast.error(error instanceof Error ? error.message : String(error)),
+              )
+            }
+          >
+            <RotateCcw size={12} aria-hidden="true" /> Reopen issue
+          </Button>
+        ) : action && !launchable ? (
+          // THE PANEL'S ONE CHIP-SHAPED ACTION — Mark done, on an origin whose
+          // work has left. Start work is no longer here: it is the launch box's
+          // button below, where it can say which agent it is about to spend.
+          //
+          // The needs-you variant takes the SAME solid yellow rather than an
+          // ochre-tinted outline. On paper that outline was 15% ochre over
+          // near-white: a washed tan that read as disabled, and read QUIETER than
+          // the neutral status pill beside it — exactly backwards for the one
+          // control asking something of the operator (POD-725, The Signal Rule).
+          // Yellow fills; ochre writes, and it keeps doing the writing in the
+          // status line.
+          <Button
+            type="button"
+            size="sm"
+            data-testid="task-primary-action"
+            data-action={action.kind}
+            disabled={starting}
+            className="btn-primary-rim h-7 border px-2.5 text-[11.5px] font-semibold"
+            onClick={runAction}
+          >
+            {action.label}
+          </Button>
+        ) : null}
         <Button
           type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 gap-1.5 px-3 text-[11.5px]"
-          onClick={() =>
-            updateIssue(issue.id, { stage: 'backlog' }).catch((error: unknown) =>
-              toast.error(error instanceof Error ? error.message : String(error)),
-            )
-          }
+          variant="ghost"
+          size="icon-sm"
+          className="ml-auto size-7 text-text-dim"
+          title="More issue actions"
+          aria-label="More issue actions"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            setMenu({ x: rect.right - 4, y: rect.bottom + 4 })
+          }}
         >
-          <RotateCcw size={12} aria-hidden="true" /> Reopen issue
+          <MoreHorizontal size={16} aria-hidden="true" />
         </Button>
-      ) : action && !launchable ? (
-        // THE PANEL'S ONE CHIP-SHAPED ACTION — Mark done, on an origin whose
-        // work has left. Start work is no longer here: it is the launch box's
-        // button below, where it can say which agent it is about to spend.
-        //
-        // The needs-you variant takes the SAME solid yellow rather than an
-        // ochre-tinted outline. On paper that outline was 15% ochre over
-        // near-white: a washed tan that read as disabled, and read QUIETER than
-        // the neutral status pill beside it — exactly backwards for the one
-        // control asking something of the operator (POD-725, The Signal Rule).
-        // Yellow fills; ochre writes, and it keeps doing the writing in the
-        // status line.
-        <Button
-          type="button"
-          size="sm"
-          data-testid="task-primary-action"
-          data-action={action.kind}
-          disabled={starting}
-          className="btn-primary-rim h-7 border px-2.5 text-[11.5px] font-semibold"
-          onClick={runAction}
-        >
-          {action.label}
-        </Button>
-      ) : null}
-      {/* WHERE THE WORK HAPPENS (POD-1269). The explorer is a place to read
-          tasks; the work tool is where you sit with one. This is the crossing,
-          and it replaces the "Show in deck" text link that used to hide on the
-          ref line above — a link set in 11px grey, next to nothing, for the one
-          control on this surface that moves the whole shell.
-
-          It takes the PRIMARY fill exactly when the state machine resolved no
-          action of its own, which keeps the panel's one-filled-chip rule and
-          means the needs-you case — where the head is now otherwise bare — has
-          an obvious thing to press. */}
-      {onWorkOnThis && !closed && (
-        <Button
-          type="button"
-          size="sm"
-          variant={action ? 'outline' : 'default'}
-          data-testid="task-work-on-this"
-          title="Open this task in the work tool"
-          className={cn(
-            'h-7 gap-1.5 px-2.5 text-[11.5px] font-semibold',
-            !action && 'btn-primary-rim border',
-          )}
-          onClick={onWorkOnThis}
-        >
-          Work on this
-          <ArrowRight size={12} aria-hidden="true" />
-        </Button>
-      )}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        className="ml-auto size-7 text-text-dim"
-        title="More issue actions"
-        aria-label="More issue actions"
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect()
-          setMenu({ x: rect.right - 4, y: rect.bottom + 4 })
-        }}
-      >
-        <MoreHorizontal size={16} aria-hidden="true" />
-      </Button>
+      </div>
       {/* THE LAUNCH BOX (POD-1457) — the same instrument the issue page's
           Sessions block wears, mounted here in place of the chip that could
           only ever start this task with whatever the filing agent happened to
@@ -828,11 +827,10 @@ export function IssueCompactControls({
           its `Start work` face — see the box's `started` prop. */}
       {launchable && (
         <LaunchBox
-          className="w-full"
           issue={issue}
           busy={starting}
           starting={starting}
-          started={false}
+          started={begun}
           commands={launchCommands}
           machines={machines}
           {...(placement
@@ -855,9 +853,11 @@ export function IssueCompactControls({
           allIssues={issues}
           anchor={menu}
           onClose={() => setMenu(null)}
-          onOpen={openFull}
           onRequestClose={requestClose}
-          surface="sidebar"
+          // `dock`, not `sidebar`: identical in every respect but one — this
+          // menu offers no `Open`, because the only place Open could land was
+          // the Tasks tool, and this panel does not link there (POD-1457).
+          surface="dock"
         />
       )}
       <IssueCloseDialog

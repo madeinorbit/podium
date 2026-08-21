@@ -105,7 +105,11 @@ export function IssueContextMenu({
   allIssues: IssueViewModel[]
   anchor: ContextMenuAnchor
   onClose: () => void
-  onOpen: (id: IssueId) => void
+  /** Optional because a surface can rule the `Open` entry out entirely —
+   *  `issueMenuEligibility` does exactly that for `dock`, whose only possible
+   *  destination was the Tasks tool (POD-1457). Where `canOpen` is false the
+   *  entry never renders, so there is nothing to call. */
+  onOpen?: (id: IssueId) => void
   onRename?: (id: IssueId) => void
   /** Only for hosts that ALREADY own an `IssueCloseDialog` (the issue page, the
    *  panel's compact controls) — they keep their own busy state and their own
@@ -408,7 +412,7 @@ export function IssueContextMenu({
   const runAction = (action: Extract<IssueMenuConfig, { kind: 'action' }>['id']): void => {
     switch (action) {
       case 'open':
-        onOpen(first.id)
+        onOpen?.(first.id)
         onClose()
         return
       case 'start':

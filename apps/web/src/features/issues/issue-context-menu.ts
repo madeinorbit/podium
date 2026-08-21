@@ -5,8 +5,8 @@ import {
   type HandoffRepo,
   handoffAvailability,
   type IssueId,
-  type SessionMeta,
   type SessionId,
+  type SessionMeta,
 } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import type { IssuesKeyState } from './issues-keys'
@@ -110,7 +110,10 @@ export function issueHasCloseReason(issue: IssueViewModel): boolean {
  * which meant a SUB-TASK strip offered the identical menu to a MISSION row —
  * including two entries that mean nothing there. See `canArchive` / `canPin`.
  */
-export type IssueMenuSurface = 'board' | 'sidebar' | 'deck'
+/** `dock` is the right dock's task panel. It behaves exactly like `sidebar`
+ *  except that it offers no `Open`: the only place Open could land is the Tasks
+ *  tool, and the panel does not link there (POD-1457). */
+export type IssueMenuSurface = 'board' | 'sidebar' | 'deck' | 'dock'
 
 /**
  * Which menu items apply to the current right-click target set. Single-target
@@ -149,7 +152,7 @@ export function issueMenuEligibility(
   const hasDeleted = issues.some((i) => !!i.deletedAt)
   const activeAny = any && !hasDeleted
   return {
-    canOpen: single,
+    canOpen: single && surface !== 'dock',
     // Rename is single-target and applies to any issue, open or closed (#170).
     canRename: single && !hasDeleted,
     canSetStage: activeAny,
