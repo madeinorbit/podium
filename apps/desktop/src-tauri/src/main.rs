@@ -143,6 +143,16 @@ fn retarget_existing_window(
 /// How often a LOCAL window re-checks that the server it is loaded from is still there.
 const LOCAL_DOCUMENT_POLL: std::time::Duration = std::time::Duration::from_secs(1);
 
+/// How many healthy polls between refreshes of the persisted local build stamp.
+///
+/// The stamp the PAGE holds is fixed at window creation (an initialization script cannot be
+/// rewritten), so a server updated in place mid-session leaves the open window's copy one
+/// build behind. What this refresh buys is the NEXT boot: the stale guard on the baked
+/// fallback then grades itself against the build that most recently owned the local data,
+/// not against whatever was running when the app was last launched. ~30s, because the read
+/// is a `/version` GET and that endpoint may read git on a source host (POD-2048).
+const LOCAL_BUILD_STAMP_REFRESH_POLLS: u32 = 30;
+
 /// Keep a local (all-in-one / server) window on a document that can actually render.
 ///
 /// The boot probe answers one question — "was the sidecar up when we opened the window" — and
@@ -171,6 +181,7 @@ fn spawn_local_document_watchdog(app: AppHandle, port: u16, shutting_down: Arc<A
         };
         let mut watch = bootstrap::ServedOriginWatch::default();
         let mut window_seen = false;
+        let mut polls_since_stamp: u32 = 0;
         loop {
             std::thread::sleep(LOCAL_DOCUMENT_POLL);
             if shutting_down.load(Ordering::Acquire) {
@@ -193,6 +204,13 @@ fn spawn_local_document_watchdog(app: AppHandle, port: u16, shutting_down: Arc<A
                 bootstrap::LocalDocument::Served => bootstrap::local_server_alive(port),
                 bootstrap::LocalDocument::Baked => bootstrap::probe_local_server(port),
             };
+            // Keep the persisted build stamp current while the server is up, so the stale
+            // guard on a later baked boot grades against the right build.
+            polls_since_stamp = polls_since_stamp.saturating_add(1);
+            if healthy && polls_since_stamp >= LOCAL_BUILD_STAMP_REFRESH_POLLS {
+                polls_since_stamp = 0;
+                bootstrap::record_local_build_stamp(port);
+            }
             let Some(target) = watch.observe(showing, healthy) else {
                 continue;
             };
@@ -1093,10 +1111,21 @@ fn main() {
                                 Url::parse(&bootstrap::local_served_http_url(port))
                                     .expect("runtime probe loopback URL is valid"),
                             ),
-                            bootstrap::local_injection_script(port),
+                            bootstrap::local_injection_script(
+                                port,
+                                bootstrap::read_local_build_stamp().as_deref(),
+                            ),
                         )
                     } else {
                         let ready = bootstrap::wait_for_local_server(port, 200, 150);
+                        // Which build owns this device's local data. Refreshed from the
+                        // server when it is up; read from disk when it is not, which is
+                        // exactly the case the baked fallback's stale guard needs it for.
+                        let local_build_stamp = if ready {
+                            bootstrap::record_local_build_stamp(port)
+                        } else {
+                            bootstrap::read_local_build_stamp()
+                        };
                         if ready {
                             // Log-only shell↔backend check: read the local backend's /version.
                             log_backend_version(port);
@@ -1106,12 +1135,16 @@ fn main() {
                             );
                         } else {
                             log::warn!(
-                                "no Podium server for this instance answered on port {port} within the timeout; loading baked dist fallback"
+                                "no Podium server for this instance answered on port {port} within the timeout; loading baked dist fallback (local build stamp: {})",
+                                local_build_stamp.as_deref().unwrap_or("none recorded")
                             );
                         }
                         (
                             bootstrap::local_window_target(port, ready),
-                            bootstrap::local_injection_script(port),
+                            bootstrap::local_injection_script(
+                                port,
+                                local_build_stamp.as_deref(),
+                            ),
                         )
                     }
                 } else {

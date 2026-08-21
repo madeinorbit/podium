@@ -3,7 +3,9 @@ import { isServerReadiness, type ServerReadiness } from '@podium/model'
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
 import { hasSyncedReplica } from '@/lib/replica-presence'
+import { SetupStaleBuild } from './SetupStaleBuild'
 import { SetupUnreachable } from './SetupUnreachable'
+import { isTooOldForLocalData, localBuildStamp } from './local-build-guard'
 import { restartPodiumShell } from './restart-shell'
 import { checkServerVersion } from './version-guard'
 
@@ -18,6 +20,9 @@ type Phase =
   | 'ready'
   /** Backoff exhausted and nothing on this device to render: the recovery console. */
   | 'unreachable'
+  /** Backoff exhausted AND the UI that came up is older than the data on this device: the
+   *  baked-fallback stale guard (spec §2.1 durability layer 3). Refuses rather than runs. */
+  | 'stale-build'
   /** Backoff exhausted, but this device has synced before — render the cached app
    *  (see the fall-through below) and keep asking the backend in the background. */
   | 'degraded'
@@ -78,7 +83,7 @@ export function classifySetupStatus(
   loc: Pick<Location, 'protocol' | 'hostname'>,
   injectedRequest?: boolean,
   responseHint = false,
-): Exclude<Phase, 'loading' | 'unreachable'> {
+): Exclude<Phase, 'loading' | 'unreachable' | 'stale-build'> {
   if (isServerReadiness(status)) {
     if (status.state === 'ready' || status.state === 'degraded') return 'ready'
     if (status.state === 'activation_pending') return 'restart-required'
@@ -98,7 +103,9 @@ export function classifySetupStatus(
     : 'setup'
 }
 
-async function probeSetup(httpOrigin: string): Promise<Exclude<Phase, 'loading' | 'unreachable'>> {
+async function probeSetup(
+  httpOrigin: string,
+): Promise<Exclude<Phase, 'loading' | 'unreachable' | 'stale-build'>> {
   const res = await fetch(`${httpOrigin}/setup/config`) // rejects only when unreachable → caller retries
   if (res.status === 404) return 'ready' // backend without the route → don't block the app
   if (!res.ok) throw new Error(`setup probe failed: ${res.status}`)
@@ -121,7 +128,7 @@ async function probeSetup(httpOrigin: string): Promise<Exclude<Phase, 'loading' 
  * invalid, or unreachable probe retains their historical pass-through behavior. */
 async function probeRemoteReadiness(
   httpOrigin: string,
-): Promise<Exclude<Phase, 'loading' | 'unreachable'>> {
+): Promise<Exclude<Phase, 'loading' | 'unreachable' | 'stale-build'>> {
   try {
     const response = await fetch(`${httpOrigin}/readiness`)
     if (!response.ok) return 'ready'
@@ -181,6 +188,15 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
               if (alive) run(tries + 1)
             }, delay)
           } else {
+            // THE ONE CASE THAT MUST NOT FALL THROUGH (spec §2.1, durability layer 3).
+            // The desktop shell fell back to the UI baked into the .app, and that copy
+            // is older than the build that last wrote this device's data — so the rows
+            // waiting for it may be shapes it has never seen. Refuse instead of running,
+            // and say the one thing that fixes it. See ./local-build-guard.
+            if (isTooOldForLocalData()) {
+              setPhase('stale-build')
+              return
+            }
             // A machine that has synced before cannot need first-run setup, so an
             // unreachable backend is no reason to withhold the workspace it already
             // holds: fall through to the app and let it render from its replica
@@ -242,6 +258,15 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   // beats a blank page there as well (POD-1249).
   if (phase === 'loading') return <LoadingScreen />
   if (phase === 'unreachable') {
+    return <SetupUnreachable httpOrigin={httpOrigin} onRetry={() => setAttempt((n) => n + 1)} />
+  }
+  if (phase === 'stale-build') {
+    // The stamp is what put us here, so it is present; the fall-back keeps the render total
+    // rather than making a screen that refuses to run depend on a non-null assertion.
+    const stamp = localBuildStamp()
+    if (stamp) {
+      return <SetupStaleBuild stamp={stamp} onRetry={() => setAttempt((n) => n + 1)} />
+    }
     return <SetupUnreachable httpOrigin={httpOrigin} onRetry={() => setAttempt((n) => n + 1)} />
   }
   if (phase === 'local-setup') {
