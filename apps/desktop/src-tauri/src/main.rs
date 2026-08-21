@@ -706,6 +706,16 @@ fn native_desktop_hook(
     )
 }
 
+/// Initialization for the baked document when the external payload cannot start. Keep this
+/// entirely in the signed shell: recovery UI must not depend on bytes it is meant to recover.
+fn payload_unavailable_injection(error: &str) -> String {
+    let error_literal =
+        serde_json::to_string(error).unwrap_or_else(|_| "\"payload startup failed\"".to_string());
+    format!(
+        "window.__PODIUM_PAYLOAD_UNAVAILABLE__ = true;\nwindow.__PODIUM_PAYLOAD_ERROR__ = {error_literal};"
+    )
+}
+
 /// [spec:SP-3701] In-app "host sessions on this device": rewrite the local config from client
 /// to daemon mode with a hub-minted pairing code. The web UI then triggers a shell restart
 /// (__PODIUM_RESTART__) so `resolve_launch` picks up daemon mode and spawns the sidecar,
@@ -743,6 +753,7 @@ fn reap_tracked_successor(app: &AppHandle) {
 
 #[tauri::command]
 fn repair_payload(
+    app: AppHandle,
     repair: tauri::State<'_, Arc<PayloadRepairState>>,
     child_state: tauri::State<'_, Arc<Mutex<Option<std::process::Child>>>>,
     successor: tauri::State<'_, Arc<DesktopSuccessorState>>,
@@ -814,6 +825,11 @@ fn repair_payload(
     })();
 
     repair.busy.store(false, Ordering::Release);
+    if result.is_ok() {
+        // An initial spawn failure has no live supervisor to restart the restored payload.
+        // Restart the signed frame so setup retries from the newly installed bytes.
+        app.restart();
+    }
     result
 }
 
@@ -970,6 +986,7 @@ fn main() {
             // Backend-bearing modes seed the complete external payload before the parent
             // starts. Client-only shells install no payload at all. Presence of the install
             // directory is the sole seed decision; after this point the fleet updater owns it.
+            let mut payload_start_error: Option<String> = None;
             let payload_install = if matches!(&action, bootstrap::LaunchAction::ClientOnly { .. }) {
                 None
             } else {
@@ -986,8 +1003,9 @@ fn main() {
                     Ok(true) => log::info!("seeded desktop payload at {install:?}"),
                     Ok(false) => log::info!("using fleet-managed desktop payload at {install:?}"),
                     Err(error) => {
-                        log::error!("payload seed failed: {error}");
-                        return Err(error.into());
+                        let reason = format!("payload seed failed: {error}");
+                        log::error!("{reason}");
+                        payload_start_error = Some(reason);
                     }
                 }
                 Some(install)
@@ -1010,69 +1028,87 @@ fn main() {
                         .expect("a local host has an external payload");
                     let web_dir = install.join("web");
                     let mobile_web_dir = install.join("mobile");
-                    let runnable = bootstrap::ensure_executable(&install.join("podium")).map_err(|e| {
-                        log::error!("ensure_executable failed: {e}");
-                        e
-                    })?;
-                    let successor_file = install.join(".desktop-successor-pid");
-                    // A marker is meaningful only when written by the parent started below.
-                    // Discard a stale crash-era marker before the first child exists.
-                    let _ = std::fs::remove_file(&successor_file);
-                    *successor.file.lock().unwrap() = Some(successor_file);
-
-                    log::info!(
-                        "spawning {runnable:?} {sidecar_args:?} on port {port}"
-                    );
-
-                    // Spawn the initial sidecar child process.
-                    let child = local_host_sidecar_command(
-                        &runnable,
-                        &sidecar_args,
-                        port,
-                        &web_dir,
-                        &mobile_web_dir,
-                    )
-                        .spawn()
-                        .map_err(|e| {
-                            log::error!("spawn failed: {e}");
-                            e
-                        })?;
-                    *child_state.lock().unwrap() = Some(child);
-
-                    // FIX 2: supervision monitor thread — waits on the child, and if it exits
-                    // while the app is NOT shutting down, respawns it on the same port with
-                    // bounded backoff (500ms → cap 5s). The web client auto-reconnects over WS.
-                    let runnable2 = runnable.clone();
-                    let runnable_daemon = runnable.clone();
-                    let web_dir2 = web_dir.clone();
-                    let mobile_web_dir2 = mobile_web_dir.clone();
-                    let sidecar_args2 = sidecar_args.clone();
-                    let transition_action = initial_action.clone();
-                    let monitor_app = app.handle().clone();
-                    let source_cookie_url = Url::parse(&bootstrap::local_served_http_url(port))
-                        .expect("loopback desktop URL is valid");
-                    spawn_respawn_monitor(
-                        child_state.clone(),
-                        shutting_down.clone(),
-                        successor.clone(),
-                        monitor_app,
-                        Some(source_cookie_url),
-                        move || {
-                            local_host_sidecar_command(
-                                &runnable2,
-                                &sidecar_args2,
-                                port,
-                                &web_dir2,
-                                &mobile_web_dir2,
-                            )
+                    if payload_start_error.is_none() {
+                        match bootstrap::ensure_executable(&install.join("podium")) {
+                            Err(error) => {
+                                let reason = format!("payload is not executable: {error}");
+                                log::error!("{reason}");
+                                payload_start_error = Some(reason);
+                            }
+                            Ok(runnable) => {
+                                let successor_file = install.join(".desktop-successor-pid");
+                                // A marker is meaningful only when written by the parent started
+                                // below. Discard a stale crash-era marker before the first child.
+                                let _ = std::fs::remove_file(&successor_file);
+                                *successor.file.lock().unwrap() = Some(successor_file);
+                                log::info!(
+                                    "spawning {runnable:?} {sidecar_args:?} on port {port}"
+                                );
+                                match local_host_sidecar_command(
+                                    &runnable,
+                                    &sidecar_args,
+                                    port,
+                                    &web_dir,
+                                    &mobile_web_dir,
+                                )
                                 .spawn()
-                        },
-                        move |server_url| {
-                            replacement_daemon_command(&runnable_daemon, server_url).spawn()
-                        },
-                        move || bootstrap::backend_exit_decision(&transition_action),
-                        format!("on port {port}"),
-                    );
+                                {
+                                    Err(error) => {
+                                        let reason = format!("payload spawn failed: {error}");
+                                        log::error!("{reason}");
+                                        payload_start_error = Some(reason);
+                                    }
+                                    Ok(child) => {
+                                        *child_state.lock().unwrap() = Some(child);
+
+                                        // Supervise only a child that actually started. A failed
+                                        // first spawn is recovered by the baked repair window.
+                                        let runnable2 = runnable.clone();
+                                        let runnable_daemon = runnable.clone();
+                                        let web_dir2 = web_dir.clone();
+                                        let mobile_web_dir2 = mobile_web_dir.clone();
+                                        let sidecar_args2 = sidecar_args.clone();
+                                        let transition_action = initial_action.clone();
+                                        let monitor_app = app.handle().clone();
+                                        let source_cookie_url = Url::parse(
+                                            &bootstrap::local_served_http_url(port),
+                                        )
+                                        .expect("loopback desktop URL is valid");
+                                        spawn_respawn_monitor(
+                                            child_state.clone(),
+                                            shutting_down.clone(),
+                                            successor.clone(),
+                                            monitor_app,
+                                            Some(source_cookie_url),
+                                            move || {
+                                                local_host_sidecar_command(
+                                                    &runnable2,
+                                                    &sidecar_args2,
+                                                    port,
+                                                    &web_dir2,
+                                                    &mobile_web_dir2,
+                                                )
+                                                .spawn()
+                                            },
+                                            move |server_url| {
+                                                replacement_daemon_command(
+                                                    &runnable_daemon,
+                                                    server_url,
+                                                )
+                                                .spawn()
+                                            },
+                                            move || {
+                                                bootstrap::backend_exit_decision(
+                                                    &transition_action,
+                                                )
+                                            },
+                                            format!("on port {port}"),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     // Grant IPC to the served-local origin even before the readiness probe:
                     // when the sidecar is up we load it; grants for an unused origin are
@@ -1089,36 +1125,55 @@ fn main() {
                     let install = payload_install
                         .as_ref()
                         .expect("a daemon host has an external payload");
-                    let runnable = bootstrap::ensure_executable(&install.join("podium")).map_err(|e| {
-                        log::error!("ensure_executable failed: {e}");
-                        e
-                    })?;
-
-                    log::info!("spawning daemon {runnable:?} → {server_url}");
-                    let child = replacement_daemon_command(&runnable, &server_url)
-                        .spawn()
-                        .map_err(|e| {
-                        log::error!("daemon spawn failed: {e}");
-                        e
-                    })?;
-                    *child_state.lock().unwrap() = Some(child);
-
-                    let runnable2 = runnable.clone();
-                    let runnable_daemon = runnable.clone();
-                    let respawn_server_url = server_url.clone();
-                    spawn_respawn_monitor(
-                        child_state.clone(),
-                        shutting_down.clone(),
-                        successor.clone(),
-                        app.handle().clone(),
-                        None,
-                        move || replacement_daemon_command(&runnable2, &respawn_server_url).spawn(),
-                        move |server_url| {
-                            replacement_daemon_command(&runnable_daemon, server_url).spawn()
-                        },
-                        || bootstrap::BackendExitDecision::Respawn,
-                        "(daemon)".to_string(),
-                    );
+                    if payload_start_error.is_none() {
+                        match bootstrap::ensure_executable(&install.join("podium")) {
+                            Err(error) => {
+                                let reason = format!("payload is not executable: {error}");
+                                log::error!("{reason}");
+                                payload_start_error = Some(reason);
+                            }
+                            Ok(runnable) => {
+                                log::info!("spawning daemon {runnable:?} → {server_url}");
+                                match replacement_daemon_command(&runnable, &server_url).spawn() {
+                                    Err(error) => {
+                                        let reason =
+                                            format!("daemon payload spawn failed: {error}");
+                                        log::error!("{reason}");
+                                        payload_start_error = Some(reason);
+                                    }
+                                    Ok(child) => {
+                                        *child_state.lock().unwrap() = Some(child);
+                                        let runnable2 = runnable.clone();
+                                        let runnable_daemon = runnable.clone();
+                                        let respawn_server_url = server_url.clone();
+                                        spawn_respawn_monitor(
+                                            child_state.clone(),
+                                            shutting_down.clone(),
+                                            successor.clone(),
+                                            app.handle().clone(),
+                                            None,
+                                            move || {
+                                                replacement_daemon_command(
+                                                    &runnable2,
+                                                    &respawn_server_url,
+                                                )
+                                                .spawn()
+                                            },
+                                            move |server_url| {
+                                                replacement_daemon_command(
+                                                    &runnable_daemon,
+                                                    server_url,
+                                                )
+                                                .spawn()
+                                            },
+                                            || bootstrap::BackendExitDecision::Respawn,
+                                            "(daemon)".to_string(),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     remote_window_server_url = Some(server_url.clone());
                     (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
@@ -1382,8 +1437,12 @@ fn main() {
             // fill them after the readiness probe inside the spawn below.
             let remote_init_injection = window_injection;
             let watchdog_shutting_down = shutting_down.clone();
+            let payload_start_error_for_window = payload_start_error;
             std::thread::spawn(move || {
-                let (resolved_url, resolved_injection) = if let Some(port) = wait_local_port {
+                let (resolved_url, resolved_injection) = if let Some(error) = payload_start_error_for_window {
+                    log::error!("opening signed payload repair surface: {error}");
+                    (WebviewUrl::default(), payload_unavailable_injection(&error))
+                } else if let Some(port) = wait_local_port {
                     // Native runtime proof seam: debug builds may force the scratch host
                     // origin so a tiny test server can set an HttpOnly cookie before the
                     // committed transition. It is not a Podium server, so it must skip the
@@ -1431,7 +1490,9 @@ fn main() {
                             local_build_stamp.as_deref(),
                         );
                         if !ready {
-                            injection.push_str("\nif (window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost') { window.__PODIUM_PAYLOAD_UNAVAILABLE__ = true; }");
+                            injection.push_str(&payload_unavailable_injection(
+                                "the local payload started but did not become ready",
+                            ));
                         }
                         (bootstrap::local_window_target(port, ready), injection)
                     }

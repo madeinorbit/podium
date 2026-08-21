@@ -20,7 +20,7 @@ const MotionDemo = lazy(() =>
   })),
 )
 
-function PayloadUnavailablePage(): JSX.Element {
+function PayloadUnavailablePage({ reason }: { reason?: string }): JSX.Element {
   const [status, setStatus] = useState<string | null>(null)
   const [repairing, setRepairing] = useState(false)
 
@@ -52,6 +52,7 @@ function PayloadUnavailablePage(): JSX.Element {
       prose="The app frame is intact, but the server, daemon, or web payload could not start. Restore the signed seed; the normal fleet updater will then bring this Mac to the current target."
       fields={[
         { label: 'Payload home', value: 'Application Support' },
+        { label: 'Startup failure', value: reason ?? 'Payload did not answer the shell' },
         { label: 'Recovery', value: status ?? 'Ready to restore signed seed' },
       ]}
       trace={{ from: 'App frame', to: 'Fleet payload' }}
@@ -81,6 +82,8 @@ const showMotionDemo = params.get('e2e') === '1' && params.get('motion-demo') ==
 const payloadUnavailable =
   (globalThis as { __PODIUM_PAYLOAD_UNAVAILABLE__?: boolean }).__PODIUM_PAYLOAD_UNAVAILABLE__ ===
   true
+const payloadStartupError = (globalThis as { __PODIUM_PAYLOAD_ERROR__?: string })
+  .__PODIUM_PAYLOAD_ERROR__
 
 // A phone reaching the desktop shell means a cached service worker beat the
 // server's redirect to it (POD-359) — send it on before mounting anything.
@@ -90,7 +93,7 @@ if (!redirectPhoneToMobileApp()) {
       <AppStarted />
       <ThemeProvider>
         {payloadUnavailable ? (
-          <PayloadUnavailablePage />
+          <PayloadUnavailablePage reason={payloadStartupError} />
         ) : (
           <>
             {/* OUTSIDE every gate (POD-1610). The boot check raises its notice before

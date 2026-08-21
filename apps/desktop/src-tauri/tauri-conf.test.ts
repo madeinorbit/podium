@@ -51,9 +51,45 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain('window.__PODIUM_PAYLOAD_UNAVAILABLE__ = true')
     expect(mainSource).toContain('repairPayload: () =>')
     expect(mainSource).toContain("invoke('repair_payload')")
-    expect(webMainSource).toContain('function PayloadUnavailablePage()')
+    expect(webMainSource).toContain('function PayloadUnavailablePage(')
     expect(webMainSource).toContain("label: repairing ? 'Repairing…' : 'Repair payload'")
     expect(webMainSource).toContain('nativeDesktopBridge()?.repairPayload')
+  })
+
+  it('routes a broken installed payload to signed repair and leaves healthy startup alone', () => {
+    const payloadStartup = mainSource.slice(
+      mainSource.indexOf('let mut payload_start_error'),
+      mainSource.indexOf('// One canonical list backs both startup'),
+    )
+    const windowRouting = mainSource.slice(
+      mainSource.indexOf('let payload_start_error_for_window'),
+      mainSource.indexOf('// External-link shim (ALL modes)'),
+    )
+
+    // Present-but-unrunnable is not reseeded and must not abort setup: executable and spawn
+    // failures become data consumed by the signed window-construction path.
+    expect(payloadStartup).toContain('match bootstrap::ensure_executable')
+    expect(payloadStartup).not.toContain(
+      'bootstrap::ensure_executable(&install.join("podium")).map_err',
+    )
+    expect(payloadStartup).toContain('payload_start_error = Some(reason)')
+    expect(payloadStartup).toContain('payload spawn failed: {error}')
+    expect(payloadStartup).toContain('daemon payload spawn failed: {error}')
+
+    // A broken startup selects the baked document and its native repair bridge first. With no
+    // error, the same code continues through the existing healthy local and remote targets.
+    expect(windowRouting.indexOf('if let Some(error) = payload_start_error_for_window')).toBeLessThan(
+      windowRouting.indexOf('else if let Some(port) = wait_local_port'),
+    )
+    expect(windowRouting).toContain(
+      '(WebviewUrl::default(), payload_unavailable_injection(&error))',
+    )
+    expect(windowRouting).toContain('(bootstrap::local_window_target(port, ready), injection)')
+    expect(windowRouting).toContain('(webview_url, remote_init_injection)')
+    expect(mainSource).toContain('window.__PODIUM_PAYLOAD_ERROR__ = {error_literal}')
+    expect(mainSource).toContain('app.restart();')
+    expect(webMainSource).toContain('<PayloadUnavailablePage reason={payloadStartupError} />')
+    expect(webMainSource).toContain("label: 'Startup failure'")
   })
 
   it('keeps crash supervision attached across parent self-handover', () => {
