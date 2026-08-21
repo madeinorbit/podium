@@ -58,7 +58,13 @@ export const SIDEBAR_ASIDE_CLASS =
   // No right seam (POD-725): the work list is separated from the flight deck by
   // a tone step, as the design draws it. A border here plus the deck's own edge
   // put two lines in the same 1px of screen.
-  'flex w-full min-h-0 flex-col bg-sidebar text-sidebar-foreground'
+  // A NAMED CONTAINER (POD-1469). The column is resized by hand, so what its
+  // controls have to answer to is the COLUMN's width, never the viewport's — a
+  // 200px sidebar on a 3440px display is the case a `sm:` breakpoint gets
+  // exactly backwards. `Add repository` reads it to decide whether its words
+  // fit; anything else in this column that has to give ground reads the same
+  // one.
+  'worklist-column flex w-full min-h-0 flex-col bg-sidebar text-sidebar-foreground'
 
 export const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
 export const SIDEBAR_WIDTH_MIN = 200

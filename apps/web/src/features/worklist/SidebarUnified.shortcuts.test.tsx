@@ -185,29 +185,35 @@ function newAgentCommand(): (() => void) | undefined {
   return (globalThis as { __PODIUM_NEW_AGENT__?: () => void }).__PODIUM_NEW_AGENT__
 }
 
-describe('⌘N — the shell menu’s New Agent (POD-790)', () => {
-  it('hands the desktop shell a command that starts the sidebar default agent', () => {
+// POD-1469: the chord still arrives the same two ways, and it no longer spawns.
+// A new task is a BLANK mission — the selection is cleared and the composer asks
+// for the work before any harness exists — so what this asserts is the clear,
+// and that nothing is spawned behind the operator's back.
+describe('⌘N — the shell menu’s New Task (POD-790, POD-1469)', () => {
+  it('hands the desktop shell a command that opens a new task', () => {
     macShell()
     render(<SidebarUnified />)
     // The shell evaluates exactly this global on File > New Agent
     // (apps/desktop/src-tauri/src/main.rs).
     expect(typeof newAgentCommand()).toBe('function')
     newAgentCommand()?.()
-    expect(spawnDraftAgent).toHaveBeenCalledTimes(1)
+    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
+    expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 
-  it('spawns from a ⌘N that actually reaches the page', () => {
+  it('opens a new task from a ⌘N that actually reaches the page', () => {
     macShell()
     render(<SidebarUnified />)
     fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
-    expect(spawnDraftAgent).toHaveBeenCalledTimes(1)
+    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
+    expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 
   it('registers nothing in a browser tab, which never surrenders ⌘N', () => {
     render(<SidebarUnified />)
     expect(newAgentCommand()).toBeUndefined()
     fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
-    expect(spawnDraftAgent).not.toHaveBeenCalled()
+    expect(setSelectedIssueId).not.toHaveBeenCalled()
   })
 
   it('takes the command back down with the sidebar', () => {

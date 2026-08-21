@@ -82,31 +82,21 @@ import {
   type UnifiedIssueRow,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
-import { GitBranch, Plus, Search } from 'lucide-react'
-import { Fragment, type JSX, lazy, Suspense, useMemo, useState } from 'react'
+import { FolderPlus, GitBranch, Plus, Search } from 'lucide-react'
+import { Fragment, type JSX, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { openAddProject } from '@/app/desktop-menu'
 import { useStoreSelector } from '@/app/store'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
-import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { agentBrandText, agentIconFor } from '@/lib/agent-tone'
 import { MENU_HOVER_CARD } from '@/lib/menu-surface'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useSidebarDerivation } from './derivation'
-import { NewAgentMenu } from './NewAgentMenu'
+import { useNewTask } from './new-task'
 import { RowShortcutBadge } from './RowShortcutBadge'
 import { RailProgressMeter } from './row-progress'
 import { MAX_ROW_SHORTCUTS, type RowShortcutTarget, useRowShortcuts } from './row-shortcuts'
-import { useDefaultSpawn } from './spawn-row'
 import { useUnifiedWork } from './use-unified-work'
-
-// Deferred here for the same reason as in `spawn-row`: the rail's `+` opens it,
-// and nothing before that click needs it.
-const NewIssueDialog = lazy(() =>
-  import('@/features/issues/NewIssueDialog').then((module) => ({
-    default: module.NewIssueDialog,
-  })),
-)
 
 /** The rail sits on the collapsed aside's surface — corner badges punch out of
  *  this colour, so it must track the theme's sidebar surface, not a literal. */
@@ -232,21 +222,12 @@ export function SidebarRail(): JSX.Element {
     setIssueColor,
     now,
   } = useUnifiedWork(derivation)
-  const {
-    defaultAgent,
-    defaultRepo,
-    defaultTarget,
-    menuRepos,
-    machineViews,
-    defaultAgentStatus,
-    spawn,
-    persistDefaultAgent,
-  } = useDefaultSpawn(derivation.sections)
-  // The tile's mark: the default harness's own glyph (POD-1281).
-  const DefaultMark = agentIconFor(defaultAgent)
+  // The rail never owns ⌘N: the wide column's button does, and the two are never
+  // mounted together — but React mounts the arriving one before unmounting the
+  // leaving one, so a collapse would briefly have two owners of one chord.
+  const { startNewTask } = useNewTask()
   const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
   const commandPaletteEnabled = useFeature('command-palette')
-  const [newIssueOpen, setNewIssueOpen] = useState(false)
   // What the pointer is on, and where that tile was when it arrived. The rect
   // is captured on enter rather than read on render because the card is fixed
   // to the viewport: a scroll invalidates it, and a scroll also dismisses.
@@ -403,59 +384,26 @@ export function SidebarRail(): JSX.Element {
 
   return (
     <>
-      {/* THE SPAWN TILE. The wide row's main surface at rail scale — it carries
-          the agent's own MARK in its brand tone, following the wide row
-          (POD-1281: the swatch alone named the harness by a colour nobody has
-          been taught). Its other half, the dashed ⊞ that opens the agent → repo
-          → machine menu, is in the FOOTER now (POD-1279): that menu is the
-          collapsed spelling of the open column's "add", and the open column
-          keeps add next to search at the bottom. */}
+      {/* THE NEW-TASK TILE (POD-1469). The wide row's control at rail scale, and
+          it makes the same non-choice: no harness, no repo, no menu — it opens
+          the blank mission and the composer asks the rest. It used to carry the
+          default harness's brand mark, which was the collapsed spelling of a
+          decision the column no longer makes for you. */}
       <div className="flex flex-none flex-col items-center px-0 pt-[11px] pb-[10px]">
         <button
           data-pressable
           type="button"
-          data-testid="rail-new-agent"
-          className="flex size-[34px] flex-none cursor-pointer items-center justify-center rounded-[9px] border border-border-strong bg-chip transition-colors hover:border-text-faint hover:bg-accent disabled:opacity-50"
-          disabled={!defaultRepo || defaultAgentStatus.reason !== undefined}
-          // At rail scale the tile is a mark and nothing else, so the tooltip
-          // is the ONLY place a refusal can be stated — which is exactly why the
-          // reason replaces the invitation rather than sitting beside it.
-          title={
-            defaultAgentStatus.reason ??
-            defaultAgentStatus.warning ??
-            (defaultTarget ? `New agent in ${defaultTarget.repoName}` : 'No repos yet')
-          }
-          aria-label={defaultTarget ? `New agent in ${defaultTarget.repoName}` : 'New agent'}
-          onClick={() =>
-            defaultRepo &&
-            defaultAgentStatus.reason === undefined &&
-            spawn(defaultAgent, defaultRepo)
-          }
+          data-testid="rail-new-task"
+          className="flex size-[34px] flex-none cursor-pointer items-center justify-center rounded-[9px] border border-border-strong bg-chip text-text-dim transition-colors hover:border-text-faint hover:bg-accent hover:text-foreground"
+          // At rail scale the tile is a mark and nothing else, so the tooltip is
+          // the only place its name can be stated.
+          title="New task"
+          aria-label="New task"
+          onClick={() => startNewTask()}
         >
-          {/* A harness with no mark in this build keeps the swatch — see the
-              note on the wide row. */}
-          {DefaultMark ? (
-            <DefaultMark
-              size={16}
-              aria-hidden="true"
-              className={cn('flex-none', agentBrandText(defaultAgent))}
-            />
-          ) : (
-            <span
-              aria-hidden="true"
-              className={cn(
-                'size-[12px] flex-none rounded-[3px] bg-current',
-                agentBrandText(defaultAgent),
-              )}
-            />
-          )}
+          <Plus size={17} aria-hidden="true" className="flex-none" />
         </button>
       </div>
-      {newIssueOpen && (
-        <Suspense fallback={null}>
-          <NewIssueDialog onClose={() => setNewIssueOpen(false)} />
-        </Suspense>
-      )}
       {/* The tiles column. No negative-margin overflow trick any more: the
           selected spine now stops exactly at the column's right edge and the
           corner badges sit well inside it, so nothing needs to escape. */}
@@ -490,11 +438,13 @@ export function SidebarRail(): JSX.Element {
           </Fragment>
         ))}
       </div>
-      {/* THE FOOTER: the open column's tool strip, stood on end (POD-1279).
-          Search, and under it the dashed ⊞ — the agent → repo → machine menu
-          plus "New issue…" — which is the same add-then-search pair
-          `AppToolsRow` draws across the bottom of the open sidebar. Collapsing
-          the column now moves the controls' SHAPE, not their place.
+      {/* THE FOOTER: search, and the door to a repository (POD-1279, POD-1469).
+          It was search over a dashed ⊞ opening the agent → repo → machine menu —
+          the collapsed spelling of a strip the open column no longer has. The
+          menu is gone with it: starting work is the tile at the TOP of this
+          rail now, where the wide column also keeps it, and what is left down
+          here is the pair of utilities. `Add repository` cannot spell itself out
+          at 52px, so it keeps its glyph and says so in its tooltip.
 
           The waiting TOTAL that used to sit here is gone. It was a readout in a
           strip of controls, and the amber corner badges on the tiles above say
@@ -513,30 +463,17 @@ export function SidebarRail(): JSX.Element {
             <Search size={14} aria-hidden="true" />
           </button>
         )}
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger
-            render={
-              <button
-                data-pressable
-                type="button"
-                data-testid="rail-new-menu"
-                className="flex h-[26px] w-[34px] flex-none cursor-pointer items-center justify-center rounded-lg border border-border-strong border-dashed text-text-faint transition-colors hover:bg-accent hover:text-foreground"
-                aria-label="Choose agent and repo"
-                title="Choose agent and repo"
-              >
-                <Plus size={15} aria-hidden="true" />
-              </button>
-            }
-          />
-          <NewAgentMenu
-            menuRepos={menuRepos}
-            machineViews={machineViews}
-            defaultRepo={defaultRepo}
-            onSpawn={spawn}
-            onPersistDefaultAgent={(kind) => void persistDefaultAgent(kind)}
-            onNewIssue={() => setNewIssueOpen(true)}
-          />
-        </DropdownMenu>
+        <button
+          data-pressable
+          type="button"
+          data-testid="rail-add-repository"
+          className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-text-strong"
+          title="Add repository"
+          aria-label="Add repository"
+          onClick={openAddProject}
+        >
+          <FolderPlus size={14} aria-hidden="true" />
+        </button>
       </div>
     </>
   )

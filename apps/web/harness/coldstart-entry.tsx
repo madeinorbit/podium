@@ -13,5 +13,6 @@ const root = document.getElementById('root')
 if (root) {
   root.style.height = '100vh'
   root.style.display = 'flex'
-  createRoot(root).render(<ColdStartComposer first />)
+  const first = new URLSearchParams(location.search).get('first') !== '0'
+  createRoot(root).render(<ColdStartComposer first={first} />)
 }

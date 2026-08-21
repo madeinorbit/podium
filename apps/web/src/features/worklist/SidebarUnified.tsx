@@ -27,9 +27,9 @@ import { cn } from '@/lib/utils'
 import { type SidebarDerivation, useSidebarDerivation } from './derivation'
 import { FoldedRowMenu } from './FoldedRowMenu'
 import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
+import { AddRepositoryButton, NewTaskRow, StartFirstTaskRow } from './new-task-row'
 import { MAX_ROW_SHORTCUTS, type RowShortcutTarget, useRowShortcuts } from './row-shortcuts'
 import { useCollapsedKeys } from './sidebar-common'
-import { AppToolsRow, NewWorkRow } from './spawn-row'
 import { UnifiedIssueRow } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import { useUnifiedWork } from './use-unified-work'
@@ -79,11 +79,13 @@ export function SidebarUnified(): JSX.Element {
   const filter = useWorkFilter(filterPool, derivation.now)
   return (
     <>
-      <NewWorkRow sections={derivation.sections} />
-      {/* The filter sits BETWEEN the spawn row and the list, outside the
+      <NewTaskRow />
+      {/* The filter sits BETWEEN the new-task row and the list, outside the
           scroller (3b): it narrows what is below it, so it cannot be a thing
-          that scrolls away while you are typing into it. */}
-      <WorkSearchField filter={filter} />
+          that scrolls away while you are typing into it. `Add repository` rides
+          its line (POD-1469) — see `new-task-row.tsx` for why that line and not
+          the one above it. */}
+      <WorkSearchField filter={filter} trailing={<AddRepositoryButton />} />
       {/* NO COLUMN-WIDE STATUS INSTRUMENT (POD-516 round 3). A "12/40 done · 5
           running" meter summarising the whole column was cut: "there's now a
           overall progress section in the header of the sidebar. This was
@@ -108,12 +110,13 @@ export function SidebarUnified(): JSX.Element {
           not a row among the work. It gates itself on the first task and
           dismisses for good (POD-1320). */}
       <MobilePromoCard />
-      {/* Footer: the 3a design's 34px strip — 35 with its rule, which is
-          outside the 34 in a content-box mock (POD-1253) — at the column's 13px inset, on the
-          same `--muted` ground as the section bands — the column's two chrome
-          ends read as one tone and the list floats between them. We keep muted
-          icon controls where the mock writes `new task` / `search` as words. */}
-      <AppToolsRow className="h-[35px] flex-none border-t border-hairline-bar bg-muted px-[13px]" />
+      {/* NO FOOTER (POD-1469). The 3a design's 34px strip held two glyphs and a
+          ⌘K hint: search duplicated a chord `AppShell` binds globally, the hint
+          advertised that chord a second time, and `Add project` — the one thing
+          in the strip with no other route to it — sat at the bottom of a
+          scrolling column, which is the last place a first-run operator with no
+          projects looks. The button moved up to the filter's line; the other two
+          were spending 35px of column on nothing. */}
     </>
   )
 }
@@ -155,6 +158,7 @@ export function WorkSections({
     archiveIssue,
     applySortPatches,
     setIssueTucked,
+    sections,
   } = useUnifiedWork(derivation)
   const shouldReduceMotion = useReducedMotion()
   const layoutGroupId = useId()
@@ -469,9 +473,23 @@ export function WorkSections({
   // SECTION BANDS FOLD (POD-1057): `Pinned`, and one band per project. Read
   // here rather than inside each band because the list itself has to consult it
   // — see the shortcut numbering below.
+  // Empty projects band and fold like any other (POD-1469), so their keys have to
+  // be subscribed here too — `useCollapsedKeys` reads exactly the keys it is
+  // handed, and a band whose key was never subscribed comes back open on reload.
+  const emptyProjectKeys = useMemo(
+    () =>
+      [...sections.pinnedRepos, ...sections.repos]
+        .map((repo) => repo.repoId ?? repo.path)
+        .filter((key) => !targetGroups.some((group) => group.key === key)),
+    [sections, targetGroups],
+  )
   const bandKeys = useMemo(
-    () => [PINNED_FOLD_KEY, ...targetGroups.map((group) => projectFoldKey(group.key))],
-    [targetGroups],
+    () => [
+      PINNED_FOLD_KEY,
+      ...targetGroups.map((group) => projectFoldKey(group.key)),
+      ...emptyProjectKeys.map((key) => projectFoldKey(key)),
+    ],
+    [targetGroups, emptyProjectKeys],
   )
   const [collapsedBands, toggleBand] = useCollapsedKeys(bandKeys)
   const pinnedCollapsed = collapsedBands.has(PINNED_FOLD_KEY)
@@ -743,15 +761,34 @@ export function WorkSections({
       renderedGroups: [...groups.values()].filter((group) => !filtering || group.rows.length > 0),
     }
   }, [filtering, normalizedQuery, searchIndex, targetGroups, transitionRows])
+  const renderedGroupKeys = renderedGroups.map((group) => group.key)
+  /**
+   * PROJECTS THAT CONTRIBUTED NO ROW AT ALL (POD-1469).
+   *
+   * `groupUnifiedWorkRows` builds groups OUT OF rows, so a repo nobody has
+   * worked yet produces none and disappears from the column — which made
+   * `Add repository` look like it had failed. The band is drawn from the project
+   * tree for those, and `StartFirstTaskRow` stands under it.
+   *
+   * Not while filtering, for the same reason a hitless live group leaves: the
+   * query is asking about tasks, and a band with no tasks in it is not an answer.
+   */
+  const emptyProjects = filtering
+    ? []
+    : [...sections.pinnedRepos, ...sections.repos].filter(
+        (repo) => !renderedGroupKeys.includes(repo.repoId ?? repo.path),
+      )
   // The folded menu's subject, looked up rather than carried in the state above.
   const foldedMenuRow = foldedMenu
     ? work.find((row) => row.kind === 'issue' && row.issue.id === foldedMenu.issueId)
     : undefined
 
-  // Zero work, and not a loading frame: the ghost preview (POD-1058) shows the
-  // shape of the list this column is about to become, under a label that names
-  // WHICH project is empty.
-  if (transitionRows.length === 0) return <WorkListEmpty />
+  // Zero work AND no project to band: the ghost preview (POD-1058) shows the
+  // shape of the list this column is about to become. With a project in the
+  // fleet the bands below are the better answer — they name the repo and offer
+  // the door — so this is now only the genuine nothing-at-all state, which is
+  // exactly where `Add repository` on the line above is what the operator wants.
+  if (transitionRows.length === 0 && emptyProjects.length === 0) return <WorkListEmpty />
   // Zero HITS is a different answer, and must not borrow the ghost: the ghost
   // says "nothing is here yet", which would be a lie about a column holding
   // thirty rows the query happens to miss.
@@ -855,6 +892,38 @@ export function WorkSections({
               )}
             </FoldPanel>
           </m.div>
+        )
+      })}
+      {/* THE PROJECTS WITH NOTHING IN THEM, after the ones that have work
+          (POD-1469). Order is deliberate: a band with no rows is an invitation,
+          and invitations go under the work rather than over it. Each is a real
+          fold — shutting one is how an operator retires a project they are not
+          using without removing it. */}
+      {emptyProjects.map((repo, index) => {
+        const key = repo.repoId ?? repo.path
+        const collapsed = groupCollapsed(key)
+        return (
+          <div
+            key={`empty:${key}`}
+            className={cn(
+              'flex min-w-0 flex-col',
+              (index > 0 || renderedGroups.length > 0 || filteredPinned.length > 0) &&
+                SECTION_GAP_CLASS,
+            )}
+            data-testid="project-group"
+            data-empty="true"
+            data-collapsed={collapsed ? 'true' : 'false'}
+          >
+            <ProjectGroupLabel
+              label={repo.name}
+              count={0}
+              collapsed={collapsed}
+              onToggle={() => toggleBand(projectFoldKey(key))}
+            />
+            <FoldPanel open={!collapsed} testId="project-group-empty">
+              <StartFirstTaskRow repoPath={repo.path} />
+            </FoldPanel>
+          </div>
         )
       })}
       {/* How big the haystack was, under the last hit — the answer to the

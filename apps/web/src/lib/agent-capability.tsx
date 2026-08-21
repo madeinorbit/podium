@@ -6,8 +6,9 @@
  * ---------------------------------------------------------------------------
  *
  * The shell offers "start an agent" from three places — the tab strip's "+"
- * (`app/NewPanelMenu`), the sidebar's `New <Agent> in <Repo>` chevron
- * (`features/worklist/NewAgentMenu`) and the flight deck's `Add agent`
+ * (`app/NewPanelMenu`), the cold-start launch box
+ * (`features/setup/ColdStartComposer`, which inherited the sidebar's deleted
+ * `New <Agent> in <Repo>` chevron in POD-1469) and the flight deck's `Add agent`
  * (`app/FlightDeck`) — and until POD-1201 only the first one told the truth. The
  * other two listed every harness the build knows about, so `New Cursor` looked
  * exactly as startable as `New Claude` on a machine with no Cursor installed;

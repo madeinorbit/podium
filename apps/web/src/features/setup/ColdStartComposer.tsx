@@ -4,14 +4,17 @@ import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
   EMPTY_PINS,
   lastUsedMaps,
+  machineViewsFromWire,
   type RepoNavView,
   sidebarSections,
+  usableMachines,
 } from '@podium/client-core/viewmodels'
 import { asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
+import { asMachineId } from '@podium/model/browser'
 import { resolveRole } from '@podium/runtime'
-import { ArrowRight, ChevronDown, LoaderCircle, Monitor, Paperclip } from 'lucide-react'
+import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { AttachmentStrip } from '@/features/chat/AttachmentStrip'
 import { useAttachments } from '@/features/chat/use-attachments'
@@ -81,7 +84,19 @@ function attachmentBrief(paths: readonly string[]): string {
 }
 
 export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
-  const { trpc, repos, sessions, machines, uiState, focusIssueSession } = useStoreSelector(
+  const {
+    trpc,
+    repos,
+    sessions,
+    machines,
+    uiState,
+    focusIssueSession,
+    spawnDraftAgent,
+    setSelectedIssueId,
+    setSelectedWorktree,
+    setPane,
+    setView,
+  } = useStoreSelector(
     (store) => ({
       trpc: store.trpc,
       repos: store.repos,
@@ -89,6 +104,11 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       machines: store.machines,
       uiState: store.uiState,
       focusIssueSession: store.focusIssueSession,
+      spawnDraftAgent: store.spawnDraftAgent,
+      setSelectedIssueId: store.setSelectedIssueId,
+      setSelectedWorktree: store.setSelectedWorktree,
+      setPane: store.setPane,
+      setView: store.setView,
     }),
     shallowEqual,
   )
@@ -136,6 +156,27 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     }
   }, [trpc])
 
+  /**
+   * `use` IS A CODE-EXECUTION BOUNDARY, AND THIS IS NOW WHERE IT IS DRAWN
+   * (§3.1.4 M5, moved here by POD-1469).
+   *
+   * The sidebar's agent → repo → machine menu used to be the surface that read
+   * `use` before offering a host — it is gone, and this picker inherited its
+   * job. Machines the principal cannot even SEE are already absent (the server's
+   * per-principal projection); what is left to read is `use`, per LIST rather
+   * than per machine, so a single-machine deployment that evaluates nothing is
+   * not left with an empty picker. `unauthorized` is not the same answer as
+   * `unreachable` and must not be collapsed into one: waiting fixes the second
+   * and never the first, so the row says which it is and the launch is refused
+   * only for the first.
+   */
+  const machineViews = machineViewsFromWire(machines)
+  const usable = new Set(usableMachines(machineViews).map((machine) => machine.id))
+  const authorized = new Set(
+    machineViews
+      .filter((view) => view.availability !== 'unauthorized')
+      .map((view) => view.machine.id),
+  )
   const selectedRepo =
     repoChoices.find(
       (repo) =>
@@ -146,13 +187,22 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     repoMachineIds.size > 0
       ? machines.filter((machine) => repoMachineIds.has(machine.id))
       : machines
+  // AN UNAUTHORIZED HOST IS LISTED, NEVER DEFAULTED. Removing it would collapse
+  // "ask its owner" into "that machine does not exist", which is the reading M5
+  // spends its whole argument keeping apart — and the operator would have no way
+  // to find out why the host they can see is not on offer. So the row stays,
+  // says `no access`, and only the DEFAULT skips over it.
   const selectedMachine =
     targetMachines.find((machine) => machine.id === draft.machineId) ??
-    targetMachines.find((machine) => machine.online) ??
+    targetMachines.find((machine) => usable.has(machine.id)) ??
+    targetMachines.find((machine) => authorized.has(machine.id)) ??
     targetMachines[0]
   const selectedCheckout = selectedRepo
     ? checkoutForMachine(repos, selectedRepo, selectedMachine?.id)
     : undefined
+  /** A host the operator may see but not run on. Everything that starts work
+   *  refuses on it; the picker still shows it, saying why. */
+  const machineDenied = selectedMachine !== undefined && !authorized.has(selectedMachine.id)
   const detectedReadyAgent = ISSUE_AGENT_KINDS.find((candidate) =>
     activationAgentIsReady(
       activationAgentReadiness(
@@ -208,6 +258,39 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     ...(selectedMachine ? { machineId: selectedMachine.id } : {}),
   })
 
+  /**
+   * TWO MODES, ONE BOX (POD-1469).
+   *
+   * The box opened as a 132px well every time, which asserted that a mission
+   * always begins with a paragraph. It does not: half the time the operator
+   * wants the harness in front of them and will type into the agent itself. So
+   * the well starts CLOSED — one clickable line of placeholder over the
+   * instrument row — and unfolds when they say they have something to write.
+   *
+   * The two modes differ in exactly one more place, and it is the important one:
+   * what Launch does. Closed, it starts the agent with no prompt (`startCli`)
+   * and is always available, because "no prompt" is the whole request. Open, it
+   * creates the mission from what was typed and is refused while that is empty,
+   * because an empty box in prompt mode is an unfinished sentence rather than a
+   * decision.
+   *
+   * EXPANSION IS DERIVED, NOT STORED. A persisted draft with words in it — the
+   * operator navigated away mid-sentence — has to come back open, or the text
+   * they wrote would be invisible under a placeholder saying the box is empty.
+   * The same holds the moment a file is attached: the strip lives inside the
+   * well, so attaching has to open it.
+   */
+  const [unfolded, setUnfolded] = useState(false)
+  const expanded = unfolded || draft.title.length > 0 || attachments.attachments.length > 0
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const collapse = useCallback(() => {
+    setUnfolded(false)
+    setDraft({ ...draft, title: '' })
+    attachments.clear()
+    // Blur, or the field's own focus would re-open the box it just closed.
+    inputRef.current?.blur()
+  }, [attachments, draft, setDraft])
+
   useEffect(() => {
     if (!selectedRepo) return
     const repoChanged = draft.repoPath !== selectedRepo.path
@@ -230,7 +313,10 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       repoMachines.size > 0
         ? machines.filter((candidate) => repoMachines.has(candidate.id))
         : machines
-    const machine = candidates.find((candidate) => candidate.online) ?? candidates[0]
+    const machine =
+      candidates.find((candidate) => usable.has(candidate.id)) ??
+      candidates.find((candidate) => authorized.has(candidate.id)) ??
+      candidates[0]
     setError(null)
     setDraft({
       ...draft,
@@ -249,6 +335,50 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     setDraft({ ...draft, machineId })
   }
 
+  /**
+   * LAUNCH WITH NOTHING WRITTEN: the agent, on this machine, in a new tab
+   * (POD-1469).
+   *
+   * This is the action the sidebar's `New <Agent> in <Repo>` chip used to be,
+   * and it is the same call it made — an optimistic `spawnDraftAgent` into a
+   * fresh draft vessel, navigated with the client-minted ids so the tab is there
+   * on the click rather than on the broadcast. What moved is WHERE the choices
+   * are made: the harness, its model and effort, and the host are the four
+   * pickers directly under this button instead of a chevron menu hidden inside
+   * the chip.
+   *
+   * NO ISSUE IS WRITTEN FROM HERE. The draft vessel is what `spawnDraftAgent`
+   * makes, and it stays a vessel — a CLI session the operator opened is not a
+   * mission with a brief, and inventing a title for it out of nothing is how the
+   * column fills with `Untitled task`.
+   */
+  const startCli = (): void => {
+    if (busy || !selectedRepo || !selectedCheckout || !selectedMachine || machineDenied || !ready)
+      return
+    const machineId = asMachineId(selectedMachine.id)
+    // The CHECKOUT's path, not the project's: a repo present on more than one
+    // host has a different path on each, and the vessel has to land in the one
+    // that exists on the machine the operator picked.
+    const { sessionId, issueId } = spawnDraftAgent({
+      target: {
+        path: selectedCheckout.path,
+        repoPath: selectedCheckout.path,
+        machineId,
+        ...(selectedRepo.repoId !== undefined ? { repoId: selectedRepo.repoId } : {}),
+      },
+      agentKind: agent,
+      ...(draft.model !== AUTO ? { model: draft.model } : {}),
+      ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
+    })
+    // The prompt was never written, so nothing is left to restore — but the
+    // instruments were chosen and stay chosen for the next one.
+    setDraft({ ...draft, title: '' })
+    setSelectedIssueId(issueId)
+    setSelectedWorktree(selectedCheckout.path)
+    setPane('A', sessionId)
+    setView('workspace')
+  }
+
   const start = async (): Promise<void> => {
     const prompt = draft.title.trim()
     if (
@@ -257,6 +387,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       !selectedRepo ||
       !selectedCheckout ||
       !selectedMachine ||
+      machineDenied ||
       !ready ||
       (!draft.pendingIssueId && !prompt)
     )
@@ -306,6 +437,26 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     }
   }
 
+  /** What Launch and ⌘↵ do, which is the one thing the two modes disagree about. */
+  const launch = (): void => {
+    if (expanded) void start()
+    else startCli()
+  }
+  const launchable = expanded
+    ? Boolean(draft.pendingIssueId) || draft.title.trim().length > 0
+    : true
+  const launchBlocked =
+    busy ||
+    // A launch that outran its uploads would create the mission with a brief
+    // naming files that are still in flight.
+    attachments.uploading ||
+    !selectedRepo ||
+    !selectedCheckout ||
+    !selectedMachine ||
+    machineDenied ||
+    !ready ||
+    !launchable
+
   return (
     <div className="cold-start flex min-h-0 flex-1 flex-col overflow-y-auto bg-card font-sans">
       <div className="cold-start-body">
@@ -354,25 +505,64 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             aimed at a mission is aimed at the composer, and half of this box is
             the instrument row. Same reach the chat composer gives it. */}
         <div
+          data-testid="cold-start-field"
+          data-expanded={expanded ? 'true' : 'false'}
           className="cold-start-field relative overflow-hidden rounded-[14px] bg-bar shadow-[inset_0_0_0_1px_var(--border-strong),0_20px_50px_-30px_var(--carve-drop)]"
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
               event.preventDefault()
-              void start()
+              launch()
             }
           }}
           {...attachments.dropHandlers}
         >
+          {/* ONE ELEMENT IN BOTH MODES, not a line that is swapped for a well.
+              The field is the same textarea throughout — it is only shorter —
+              so the click that opens it is the click that focuses it, the caret
+              lands where the placeholder was, and there is no frame in which the
+              operator is typing into something that has just been unmounted. */}
           <textarea
+            ref={inputRef}
             aria-label="What do you want to work on?"
-            autoFocus
+            rows={1}
             value={draft.title}
             disabled={busy || Boolean(draft.pendingIssueId)}
             onChange={(event) => setDraft({ ...draft, title: event.currentTarget.value })}
+            onFocus={() => setUnfolded(true)}
+            onKeyDown={(event) => {
+              // Escape closes an EMPTY box and nothing else. Two keystrokes from
+              // discarding a written prompt is not a shortcut, it is a trap —
+              // the X is the way out of one of those, deliberately deliberate.
+              if (event.key === 'Escape' && draft.title.length === 0) {
+                event.stopPropagation()
+                collapse()
+              }
+            }}
             onPaste={attachments.onPaste}
-            placeholder="Describe the mission — an outcome, a bug, a question about the codebase…"
+            placeholder={
+              expanded
+                ? 'Describe the mission — an outcome, a bug, a question about the codebase…'
+                : 'Click here to enter a prompt.'
+            }
             className="cold-start-input block w-full resize-none bg-transparent px-[22px] text-[14.5px] leading-[1.6] text-text-strong outline-none placeholder:text-text-faint disabled:opacity-60"
           />
+          {/* THE WAY BACK OUT, and it is only offered where there is something to
+              go back to. It clears rather than hides: a collapsed box showing
+              `Click here to enter a prompt` while still holding a paragraph
+              would launch a mission the operator believes they cancelled. */}
+          {expanded && (
+            <button
+              type="button"
+              data-pressable
+              data-testid="cold-start-collapse"
+              aria-label="Close the prompt"
+              title="Close the prompt"
+              onClick={collapse}
+              className="absolute top-[9px] right-[10px] z-10 inline-flex size-6 items-center justify-center rounded-md text-text-faint transition-colors hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
+          )}
           {attachments.attachments.length > 0 && (
             <div className="px-[22px] pb-2.5">
               <AttachmentStrip
@@ -468,7 +658,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               }
               options={targetMachines.map((machine) => ({
                 value: machine.id,
-                label: `${machine.name}${machine.online ? '' : ' (offline)'}`,
+                label: `${machine.name}${
+                  !authorized.has(machine.id) ? ' (no access)' : machine.online ? '' : ' (offline)'
+                }`,
               }))}
               selectedValue={selectedMachine?.id}
               placeholder="Choose a machine…"
@@ -488,40 +680,49 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             >
               <Paperclip size={13} aria-hidden="true" />
             </button>
-            {/* The chord and the launch travel together in one auto-margined
-                group, so hiding the chord on a narrow pane cannot strand the
-                button in the middle of the row. */}
+            {/* THE CHORD IS IN THE BUTTON NOW (POD-1469). It used to sit beside
+                it as a bare `⌘↵` in the row's ink — a mark with nothing
+                attaching it to the control it fires, which is why it also had to
+                be hidden below 560px to stop reading as a third instrument. On
+                the button it is unambiguous at any width, and it replaces the
+                arrow: an arrow says "forward", the chord says how to do this
+                without the mouse, and only one of those is information. */}
             <div className="ml-auto flex flex-none items-center gap-2">
-              <span
-                className="cold-start-chord font-mono text-[14px] leading-none text-text-faint"
-                aria-label="Command Enter"
-                title="Command Enter"
-              >
-                ⌘↵
-              </span>
               <button
                 type="button"
                 data-pressable
-                className="btn-primary-rim inline-flex h-[30px] items-center gap-[7px] rounded-[9px] border border-transparent bg-primary px-3.5 text-[12px] leading-none font-semibold text-primary-foreground transition-colors hover:bg-primary/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-text-strong disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={
-                  busy ||
-                  // A launch that outran its uploads would create the mission
-                  // with a brief naming files that are still in flight.
-                  attachments.uploading ||
-                  !selectedRepo ||
-                  !selectedMachine ||
-                  !ready ||
-                  (!draft.pendingIssueId && !draft.title.trim())
+                data-testid="cold-start-launch"
+                className="btn-primary-rim inline-flex h-[30px] items-center gap-[9px] rounded-[9px] border border-transparent bg-primary px-3.5 text-[12px] leading-none font-semibold text-primary-foreground transition-colors hover:bg-primary/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-text-strong disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={launchBlocked}
+                onClick={launch}
+                aria-label={
+                  draft.pendingIssueId
+                    ? 'Retry starting work'
+                    : expanded
+                      ? 'Start work'
+                      : `Start a ${issueAgentLabel(agent)} session`
                 }
-                onClick={() => void start()}
-                aria-label={draft.pendingIssueId ? 'Retry starting work' : 'Start work'}
+                // Closed, this button does something the words do not say on
+                // their own — so the tooltip says it.
+                title={
+                  expanded
+                    ? undefined
+                    : `Start a ${issueAgentLabel(agent)} session in ${
+                        selectedRepo ? repoLabel(selectedRepo) : 'this project'
+                      } with no prompt`
+                }
               >
                 {busy ? (
                   <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
                 ) : (
                   <>
                     Launch
-                    <ArrowRight size={15} aria-hidden="true" />
+                    <span
+                      className="cold-start-chord font-mono text-[12.5px] leading-none text-primary-foreground/60"
+                      aria-hidden="true"
+                    >
+                      ⌘↵
+                    </span>
                   </>
                 )}
               </button>
@@ -541,11 +742,21 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
           )}
         </div>
 
-        {!ready && (
+        {/* UNAUTHORIZED IS NOT UNREADY, and it is stated first: no amount of
+            agent setup makes a host you have no grant on runnable, so the note
+            that sends the operator to Settings would be a wrong instruction. */}
+        {machineDenied ? (
           <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
-            The selected agent is not ready on this machine yet. Open Settings → Agents to finish
-            setup.
+            You do not have access to run work on this machine. Ask its owner for access, or pick
+            another machine.
           </p>
+        ) : (
+          !ready && (
+            <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
+              The selected agent is not ready on this machine yet. Open Settings → Agents to finish
+              setup.
+            </p>
+          )
         )}
         {draft.pendingIssueId && !error && (
           <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">

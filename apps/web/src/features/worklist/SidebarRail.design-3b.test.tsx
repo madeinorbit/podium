@@ -180,8 +180,9 @@ describe('the collapsed rail, design 3b (POD-1178)', () => {
     setUp()
     const view = render(<SidebarRail />)
     const meter = (number: string): Element | null =>
-      tileFor(view.container, number).parentElement?.querySelector('[data-testid="rail-progress"]') ??
-      null
+      tileFor(view.container, number).parentElement?.querySelector(
+        '[data-testid="rail-progress"]',
+      ) ?? null
     expect(meter('41')).not.toBeNull()
     expect(meter('46')).toBeNull()
   })
@@ -208,23 +209,23 @@ describe('the collapsed rail, design 3b (POD-1178)', () => {
     expect(screen.queryByTestId('rail-hover-card')).toBeNull()
   })
 
-  // POD-1279: the footer holds the open column's tool pair — search and the ⊞
-  // that opens the agent/repo menu — and nothing else. The waiting TOTAL that
-  // used to sit under the search is gone: the tiles' own amber badges say the
-  // same thing, one mission at a time, where the click that answers it is.
-  it('puts the add menu in the footer beside search, not at the top', () => {
+  // POD-1279, amended by POD-1469: the footer holds the utilities — search and
+  // the door to a repository — and starting work is the tile at the TOP, where
+  // the wide column also keeps it. The agent→repo menu that used to open from a
+  // dashed ⊞ down here is gone: the composer asks those questions now.
+  it('keeps new task at the top and the utilities in the footer', () => {
     setUp()
     const view = render(<SidebarRail />)
-    const footer = view.container.querySelector('[data-testid="rail-new-menu"]')
+    const footer = view.container.querySelector('[data-testid="rail-add-repository"]')
       ?.parentElement as HTMLElement
     expect(footer).toBeTruthy()
     expect(footer.querySelector('[aria-label="Search"]')).not.toBeNull()
-    // The spawn tile stayed at the top; only the ⊞ came down.
+    expect(view.container.querySelector('[data-testid="rail-new-menu"]')).toBeNull()
     const rail = view.container.querySelector('[data-testid="sidebar-rail"]') as HTMLElement
-    const top = view.container.querySelector('[data-testid="rail-new-agent"]') as HTMLElement
+    const top = view.container.querySelector('[data-testid="rail-new-task"]') as HTMLElement
     expect(top.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    const menu = view.container.querySelector('[data-testid="rail-new-menu"]') as HTMLElement
-    expect(rail.compareDocumentPosition(menu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const add = view.container.querySelector('[data-testid="rail-add-repository"]') as HTMLElement
+    expect(rail.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('no longer draws a waiting total in the footer', () => {

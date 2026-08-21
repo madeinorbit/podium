@@ -14,6 +14,11 @@
  */
 type Selector<T> = (store: unknown) => T
 
+/** The composer persists its draft through ui-state; a `get: () => null` stub
+ *  makes the box permanently forget what was typed, which the fold now depends
+ *  on (an unlaunched prompt must come back UNFOLDED). */
+const rows = new Map<string, string>()
+
 const machine = {
   id: 'machine-a',
   name: 'Studio Mac',
@@ -39,8 +44,22 @@ const store = {
     },
   ],
   machines: [machine],
-  uiState: { get: () => null, set: () => {} },
+  uiState: {
+    get: (key: string): string | null => rows.get(key) ?? null,
+    set: (key: string, value: string | null): void => {
+      if (value === null) rows.delete(key)
+      else rows.set(key, value)
+    },
+  },
   focusIssueSession: async () => null,
+  // POD-1469: a promptless Launch starts the agent instead of creating a
+  // mission, so the harness has to carry the four store writes that path makes
+  // — otherwise the shot of the closed box is of a button that would throw.
+  spawnDraftAgent: () => ({ sessionId: 'session-harness', issueId: 'issue-harness' }),
+  setSelectedIssueId: () => {},
+  setSelectedWorktree: () => {},
+  setPane: () => {},
+  setView: () => {},
   trpc: {
     settings: {
       get: {

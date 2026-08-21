@@ -10258,6 +10258,33 @@ a.ref-link--session::before {
   );
 }
 
+/* ── THE WORK COLUMN IS ITS OWN MEASURE [POD-1469] ───────────────────────────
+   The sidebar is resized by hand between 200px and 520px on a display of any
+   width, so a viewport breakpoint answers the wrong question about it — a 200px
+   column on a 3440px screen is exactly the case `sm:` gets backwards. The aside
+   declares the container; anything in the column that has to give ground reads
+   it.
+
+   `Add repository` is the first thing that does. It rides the filter's line and
+   it is the item that must NOT shrink, so at the column's minimum the two of
+   them cannot both be whole: at 200px the insets leave 180, and the button in
+   words is ~115 of it. The words are what goes. That direction is not a
+   coin-toss — a filter field with a search glyph and no visible placeholder
+   still reads as a filter field, while `Add Reposi…` reads as a bug — and the
+   button keeps its name in `title`/`aria-label` either way. */
+.worklist-column {
+  container-type: inline-size;
+  container-name: worklist;
+}
+.worklist-add-repo-label {
+  display: none;
+}
+@container worklist (min-width: 280px) {
+  .worklist-add-repo-label {
+    display: inline;
+  }
+}
+
 /* ── THE COLD DECK'S FIT [POD-1169] ──────────────────────────────────────────
    The cold start is a PANE, not a page. Every responsive decision it made used
    to be keyed off the VIEWPORT — `sm:px-10 lg:px-24`, `3vw` type, a
@@ -10379,24 +10406,52 @@ a.ref-link--session::before {
 .cold-start-field {
   margin-top: clamp(14px, 3.4dvh, 30px);
 }
-.cold-start-input {
-  min-height: clamp(72px, 19dvh, 132px);
-  padding-block: clamp(12px, 2dvh, 20px) 10px;
-}
 
-/* THE CHORD IS A ONE-LINE AFFORDANCE. The row's rigid furniture is ~560px: the
-   instrument strip (~256), the machine chip (~133), the launch button (~94),
-   three 8px gaps and 28px of row padding. Above that the row is one line and
-   ⌘↵ has somewhere to sit; below it the row has already wrapped and the hint is
-   a third line of furniture on a screen that just ran out of them. Keyed off
-   the pane rather than `sm:` for the same reason as everything else here — a
-   500px pane on a wide display was showing it while the row was two lines. */
-.cold-start-chord {
-  display: none;
+/* ── THE WELL'S TWO HEIGHTS [POD-1469] ───────────────────────────────────────
+   The box has a CLI mode and a prompt mode (see ColdStartComposer), and the
+   whole difference in geometry is this element's height. Both are set as an
+   explicit `height` rather than `min-height`, so the transition has one number
+   to walk: with a min-height the box would sit at the textarea's intrinsic size
+   until the animated value overtook it, which is a beat of stillness at the head
+   of a gesture whose job is to feel like the box opening.
+
+   `rows={1}` is what makes the closed height honest — a textarea's intrinsic
+   height comes from its rows, and a two-row default would fight the number
+   below.
+
+   The prompt height is the one the deck has always used: about a fifth of a
+   short window, capped at the old desktop 132px, so the whole instrument stays
+   on screen down to a 240px pane before the deck scrolls.
+
+   THE OPEN BOX GIVES ITS RIGHT SHOULDER TO THE CLOSE CONTROL. 46px of right
+   padding rather than 22 — the X sits at top:9/right:10 and the first line of a
+   prompt would otherwise run under it. It is spent only while the control is
+   there; the closed line keeps the symmetric inset. */
+.cold-start-input {
+  height: 46px;
+  padding-block: 12px;
+  overflow-y: hidden;
+  /* easeOutCubic, NOT the shell's `0.22, 1, 0.36, 1`. That curve is the house
+     one — the sidebar drawer and the row folds take it — and it is right for
+     them, but measured on this box it puts the fold 96% of the way home inside
+     50ms: three frames of travel and then 190ms creeping the last 3px, which is
+     a jump cut with a tail rather than a box opening. Over 86px of height,
+     easeOutCubic is at ~51% at the same instant, so the motion is visible for
+     most of its duration and still lands decelerating. 240ms is inside the
+     design's 200–260ms window for structural motion. */
+  transition:
+    height 240ms cubic-bezier(0.33, 1, 0.68, 1),
+    padding 240ms cubic-bezier(0.33, 1, 0.68, 1);
 }
-@container cold-start (min-width: 560px) {
-  .cold-start-chord {
-    display: inline;
+.cold-start-field[data-expanded="true"] .cold-start-input {
+  height: clamp(72px, 19dvh, 132px);
+  padding-block: clamp(12px, 2dvh, 20px) 10px;
+  padding-right: 46px;
+  overflow-y: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cold-start-input {
+    transition: none;
   }
 }
 

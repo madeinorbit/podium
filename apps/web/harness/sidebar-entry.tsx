@@ -63,6 +63,11 @@ function Harness(): JSX.Element {
     // every height number becomes optimistic.
     <div
       data-testid="sidebar-harness"
+      // `worklist-column` is the aside's own class (`SIDEBAR_ASIDE_CLASS`), and
+      // it carries the container query `Add repository` reads. Without it the
+      // harness measures a column that declares no container and the button
+      // never gives up its words — which is the exact thing being verified.
+      className="worklist-column"
       style={{
         width,
         height: '100dvh',
