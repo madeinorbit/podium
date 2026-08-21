@@ -2282,13 +2282,16 @@ export function ContinuationCard({
  * already the register the pinned brief and the transcript are set in, and it
  * brings the list and emphasis rules with it rather than restating them here.
  *
- * THE CLAMP STAYS, and it is not a compromise. The uncapped read is the Task
- * dock's, deliberately (POD-516 r3 #2) — down there it costs nothing, and up
- * here the five lines are a height budget the spine below is owed. What changes
- * is that a cut brief now SAYS it is cut: `line-clamp`'s ellipsis only works on
- * a run of inline text, so with real blocks in the box the fade takes the job
- * over, and it is applied only when the content genuinely overflows, so a
- * two-line brief never has its last line dimmed for nothing.
+ * AND IT IS NOT A TEASER. The old four-line clamp existed to protect the
+ * column's height budget, and it protected it against the wrong thing: this
+ * column IS the mission, the brief is what the mission is, and a header that
+ * stops mid-sentence sends the operator to the dock to read four more lines.
+ * The brief is shown. What is left in the stylesheet is a ceiling, not a
+ * preview — a brief may not take so much of the window that the spine
+ * underneath it has nowhere to be — and nothing anybody writes into a
+ * description reaches it. When a pasted spec does, the tail fades rather than
+ * stopping, and the fade is gated on `data-clipped` here so a brief that fits
+ * is never dimmed for a cut that did not happen.
  */
 function MissionBrief({ html, standing }: { html: string; standing?: boolean }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
