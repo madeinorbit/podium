@@ -440,38 +440,40 @@ runner. Transcript:
 `state/bin/abduco` and ran; an abduco session was created and survived the
 all-in-one being killed. **No Mac is needed to build Darwin headless payloads.**
 
-What the macOS run does NOT establish, and who closes it:
+**Residual execution proof (POD-2520, 2026-08-21): GO for CI execution.** GitHub
+Actions run `32513654765` completed one green matrix at commit `db4e0b79d`: Linux
+cross-built and asserted both updater-shaped tarballs, all ten negative controls went
+red for their named reasons, then `blacksmith-6vcpu-macos-15` executed darwin-arm64
+and `macos-15-intel` executed darwin-x64. On both runners `--version` ran,
+`all-in-one` booted, embedded abduco materialized, and a direct abduco session
+survived the all-in-one process being killed. Apple's
+`codesign --verify --strict --verbose=4` accepted both rcodesign-produced seals and
+both binaries carried `allow-jit`. With quarantine planted, both signed binaries
+still ran on their CI VMs; that records the VM outcome but does **not** clear
+Gatekeeper on real hardware. The genuinely signature-stripped arm64 binary also ran,
+which means the Apple Silicon CI VM does not enforce the arm64 signature requirement;
+the load-bearing AMFI probe still needs real hardware, and this result is not evidence
+that signing is unnecessary.
 
-- **darwin-x64 execution.** The x64 payload cross-builds and asserts on Linux, but
-  has never been run on an Intel Mac or under Rosetta. POD-2520 carries an
-  `macos-15-intel` leg.
-- **A real end-user Mac.** The run was a CI VM, not fleet hardware and not a
-  user's laptop. Two consequences follow from that and are open: whether Gatekeeper
-  blocks a quarantined copy (on the CI VM it did not, so "Gatekeeper cleared" is
-  *not* claimed), and whether AMFI enforces the arm64 signature requirement the way
-  a normal Mac does.
-- **`codesign --verify`.** The CI run only ran `codesign -dv`, which displays a
-  signature without validating the seal. That an rcodesign signature satisfies
-  Apple's own verifier is therefore still unproven; the verifier script now runs
-  `codesign --verify --strict`.
-- **The discovery-worker entrypoint** is compiled in as a second entrypoint but was
-  never executed, and abduco was invoked directly rather than through a podium
-  agent session — materialization is proven, the daemon→abduco→session path is not.
-- **The spike `headless/` is not the production layout** (no `systemd/`, no
-  NOTICE/LICENSE, stub web/mobile `index.html`). POD-2504 must not assume the full
-  bundle layout was exercised; the Mac boot logged "Served web bundle has no valid
-  build stamp" for exactly that reason.
+What the combined macOS runs still do NOT establish:
+
+- **A real end-user Mac.** Both runners were CI VMs. Gatekeeper-with-quarantine and
+  AMFI signature enforcement remain unproven on normal hardware.
+- **The discovery-worker entrypoint and daemon→agent session path.** The entrypoint
+  was not executed, and the verifier drove abduco directly rather than via an agent.
+- **The spike `headless/` is not the production layout.** It still uses stub clients.
 
 **What `rcodesign` actually contributes: the entitlements, not the signature.**
 `bun build --compile --target=bun-darwin-*` already emits an ad-hoc signed Mach-O —
 verified on the Linux box: `CodeSignatureFlags(ADHOC | LINKER_SIGNED)`, identifier
 `a.out`. The `rcodesign sign` pass replaces that with `ADHOC`, identifier `podium`,
-plus the five Bun JIT entitlement keys. So an earlier reading of the CI log —
-"unsigned ran anyway, AMFI anomaly" — was wrong: that binary was never unsigned, and
-nothing in the run showed AMFI to be lenient. If the release job ever drops
-`rcodesign`, what breaks is JIT, not code signing. A genuine unsigned probe needs the
-signature stripped on purpose (`scripts/spike/macho-strip-signature.py`), which the
-Mac verifier now does.
+plus the five Bun JIT entitlement keys. So an earlier reading of the first CI log —
+"unsigned ran anyway, AMFI anomaly" — was wrong because that binary was never
+unsigned. If the release job ever drops `rcodesign`, what breaks is JIT, not code
+signing. The later verifier stripped `LC_CODE_SIGNATURE` on purpose with
+`scripts/spike/macho-strip-signature.py`. In run `32513654765` that genuinely
+unsigned binary ran on the arm64 CI VM; this establishes that the VM cannot test the
+signature requirement, not that the signature is optional on user hardware.
 
 The Linux-side assertions run against the binary **inside the shipped tarball**
 (`scripts/spike/linux-assert-darwin-spike.sh`), and
@@ -486,9 +488,12 @@ linker-signed output, a deleted input, the wrong tarball layout, and a missing f
 | `bun build --compile --target=bun-darwin-arm64` embedding that abduco | GO — spike `scripts/spike/build-bun-darwin.ts`; the darwin abduco is present verbatim in the shipped binary and no ELF header is |
 | Ad-hoc sign from Linux with Bun JIT entitlements | GO — `rcodesign sign --binary-identifier podium --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist`; adds the entitlements on top of Bun's own linker signature |
 | Updater tarball layout (`headless/` root) | GO — matches `update-install.ts` |
-| macOS arm64: `--version`, all-in-one boot, abduco materialize + session survives | **GO — executed on Apple Silicon macOS 15 CI runner, Actions run 32433063958** |
-| macOS arm64 on real user hardware: Gatekeeper w/ quarantine, AMFI signature enforcement, `codesign --verify` | NOT PROVEN — POD-2520 |
-| macOS x64 execution | NOT PROVEN — POD-2520 `macos-15-intel` leg |
+| macOS arm64: `--version`, all-in-one boot, abduco materialize + session survives | **GO — Apple Silicon macOS 15 CI, run `32513654765`** |
+| macOS x64: `--version`, all-in-one boot, abduco materialize + session survives | **GO — Intel macOS 15 CI, run `32513654765`** |
+| Apple's `codesign --verify --strict --verbose=4` accepts the shipped seal | **GO — arm64 + x64, run `32513654765`** |
+| Quarantine-present execution on CI VMs | OBSERVED — signed binary ran on arm64 + x64; not real-hardware Gatekeeper clearance |
+| Genuine signature-stripped arm64 probe on CI | OBSERVED RUNNING — VM does not enforce the arm64 requirement; signing necessity remains NOT PROVEN on real hardware |
+| Real user hardware: Gatekeeper with quarantine + AMFI signature enforcement | **NOT PROVEN — requires a real Mac** |
 
 Re-running the execution proof: `.github/workflows/darwin-mac-execution-proof.yml`
 (`workflow_dispatch`). It is deliberately **not** a per-release gate — no Mac sits in

@@ -15,10 +15,8 @@
 name: darwin-mac-execution-proof
 on:
   workflow_dispatch:
-  # Temporary bootstrap trigger: workflow_dispatch cannot resolve this workflow
-  # until it lands on the default branch.
-  push:
-    branches: ['issue/2520-mac-execution-proof-for-cross-built-payl']
+  # push:
+  #   branches: ['issue/2520-...']
 concurrency:
   group: darwin-mac-execution-proof-${{ github.ref }}
   cancel-in-progress: true

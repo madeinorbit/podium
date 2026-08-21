@@ -44,22 +44,24 @@ overstating it does.
 
 ---
 
-## Open questions the macOS run does NOT close
+## POD-2520 execution closure and remaining questions
 
-1. **darwin-x64.** Cross-builds and asserts on Linux; never executed. POD-2520 runs
-   a `macos-15-intel` leg.
-2. **Real user hardware.** A CI VM is not a laptop. On that VM a quarantined copy was
-   *not* blocked, so "Gatekeeper cleared" is not claimed — and by the same token AMFI's
-   arm64 signature enforcement was not demonstrated there either.
-3. **`codesign --verify`.** The run used only `codesign -dv`, which displays a
-   signature without validating the seal. That an rcodesign signature satisfies
-   Apple's own verifier remains unproven; `verify-on-mac.sh` now runs
-   `codesign --verify --strict --verbose=4`.
-4. **Discovery-worker entrypoint** — compiled in as a second entrypoint, never
+Actions run `32513654765` executed both Linux-cross-built payloads on their native
+macOS 15 CI architectures. Darwin arm64 and x64 both ran `--version`, booted
+`all-in-one`, materialized abduco, and kept a direct abduco session alive across the
+all-in-one process being killed. Apple's `codesign --verify --strict --verbose=4`
+accepted both rcodesign-produced seals. Quarantine did not block either signed binary
+on these CI VMs. A genuinely signature-stripped arm64 binary also ran, proving that
+the Apple Silicon VM does not enforce the arm64 signature requirement; it does not
+prove that signing is optional on real hardware.
+
+1. **Real user hardware.** Gatekeeper with quarantine and AMFI signature enforcement
+   remain unproven on a normal Mac; CI VM behavior cannot clear either boundary.
+2. **Discovery-worker entrypoint** — compiled in as a second entrypoint, never
    executed.
-5. **daemon → abduco → agent session.** The verifier drives abduco directly, so
+3. **daemon → abduco → agent session.** The verifier drives abduco directly, so
    materialization is proven and the session path through the daemon is not.
-6. **The spike `headless/` is not the production layout** — no `systemd/`, no
+4. **The spike `headless/` is not the production layout** — no `systemd/`, no
    NOTICE/LICENSE, stub `web`/`mobile` `index.html`. The Mac boot logged "Served web
    bundle has no valid build stamp" for that reason. POD-2504 must not read this
    spike as having exercised the full bundle.
@@ -97,7 +99,9 @@ Two consequences:
 A genuine unsigned probe therefore has to remove the signature deliberately:
 `scripts/spike/macho-strip-signature.py` drops `LC_CODE_SIGNATURE`, shrinks
 `__LINKEDIT`, and truncates. The Mac verifier ships that binary as
-`podium-cli.nosig` and requires it to be **refused**.
+`podium-cli.nosig`. Run `32513654765` proved the probe was genuinely unsigned and
+that it ran on the arm64 CI VM. The honest conclusion is that this VM cannot
+establish AMFI enforcement; refusal remains a real-hardware question.
 
 ---
 
