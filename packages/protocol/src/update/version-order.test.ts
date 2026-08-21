@@ -34,12 +34,7 @@ describe('isProvablyNewer', () => {
       true,
       'a dest mint ranks above the edge cut it builds on',
     ],
-    [
-      '0.1.0-edge.20.dev.5+656f49b',
-      '0.1.0-edge.21',
-      false,
-      'and below the next edge cut',
-    ],
+    ['0.1.0-edge.20.dev.5+656f49b', '0.1.0-edge.21', false, 'and below the next edge cut'],
     [
       '0.1.0-edge.20.dev.10+aaa',
       '0.1.0-edge.20.dev.4+bbb',

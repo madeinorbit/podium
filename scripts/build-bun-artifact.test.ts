@@ -33,6 +33,19 @@ describe('assertDevWebDistMatchesVersion', () => {
       }),
     ).toThrow(/apps\/mobile\/dist was not built from dev\+47a01e3/)
   })
+
+  it('still guards publisher-minted versions (not only the legacy det+ form)', () => {
+    expect(() =>
+      assertDevWebDistMatchesVersion('0.1.0-edge.20.dev.5+47a01e3', {
+        sourceSha: 'aaaaaaa',
+      }),
+    ).toThrow(/not built from 0\.1\.0-edge\.20\.dev\.5\+47a01e3/)
+    expect(() =>
+      assertDevWebDistMatchesVersion('0.1.0-edge.20.dev.5+47a01e3', {
+        sourceSha: '47a01e3',
+      }),
+    ).not.toThrow()
+  })
 })
 
 describe('updateArtifactPath', () => {

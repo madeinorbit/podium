@@ -2,14 +2,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  allocateDevPublishVersion,
-  rememberDevArtifact,
-} from './dev-bundle'
-import {
-  readDevPublisherState,
-  writeDevPublisherState,
-} from './dev-publisher-state'
+import { allocateDevPublishVersion, rememberDevArtifact } from './dev-bundle'
+import { readDevPublisherState, writeDevPublisherState } from './dev-publisher-state'
 
 const dirs: string[] = []
 
@@ -47,7 +41,9 @@ describe('dev publisher state', () => {
   it('refuses a corrupt state file rather than rewinding the counter', () => {
     const dir = tempDir()
     writeFileSync(join(dir, 'dev-publisher-version.json'), '{not json\n', { mode: 0o600 })
-    expect(() => readDevPublisherState(dir)).toThrow(/invalid persisted development publisher state/)
+    expect(() => readDevPublisherState(dir)).toThrow(
+      /invalid persisted development publisher state/,
+    )
   })
 
   it('mints monotonically and remembers artifact basenames for the sweep allowlist', () => {

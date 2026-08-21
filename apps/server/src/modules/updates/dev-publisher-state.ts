@@ -9,8 +9,8 @@
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { stateDir } from '@podium/runtime/config'
 import type { DevPublisherVersionState } from '@podium/protocol'
+import { stateDir } from '@podium/runtime/config'
 
 const FILE_NAME = 'dev-publisher-version.json'
 
@@ -21,6 +21,12 @@ export interface PersistedDevPublisherState extends DevPublisherVersionState {
    * protect list), never a stamp-ordered guess.
    */
   retainedArtifacts: string[]
+  /**
+   * Most recently allocated mint — reused when the same HEAD is advertised as
+   * an identity target and later built, so identity and bundle share one N.
+   */
+  lastSha?: string
+  lastVersion?: string
 }
 
 function invalidState(path: string): Error {
@@ -35,6 +41,8 @@ function parsePersistedState(path: string, raw: string): PersistedDevPublisherSt
       base?: unknown
       counter?: unknown
       retainedArtifacts?: unknown
+      lastSha?: unknown
+      lastVersion?: unknown
     }
     if (typeof candidate.base !== 'string' || candidate.base.trim().length === 0) {
       throw invalidState(path)
@@ -49,13 +57,26 @@ function parsePersistedState(path: string, raw: string): PersistedDevPublisherSt
     const retainedArtifacts = Array.isArray(candidate.retainedArtifacts)
       ? candidate.retainedArtifacts.filter((entry): entry is string => typeof entry === 'string')
       : []
+    const lastSha =
+      typeof candidate.lastSha === 'string' && candidate.lastSha.length > 0
+        ? candidate.lastSha
+        : undefined
+    const lastVersion =
+      typeof candidate.lastVersion === 'string' && candidate.lastVersion.length > 0
+        ? candidate.lastVersion
+        : undefined
     return {
       base: candidate.base.trim(),
       counter: candidate.counter,
       retainedArtifacts,
+      ...(lastSha ? { lastSha } : {}),
+      ...(lastVersion ? { lastVersion } : {}),
     }
   } catch (error) {
-    if (error instanceof Error && error.message === `invalid persisted development publisher state at ${path}`) {
+    if (
+      error instanceof Error &&
+      error.message === `invalid persisted development publisher state at ${path}`
+    ) {
       throw error
     }
     throw invalidState(path)
@@ -67,9 +88,7 @@ export function devPublisherStatePath(dir: string = stateDir()): string {
 }
 
 /** Read publisher state, or `null` when this instance has never minted. */
-export function readDevPublisherState(
-  dir: string = stateDir(),
-): PersistedDevPublisherState | null {
+export function readDevPublisherState(dir: string = stateDir()): PersistedDevPublisherState | null {
   const path = devPublisherStatePath(dir)
   try {
     return parsePersistedState(path, readFileSync(path, 'utf8'))
@@ -93,15 +112,17 @@ export function writeDevPublisherState(
   mkdirSync(dir, { recursive: true })
   const path = devPublisherStatePath(dir)
   const tmp = `${path}.${process.pid}.tmp`
-  const body = JSON.stringify(
+  const body = `${JSON.stringify(
     {
       base: state.base,
       counter: state.counter,
       retainedArtifacts: state.retainedArtifacts,
+      ...(state.lastSha ? { lastSha: state.lastSha } : {}),
+      ...(state.lastVersion ? { lastVersion: state.lastVersion } : {}),
     },
     null,
     2,
-  ) + '\n'
+  )}\n`
   writeFileSync(tmp, body, { mode: 0o600 })
   renameSync(tmp, path)
 }

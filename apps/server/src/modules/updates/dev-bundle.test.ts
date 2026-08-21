@@ -339,12 +339,9 @@ function published(input: {
   version?: string
   counter?: number
 }) {
-  const version =
-    input.version ?? `0.1.0-edge.20.dev.${input.counter ?? 1}+${input.sha}`
+  const version = input.version ?? `0.1.0-edge.20.dev.${input.counter ?? 1}+${input.sha}`
   const path =
-    (input.root ?? '/repo/podium') +
-    '/dist-bun/' +
-    devBundleFileName(version, input.stamp)
+    (input.root ?? '/repo/podium') + '/dist-bun/' + devBundleFileName(version, input.stamp)
   return memoryFs({
     blobs: { [path]: input.bytes },
     text: {
@@ -678,9 +675,13 @@ describe('buildDevBundle', () => {
     expect(target.artifacts.web).toEqual({ digest: '1234567' })
   })
 
-  it('advertises dev+HEAD with a web digest when there is no tarball yet', () => {
-    const identity = devIdentityTarget('f9485d31b', { sourceRoot: '/repo/podium' })
-    expect(identity.version).toBe('dev+f9485d3')
+  it('advertises an orderable identity with a web digest when there is no tarball yet', () => {
+    const identity = devIdentityTarget('0.1.0-edge.20.dev.1+f9485d3', 'f9485d31b', {
+      sourceRoot: '/repo/podium',
+      schemaMigrations: ['20260715135845_baseline'],
+    })
+    expect(identity.version).toBe('0.1.0-edge.20.dev.1+f9485d3')
+    expect(identity.schema).toEqual({ migrations: ['20260715135845_baseline'] })
     expect(identity.artifacts.web).toEqual({ digest: 'f9485d3' })
     expect(identity.artifacts.headless).toBeUndefined()
     expect(identity.artifacts.headlessAlternatives).toEqual([
@@ -730,13 +731,15 @@ describe('buildDevBundle', () => {
     }
 
     expect(built[0]).not.toBe(built[1])
-    // Both survive within the retained window: a request streaming the first
-    // keeps its file; the second mint bumps the counter on the same commit.
+    // Same HEAD reuses the mint (F6); the FILE still gets a new stamp so a
+    // streaming download of the previous artifact is not overwritten.
+    expect(built[0]).toContain('dev.1+aaaaaaa-20260812T182015Z')
+    expect(built[1]).toContain('dev.1+aaaaaaa-20260812T193045Z')
     expect(store.names()).toContain(
       'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T182015Z.tar.gz',
     )
     expect(store.names()).toContain(
-      'podium-headless-0.1.0-edge.20.dev.2+aaaaaaa-20260812T193045Z.tar.gz',
+      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T193045Z.tar.gz',
     )
   })
 
@@ -843,20 +846,24 @@ describe('buildDevBundle', () => {
     await publisher.requestBuild(true)
 
     expect(builds).toBe(0)
-    // Reference-based retention: only the restored (and remembered) artifact
-    // is protected when publisher state was empty; older orphans go.
-    expect(store.names()).toEqual([
-      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T190000Z.tar.gz',
-      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T190000Z.tar.gz.meta.json',
-      'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T190000Z.tar.gz.sig',
-    ])
+    // Reference-based retention keeps the restored artifact and the previous
+    // recognised publisher bundle (DEV_BUNDLE_RETAINED=2), even after state loss.
+    expect(store.names().sort()).toEqual(
+      [
+        'podium-headless-dev+3333333-20260812T180000Z.tar.gz',
+        'podium-headless-dev+3333333-20260812T180000Z.tar.gz.sig',
+        'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T190000Z.tar.gz',
+        'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T190000Z.tar.gz.meta.json',
+        'podium-headless-0.1.0-edge.20.dev.1+aaaaaaa-20260812T190000Z.tar.gz.sig',
+      ].sort(),
+    )
   })
 
   it('releases the lease and keeps a failed build unpublished', async () => {
     const events: string[] = []
     await expect(
       buildDevBundle({
-      ...publisherSeams(),
+        ...publisherSeams(),
         headSha: '123456789abcdef',
         fs: stubFs(),
         lock: lockFixture(events),
@@ -958,7 +965,7 @@ describe('buildDevBundle', () => {
     for (const { label, store } of cases) {
       let builds = 0
       const publisher = createDevBundlePublisher({
-      ...publisherSeams(),
+        ...publisherSeams(),
         isSourceRun: true,
         readSourceStatus: () => '',
         readIgnoredSourceInputs: () => '',
@@ -1008,7 +1015,8 @@ describe('buildDevBundle', () => {
     // can still restore them — but they are no longer offered as the target,
     // because they are not what this server is running.
     expect(publisher.current()?.version).toBe('0.1.0-edge.20.dev.1+aaaaaaa')
-    expect((await publisher.target())?.version).toBe('dev+bbbbbbb')
+    expect((await publisher.target())?.version?.endsWith('+bbbbbbb')).toBe(true)
+    expect((await publisher.target())?.version?.startsWith('dev+')).toBe(false)
     expect((await publisher.target())?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
     expect((await publisher.target())?.artifacts.headless).toBeUndefined()
   })
@@ -1100,7 +1108,7 @@ describe('buildDevBundle', () => {
     await expect(publisher.requestBuild(true)).rejects.toThrow('vite blew up')
     // The whole point of hoisting the precondition: nothing expensive runs.
     expect(builds).toBe(0)
-    expect((await publisher.readiness())).toMatchObject({ state: 'failed', headSha: 'aaaaaaa' })
+    expect(await publisher.readiness()).toMatchObject({ state: 'failed', headSha: 'aaaaaaa' })
   })
 
   it('refuses to build or restore anything from a dirty checkout', async () => {
@@ -1281,7 +1289,7 @@ describe('development bundle readiness', () => {
   it('is ready, with the version, once HEAD is built', async () => {
     const { publisher } = readinessFixture()
     await publisher.requestBuild(true)
-    expect((await publisher.readiness())).toEqual({
+    expect(await publisher.readiness()).toEqual({
       state: 'ready',
       headSha: 'aaaaaaa',
       version: '0.1.0-edge.20.dev.1+aaaaaaa',
@@ -1297,10 +1305,11 @@ describe('development bundle readiness', () => {
     // The bundle still exists and is still dev+aaaaaaa; it is simply not the
     // target for the commit this server is now running.
     expect(publisher.current()?.version).toBe('0.1.0-edge.20.dev.1+aaaaaaa')
-    expect((await publisher.target())?.version).toBe('dev+bbbbbbb')
+    expect((await publisher.target())?.version?.endsWith('+bbbbbbb')).toBe(true)
+    expect((await publisher.target())?.version?.startsWith('dev+')).toBe(false)
     expect((await publisher.target())?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
     expect((await publisher.target())?.artifacts.headless).toBeUndefined()
-    expect((await publisher.readiness())).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
+    expect(await publisher.readiness()).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
   })
 
   it('reports failed for the new HEAD, not ready from the old one', async () => {
@@ -1310,14 +1319,15 @@ describe('development bundle readiness', () => {
     failNextBuild('compile blew up')
     await expect(publisher.requestBuild(true)).rejects.toThrow('compile blew up')
 
-    const readiness = (await publisher.readiness())
+    const readiness = await publisher.readiness()
     expect(readiness.state).toBe('failed')
     expect(readiness).toMatchObject({
       headSha: 'bbbbbbb',
       reason: 'compile blew up',
       publicReason: 'Building the development bundle for dev+bbbbbbb failed. See the server log.',
     })
-    expect((await publisher.target())?.version).toBe('dev+bbbbbbb')
+    expect((await publisher.target())?.version?.endsWith('+bbbbbbb')).toBe(true)
+    expect((await publisher.target())?.version?.startsWith('dev+')).toBe(false)
     expect((await publisher.target())?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
   })
 
@@ -1327,7 +1337,7 @@ describe('development bundle readiness', () => {
     })
     await expect(publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
 
-    const readiness = (await publisher.readiness())
+    const readiness = await publisher.readiness()
     expect(readiness).toMatchObject({
       state: 'failed',
       headSha: 'aaaaaaa',
@@ -1347,7 +1357,7 @@ describe('development bundle readiness', () => {
     expect((await publisher.readiness()).state).toBe('failed')
 
     moveHead('bbbbbbb')
-    expect((await publisher.readiness())).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
+    expect(await publisher.readiness()).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
   })
 
   it('is preparing while a build for this HEAD is in flight', async () => {
@@ -1413,7 +1423,7 @@ describe('ignored source inputs gate the build', () => {
       /ignored source files.*apps\/server\/src\/local-override\.ts/s,
     )
     expect(builds).toBe(0)
-    expect((await publisher.readiness())).toMatchObject({
+    expect(await publisher.readiness()).toMatchObject({
       state: 'failed',
       publicReason:
         'The source checkout has 1 ignored source file that could be compiled into ' +
@@ -1474,18 +1484,19 @@ describe('development targets declare the schema they can open', () => {
   const migrations = ['20260715135845_baseline', '20260816092917_operations-table']
 
   it('declares the migrations defined at the advertised commit', () => {
-    const target = devIdentityTarget('f9485d31b', {
+    const target = devIdentityTarget('0.1.0-edge.20.dev.1+f9485d3', 'f9485d31b', {
       sourceRoot: '/repo/podium',
       schemaMigrations: migrations,
     })
     expect(target.schema).toEqual({ migrations })
   })
 
-  it('says nothing when the commit tree could not be read', () => {
-    // Absent is not "safe" — the daemon reads a missing declaration as
-    // unproven and refuses. Better an honest refusal than a claim we cannot
-    // stand behind.
-    expect(devIdentityTarget('f9485d31b', { sourceRoot: '/repo/podium' }).schema).toBeUndefined()
+  it('refuses an identity target without migration declarations', () => {
+    expect(() =>
+      devIdentityTarget('0.1.0-edge.20.dev.1+f9485d3', 'f9485d31b', {
+        sourceRoot: '/repo/podium',
+      }),
+    ).toThrow(/no migrations found/)
   })
 
   it('publishes the declaration with the identity target', async () => {

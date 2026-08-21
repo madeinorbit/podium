@@ -329,7 +329,7 @@ export function sourceIdentityDiagnostic(sha: string, offending: string[]): stri
     sha +
     ' artifact would not have been compiled from that commit. Commit or stash: ' +
     shown.join(', ') +
-    (more > 0 ? ' (+' + more + ' more)' : '')
+    (more > 0 ? ` (+${more} more)` : '')
   )
 }
 
@@ -591,7 +591,7 @@ export const nodeDevBundleFs: DevBundleFs = {
         hash.update(chunk)
       })
       stream.once('error', reject)
-      stream.once('end', () => resolve({ digest: 'sha256-' + hash.digest('base64'), size }))
+      stream.once('end', () => resolve({ digest: `sha256-${hash.digest('base64')}`, size }))
     }),
   readText: (path) => readFileAsync(path, 'utf8'),
   writeText: (path, contents) => writeFile(path, contents),
@@ -624,14 +624,14 @@ export function devBundleKeyFingerprint(signingKey: string | undefined): string 
       createPrivateKey({ key: Buffer.from(signingKey, 'base64'), format: 'der', type: 'pkcs8' }),
     )
     const der = publicKey.export({ format: 'der', type: 'spki' })
-    return 'sha256-' + createHash('sha256').update(der).digest('base64')
+    return `sha256-${createHash('sha256').update(der).digest('base64')}`
   } catch {
     return 'unkeyed'
   }
 }
 
 export interface DevBundleLock {
-  acquire(): Promise<boolean | void>
+  acquire(): Promise<boolean | undefined>
   renew(): Promise<void>
   release(): Promise<void>
 }
@@ -650,7 +650,7 @@ export interface DevBuildSpawnContext {
 }
 
 export type DevBuildSpawnResult =
-  | void
+  | undefined
   | string
   | {
       path?: string
@@ -717,7 +717,10 @@ export function readCheckoutReleaseBase(root: string): string {
   )
 }
 
-function resolveCheckoutReleaseBase(deps: DevBundleBuildDeps, root: string): string {
+function resolveCheckoutReleaseBase(
+  deps: Pick<DevBundleBuildDeps, 'checkoutReleaseBase'>,
+  root: string,
+): string {
   if (typeof deps.checkoutReleaseBase === 'function') return deps.checkoutReleaseBase()
   if (typeof deps.checkoutReleaseBase === 'string') return deps.checkoutReleaseBase
   return readCheckoutReleaseBase(root)
@@ -725,8 +728,10 @@ function resolveCheckoutReleaseBase(deps: DevBundleBuildDeps, root: string): str
 
 /**
  * Assign the next publisher-owned version and persist the counter immediately
- * so a crash mid-compile cannot reuse N. Call {@link rememberDevArtifact} once
- * the stamped basename is known so the sweep allowlist includes it.
+ * so a crash mid-compile cannot reuse N. Reuses the prior allocation when the
+ * same HEAD is advertised again (identity target → later build). Call
+ * {@link rememberDevArtifact} once the stamped basename is known so the sweep
+ * allowlist includes it.
  */
 export function allocateDevPublishVersion(input: {
   stateDir: string
@@ -734,12 +739,22 @@ export function allocateDevPublishVersion(input: {
   sha: string
 }): { version: string; base: string; counter: number } {
   const existing = readDevPublisherState(input.stateDir)
-  const minted = mintDevVersion(versionStateOf(existing), input.checkoutBase, input.sha)
+  const sha = shortSha(input.sha)
+  if (existing?.lastSha === sha && existing.lastVersion) {
+    return {
+      version: existing.lastVersion,
+      base: existing.base,
+      counter: existing.counter,
+    }
+  }
+  const minted = mintDevVersion(versionStateOf(existing), input.checkoutBase, sha)
   writeDevPublisherState(
     {
       base: minted.state.base,
       counter: minted.state.counter,
       retainedArtifacts: existing?.retainedArtifacts ?? [],
+      lastSha: sha,
+      lastVersion: minted.version,
     },
     input.stateDir,
   )
@@ -768,28 +783,37 @@ export function rememberDevArtifact(input: {
     input.artifactName,
     ...existing.retainedArtifacts.filter((name) => name !== input.artifactName),
   ].slice(0, retain)
-  writeDevPublisherState({ ...existing, retainedArtifacts: referenced }, input.stateDir)
+  writeDevPublisherState(
+    {
+      ...existing,
+      retainedArtifacts: referenced,
+    },
+    input.stateDir,
+  )
   return referenced
-}
-
-/** Basenames the publisher currently promises not to delete. */
-export function referencedDevArtifacts(stateDirPath: string = stateDir()): string[] {
-  return readDevPublisherState(stateDirPath)?.retainedArtifacts ?? []
 }
 
 /**
  * Recover publisher state from an on-disk artifact when the state file is gone.
- * Legacy `dev+<sha>` artifacts contribute only the allowlist entry — the next
- * mint still seeds its base from the checkout.
+ *
+ * The allowlist is the restored artifact plus the newest other recognised
+ * publisher artifacts in `knownNames` (up to the retention window) — so a
+ * state-file loss does not delete the previous bundle the human still wants
+ * on disk for comparison.
  */
 export function seedPublisherStateFromArtifact(input: {
   stateDir: string
   version: string
   artifactName: string
   retain?: number
+  /** Directory listing (basenames) used to keep the previous retained bundle. */
+  knownNames?: readonly string[]
 }): string[] {
   const retain = input.retain ?? DEV_BUNDLE_RETAINED
-  const referenced = [input.artifactName].slice(0, retain)
+  const others = listDevBundles(input.knownNames ?? [])
+    .map((entry) => entry.name)
+    .filter((name) => name !== input.artifactName)
+  const referenced = [input.artifactName, ...others].slice(0, retain)
   const parsed = parsePublisherDevVersion(input.version)
   if (parsed) {
     writeDevPublisherState(
@@ -797,6 +821,8 @@ export function seedPublisherStateFromArtifact(input: {
         base: parsed.base,
         counter: parsed.counter,
         retainedArtifacts: referenced,
+        lastSha: parsed.sha,
+        lastVersion: input.version,
       },
       input.stateDir,
     )
@@ -820,7 +846,7 @@ function developmentSigningKey(root: string): string {
     const key = readFileSync(path, 'utf8').trim()
     if (key) return key
   }
-  throw new Error('development signing key missing at ' + path)
+  throw new Error(`development signing key missing at ${path}`)
 }
 
 /**
@@ -1038,7 +1064,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
     }
     await fs.writeText(
       artifactPath + DEV_BUNDLE_METADATA_SUFFIX,
-      JSON.stringify(metadata, null, 2) + '\n',
+      `${JSON.stringify(metadata, null, 2)}\n`,
     )
     await sweepDevBundles(fs, dirname(artifactPath), {
       referenced,
@@ -1066,7 +1092,7 @@ export function developmentPlatformTarget(
 ): string {
   const os = platform === 'win32' ? 'windows' : platform
   const cpu = arch === 'x64' ? 'x86_64' : arch === 'arm64' ? 'aarch64' : arch
-  return os + '-' + cpu
+  return `${os}-${cpu}`
 }
 
 /**
@@ -1101,10 +1127,7 @@ export async function migrationsAtRevision(
  * checkout's migrations has to stop, not ship a target that will be refused for
  * the rest of its life (POD-2502 / release.ts parity).
  */
-export function requireDefinedMigrations(
-  migrations: string[] | undefined,
-  sha: string,
-): string[] {
+export function requireDefinedMigrations(migrations: string[] | undefined, sha: string): string[] {
   if (migrations && migrations.length > 0) return migrations
   throw new Error(
     `no migrations found for ${sha}, so this development release cannot declare the schema it can open`,
@@ -1122,7 +1145,7 @@ export function devTarget(
   } = {},
 ): UpdateTarget {
   const platform = opts.platform ?? developmentPlatformTarget()
-  const url = opts.artifactUrl ?? DEV_ARTIFACT_ROUTE + '/' + encodeURIComponent(built.version)
+  const url = opts.artifactUrl ?? `${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(built.version)}`
   const sha = commitShaFromDevVersion(built.version) ?? built.version.replace(/^dev\+/, '')
   const webDigest = opts.webDigest ?? sha
   const migrations = requireDefinedMigrations(opts.schemaMigrations, sha)
@@ -1154,24 +1177,29 @@ export function devTarget(
 }
 
 /**
- * `dev+<sha>` as an install identity when there is not yet an honest headless
- * tarball for this HEAD. Orderable publisher versions exist only for minted
- * bundles (disposition 23); the identity label stays the forensic source form
- * so Update can still compare and rebuild the website. Do not advertise a
+ * Orderable install identity when there is not yet an honest headless tarball
+ * for this HEAD. Spec §1: dest versions are orderable on every channel, so the
+ * identity target carries a publisher mint (same form a later build will reuse
+ * for this SHA) rather than an unorderable `dev+<sha>`. Do not advertise a
  * previous commit's tarball under this label.
  *
- * Schema declarations are required when this identity is *published* as a
- * target — see {@link createDevBundlePublisher} `target()`.
+ * Schema declarations are required — same fail-closed posture as {@link devTarget}.
  */
 export function devIdentityTarget(
+  version: string,
   headSha: string,
   opts: { sourceRoot?: string; schemaMigrations?: string[] } = {},
 ): UpdateTarget {
   const sha = shortSha(headSha)
+  const fromVersion = commitShaFromDevVersion(version)
+  if (fromVersion !== sha) {
+    throw new Error(`identity target version ${version} does not name commit ${sha}`)
+  }
+  const migrations = requireDefinedMigrations(opts.schemaMigrations, sha)
   return {
-    version: 'dev+' + sha,
+    version,
     critical: false,
-    ...(opts.schemaMigrations ? { schema: { migrations: opts.schemaMigrations } } : {}),
+    schema: { migrations },
     artifacts: {
       web: { digest: sha },
       headlessAlternatives: [
@@ -1372,11 +1400,13 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
                     ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
                   })
                 } catch {
+                  const knownNames = await fs.list(dirname(existing.path))
                   referenced = seedPublisherStateFromArtifact({
                     stateDir: statePath,
                     version: existing.version,
                     artifactName,
-                    retain: deps.retain,
+                    knownNames,
+                    ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
                   })
                 }
                 await sweepDevBundles(fs, dirname(existing.path), {
@@ -1491,7 +1521,15 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           schemaMigrations: migrations,
         })
       }
-      return devIdentityTarget(headSha, {
+      // Allocate (or reuse) an orderable mint for this HEAD so identity
+      // targets compare like every other channel (spec §1 / F6).
+      const root = deps.root ?? SOURCE_ROOT
+      const allocated = allocateDevPublishVersion({
+        stateDir: deps.publisherStateDir ?? stateDir(),
+        checkoutBase: resolveCheckoutReleaseBase(deps, root),
+        sha: headSha,
+      })
+      return devIdentityTarget(allocated.version, headSha, {
         sourceRoot: deps.root,
         schemaMigrations: migrations,
       })
