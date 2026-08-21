@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fresh VPS onboarding now installs from the same stable or edge channel as the app presenting the
+  command, instead of forcing stable installs onto edge.
+- The first-task repository picker now follows recent repository ordering and selects the correct
+  machine checkout when a repository exists on multiple machines.
+
 ## [0.1.1-edge.1] - 2026-08-20
 
 ### Added
