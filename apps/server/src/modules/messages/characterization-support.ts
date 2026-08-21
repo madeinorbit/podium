@@ -203,6 +203,9 @@ export interface MailHarness {
   /** Release the receipts held by `receipts.defer`, returning how many fired —
    *  the verification window closing, with no wall-clock sleep. */
   settleReceipts(): number
+  /** Re-deliver every receipt that already fired — the at-least-once replay,
+   *  returning how many. */
+  replayReceipts(): number
   /** Wake-spawn createSession calls (the spawn-on-wake seam). */
   wakeSpawns: Record<string, unknown>[]
   /** Gate spawnAgent calls (the direct `podium agent spawn` seam). */
@@ -285,6 +288,8 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
   // harness has no `receiptSend` to find and delivery takes the legacy branch.
   const receiptsSeen: { via: string; sessionId: SessionId; receipt: TurnReceipt }[] = []
   const held: (() => void)[] = []
+  /** Receipts that have actually been delivered — the replay set. */
+  const fired: (() => void)[] = []
   const receiptOpts = opts?.receipts
   const legacyOf = { now: 'sendText', queue: 'queueText', interrupt: 'interruptText' } as const
   const receiptSend: NonNullable<MessageDeliveryDeps['sessions']['receiptSend']> = (
@@ -311,7 +316,10 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
       onReceipt(receipt)
     }
     if (receiptOpts?.defer) held.push(fire)
-    else fire()
+    else {
+      fired.push(fire)
+      fire()
+    }
     return legacy
   }
 
@@ -426,8 +434,20 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
      *  closing, with no wall-clock sleep. */
     settleReceipts: () => {
       const pending = held.splice(0, held.length)
-      for (const fire of pending) fire()
+      for (const fire of pending) {
+        fired.push(fire)
+        fire()
+      }
       return pending.length
+    },
+    /** Deliver every receipt this harness has ALREADY delivered, again — the
+     *  at-least-once replay the runtime frames promise, made available to a test
+     *  that has to show a consumer is idempotent under it [POD-2298]. Only
+     *  receipts that actually fired replay; one still held by `defer` has not
+     *  happened yet and `settleReceipts` is what makes it happen. */
+    replayReceipts: () => {
+      for (const fire of [...fired]) fire()
+      return fired.length
     },
     wakeSpawns,
     gateSpawns,

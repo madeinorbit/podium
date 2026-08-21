@@ -49,7 +49,11 @@ import {
   type SessionMeta,
 } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
-import { type QueueDrainAbandonedReason, type TurnReceipt } from '@podium/protocol/daemon'
+import {
+  type QueueDrainAbandonedReason,
+  type RefusalReason,
+  type TurnReceipt,
+} from '@podium/protocol/daemon'
 import type { CommandPrincipal } from '../../command-principal'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
@@ -384,6 +388,66 @@ const ABANDONED_REASON_TEXT: Record<QueueDrainAbandonedReason, string> = {
   'never-live': 'the target session never finished starting within the readiness deadline',
   teardown: 'the target session was torn down before it could be typed into',
   'delivery-failed': 'the target session accepted it, then failed to hand it to the agent',
+}
+
+/**
+ * WHAT A REFUSED RECEIPT DOES TO THE ROW IT ANSWERS [POD-2298].
+ *
+ * A send toward a live driver records its ledger state optimistically and hears
+ * the driver's verdict afterwards (see {@link MessageDeliveryService.injectAndMark}).
+ * Before this table a `refused` verdict was RECORDED and nothing else, so a chat
+ * message whose driver threw kept saying `delivered` with nothing delivered —
+ * the exact silent loss the receipt migration exists to end. Every arm of
+ * `RefusalReason` therefore has to answer one question: does the cause clear on
+ * its own?
+ *
+ *  - IT CLEARS → `requeue`. `busy` ends when the turn does, `needs_user` when a
+ *    person answers, `lease_held` when the human lets go. The row goes back to
+ *    `queued` un-pushed and the idle drain / sweep — the retry machinery that
+ *    already exists — carries it. Nothing new retries anything here.
+ *  - IT DOES NOT → `dead-letter`, and the sender is told once. There is no
+ *    process to type into (`not_running`), the session is over (`session_ended`),
+ *    the machine could not persist the bytes (`staging_failed` — a disk that
+ *    failed this turn is not talked round by the next sweep tick),
+ *    or the driver does not implement the verb at all (`unsupported`, which no
+ *    shipped driver answers a send with today — it is here so that if one ever
+ *    does, an unsatisfiable send fails loudly instead of re-queueing forever).
+ *  - `no_resume_ref` IS NOT THIS PATH'S TO CORRECT. It reaches a reconciler only
+ *    from the durable-queue refusal, which answers SYNCHRONOUSLY and is already
+ *    routed to spawn-on-wake by `injectAndMark`'s own `no resume ref` branch.
+ *    Dead-lettering it here would kill the row that path is about to deliver.
+ *
+ * `staging_failed` ARRIVED AFTER THIS TABLE DID — POD-2298 was written against
+ * seven arms and the attachment work added an eighth. Nothing here had to notice:
+ * the `Record<RefusalReason, …>` is exhaustive on purpose, so the compiler asked
+ * for an answer instead of letting an unknown refusal fall through to "leave
+ * `delivered` standing", which is the defect this file exists to fix. Keep it
+ * exhaustive. And when a future arm is genuinely ambiguous, prefer the VISIBLE
+ * correction: a wrong dead-letter is a message its sender can see and send again,
+ * a wrong `none` is one nobody ever hears about.
+ *
+ * The dead-letter arms name a {@link QueueDrainAbandonedReason} rather than
+ * carrying wording of their own. That enum is not widened (a fourth arm is a
+ * rolling-upgrade event, POD-2297) and {@link ABANDONED_REASON_TEXT} stays the one
+ * place a sender-facing undelivered notice is written — a refusal and a drain
+ * abandonment are the same news to the person holding the receipt, and they must
+ * not arrive worded two different ways. The precise refusal reason is not lost:
+ * it rides the `message.receipt` event emitted beside the correction.
+ */
+const REFUSAL_CORRECTION: Record<
+  RefusalReason,
+  | { correct: 'requeue' }
+  | { correct: 'dead-letter'; as: QueueDrainAbandonedReason }
+  | { correct: 'none' }
+> = {
+  busy: { correct: 'requeue' },
+  needs_user: { correct: 'requeue' },
+  lease_held: { correct: 'requeue' },
+  not_running: { correct: 'dead-letter', as: 'delivery-failed' },
+  unsupported: { correct: 'dead-letter', as: 'delivery-failed' },
+  session_ended: { correct: 'dead-letter', as: 'teardown' },
+  staging_failed: { correct: 'dead-letter', as: 'delivery-failed' },
+  no_resume_ref: { correct: 'none' },
 }
 
 export class MessageDeliveryService {
@@ -1179,9 +1243,15 @@ export class MessageDeliveryService {
     // legacy one, kept intact and reached whenever this session has no driver
     // behind it — which is what makes flag-off byte-identical rather than
     // merely similar.
+    // WHETHER THIS FUNCTION HAS WRITTEN ANYTHING YET, told to the reconciler so a
+    // refusal corrects the push it answers and never the one before it. The
+    // durable-queue branch of `receiptSend` refuses SYNCHRONOUSLY, from inside the
+    // call below — its receipt is recorded, and the `ok: false` return underneath
+    // is what handles it [POD-2298].
+    let recorded = false
     const r = sessions.receiptSend
       ? sessions.receiptSend(via, input, (receipt) => {
-          this.reconcileReceipt(message.id, sessionId, receipt)
+          this.reconcileReceipt(message.id, sessionId, receipt, recorded)
         })
       : via === 'now'
         ? sessions.sendText(input)
@@ -1202,6 +1272,7 @@ export class MessageDeliveryService {
     // preserves the existing sweep/retry guard while status remains retractable.
     if (via === 'queue') {
       this.markInjected(message, sessionId)
+      recorded = true
       return { ...r, disposition: okDisposition }
     }
     const confirmed = this.render.confirmedOnInjection(message)
@@ -1215,6 +1286,7 @@ export class MessageDeliveryService {
       // for the agent's own signal (transcript echo → delivered, inbox → read).
       this.markInjected(message, sessionId)
     }
+    recorded = true
     // Honest sync disposition [spec:SP-cb9f] [POD-854]. The optimistic `delivered`
     // disposition is only ever passed for a LIVE-PTY push (via 'now' / 'interrupt',
     // sendText/interruptText) — the bytes are on screen now — so it is honest only
@@ -1543,13 +1615,17 @@ export class MessageDeliveryService {
     // and nothing about that choice changes. `reconcile` names which row the
     // late receipt belongs to, because a batch dispatches several and a receipt
     // that could not say which one would settle the wrong one.
+    // The same "which push is this receipt about" latch `injectAndMark` keeps, per
+    // row rather than per call: this helper dispatches several and `recordPush`
+    // below is what puts each one's optimistic state on the ledger [POD-2298].
+    const recorded = new Set<string>()
     const push = (
       input: InboxDeliveryInput,
       reconcile: string,
     ): { ok: boolean; queued?: boolean; reason?: string } =>
       sessions.receiptSend
         ? sessions.receiptSend('now', input, (receipt) => {
-            this.reconcileReceipt(reconcile, session.sessionId, receipt)
+            this.reconcileReceipt(reconcile, session.sessionId, receipt, recorded.has(reconcile))
           })
         : sessions.sendText(input)
     for (const m of inlineRows) {
@@ -1564,6 +1640,7 @@ export class MessageDeliveryService {
         m.id,
       )
       if (r.ok) this.recordPush(m, session.sessionId)
+      recorded.add(m.id)
     }
     if (pointerRows.length === 1 && pointerRows[0]!.body.length <= INLINE_BODY_MAX) {
       // One short fyi delivers inline with its full envelope (id present) — the
@@ -1580,6 +1657,7 @@ export class MessageDeliveryService {
         m.id,
       )
       if (r.ok) this.recordPush(m, session.sessionId)
+      recorded.add(m.id)
     } else if (pointerRows.length > 0) {
       // Coalesced nudge: the bodies (and ids) are NOT in the transcript, so these
       // can only be confirmed by an inbox READ. Record the push (injected) and
@@ -1605,6 +1683,7 @@ export class MessageDeliveryService {
         pointerRows[0]!.id,
       )
       if (r.ok) for (const m of pointerRows) this.markInjected(m, session.sessionId)
+      recorded.add(pointerRows[0]!.id)
     }
   }
 
@@ -1936,8 +2015,37 @@ export class MessageDeliveryService {
    * What the ledger gains is the ability to tell three things apart that were
    * indistinguishable while delivery was inferred: a turn that provably opened,
    * a turn whose acceptance is genuinely unknown, and a push the driver refused.
+   *
+   * ---------------------------------------------------------------------------
+   * ONE OUTCOME IS THE EXCEPTION, AND IT IS NOT A RESEND EITHER [POD-2298]
+   * ---------------------------------------------------------------------------
+   *
+   * A `refused` receipt is not evidence about an unknown; it is the driver saying
+   * IT NEVER TOOK THE TEXT. Leaving the optimistic record standing on that is the
+   * lie the paragraphs above are written against, one path over: the sender's chat
+   * bubble says delivered, `countPending` has dropped the row, the sweep will never
+   * look at it again, and nobody ever finds out. So a refusal — alone among the
+   * four outcomes — CORRECTS the row, per {@link REFUSAL_CORRECTION}: back to
+   * `queued` when the cause clears on its own, terminal and told-once when it does
+   * not. That is still not a resend. Re-queueing hands the row back to the retry
+   * machinery that was already going to carry it; this function pushes nothing.
+   *
+   * `afterRecord` IS WHICH PUSH THE RECEIPT IS ABOUT. Receipts are not all late:
+   * the durable-queue path answers inside `receiptSend` itself, BEFORE its caller
+   * has recorded anything, and a correction there would settle the row against the
+   * PREVIOUS push's stamps while the caller's own `ok: false` return — the branch
+   * that routes a wake to spawn-on-wake and everything else to the sweep — is
+   * still on its way. A synchronous receipt is therefore recorded and not
+   * CORRECTED; the caller owns the row it answers. It is not ignored, though —
+   * see the terminal `unsupported` case at the foot of the function, which is
+   * about a row that never got a stamp rather than one whose stamp was a lie.
    */
-  private reconcileReceipt(messageId: string, sessionId: SessionId, receipt: TurnReceipt): void {
+  private reconcileReceipt(
+    messageId: string,
+    sessionId: SessionId,
+    receipt: TurnReceipt,
+    afterRecord: boolean,
+  ): void {
     const message = this.deps.messages.getMessage(messageId)
     // Already settled by the echo, read or a cancellation while the window was
     // open — the receipt is late evidence about a question that is closed, and
@@ -1964,13 +2072,76 @@ export class MessageDeliveryService {
           }
         : {}),
     })
-    if (
-      receipt.outcome === 'refused' &&
-      receipt.refusal.reason === 'unsupported' &&
-      message.attachments?.length
-    ) {
+    if (receipt.outcome !== 'refused') return
+    if (afterRecord && this.correctRefusedPush(message, sessionId, receipt.refusal.reason)) return
+    // A SYNCHRONOUS REFUSAL ANSWERS A PUSH THAT NEVER REACHED A STAMP [POD-2574].
+    // `receiptSend` turns attachments away from inside the call `injectAndMark` is
+    // still making, so the row is plainly `queued`, resting on nothing, and the
+    // correction above — guarded on the row resting on THIS push — rightly
+    // declines it. Staying queued is the right answer for the reasons that clear
+    // on their own; the sweep is the retry those rows want. It is the wrong answer
+    // for `unsupported`, which is a CAPABILITY rather than a moment: every sweep
+    // tick would refuse it again, for the same reason, forever. So end it here.
+    // The sender is not notified because they were already told synchronously —
+    // this refusal is the `ok: false` their own send returns.
+    if (receipt.refusal.reason === 'unsupported' && message.attachments?.length) {
       this.deadLetter(message, receipt.refusal.detail ?? 'file attachments are unsupported')
     }
+  }
+
+  /**
+   * UNDO THE OPTIMISM A REFUSAL JUST DISPROVED [POD-2298].
+   *
+   * Split out of {@link reconcileReceipt} because the recording above is about the
+   * ledger's evidence and this is about the row's STATE — the one thing that
+   * function's own header promises it never does, and so the one thing that has to
+   * be visibly the exception rather than buried in it.
+   *
+   * Both writers are guarded on the row still resting on THIS session's optimistic
+   * record, which is what makes a repeated or late receipt a no-op rather than a
+   * second notice: a row the echo confirmed, a cancellation retracted, or another
+   * push re-aimed elsewhere is already past the state a refusal would correct.
+   *
+   * Returns whether this refusal actually moved the row, so the caller can tell a
+   * correction from a decline and let a decline fall through to the terminal case
+   * for refusals that answer a push with no stamps to undo.
+   */
+  private correctRefusedPush(
+    message: MessageRow,
+    sessionId: SessionId,
+    reason: RefusalReason,
+  ): boolean {
+    const correction = REFUSAL_CORRECTION[reason]
+    if (correction.correct === 'none') return false
+    const at = this.deps.now()
+    if (correction.correct === 'requeue') {
+      if (!this.deps.messages.retractOptimisticDelivery(message.id, sessionId)) return false
+      // The turn-hop context stays. `markDelivered`/`markInjected` stamped it for
+      // a turn this text never opened, but some LATER push into the same session
+      // may legitimately own it by now, and clearing another message's hop to tidy
+      // up after this one would under-count a real chain. It expires on idle.
+      this.emitTransition(
+        { ...message, status: 'queued', deliveredAt: null, injectedAt: null },
+        'message.requeued',
+        { refusedFor: reason, retryable: true },
+      )
+      return true
+    }
+    if (!this.deps.messages.markSendRefused(message.id, sessionId, at, correction.as)) return false
+    this.emitTransition(
+      {
+        ...message,
+        status: 'dead_letter',
+        deadLetteredAt: at,
+        deliveredAt: null,
+        deliveryDeferredAt: at,
+        deliveryDeferredReason: correction.as,
+      },
+      'message.dead_letter',
+      { reason: correction.as, refusedFor: reason, retryable: false, deliveryConfirmed: false },
+    )
+    this.notifyDeadLetter(message, ABANDONED_REASON_TEXT[correction.as])
+    return true
   }
 
   /** queued → delivered: the PUSH is confirmed [POD-834]. `via` records HOW it was

@@ -542,6 +542,109 @@ export class MessagesRepository {
     return r.changes === 1
   }
 
+  /**
+   * THE PUSH THIS ROW IS RESTING ON WAS REFUSED, SO THE ROW GOES BACK IN THE
+   * QUEUE [POD-2298].
+   *
+   * The optimistic half of the receipt migration is that a send toward a live
+   * driver records its ledger state IMMEDIATELY — `delivered` for a body that is
+   * confirmed on injection, `injected_at` for one still owed an echo — and the
+   * driver's receipt arrives afterwards to correct it. When that receipt is a
+   * refusal whose cause CLEARS ON ITS OWN (a turn was open, a person owes an
+   * answer, a human holds the lease), the correction is to undo the optimism and
+   * let the ordinary retry machinery run again: status back to `queued`,
+   * `delivered_at` and `injected_at` erased so the idle drain and the sweep both
+   * see an un-pushed row.
+   *
+   * `delivered_to` STAYS. It is the last place this row was aimed, the sweep
+   * re-reads it rather than trusting it, and clearing it would erase the only
+   * evidence of which session refused.
+   *
+   * THE READ RECEIPT GOES WITH THE DELIVERY. `markDelivered` records one, and a
+   * per-reader receipt saying this session saw a message it never got is the same
+   * lie one table over — it hides the row from that session's own pending set.
+   *
+   * {@link MessagesRepository.RESTING_ON_A_PUSH} IS THE GUARD AND THE IDEMPOTENCY.
+   * A repeat finds the row already `queued` with no `injected_at`, matches
+   * nothing and changes nothing.
+   */
+  retractOptimisticDelivery(id: string, deliveredTo: SessionId): boolean {
+    const r = this.db
+      .prepare(
+        `UPDATE messages SET status = 'queued', delivered_at = NULL, injected_at = NULL
+         WHERE ${MessagesRepository.RESTING_ON_A_PUSH}`,
+      )
+      .run(id, deliveredTo)
+    if (r.changes !== 1) return false
+    this.db
+      .prepare(`DELETE FROM message_reads WHERE message_id = ? AND session_id = ?`)
+      .run(id, deliveredTo)
+    return true
+  }
+
+  /**
+   * IS THIS ROW STILL RESTING ON AN UNANSWERED PUSH TO `delivered_to`? The
+   * predicate both refusal writers correct through, written once so they cannot
+   * drift apart [POD-2298].
+   *
+   * Optimistic delivery leaves exactly two fingerprints, and they are what the two
+   * arms name. `delivered` WITH NO `injected_at` is a body confirmed on injection
+   * — an unwrapped operator chat line or a best-effort ack, which `injectAndMark`
+   * marks delivered outright because no echo will ever come. `queued` WITH an
+   * `injected_at` is an enveloped body whose bytes were dispatched and whose echo
+   * is still owed.
+   *
+   * WHAT THE TWO ARMS TOGETHER EXCLUDE IS THE POINT. A row that is `delivered` AND
+   * carries `injected_at` was confirmed by the transcript echo or the turn
+   * boundary — the agent demonstrably has it — and a driver's refusal arriving
+   * afterwards is late evidence about a question the transcript already answered.
+   * Walking that row backwards would be the mirror image of the defect this
+   * predicate exists to fix. `read`, `cancelled` and `dead_letter` are terminal or
+   * retracted and match neither arm.
+   */
+  private static readonly RESTING_ON_A_PUSH = `
+    id = ? AND delivered_to = ?
+    AND (
+      (status = 'delivered' AND injected_at IS NULL)
+      OR (status = 'queued' AND injected_at IS NOT NULL)
+    )`
+
+  /**
+   * queued|delivered → dead_letter, because the driver REFUSED the push this row
+   * was already resting on [POD-2298].
+   *
+   * The sibling of {@link markDeliveryAbandoned}, and it exists rather than
+   * widening it because that one is guarded `status = 'queued'` — the whole point
+   * here is a row that optimistic delivery already moved past `queued`, which
+   * that guard silently skips. Both write the same `delivery_deferred_*` stamps
+   * so one undelivered turn reads the same way whichever route reported it.
+   *
+   * `reason` is deliberately the EXISTING abandonment vocabulary rather than the
+   * refusal's own: the wire enum stays three arms wide (widening it is a
+   * rolling-upgrade event, POD-2297) and the precise `RefusalReason` is already on
+   * the `message.receipt` event emitted beside this write.
+   *
+   * Guarded through the same {@link MessagesRepository.RESTING_ON_A_PUSH}
+   * predicate as {@link retractOptimisticDelivery}, for the same reason — a
+   * refusal corrects the push it answers, never a row that has since moved on.
+   */
+  markSendRefused(
+    id: string,
+    deliveredTo: SessionId,
+    at: string,
+    reason: QueueDrainAbandonedReason,
+  ): boolean {
+    const r = this.db
+      .prepare(
+        `UPDATE messages
+         SET status = 'dead_letter', dead_lettered_at = ?,
+             delivery_deferred_at = ?, delivery_deferred_reason = ?
+         WHERE ${MessagesRepository.RESTING_ON_A_PUSH}`,
+      )
+      .run(at, at, reason, id, deliveredTo)
+    return r.changes === 1
+  }
+
   /** queued → delivered: the PUSH is CONFIRMED — the message's envelope appeared
    *  as a turn in the target's transcript (transcript echo, [POD-834]). Only now
    *  does the ledger claim the agent has it in context. Guarded on status so a

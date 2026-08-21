@@ -826,6 +826,7 @@
         "src/modules/messages/brakes.ts",
         "src/modules/messages/characterization-support.ts",
         "src/modules/messages/characterization.delivery.receipts.test.ts",
+        "src/modules/messages/characterization.delivery.refusals.test.ts",
         "src/modules/messages/characterization.delivery.test.ts",
         "src/modules/messages/gate-agent.test.ts",
         "src/modules/messages/gate.ts",
