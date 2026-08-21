@@ -9069,14 +9069,29 @@ a.ref-link--session::before {
 
    The name is the only column allowed to shrink before the row changes shape.
    Ref, role and state are complete facts; rendering half of one is worse than
-   spending a second line. */
+   spending a second line.
+
+   THE ROSTER IS A TABLE (POD-1461). Every track above except the last was
+   content-sized, and a grid is per-ROW — so four rows sized themselves four
+   different ways and the ref, the role and the state each started at four
+   different x-positions. Nothing was misaligned by a rule; the column simply
+   had no columns, which is the whole of what reads as clutter.
+   The fix is to size the leading tracks from the ROW BOX rather than from the
+   row's own content: a percentage and a length resolve identically on every
+   row, because every row is the same width. Title, ref and role then open on
+   three fixed left edges, and the state — the one field an operator scans
+   vertically for a change — keeps the trailing edge it already had.
+   38% for the name: at the deck's 300–620px range that is 110–223px, which
+   holds the great majority of session names outright and never starves the two
+   facts to its right. The role takes what is left, so a long provenance still
+   gets every spare pixel on the row before it has to cut. */
 .deck-agent {
   grid-template-areas: "name ref role state";
   grid-template-columns:
-    minmax(0, max-content)
+    minmax(0, 38%)
     68px
-    max-content
-    minmax(var(--deck-state-col), 1fr);
+    minmax(0, 1fr)
+    max-content;
 }
 .deck-agent-name {
   grid-area: name;
@@ -9084,8 +9099,18 @@ a.ref-link--session::before {
 .deck-agent-ref {
   grid-area: ref;
 }
+/* The role is the ONE field allowed to cut on a wide row, and only after it has
+   been given the whole remainder of the line. `by <a long session name>` is the
+   only value here that can outrun a 620px deck, it degrades legibly (the `BY`
+   and the first words are the useful part), and the full string is on both the
+   span's own title and the row's. Everything else on the row is either
+   truncation-proof or moves to a second line instead. */
 .deck-agent-role {
   grid-area: role;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .deck-agent-state.deck-state-col {
@@ -9107,11 +9132,20 @@ a.ref-link--session::before {
    stable address and provenance on line two. The role may wrap only when its
    own text exceeds the remaining narrow-panel measure; it is never ellipsized. */
 @container deck-rows (max-width: 520px) {
+  /* THE SAME TABLE, FOLDED (POD-1461). Line one is identity against live
+     state; line two is the address against the provenance. Both halves keep the
+     wide row's rule — everything that is read as a LABEL opens on a fixed left
+     edge, and the one field read as a VALUE keeps the trailing edge.
+     94px is the ref's own column: 26px to clear the agent tile, then the same
+     68px the wide row gives it, so the ref sits under the name's first letter
+     and the role opens on one edge down the whole roster. The role used to be
+     flushed right on this line, which put two different right-hand readings on
+     one row and left a ragged gutter between them. */
   .deck-agent {
     grid-template-areas:
-      "name state"
-      "ref role";
-    grid-template-columns: minmax(0, 1fr) minmax(var(--deck-state-col), 1fr);
+      "name name  state"
+      "ref  role  role";
+    grid-template-columns: 94px minmax(0, 1fr) max-content;
     row-gap: 4px;
   }
   .deck-agent-ref {
@@ -9120,12 +9154,18 @@ a.ref-link--session::before {
     justify-self: start;
     text-align: start;
   }
+  /* Line two has the room the wide row does not, so provenance goes back to
+     wrapping rather than cutting — a second line here costs 11px, and the ask
+     the whole roster exists to surface is never on this field. */
   .deck-agent-role {
+    display: block;
     min-width: 0;
     max-width: 100%;
-    justify-self: end;
+    justify-self: start;
+    overflow: visible;
     overflow-wrap: anywhere;
-    text-align: end;
+    text-align: start;
+    text-overflow: clip;
     white-space: normal;
     line-height: 1.25;
   }
