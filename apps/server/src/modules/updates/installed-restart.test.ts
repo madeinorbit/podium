@@ -123,3 +123,89 @@ describe('createInstalledCoordinatorUpdate', () => {
     expect(installed).toEqual([])
   })
 })
+
+/**
+ * THE FLEET-OF-ONE SERVER, which is the OTHER half of this issue's first
+ * acceptance line (spec §1, disposition 11).
+ *
+ * A server-only installation has no local daemon, so it performs its own
+ * verified delivery — and it must obey the same rule the daemon does: the
+ * TARGET names which key may have signed the bytes, and this process never
+ * decides for itself. These arms drive the REAL delivery closure rather than
+ * the injected `deliver` seam every other case here uses, because the seam is
+ * exactly what would hide a trust root that never reached `fetchArtifact`.
+ */
+describe('an installed coordinator delivering for itself', () => {
+  const asset = { url: 'https://feed.test/a.tgz', digest: 'd', signature: 's' }
+  const targetFor = (trust?: 'release' | 'instance') => ({
+    version: '0.4.2',
+    critical: false,
+    ...(trust ? { trust } : {}),
+    artifacts: {
+      headless: { delivery: 'feed' as const, platforms: { 'linux-x86_64': asset } },
+    },
+  })
+
+  /** Runs the real closure far enough to observe the fetch it would make. */
+  async function deliveryAttempt(trust?: 'release' | 'instance', pinnedPubkey?: string) {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-server-trust-'))
+    const seen: Array<{ url: string; authorization: string | null }> = []
+    try {
+      writeFileSync(join(dir, 'VERSION'), '0.4.1\n')
+      const ensure = createInstalledCoordinatorUpdate({
+        env: { INVOCATION_ID: 'server-unit' },
+        installDir: dir,
+        platform: 'linux-x86_64',
+        pubkey: 'baked-release-key',
+        ...(pinnedPubkey ? { pinnedPubkey } : {}),
+        readApplied: () => undefined,
+        swap: async () => {},
+        fetch: (async (url: string, init?: RequestInit) => {
+          seen.push({
+            url: String(url),
+            authorization: new Headers(init?.headers).get('authorization'),
+          })
+          return new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+        }) as unknown as typeof fetch,
+      })
+      let error: unknown
+      await ensure?.(targetFor(trust)).catch((thrown: unknown) => {
+        error = thrown
+      })
+      return { seen, error }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  it('fails closed on an instance-trusted target when nothing was pinned', async () => {
+    const { seen, error } = await deliveryAttempt('instance')
+    expect((error as Error).message).toMatch(/pinned at pairing/)
+    // …and it does so BEFORE the download, not after a quarter of a gigabyte.
+    expect(seen).toEqual([])
+  })
+
+  it('proceeds to the download once the pinned key this target names exists', async () => {
+    const { seen, error } = await deliveryAttempt('instance', 'pinned-instance-key')
+    expect(seen.map((call) => call.url)).toEqual([asset.url])
+    // It gets as far as the integrity gates, which is as far as a fixture
+    // digest can take it — the point is that the key question was answered.
+    expect((error as Error).message).toMatch(/verification FAILED/)
+  })
+
+  /**
+   * A RELEASE-TRUSTED TARGET NEEDS NO PIN, and that asymmetry is the whole
+   * discriminator: the same coordinator, the same absent pinned key, refused
+   * before the download on `instance` and downloading on `release`.
+   */
+  it('needs no pinned key at all when the target names the release root', async () => {
+    const { seen, error } = await deliveryAttempt('release')
+    expect(seen.map((call) => call.url)).toEqual([asset.url])
+    expect((error as Error).message).not.toMatch(/pinned at pairing/)
+  })
+
+  it('treats a target naming no root as `release`, not as "whatever is available"', async () => {
+    const { seen } = await deliveryAttempt(undefined, 'pinned-instance-key')
+    expect(seen.map((call) => call.url)).toEqual([asset.url])
+  })
+})
