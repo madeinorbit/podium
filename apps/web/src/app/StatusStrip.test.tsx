@@ -20,6 +20,7 @@ const fixture = vi.hoisted(() => {
   }))
   const usageQuery = vi.fn(async () => ({
     hostname: 'test',
+    sampledAt: '2026-08-06T18:20:00.000Z',
     buckets: [
       {
         hour: '2026-08-06T18:00:00.000Z',
@@ -80,6 +81,7 @@ vi.mock('@/features/machines/ConnectionIndicator', () => ({
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
 import { resetUsageCache } from '@/features/usage/useUsageFeed'
+import { recentBurnRate } from './StatusPerformanceStats'
 import { StatusStrip } from './StatusStrip'
 
 beforeEach(() => {
@@ -192,12 +194,12 @@ describe('StatusStrip agent concurrency history', () => {
 })
 
 describe('StatusStrip token burn', () => {
-  it('uses the observed current-hour pace instead of a 12-hour average', async () => {
+  it('bootstraps from the current hour until a second fresh scan arrives', async () => {
     render(<StatusStrip />)
 
     expect(screen.getByTestId('status-strip-burn').textContent).toBe('—/h burn')
     await waitFor(() =>
-      expect(screen.getByTestId('status-strip-burn').textContent).toBe('$0.30/h burn'),
+      expect(screen.getByTestId('status-strip-burn').textContent).toBe('$3.75/h burn'),
     )
     expect(
       screen.getByTestId('token-burn-history').querySelectorAll('.status-strip-history-stack'),
@@ -206,10 +208,35 @@ describe('StatusStrip token burn', () => {
       screen.getByLabelText('Share token burn on X').getAttribute('href') ?? '',
     )
     expect(burnShare).toContain('x.com/intent/post')
-    // $0.30/hr is under the flex threshold, so it takes the small-burn closer.
-    expect(burnShare).toContain('I am running @podium_ade on $0.30/hr in tokens')
+    // $3.75/hr is under the flex threshold, so it takes the small-burn closer.
+    expect(burnShare).toContain('I am running @podium_ade on $3.75/hr in tokens')
     expect(screen.queryByTestId('ship-rate-history')).toBeNull()
     expect(screen.queryByTestId('status-strip-ship')).toBeNull()
+  })
+
+  it('uses the cost delta between fresh scans, including across an hour boundary', () => {
+    const bucket = (hour: string, inputTokens: number) => ({
+      hour,
+      model: 'gpt-5',
+      inputTokens,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      messages: 1,
+    })
+    const previous = {
+      sampledAt: Date.parse('2026-08-06T17:59:00.000Z'),
+      buckets: [bucket('2026-08-06T17:00:00.000Z', 1_000_000)],
+    }
+    const current = {
+      sampledAt: Date.parse('2026-08-06T18:02:00.000Z'),
+      buckets: [
+        bucket('2026-08-06T17:00:00.000Z', 1_000_000),
+        bucket('2026-08-06T18:00:00.000Z', 1_000_000),
+      ],
+    }
+
+    expect(recentBurnRate(previous, current)).toBeCloseTo(25)
   })
 
   it('drops the 12h caption; the window is stated in the tooltip foot', () => {

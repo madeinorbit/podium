@@ -124,6 +124,8 @@ export const UsageResultMessage = z.object({
   type: z.literal('usageResult'),
   requestId: z.string(),
   hostname: z.string(),
+  /** When the daemon completed the transcript scan behind these buckets. */
+  sampledAt: z.string().optional(),
   buckets: z.array(UsageBucketWire),
 })
 

@@ -1,7 +1,7 @@
 import { bucketCostUsd } from '@podium/client-core/viewmodels'
 import type { UsageBucketWire } from '@podium/model/browser'
 import { type JSX, useMemo } from 'react'
-import { useUsageFeed } from '@/features/usage/useUsageFeed'
+import { type UsageScan, useUsageFeed } from '@/features/usage/useUsageFeed'
 import { StatusMetric, type StatusMetricBucket } from './StatusMetric'
 import { money, shareTokenBurn } from './status-share'
 import type { Trpc } from './trpc'
@@ -37,7 +37,10 @@ export function costHistory(
  * The one-minute floor avoids a wild extrapolation in the first seconds of an
  * hour while keeping the window much shorter than the old 12-hour average.
  */
-export function currentBurnRate(buckets: readonly UsageBucketWire[], sampledAtMs: number): number {
+export function currentHourBurnRate(
+  buckets: readonly UsageBucketWire[],
+  sampledAtMs: number,
+): number {
   const hourStart = Math.floor(sampledAtMs / HOUR_MS) * HOUR_MS
   let cost = 0
   for (const bucket of buckets) {
@@ -50,6 +53,28 @@ export function currentBurnRate(buckets: readonly UsageBucketWire[], sampledAtMs
   return cost / (observedMs / HOUR_MS)
 }
 
+function bucketKey(bucket: UsageBucketWire): string {
+  return `${bucket.hour}|${bucket.model}`
+}
+
+/** Hourly cost pace between two completed daemon transcript scans. */
+export function recentBurnRate(previous: UsageScan, current: UsageScan): number | null {
+  const elapsedMs = current.sampledAt - previous.sampledAt
+  if (elapsedMs <= 0) return null
+  const priorCosts = new Map(
+    previous.buckets
+      .filter((bucket) => !bucket.model.startsWith('<'))
+      .map((bucket) => [bucketKey(bucket), bucketCostUsd(bucket)]),
+  )
+  let costDelta = 0
+  for (const bucket of current.buckets) {
+    if (bucket.model.startsWith('<')) continue
+    const delta = bucketCostUsd(bucket) - (priorCosts.get(bucketKey(bucket)) ?? 0)
+    costDelta += Math.max(0, delta)
+  }
+  return costDelta / (elapsedMs / HOUR_MS)
+}
+
 export function StatusPerformanceStats({ trpc }: { trpc: Trpc }): JSX.Element {
   const feed = useUsageFeed(trpc)
   const nowMs = Date.now()
@@ -60,7 +85,12 @@ export function StatusPerformanceStats({ trpc }: { trpc: Trpc }): JSX.Element {
     () => costHistory(feed.buckets ?? [], hourKey * HOUR_MS),
     [feed.buckets, hourKey],
   )
-  const burnPerHour = currentBurnRate(feed.buckets ?? [], feed.fetchedAt ?? nowMs)
+  // The first scan has no delta yet, so bootstrap from this hour's observed
+  // pace. Every later distinct scan uses only what changed between scans.
+  const burnPerHour =
+    feed.previousScan && feed.currentScan
+      ? (recentBurnRate(feed.previousScan, feed.currentScan) ?? 0)
+      : currentHourBurnRate(feed.buckets ?? [], feed.currentScan?.sampledAt ?? nowMs)
   const burnValue = feed.buckets === null ? '—/h' : `${money(burnPerHour)}/h`
   const burnShare = feed.buckets === null ? undefined : shareTokenBurn(burnPerHour)
 
@@ -75,8 +105,8 @@ export function StatusPerformanceStats({ trpc }: { trpc: Trpc }): JSX.Element {
       }
       buckets={burnBuckets}
       title="Token burn"
-      summary={`API-equivalent token cost over the last 12 hours. Current-hour pace ${burnValue}.`}
-      aside={`now ${burnValue}`}
+      summary={`API-equivalent token cost over the last 12 hours. Recent burn rate ${burnValue}.`}
+      aside={`recent ${burnValue}`}
       reading={(value) => ({ value: money(value), label: 'API-equivalent cost' })}
       foot="Last 12 hours · hourly API list-price estimate"
       bucketMs={HOUR_MS}
