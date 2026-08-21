@@ -8,7 +8,7 @@
  * @podium/model, @podium/runtime and @podium/issue-client).
  */
 
-import type { HostModules } from '../apps/cli/src/cli'
+import type { CliRuntimeOptions, HostModules } from '../apps/cli/src/cli'
 import { main as cliMain } from '../apps/cli/src/cli'
 
 // This literal env read is replaced by build-bun in the packaged binary. It is therefore the
@@ -17,6 +17,7 @@ const SOURCE_CHECKOUT = process.env.PODIUM_APP_VERSION === undefined
 
 export {
   alreadyRunningMessage,
+  type CliRuntimeOptions,
   type DaemonStartOptions,
   daemonOptionsForPlan,
   type HostModules,
@@ -43,8 +44,8 @@ async function loadHost(): Promise<HostModules> {
   }
 }
 
-export async function main(): Promise<void> {
-  return cliMain(loadHost, { localSetupDefault: SOURCE_CHECKOUT })
+export async function main(runtime: CliRuntimeOptions = {}): Promise<void> {
+  return cliMain(loadHost, { localSetupDefault: SOURCE_CHECKOUT, ...runtime })
 }
 
 if (import.meta.main) void main()

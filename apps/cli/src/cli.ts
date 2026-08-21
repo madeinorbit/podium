@@ -1092,6 +1092,14 @@ export interface HostModules {
   }>
 }
 
+/** Composition-root work that may touch the selected instance's state directory.
+ *  The launcher invokes it only after the root has been claimed, so compiled-only
+ *  initializers cannot accidentally become pre-claim writers. */
+export interface CliRuntimeOptions {
+  localSetupDefault?: boolean
+  afterInstanceStateClaim?: () => void | Promise<void>
+}
+
 type InProcessPlan = Extract<LaunchPlan, { kind: 'in-process' }>
 
 /** Host server and/or daemon in THIS process, per the plan, then stay alive. */
@@ -1286,7 +1294,7 @@ async function runInProcess(
 
 export async function main(
   loadHost: () => Promise<HostModules>,
-  runtime: { localSetupDefault?: boolean } = {},
+  runtime: CliRuntimeOptions = {},
 ): Promise<void> {
   let selection: ReturnType<typeof selectInstance>
   try {
@@ -1310,6 +1318,7 @@ export async function main(
     process.exitCode = 2
     return
   }
+  await runtime.afterInstanceStateClaim?.()
 
   // ONE-SHOT CONFIG MIGRATIONS, before anything reads the config (POD-333).
   //

@@ -6,8 +6,9 @@
  */
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { type ChildProcess, spawn } from 'node:child_process'
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -22,6 +23,7 @@ import { fileURLToPath } from 'node:url'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { FIRST_ADMIN_USER_ID, asMachineId } from '@podium/model'
 import { SESSION_COOKIE } from '@podium/protocol'
+import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
 import { SessionStore } from '../apps/server/src/store'
@@ -134,6 +136,41 @@ function instanceEnv(
     else env[key] = value
   }
   return env
+}
+
+/** Compile the real packaged entry in an isolated tree so its fixed embedded-file
+ *  path cannot race with or depend on a developer's dist-bun artifacts. */
+function buildPackagedCli(): string {
+  const buildRoot = join(TEST_ROOT, 'compiled-cli-build')
+  const scriptsDir = join(buildRoot, 'scripts')
+  const distDir = join(buildRoot, 'dist-bun')
+  mkdirSync(scriptsDir, { recursive: true })
+  mkdirSync(distDir, { recursive: true })
+  for (const file of ['cli-compiled.ts', 'cli.ts', 'embedded-abduco.ts']) {
+    cpSync(join(ROOT, 'scripts', file), join(scriptsDir, file))
+  }
+  for (const dir of ['apps', 'packages', 'node_modules']) {
+    symlinkSync(join(ROOT, dir), join(buildRoot, dir), 'dir')
+  }
+
+  const embeddedAbduco = join(distDir, 'abduco.bin')
+  expect(buildVendoredAbduco(embeddedAbduco)).toBe(embeddedAbduco)
+  const executable = join(buildRoot, 'podium-cli')
+  execFileSync(
+    process.execPath,
+    [
+      'build',
+      '--compile',
+      '--conditions=@podium/source',
+      '--define',
+      'process.env.PODIUM_APP_VERSION="9.9.9"',
+      join(scriptsDir, 'cli-compiled.ts'),
+      '--outfile',
+      executable,
+    ],
+    { cwd: buildRoot, stdio: 'pipe' },
+  )
+  return executable
 }
 
 function startInstance(
@@ -266,29 +303,63 @@ afterAll(async () => {
 })
 
 describe('multi-instance runtime isolation', () => {
-  it('claims an absent named root before detached logging and starts without adoption', async () => {
+  it('claims an absent named root before the compiled launcher materializes abduco', async () => {
     const namedSpec = makeSpec('blue', 'cold-blue')
     expect(existsSync(namedSpec.stateDir)).toBe(false)
 
-    const channel = await runCli(namedSpec, ['channel', 'edge'], {
-      PODIUM_ADOPT_STATE: undefined,
-      PODIUM_APP_VERSION: '9.9.9',
-      PODIUM_RUN_MODE: 'detached',
+    const executable = buildPackagedCli()
+    const child = spawn(executable, ['channel', 'edge'], {
+      cwd: ROOT,
+      env: instanceEnv(namedSpec, {
+        PODIUM_ABDUCO: undefined,
+        PODIUM_ADOPT_STATE: undefined,
+        PODIUM_APP_VERSION: '9.9.9',
+        PODIUM_RUN_MODE: 'detached',
+      }),
+      stdio: ['ignore', 'pipe', 'pipe'],
     })
-    expect(channel.code, channel.stderr).toBe(0)
-    expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'instance.json'), 'utf8'))).toMatchObject(
-      { instanceId: 'blue' },
-    )
-    expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'config.json'), 'utf8'))).toMatchObject({
-      updateChannel: 'edge',
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (chunk) => {
+      stdout += String(chunk)
+    })
+    child.stderr?.on('data', (chunk) => {
+      stderr += String(chunk)
+    })
+    const code = await new Promise<number>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        child.kill('SIGKILL')
+        reject(new Error('compiled CLI timed out'))
+      }, 20_000)
+      child.once('error', reject)
+      child.once('exit', (value) => {
+        clearTimeout(timeout)
+        resolve(value ?? 1)
+      })
     })
 
-    const named = startInstance(namedSpec, { PODIUM_ADOPT_STATE: undefined })
-    await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'clean named server')
-    expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'config.json'), 'utf8'))).toMatchObject({
-      mode: 'all-in-one',
-      updateChannel: 'edge',
+    expect(code, `${stdout}\n${stderr}`).toBe(0)
+    expect(existsSync(join(namedSpec.stateDir, 'bin', 'abduco'))).toBe(true)
+    expect(
+      JSON.parse(readFileSync(join(namedSpec.stateDir, 'instance.json'), 'utf8')),
+    ).toMatchObject({ instanceId: 'blue' })
+    expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'config.json'), 'utf8'))).toMatchObject(
+      {
+        updateChannel: 'edge',
+      },
+    )
+
+    const named = startInstance(namedSpec, {
+      PODIUM_ADOPT_STATE: undefined,
+      PODIUM_ABDUCO: join(namedSpec.stateDir, 'bin', 'abduco'),
     })
+    await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'clean named server')
+    expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'config.json'), 'utf8'))).toMatchObject(
+      {
+        mode: 'all-in-one',
+        updateChannel: 'edge',
+      },
+    )
     named.child.kill('SIGKILL')
     await new Promise<void>((resolve) => named.child.once('exit', () => resolve()))
   })
