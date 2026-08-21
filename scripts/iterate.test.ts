@@ -244,4 +244,14 @@ describe('TEARDOWN_SIGNALS', () => {
     expect(TEARDOWN_SIGNALS).toContain('SIGINT')
     expect(TEARDOWN_SIGNALS).toContain('SIGTERM')
   })
+
+  /**
+   * Every terminal way out is in the list because NOTHING GENERAL stands behind
+   * it: `process.on('exit')` does not run on a signal (measured — a Bun script
+   * with only that handler, sent SIGHUP at default disposition, dies silently).
+   * Ctrl-\ was the last one left.
+   */
+  it('covers Ctrl-backslash too, since no handler stands behind the list', () => {
+    expect(TEARDOWN_SIGNALS).toContain('SIGQUIT')
+  })
 })

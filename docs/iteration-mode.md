@@ -24,11 +24,13 @@ Requirements:
 The command is **foreground only**. Ctrl-C tears it down (including any
 temporary Tailscale HTTPS mount it created). It is never auto-started.
 
-Ctrl-C, `SIGTERM` and a terminal hangup (`SIGHUP` — closing the ssh session is
-the ordinary way this ends on a VPS) all tear down. Only `SIGKILL` can leave
-something behind, because nothing runs after one. Two things to give back, and
-the scope matters as much as the mount — a scoped process survives its parent,
-so the dev server keeps the port and the next start on it refuses:
+Ctrl-C (`SIGINT`), `SIGTERM`, a terminal hangup (`SIGHUP` — closing the ssh
+session is the ordinary way this ends on a VPS) and Ctrl-`\` (`SIGQUIT`) all
+tear down. Those four are handled one by one, and nothing general stands behind
+them: an exit handler does not run on a signal. So `SIGKILL`, or any signal not
+in that list, leaves the session's two pieces on the box — and the scope matters
+as much as the mount, because a scoped process survives its parent, keeping the
+port so the next start on it refuses:
 
 ```sh
 tailscale serve --https=55565 off              # the HTTPS mount, its port only
