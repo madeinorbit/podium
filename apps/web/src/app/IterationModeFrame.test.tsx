@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { IterationModeFrame, ITERATION_TITLE_PREFIX, iterationTitle } from './IterationModeFrame'
+import { ITERATION_TITLE_PREFIX, IterationModeFrame, iterationTitle } from './IterationModeFrame'
 
 afterEach(cleanup)
 

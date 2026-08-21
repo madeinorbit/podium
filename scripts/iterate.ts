@@ -166,10 +166,7 @@ export function resolveIterateConfig(opts: {
  * source. Left inherited from a shell that had exported one, the About panel
  * and the web logs would report a version this page is not.
  */
-export function iterateChildEnv(
-  config: IterateConfig,
-  base: NodeJS.ProcessEnv,
-): NodeJS.ProcessEnv {
+export function iterateChildEnv(config: IterateConfig, base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base }
   delete env.PODIUM_APP_VERSION
   env.PODIUM_PORT = String(config.backendPort)
@@ -265,7 +262,9 @@ export function distFingerprint(distDir: string): string | null {
         continue
       }
       const bytes = readFileSync(path)
-      hash.update(`${rel}:${bytes.byteLength}:${createHash('sha256').update(bytes).digest('hex')}\n`)
+      hash.update(
+        `${rel}:${bytes.byteLength}:${createHash('sha256').update(bytes).digest('hex')}\n`,
+      )
     }
   }
   walk(distDir, '')
