@@ -547,7 +547,7 @@ export function installSystemd(
 
 /**
  * Write a user unit file (idempotent) and return its path — used by reconcile to put the
- * per-role unit in place before `enable --now`. Callers render a single role body.
+ * per-role unit in place before the separate enable and start steps. Callers render a single role body.
  */
 export function writeUserUnit(unit: string, body: string): string {
   const path = join(userUnitDir(), unit)
@@ -557,12 +557,18 @@ export function writeUserUnit(unit: string, body: string): string {
 }
 
 /**
- * Enable + start the named user units (no-ops on units already active). Does not write
- * files — `writeUserUnit` did that — but `daemon-reload`s so systemd forgets the old body.
+ * Arm the named user units for reboot without starting them. The topology migration
+ * runtime-masks the legacy units before its separate start step; `enable --now` here
+ * would start the parent too early and make the production ordering differ from the
+ * migration state machine.
  */
-export function enableSystemdUnits(units: string[]): void {
-  run('systemctl', ['--user', 'daemon-reload'])
-  run('systemctl', ['--user', 'enable', '--now', ...units])
+export function enableSystemdUnits(
+  units: string[],
+  deps: { run?: (cmd: string, args: string[]) => void } = {},
+): void {
+  const runCommand = deps.run ?? run
+  runCommand('systemctl', ['--user', 'daemon-reload'])
+  runCommand('systemctl', ['--user', 'enable', ...units])
 }
 
 /**
@@ -589,9 +595,12 @@ export function disarmSystemdUnits(units: string[]): void {
  * resurrect it. The mask lives in /run and vanishes on reboot, so a kill
  * mid-handover still boots into the fully-armed legacy set.
  */
-export function maskSystemdUnitsRuntime(units: string[]): void {
+export function maskSystemdUnitsRuntime(
+  units: string[],
+  deps: { run?: (cmd: string, args: string[]) => void } = {},
+): void {
   if (units.length === 0) return
-  run('systemctl', ['--user', 'mask', '--runtime', ...units])
+  ;(deps.run ?? run)('systemctl', ['--user', 'mask', '--runtime', ...units])
 }
 
 export function unmaskSystemdUnits(units: string[]): void {
@@ -608,10 +617,15 @@ export function startSystemdUnits(units: string[]): void {
  * Stop, disable, unlink, and daemon-reload so the definitions disappear.
  * Used only AFTER the parent reports healthy. Empty input is a no-op.
  */
-export function removeUserUnits(
+export async function removeUserUnits(
   units: string[],
-  deps: { unitDir?: () => string; run?: (cmd: string, args: string[]) => void } = {},
-): void {
+  deps: {
+    unitDir?: () => string
+    run?: (cmd: string, args: string[]) => void
+    afterStop?: (unit: string, remaining: number) => void | Promise<void>
+    beforeRemove?: () => void | Promise<void>
+  } = {},
+): Promise<void> {
   if (units.length === 0) return
   const dir = (deps.unitDir ?? userUnitDir)()
   const runCommand = deps.run ?? run
@@ -620,11 +634,18 @@ export function removeUserUnits(
   } catch {
     // not masked — fine
   }
-  try {
-    runCommand('systemctl', ['--user', 'disable', '--now', ...units])
-  } catch {
-    // absent / already disabled — still unlink
+  for (let i = 0; i < units.length; i++) {
+    const unit = units[i] as string
+    try {
+      // One unit per transaction deliberately exposes the real crash boundary
+      // between legacy stops; the healthy parent already owns the workload.
+      runCommand('systemctl', ['--user', 'disable', '--now', unit])
+    } catch {
+      // absent / already disabled — still unlink
+    }
+    await deps.afterStop?.(unit, units.length - i - 1)
   }
+  await deps.beforeRemove?.()
   for (const unit of units) {
     rmSync(join(dir, unit), { force: true })
   }

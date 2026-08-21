@@ -53,7 +53,7 @@ export interface TopologyReconcileDeps {
   disarmUnits?: (units: string[]) => void
   maskUnits?: (units: string[]) => void
   unmaskUnits?: (units: string[]) => void
-  removeUnits?: (units: string[]) => void
+  removeUnits?: (units: string[]) => void | Promise<void>
   spawnParent?: (port: number) => number | undefined
   reclaimRole?: (role: 'janitor') => Promise<void>
   parentHealthy?: () => boolean | Promise<boolean>
@@ -61,7 +61,20 @@ export interface TopologyReconcileDeps {
   healthTimeoutMs?: number
   /** Test seam: stop after this many actions. */
   maxSteps?: number
+  /** Fault-injection seam used by the isolated live kill matrix. */
+  checkpoint?: (checkpoint: TopologyMigrationCheckpoint) => void | Promise<void>
 }
+
+export type TopologyMigrationCheckpoint =
+  | { phase: 'before-parent-write' }
+  | { phase: 'after-parent-write' }
+  | { phase: 'after-parent-enable' }
+  | { phase: 'after-legacy-runtime-mask' }
+  | { phase: 'after-parent-start' }
+  | { phase: 'during-parent-health-wait' }
+  | { phase: 'after-parent-healthy-before-retire' }
+  | { phase: 'after-stop-legacy-unit'; unit: string; remaining: number }
+  | { phase: 'after-all-legacy-stopped-before-remove' }
 
 function persistenceShape(
   persistence: PodiumConfig['persistence'],
@@ -158,6 +171,7 @@ export async function reconcileSupervision(deps: TopologyReconcileDeps = {}): Pr
   let obs = observeTopology(deps)
   const startedAt = (deps.now ?? Date.now)()
   const healthTimeoutMs = deps.healthTimeoutMs ?? 90_000
+  let healthyCheckpointPassed = false
 
   for (let i = 0; i < maxSteps; i++) {
     if (
@@ -167,6 +181,10 @@ export async function reconcileSupervision(deps: TopologyReconcileDeps = {}): Pr
       deps.parentHealthy
     ) {
       obs = { ...obs, parentHealthy: await deps.parentHealthy() }
+      if (obs.parentHealthy && !healthyCheckpointPassed) {
+        await deps.checkpoint?.({ phase: 'after-parent-healthy-before-retire' })
+        healthyCheckpointPassed = true
+      }
     }
     if (
       !obs.parentHealthy &&
@@ -181,6 +199,7 @@ export async function reconcileSupervision(deps: TopologyReconcileDeps = {}): Pr
       return { actions, armed: armedIfKilled(obs), observation: obs }
     }
     if (action.type === 'await-healthy') {
+      await deps.checkpoint?.({ phase: 'during-parent-health-wait' })
       // The parent owns the health wait. A legacy server that only started the
       // parent returns here so it can keep serving until takeover; the parent
       // re-enters with parentHealthy=true after its boot gate.
@@ -191,6 +210,7 @@ export async function reconcileSupervision(deps: TopologyReconcileDeps = {}): Pr
     }
     switch (action.type) {
       case 'write-parent': {
+        await deps.checkpoint?.({ phase: 'before-parent-write' })
         const write = deps.writeUnit ?? writeUserUnit
         write(desiredParentUnit(instanceId), renderParentUnit({ instanceId, port }))
         obs = {
@@ -198,6 +218,7 @@ export async function reconcileSupervision(deps: TopologyReconcileDeps = {}): Pr
           parentUnitPresent: true,
           installedUnits: [...new Set([...obs.installedUnits, desiredParentUnit(instanceId)])],
         }
+        await deps.checkpoint?.({ phase: 'after-parent-write' })
         break
       }
       case 'enable-parent': {
@@ -208,6 +229,7 @@ export async function reconcileSupervision(deps: TopologyReconcileDeps = {}): Pr
           parentUnitEnabled: true,
           enabledUnits: [...new Set([...obs.enabledUnits, desiredParentUnit(instanceId)])],
         }
+        await deps.checkpoint?.({ phase: 'after-parent-enable' })
         break
       }
       case 'mask-legacy': {
@@ -215,6 +237,7 @@ export async function reconcileSupervision(deps: TopologyReconcileDeps = {}): Pr
         const mask = deps.maskUnits ?? maskSystemdUnitsRuntime
         mask(units)
         obs = { ...obs, maskedUnits: [...new Set([...obs.maskedUnits, ...units])] }
+        await deps.checkpoint?.({ phase: 'after-legacy-runtime-mask' })
         break
       }
       case 'start-parent': {
@@ -226,12 +249,21 @@ export async function reconcileSupervision(deps: TopologyReconcileDeps = {}): Pr
           parentProcessLive: true,
           cannotRestart: false,
         }
+        await deps.checkpoint?.({ phase: 'after-parent-start' })
         break
       }
       case 'retire-legacy': {
         const units = presentLegacyUnits(obs.installedUnits, instanceId)
-        const remove = deps.removeUnits ?? ((names: string[]) => removeUserUnits(names))
-        remove(units)
+        const remove =
+          deps.removeUnits ??
+          ((names: string[]) =>
+            removeUserUnits(names, {
+              afterStop: (unit, remaining) =>
+                deps.checkpoint?.({ phase: 'after-stop-legacy-unit', unit, remaining }),
+              beforeRemove: () =>
+                deps.checkpoint?.({ phase: 'after-all-legacy-stopped-before-remove' }),
+            }))
+        await remove(units)
         obs = {
           ...obs,
           installedUnits: obs.installedUnits.filter((name) => !units.includes(name)),

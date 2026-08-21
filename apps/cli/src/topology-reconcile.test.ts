@@ -100,8 +100,12 @@ describe('reconcileSupervision', () => {
     expect(result.armed).toBe('both')
     expect(installed.has('podium.service')).toBe(true)
     expect(installed.has('podium-server.service')).toBe(true)
-    expect(commands).toContain('write:podium.service')
-    expect(commands.some((c) => c.startsWith('mask:'))).toBe(true)
+    expect(commands).toEqual([
+      'write:podium.service',
+      'enable:podium.service',
+      'mask:podium-server.service,podium-janitor.service,podium-daemon.service',
+      'start:podium.service',
+    ])
   })
 
   it('retires leftover units only after the new parent is healthy', async () => {

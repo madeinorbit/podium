@@ -1,9 +1,12 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  enableSystemdUnits,
   installSystemd,
+  maskSystemdUnitsRuntime,
+  removeUserUnits,
   renderDaemonUnit,
   renderJanitorUnit,
   renderParentUnit,
@@ -191,6 +194,70 @@ describe('userUnitDir', () => {
     } finally {
       if (prev === undefined) delete process.env.XDG_CONFIG_HOME
       else process.env.XDG_CONFIG_HOME = prev
+    }
+  })
+})
+
+describe('migration systemd operations', () => {
+  it('arms the parent without starting it; start is a separate migration step', () => {
+    const commands: Array<{ cmd: string; args: string[] }> = []
+    enableSystemdUnits(['podium.service'], {
+      run: (cmd, args) => commands.push({ cmd, args }),
+    })
+    expect(commands).toEqual([
+      { cmd: 'systemctl', args: ['--user', 'daemon-reload'] },
+      { cmd: 'systemctl', args: ['--user', 'enable', 'podium.service'] },
+    ])
+    expect(commands.flatMap(({ args }) => args)).not.toContain('--now')
+  })
+
+  it('masks legacy units only in the runtime manager state', () => {
+    const commands: Array<{ cmd: string; args: string[] }> = []
+    maskSystemdUnitsRuntime(['podium-server.service'], {
+      run: (cmd, args) => commands.push({ cmd, args }),
+    })
+    expect(commands).toEqual([
+      {
+        cmd: 'systemctl',
+        args: ['--user', 'mask', '--runtime', 'podium-server.service'],
+      },
+    ])
+  })
+
+  it('stops every legacy unit before deleting any unit file', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-systemd-remove-'))
+    const units = ['podium-server.service', 'podium-daemon.service']
+    for (const unit of units) writeFileSync(join(dir, unit), unit)
+    const commands: Array<{ cmd: string; args: string[] }> = []
+    const stopped: string[] = []
+    try {
+      await removeUserUnits(units, {
+        unitDir: () => dir,
+        run: (cmd, args) => commands.push({ cmd, args }),
+        afterStop: (unit) => {
+          stopped.push(unit)
+          expect(units.every((name) => existsSync(join(dir, name)))).toBe(true)
+        },
+        beforeRemove: () => {
+          expect(stopped).toEqual(units)
+          expect(units.every((name) => existsSync(join(dir, name)))).toBe(true)
+        },
+      })
+      expect(commands).toEqual([
+        { cmd: 'systemctl', args: ['--user', 'unmask', ...units] },
+        {
+          cmd: 'systemctl',
+          args: ['--user', 'disable', '--now', 'podium-server.service'],
+        },
+        {
+          cmd: 'systemctl',
+          args: ['--user', 'disable', '--now', 'podium-daemon.service'],
+        },
+        { cmd: 'systemctl', args: ['--user', 'daemon-reload'] },
+      ])
+      expect(units.some((name) => existsSync(join(dir, name)))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })
