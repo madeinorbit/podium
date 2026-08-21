@@ -163,9 +163,9 @@ function defaultInstallBinary(installDir: string, env: NodeJS.ProcessEnv): strin
   return env.PODIUM_PARENT_BIN || process.execPath
 }
 
-function childArgs(child: SupervisedChild): string[] {
+function childArgs(child: SupervisedChild, localDaemon: boolean): string[] {
   if (child === 'server') return ['server', '--takeover']
-  return ['daemon', '--local', '--takeover']
+  return ['daemon', ...(localDaemon ? ['--local'] : []), '--takeover']
 }
 
 /**
@@ -176,9 +176,17 @@ function childArgs(child: SupervisedChild): string[] {
  */
 export function installInvocation(
   role: SupervisedChild | 'parent',
-  opts: { installBinary: string; port: number; env: NodeJS.ProcessEnv },
+  opts: {
+    installBinary: string
+    port: number
+    env: NodeJS.ProcessEnv
+    /** A co-located server authenticates its daemon with the local secret. A daemon-only
+     *  fleet member must instead read the pair code / machine token from its config. */
+    localDaemon?: boolean
+  },
 ): { command: string; args: string[] } {
-  const extra = role === 'parent' ? ['parent', '--takeover'] : childArgs(role)
+  const extra =
+    role === 'parent' ? ['parent', '--takeover'] : childArgs(role, opts.localDaemon ?? true)
   const cli = opts.env.PODIUM_PARENT_CLI
   if (cli) {
     return {
@@ -568,6 +576,10 @@ export class ParentProcess {
       installBinary: this.installBinary,
       port: this.deps.port,
       env: this.env,
+      // A parent with no server is a joined fleet member. `--local` there would
+      // manufacture a host secret the remote source has never seen and turn a
+      // legitimate pair code into `peerHelloRejected auth-failed`.
+      localDaemon: this.childOrder.includes('server'),
     })
     const childEnv: NodeJS.ProcessEnv = {
       ...this.env,

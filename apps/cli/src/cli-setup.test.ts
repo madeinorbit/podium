@@ -59,6 +59,7 @@ describe('runCliSetup', () => {
       setPassword: setPw,
       // Stub the backend starter so tests never spawn processes; echo the requested persistence.
       startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+      waitForEnrollment: async () => {},
     })
   }
 
@@ -109,6 +110,7 @@ describe('runCliSetup', () => {
       await runVpsSetup({ prompt: async () => answers[index++] ?? '', print: () => {} }, 18787, {
         setPassword: vi.fn(async () => {}),
         startBackend,
+        waitForEnrollment: async () => {},
       })
 
       expect(startBackend).toHaveBeenNthCalledWith(1, {
@@ -156,6 +158,7 @@ describe('runCliSetup', () => {
       await runCliSetup({ prompt: async () => answers[i++] ?? '', print: () => {} }, 18787, {
         setPassword: vi.fn(async () => {}),
         startBackend,
+        waitForEnrollment: async () => {},
       })
       expect(startBackend).toHaveBeenCalledWith({
         persistence: 'systemd',
@@ -181,6 +184,7 @@ describe('runCliSetup', () => {
         {
           setPassword: vi.fn(async () => {}),
           startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+          waitForEnrollment: async () => {},
         },
       )
       expect(prompts).toContain('Password (recommended; blank starts no-password confirmation): ')
@@ -210,6 +214,7 @@ describe('runCliSetup', () => {
       await runCliSetup({ prompt: async () => answers[i++] ?? '', print: () => {} }, 18787, {
         setPassword: setPw,
         startBackend,
+        waitForEnrollment: async () => {},
       })
       expect(loadConfig().mode).toBe('daemon')
       expect(loadConfig().serverUrl).toBe('wss://relay.example')
@@ -282,7 +287,10 @@ describe('runCliSetup', () => {
         pairCode: 'P1',
         name: 'vps',
       })
-      const res = await runJoinSetup(token, 'systemd', 18787, { startBackend })
+      const res = await runJoinSetup(token, 'systemd', 18787, {
+        startBackend,
+        waitForEnrollment: async () => {},
+      })
       expect(res.name).toBe('vps')
       expect(startBackend).toHaveBeenCalledWith({
         persistence: 'systemd',
@@ -302,6 +310,7 @@ describe('runCliSetup', () => {
       const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'P1' })
       await runJoinSetup(token, 'systemd', 18787, {
         startBackend: async () => ({ effectivePersistence: 'detached', message: 'fallback' }),
+        waitForEnrollment: async () => {},
       })
       expect(loadConfig().persistence).toBe('detached')
     })
@@ -447,6 +456,7 @@ describe('runCliSetup', () => {
         {
           setPassword: vi.fn(async () => {}),
           startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+          waitForEnrollment: async () => {},
         },
       )
       const out = printed.join('\n')
@@ -501,6 +511,7 @@ describe('runCliSetup', () => {
           {
             setPassword: vi.fn(async () => {}),
             startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+            waitForEnrollment: async () => {},
           },
         )
         expect(prompts.some((p) => p.includes('usage reports'))).toBe(false)
@@ -539,6 +550,7 @@ describe('runCliSetup', () => {
         {
           setPassword: vi.fn(async () => {}),
           startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+          waitForEnrollment: async () => {},
         },
       )
       expect(loadConfig().mode).toBe('daemon')
@@ -550,6 +562,7 @@ describe('runCliSetup', () => {
       const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'ABCD-1234' })
       await runJoinSetup(token, 'systemd', 18787, {
         startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+        waitForEnrollment: async () => {},
       })
       expect(loadConfig().mode).toBe('daemon')
       expect(loadConfig().telemetry).toBeUndefined()
@@ -560,6 +573,7 @@ describe('runCliSetup', () => {
       await runCliSetup({ prompt: async () => '', print: (s) => printed.push(s) }, 18787, {
         setPassword: vi.fn(async () => {}),
         startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+        waitForEnrollment: async () => {},
       })
       // Fresh box (no mode): no host-only entries at all.
       expect(printed.join('\n')).not.toContain('Change telemetry')
@@ -569,6 +583,7 @@ describe('runCliSetup', () => {
       await runCliSetup({ prompt: async () => '', print: (s) => hostPrinted.push(s) }, 18787, {
         setPassword: vi.fn(async () => {}),
         startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+        waitForEnrollment: async () => {},
       })
       expect(hostPrinted.join('\n')).toContain('6) Change telemetry')
     })

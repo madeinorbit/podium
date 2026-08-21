@@ -1143,7 +1143,14 @@ async function runInProcess(
   // for status/stop. The in-process all-in-one is a single role; the split modes each
   // claim their own.
   if (plan.claimRole) {
-    if (plan.claimRole === 'daemon' && plan.daemonAuth === 'remote' && plan.takeover) {
+    // A parent-owned child is already the reconciled daemon; takeover must reclaim only
+    // a prior daemon role, never retire the supervisor that launched this child.
+    if (
+      plan.claimRole === 'daemon' &&
+      plan.daemonAuth === 'remote' &&
+      plan.takeover &&
+      process.env.PODIUM_UNDER_PARENT !== '1'
+    ) {
       try {
         const { prepareForegroundDaemon } = await import('./role-reconcile')
         const preparation = await prepareForegroundDaemon()

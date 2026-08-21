@@ -140,6 +140,31 @@ describe('ParentProcess', () => {
     expect(parent.snapshot().children.daemon.status).toBe('running')
   })
 
+  it('starts a daemon-only fleet member with its configured remote credential', async () => {
+    const spawned: Array<{ cmd: string; args: readonly string[] }> = []
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installBinary: '/opt/podium/podium',
+        children: ['daemon'],
+        env: { PODIUM_APP_VERSION: '1.0.0' },
+        spawn: ((cmd, args) => {
+          spawned.push({ cmd, args })
+          return new FakeChild(200) as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: async () => healthy('1.0.0'),
+        notify: () => {},
+        sleep: async () => {},
+        now: () => 1_000,
+        exit: () => {},
+      }),
+    )
+
+    await parent.start()
+
+    expect(spawned).toEqual([{ cmd: '/opt/podium/podium', args: ['daemon', '--takeover'] }])
+  })
+
   it('RESPAWNS a crashed child once its backoff deadline passes', async () => {
     const clock = fakeClock()
     const serverKids: FakeChild[] = []

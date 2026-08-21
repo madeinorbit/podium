@@ -14,7 +14,7 @@ bun --conditions=@podium/source "$ROOT/scripts/render-systemd.ts" \
   --profile packaged --output "$REL/headless/systemd" >/dev/null
 # Stub binary: emulates the subcommands install.sh drives. `setup --join` mirrors the real
 # binary's installSystemd (writes the parent unit) so the delegation path is observable;
-# PODIUM_STUB_JOIN_FAIL forces it to fail so the fallback path can be tested.
+# PODIUM_STUB_JOIN_FAIL models a terminal daemon authentication refusal.
 cat > "$REL/headless/podium" <<'SH'
 #!/bin/sh
 instance="${PODIUM_INSTANCE:-default}"
@@ -29,7 +29,10 @@ fi
 case "$1" in
   channel) mkdir -p "$state_dir"; printf '%s\n' "$2" > "$state_dir/update-channel" ;;
   setup)
-    if [ -n "${PODIUM_STUB_JOIN_FAIL:-}" ]; then echo "stub: setup fails" >&2; exit 1; fi
+    if [ -n "${PODIUM_STUB_JOIN_FAIL:-}" ]; then
+      echo "podium setup --join failed: daemon was rejected by the server (peerHelloRejected: auth-failed)" >&2
+      exit 2
+    fi
     UD="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UD"
     mkdir -p "$state_dir"
     printf '%s\n' '{"mode":"daemon","serverUrl":"wss://hub.test"}' > "$state_dir/config.json"
@@ -39,11 +42,6 @@ case "$1" in
       : > "$PODIUM_STUB_DAEMON_MARKER"
       "$0" daemon </dev/null >/dev/null 2>&1 &
     fi
-    ;;
-  join-config)
-    mkdir -p "$state_dir"
-    printf '%s\n' '{"mode":"daemon","serverUrl":"wss://hub.test"}' > "$state_dir/config.json"
-    [ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-join-config $*" >> "$PODIUM_STUB_LOG"
     ;;
   daemon)
     if [ -n "${PODIUM_STUB_DAEMON_MARKER:-}" ]; then
@@ -346,22 +344,18 @@ test -f "$UNIT/podium.service"       || { echo FAIL: join did not write parent u
 test ! -e "$UNIT/podium-update-user.service" || { echo "FAIL: attached join wrote update service"; exit 1; }
 test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: attached join wrote update timer"; exit 1; }
 
-echo "== join falls back to a manual unit when podium setup fails =="
+echo "== join reports daemon authentication failure instead of claiming success =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd" "$WORK/stub.log"
-env -u PODIUM_DISABLE_SYSTEMD -u XDG_CONFIG_HOME PODIUM_STUB_JOIN_FAIL=1 PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --join TESTTOKEN
-grep -F 'stub-join-config join-config TESTTOKEN' "$WORK/stub.log" >/dev/null \
-  || { echo "FAIL: fallback did not run join-config"; exit 1; }
-test -f "$UNIT/podium.service"       || { echo FAIL: fallback did not write parent unit; exit 1; }
-test ! -e "$UNIT/podium-update-user.service" || { echo "FAIL: attached fallback wrote update service"; exit 1; }
-test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: attached fallback wrote update timer"; exit 1; }
-grep -F 'Type=notify' "$UNIT/podium.service" >/dev/null \
-  || { echo "FAIL: fallback unit drifted from renderParentUnit (no Type=notify)"; exit 1; }
-grep -F 'parent --takeover' "$UNIT/podium.service" >/dev/null \
-  || { echo "FAIL: fallback unit does not start the parent"; exit 1; }
-# A service context inherits none of the login shell's PATH, so the unit must carry its own
-# (POD-327's second half). Without it, agent CLIs in %h/.local/bin are unreachable from children.
-grep -F 'Environment=PATH=%h/.local/bin:' "$UNIT/podium.service" >/dev/null \
-  || { echo "FAIL: fallback unit has no Environment=PATH covering %h/.local/bin"; exit 1; }
+if failed_join_output="$(env -u PODIUM_DISABLE_SYSTEMD -u XDG_CONFIG_HOME PODIUM_STUB_JOIN_FAIL=1 PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --join TESTTOKEN 2>&1)"; then
+  echo "FAIL: installer reported success after daemon authentication failed"; exit 1
+fi
+grep -F 'peerHelloRejected: auth-failed' <<<"$failed_join_output" >/dev/null \
+  || { echo "FAIL: installer hid the daemon authentication reason"; exit 1; }
+grep -F 'this machine was not joined' <<<"$failed_join_output" >/dev/null \
+  || { echo "FAIL: installer did not state that enrollment failed"; exit 1; }
+if grep -F 'This machine has joined your Podium' <<<"$failed_join_output" >/dev/null; then
+  echo "FAIL: installer printed its success claim after authentication failed"; exit 1
+fi
 
 echo "== tamper rejection =="
 printf 'x' >> "$REL/podium-headless-linux-x64.tar.gz"   # corrupt after signing

@@ -24,6 +24,7 @@ import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { FIRST_ADMIN_USER_ID, asMachineId } from '@podium/model'
 import { SESSION_COOKIE } from '@podium/protocol'
 import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
+import { encodeJoin } from '@podium/runtime/join'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
 import { SessionStore } from '../apps/server/src/store'
@@ -51,9 +52,11 @@ interface RunningInstance extends InstanceSpec {
 }
 const running: RunningInstance[] = []
 let packagedCli: string | undefined
+const packagedSpecs: Array<{ executable: string; spec: InstanceSpec }> = []
+let packagedSource: RunningInstance | undefined
 
 const freePorts = (() => {
-  const servers = Array.from({ length: 9 }, () =>
+  const servers = Array.from({ length: 18 }, () =>
     Bun.serve({
       hostname: '127.0.0.1',
       port: 0,
@@ -167,6 +170,7 @@ function buildPackagedCli(): string {
       '--define',
       'process.env.PODIUM_APP_VERSION="9.9.9"',
       join(scriptsDir, 'cli-compiled.ts'),
+      join(buildRoot, 'apps/daemon/src/discovery-worker.ts'),
       '--outfile',
       executable,
     ],
@@ -276,6 +280,61 @@ async function runCli(
   })
   return { code, stdout, stderr }
 }
+
+async function runPackagedCli(
+  executable: string,
+  spec: InstanceSpec,
+  args: string[],
+): Promise<CliResult> {
+  const child = spawn(executable, args, {
+    // A packaged executable must not depend on being launched from the checkout.
+    cwd: TEST_ROOT,
+    env: instanceEnv(spec, { PODIUM_APP_VERSION: undefined }),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let stdout = ''
+  let stderr = ''
+  child.stdout?.on('data', (chunk) => {
+    stdout += String(chunk)
+  })
+  child.stderr?.on('data', (chunk) => {
+    stderr += String(chunk)
+  })
+  const code = await new Promise<number>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL')
+      reject(new Error(`packaged CLI timed out: ${args.join(' ')}`))
+    }, 90_000)
+    child.once('error', reject)
+    child.once('exit', (value) => {
+      clearTimeout(timeout)
+      resolve(value ?? 1)
+    })
+  })
+  return { code, stdout, stderr }
+}
+
+function packagedDiagnostics(spec: InstanceSpec): string {
+  const files = [
+    'config.json',
+    'connectivity.json',
+    'logs/parent.log',
+    'logs/daemon.log',
+    'logs/parent.ndjson',
+    'logs/daemon.ndjson',
+    'run/parent.pid',
+    'run/daemon.pid',
+  ]
+  return files
+    .map((relative) => {
+      const path = join(spec.stateDir, relative)
+      return existsSync(path)
+        ? `--- ${relative} ---\n${readFileSync(path, 'utf8')}`
+        : `--- ${relative}: missing ---`
+    })
+    .join('\n')
+}
+
 function jsonOutput(result: CliResult): { data?: unknown } {
   const line = result.stdout
     .trim()
@@ -295,7 +354,21 @@ function trpc(spec: InstanceSpec, cookie?: string): ReturnType<typeof createTRPC
   })
 }
 
+async function packagedCoordinator(): Promise<RunningInstance> {
+  if (!packagedSource) {
+    packagedSource = startInstance(makeSpec('default', 'packaged-join-source'))
+    await waitUntil(
+      async () => (await version(packagedSource!))?.instanceId === 'default',
+      'packaged join source',
+    )
+  }
+  return packagedSource
+}
+
 afterAll(async () => {
+  for (const { executable, spec } of packagedSpecs) {
+    await runPackagedCli(executable, spec, ['stop']).catch(() => {})
+  }
   for (const instance of running) {
     if (instance.child.exitCode === null && instance.child.signalCode === null) {
       instance.child.kill('SIGKILL')
@@ -343,11 +416,86 @@ describe('multi-instance runtime isolation', () => {
     expect(existsSync(join(foreign.stateDir, 'instance.json'))).toBe(false)
     expect(existsSync(join(foreign.stateDir, 'config.json'))).toBe(false)
   })
+  it('accepts a legitimate daemon from the compiled packaged join path', async () => {
+    const source = await packagedCoordinator()
+    const sourceApi = trpc(source)
+    const pairing = await sourceApi.machines.pairingCode.mutate()
+    const fleet = makeSpec('blue', 'packaged-accepted-member')
+    const executable = buildPackagedCli()
+    packagedSpecs.push({ executable, spec: fleet })
+    const token = encodeJoin({
+      v: 1,
+      serverUrl: `ws://127.0.0.1:${source.port}`,
+      pairCode: pairing.code,
+    })
+
+    const joined = await runPackagedCli(executable, fleet, [
+      'setup',
+      '--join',
+      token,
+      '--persist',
+      'detached',
+    ])
+
+    expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
+    expect(joined.stdout).toContain('podium joined as')
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'daemon.json'), 'utf8')) as {
+      machineId: string
+      token?: string
+    }
+    expect(identity.token).toBeTruthy()
+    await waitUntil(
+      async () =>
+        (await sourceApi.machines.list.query()).some(
+          (machine) => machine.id === identity.machineId && machine.online,
+        ),
+      'compiled packaged daemon enrollment',
+    )
+    expect(
+      JSON.parse(readFileSync(join(fleet.stateDir, 'connectivity.json'), 'utf8')),
+    ).toMatchObject({
+      state: 'connected',
+    })
+  }, 120_000)
+
+  it('returns nonzero with the auth reason when packaged join is rejected', async () => {
+    const source = await packagedCoordinator()
+    const fleet = makeSpec('blue', 'packaged-rejected-member')
+    const executable = buildPackagedCli()
+    packagedSpecs.push({ executable, spec: fleet })
+    const token = encodeJoin({
+      v: 1,
+      serverUrl: `ws://127.0.0.1:${source.port}`,
+      pairCode: 'not-a-valid-pair-code-00000000',
+    })
+
+    const rejected = await runPackagedCli(executable, fleet, [
+      'setup',
+      '--join',
+      token,
+      '--persist',
+      'detached',
+    ])
+
+    expect(
+      rejected.code,
+      `${rejected.stdout}\n${rejected.stderr}\n${packagedDiagnostics(fleet)}`,
+    ).not.toBe(0)
+    expect(rejected.stderr, packagedDiagnostics(fleet)).toContain(
+      'peerHelloRejected: invalid or expired code',
+    )
+    expect(rejected.stderr).toContain('daemon was rejected by the server')
+    expect(rejected.stdout).not.toContain('podium joined as')
+    expect(
+      JSON.parse(readFileSync(join(fleet.stateDir, 'connectivity.json'), 'utf8')),
+    ).toMatchObject({
+      state: 'unauthorized',
+    })
+  }, 120_000)
 
   it('claims an absent named root before the compiled launcher materializes abduco', async () => {
     const namedSpec = makeSpec('blue', 'cold-blue')
     expect(existsSync(namedSpec.stateDir)).toBe(false)
-
     const executable = buildPackagedCli()
     const child = spawn(executable, ['channel', 'edge'], {
       cwd: ROOT,
