@@ -436,6 +436,7 @@ fn log_backend_version(port: u16) {
     }
 }
 
+const NATIVE_DESKTOP_BRIDGE_VERSION: u32 = 1;
 #[cfg(target_os = "macos")]
 const DESKTOP_PLATFORM: &str = "macos";
 #[cfg(target_os = "windows")]
@@ -484,7 +485,7 @@ fn native_desktop_hook(
     };
     // Desktop updates are available in every launch mode. The page may be remote or older
     // than this shell, so these methods are always present and are feature-detected by the page.
-    let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: (channel, expectedVersion) => window.__TAURI_INTERNALS__.invoke('install_update', { channel, expectedVersion }),\n            setUpdateChannel: (channel) => window.__TAURI_INTERNALS__.invoke('set_update_channel', { channel })";
+    let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: (channel, expectedVersion) => window.__TAURI_INTERNALS__.invoke('install_update', { channel, expectedVersion }),\n            setUpdateChannel: (channel, endpoint) => window.__TAURI_INTERNALS__.invoke('set_update_channel', { channel, endpoint })";
     // Hand a URL to the OS browser on purpose. The injected opener shim only rescues
     // CROSS-origin links (bootstrap::opener_shim_script); a page that wants the real browser
     // for one of the server's OWN URLs — "Open in browser" on a file — has no other route,
@@ -523,6 +524,7 @@ fn native_desktop_hook(
         r#"window.__PODIUM_DESKTOP__ = Object.freeze({{
             platform: "{DESKTOP_PLATFORM}",
             currentVersion: {current_version_literal},
+            bridgeVersion: {NATIVE_DESKTOP_BRIDGE_VERSION},
             launchMode: {launch_mode_expression}{machine_id},
             minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
@@ -569,6 +571,7 @@ fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Resu
         .permission("allow-claim-update-ownership")
         .permission("allow-check-update")
         .permission("allow-install-update")
+        .permission("allow-set-update-channel")
         // Same reason as the startup grant below: without listen/unlisten the
         // transferred origin can invoke the install but never hear it report.
         .permission("core:event:allow-listen")
@@ -1552,8 +1555,8 @@ mod tests {
             assert!(hook.contains("checkUpdate: (channel)"));
             assert!(hook.contains("installUpdate: (channel, expectedVersion)"));
             assert!(hook.contains("invoke('install_update', { channel, expectedVersion })"));
-            assert!(hook.contains("setUpdateChannel: (channel)"));
-            assert!(hook.contains("invoke('set_update_channel', { channel })"));
+            assert!(hook.contains("setUpdateChannel: (channel, endpoint)"));
+            assert!(hook.contains("invoke('set_update_channel', { channel, endpoint })"));
         }
     }
 

@@ -159,6 +159,19 @@ jobs:
         with:
           name: headless-cross
           path: dist-bun/release
+      - name: Carry forward the standing desktop shell reference
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$PODIUM_RELEASE_CHANNEL" = edge ]; then source_tag=edge; else source_tag=""; fi
+          for asset in latest.json desktop-shell-input.sha256; do
+            if [ -n "$source_tag" ]; then
+              gh release download "$source_tag" --pattern "$asset" --dir dist-bun/release --clobber || true
+            else
+              gh release download --pattern "$asset" --dir dist-bun/release --clobber || true
+            fi
+          done
       - name: Publish one multi-platform release
         env:
           GH_TOKEN: ${{ github.token }}

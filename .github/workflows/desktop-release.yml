@@ -45,6 +45,8 @@ jobs:
       channel: ${{ steps.resolve.outputs.channel }}
       stable_tag: ${{ steps.resolve.outputs.stable_tag }}
       checkout_ref: ${{ steps.resolve.outputs.checkout_ref }}
+      build_shell: ${{ steps.shell.outputs.build_shell }}
+      shell_input_hash: ${{ steps.shell.outputs.shell_input_hash }}
     steps:
       - name: Resolve channel and ref
         id: resolve
@@ -102,9 +104,32 @@ jobs:
             fi
           fi
           bun scripts/desktop-release.ts --validate-only --channel "$CHANNEL" --tag "$RELEASE_TAG"
+      - name: Compare desktop shell inputs
+        id: shell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ steps.resolve.outputs.channel }}
+        run: |
+          set -euo pipefail
+          shell_input_hash="$(git ls-files -s apps/desktop/src-tauri apps/desktop/scripts/stage-sidecar.ts | sha256sum | cut -d " " -f 1)"
+          mkdir -p "$RUNNER_TEMP/standing-shell"
+          if [ "$CHANNEL" = edge ]; then
+            gh release download edge --pattern desktop-shell-input.sha256 --dir "$RUNNER_TEMP/standing-shell" || true
+          else
+            gh release download --pattern desktop-shell-input.sha256 --dir "$RUNNER_TEMP/standing-shell" || true
+          fi
+          standing=""
+          if [ -f "$RUNNER_TEMP/standing-shell/desktop-shell-input.sha256" ]; then
+            standing="$(tr -d "[:space:]" < "$RUNNER_TEMP/standing-shell/desktop-shell-input.sha256")"
+          fi
+          if [ "$standing" = "$shell_input_hash" ]; then build_shell=false; else build_shell=true; fi
+          echo "build_shell=$build_shell" >> "$GITHUB_OUTPUT"
+          echo "shell_input_hash=$shell_input_hash" >> "$GITHUB_OUTPUT"
+          echo "desktop shell inputs changed: $build_shell"
 
   build:
     needs: validate
+    if: needs.validate.outputs.build_shell == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -263,6 +288,7 @@ jobs:
 
   publish:
     needs: [validate, build]
+    if: needs.validate.outputs.build_shell == 'true'
     runs-on: blacksmith-2vcpu-ubuntu-2204
     steps:
       - uses: actions/checkout@v4
@@ -286,6 +312,10 @@ jobs:
           --tag "$RELEASE_TAG"
           --notes "$RELEASE_NOTES"
           --bundle-dir dist-desktop-input
+      - name: Record desktop shell input hash
+        env:
+          SHELL_INPUT_HASH: ${{ needs.validate.outputs.shell_input_hash }}
+        run: printf "%s\n" "$SHELL_INPUT_HASH" > dist-desktop/desktop-shell-input.sha256
       - name: Upload promoted desktop assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -313,7 +343,7 @@ jobs:
           # Headless assets on the same release belong to the other workflow and are kept.
           if [ "$CHANNEL" = edge ]; then
             gh release view edge --json assets --jq '.assets[].name' \
-              | bun scripts/desktop-release.ts --list-stale \
+              | bun scripts/desktop-release.ts --list-stale --manifest dist-desktop/latest.json \
               | while IFS= read -r asset; do
                   echo "pruning stale edge desktop asset $asset"
                   gh release delete-asset edge "$asset" --yes

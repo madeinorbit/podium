@@ -40,6 +40,7 @@ import {
   type NativeDesktopUpdateChannel,
   type NativeDesktopUpdateProgress,
   nativeDesktopBridge,
+  persistNativeDesktopUpdateChannel,
   onNativeDesktopUpdateProgress,
 } from '@/lib/nativeDesktop'
 import { RELOAD_BUDGET_SENTENCE, reloadBudgetSpent } from '@/lib/reload-budget'
@@ -206,8 +207,7 @@ function phoneBehind(server: ServerVersion, expectedDigest: string): boolean {
 export function desktopChannelOf(channel: unknown): NativeDesktopUpdateChannel | undefined {
   const selected =
     typeof channel === 'string' ? channel : (channel as { channel?: string } | undefined)?.channel
-  if (selected === 'dev' || selected === 'edge') return 'edge'
-  if (selected === 'stable') return 'stable'
+  if (selected === 'dev' || selected === 'edge' || selected === 'stable') return selected
   return undefined
 }
 
@@ -228,7 +228,9 @@ async function readDesktopChannel(
 
 async function readDesktopUpdate(
   channel: NativeDesktopUpdateChannel,
+  httpOrigin: string,
 ): Promise<DesktopUpdateInfo | undefined> {
+  await persistNativeDesktopUpdateChannel(channel, httpOrigin)
   const check = nativeDesktopBridge()?.checkUpdate
   if (!check) return undefined
   const next = await check(channel)
@@ -446,7 +448,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       .then(async (channel) => {
         if (cancelled) return
         setDesktopChannel(channel)
-        const info = await readDesktopUpdate(channel)
+        const info = await readDesktopUpdate(channel, options.httpOrigin)
         if (!cancelled) setDesktopUpdate(info)
       })
       .catch(() => {})
@@ -454,7 +456,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     return () => {
       cancelled = true
     }
-  }, [queryChannel])
+  }, [queryChannel, options.httpOrigin])
 
   // The shell's own installer, which used to report nothing at all (spec §5).
   useEffect(() => onNativeDesktopUpdateProgress(setDesktopProgress), [])
@@ -647,9 +649,23 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     typeof installUpdate === 'function' &&
     desktopChannel !== undefined &&
     (desktopUpdate !== undefined || desktopTargeted || desktopAsked)
-  const expectedDesktopVersion = desktopAsked
-    ? operationTarget
-    : (desktopUpdate?.version ?? (desktopTargeted ? target?.version : undefined))
+  const minimumDesktopBridge = target?.minRequired?.desktopBridge
+  const shellBridgeVersion = nativeDesktopBridge()?.bridgeVersion ?? 0
+  const bridgeIncompatibility =
+    surface.startsWith('desktop') &&
+    typeof minimumDesktopBridge === 'number' &&
+    shellBridgeVersion < minimumDesktopBridge
+      ? {
+          code: 'desktop-bridge-incompatible',
+          message:
+            'This server needs desktop bridge ' +
+            minimumDesktopBridge +
+            ', but this shell provides ' +
+            shellBridgeVersion +
+            '.',
+        }
+      : undefined
+  const expectedDesktopVersion = desktopUpdate?.version
 
   /**
    * The silent hard-reload budget, explained after the fact (spec §6.2.3). The
@@ -669,7 +685,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     surface,
     now,
     ...(desktopProgress && pending === 'install-desktop' ? { desktopProgress } : {}),
-    ...(actionError ? { actionError } : {}),
+    ...((bridgeIncompatibility ?? actionError)
+      ? { actionError: bridgeIncompatibility ?? actionError }
+      : {}),
     ...((note ?? budgetNote) ? { note: note ?? budgetNote } : {}),
   })
 
@@ -757,7 +775,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       await trpc.updates.checkNow.mutate().catch(() => {})
       const channel = await readDesktopChannel(queryChannel)
       setDesktopChannel(channel)
-      const info = await readDesktopUpdate(channel)
+      const info = await readDesktopUpdate(channel, options.httpOrigin)
       setDesktopUpdate(info)
       setCheckedAt(clock())
       refresh()

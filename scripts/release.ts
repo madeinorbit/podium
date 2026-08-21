@@ -33,6 +33,7 @@ import { HEADLESS_PLATFORMS, type HeadlessPlatform, isHeadlessPlatform } from '.
 import { BUN_TARGETS, bunTargetForPlatform, targetOutputRoot } from './build-bun'
 import { extractRelease } from './changelog'
 import { buildManifest } from './release-manifest'
+import { validateReferencedDesktopManifest } from './desktop-release'
 
 /** Every platform a release publishes a headless bundle for. */
 export const RELEASE_PLATFORMS: readonly HeadlessPlatform[] = HEADLESS_PLATFORMS
@@ -386,8 +387,18 @@ export function publishPreparedHeadless(p: {
       2,
     )}\n`,
   )
-  writeFileSync(join(p.dir, 'VERSION'), `${version}\n`)
+  writeFileSync(join(p.dir, 'VERSION'), version + '\n')
+  const desktopFiles: string[] = []
+  const desktopManifestPath = join(p.dir, 'latest.json')
+  if (existsSync(desktopManifestPath)) {
+    validateReferencedDesktopManifest(readFileSync(desktopManifestPath, 'utf8'))
+    desktopFiles.push('latest.json')
+    if (existsSync(join(p.dir, 'desktop-shell-input.sha256'))) {
+      desktopFiles.push('desktop-shell-input.sha256')
+    }
+  }
   const releaseFiles = [
+    ...desktopFiles,
     ...prepared.flatMap((item) => [item.asset, `${item.asset}.sig`]),
     manifestName,
     'VERSION',

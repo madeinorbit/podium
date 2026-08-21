@@ -17,6 +17,7 @@
  */
 import type { UpdateChannel } from '@podium/model'
 import {
+  compareVersions,
   UpdateTarget,
   type UpdateTarget as UpdateTargetValue,
   type UpdateTrustRoot,
@@ -112,9 +113,14 @@ export function desktopReleaseManifestUrl(channel: 'edge' | 'stable'): string {
 /** Where the source server serves its own feed, relative to its origin. */
 export const DEV_FEED_ROUTE = '/updates/feed/dev'
 export const DEV_FEED_MANIFEST = 'podium-update.json'
+export const DEV_DESKTOP_MANIFEST = 'latest.json'
 
 export function devFeedManifestUrl(origin: string): string {
   return `${origin.replace(/\/+$/, '')}${DEV_FEED_ROUTE}/${DEV_FEED_MANIFEST}`
+}
+
+export function devDesktopManifestUrl(origin: string): string {
+  return origin.replace(/\/+$/, '') + DEV_FEED_ROUTE + '/' + DEV_DESKTOP_MANIFEST
 }
 
 /**
@@ -136,9 +142,11 @@ export function releaseChannelFeed(channel: ReleaseUpdateChannel): ChannelFeed |
   }
 }
 
-type DesktopReleaseManifest = {
+export type DesktopReleaseManifest = {
   version: string
+  bridgeVersion?: number
   platforms: Record<string, { url: string; signature: string }>
+  downloads?: string[]
 }
 
 /**
@@ -213,11 +221,19 @@ async function fetchFeedJson(
   }
 }
 
-function parseDesktopManifest(channel: ReleaseUpdateChannel, raw: unknown): DesktopReleaseManifest {
+export function parseDesktopManifest(
+  channel: ReleaseUpdateChannel,
+  raw: unknown,
+): DesktopReleaseManifest {
   if (!raw || typeof raw !== 'object') {
     throw new Error(`${channel} target unavailable: invalid desktop manifest`)
   }
-  const manifest = raw as { version?: unknown; platforms?: unknown }
+  const manifest = raw as {
+    version?: unknown
+    bridgeVersion?: unknown
+    platforms?: unknown
+    downloads?: unknown
+  }
   if (typeof manifest.version !== 'string' || manifest.version.length === 0) {
     throw new Error(`${channel} target unavailable: invalid desktop manifest version`)
   }
@@ -244,7 +260,27 @@ function parseDesktopManifest(channel: ReleaseUpdateChannel, raw: unknown): Desk
   if (Object.keys(platforms).length === 0) {
     throw new Error(`${channel} target unavailable: desktop manifest has no artifacts`)
   }
-  return { version: manifest.version, platforms }
+  if (
+    manifest.downloads !== undefined &&
+    (!Array.isArray(manifest.downloads) ||
+      manifest.downloads.some((url) => typeof url !== 'string' || url.length === 0))
+  ) {
+    throw new Error(channel + ' target unavailable: invalid desktop downloads')
+  }
+  if (
+    manifest.bridgeVersion !== undefined &&
+    (!Number.isInteger(manifest.bridgeVersion) || (manifest.bridgeVersion as number) < 0)
+  ) {
+    throw new Error(channel + ' target unavailable: invalid desktop bridge version')
+  }
+  return {
+    version: manifest.version,
+    ...(typeof manifest.bridgeVersion === 'number'
+      ? { bridgeVersion: manifest.bridgeVersion }
+      : {}),
+    platforms,
+    ...(Array.isArray(manifest.downloads) ? { downloads: manifest.downloads as string[] } : {}),
+  }
 }
 
 /**
@@ -328,6 +364,30 @@ function artifactUrlBelongsToFeed(url: string, artifactBase: string): boolean {
  *    hosts {@link ChannelFeed.redirectHosts} names — GitHub's object host,
  *    not the open internet.
  */
+export function validateEdgeDesktopManifest(raw: unknown): DesktopReleaseManifest {
+  const manifest = parseDesktopManifest('edge', raw)
+  const edgeBase = RELEASE_BASE + '/download/edge/'
+  for (const [platform, artifact] of Object.entries(manifest.platforms)) {
+    if (artifactUrlBelongsToFeed(artifact.url, edgeBase)) continue
+    throw new Error(
+      'edge target unavailable: desktop ' +
+        platform +
+        ' artifact is served from outside the edge feed (' +
+        artifact.url +
+        ')',
+    )
+  }
+  for (const url of manifest.downloads ?? []) {
+    if (artifactUrlBelongsToFeed(url, edgeBase)) continue
+    throw new Error(
+      'edge target unavailable: desktop download is served from outside the edge feed (' +
+        url +
+        ')',
+    )
+  }
+  return manifest
+}
+
 async function assertArtifactsFetchable(
   channel: ReleaseUpdateChannel,
   feed: ChannelFeed,
@@ -481,24 +541,35 @@ export async function resolveReleaseTarget(
     }
   }
 
-  // The headless and desktop workflows start from the same tag but finish at
-  // different times. The release itself has to exist before the desktop job can
-  // upload, so publication cannot be made atomic in scripts/release.ts without
-  // deadlocking the two workflows. Resolve the pair atomically instead: the new
-  // product target is invisible until the companion desktop build has the same
-  // version and every URL either manifest names is reachable.
-  //
-  // A channel with no desktop manifest (`dev`) has no pair to resolve: its
-  // shell comes from the edge channel entirely, so there is nothing here that
-  // could be half-published.
+  // Shell and payload versions intentionally diverge. The desktop manifest contributes
+  // reachable, signed shell assets; compatibility is the explicit minimum-version window.
+  // Dev has no resolver-side pair because its shell manifest is consumed by the shell itself.
   if (feed.desktopManifestUrl) {
     const desktop = parseDesktopManifest(
       channel,
       await fetchFeedJson(channel, feed, 'desktop', feed.desktopManifestUrl, fetchImpl),
     )
-    if (desktop.version !== target.version) {
+    const minimumShell = target.minRequired?.desktop
+    if (minimumShell !== undefined) {
+      const order = compareVersions(desktop.version, minimumShell)
+      if (order === null || order < 0) {
+        throw new Error(
+          channel +
+            ' target unavailable: desktop shell ' +
+            desktop.version +
+            ' is below required ' +
+            minimumShell,
+        )
+      }
+    }
+    const minimumBridge = target.minRequired?.desktopBridge
+    if (minimumBridge !== undefined && (desktop.bridgeVersion ?? 0) < minimumBridge) {
       throw new Error(
-        `${channel} target unavailable: desktop build for ${target.version} is not published yet`,
+        channel +
+          ' target unavailable: desktop bridge ' +
+          (desktop.bridgeVersion ?? 0) +
+          ' is below required ' +
+          minimumBridge,
       )
     }
     for (const [platform, artifact] of Object.entries(desktop.platforms)) {

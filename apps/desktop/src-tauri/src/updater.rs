@@ -1,4 +1,4 @@
-use crate::bootstrap::{build_update_channel, write_update_channel, UpdateChannel};
+use crate::bootstrap::{build_update_channel, read_config, write_update_channel, UpdateChannel};
 #[cfg(any(target_os = "macos", test))]
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -249,10 +249,18 @@ pub fn should_install_native_update(update_available: bool, confirmed: bool) -> 
 
 /// Resolve the production static manifest for the persisted release channel.
 /// [spec:SP-7f2c]
-pub fn endpoint_for_channel(channel: UpdateChannel) -> &'static str {
+pub fn endpoint_for_channel(
+    channel: UpdateChannel,
+    dev_endpoint: Option<&str>,
+) -> Result<String, UpdateError> {
     match channel {
-        UpdateChannel::Stable => STABLE_ENDPOINT,
-        UpdateChannel::Edge => EDGE_ENDPOINT,
+        UpdateChannel::Dev => dev_endpoint
+            .map(str::trim)
+            .filter(|endpoint| !endpoint.is_empty())
+            .map(str::to_string)
+            .ok_or_else(UpdateError::updater_unavailable),
+        UpdateChannel::Stable => Ok(STABLE_ENDPOINT.to_string()),
+        UpdateChannel::Edge => Ok(EDGE_ENDPOINT.to_string()),
     }
 }
 
@@ -260,6 +268,7 @@ pub fn endpoint_for_channel(channel: UpdateChannel) -> &'static str {
 /// Unknown values fail closed instead of selecting an arbitrary release channel.
 pub fn channel_from_name(channel: &str) -> Result<UpdateChannel, UpdateError> {
     match channel {
+        "dev" => Ok(UpdateChannel::Dev),
         "stable" => Ok(UpdateChannel::Stable),
         "edge" => Ok(UpdateChannel::Edge),
         _ => {
@@ -300,7 +309,9 @@ fn updater_for_channel(
     app: &AppHandle,
     channel: UpdateChannel,
 ) -> Result<tauri_plugin_updater::Updater, UpdateError> {
-    let endpoint = parse_updater_endpoint(endpoint_for_channel(channel))?;
+    let config = read_config();
+    let endpoint = endpoint_for_channel(channel, config.update_feed_endpoint.as_deref())?;
+    let endpoint = parse_updater_endpoint(&endpoint)?;
     app.updater_builder()
         .endpoints(vec![endpoint])
         .and_then(|builder| builder.build())
@@ -594,10 +605,10 @@ pub fn claim_update_ownership(ownership: State<'_, UpdateOwnership>) -> Result<(
 
 /// Keep the shell's native fallback on the same production feed the user chose in the app.
 #[tauri::command]
-pub fn set_update_channel(channel: String) -> Result<(), String> {
+pub fn set_update_channel(channel: String, endpoint: Option<String>) -> Result<(), String> {
     let channel = channel_from_name(&channel)
         .map_err(|_| "unsupported desktop update channel".to_string())?;
-    write_update_channel(channel)
+    write_update_channel(channel, endpoint.as_deref())
 }
 
 /// Check a production feed and retain the signed update for a later install command.
@@ -842,6 +853,7 @@ mod tests {
 
     #[test]
     fn bridge_channel_names_select_only_production_channels() {
+        assert_eq!(channel_from_name("dev"), Ok(UpdateChannel::Dev));
         assert_eq!(channel_from_name("stable"), Ok(UpdateChannel::Stable));
         assert_eq!(channel_from_name("edge"), Ok(UpdateChannel::Edge));
     }
@@ -856,8 +868,22 @@ mod tests {
 
     #[test]
     fn release_channels_use_distinct_static_manifests() {
-        assert_eq!(endpoint_for_channel(UpdateChannel::Stable), STABLE_ENDPOINT);
-        assert_eq!(endpoint_for_channel(UpdateChannel::Edge), EDGE_ENDPOINT);
+        assert_eq!(
+            endpoint_for_channel(UpdateChannel::Stable, None),
+            Ok(STABLE_ENDPOINT.to_string())
+        );
+        assert_eq!(
+            endpoint_for_channel(UpdateChannel::Edge, None),
+            Ok(EDGE_ENDPOINT.to_string())
+        );
+        assert_eq!(
+            endpoint_for_channel(UpdateChannel::Dev, Some("https://podium.test/updates/feed/dev/latest.json")),
+            Ok("https://podium.test/updates/feed/dev/latest.json".to_string())
+        );
+        assert_eq!(
+            endpoint_for_channel(UpdateChannel::Dev, None),
+            Err(UpdateError::updater_unavailable())
+        );
     }
 
     #[test]

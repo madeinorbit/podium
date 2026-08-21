@@ -3,7 +3,7 @@ export type NativeDesktopPlatform = 'macos' | 'windows' | 'linux'
 
 /** The shell's resolved launch mode (bootstrap.rs LaunchAction). Older shells omit it. */
 export type NativeDesktopLaunchMode = 'all-in-one' | 'server' | 'daemon' | 'client'
-export type NativeDesktopUpdateChannel = 'stable' | 'edge'
+export type NativeDesktopUpdateChannel = 'dev' | 'stable' | 'edge'
 
 export interface NativeDesktopUpdateInfo {
   current_version: string
@@ -16,6 +16,8 @@ export interface NativeDesktopBridge {
   platform: NativeDesktopPlatform
   /** Shell package version. Older shells omit it. */
   currentVersion?: string
+  /** Versioned contract for methods and payloads on this injected bridge. */
+  bridgeVersion?: number
   launchMode?: NativeDesktopLaunchMode
   /** This device's paired machine id (~/.podium/daemon.json), if it ever paired. [spec:SP-3701] */
   machineId?: MachineId
@@ -42,7 +44,7 @@ export interface NativeDesktopBridge {
     expectedVersion?: string,
   ) => Promise<void>
   /** Persists the user's production feed choice for native update checks without a page. */
-  setUpdateChannel?: (channel: NativeDesktopUpdateChannel) => Promise<void>
+  setUpdateChannel?: (channel: NativeDesktopUpdateChannel, endpoint?: string) => Promise<void>
   /**
    * Opens a URL in the OS browser. Needed for the server's OWN URLs: the shell's link shim
    * only diverts cross-origin links, so a same-origin `_blank` lands in an in-app webview
@@ -176,6 +178,24 @@ export function onNativeDesktopUpdateProgress(
     disposed = true
     stop?.()
   }
+}
+
+export function desktopUpdateEndpoint(
+  channel: NativeDesktopUpdateChannel,
+  httpOrigin: string,
+): string | undefined {
+  if (channel !== 'dev') return undefined
+  return httpOrigin.replace(/\/+$/, '') + '/updates/feed/dev/latest.json'
+}
+
+export async function persistNativeDesktopUpdateChannel(
+  channel: NativeDesktopUpdateChannel,
+  httpOrigin: string,
+): Promise<void> {
+  await nativeDesktopBridge()?.setUpdateChannel?.(
+    channel,
+    desktopUpdateEndpoint(channel, httpOrigin),
+  )
 }
 
 export function nativeDesktopBridge(): NativeDesktopBridge | undefined {

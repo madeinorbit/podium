@@ -206,6 +206,11 @@ describe('native desktop update surface', () => {
 })
 
 describe('desktopChannelOf', () => {
+  it('keeps development distinct from the edge GitHub feed', () => {
+    expect(desktopChannelOf({ channel: 'dev' })).toBe('dev')
+    expect(desktopChannelOf({ channel: 'edge' })).toBe('edge')
+  })
+
   it('does not turn an unread channel into stable', () => {
     expect(desktopChannelOf(undefined)).toBeUndefined()
   })
@@ -508,7 +513,12 @@ describe('useUpdateState — all-in-one: one click, one restart', () => {
     const install = vi.fn(
       () => new Promise<void>(() => {}), // success replaces the process
     )
-    const check = vi.fn(async () => null)
+    const check = vi.fn(async () => ({
+      current_version: '0.4.0-edge.1',
+      version: '0.4.1-edge.7',
+      critical: false,
+      notes: null,
+    }))
     stubDesktopShell({ checkUpdate: check, installUpdate: install })
     const results: UpdateStateResult[] = []
 
@@ -527,7 +537,7 @@ describe('useUpdateState — all-in-one: one click, one restart', () => {
     await waitFor(() => expect(results.at(-1)?.view.primary?.kind).toBe('install-desktop'))
 
     void results.at(-1)?.run('install-desktop')
-    await waitFor(() => expect(install).toHaveBeenCalledWith('edge', '0.4.2'))
+    await waitFor(() => expect(install).toHaveBeenCalledWith('edge', '0.4.1-edge.7'))
   })
 
   it('installs on the channel the server resolved, not the shell’s own config', async () => {
@@ -536,14 +546,22 @@ describe('useUpdateState — all-in-one: one click, one restart', () => {
     const install = vi.fn(
       () => new Promise<void>(() => {}), // never settles: the process is replaced
     )
-    stubDesktopShell({ installUpdate: install })
+    stubDesktopShell({
+      installUpdate: install,
+      checkUpdate: vi.fn(async () => ({
+        current_version: '0.4.0-edge.1',
+        version: '0.4.1-edge.7',
+        critical: false,
+        notes: null,
+      })),
+    })
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} />)
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('waiting-you'))
 
     void results.at(-1)?.run('install-desktop')
-    await waitFor(() => expect(install).toHaveBeenCalledWith('stable', '0.4.2'))
+    await waitFor(() => expect(install).toHaveBeenCalledWith('stable', '0.4.1-edge.7'))
   })
 
   /**
@@ -680,6 +698,21 @@ describe('useUpdateState — dispatching actions', () => {
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
     expect(screen.getByTestId('view-state').textContent).toContain('already running')
     expect(results.at(-1)?.view.primary?.kind).toBe('retry')
+  })
+
+  it('surfaces an incompatible old shell instead of offering undefined bridge behavior', async () => {
+    setupTransport({
+      appVersion: '0.4.1',
+      target: { ...target, minRequired: { desktopBridge: 2 } } as typeof target,
+    })
+    mocks.active.mockResolvedValue(null)
+    stubDesktopShell({ bridgeVersion: 1 })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
+    expect(results.at(-1)?.view.error?.message).toContain('needs desktop bridge 2')
+    expect(results.at(-1)?.view.primary).toBeUndefined()
   })
 
   it('surfaces the shell’s typed install failure', async () => {

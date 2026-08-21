@@ -16,6 +16,8 @@ import {
 import { basename, join } from 'node:path'
 import { extractRelease } from './changelog'
 
+export const NATIVE_DESKTOP_BRIDGE_VERSION = 1
+
 export type DesktopReleaseChannel = 'stable' | 'edge'
 export type DesktopReleaseTarget = 'linux-x86_64' | 'darwin-aarch64' | 'darwin-x86_64'
 
@@ -27,8 +29,10 @@ export type DesktopReleaseArtifact = {
 
 type DesktopManifest = {
   version: string
+  bridgeVersion: number
   notes?: string
   platforms: Record<string, { url: string; signature: string }>
+  downloads?: string[]
 }
 
 type TargetBundle = {
@@ -69,15 +73,70 @@ const desktopAssetSuffixes = targetBundles
   .flatMap((suffix) => [suffix, `${suffix}.sig`])
 
 /**
- * Desktop assets on the release that this publish does not replace. DMG, AppImage, and macOS
- * updater archive names embed the version, so `gh release upload --clobber` accumulates one pair
- * per edge build — including pre-notarization installers — unless publish deletes the leftovers.
+ * Validate the manifest that defines the live shell set. Pruning is reference-based: an
+ * unchanged shell remains live across headless-only releases even when its version differs from
+ * the current product target.
  */
+export function validateReferencedDesktopManifest(text: string): DesktopManifest {
+  const manifest = JSON.parse(text) as Partial<DesktopManifest>
+  if (typeof manifest.version !== 'string' || manifest.version.length === 0) {
+    throw new Error('referenced desktop manifest has no version')
+  }
+  if (
+    manifest.bridgeVersion !== undefined &&
+    (!Number.isInteger(manifest.bridgeVersion) || manifest.bridgeVersion < 0)
+  ) {
+    throw new Error('referenced desktop manifest has an invalid bridge version')
+  }
+  const platforms = manifest.platforms ?? {}
+  if (Object.keys(platforms).length === 0) {
+    throw new Error('referenced desktop manifest has no platforms')
+  }
+  const urls = [
+    ...Object.values(platforms).map((artifact) => artifact.url),
+    ...(manifest.downloads ?? []),
+  ]
+  for (const [platform, artifact] of Object.entries(platforms)) {
+    if (!artifact.signature) {
+      throw new Error('referenced desktop manifest has no signature for ' + platform)
+    }
+  }
+  for (const url of urls) {
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      throw new Error('referenced desktop manifest has an invalid asset URL')
+    }
+    if (
+      parsed.protocol !== 'https:' ||
+      parsed.hostname !== 'github.com' ||
+      !parsed.pathname.startsWith('/madeinorbit/podium/releases/download/')
+    ) {
+      throw new Error('referenced desktop manifest points outside Podium releases')
+    }
+  }
+  return manifest as DesktopManifest
+}
+
+export function referencedDesktopAssets(manifestTexts: readonly string[]): string[] {
+  const names = new Set<string>()
+  for (const text of manifestTexts) {
+    const manifest = validateReferencedDesktopManifest(text)
+    for (const artifact of Object.values(manifest.platforms)) {
+      const name = basename(new URL(artifact.url).pathname)
+      names.add(name)
+      names.add(name + '.sig')
+    }
+    for (const url of manifest.downloads ?? []) names.add(basename(new URL(url).pathname))
+  }
+  return [...names]
+}
+
 export function staleDesktopAssets(existingAssets: string[], currentAssets: string[]): string[] {
   const current = new Set(currentAssets)
   return existingAssets.filter(
-    (name) =>
-      desktopAssetSuffixes.some((suffix) => name.endsWith(suffix)) && !current.has(name),
+    (name) => desktopAssetSuffixes.some((suffix) => name.endsWith(suffix)) && !current.has(name),
   )
 }
 
@@ -119,6 +178,7 @@ export function buildDesktopManifest(input: {
   artifacts: DesktopReleaseArtifact[]
   notes?: string
   stableTag?: string
+  downloads?: string[]
 }): string {
   assertUniqueArtifacts(input.artifacts)
   const releaseTag = desktopReleaseTag(input.channel, input.version, input.stableTag)
@@ -134,8 +194,20 @@ export function buildDesktopManifest(input: {
   return `${JSON.stringify(
     {
       version: input.version,
+      bridgeVersion: NATIVE_DESKTOP_BRIDGE_VERSION,
       ...(input.notes ? { notes: input.notes } : {}),
       platforms,
+      ...(input.downloads?.length
+        ? {
+            downloads: input.downloads.map(
+              (name) =>
+                'https://github.com/madeinorbit/podium/releases/download/' +
+                releaseTag +
+                '/' +
+                name,
+            ),
+          }
+        : {}),
     } satisfies DesktopManifest,
     null,
     2,
@@ -150,6 +222,7 @@ export function validateDesktopManifest(
     artifacts: DesktopReleaseArtifact[]
     notes?: string
     stableTag?: string
+    downloads?: string[]
   },
 ): void {
   assertUniqueArtifacts(expected.artifacts)
@@ -157,6 +230,9 @@ export function validateDesktopManifest(
   const releaseTag = desktopReleaseTag(expected.channel, expected.version, expected.stableTag)
   if (parsed.version !== expected.version) {
     throw new Error(`manifest version mismatch: expected ${expected.version}`)
+  }
+  if (parsed.bridgeVersion !== NATIVE_DESKTOP_BRIDGE_VERSION) {
+    throw new Error('manifest bridge version mismatch: expected ' + NATIVE_DESKTOP_BRIDGE_VERSION)
   }
   const expectedTargets = expected.artifacts.map((artifact) => artifact.target).sort()
   const actualTargets = Object.keys(parsed.platforms ?? {}).sort()
@@ -180,6 +256,12 @@ export function validateDesktopManifest(
   }
   if (parsed.notes !== (expected.notes || undefined)) {
     throw new Error('manifest notes do not match the requested release notes')
+  }
+  const expectedDownloads = (expected.downloads ?? []).map(
+    (name) => 'https://github.com/madeinorbit/podium/releases/download/' + releaseTag + '/' + name,
+  )
+  if (JSON.stringify(parsed.downloads ?? []) !== JSON.stringify(expectedDownloads)) {
+    throw new Error('manifest downloads do not match the promoted installers')
   }
 }
 
@@ -256,6 +338,7 @@ export function prepareDesktopRelease(input: {
     artifacts,
     notes: input.notes,
     stableTag: input.stableTag,
+    downloads: downloadSources.map((source) => basename(source)),
   })
   validateDesktopManifest(manifest, {
     version: input.version,
@@ -263,6 +346,7 @@ export function prepareDesktopRelease(input: {
     artifacts,
     notes: input.notes,
     stableTag: input.stableTag,
+    downloads: downloadSources.map((source) => basename(source)),
   })
 
   rmSync(input.outputDir, { recursive: true, force: true })
@@ -293,6 +377,12 @@ export function prepareDesktopRelease(input: {
 function arg(name: string): string | undefined {
   const index = process.argv.indexOf(name)
   return index >= 0 ? process.argv[index + 1] : undefined
+}
+
+function args(name: string): string[] {
+  return process.argv.flatMap((value, index) =>
+    value === name && process.argv[index + 1] ? [process.argv[index + 1] as string] : [],
+  )
 }
 
 /**
@@ -328,8 +418,14 @@ function main(): void {
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
-    const current = readdirSync(arg('--output-dir') ?? 'dist-desktop')
-    for (const name of staleDesktopAssets(existing, current)) console.log(name)
+    const manifestPaths = args('--manifest')
+    if (manifestPaths.length === 0) {
+      manifestPaths.push(join(arg('--output-dir') ?? 'dist-desktop', 'latest.json'))
+    }
+    const referenced = referencedDesktopAssets(
+      manifestPaths.map((path) => readFileSync(path, 'utf8')),
+    )
+    for (const name of staleDesktopAssets(existing, referenced)) console.log(name)
     return
   }
   const channel = arg('--channel')

@@ -120,8 +120,13 @@ describe('UpdateTarget', () => {
   it('carries per-surface and per-platform minimum required versions', () => {
     const t = UpdateTarget.parse({
       ...feedTarget,
-      minRequired: { desktop: '0.4.0', mobile: { ios: '0.3.9', android: '0.4.0' } },
+      minRequired: {
+        desktop: '0.4.0',
+        desktopBridge: 2,
+        mobile: { ios: '0.3.9', android: '0.4.0' },
+      },
     })
+    expect(t.minRequired?.desktopBridge).toBe(2)
     expect(t.minRequired?.mobile?.ios).toBe('0.3.9')
   })
 

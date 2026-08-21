@@ -22,7 +22,13 @@ import {
   versionStateOf,
   writeDevPublisherState,
 } from './dev-publisher-state'
-import { DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
+import {
+  desktopReleaseManifestUrl,
+  DEV_DESKTOP_MANIFEST,
+  DEV_FEED_MANIFEST,
+  DEV_FEED_ROUTE,
+  validateEdgeDesktopManifest,
+} from './release-target'
 
 const log = createLogger('server:updates')
 
@@ -1493,6 +1499,7 @@ export function devTarget(
   return {
     version: built.version,
     critical: false,
+    minRequired: { desktopBridge: 1 },
     schema: { migrations },
     artifacts: {
       headless: {
@@ -1551,6 +1558,7 @@ export function devIdentityTarget(
   return {
     version,
     critical: false,
+    minRequired: { desktopBridge: 1 },
     schema: { migrations },
     artifacts: {
       web: { digest: sha },
@@ -1561,6 +1569,10 @@ export function devIdentityTarget(
 /** Where the publisher writes `podium-update.json` for the served dev feed. */
 export function devFeedManifestPath(root: string): string {
   return join(devBundleDirectory(root), DEV_FEED_MANIFEST)
+}
+
+export function devDesktopManifestPath(root: string): string {
+  return join(devBundleDirectory(root), DEV_DESKTOP_MANIFEST)
 }
 
 /**
@@ -1582,6 +1594,28 @@ export async function writeDevFeedManifest(
 ): Promise<string> {
   const path = devFeedManifestPath(root)
   await fs.writeText(path, `${JSON.stringify(target, null, 2)}\n`)
+  return path
+}
+
+async function fetchStandingEdgeDesktopManifest(): Promise<unknown> {
+  const response = await fetch(desktopReleaseManifestUrl('edge'), {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(5_000),
+  })
+  if (!response.ok) {
+    throw new Error('current edge desktop manifest returned HTTP ' + response.status)
+  }
+  return response.json()
+}
+
+export async function writeDevDesktopManifest(
+  fs: DevBundleFs,
+  root: string,
+  raw: unknown,
+): Promise<string> {
+  validateEdgeDesktopManifest(raw)
+  const path = devDesktopManifestPath(root)
+  await fs.writeText(path, JSON.stringify(raw, null, 2) + '\n')
   return path
 }
 
@@ -1612,6 +1646,8 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    * exactly the convergence that must be refused.
    */
   migrationsAt?: (sha: string) => Promise<string[] | undefined>
+  /** Fetches the standing edge shell manifest. Seam for tests; production reads GitHub. */
+  edgeDesktopManifest?: () => Promise<unknown>
   /** Seam for tests; defaults to `git status --porcelain -z` in `root`. */
   readSourceStatus?: DevBundleSourceReader
   /** Seam for tests; defaults to `git ls-files --others --ignored` in `root`. */
@@ -1686,8 +1722,10 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
    * whether there was one to write. This is spec §6 step 4's handoff.
    */
   publishFeed(): Promise<boolean>
-  /** Where the manifest is written, so the feed route can serve it. */
+  /** Where the product manifest is written, so the feed route can serve it. */
   feedManifestPath(): string
+  /** Where the edge-referencing shell manifest is written. */
+  desktopManifestPath(): string
   /** Explicit lifecycle for this HEAD, with a reason safe to show a client. */
   readiness(): Promise<DevBundleReadiness>
   /**
@@ -1989,12 +2027,23 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     },
     feedManifest,
     feedManifestPath: () => devFeedManifestPath(deps.root ?? SOURCE_ROOT),
+    desktopManifestPath: () => devDesktopManifestPath(deps.root ?? SOURCE_ROOT),
     publishFeed: async () => {
       const manifest = await feedManifest()
       if (!manifest) return false
       try {
-        const path = await writeDevFeedManifest(fs, deps.root ?? SOURCE_ROOT, manifest)
-        log.info('published a development feed manifest', { version: manifest.version, path })
+        const root = deps.root ?? SOURCE_ROOT
+        const desktopRaw = await (deps.edgeDesktopManifest ?? fetchStandingEdgeDesktopManifest)()
+        // Validate the edge URLs before changing either served document. A failed shell
+        // reference leaves the previous complete pair visible.
+        validateEdgeDesktopManifest(desktopRaw)
+        const desktopPath = await writeDevDesktopManifest(fs, root, desktopRaw)
+        const path = await writeDevFeedManifest(fs, root, manifest)
+        log.info('published development feed manifests', {
+          version: manifest.version,
+          path,
+          desktopPath,
+        })
         return true
       } catch (error) {
         // A manifest that could not be written is a release nobody can pull, so
