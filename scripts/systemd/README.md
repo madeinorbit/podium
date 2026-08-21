@@ -38,15 +38,20 @@ is a no-op without `NOTIFY_SOCKET`, so it's safe either way.
 combined backend — never both (they bind the same :18787).
 
 HTTPS (the primary URL) is served by **`tailscale serve`**, which terminates TLS
-on **:55555** and proxies to the Vite origin on :55556 — tailnet-internal (not
-Funnel), with auto-renewing certs. The mobile clipboard/paste API needs a secure
-context, which is why https is the primary origin; http://<host>:55556 stays as a
-plain fallback. Set it up once (the config persists in tailscaled across reboots):
+on **:55555** and proxies straight to the installed server on **:18787** —
+tailnet-internal (not Funnel), with auto-renewing certs. The backend serves the
+built PWA itself (`apps/web/dist`); there is no separate Vite hop on the live
+path. The mobile clipboard/paste API needs a secure context, which is why https
+is the primary origin. Set it up once (the config persists in tailscaled across
+reboots):
 
 ```sh
-tailscale serve --bg --https=55555 http://127.0.0.1:55556
-tailscale serve status   # expect: https://<host>:55555 -> http://127.0.0.1:55556
+tailscale serve --bg --https=55555 http://127.0.0.1:18787
+tailscale serve status   # expect: https://<host>:55555 -> http://127.0.0.1:18787
 ```
+
+For hot-reload UI work **beside** this live path (source Vite, updater off), see
+[`docs/iteration-mode.md`](../../docs/iteration-mode.md) (`bun run iterate`).
 
 A separate public Funnel (e.g. another project on :443) is unaffected — this adds
 a serve entry on its own port rather than touching existing mappings.
