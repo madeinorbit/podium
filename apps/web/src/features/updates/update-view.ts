@@ -170,11 +170,19 @@ function placesFor(input: UpdateInput): Place[] {
   const places: Place[] = []
   const affected = affectedPlaces(input)
 
+  // Dev channel: forensic `dev+<sha>` identity OR a publisher mint
+  // (`<base>.dev.<N>+<sha>`, POD-2502). Both mean the page follows this server.
+  const targetVersion = input.server.target?.version ?? ''
+  const isDevChannelTarget =
+    targetVersion.startsWith('dev+') ||
+    /\.dev\.\d+\+[0-9a-f]{7,40}$/i.test(targetVersion) ||
+    /^\d+\.\d+\.\d+-dev\.\d+\+[0-9a-f]{7,40}$/i.test(targetVersion)
+
   const sourceAppAndServer =
     affected.app &&
     affected.server &&
     (input.surface === 'web' || input.surface === 'mobile') &&
-    (input.server.target?.version ?? '').startsWith('dev+')
+    isDevChannelTarget
 
   if (sourceAppAndServer) {
     const server = input.serverName ? `your server (${input.serverName})` : 'your server'

@@ -45,7 +45,11 @@ import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
+import {
+  formatDisplayedVersion,
+  machineNeedsUpdate,
+  useServerAppVersion,
+} from '@/lib/version-skew'
 
 const SERVER_TRANSFER_PHASES = [
   { key: 'preparing', label: 'Preparing' },
@@ -1071,7 +1075,7 @@ function MachineRow({
                 <Badge
                   variant="warning"
                   className="h-4 flex-none px-1.5 text-[11px]"
-                  title={`This machine runs Podium ${daemonVersion}; its selected update target is ${updateTargetVersion}.`}
+                  title={`This machine runs Podium ${daemonVersion ? formatDisplayedVersion(daemonVersion) : daemonVersion}; its selected update target is ${updateTargetVersion ? formatDisplayedVersion(updateTargetVersion) : updateTargetVersion}.`}
                 >
                   update available
                 </Badge>
@@ -1087,8 +1091,11 @@ function MachineRow({
               {daemonVersion && (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span className="font-mono" title={`Podium ${daemonVersion} on this machine`}>
-                    {daemonVersion}
+                  <span
+                    className="font-mono"
+                    title={`Podium ${formatDisplayedVersion(daemonVersion)} on this machine`}
+                  >
+                    {formatDisplayedVersion(daemonVersion)}
                   </span>
                 </>
               )}
@@ -1507,7 +1514,9 @@ function MachineUpdateControls({
    * refusal the user cannot act on.
    */
   const supervised = machine.supervised === true
-  const targetLabel = targetVersion ? `Target ${targetVersion}` : 'Target unavailable'
+  const targetLabel = targetVersion
+    ? `Target ${formatDisplayedVersion(targetVersion)}`
+    : 'Target unavailable'
   // Busy spans the whole act: the mutation round trip AND the convergence it
   // authorized. The action stays disabled for both.
   const busy = applying || converging

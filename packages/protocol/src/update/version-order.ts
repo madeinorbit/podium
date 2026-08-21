@@ -16,8 +16,9 @@
  *   one that structurally cannot (`refuseSchemaRegression` in `apps/daemon`).
  *
  * FAILS CLOSED, and every caller must treat it that way: `null` means "these two
- * labels have no order", not "equal". A source checkout reports `dev+<sha>`, and
- * for it the honest answer is that there is nothing to compare.
+ * labels have no order", not "equal". A source checkout's forensic `dev+<sha>`
+ * identity has nothing to compare; publisher-minted development versions
+ * (`<base>.dev.<N>+<sha>`, POD-2502) are ordinary semver and order here.
  */
 
 /**
@@ -36,8 +37,9 @@ const SEMVER =
 
 const numericOrText = (id: string): string | number => (/^\d+$/.test(id) ? Number(id) : id)
 
-/** `null` for anything that is not a semver — including the `dev+<sha>` and
- *  plain `dev` labels a source checkout carries, which have no ordering at all. */
+/** `null` for anything that is not a semver — including the forensic
+ *  `dev+<sha>` / plain `dev` labels a source checkout carries. Publisher mints
+ *  with appended `.dev.<N>` identifiers parse and order normally. */
 function parseVersion(raw: string): ParsedVersion | null {
   const m = SEMVER.exec(raw.trim())
   if (!m) return null
