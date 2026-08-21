@@ -370,9 +370,13 @@ async function runWindowScenario(options: {
     }, 'the seeded payload executable')
     await rename(payloadBinary, heldBinary)
     const parentPid = await waitFor(() => readPid(stateDir, 'parent'), 'the sidecar parent pid')
+    const serverPid = await waitFor(() => readPid(stateDir, 'server'), 'the sidecar server pid')
     process.kill(parentPid, 'SIGKILL')
+    if (alive(serverPid)) process.kill(serverPid, 'SIGKILL')
+    await waitFor(async () => (!(await health(port)) ? true : undefined), 'the sidecar outage')
     mark('sidecar-killed', {
       pid: '<redacted>',
+      killedRoles: ['parent', 'server'],
       executableHeldForRespawnFailure: true,
     })
 
