@@ -124,16 +124,24 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
   const [seq, setSeq] = useState(0)
   const lastTarget = useRef(target)
 
+  // AN EMPTY REPLICA IS NOT EVIDENCE OF ABSENCE (POD-1277). A reconnect
+  // mid-flight empties `issues` for a frame, which resolves every pointer to
+  // null and marks every level's subject gone. Riding one out costs nothing;
+  // acting on it would throw the operator back to level 0 every time the socket
+  // blinks. Both rules below therefore only run once the replica has content.
+  const grounded = issues.length > 0
+
   // A retarget is silent: no transition, because nothing on this surface was
   // touched to cause it, and a panel that slides every time you click a session
   // in another column is a panel that is always moving.
   useEffect(() => {
+    if (!grounded) return
     if (target === lastTarget.current) return
     lastTarget.current = target
     setStack((prev) => resetTo(prev, target))
     setMotion(null)
     setSeq((n) => n + 1)
-  }, [target])
+  }, [target, grounded])
 
   const [tab, setTab] = useState<ExplorerTab | null>(null)
   const [query, setQuery] = useState('')
@@ -193,10 +201,28 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
     setSeq((n) => n + 1)
   }, [])
 
+  const current = stack.length ? (stack[stack.length - 1] ?? null) : null
+
+  // A LEVEL WHOSE TASK IS GONE GOES HOME. Deletion is the one way a level can
+  // outlive its subject — archived tasks still open, and the trail labels them.
+  //
+  // This lives in the PROVIDER, not in the panel that renders the trail, because
+  // the pointer outlives the panel by design: the dock unmounts the explorer
+  // whenever it closes or another tab is picked, and a rule that only runs while
+  // someone is looking is not a rule about the pointer, it is a rule about the
+  // view. Deleting a task from the Flight Deck with the dock shut used to leave
+  // the dead id in the stack until the panel was next mounted, so reopening the
+  // dock landed on a task that no longer existed (POD-1471).
+  const missing =
+    grounded && current !== null && !issues.some((i) => i.id === current && !i.deletedAt)
+  useEffect(() => {
+    if (missing) toIndex()
+  }, [missing, toIndex])
+
   const value = useMemo<IssueExplorerNav>(
     () => ({
       stack,
-      current: stack.length ? (stack[stack.length - 1] ?? null) : null,
+      current,
       motion,
       seq,
       push,
@@ -213,6 +239,7 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
     }),
     [
       stack,
+      current,
       motion,
       seq,
       push,

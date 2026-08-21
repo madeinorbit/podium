@@ -84,6 +84,15 @@ function CardClick({ id }: { id: string }): JSX.Element {
   )
 }
 
+/** Reads the pointer from OUTSIDE the dock. Both the trail and the panel live
+ *  inside it and unmount with it, so this is the only way to say what the
+ *  explorer is scoped to while it is shut. No text: `getByText` queries in the
+ *  tests below must not see it. */
+function PointerProbe(): JSX.Element {
+  const { current } = useIssueExplorer()
+  return <div data-testid="pointer" data-current={current ?? ''} />
+}
+
 function tree(missionId: string | null = null, dockOpen = true): JSX.Element {
   return (
     <OperatorFocusProvider missionId={missionId}>
@@ -91,7 +100,8 @@ function tree(missionId: string | null = null, dockOpen = true): JSX.Element {
         <DeckClick id="c" />
         <DeckClick id="s" />
         <CardClick id="s" />
-        <IssueExplorerCrumbs />
+        <PointerProbe />
+        {dockOpen && <IssueExplorerCrumbs />}
         {dockOpen && <IssueExplorer cwd="/r" />}
       </IssueExplorerProvider>
     </OperatorFocusProvider>
@@ -282,6 +292,67 @@ describe('issue explorer navigation', () => {
     expect(screen.queryByTestId('detail')).toBeNull()
     expect(screen.getByTestId('explorer-list')).toBeTruthy()
     expect(screen.getByTestId('explorer-crumbs').textContent).not.toContain('#9')
+  })
+
+  it('falls back to the task list when the shell has nothing left to point at (POD-1471)', () => {
+    // Removing the session the deck was showing leaves the mission unresolvable.
+    // The task the explorer is parked on is still perfectly alive, so "its task
+    // was deleted" does not catch this — what went away is the SUBJECT, and a
+    // panel still captioned with a task reads as still scoped to one.
+    state.selectedIssueId = 'p'
+    const view = mount('p')
+    fireEvent.click(screen.getByText('deck: c'))
+    expect(detail().dataset.issueId).toBe('c')
+
+    state.selectedIssueId = null
+    act(() => view.rerender(tree(null)))
+
+    expect(screen.queryByTestId('detail')).toBeNull()
+    expect(screen.getByTestId('explorer-list')).toBeTruthy()
+    expect(screen.getByTestId('explorer-crumbs').textContent).not.toContain('#2')
+  })
+
+  it('drops a deleted task while the dock is shut (POD-1471)', () => {
+    // The pointer outlives the panel by design, so the rule that retires a dead
+    // level has to outlive it too. This is checked on the POINTER and not on
+    // what renders: the panel remounts on reopen and retires the level itself,
+    // which hides the difference at exactly the moment it stops mattering.
+    const view = mount()
+    fireEvent.click(screen.getByRole('tab', { name: /Backlog/ }))
+    fireEvent.click(screen.getByText('Someone else’s task'))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('s')
+
+    // Closing the dock must NOT move the pointer — that is the explorer's
+    // standing contract, and the reason the rule cannot live in the panel.
+    act(() => view.rerender(tree(null, false)))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('s')
+
+    state.issues = [EPIC, CHILD, ARCHIVED]
+    act(() => view.rerender(tree(null, false)))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('')
+
+    act(() => view.rerender(tree(null, true)))
+    expect(screen.queryByTestId('detail')).toBeNull()
+    expect(screen.getByTestId('explorer-list')).toBeTruthy()
+  })
+
+  it('rides out an empty replica without losing the trail (POD-1277)', () => {
+    // A reconnect mid-flight empties the replica for a frame. That resolves the
+    // subject to nothing and marks every level's task gone, which is exactly
+    // what the two rules above act on — so both wait for the replica to have
+    // content. Otherwise a blinking socket sends the operator home.
+    const view = mount()
+    fireEvent.click(screen.getByRole('tab', { name: /Backlog/ }))
+    fireEvent.click(screen.getByText('Someone else’s task'))
+    expect(detail().dataset.issueId).toBe('s')
+
+    state.issues = []
+    act(() => view.rerender(tree()))
+    expect(detail().dataset.issueId).toBe('s')
+
+    state.issues = BASE_ISSUES
+    act(() => view.rerender(tree()))
+    expect(detail().dataset.issueId).toBe('s')
   })
 
   it('pushes a task from the list and pops back to it from the trail', () => {
