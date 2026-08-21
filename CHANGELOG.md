@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1-edge.2] - 2026-08-21
+
 ### Fixed
 
 - Fresh VPS onboarding now installs from the same stable or edge channel as the app presenting the
