@@ -104,7 +104,7 @@ fi
 if [[ $q_rc -ne 0 ]]; then
   pass "gatekeeper: quarantine blocked execution (expected on real Macs)"
 else
-  warn "gatekeeper: quarantine did not block (AMFI may be lenient on this host)"
+  warn "gatekeeper: quarantine did not block on this CI VM; this does not clear Gatekeeper on real hardware"
 fi
 
 # --- unsigned must be REFUSED on arm64 ---
@@ -124,10 +124,14 @@ if [[ -f "$NOSIG" ]]; then
   set -e
   echo "unsigned exit=$u_rc"
   echo "$u_out" | head -5
-  if [[ $u_rc -ne 0 ]]; then
+  if [[ "$(uname -m)" == "arm64" && $u_rc -ne 0 ]]; then
     pass "unsigned: a signature-stripped binary is refused on arm64 (exit $u_rc)"
+  elif [[ "$(uname -m)" == "arm64" ]]; then
+    fail "unsigned: a signature-stripped binary RAN on arm64 — this CI VM does not enforce the arm64 signature requirement, so the probe still needs real hardware"
+  elif [[ $u_rc -ne 0 ]]; then
+    warn "unsigned: a signature-stripped binary was refused on $(uname -m) (exit $u_rc); only arm64 enforcement is load-bearing here"
   else
-    fail "unsigned: a signature-stripped binary RAN — this host does not enforce the arm64 signature requirement, so nothing here proves the signature is load-bearing"
+    warn "unsigned: a signature-stripped binary ran on $(uname -m), as permitted outside the arm64 enforcement question"
   fi
   echo
 else
