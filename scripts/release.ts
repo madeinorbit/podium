@@ -239,9 +239,10 @@ export function prepareHeadlessCross(
   }
   if (platforms.length === 0) throw new Error('prepare-cross needs at least one platform')
 
-  // systemd units + web + mobile, once for the whole set. Stamp the fresh client
-  // output with the FINAL product version before capturing its process-local root;
-  // packaging is forbidden from restamping after this point.
+  // Web + mobile, once for the whole set. Packaged systemd units are rendered into
+  // each platform bundle by build-bun; dev-host units never belong on this path.
+  // Stamp the fresh client output with the FINAL product version before capturing
+  // its process-local root; packaging is forbidden from restamping after this point.
   const session = beginFreshClientPackagingSession([])
   mkdirSync(outDir, { recursive: true })
   writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)

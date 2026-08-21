@@ -148,15 +148,18 @@ From a dependency-complete source checkout, run:
 bun run test:multi-instance
 ```
 
-The command combines three layers:
+The command combines four layers:
 
 1. `multi-instance-runtime.integration.bun.test.ts` starts blue and green as concurrent real
    all-in-one processes. It proves distinct state markers and endpoints; disjoint issue
    reads and writes; rejected inherited cross-instance routing; disjoint session ownership;
    and that stopping blue leaves green's server, hook, and relay alive.
-2. `managed-account-spawn.integration.test.ts` drives the real Node PTY spawn path and proves
+2. `named-dev-release.integration.bun.test.ts` publishes an approved development release through
+   a detached Git snapshot under a named identity. It proves client packaging does not write
+   instance-derived host units into that snapshot before the release integrity fence runs.
+3. `managed-account-spawn.integration.test.ts` drives the real Node PTY spawn path and proves
    the child receives blue's instance/session identity and exact durable label.
-3. `install-sh.test.sh` installs default and named bundles into a temporary home and proves a
+4. `install-sh.test.sh` installs default and named bundles into a temporary home and proves a
    named install/update target cannot overwrite the default bundle, command, or units.
 
 The process test uses explicit temporary roots and six reserved ports, so it can run alongside
