@@ -381,14 +381,16 @@ const SPEC = {
 // ---------------------------------------------------------------------------
 
 describe('attachment path prompts', () => {
+  const source = {
+    bytes: new TextEncoder().encode('notes'),
+    filename: 'notes.txt',
+    mediaType: 'text/plain',
+  }
+
   it('prepends staged paths to the terminal prompt', async () => {
     const world = makeWorld()
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
-    const staged = await session.stageAttachment({
-      bytes: new TextEncoder().encode('notes'),
-      filename: 'notes.txt',
-      mediaType: 'text/plain',
-    })
+    const staged = await session.stageAttachment(source)
     if ('reason' in staged) throw new Error(staged.detail ?? staged.reason)
     world.hookOnSubmit(session.binding.sessionId)
     await session.send(
@@ -396,6 +398,36 @@ describe('attachment path prompts', () => {
       { origin: 'human', delivery: 'when-ready' },
     )
     expect(world.written.map(pastedText).filter(Boolean)).toContain(staged.path + '\nread this')
+  })
+
+  it('refuses staging after the terminal session is no longer running', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    await session.kill()
+    await expect(session.stageAttachment(source)).resolves.toEqual({ reason: 'not_running' })
+  })
+
+  it('turns host staging failures into typed refusals', async () => {
+    const world = makeWorld()
+    world.host.stageAttachment = async () => {
+      throw new Error('disk full')
+    }
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    await expect(session.stageAttachment(source)).resolves.toEqual({
+      reason: 'staging_failed',
+      detail: 'Error: disk full',
+    })
+  })
+
+  it('declares staging unsupported for a raw-first-turn harness', () => {
+    const world = makeWorld()
+    const staging = world.runtime
+      .driverFor('grok', { ...GROK, usesRawFirstTurn: true })
+      .capabilities().staging
+    expect(staging).toEqual({
+      supported: false,
+      reason: 'raw-first-turn harnesses cannot consume an atomic attachment path prompt',
+    })
   })
 })
 

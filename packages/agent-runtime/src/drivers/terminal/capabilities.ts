@@ -32,6 +32,10 @@ export interface TerminalCapabilityInput {
   /** Whether composer-sync runs for this session (Draft Sync v2, POD-859). The
    *  scrape is the ONLY reason `draft.get()` can answer at all. */
   draftReadable: boolean
+  /** Whether a fresh harness requires its first prompt as raw keystrokes.
+   *  Attachment path prompts contain a newline between the ref and text, so
+   *  they are not one atomic prompt on that path and staging must be declined. */
+  usesRawFirstTurn: boolean
   /** Whether the harness reports a context-window percentage. */
   reportsContextPercent: boolean
   /**
@@ -118,7 +122,9 @@ export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapa
       cursorMaterial: 'file-offset',
     },
     transcript: supported({ history: true }),
-    staging: supported({ kinds: ['image', 'file'], promptForm: 'path-text' }),
+    staging: input.usesRawFirstTurn
+      ? unsupported('raw-first-turn harnesses cannot consume an atomic attachment path prompt')
+      : supported({ kinds: ['image', 'file'], promptForm: 'path-text' }),
     // The engine terminal IS the session for this family — today's frames path,
     // described rather than replaced.
     attach: supported({ kinds: ['engine'] }),

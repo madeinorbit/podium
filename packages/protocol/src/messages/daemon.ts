@@ -230,9 +230,10 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ShippingJobResultMessage,
   ShippingEvidenceResultMessage,
   ShippingRepairApplyResultMessage,
-  // The Agent Runtime contract's read/receipt path (POD-1761 W3). The five
-  // `*Result` frames settle through the one RPC correlator by `requestId`;
-  // coarse runtime events are acknowledged entity deliveries; fine deltas are live.
+  // The Agent Runtime contract's six request flows and read/receipt path
+  // (POD-1761 W3). Correlated `*Result` frames settle through the one RPC
+  // correlator by `requestId`; interrupt completes through the event stream.
+  // Coarse runtime events are acknowledged entity deliveries; fine deltas are live.
   RuntimeStageAttachmentResultMessage,
   RuntimeSendResultMessage,
   RuntimeQueueDrainAbandonedMessage,

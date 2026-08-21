@@ -32,7 +32,7 @@ import type { ProviderCursor } from '@podium/protocol'
 import type {
   AgentSessionHandle,
   AttachEndpoint,
-  AttachmentRef,
+  AttachmentStageResult,
   AttachRequest,
   CausalEnvelope,
   ConfigureRequest,
@@ -698,7 +698,8 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
         }
       },
 
-      async stageAttachment(source): Promise<AttachmentRef> {
+      async stageAttachment(source): Promise<AttachmentStageResult> {
+        if (!core.alive) return refuse('not_running')
         return {
           id: `att-${core.nextId++}`,
           path: `${core.spec.workdir}/.podium/attachments/${source.filename}`,

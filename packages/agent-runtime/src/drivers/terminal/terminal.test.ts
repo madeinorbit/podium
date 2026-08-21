@@ -29,6 +29,7 @@ const PROFILE = {
   sendProof: ['hook', 'transcript-echo'],
   interactionsFromHooks: true,
   draftReadable: true,
+  usesRawFirstTurn: false,
   reportsContextPercent: true,
   archivable: true,
 } as const
@@ -102,6 +103,18 @@ describe('the capability declaration', () => {
       // The ANSWER is a separate axis and is emulated on both.
       expect(caps.interactions.value.answerable).toBe('keystroke-emulated')
     }
+  })
+
+  it('declines staging when a raw first turn cannot keep path and text atomic', () => {
+    const caps = terminalCapabilities({
+      ...PROFILE,
+      sendProof: [...PROFILE.sendProof],
+      usesRawFirstTurn: true,
+    })
+    expect(caps.staging).toEqual({
+      supported: false,
+      reason: 'raw-first-turn harnesses cannot consume an atomic attachment path prompt',
+    })
   })
 
   it('declines what this phase did not build, with the reason attached', () => {

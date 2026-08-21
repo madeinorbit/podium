@@ -222,7 +222,8 @@ const DISPATCH: Dispatcher = {
   shippingJobResult: toRpc,
   shippingEvidenceResult: toRpc,
   shippingRepairApplyResult: toRpc,
-  // AGENT RUNTIME CONTRACT (POD-1761 W3) — five receipts, one correlator.
+  // AGENT RUNTIME CONTRACT (POD-1761 W3) — six request flows, one
+  // correlator; interrupt completes through the event stream, not a receipt.
   runtimeStageAttachmentResult: toRpc,
   runtimeSendResult: toRpc,
   runtimeLifecycleResult: toRpc,

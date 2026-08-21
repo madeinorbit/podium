@@ -38,6 +38,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   type AgentSessionHandle,
+  type AttachmentKind,
+  type AttachmentSource,
   CORE_PRIMITIVES,
   type DriverCapabilities,
   type DriverFamily,
@@ -207,6 +209,19 @@ async function waitUntil(condition: () => boolean, timeoutMs = 2000): Promise<bo
  */
 const seqOf = (event: RuntimeEvent): number => Number(event.cursor.components.seq ?? 0)
 
+const attachmentSourceFor = (kind: AttachmentKind): AttachmentSource =>
+  kind === 'image'
+    ? {
+        bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+        filename: 'probe.png',
+        mediaType: 'image/png',
+      }
+    : {
+        bytes: new TextEncoder().encode('attachment probe'),
+        filename: 'probe.txt',
+        mediaType: 'text/plain',
+      }
+
 export function describeDriverConformance(target: ConformanceTarget): void {
   describe(`driver conformance — ${target.name} (${target.family})`, () => {
     const setup = (): {
@@ -305,29 +320,27 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const declared = driver.capabilities().staging
 
         if (!declared.supported) {
-          await expect(
-            session.stageAttachment({
-              bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
-              filename: 'probe.png',
-              mediaType: 'image/png',
-            }),
-          ).resolves.toMatchObject({ reason: 'unsupported' })
+          await expect(session.stageAttachment(attachmentSourceFor('image'))).resolves.toMatchObject(
+            { reason: 'unsupported' },
+          )
           return
         }
 
-        for (const kind of declared.value.kinds) {
-          const source =
-            kind === 'image'
-              ? {
-                  bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
-                  filename: 'probe.png',
-                  mediaType: 'image/png',
-                }
-              : {
-                  bytes: new TextEncoder().encode('attachment probe'),
-                  filename: 'probe.txt',
-                  mediaType: 'text/plain',
-                }
+        const declaredKinds = [...declared.value.kinds]
+        expect(declaredKinds.length).toBeGreaterThan(0)
+        expect(new Set(declaredKinds).size).toBe(declaredKinds.length)
+        for (const kind of declaredKinds) expect(['image', 'file']).toContain(kind)
+        expect(['path-text', 'local-image', 'file-part']).toContain(declared.value.promptForm)
+        if (declared.value.promptForm === 'local-image') expect(declaredKinds).toEqual(['image'])
+
+        for (const kind of ['image', 'file'] as const) {
+          const source = attachmentSourceFor(kind)
+          if (!declaredKinds.includes(kind)) {
+            await expect(session.stageAttachment(source)).resolves.toMatchObject({
+              reason: 'unsupported',
+            })
+            continue
+          }
           const staged = await session.stageAttachment(source)
           expect(staged).not.toHaveProperty('reason')
           if ('reason' in staged) continue
@@ -341,6 +354,11 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           expect(staged.id.length).toBeGreaterThan(0)
           expect(staged.path.length).toBeGreaterThan(0)
         }
+
+        await session.kill()
+        await expect(
+          session.stageAttachment(attachmentSourceFor(declaredKinds[0] ?? 'file')),
+        ).resolves.toMatchObject({ reason: 'not_running' })
       })
     })
 

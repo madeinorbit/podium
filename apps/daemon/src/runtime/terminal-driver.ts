@@ -1829,6 +1829,7 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
     driverId: resolved.driverId,
     sendProof: resolved.sendProof,
     interactionsFromHooks: resolved.hookAnchoredAccept,
+    usesRawFirstTurn: resolved.usesRawFirstTurn,
     // Composer sync is a per-session flag, and the capability is a per-DRIVER
     // declaration, so the driver declares what it can do when the engine runs and
     // `draft.get()` refuses per session when it does not. Declaring it false here
