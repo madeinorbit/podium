@@ -14,7 +14,7 @@ import {
 } from '@podium/runtime/config'
 import { type ConnectivityStatus, readConnectivity } from '@podium/runtime/connectivity'
 import { CRASH_MAX_EVENTS, type CrashEvent, createCrashStore } from '@podium/runtime/crash-store'
-import { instanceServiceName } from '@podium/runtime/instance'
+import { desiredParentUnit, legacyUnitNames } from '@podium/runtime/topology-migration'
 import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/runtime/run-registry'
 /** Human "3s / 4m / 2h / 1d ago" from an ISO start time. */
 export function humanUptime(startedAtIso: string, nowMs: number): string {
@@ -126,12 +126,7 @@ function systemctlUser(args: string[]): void {
 export function selectedUnits(instanceId: string = resolveInstanceId()): string[] {
   // Prefer the parent unit; keep legacy peers listed so `podium stop` still
   // tears down pre-migration installs.
-  return [
-    instanceServiceName('parent', instanceId),
-    instanceServiceName('daemon', instanceId),
-    instanceServiceName('janitor', instanceId),
-    instanceServiceName('server', instanceId),
-  ]
+  return [desiredParentUnit(instanceId), ...legacyUnitNames(instanceId)]
 }
 
 function hasSystemctl(): boolean {
@@ -471,10 +466,7 @@ export async function logsCommand(argv: string[]): Promise<void> {
   if (config.persistence === 'systemd') {
     const units = selectedUnits()
     const unitFlags = units.map((u) => `-u ${u}`).join(' ')
-    const parentOrServer =
-      units.find((u) => u.includes('-parent.') || u.endsWith('podium-parent.service')) ??
-      units.find((u) => u.includes('-server.') || u.endsWith('podium-server.service')) ??
-      units[0]
+    const parentOrServer = units[0]
     console.log(
       'Under systemd — view logs with:\n' +
         `  journalctl --user ${unitFlags} -f\n` +

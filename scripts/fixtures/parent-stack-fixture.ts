@@ -20,6 +20,7 @@
  * Env knobs (all optional):
  *   FIXTURE_EXIT_AFTER_MS / FIXTURE_EXIT_CODE   — die on cue: crash (1) or refuse (78)
  *   FIXTURE_SERVER_NEVER_HEALTHY=1              — bind, but never report the daemon connected
+ *   FIXTURE_SERVER_HEALTH_DELAY_MS               — delay the connected health bit after bind
  *   FIXTURE_SERVER_REFUSE_START=1               — exit before binding
  *   FIXTURE_HANDOVER_TIMEOUT_MS                 — shorten the 90s successor gate
  *   FIXTURE_RELEASE_HAD_MIGRATIONS=1|0          — what the swap would have reported
@@ -120,11 +121,12 @@ async function runServer(): Promise<void> {
   const version = installedVersion()
   let janitorProgress = 0
   const janitorState = process.env.FIXTURE_JANITOR_STATE ?? 'running'
+  const healthReadyAt = Date.now() + Number(process.env.FIXTURE_SERVER_HEALTH_DELAY_MS ?? 0)
   if (process.env.FIXTURE_JANITOR_WEDGED !== '1') {
     setInterval(() => (janitorProgress += 1), 200).unref?.()
   }
   const daemonConnected = (): boolean => {
-    if (process.env.FIXTURE_SERVER_NEVER_HEALTHY === '1') return false
+    if (process.env.FIXTURE_SERVER_NEVER_HEALTHY === '1' || Date.now() < healthReadyAt) return false
     if (!existsSync(daemonMarker)) return false
     const pid = Number(readFileSync(daemonMarker, 'utf8').trim())
     return Boolean(pid) && alive(pid)

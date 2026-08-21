@@ -150,8 +150,12 @@ export function managedRoleSupervisor(
       if (liveRecord(role)) return
       if (systemd && role !== 'all-in-one' && unitActive(roleUnit(role))) return
       if (systemd) {
-        writeUnit(role, roleUnit(role), roleUnitBody(role, ctx))
-        enableUnits([roleUnit(role)])
+        // Unified topology: the only unit is the parent. Starting any host role
+        // writes/enables podium.service; the parent spawns the OS children.
+        const parent = roleUnit('parent')
+        if (unitActive(parent)) return
+        writeUnit('parent', parent, roleUnitBody('parent', ctx))
+        enableUnits([parent])
         return
       }
       spawnRole(role, ctx)

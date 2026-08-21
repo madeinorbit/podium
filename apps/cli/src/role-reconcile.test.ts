@@ -119,7 +119,7 @@ describe('server transfer role reconciliation', () => {
     expect(outcome.proven).toBe(true)
     // Parent-supervised topology: missing peer is the parent unit, not janitor.
     expect(written).toEqual(['parent'])
-    expect(enabled).toEqual(['podium-parent.service'])
+    expect(enabled).toEqual(['podium.service'])
     expect(disarmed).toEqual([])
     expect(outcome.roleTransition.stopped).toEqual([])
   })

@@ -123,6 +123,11 @@ export function instanceServiceName(
   instanceId: string = resolveInstanceId(),
 ): string {
   const id = validateInstanceId(instanceId)
+  // The single parent supervisor is `podium.service` (named: `podium-<id>.service`),
+  // not `podium-parent.service`. Spec §3 / POD-2506.
+  if (role === 'parent') {
+    return id === DEFAULT_INSTANCE_ID ? 'podium.service' : `podium-${id}.service`
+  }
   if (id !== DEFAULT_INSTANCE_ID) return `podium-${id}-${role}.service`
   return role === 'update' ? 'podium-update-user.service' : `podium-${role}.service`
 }

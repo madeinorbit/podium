@@ -13,16 +13,16 @@ REL="$WORK/release"; mkdir -p "$REL/headless"
 bun --conditions=@podium/source "$ROOT/scripts/render-systemd.ts" \
   --profile packaged --output "$REL/headless/systemd" >/dev/null
 # Stub binary: emulates the subcommands install.sh drives. `setup --join` mirrors the real
-# binary's installSystemd (writes the daemon unit) so the delegation path is observable;
+# binary's installSystemd (writes the parent unit) so the delegation path is observable;
 # PODIUM_STUB_JOIN_FAIL forces it to fail so the fallback path can be tested.
 cat > "$REL/headless/podium" <<'SH'
 #!/bin/sh
 instance="${PODIUM_INSTANCE:-default}"
 if [ "$instance" = default ]; then
-  daemon_unit=podium-daemon.service
+  parent_unit=podium.service
   state_dir="${PODIUM_STATE_DIR:-$HOME/.podium}"
 else
-  daemon_unit="podium-$instance-daemon.service"
+  parent_unit="podium-$instance.service"
   state_dir="${PODIUM_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/podium/$instance}"
 fi
 [ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-instance $instance $*" >> "$PODIUM_STUB_LOG"
@@ -33,7 +33,7 @@ case "$1" in
     UD="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UD"
     mkdir -p "$state_dir"
     printf '%s\n' '{"mode":"daemon","serverUrl":"wss://hub.test"}' > "$state_dir/config.json"
-    printf '%s\n' "# stub unit written by podium setup --join" > "$UD/$daemon_unit"
+    printf '%s\n' "# stub unit written by podium setup --join" > "$UD/$parent_unit"
     [ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-setup $*" >> "$PODIUM_STUB_LOG"
     if [ -n "${PODIUM_STUB_DAEMON_MARKER:-}" ]; then
       : > "$PODIUM_STUB_DAEMON_MARKER"
@@ -332,7 +332,7 @@ rm -rf "$HOME/.local/share/podium-instances/blue" "$HOME/.local/bin/podium-blue"
 named_join_output="$(env -u PODIUM_STATE_DIR -u PODIUM_DISABLE_SYSTEMD -u XDG_CONFIG_HOME PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --instance blue --join TESTTOKEN 2>&1)"
 grep -F 'stub-instance blue setup --join TESTTOKEN --persist systemd' "$WORK/stub.log" >/dev/null \
   || { echo "FAIL: named join did not route through named command"; exit 1; }
-test -f "$UNIT/podium-blue-daemon.service" || { echo FAIL: named join did not write named daemon unit; exit 1; }
+test -f "$UNIT/podium-blue.service" || { echo FAIL: named join did not write named parent unit; exit 1; }
 test ! -e "$UNIT/podium-blue-update.service" || { echo "FAIL: attached named join wrote update service"; exit 1; }
 test ! -e "$UNIT/podium-blue-update.timer" || { echo "FAIL: attached named join wrote update timer"; exit 1; }
 test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: named join wrote default update timer"; exit 1; }
@@ -342,7 +342,7 @@ rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/syst
 default_join_output="$(env -u PODIUM_DISABLE_SYSTEMD -u XDG_CONFIG_HOME PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --join TESTTOKEN 2>&1)"
 grep -F 'stub-setup setup --join TESTTOKEN --persist systemd' "$WORK/stub.log" >/dev/null \
   || { echo "FAIL: join did not delegate to podium setup --join --persist systemd"; exit 1; }
-test -f "$UNIT/podium-daemon.service"       || { echo FAIL: join did not write daemon unit; exit 1; }
+test -f "$UNIT/podium.service"       || { echo FAIL: join did not write parent unit; exit 1; }
 test ! -e "$UNIT/podium-update-user.service" || { echo "FAIL: attached join wrote update service"; exit 1; }
 test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: attached join wrote update timer"; exit 1; }
 
@@ -351,14 +351,16 @@ rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/syst
 env -u PODIUM_DISABLE_SYSTEMD -u XDG_CONFIG_HOME PODIUM_STUB_JOIN_FAIL=1 PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --join TESTTOKEN
 grep -F 'stub-join-config join-config TESTTOKEN' "$WORK/stub.log" >/dev/null \
   || { echo "FAIL: fallback did not run join-config"; exit 1; }
-test -f "$UNIT/podium-daemon.service"       || { echo FAIL: fallback did not write daemon unit; exit 1; }
+test -f "$UNIT/podium.service"       || { echo FAIL: fallback did not write parent unit; exit 1; }
 test ! -e "$UNIT/podium-update-user.service" || { echo "FAIL: attached fallback wrote update service"; exit 1; }
 test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: attached fallback wrote update timer"; exit 1; }
-grep -F 'RestartPreventExitStatus=78' "$UNIT/podium-daemon.service" >/dev/null \
-  || { echo "FAIL: fallback unit drifted from renderDaemonUnit (no RestartPreventExitStatus)"; exit 1; }
+grep -F 'Type=notify' "$UNIT/podium.service" >/dev/null \
+  || { echo "FAIL: fallback unit drifted from renderParentUnit (no Type=notify)"; exit 1; }
+grep -F 'parent --takeover' "$UNIT/podium.service" >/dev/null \
+  || { echo "FAIL: fallback unit does not start the parent"; exit 1; }
 # A service context inherits none of the login shell's PATH, so the unit must carry its own
-# (POD-327's second half). Without it, agent CLIs in %h/.local/bin are unreachable from the daemon.
-grep -F 'Environment=PATH=%h/.local/bin:' "$UNIT/podium-daemon.service" >/dev/null \
+# (POD-327's second half). Without it, agent CLIs in %h/.local/bin are unreachable from children.
+grep -F 'Environment=PATH=%h/.local/bin:' "$UNIT/podium.service" >/dev/null \
   || { echo "FAIL: fallback unit has no Environment=PATH covering %h/.local/bin"; exit 1; }
 
 echo "== tamper rejection =="

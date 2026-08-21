@@ -269,11 +269,11 @@ DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 if [ "$INSTANCE" = "default" ]; then
   DEST="$DATA_HOME/podium"
   COMMAND="podium"
-  DAEMON_UNIT="podium-daemon.service"
+  PARENT_UNIT="podium.service"
 else
   DEST="$DATA_HOME/podium-instances/$INSTANCE"
   COMMAND="podium-$INSTANCE"
-  DAEMON_UNIT="podium-$INSTANCE-daemon.service"
+  PARENT_UNIT="podium-$INSTANCE.service"
 fi
 BIN="$HOME/.local/bin"
 mkdir -p "$BIN" "$(dirname "$DEST")"
@@ -503,9 +503,10 @@ if [ -z "$JOIN" ]; then
 fi
 
 # `podium setup --join` above owns config + lifecycle setup through the same engine
-# as interactive setup. What remains here is copying the generated daemon unit artifact when the
+# as interactive setup. What remains here is copying the generated parent unit artifact when the
 # compatibility fallback was needed. The release tarball contains bytes rendered from cli-systemd.ts; this
-# installer deliberately carries no unit body of its own.
+# installer deliberately carries no unit body of its own. Daemon-only join still gets the parent
+# (daemon-only role config — the parent supervises just the daemon child).
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UNIT_DIR"
 copy_generated_unit() { # copy_generated_unit <default-artifact-name> <installed-name>
   source="$DEST/systemd/$1"
@@ -521,23 +522,22 @@ copy_generated_unit() { # copy_generated_unit <default-artifact-name> <installed
     # only instance-dependent fields; INSTANCE is validated above before it reaches this sed.
     sed -e "s/Environment=PODIUM_INSTANCE=default/Environment=PODIUM_INSTANCE=$INSTANCE/g" \
       -e "s#%h/.local/bin/podium#%h/.local/bin/$COMMAND#g" \
-      -e "s/podium-daemon.service/$DAEMON_UNIT/g" \
       "$source" > "$target"
   fi
 }
 if [ -n "$JOIN_FALLBACK" ]; then
-  copy_generated_unit podium-daemon.service "$DAEMON_UNIT"
+  copy_generated_unit podium.service "$PARENT_UNIT"
 fi
 SUPERVISION="The daemon is running detached."
 if [ -n "$HAVE_USER_SYSTEMD" ]; then
   SUPERVISION="The daemon runs as a systemd user service, so it survives reboots."
   systemctl --user daemon-reload >/dev/null 2>&1 || true
   loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
-  # The delegated `podium setup --join` already enabled+started the daemon unit; only the
+  # The delegated `podium setup --join` already enabled+started the parent unit; only the
   # fallback path needs to do it here.
   if [ -n "$JOIN_FALLBACK" ]; then
-    systemctl --user enable --now "$DAEMON_UNIT" || \
-      echo "Could not start the user service automatically; run: systemctl --user enable --now $DAEMON_UNIT"
+    systemctl --user enable --now "$PARENT_UNIT" || \
+      echo "Could not start the user service automatically; run: systemctl --user enable --now $PARENT_UNIT"
   fi
 else
   # `podium setup --join` owns lifecycle setup. When user systemd is unavailable
@@ -554,10 +554,10 @@ else
       DAEMON_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/podium/$INSTANCE"
     fi
     mkdir -p "$DAEMON_STATE/logs"
-    DAEMON_LOG="$DAEMON_STATE/logs/daemon.log"
-    PODIUM_RUN_MODE=detached "$BIN/$COMMAND" daemon --takeover \
+    DAEMON_LOG="$DAEMON_STATE/logs/parent.log"
+    PODIUM_RUN_MODE=detached "$BIN/$COMMAND" parent --takeover \
       </dev/null >>"$DAEMON_LOG" 2>&1 &
-    done_ "Started the Podium daemon (detached; log $DAEMON_LOG)"
+    done_ "Started the Podium parent (detached; log $DAEMON_LOG)"
   fi
 fi
 
