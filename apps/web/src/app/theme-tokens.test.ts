@@ -50,6 +50,7 @@ const INTRODUCED = [
   '--carve-popover-near',
   '--issue-tint-scale',
   '--issue-line-scale',
+  '--issue-row-tint-scale',
 ] as const
 
 describe('Podium token blocks', () => {
@@ -96,6 +97,27 @@ describe('Podium token blocks', () => {
     expect(light).toContain('--issue-line-scale: 0.8%')
     expect(dark).toContain('--issue-tint-scale: 1%')
     expect(dark).toContain('--issue-line-scale: 1%')
+  })
+
+  it('gives the sidebar row one dose across both appearances', () => {
+    // POD-1456. The general scale is held down for surfaces that carry tint
+    // across half the window; a 306px work row is not one of them, and at paper's
+    // 0.4% its hue was visible without being nameable. The row therefore rides
+    // its own scale, at the SAME value in both blocks: an issue's colour should
+    // be the same statement whichever theme you are in.
+    const scale = (blk: string, token: string) =>
+      Number.parseFloat(new RegExp(`${token}:\\s*([\\d.]+)%`).exec(blk)?.[1] ?? 'NaN')
+    expect(light).toContain('--issue-row-tint-scale: 1%')
+    expect(dark).toContain('--issue-row-tint-scale: 1%')
+    expect(scale(light, '--issue-row-tint-scale')).toBe(scale(dark, '--issue-row-tint-scale'))
+    // The split is the whole point of the token: equal ROW doses must not be
+    // achieved by letting paper's general scale drift up to meet dark's, which
+    // is what would put the deck fade and the tab strip back where POD-725
+    // found them claiming the centre of the window.
+    expect(scale(light, '--issue-tint-scale')).toBeLessThan(scale(dark, '--issue-tint-scale'))
+    expect(scale(light, '--issue-row-tint-scale')).toBeGreaterThan(
+      scale(light, '--issue-tint-scale'),
+    )
   })
 
   it('never assigns the light fill to a text token', () => {
