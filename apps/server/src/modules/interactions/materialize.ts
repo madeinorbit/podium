@@ -51,14 +51,8 @@
  *    down), and this module has no arm for them for that reason.
  */
 
-import type {
-  InteractionAskSpec,
-  RecoveryChoice,
-} from '@podium/protocol'
-import type {
-  FailureDisposition,
-  TurnFailureReason,
-} from '@podium/protocol/daemon'
+import type { InteractionAskSpec, RecoveryChoice } from '@podium/protocol'
+import type { FailureDisposition, TurnFailureReason } from '@podium/protocol/daemon'
 
 /**
  * WHAT A FAILURE-MATERIALIZED RECOVERY OFFERS.
@@ -117,6 +111,7 @@ export type FailureEvidence =
        *  `usage_limit`, `authentication`, … */
       readonly errorClass: string
       readonly retryable: boolean
+      readonly detail?: string
       readonly provider?: string
     }
 
@@ -206,8 +201,13 @@ function classOf(evidence: FailureEvidence): string {
  */
 function failurePrompt(evidence: FailureEvidence, shape: FailureShape): string {
   const cause = classOf(evidence)
-  const detail =
-    evidence.evidence === 'turn-failed' && evidence.detail?.trim() ? ` — ${evidence.detail}` : ''
+  const detail = evidence.detail?.trim() ? ` — ${evidence.detail.trim()}` : ''
+  if (cause === 'usage_limit') {
+    return `This session stopped because the provider usage limit was reached (${cause})${detail}. Add credits or wait for the quota to reset, then choose Resume the session.`
+  }
+  if (cause === 'billing_error') {
+    return `This session stopped because the provider reported a billing problem (${cause})${detail}. Fix billing or credits, then choose Resume the session.`
+  }
   if (shape === 'overflow') {
     return `This session's turn failed because the conversation outgrew the model's context window (${cause})${detail}.`
   }

@@ -49,7 +49,13 @@
  *    the classification and the reason this slice deliberately has no draft
  *    field at all.
  */
-import type { SessionMeta, TranscriptItem, SessionId, ThreadId } from '@podium/model'
+import {
+  formatAgentError,
+  type SessionId,
+  type SessionMeta,
+  type ThreadId,
+  type TranscriptItem,
+} from '@podium/model'
 import { type ChatBlock, type ChatRow, MACHINE_CONTEXT_RE } from '../chat'
 import { type ReferentExit, type ReferentState, resolveReferent } from '../session-ownership'
 import { type ChatActivity, chatActivity, sessionWaking } from '../session-status'
@@ -484,6 +490,8 @@ export interface ComposerState {
   /** Parked but recoverable — submitting wakes it and the text is delivered. */
   readonly canResume: boolean
   readonly placeholder: string
+  /** Server refusal copy for a stale client that submits after a terminal failure. */
+  readonly refusalReason?: string
 }
 
 export function composerState(input: {
@@ -493,10 +501,15 @@ export function composerState(input: {
   compact: boolean
 }): ComposerState {
   const { session, headless, turnRunning, compact } = input
-  const sendable = session?.status === 'live' || session?.status === 'starting'
+  const terminalError =
+    session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
+      ? session.agentState.error
+      : undefined
+  const sendable = !terminalError && (session?.status === 'live' || session?.status === 'starting')
   const canResume =
-    session?.status === 'hibernated' ||
-    (session?.status === 'exited' && session?.resumable === true)
+    !terminalError &&
+    (session?.status === 'hibernated' ||
+      (session?.status === 'exited' && session?.resumable === true))
   // A wake already in flight (POD-762). The composer stays open — a second
   // message queues behind the first — but it must not keep offering to do the
   // thing it is already doing.
@@ -513,14 +526,23 @@ export function composerState(input: {
           // operator at the moment they start using it (POD-516 R3).
           'Ask across all tasks…'
         : 'Message the agent…'
-    : waking
-      ? 'Waking the agent — message queues…'
-      : sendable
-        ? 'Message the agent…'
-        : canResume
-          ? 'Message — resumes the agent…'
-          : 'Session is not running.'
-  return { enabled, sendable, canResume, placeholder }
+    : terminalError
+      ? formatAgentError(terminalError) +
+        ' — fix the provider issue, then choose Resume the session.'
+      : waking
+        ? 'Waking the agent — message queues…'
+        : sendable
+          ? 'Message the agent…'
+          : canResume
+            ? 'Message — resumes the agent…'
+            : 'Session is not running.'
+  return {
+    enabled,
+    sendable,
+    canResume,
+    placeholder,
+    ...(!headless && terminalError ? { refusalReason: placeholder } : {}),
+  }
 }
 
 /** The superagent thread an embedded (headless) chat fronts. */
@@ -557,7 +579,7 @@ export function chatSendRoute(input: {
   sessionId: SessionId
   headless: boolean
   superThread: SuperThreadRef | undefined
-  composer: Pick<ComposerState, 'sendable' | 'canResume'>
+  composer: Pick<ComposerState, 'sendable' | 'canResume' | 'refusalReason'>
   /** The signed-in principal's OWN thread ids. A thread absent from this set is
    *  either someone else's or nonexistent, and the route may not tell them
    *  apart. Undefined = the client holds no roster (older peers), in which case
@@ -576,7 +598,7 @@ export function chatSendRoute(input: {
   }
   if (composer.sendable) return { kind: 'session', sessionId }
   if (composer.canResume) return { kind: 'resume', sessionId }
-  return { kind: 'refused', reason: 'Session is not running.' }
+  return { kind: 'refused', reason: composer.refusalReason ?? 'Session is not running.' }
 }
 
 // ---------------------------------------------------------------------------

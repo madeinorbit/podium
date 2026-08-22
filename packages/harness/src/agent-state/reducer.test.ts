@@ -170,12 +170,17 @@ describe('reduceAgentState', () => {
   it('turn_failed → errored with class + retryable', () => {
     const s = reduceAgentState(
       initialAgentState(T0),
-      { kind: 'turn_failed', errorClass: 'billing_error', retryable: false },
+      {
+        kind: 'turn_failed',
+        errorClass: 'billing_error',
+        retryable: false,
+        detail: 'credits exhausted',
+      },
       T1,
     )
     expect(s).toMatchObject({
       phase: 'errored',
-      error: { class: 'billing_error', retryable: false },
+      error: { class: 'billing_error', retryable: false, detail: 'credits exhausted' },
     })
   })
 

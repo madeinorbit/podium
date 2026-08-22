@@ -185,7 +185,8 @@ export function transcriptTailState(
     }
   }
   if (activity?.tone === 'error') {
-    const detail = activity.label.replace(/^error:\s*/i, '').replaceAll('_', ' ')
+    const raw = activity.label.replace(/^error:\s*/i, '')
+    const detail = /^[a-z0-9_-]+$/i.test(raw) ? raw.replaceAll('_', ' ') : raw
     return { mode: 'error', label: 'Agent stopped with an error', detail, since: fallbackSince }
   }
   if (activity?.label === 'interrupted') {

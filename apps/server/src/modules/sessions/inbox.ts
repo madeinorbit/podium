@@ -21,6 +21,7 @@ import type {
   UserId,
 } from '@podium/model'
 import {
+  formatAgentError,
   actorAgent,
   actorSystem,
   actorUser,
@@ -29,13 +30,8 @@ import {
   asUserId,
   isAgentComputing,
 } from '@podium/model'
-import type {
-  AgentObservation,
-  ObservationInputOrigin,
-} from '@podium/protocol'
-import type {
-  TurnReceipt,
-} from '@podium/protocol/daemon'
+import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
+import type { TurnReceipt } from '@podium/protocol/daemon'
 import { asDelegationRef, type DelegationRef } from '@podium/protocol'
 import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
@@ -383,6 +379,8 @@ export interface InboxSendInput {
   inputOrigin?: ObservationInputOrigin
   principal?: InboxPrincipalReference
   sourceMessageId?: string
+  /** Only the existing recovery interaction may cross a terminal provider failure. */
+  allowErrored?: boolean
 }
 
 /** Wrapping and indentation are the harness's, not the author's — compare on
@@ -423,8 +421,16 @@ const stateStampMs = (session: Session): number | undefined => {
   return Number.isNaN(stamp) ? undefined : stamp
 }
 
+export function blockedSessionSendReason(session: Pick<Session, 'agentState'>): string | undefined {
+  const state = session.agentState
+  if (state?.phase !== 'errored' || !state.error || state.error.retryable) return undefined
+  return formatAgentError(state.error) + '. Fix the provider issue, then choose Resume the session.'
+}
+
 export class SessionInbox {
   private readonly activeDrains = new Set<SessionId>()
+  /** Recovery answers may queue while a failed session is being woken. */
+  private readonly recoveryDrains = new Set<SessionId>()
 
   constructor(private readonly deps: SessionInboxDeps) {}
 
@@ -434,6 +440,8 @@ export class SessionInbox {
 
   sendText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
     const session = this.deps.getSession(input.sessionId)
+    const blockedReason = session ? blockedSessionSendReason(session) : undefined
+    if (blockedReason && !input.allowErrored) return { ok: false, reason: blockedReason }
     if (session && (session.queuedMessageCount > 0 || this.isDraining(input.sessionId))) {
       return this.queueText(input)
     }
@@ -452,12 +460,16 @@ export class SessionInbox {
   } {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
+    const blockedReason = blockedSessionSendReason(session)
+    if (blockedReason && !input.allowErrored) return { ok: false, reason: blockedReason }
     if (session.status === 'live' && session.queuedMessageCount === 0) return this.sendText(input)
     return this.queueText({ ...input, mutationId: input.mutationId })
   }
 
   interruptText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
     const session = this.deps.getSession(input.sessionId)
+    const blockedReason = session ? blockedSessionSendReason(session) : undefined
+    if (blockedReason && !input.allowErrored) return { ok: false, reason: blockedReason }
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
     }
@@ -523,6 +535,8 @@ export class SessionInbox {
   } {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
+    const blockedReason = blockedSessionSendReason(session)
+    if (blockedReason && !input.allowErrored) return { ok: false, reason: blockedReason }
     const parked = session.status === 'hibernated' || session.status === 'exited'
     if (parked && session.agentKind !== 'shell' && !session.resume) {
       return { ok: false, reason: 'no resume ref' }
@@ -538,6 +552,7 @@ export class SessionInbox {
       sourceMessageId: input.sourceMessageId ?? null,
     })
     if (inserted) {
+      if (input.allowErrored) this.recoveryDrains.add(input.sessionId)
       session.queuedMessageCount += 1
       this.deps.persist(session, { cancelTerminalCandidate: true })
       this.deps.prepareSend(
@@ -564,6 +579,7 @@ export class SessionInbox {
     if (matches.length === 0) return false
     for (const row of matches) this.deps.queue.delete(row.id)
     session.queuedMessageCount = Math.max(0, session.queuedMessageCount - matches.length)
+    if (session.queuedMessageCount === 0) this.recoveryDrains.delete(session.sessionId)
     this.deps.persist(session)
     this.deps.broadcast()
     return true
@@ -616,6 +632,7 @@ export class SessionInbox {
     const removeHead = (current: Session, id: string): void => {
       this.deps.queue.delete(asSessionId(id))
       current.queuedMessageCount = Math.max(0, current.queuedMessageCount - 1)
+      if (current.queuedMessageCount === 0) this.recoveryDrains.delete(current.sessionId)
       this.deps.persist(current)
       this.deps.broadcast()
     }
@@ -659,6 +676,11 @@ export class SessionInbox {
           stop()
           return
         }
+        const blockedReason = blockedSessionSendReason(current)
+        if (blockedReason && !this.recoveryDrains.has(sessionId)) {
+          stop()
+          return
+        }
         if (tailUserTurnMatches(current, needle)) {
           settleHead(current, head)
           return
@@ -695,6 +717,11 @@ export class SessionInbox {
         stop()
         return
       }
+      const blockedReason = blockedSessionSendReason(current)
+      if (blockedReason && !this.recoveryDrains.has(sessionId)) {
+        stop()
+        return
+      }
       const needle = confirmationNeedle(head.text)
       // A retry exists ONLY because the last attempt went unwitnessed. If the
       // turn has appeared since, it landed late — settle it rather than send the
@@ -723,6 +750,7 @@ export class SessionInbox {
         text: head.text,
         inputOrigin: head.inputOrigin,
         principal: head.principal,
+        allowErrored: this.recoveryDrains.has(sessionId),
         ...(head.sourceMessageId ? { sourceMessageId: head.sourceMessageId } : {}),
         recordSend: false,
       })
@@ -745,6 +773,11 @@ export class SessionInbox {
     const deliverNext = (): void => {
       const current = this.deps.getSession(sessionId)
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
+        stop()
+        return
+      }
+      const blockedReason = blockedSessionSendReason(current)
+      if (blockedReason && !this.recoveryDrains.has(sessionId)) {
         stop()
         return
       }
@@ -1192,6 +1225,8 @@ export class SessionInbox {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
     }
+    const blockedReason = blockedSessionSendReason(session)
+    if (blockedReason && !input.allowErrored) return { ok: false }
     // A server-family session has no PTY bridge: the daemon discards "typed"
     // bytes without an error, so an ok here would be the exact lie POD-2291
     // closes. Refusing keeps the caller's row queued and visible; the drain's

@@ -53,7 +53,7 @@ export type AgentStateEvent = (
         summary?: string
       }
     }
-  | { kind: 'turn_failed'; errorClass: string; retryable: boolean }
+  | { kind: 'turn_failed'; errorClass: string; retryable: boolean; detail?: string }
   | { kind: 'compaction'; phase: 'start' | 'end' }
   /** Live native-subagent count change. Optional agentId/agentType carry the
    *  harness identity (Claude SubagentStart/Stop `agent_id`/`agent_type`) so

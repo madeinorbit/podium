@@ -286,6 +286,7 @@ function specFor(
       evidence: 'agent-state',
       errorClass: state.error.class,
       retryable: state.error.retryable,
+      ...(state.error.detail ? { detail: state.error.detail } : {}),
     })
   }
   return null

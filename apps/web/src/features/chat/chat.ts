@@ -320,13 +320,15 @@ export function ticksFromOffsets(
 /** An optimistic "You" bubble shown immediately on send, before the transcript
  *  tail echoes the real user turn back. `at` = creation time (ms), used to drop
  *  the "sending" affordance after a timeout.
- *  State: 'sending' (in flight) → 'sent' (delivered; echo just hasn't tailed back
- *  yet, so render it as a plain bubble) or 'failed' (the send itself rejected). */
+ *  State: 'sending' (in flight) → 'sent' (accepted; echo just has not tailed back
+ *  yet, so render it as a plain bubble) or 'failed' (the send or provider rejected it). */
 export interface PendingItem {
   id: string
   text: string
   at: number
   state: 'sending' | 'queued' | 'sent' | 'failed'
+  /** The server/provider reason for a failed optimistic send. */
+  failure?: string
   tags?: TranscriptTag[]
   /** Uploaded paths encoded into the submitted prompt. Transcript providers
    * normalize those paths out of `text`, so they are the stable identity used

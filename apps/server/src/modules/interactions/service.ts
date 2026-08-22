@@ -160,6 +160,7 @@ export interface InteractionServiceDeps {
     answer: string
     principal: InboxPrincipalReference
     textFallback?: boolean
+    allowErrored?: boolean
   }): Promise<AnswerDeliveryResult>
   /**
    * Does this session have a causal runtime-event stream? See
@@ -1030,7 +1031,7 @@ export class InteractionService {
         // queues while one is still starting, which is what makes a STARTING
         // recovery answerable instead of deadlocked.
         ...(answer.kind === 'plan-approval' || answer.kind === 'login' || answer.kind === 'recovery'
-          ? { textFallback: true }
+          ? { textFallback: true, allowErrored: true }
           : {}),
       })
       // ALSO TYPED, and this is the correction that matters (POD-2414 third

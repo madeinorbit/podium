@@ -1288,28 +1288,67 @@ function grokTurnFailedEvent(fields: Record<string, unknown>): AgentStateEvent {
     ''
   const errorType =
     stringField(fields, 'error_type') ?? stringField(fields, 'errorType') ?? 'unknown'
-  const detail = `${errorType} ${message}`.toLowerCase()
+  const providerDetail = String(message || errorType)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 1000)
+  const detail = providerDetail.toLowerCase()
 
   if (/\b(?:usage (?:balance )?(?:exhausted|limit)|quota (?:exhausted|limit))\b/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'usage_limit', retryable: false }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'usage_limit',
+      retryable: false,
+      detail: providerDetail,
+    }
   }
   if (fields.is_rate_limited === true || /\b(?:status )?429\b|too many requests/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'rate_limit', retryable: true }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'rate_limit',
+      retryable: true,
+      detail: providerDetail,
+    }
   }
   if (/\b(?:overloaded|temporarily at capacity)\b/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'overloaded', retryable: true }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'overloaded',
+      retryable: true,
+      detail: providerDetail,
+    }
   }
   if (/\b(?:status )?5\d\d\b|server error/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'server_error', retryable: true }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'server_error',
+      retryable: true,
+      detail: providerDetail,
+    }
   }
   if (/\b(?:status )?(?:401|403)\b|unauthori[sz]ed|authentication/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'authentication', retryable: false }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'authentication',
+      retryable: false,
+      detail: providerDetail,
+    }
   }
   if (/\b(?:status )?402\b|payment required|billing|insufficient credits/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'billing_error', retryable: false }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'billing_error',
+      retryable: false,
+      detail: providerDetail,
+    }
   }
   if (/\b(?:network|transport|connection|timeout)\b/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'network_error', retryable: true }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'network_error',
+      retryable: true,
+      detail: providerDetail,
+    }
   }
 
   const errorClass = normalizeName(errorType) ?? 'unknown'
@@ -1317,6 +1356,7 @@ function grokTurnFailedEvent(fields: Record<string, unknown>): AgentStateEvent {
     kind: 'turn_failed',
     errorClass,
     retryable: errorClass === 'api' || RETRYABLE.has(errorClass),
+    detail: providerDetail,
   }
 }
 

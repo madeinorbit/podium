@@ -6,7 +6,8 @@ import type {
   SuperThreadRef,
 } from '@podium/client-core/viewmodels'
 import { chatSendRoute } from '@podium/client-core/viewmodels'
-import type { SessionId, TranscriptItem } from '@podium/model/browser'
+import { formatAgentError } from '@podium/model/browser'
+import type { SessionId, SessionMeta, TranscriptItem } from '@podium/model/browser'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
@@ -42,6 +43,12 @@ import type { UseHeadlessTurnResult } from './use-headless-turn'
  * `mutationId` is idempotency, not identity.
  */
 
+function sendFailureText(cause: unknown): string {
+  if (cause instanceof Error && cause.message.trim()) return cause.message
+  if (typeof cause === 'string' && cause.trim()) return cause
+  return 'The provider rejected this message.'
+}
+
 export interface UseChatSendOptions {
   sessionId: SessionId
   trpc: Store['trpc']
@@ -63,12 +70,12 @@ export interface UseChatSendOptions {
    *  rode in with. */
   compact: boolean
   active: boolean
-  composer: Pick<ComposerState, 'sendable' | 'canResume'>
+  composer: Pick<ComposerState, 'sendable' | 'canResume' | 'refusalReason'>
   /** The signed-in principal's own superagent threads (doc §3.1.6 S2). Undefined
    *  when the client holds no roster — then the server is the only gate. */
   ownThreadIds: ReadonlySet<string> | undefined
   blocks: readonly ChatBlock[]
-  session: { agentState?: { phase?: string } | undefined } | undefined
+  session: Pick<SessionMeta, 'agentState'> | undefined
   headlessTurn: Pick<UseHeadlessTurnResult, 'sendTurn'>
   /** Re-pin the scroller: a send always follows its own message. */
   pinToBottom: () => void
@@ -245,6 +252,27 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     return () => clearTimeout(t)
   }, [pending])
 
+  // A terminal provider failure is authoritative for every optimistic bubble that
+  // has not been reconciled into the transcript. The first send used to settle to
+  // a plain "sent" bubble after the grace timer; that was the invisible failure.
+  useEffect(() => {
+    const error =
+      session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
+        ? session.agentState.error
+        : undefined
+    if (!error) return
+    const failure = formatAgentError(error)
+    setPending((items) => {
+      let changed = false
+      const next = items.map((item) => {
+        if (item.state === 'queued' || (item.state === 'failed' && item.failure === failure))
+          return item
+        changed = true
+        return { ...item, state: 'failed' as const, failure }
+      })
+      return changed ? next : items
+    })
+  }, [session?.agentState?.error, session?.agentState?.phase])
   // Clear the optimistic flag once the agent actually reports working (the badge
   // keeps the row visible) or after a short ceiling so it never sticks.
   useEffect(() => {
@@ -400,8 +428,11 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           () => setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
           attachments,
         )
-      } catch {
-        setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
+      } catch (cause) {
+        const failure = sendFailureText(cause)
+        setPending((p) =>
+          p.map((x) => (x.id === id ? { ...x, state: 'failed' as const, failure } : x)),
+        )
       }
     },
     [deliver, pinToBottom],
@@ -422,7 +453,10 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
         )
       } catch (cause) {
-        setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
+        const failure = sendFailureText(cause)
+        setPending((p) =>
+          p.map((x) => (x.id === id ? { ...x, state: 'failed' as const, failure } : x)),
+        )
         setDismissedOfferAt(null) // send failed — let the offer reappear
         throw cause
       }

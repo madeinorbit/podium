@@ -81,6 +81,8 @@ export interface ReceiptSendInput {
   principal?: InboxPrincipalReference
   sourceMessageId?: string
   mutationId?: MutationId
+  /** Only the existing recovery interaction may cross a terminal provider failure. */
+  allowErrored?: boolean
 }
 
 /** The legacy-shaped answer. IDENTICAL in both modes by design: it is what keeps
@@ -152,6 +154,8 @@ export interface ReceiptSenderPorts {
    * `now` may go straight to the driver.
    */
   queueNotEmpty(sessionId: SessionId): boolean
+  /** Human-facing refusal when the session is stopped on a non-retryable provider error. */
+  failureReason?(sessionId: SessionId): string | undefined
   /** The principal an unattributed turn is queued as. Supplied by the composition
    *  root so "who is system" is answered in one visible place. */
   systemPrincipal(): InboxPrincipalReference
@@ -184,6 +188,8 @@ export class ReceiptSender {
     input: ReceiptSendInput,
     onReceipt?: ReceiptReconciler,
   ): ReceiptSendResult {
+    const failureReason = this.ports.failureReason?.(input.sessionId)
+    if (failureReason && !input.allowErrored) return { ok: false, reason: failureReason }
     if (!this.ports.onContract(input.sessionId)) {
       if (input.attachments?.length) {
         return this.refuseAttachments(via, 'this agent cannot accept file attachments', onReceipt)
@@ -301,6 +307,7 @@ export class ReceiptSender {
       text: input.text,
       origin: input.inputOrigin ?? 'controller',
       principal: input.principal ?? this.ports.systemPrincipal(),
+      ...(input.allowErrored ? { allowErrored: true } : {}),
       // EVERYTHING THE LEGACY VERB CARRIED, CARRIED. A queued turn that lost its
       // `mutationId` makes every steward/automation retry a duplicate rather
       // than a no-op; one that lost its `sourceMessageId` is invisible to the

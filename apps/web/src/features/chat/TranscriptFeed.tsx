@@ -12,6 +12,7 @@ import {
   isInteractiveTool,
   sessionWaking,
 } from '@podium/client-core/viewmodels'
+import { formatAgentError } from '@podium/model/browser'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { ArrowUp, Image as ImageIcon } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
@@ -156,6 +157,17 @@ export function turnPosition(row: ChatRow): TurnPosition | undefined {
   if (item.role === 'tool') return isInteractiveTool(item) ? undefined : 'bind'
   if (item.role === 'system' && item.systemKind === 'duration') return 'bind'
   return undefined
+}
+
+function queueIsBlocked(session: SessionMeta | undefined): boolean {
+  return session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
+}
+function queuedDeliveryLabel(session: SessionMeta | undefined): string {
+  const error = queueIsBlocked(session) ? session?.agentState?.error : undefined
+  if (error) return `blocked · ${formatAgentError(error)} — fix it, then Resume to send`
+  return sessionWaking(session)
+    ? 'pending · sends once the agent is up'
+    : 'pending · sends after this turn'
 }
 
 /**
@@ -696,10 +708,14 @@ export function TranscriptFeed({
                 here than one word. */}
             {p.state !== 'sending' && (
               <div className="msg-foot" data-side="right">
-                {p.state === 'queued' && <span className="transcript-delivery">pending</span>}
+                {p.state === 'queued' && (
+                  <span className="transcript-delivery">
+                    {queueIsBlocked(session) ? queuedDeliveryLabel(session) : 'pending'}
+                  </span>
+                )}
                 {p.state === 'failed' && (
                   <span className="transcript-delivery transcript-delivery--error">
-                    not delivered
+                    {p.failure ? `not delivered — ${p.failure}` : 'not delivered'}
                   </span>
                 )}
               </div>
@@ -735,7 +751,8 @@ export function TranscriptFeed({
           does not exist yet, so the stamp says nothing about a CLI and the
           reservation stands. */}
       {restoredQueued.map((message) => {
-        const handedOver = message.injectedAt !== null && !sessionWaking(session)
+        const handedOver =
+          message.injectedAt !== null && !sessionWaking(session) && !queueIsBlocked(session)
         return (
           <div
             key={message.id}
@@ -757,9 +774,7 @@ export function TranscriptFeed({
               {!handedOver && (
                 <div className="msg-foot" data-side="right">
                   <span className="transcript-delivery">
-                    {sessionWaking(session)
-                      ? 'pending · sends once the agent is up'
-                      : 'pending · sends after this turn'}
+                    {queuedDeliveryLabel(session)}
                   </span>
                   <button
                     data-pressable

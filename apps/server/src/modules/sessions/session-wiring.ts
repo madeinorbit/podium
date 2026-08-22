@@ -38,6 +38,7 @@ import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import {
   inboxActorColumns,
+  blockedSessionSendReason,
   inboxActorFromColumns,
   SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
@@ -542,6 +543,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         // module confirms, cancels and sweep-guards a queued row by.
         ...(input.mutationId ? { mutationId: input.mutationId } : {}),
         ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
+        ...(input.allowErrored ? { allowErrored: true } : {}),
       })
       if (!queued.ok) {
         return {
@@ -624,6 +626,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     queueNotEmpty: (sessionId: SessionId) => {
       const s = bag.sessions.get(sessionId)
       return (s?.queuedMessageCount ?? 0) > 0 || bag.inbox.isDraining(sessionId)
+    },
+    failureReason: (sessionId: SessionId) => {
+      const s = bag.sessions.get(sessionId)
+      return s ? blockedSessionSendReason(s) : undefined
     },
     systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
     now: () => bag.now(),

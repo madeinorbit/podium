@@ -270,7 +270,11 @@ export function reduceAgentState(
       return {
         phase: 'errored',
         ...base,
-        error: { class: event.errorClass, retryable: event.retryable },
+        error: {
+          class: event.errorClass,
+          retryable: event.retryable,
+          ...(event.detail ? { detail: event.detail } : {}),
+        },
       }
     case 'compaction':
       return event.phase === 'start'

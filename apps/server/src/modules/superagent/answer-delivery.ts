@@ -39,13 +39,19 @@ export interface AnswerDeliveryDeps {
       sessionId: SessionId
       text: string
       principal: InboxPrincipalReference
+      allowErrored?: boolean
     }): { ok: boolean; reason?: string }
     /** The migrated send (POD-1761 W4, C4). Optional so the fixtures that wire
      *  `resumeAndSend` alone stay on the legacy path — which is the flag-off
      *  behaviour they were written to pin. */
     receiptSend?(
       via: 'wake',
-      input: { sessionId: SessionId; text: string; principal: InboxPrincipalReference },
+      input: {
+        sessionId: SessionId
+        text: string
+        principal: InboxPrincipalReference
+        allowErrored?: boolean
+      },
     ): { ok: boolean; reason?: string }
   }
   rpc: {
@@ -72,6 +78,8 @@ export async function deliverAnswerToSession(
     answer: string
     principal: InboxPrincipalReference
     textFallback?: boolean
+    /** The existing interaction recovery answer may cross a terminal provider failure. */
+    allowErrored?: boolean
   },
 ): Promise<AnswerDeliveryResult> {
   const { sessionId, answer } = input
@@ -99,8 +107,18 @@ export async function deliverAnswerToSession(
     // removes is the readiness guess INSIDE the send it falls back to.
     const send = deps.sessions.receiptSend
     const r = send
-      ? send('wake', { sessionId, text: answer, principal: input.principal })
-      : deps.sessions.resumeAndSend({ sessionId, text: answer, principal: input.principal })
+      ? send('wake', {
+          sessionId,
+          text: answer,
+          principal: input.principal,
+          ...(input.allowErrored ? { allowErrored: true } : {}),
+        })
+      : deps.sessions.resumeAndSend({
+          sessionId,
+          text: answer,
+          principal: input.principal,
+          ...(input.allowErrored ? { allowErrored: true } : {}),
+        })
     return r.ok ? { ok: true, via: 'text' } : { ok: false, message: r.reason ?? 'send failed' }
   }
   // The live prompt's options live in the transcript: the LAST

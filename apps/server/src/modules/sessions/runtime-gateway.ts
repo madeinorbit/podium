@@ -32,10 +32,7 @@
  */
 
 import type { MachineId, MutationId, SessionId } from '@podium/model'
-import type {
-  InteractionAnswerOutcome,
-  ObservationInputOrigin,
-} from '@podium/protocol'
+import type { InteractionAnswerOutcome, ObservationInputOrigin } from '@podium/protocol'
 import type {
   Refusal,
   RuntimeAttachmentRef,
@@ -92,6 +89,8 @@ export interface RuntimeDurableQueuePort {
      * re-pushed by the next sweep.
      */
     sourceMessageId?: string
+    /** Only the existing recovery interaction may cross a terminal provider failure. */
+    allowErrored?: boolean
   }): { ok: true; position: number } | { ok: false; reason: Refusal['reason']; detail?: string }
 }
 

@@ -194,11 +194,32 @@ export type AgentNeed = z.infer<typeof AgentNeed>
 export const AgentError = z.object({
   class: z.string(), // harness error class, e.g. rate_limit / server_error / billing_error
   retryable: z.boolean(), // true → a blind "continue" is worth offering
+  /** Provider wording that explains the class, bounded before it reaches the wire. */
+  detail: z.string().trim().min(1).max(1000).optional(),
 })
 export type AgentError = z.infer<typeof AgentError>
 
+const AGENT_ERROR_LABELS: Record<string, string> = {
+  usage_limit: 'Usage limit reached',
+  billing_error: 'Billing problem',
+  authentication: 'Provider authentication failed',
+  rate_limit: 'Provider rate limit reached',
+  overloaded: 'Provider is temporarily overloaded',
+  server_error: 'Provider server error',
+  network_error: 'Provider connection failed',
+  context_overflow: 'Context window exceeded',
+}
+
+/** Human-facing failure copy shared by chat, status badges and send refusals. */
+export function formatAgentError(error: AgentError): string {
+  const normalized = error.class.trim()
+  const fallback = normalized.replace(/[_-]+/g, ' ').trim()
+  const label = AGENT_ERROR_LABELS[normalized] ?? (fallback || 'Provider error')
+  return error.detail ? label + ': ' + error.detail : label
+}
+
 /** One live native harness subagent (Claude Task/Agent tool, etc.).
- *  Identity rides the hook channel (`agent_id` / `agent_type` on SubagentStart
+ *  Identity rides on the hook channel (`agent_id` / `agent_type` on SubagentStart
  *  / SubagentStop); optional so older daemons omit it. [spec:SP-dae6] */
 export const NativeSubagent = z.object({
   /** UNBRANDED: a HARNESS-minted `agent_id` off the hook channel. Deliberately

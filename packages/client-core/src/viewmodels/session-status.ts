@@ -19,6 +19,7 @@
 import {
   type AgentKind,
   type IssueWire,
+  formatAgentError,
   idleVerdictFinishedTurn,
   type SessionMeta,
 } from '@podium/model'
@@ -188,7 +189,7 @@ export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | n
       }
     case 'errored':
       return {
-        label: `error: ${s.error?.class ?? 'unknown'}`,
+        label: `error: ${s.error ? formatAgentError(s.error) : 'unknown'}`,
         tone: 'error',
         showContinue: s.error?.retryable ?? false,
       }

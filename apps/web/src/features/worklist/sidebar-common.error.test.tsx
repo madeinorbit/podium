@@ -44,7 +44,7 @@ describe('PanelRow error status', () => {
 
     render(<PanelRow session={session} active={false} onSelect={vi.fn()} />)
 
-    expect(screen.getByText('error: usage_limit')).toBeTruthy()
+    expect(screen.getByText('error: Usage limit reached')).toBeTruthy()
     expect(screen.queryByTitle("Send 'continue' to the errored agent")).toBeNull()
   })
 })

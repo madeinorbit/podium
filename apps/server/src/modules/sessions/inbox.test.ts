@@ -7,12 +7,8 @@ import {
   asUserId,
   type SessionId,
 } from '@podium/model'
-import {
-  asDelegationRef,
-} from '@podium/protocol'
-import {
-  type TurnReceipt,
-} from '@podium/protocol/daemon'
+import { asDelegationRef } from '@podium/protocol'
+import { type TurnReceipt } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
 import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'
@@ -217,6 +213,54 @@ const typedTexts = (sent: unknown[]): string[] =>
 
 afterEach(() => {
   vi.useRealTimers()
+})
+
+describe('SessionInbox terminal provider failures', () => {
+  it('refuses ordinary text with the provider detail and recovery action', () => {
+    const h = harness()
+    Object.assign(h.session, {
+      agentState: {
+        phase: 'errored',
+        since: '2026-08-22T10:00:00.000Z',
+        error: { class: 'usage_limit', retryable: false, detail: 'API quota exhausted' },
+      },
+    })
+
+    expect(
+      h.inbox.sendText({ sessionId: SID, text: 'third message', principal: agentPrincipal() }),
+    ).toEqual({
+      ok: false,
+      reason:
+        'Usage limit reached: API quota exhausted. Fix the provider issue, then choose Resume the session.',
+    })
+    expect(h.sent).toEqual([])
+    expect(h.rows).toEqual([])
+  })
+
+  it('leaves an already queued row in place but never drains it while errored', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: false })
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'already accepted',
+      mutationId: asMutationId('terminal-hold'),
+      principal: agentPrincipal(),
+    })
+    Object.assign(h.session, {
+      agentState: {
+        phase: 'errored',
+        since: '2026-08-22T10:00:00.000Z',
+        error: { class: 'usage_limit', retryable: false, detail: 'API quota exhausted' },
+      },
+    })
+
+    vi.advanceTimersByTime(7_000)
+
+    expect(typedTexts(h.sent)).toEqual([])
+    expect(h.rows).toHaveLength(1)
+    expect(h.session.queuedMessageCount).toBe(1)
+  })
 })
 
 describe('SessionInbox authorization and identity', () => {

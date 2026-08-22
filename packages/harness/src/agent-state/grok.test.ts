@@ -92,7 +92,14 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
           },
         },
       }),
-    ).resolves.toEqual([{ kind: 'turn_failed', errorClass: 'usage_limit', retryable: false }])
+    ).resolves.toMatchObject([
+      {
+        kind: 'turn_failed',
+        errorClass: 'usage_limit',
+        retryable: false,
+        detail: expect.any(String),
+      },
+    ])
 
     await expect(
       translateGrokUpdatePayload({
@@ -106,7 +113,14 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
           },
         },
       }),
-    ).resolves.toEqual([{ kind: 'turn_failed', errorClass: 'rate_limit', retryable: true }])
+    ).resolves.toMatchObject([
+      {
+        kind: 'turn_failed',
+        errorClass: 'rate_limit',
+        retryable: true,
+        detail: expect.any(String),
+      },
+    ])
 
     await expect(
       translateGrokUpdatePayload({
@@ -119,7 +133,14 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
           },
         },
       }),
-    ).resolves.toEqual([{ kind: 'turn_failed', errorClass: 'usage_limit', retryable: false }])
+    ).resolves.toMatchObject([
+      {
+        kind: 'turn_failed',
+        errorClass: 'usage_limit',
+        retryable: false,
+        detail: expect.any(String),
+      },
+    ])
   })
 
   it('maps native camelCase Grok hooks and classifies Stop from chat history', async () => {
@@ -138,7 +159,14 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
     ).resolves.toEqual([{ kind: 'needs_user', need: 'permission', summary: 'Bash' }])
     await expect(
       translateGrokUpdatePayload({ hookEventName: 'StopFailure', errorType: 'rate_limit' }),
-    ).resolves.toEqual([{ kind: 'turn_failed', errorClass: 'rate_limit', retryable: true }])
+    ).resolves.toMatchObject([
+      {
+        kind: 'turn_failed',
+        errorClass: 'rate_limit',
+        retryable: true,
+        detail: expect.any(String),
+      },
+    ])
 
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-hook-'))
     const paths = grokSessionPaths({ homeDir: home, cwd: '/repo/grok', sessionId: 'g-native' })

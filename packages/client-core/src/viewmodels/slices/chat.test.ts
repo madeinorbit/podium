@@ -327,6 +327,44 @@ describe('composer, queue, offer and activity', () => {
     ).toMatchObject({ enabled: false, placeholder: 'Session is not running.' })
   })
 
+  it('disables chat sends while a provider failure needs recovery', () => {
+    const blocked = session({
+      agentState: {
+        phase: 'errored',
+        since: '2026-08-22T10:00:00.000Z',
+        nativeSubagentCount: 0,
+        error: { class: 'usage_limit', retryable: false, detail: 'API quota exhausted' },
+      },
+    } as Partial<SessionMeta>)
+    const composer = composerState({
+      session: blocked,
+      headless: false,
+      turnRunning: false,
+      compact: false,
+    })
+    expect(composer).toMatchObject({
+      enabled: false,
+      sendable: false,
+      canResume: false,
+      placeholder:
+        'Usage limit reached: API quota exhausted — fix the provider issue, then choose Resume the session.',
+      refusalReason:
+        'Usage limit reached: API quota exhausted — fix the provider issue, then choose Resume the session.',
+    })
+    expect(
+      chatSendRoute({
+        sessionId: asSessionId('s1'),
+        headless: false,
+        superThread: undefined,
+        composer,
+      }),
+    ).toEqual({
+      kind: 'refused',
+      reason:
+        'Usage limit reached: API quota exhausted — fix the provider issue, then choose Resume the session.',
+    })
+  })
+
   // POD-762. The whole point of these three is that they read the SERVER's
   // fields, so the answer is identical on a fresh mount three issues later.
   describe('a wake in flight', () => {
@@ -471,6 +509,6 @@ describe('composer, queue, offer and activity', () => {
         turnRunning: false,
         justSent: false,
       }),
-    ).toEqual({ label: 'error: rate_limit', tone: 'error' })
+    ).toEqual({ label: 'error: Provider rate limit reached', tone: 'error' })
   })
 })
