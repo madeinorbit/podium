@@ -479,5 +479,15 @@ Rule: pass the epic's branch as `--parent-branch` at CREATE time, and after star
 issue verify the base before the agent writes code —
 `git merge-base --is-ancestor <branch> issue/1761-agent-runtime` or compare
 `git merge-base <branch> main` against `git merge-base <branch> issue/1761-agent-runtime`.
-The remedy once started is cheap only while the branch is empty: have the OWNING session
-rebase onto the integration branch; never rebase another session's branch for it.
+The remedy once started is cheap only while the branch is empty, and REBASE IS THE WRONG
+VERB: a branch cut from main has all of main's post-divergence history "ahead" of the
+integration branch, so `git rebase issue/1761-agent-runtime` tries to replay MAIN onto the
+epic and conflicts in files the issue never touched (POD-2602 hit exactly this, in
+ChatView.tsx and bun.lock, and correctly aborted). What you want is for the branch to BE
+the integration tip plus the session's own work:
+
+    git stash push -m pod-<issue>-wip        # name it; a bare pop can steal a sibling's stash
+    git reset --hard issue/1761-agent-runtime
+    git stash pop                            # or cherry-pick the session's own commits
+
+Have the OWNING session do it; never reset another session's branch for it.
