@@ -196,10 +196,11 @@ function journalledServerProcess(
 /**
  * Reap a server-family session's process, if the server family owns it.
  *
- * SYNCHRONOUS OWNERSHIP, ASYNC REAP — the same shape as `reapDurableHost`'s
- * call site: the caller learns "is this mine?" and the process work is
- * fire-and-forget behind that answer. Returns false untouched for a session
- * the server family never held.
+ * OWNERSHIP IS CHECKED BEFORE THE ASYNC REAP — callers that only need the
+ * historical fire-and-forget behavior can `void` the returned promise, while
+ * shutdown callers can await the measured process work before disposing the
+ * runtime maps. Returns false untouched for a session the server family never
+ * held.
  *
  * `retire` is `sessionBindingRetire`'s arm — the row is deleted, so the binding
  * journal must go with the process (a deleted session must never leave a
@@ -207,20 +208,20 @@ function journalledServerProcess(
  * generic kill keeps the park semantics: SIGTERM first, because codex flushes
  * its rollout JSONL on the way out and that file is what resume works from.
  */
-export function beginServerDriverReap(
+export async function beginServerDriverReap(
   ctx: DaemonContext,
   sessionId: SessionId,
   opts: { retire: boolean },
   io: ServerReapIo = defaultIo,
-): boolean {
+): Promise<boolean> {
   const handle = serverRuntimeHandleFor(ctx, sessionId)
   if (handle) {
-    void reapViaHandle(ctx, sessionId, handle, opts, io)
+    await reapViaHandle(ctx, sessionId, handle, opts, io)
     return true
   }
   const journalled = journalledServerProcess(ctx, sessionId)
   if (journalled) {
-    void reapByIdentity(ctx, sessionId, journalled, opts, io)
+    await reapByIdentity(ctx, sessionId, journalled, opts, io)
     return true
   }
   return false

@@ -3,7 +3,7 @@ import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './control/context'
-import { reapServerSessionsOnClose } from './host-runtime'
+import { reapServerSessionsBeforeDispose } from './host-runtime'
 import type { DaemonMachineRuntime } from './runtime/machine-runtime'
 import type { ServerReapIo } from './runtime/server-reap'
 
@@ -36,6 +36,12 @@ describe('full-reap daemon close', () => {
   it.each(SERVER_FAMILIES)('$driver leaves no live child behind', async ({ driver, harness }) => {
     const state = { alive: true }
     const calls: string[] = []
+    let releaseKill!: () => void
+    const killGate = new Promise<void>((resolve) => {
+      releaseKill = resolve
+    })
+    const disposed = vi.fn()
+
     const handle = {
       binding: {
         sessionId: SESSION,
@@ -49,13 +55,13 @@ describe('full-reap daemon close', () => {
       },
       async kill() {
         calls.push('kill')
+        await killGate
       },
     } as unknown as AgentSessionHandle
     const sent: DaemonMessage[] = []
     const ctx = {
       agentRuntime: {
-        serverHandleFor: (sessionId: SessionId) =>
-          sessionId === SESSION ? handle : undefined,
+        serverHandleFor: (sessionId: SessionId) => (sessionId === SESSION ? handle : undefined),
         journalledServerProcess: () => undefined,
       },
       send: (message: DaemonMessage) => void sent.push(message),
@@ -65,10 +71,12 @@ describe('full-reap daemon close', () => {
     } as unknown as Pick<DaemonMachineRuntime, 'registeredBindings'>
 
     const io = reapIo(state)
-    reapServerSessionsOnClose(ctx, runtime, io)
-    await vi.waitFor(() =>
-      expect(sent.some((message) => message.type === 'sessionKillResult')).toBe(true),
-    )
+    const closing = reapServerSessionsBeforeDispose(ctx, runtime, true, disposed, io)
+    await vi.waitFor(() => expect(calls).toEqual(['kill']))
+    expect(disposed).not.toHaveBeenCalled()
+    releaseKill()
+    await closing
+    expect(disposed).toHaveBeenCalledOnce()
 
     expect(state.alive).toBe(false)
     expect(io.signals).toEqual(['SIGKILL'])

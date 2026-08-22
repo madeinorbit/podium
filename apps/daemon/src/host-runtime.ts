@@ -123,17 +123,28 @@ export interface DaemonHostRuntime {
  * The optional I/O seam keeps the call site regression deterministic without
  * changing the production reaper, whose default measures real pids and scopes.
  */
-export function reapServerSessionsOnClose(
+export async function reapServerSessionsOnClose(
   ctx: DaemonContext,
   agentRuntime: Pick<DaemonMachineRuntime, 'registeredBindings'> | undefined,
   io?: ServerReapIo,
-): void {
-  for (const binding of agentRuntime?.registeredBindings() ?? []) {
-    if (binding.family !== 'server') continue
-    beginServerDriverReap(ctx, binding.sessionId, { retire: true }, io)
-  }
+): Promise<void> {
+  await Promise.all(
+    (agentRuntime?.registeredBindings() ?? [])
+      .filter((binding) => binding.family === 'server')
+      .map((binding) => beginServerDriverReap(ctx, binding.sessionId, { retire: true }, io)),
+  )
 }
 
+export async function reapServerSessionsBeforeDispose(
+  ctx: DaemonContext,
+  agentRuntime: Pick<DaemonMachineRuntime, 'registeredBindings'> | undefined,
+  reapSessions: boolean,
+  dispose: () => void,
+  io?: ServerReapIo,
+): Promise<void> {
+  if (reapSessions) await reapServerSessionsOnClose(ctx, agentRuntime, io)
+  dispose()
+}
 /** Keep the synchronous spawn gate on the exact home inventory uses. */
 function daemonHarnessLoginContext(
   homeDir: string | undefined,
@@ -907,8 +918,9 @@ export async function createDaemonHostRuntime(args: {
       else turn.dispose?.()
     }
     ctx.runningHeadlessTurns.clear()
-    if (reapSessions) reapServerSessionsOnClose(ctx, agentRuntime)
-    agentRuntime?.dispose()
+    await reapServerSessionsBeforeDispose(ctx, agentRuntime, reapSessions, () =>
+      agentRuntime?.dispose(),
+    )
     observers.disposeObservers()
     composerEngine.disposeAll()
     await Promise.all(durableReaps)

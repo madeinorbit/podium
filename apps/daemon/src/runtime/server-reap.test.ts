@@ -134,8 +134,7 @@ function fakeCtx(
     slot === 'opencodeRuntime' ? 'opencode' : slot === 'codexRuntime' ? 'codex' : 'grok'
   const ctx = {
     agentRuntime: {
-      serverHandleFor: (sessionId: SessionId) =>
-        sessionId === SESSION ? input.handle : undefined,
+      serverHandleFor: (sessionId: SessionId) => (sessionId === SESSION ? input.handle : undefined),
       journalledServerProcess: (sessionId: SessionId) => {
         if (sessionId !== SESSION || !input.journalEntry) return undefined
         const entry = input.journalEntry as {
@@ -174,10 +173,10 @@ const killResult = (sent: DaemonMessage[]) =>
     | undefined
 
 describe('ownership', () => {
-  it('leaves a session no server runtime holds untouched, so the PTY path is unchanged', () => {
+  it('leaves a session no server runtime holds untouched, so the PTY path is unchanged', async () => {
     const { ctx, sent } = fakeCtx('opencodeRuntime', {})
     expect(
-      beginServerDriverReap(
+      await beginServerDriverReap(
         ctx,
         SESSION,
         { retire: false },
@@ -202,7 +201,7 @@ describe('teardown through a live handle — once per driver registry', () => {
     const { ctx, sent } = fakeCtx(slot, { handle })
     const io = fakeIo(state)
 
-    expect(beginServerDriverReap(ctx, SESSION, { retire: false }, io)).toBe(true)
+    expect(await beginServerDriverReap(ctx, SESSION, { retire: false }, io)).toBe(true)
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(calls).toEqual(['stop'])
@@ -223,7 +222,7 @@ describe('teardown through a live handle — once per driver registry', () => {
     })
     const { ctx, sent } = fakeCtx(slot, { handle })
 
-    beginServerDriverReap(ctx, SESSION, { retire: true }, fakeIo(state))
+    await beginServerDriverReap(ctx, SESSION, { retire: true }, fakeIo(state))
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(calls).toEqual(['kill'])
@@ -246,7 +245,7 @@ describe('teardown through a live handle — once per driver registry', () => {
     })
     const io = fakeIo(state)
 
-    beginServerDriverReap(ctx, SESSION, { retire: false }, io)
+    await beginServerDriverReap(ctx, SESSION, { retire: false }, io)
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(io.signals).toContainEqual({ pid: 4321, signal: 'SIGKILL' })
@@ -261,7 +260,7 @@ describe('teardown through a live handle — once per driver registry', () => {
     const { ctx, sent } = fakeCtx('opencodeRuntime', { handle })
     const io = fakeIo(state)
 
-    beginServerDriverReap(ctx, SESSION, { retire: false }, io)
+    await beginServerDriverReap(ctx, SESSION, { retire: false }, io)
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(calls).toEqual(['stop', 'kill'])
@@ -280,7 +279,7 @@ describe('teardown through a live handle — once per driver registry', () => {
     } as unknown as AgentSessionHandle
     const { ctx, sent } = fakeCtx('opencodeRuntime', { handle })
 
-    beginServerDriverReap(ctx, SESSION, { retire: false }, fakeIo(state))
+    await beginServerDriverReap(ctx, SESSION, { retire: false }, fakeIo(state))
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(killResult(sent)).toMatchObject({ killed: false, reason: 'endpoint unreachable' })
@@ -292,7 +291,7 @@ describe('teardown through a live handle — once per driver registry', () => {
     const { ctx, sent } = fakeCtx('opencodeRuntime', { handle })
     const io = fakeIo(state)
 
-    beginServerDriverReap(ctx, SESSION, { retire: false }, io)
+    await beginServerDriverReap(ctx, SESSION, { retire: false }, io)
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(calls).toEqual(['stop'])
@@ -312,7 +311,7 @@ describe('teardown from the journal alone — the post-daemon-restart arm, once 
     const { ctx, sent, journalCleared } = fakeCtx(slot, { journalEntry: journalEntryFor(driver) })
     const io = fakeIo(state, corroborationFor(driver))
 
-    expect(beginServerDriverReap(ctx, SESSION, { retire: false }, io)).toBe(true)
+    expect(await beginServerDriverReap(ctx, SESSION, { retire: false }, io)).toBe(true)
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(io.signals).toContainEqual({ pid: 7777, signal: 'SIGTERM' })
@@ -337,7 +336,7 @@ describe('teardown from the journal alone — the post-daemon-restart arm, once 
     const { ctx, sent, journalCleared } = fakeCtx(slot, { journalEntry: journalEntryFor(driver) })
     const io = fakeIo(state, {})
 
-    beginServerDriverReap(ctx, SESSION, { retire: true }, io)
+    await beginServerDriverReap(ctx, SESSION, { retire: true }, io)
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(io.signals).toHaveLength(0)
@@ -359,7 +358,7 @@ describe('teardown from the journal alone — the post-daemon-restart arm, once 
     const { ctx, sent } = fakeCtx('codexRuntime', { journalEntry: journalEntryFor('codex') })
     const io = fakeIo(state, {})
 
-    beginServerDriverReap(ctx, SESSION, { retire: false }, io)
+    await beginServerDriverReap(ctx, SESSION, { retire: false }, io)
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(io.signals).toHaveLength(0)
@@ -372,7 +371,7 @@ describe('teardown from the journal alone — the post-daemon-restart arm, once 
     const { ctx, sent } = fakeCtx('codexRuntime', { journalEntry: journalEntryFor('codex') })
     const io = fakeIo(state, { cgroup: true })
 
-    beginServerDriverReap(ctx, SESSION, { retire: false }, io)
+    await beginServerDriverReap(ctx, SESSION, { retire: false }, io)
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(io.signals.map((s) => s.signal)).toEqual(['SIGTERM', 'SIGKILL'])
@@ -390,7 +389,7 @@ describe('teardown from the journal alone — the post-daemon-restart arm, once 
     const { ctx, sent } = fakeCtx('opencodeRuntime', { journalEntry: entry })
     const io = fakeIo(state, { probe: true })
 
-    beginServerDriverReap(ctx, SESSION, { retire: false }, io)
+    await beginServerDriverReap(ctx, SESSION, { retire: false }, io)
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(io.signals).toContainEqual({ pid: 7777, signal: 'SIGTERM' })
@@ -478,7 +477,7 @@ describe('startup adoption failure', () => {
       ...ctx.agentRuntime,
       adoptJournalled: async () => ({
         found: true as const,
-        what: driver + ' server',
+        what: `${driver} server`,
         workdir: '/tmp',
       }),
     } as never
@@ -491,12 +490,12 @@ describe('startup adoption failure', () => {
     sessionHandlers.reattach(ctx, {
       type: 'reattach',
       sessionId: SESSION,
-      durableLabel: 'podium-x-' + SESSION,
+      durableLabel: `podium-x-${SESSION}`,
       agentKind: 'codex',
       cwd: '/tmp',
       geometry: { cols: 80, rows: 24 },
       binding: {
-        transitionId: 'reattach:' + SESSION,
+        transitionId: `reattach:${SESSION}`,
         machineAccess: 'allowed',
         sessionAccess: 'allowed',
         principal: { kind: 'user', userId: 'user-1' },
@@ -509,12 +508,112 @@ describe('startup adoption failure', () => {
     expect(sent).toContainEqual({
       type: 'reattachFailed',
       sessionId: SESSION,
-      reason: 'the ' + driver + ' server session recorded in the binding journal could not be rebound',
+      reason: `the ${driver} server session recorded in the binding journal could not be rebound`,
     })
     expect(io.signals.map((signal) => signal.signal)).toEqual(['SIGTERM', 'SIGKILL'])
     expect(state.alive).toBe(false)
     expect(journalCleared).toEqual([SESSION])
     expect(killResult(sent)).toMatchObject({ killed: true })
+  })
+})
+
+describe('startup adoption error boundaries', () => {
+  it('does not reap a child after adoption succeeded but state reporting failed', async () => {
+    const state: FakeProcessState = { alive: true, diesOn: 'SIGKILL' }
+    const { handle, calls } = fakeHandle({ pid: 4321 })
+    const rebound = {
+      ...handle,
+      async state() {
+        throw new Error('state unavailable')
+      },
+    } as unknown as AgentSessionHandle
+    const { ctx, sent } = fakeCtx('opencodeRuntime', { handle: rebound })
+    const transition = vi.fn(async () => ({
+      status: 'applied' as const,
+      event: 'reattach' as const,
+      binding: { transitionHistory: [] } as never,
+    }))
+    ctx.agentRuntime = {
+      ...ctx.agentRuntime,
+      adoptJournalled: async () => ({
+        found: true as const,
+        what: 'opencode server',
+        workdir: '/tmp',
+        handle: rebound,
+      }),
+    } as never
+    Object.assign(ctx, {
+      machineId: 'machine-1',
+      sessionBinding: { transition },
+      serverReapIo: fakeIo(state, { probe: true }),
+    })
+
+    sessionHandlers.reattach(ctx, {
+      type: 'reattach',
+      sessionId: SESSION,
+      durableLabel: `podium-x-${SESSION}`,
+      agentKind: 'codex',
+      cwd: '/tmp',
+      geometry: { cols: 80, rows: 24 },
+      binding: {
+        transitionId: `reattach:${SESSION}`,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user', userId: 'user-1' },
+      },
+    } as never)
+
+    await vi.waitFor(() =>
+      expect(sent).toContainEqual({
+        type: 'reattachFailed',
+        sessionId: SESSION,
+        reason: 'state unavailable',
+      }),
+    )
+    expect(calls).toEqual([])
+    expect(state.alive).toBe(true)
+    expect(sent.some((message) => message.type === 'sessionKillResult')).toBe(false)
+  })
+
+  it('reports reattach failure when journal lookup rejects during ghost cleanup', async () => {
+    const { ctx, sent } = fakeCtx('opencodeRuntime', {})
+    const transition = vi.fn(async () => ({
+      status: 'denied' as const,
+      event: 'reattach' as const,
+      reason: 'not-found' as const,
+      terminal: true as const,
+    }))
+    ctx.agentRuntime = {
+      ...ctx.agentRuntime,
+      journalledServerProcess: () => {
+        throw new Error('duplicate server journals')
+      },
+    } as never
+    Object.assign(ctx, { machineId: 'machine-1', sessionBinding: { transition } })
+
+    sessionHandlers.reattach(ctx, {
+      type: 'reattach',
+      sessionId: SESSION,
+      durableLabel: `podium-x-${SESSION}`,
+      agentKind: 'codex',
+      cwd: '/tmp',
+      geometry: { cols: 80, rows: 24 },
+      binding: {
+        transitionId: `reattach:${SESSION}`,
+        machineAccess: 'allowed',
+        sessionAccess: 'not-found',
+        principal: { kind: 'user', userId: 'user-1' },
+      },
+    } as never)
+
+    await vi.waitFor(() =>
+      expect(sent).toContainEqual({
+        type: 'reattachFailed',
+        sessionId: SESSION,
+        reason: 'session not found',
+      }),
+    )
+    expect(sent.some((message) => message.type === 'sessionKillResult')).toBe(false)
   })
 })
 

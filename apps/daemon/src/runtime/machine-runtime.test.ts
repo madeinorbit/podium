@@ -158,4 +158,61 @@ describe('daemon machine runtime composition', () => {
     })
     expect(grok.adoptFromJournal).toHaveBeenCalledWith(SESSION)
   })
+  it('registers every server family so full-reap close cannot skip one', () => {
+    const cases = [
+      {
+        sessionId: 'machine-opencode' as SessionId,
+        driver: 'opencode-server' as DriverId,
+        harness: 'opencode',
+      },
+      {
+        sessionId: 'machine-codex' as SessionId,
+        driver: 'codex-app-server' as DriverId,
+        harness: 'codex',
+      },
+      {
+        sessionId: 'machine-grok' as SessionId,
+        driver: 'grok-acp' as DriverId,
+        harness: 'grok',
+      },
+    ].map((input) => ({
+      ...input,
+      handle: {
+        binding: {
+          sessionId: input.sessionId,
+          driver: input.driver,
+          family: 'server',
+          harness: input.harness,
+          workdir: '/tmp/server-reap',
+          resume: null,
+          process: { key: `${input.driver}:${input.sessionId}`, pid: 42 },
+          bindingVersion: 1,
+        },
+      } as unknown as AgentSessionHandle,
+    }))
+    const [opencode, codex, grok] = cases.map(({ driver, harness, handle }) =>
+      server(driver, harness, { handle }),
+    )
+    const terminal = {
+      driverFor: vi.fn(),
+      handleFor: () => undefined,
+      bindings: () => [],
+      observe: vi.fn(),
+      onHookPayload: vi.fn(),
+      register: vi.fn(),
+      clear: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const runtime = createDaemonMachineRuntime({
+      terminal,
+      opencode,
+      codex,
+      grok,
+      inventory: async () => INVENTORY,
+    } as unknown as Parameters<typeof createDaemonMachineRuntime>[0])
+    expect(runtime.registeredBindings()).toEqual(cases.map(({ handle }) => handle.binding))
+    for (const { sessionId, handle } of cases) {
+      expect(runtime.serverHandleFor(sessionId)).toBe(handle)
+    }
+  })
 })

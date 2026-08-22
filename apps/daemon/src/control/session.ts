@@ -878,35 +878,46 @@ async function adoptServerDriverSession(
     // record the reattach failure, so retaining the journal would leave a
     // credentialed child with no owner. Reap from the journal identity rather
     // than calling adopt again — Codex/Grok adoption starts a replacement.
-    try {
-      beginServerDriverReap(ctx, msg.sessionId, { retire: true }, ctx.serverReapIo)
-    } catch (err) {
-      log.warn('could not start reaping a failed server reattach', {
-        err,
-        sessionId: msg.sessionId,
-      })
-    }
+    void beginServerDriverReap(ctx, msg.sessionId, { retire: true }, ctx.serverReapIo).catch(
+      (err) => {
+        log.warn('could not start reaping a failed server reattach', {
+          err,
+          sessionId: msg.sessionId,
+        })
+      },
+    )
+  }
+  let adoption: Awaited<ReturnType<typeof runtime.adoptJournalled>>
+  try {
+    adoption = await runtime.adoptJournalled(msg.sessionId)
+  } catch (err) {
+    reapFailedAdoption()
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason: err instanceof Error ? err.message : String(err),
+    })
+    return true
+  }
+  if (!adoption.found) return false
+  const { handle, what, workdir } = adoption
+  if (!handle) {
+    /**
+     * THE JOURNAL SAID SERVER, AND NOTHING ANSWERED. Reported as a reattach
+     * FAILURE rather than fallen through to the PTY path: falling through
+     * would spawn nothing, find no durable host and report the same failure
+     * one layer down with a reason that names abduco — which would send the
+     * next reader looking for a master that was never supposed to exist.
+     */
+    reapFailedAdoption()
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason: `the ${what} session recorded in the binding journal could not be rebound`,
+    })
+    return true
   }
   try {
-    const adoption = await runtime.adoptJournalled(msg.sessionId)
-    if (!adoption.found) return false
-    const { handle, what, workdir } = adoption
-    if (!handle) {
-      /**
-       * THE JOURNAL SAID SERVER, AND NOTHING ANSWERED. Reported as a reattach
-       * FAILURE rather than fallen through to the PTY path: falling through
-       * would spawn nothing, find no durable host and report the same failure
-       * one layer down with a reason that names abduco — which would send the
-       * next reader looking for a master that was never supposed to exist.
-       */
-      reapFailedAdoption()
-      ctx.send({
-        type: 'reattachFailed',
-        sessionId: msg.sessionId,
-        reason: `the ${what} session recorded in the binding journal could not be rebound`,
-      })
-      return true
-    }
     ctx.send({
       type: 'bind',
       sessionId: msg.sessionId,
@@ -928,7 +939,6 @@ async function adoptServerDriverSession(
     reconcileNativeClientTerminal(ctx, msg.sessionId)
     return true
   } catch (err) {
-    reapFailedAdoption()
     ctx.send({
       type: 'reattachFailed',
       sessionId: msg.sessionId,
@@ -1344,7 +1354,14 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       // survive until reboot. Other binding failures are not proof that the row
       // is gone and must not kill a still-owned session.
       if (outcome.status === 'denied' && outcome.reason === 'not-found') {
-        beginServerDriverReap(ctx, msg.sessionId, { retire: true }, ctx.serverReapIo)
+        void beginServerDriverReap(ctx, msg.sessionId, { retire: true }, ctx.serverReapIo).catch(
+          (err) => {
+            log.warn('could not reap a missing server session during reattach', {
+              err,
+              sessionId: msg.sessionId,
+            })
+          },
+        )
       }
       ctx.send({
         type: 'reattachFailed',
@@ -1600,7 +1617,12 @@ export function stopSessionProcess(
   // receipts for one session are harmless — the server acts only on
   // `killed:false`, and a receipt for an identity that was never there is a
   // truthful "nothing to kill".
-  beginServerDriverReap(ctx, msg.sessionId, { retire: opts.retire === true })
+  void beginServerDriverReap(ctx, msg.sessionId, { retire: opts.retire === true }).catch((err) => {
+    log.warn('could not start reaping the server-driver session', {
+      err,
+      sessionId: msg.sessionId,
+    })
+  })
   // Reap the durable host unconditionally — NOT only when a bridge exists.
   // Generic kill is process policy (hibernate, stop, handoff); retirement is a
   // separate server-authored binding transition.
