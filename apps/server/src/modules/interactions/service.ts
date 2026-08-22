@@ -919,9 +919,23 @@ export class InteractionService {
     this.deps.store.recordDelivery(row.id, delivery.via)
     const settled = this.deps.store.get(row.id)
     if (settled) this.deps.publish(settled)
-    return delivery.ok
-      ? { ok: true }
-      : { ok: true, detail: `recorded, but delivery failed: ${delivery.detail}` }
+    if (delivery.ok) return { ok: true }
+    /**
+     * THE UNTYPED FAILURE, REPORTED AS A FAILURE (POD-2414 third pass).
+     *
+     * This arm used to return `ok: true` with an apologetic detail string, which
+     * is the aggregate telling an operator their answer landed when all it knows
+     * is that delivery did not report success. Everything reaching here THREW on
+     * the way out — the reply may have been applied and the transport lost on
+     * the way back — so the row stays claimed and `unverified` rather than
+     * risking a second application, and that half of the old behaviour is
+     * deliberate and unchanged. What changes is what the CALLER is told.
+     */
+    return {
+      ok: false,
+      reason: 'delivery-failed',
+      detail: `recorded, but delivery failed: ${delivery.detail}`,
+    }
   }
 
   /**
@@ -988,10 +1002,14 @@ export class InteractionService {
     }
     const text = deliverableText(answer)
     if (text === null) {
+      // TYPED, because this one is knowable: there is no keystroke form for this
+      // answer kind here, so nothing was attempted and nothing can have landed.
+      // The ask must stay open — the session is still blocked on it.
       return {
         ok: false,
         via: 'unverified',
         detail: `a ${answer.kind} answer has no keystroke form on this session`,
+        refusal: 'not-yet-supported',
       }
     }
     try {
@@ -1015,7 +1033,23 @@ export class InteractionService {
           ? { textFallback: true }
           : {}),
       })
-      if (!result.ok) return { ok: false, via: 'unverified', detail: result.message }
+      // ALSO TYPED, and this is the correction that matters (POD-2414 third
+      // pass). Every `ok: false` from the delivery gate is a PRE-SEND refusal —
+      // unknown session, no pending question, no parseable options, no match,
+      // an index outside the menu's 1-9, or `answerAskUserQuestion` declining
+      // outright. None of them type anything. The older comment here assumed
+      // "the digits may already have landed" and kept the row resolved on that
+      // basis; that is true of a THROWN send (below) and false of a refused
+      // one, so a refused send now reopens the ask instead of leaving a card
+      // gone from a session still sitting at the menu.
+      if (!result.ok) {
+        return {
+          ok: false,
+          via: 'unverified',
+          detail: result.message,
+          refusal: 'delivery-failed',
+        }
+      }
       return { ok: true, via: result.via }
     } catch (err) {
       return {

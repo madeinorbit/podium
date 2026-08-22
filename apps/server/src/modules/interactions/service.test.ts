@@ -428,9 +428,14 @@ describe('InteractionService — answering', () => {
     expect(svc.listOpen()).toHaveLength(1)
   })
 
-  it('records a failed delivery as answered-but-unverified rather than reopening', async () => {
-    // The honest middle state: the row was claimed before delivery (so two
-    // answers cannot both type), so a delivery failure leaves a claimed row.
+  it('a REFUSED delivery reopens the ask and says so', async () => {
+    // REVERSED IN THE THIRD PASS, and the old expectation is worth stating: this
+    // asserted `outcome.ok === true` with an apologetic detail, and left the row
+    // resolved. Both halves were wrong for a REFUSAL. Every `ok: false` out of
+    // the delivery gate is a pre-send guard — no live session, no pending
+    // question, nothing matched — so nothing was typed, the session is still
+    // sitting at the menu, and a card that disappears there is the exact lie
+    // this issue exists to prevent.
     const { svc } = harness({
       delivery: () => ({ ok: false, message: 'session not running' }),
       transcript: [ASK_USER_QUESTION],
@@ -438,9 +443,11 @@ describe('InteractionService — answering', () => {
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
     const id = svc.listOpen()[0]!.id
     const outcome = await answerAs(svc, id, 'Postgres')
-    expect(outcome.ok).toBe(true)
+    expect(outcome).toMatchObject({ ok: false, reason: 'delivery-failed' })
     expect(outcome.detail).toContain('session not running')
-    expect(svc.get(id)).toMatchObject({ status: 'answered', deliveredVia: 'unverified' })
+    // Still answerable, because nobody has answered it yet.
+    expect(svc.get(id)).toMatchObject({ status: 'asked' })
+    expect(svc.listOpen(S)).toHaveLength(1)
   })
 })
 
@@ -1066,25 +1073,35 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
     expect(published.at(-1)).toMatchObject({ status: 'asked' })
   })
 
-  it('a HUMAN keystroke answer whose delivery failed stays resolved and honest', async () => {
-    // The other side of the same rule: claiming first is what stops two people
-    // typing at one menu, an UNPROVEN keystroke failure must not reopen (the
-    // digits may already have landed), and `unverified` is the honest record.
+  it('a THROWN keystroke send stays resolved, because it may have landed', async () => {
+    // THE LINE THIS PAIR DRAWS (POD-2414 third pass). This test used to feed a
+    // REFUSAL and conclude that keystroke failures are unprovable in general.
+    // They are not: a refusal is a pre-send guard and proves nothing was typed
+    // (see the reopen test above). A THROW is the genuinely unknowable case —
+    // the reply may have been applied and the transport lost on the way back —
+    // so the claim and `unverified` stay, because reopening could put a second
+    // set of digits into a menu that already moved.
     const { svc, store } = harness({
-      delivery: () => ({ ok: false, message: 'no live menu' }),
+      delivery: () => {
+        throw new Error('relay died mid-send')
+      },
     })
     store.insert(recoveryRow('context-overflow'))
-    await svc.answer({
+    const outcome = await svc.answer({
       id: 'ixn_context-overflow',
       answer: { kind: 'recovery', choice: 'full-resume' },
       answeredBy: 'human',
       principal: PRINCIPAL,
     })
+    // The row keeps its claim, and the CALLER is still told it failed — the
+    // half that used to report `ok: true`.
+    expect(outcome).toMatchObject({ ok: false, reason: 'delivery-failed' })
     expect(svc.get('ixn_context-overflow')).toMatchObject({
       status: 'answered',
       answeredBy: 'human',
       deliveredVia: 'unverified',
     })
+    expect(svc.listOpen(S)).toEqual([])
   })
 
   it('a FAILURE recovery is never auto-answered — that is the retry loop', async () => {
