@@ -1,8 +1,6 @@
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { resolveCursorBin } from './cursor/cli.js'
 import { agentLaunchCommand, agentSupportsInitialPrompt } from './launch'
-import { resolveOpencodeBin } from './opencode/cli.js'
 
 const CODEX_NETWORK_ARGS = ['-c', 'sandbox_workspace_write.network_access=true']
 describe('agentLaunchCommand', () => {
@@ -103,9 +101,9 @@ describe('agentLaunchCommand', () => {
     })
   })
 
-  it('spawns opencode fresh with a resolved binary path', () => {
+  it('spawns opencode fresh with its provider command', () => {
     expect(agentLaunchCommand('opencode', { cwd: '/w' })).toEqual({
-      cmd: resolveOpencodeBin(),
+      cmd: 'opencode',
       args: [],
       cwd: '/w',
     })
@@ -117,20 +115,20 @@ describe('agentLaunchCommand', () => {
         cwd: '/w',
         resume: { kind: 'opencode-session', value: 'ses_abc' },
       }),
-    ).toEqual({ cmd: resolveOpencodeBin(), args: ['--session', 'ses_abc'], cwd: '/w' })
+    ).toEqual({ cmd: 'opencode', args: ['--session', 'ses_abc'], cwd: '/w' })
   })
 
   it('passes model override to opencode', () => {
     expect(agentLaunchCommand('opencode', { cwd: '/w', model: 'openai/gpt-5.5' })).toEqual({
-      cmd: resolveOpencodeBin(),
+      cmd: 'opencode',
       args: ['-m', 'openai/gpt-5.5'],
       cwd: '/w',
     })
   })
 
-  it('spawns cursor fresh with a resolved binary path', () => {
+  it('spawns cursor fresh with its provider command', () => {
     expect(agentLaunchCommand('cursor', { cwd: '/w' })).toEqual({
-      cmd: resolveCursorBin(),
+      cmd: 'agent',
       args: [],
       cwd: '/w',
     })
@@ -142,12 +140,12 @@ describe('agentLaunchCommand', () => {
         cwd: '/w',
         resume: { kind: 'cursor-chat', value: 'chat-9' },
       }),
-    ).toEqual({ cmd: resolveCursorBin(), args: ['--resume', 'chat-9'], cwd: '/w' })
+    ).toEqual({ cmd: 'agent', args: ['--resume', 'chat-9'], cwd: '/w' })
   })
 
   it('passes model override to cursor', () => {
     expect(agentLaunchCommand('cursor', { cwd: '/w', model: 'composer-2.5' })).toEqual({
-      cmd: resolveCursorBin(),
+      cmd: 'agent',
       args: ['--model', 'composer-2.5'],
       cwd: '/w',
     })
@@ -404,50 +402,32 @@ describe('agentLaunchCommand', () => {
   })
 
   it('spawns an interactive shell in the worktree cwd', () => {
-    const prev = process.env.SHELL
-    process.env.SHELL = '/bin/zsh'
-    try {
-      expect(agentLaunchCommand('shell', { cwd: '/w' })).toEqual({
-        cmd: '/bin/zsh',
-        args: [],
-        cwd: '/w',
-      })
-    } finally {
-      if (prev === undefined) delete process.env.SHELL
-      else process.env.SHELL = prev
-    }
+    expect(agentLaunchCommand('shell', { cwd: '/w', env: { SHELL: '/bin/zsh' } })).toEqual({
+      cmd: '/bin/zsh',
+      args: [],
+      cwd: '/w',
+    })
   })
 
   it('falls back to bash when SHELL is unset', () => {
-    const prev = process.env.SHELL
-    delete process.env.SHELL
-    try {
-      expect(agentLaunchCommand('shell', { cwd: '/w' }).cmd).toBe('/bin/bash')
-    } finally {
-      if (prev === undefined) delete process.env.SHELL
-      else process.env.SHELL = prev
-    }
+    expect(agentLaunchCommand('shell', { cwd: '/w', env: {} }).cmd).toBe('/bin/bash')
   })
 
   it('on Windows falls back to COMSPEC, then cmd.exe (SHELL is normally unset there)', () => {
     const realPlatform = process.platform
-    const prevShell = process.env.SHELL
-    const prevComspec = process.env.COMSPEC
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
-    delete process.env.SHELL
     try {
-      process.env.COMSPEC = 'C:\\Windows\\System32\\cmd.exe'
-      expect(agentLaunchCommand('shell', { cwd: 'C:\\w' }).cmd).toBe(
+      expect(
+        agentLaunchCommand('shell', {
+          cwd: 'C:\\w',
+          env: { COMSPEC: 'C:\\Windows\\System32\\cmd.exe' },
+        }).cmd,
+      ).toBe(
         'C:\\Windows\\System32\\cmd.exe',
       )
-      delete process.env.COMSPEC
-      expect(agentLaunchCommand('shell', { cwd: 'C:\\w' }).cmd).toBe('cmd.exe')
+      expect(agentLaunchCommand('shell', { cwd: 'C:\\w', env: {} }).cmd).toBe('cmd.exe')
     } finally {
       Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true })
-      if (prevShell === undefined) delete process.env.SHELL
-      else process.env.SHELL = prevShell
-      if (prevComspec === undefined) delete process.env.COMSPEC
-      else process.env.COMSPEC = prevComspec
     }
   })
 })

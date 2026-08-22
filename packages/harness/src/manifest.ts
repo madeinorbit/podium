@@ -185,6 +185,8 @@ export interface HarnessLogin {
   freshness?: number
 }
 
+export type HarnessEnvironment = Readonly<Record<string, string | undefined>>
+
 /** Complete, bounded output from a non-interactive native login probe. */
 export interface LoginCommandResult {
   readonly stdout: string
@@ -223,13 +225,13 @@ export interface HarnessExecutableDeclaration {
 export interface HarnessInventory {
   executable: HarnessExecutableDeclaration
   /** Read-only local credential/profile detection. Uneven support is explicit. */
-  detectLogin(homeDir: string): HarnessLogin
+  detectLogin(homeDir: string, env?: HarnessEnvironment): HarnessLogin
   /** Authoritative native login probe. Local detection is only its compatibility fallback. */
   loginCommandProbe: Declared<HarnessLoginCommandProbe>
   /** Native interactive authentication entry point. The daemon launches this in
    * a PTY; the server and browser never encode provider OAuth behavior. */
   loginCommand: Declared<{ cmd: string; args: readonly string[] }>
-  loginIdentity: Declared<(homeDir: string) => LoginIdentity | undefined>
+  loginIdentity: Declared<(homeDir: string, env?: HarnessEnvironment) => LoginIdentity | undefined>
   portableCredential: Declared<PortableCredential>
   /**
    * Env vars that OVERRIDE this CLI's stored login — the ones a spawn must not

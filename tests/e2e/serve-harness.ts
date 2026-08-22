@@ -105,7 +105,7 @@ const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$
 // Reap only abandoned, explicitly owned run roots before claiming this run.
 // A fresh short run token makes simultaneous same-port harnesses independent.
 reapStaleHarnessDirs()
-const { stateDir } = applyHarnessEnv(PORT)
+const { stateDir, env: harnessChildEnv } = applyHarnessEnv(PORT)
 
 // Keep the scratch repo inside this run's owned root. Its basename stays stable
 // so existing sidebar assertions can identify it, while the parent path is unique.
@@ -180,6 +180,20 @@ if (realAgentCodexEnv) {
   writeCodexStartupFixture(realAgentCodexEnv.codexHomeDir, [REPO_ROOT, SCRATCH_REPO, SCRATCH_FEAT])
   await ensurePodiumCodexHooks({ homeDir: realAgentCodexEnv.discoveryHomeDir })
 }
+const realCodexTraceRoot = process.env.CODEX_ROLLOUT_TRACE_ROOT
+const harnessLaunchEnv: Record<string, string> = {
+  ...harnessChildEnv,
+  ...(realAgentCodexEnv
+    ? {
+        CODEX_HOME: realAgentCodexEnv.codexHomeDir,
+        ...(realCodexTraceRoot ? { CODEX_ROLLOUT_TRACE_ROOT: realCodexTraceRoot } : {}),
+      }
+    : {}),
+}
+function withHarnessChildEnv(spec: LaunchSpec): LaunchSpec {
+  return { ...spec, env: { ...harnessLaunchEnv, ...(spec.env ?? {}) } }
+}
+
 
 /**
  * PODIUM_E2E_SILENT_START=<ms> — every spawn is a child that prints NOTHING for
@@ -203,7 +217,7 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
     }) + '\n',
   )
   if (SILENT_START_MS > 0) {
-    return {
+    return withHarnessChildEnv({
       cmd: process.execPath,
       args: [
         '-e',
@@ -212,22 +226,22 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
         `setTimeout(() => { process.stdout.write('booted $ '); setInterval(() => {}, 1000) }, ${SILENT_START_MS})`,
       ],
       cwd: REPO_ROOT,
-    }
+    })
   }
   if (kind === 'shell' || REAL_AGENTS) {
     const spec = agentLaunchCommand(kind, opts)
     // The isolated CODEX_HOME contains only the reviewed Podium hook. This
     // documented automation bypass is test-only and never changes production trust.
     if (REAL_AGENTS && kind === 'codex') {
-      return { ...spec, args: ['--dangerously-bypass-hook-trust', ...spec.args] }
+      return withHarnessChildEnv({ ...spec, args: ['--dangerously-bypass-hook-trust', ...spec.args] })
     }
-    return spec
+    return withHarnessChildEnv(spec)
   }
-  return {
+  return withHarnessChildEnv({
     cmd: process.execPath,
     args: [KEYECHO_CLI, '--mode', 'both'],
     cwd: KEYECHO_PKG,
-  }
+  })
 }
 
 let server = await startServer({ port: PORT, redirectPhoneRootToMobile: false })

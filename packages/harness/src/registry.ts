@@ -11,6 +11,7 @@ import {
   declaredValue,
   type DriverFamily,
   type HarnessCapabilities,
+  type HarnessEnvironment,
   type HarnessLogin,
   type PortableCredential,
 } from './manifest.js'
@@ -334,8 +335,9 @@ export function harnessKindForResumeKind(resumeKind: string): HarnessAgent | und
 export function harnessDetectLogin(
   kind: AgentKind | string,
   homeDir: string,
+  env?: HarnessEnvironment,
 ): HarnessLogin | undefined {
-  return manifestFor(kind)?.inventory.detectLogin(homeDir)
+  return manifestFor(kind)?.inventory.detectLogin(homeDir, env)
 }
 
 /**

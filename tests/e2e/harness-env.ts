@@ -474,11 +474,16 @@ export function reapStaleHarnessDirs(_now: number = Date.now()): number[] {
   return reaped
 }
 
-/** Create the owned isolation dirs and point this process's env at them. */
+/**
+ * Create the owned isolation dirs and point this process's in-process consumers at them.
+ *
+ * The returned `env` is the child-process boundary: Bun does not reliably observe later
+ * process.env mutations, so every child launched by the harness must receive this snapshot.
+ */
 export function applyHarnessEnv(
   port: number,
   requestedRunId?: string,
-): ReturnType<typeof harnessEnv> {
+): ReturnType<typeof harnessEnv> & { env: Record<string, string> } {
   const dirs = harnessEnv(port, requestedRunId)
   claimHarnessDir(dirs)
   for (const d of [dirs.stateDir, dirs.abducoSocketDir, dirs.tmuxTmpDir]) {
@@ -494,5 +499,11 @@ export function applyHarnessEnv(
   // stale build instead of the apps/web/dist the suite just built — so drop it
   // and let server.ts fall back to the repo-relative dist.
   delete process.env.PODIUM_WEB_DIR
-  return dirs
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  )
+  delete env.PODIUM_WEB_DIR
+  return { ...dirs, env }
 }

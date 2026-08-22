@@ -3,7 +3,12 @@ import { platform, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CommandEnvironment } from '@podium/runtime/command-environment'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { buildInventory, type LoginProbeExec, type ProbeExec } from './build-inventory.js'
+import {
+  buildInventory as buildInventoryWithEnv,
+  type LoginProbeExec,
+  type ProbeExec,
+} from './build-inventory.js'
+import { hermeticChildEnv } from '../../../../test-hermetic-env'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
 import {
   fingerprintForLoginIdentity,
@@ -12,27 +17,25 @@ import {
 } from '../codex-auth-identity.js'
 
 let home: string
-const prevCodexHome = process.env.CODEX_HOME
-const prevGrokHome = process.env.GROK_HOME
-const prevClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
+let childEnv: NodeJS.ProcessEnv
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'inv-home-'))
-  // The codex/grok detectors honor these env overrides; pin them to the fixture
-  // home so a real login on the test host can't leak into assertions.
-  process.env.CODEX_HOME = join(home, '.codex')
-  process.env.GROK_HOME = join(home, '.grok')
-  delete process.env.CLAUDE_CONFIG_DIR
+  childEnv = hermeticChildEnv({
+    CODEX_HOME: join(home, '.codex'),
+    GROK_HOME: join(home, '.grok'),
+    CLAUDE_CONFIG_DIR: undefined,
+  })
 })
 afterEach(() => {
   rmSync(home, { recursive: true, force: true })
-  if (prevCodexHome === undefined) delete process.env.CODEX_HOME
-  else process.env.CODEX_HOME = prevCodexHome
-  if (prevGrokHome === undefined) delete process.env.GROK_HOME
-  else process.env.GROK_HOME = prevGrokHome
-  if (prevClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
-  else process.env.CLAUDE_CONFIG_DIR = prevClaudeConfigDir
 })
+
+function buildInventory(
+  options: Parameters<typeof buildInventoryWithEnv>[0] = {},
+): ReturnType<typeof buildInventoryWithEnv> {
+  return buildInventoryWithEnv({ env: childEnv, ...options })
+}
 
 /** Fake exec that answers `--version` per binary basename; anything else throws. */
 function fakeExec(versions: Record<string, string>): ProbeExec {

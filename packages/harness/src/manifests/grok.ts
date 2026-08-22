@@ -10,6 +10,7 @@ import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
+  type HarnessEnvironment,
   fileTranscript,
   isSet,
   promptArgv,
@@ -29,8 +30,8 @@ interface GrokAuthRecord {
   account_id?: unknown
 }
 
-function grokHome(homeDir: string): string {
-  return process.env.GROK_HOME?.trim() || join(homeDir, '.grok')
+function grokHome(homeDir: string, env: HarnessEnvironment = process.env): string {
+  return env.GROK_HOME?.trim() || join(homeDir, '.grok')
 }
 
 function grokProfile(path: string): string | undefined {
@@ -138,13 +139,13 @@ export const grokManifest: AgentManifest = {
     executable: { names: ['grok'], versionArgs: ['--version'] },
     loginCommandProbe: unsupported('Grok login detection still uses its local credential file'),
     loginCommand: supported({ cmd: 'grok', args: ['login'] }),
-    loginIdentity: supported((homeDir) => grokIdentity(grokHome(homeDir))),
+    loginIdentity: supported((homeDir, env) => grokIdentity(grokHome(homeDir, env))),
     portableCredential: supported({ files: ['.grok/auth.json'], compareFreshness: () => null }),
     // Its presence flips grok from the OIDC session in `auth.json` to
     // API-key/custom-endpoint auth.
     foreignCredentialEnv: ['XAI_API_KEY'],
-    detectLogin(homeDir) {
-      const path = grokHome(homeDir)
+    detectLogin(homeDir, env?: HarnessEnvironment) {
+      const path = grokHome(homeDir, env)
       try {
         const file = JSON.parse(readFileSync(join(path, 'auth.json'), 'utf8')) as Record<
           string,

@@ -20,6 +20,7 @@ import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
+  type HarnessEnvironment,
   fileTranscript,
   type HarnessObservationLease,
   isSet,
@@ -42,8 +43,8 @@ interface CodexAuthFile {
   }
 }
 
-function codexAuthPath(homeDir: string): string {
-  const codexHome = process.env.CODEX_HOME?.trim() || join(homeDir, '.codex')
+function codexAuthPath(homeDir: string, env: HarnessEnvironment = process.env): string {
+  const codexHome = env.CODEX_HOME?.trim() || join(homeDir, '.codex')
   return join(codexHome, 'auth.json')
 }
 
@@ -205,9 +206,9 @@ export const codexManifest: AgentManifest = {
     executable: { names: ['codex'], versionArgs: ['--version'] },
     loginCommandProbe: unsupported('Codex login detection still uses its guarded local auth file'),
     loginCommand: supported({ cmd: 'codex', args: ['login'] }),
-    loginIdentity: supported((homeDir) => {
+    loginIdentity: supported((homeDir, env?: HarnessEnvironment) => {
       try {
-        return readIdentityFromAuthContents(readFileSync(codexAuthPath(homeDir), 'utf8'))
+        return readIdentityFromAuthContents(readFileSync(codexAuthPath(homeDir, env), 'utf8'))
       } catch {
         return undefined
       }
@@ -223,8 +224,8 @@ export const codexManifest: AgentManifest = {
     // a session rather than re-authenticate it, and this field is only about
     // which account answers.
     foreignCredentialEnv: ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN'],
-    detectLogin(homeDir) {
-      const path = codexAuthPath(homeDir)
+    detectLogin(homeDir, env?: HarnessEnvironment) {
+      const path = codexAuthPath(homeDir, env)
       let contents: string
       try {
         contents = readFileSync(path, 'utf8')

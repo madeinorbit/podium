@@ -14,6 +14,7 @@ import { createClaudeCodeConversationProvider } from '../discovery/providers/cla
 import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
+  type HarnessEnvironment,
   fileTranscript,
   isSet,
   promptArgv,
@@ -110,8 +111,8 @@ export const claudeCodeManifest: AgentManifest = {
     // in your environment" modal, whose one-time approval is then remembered per
     // key in `.claude.json` — after which the switch is permanently silent.
     foreignCredentialEnv: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
-    detectLogin(homeDir) {
-      const configDir = process.env.CLAUDE_CONFIG_DIR?.trim() || join(homeDir, '.claude')
+    detectLogin(homeDir, env?: HarnessEnvironment) {
+      const configDir = (env ?? process.env).CLAUDE_CONFIG_DIR?.trim() || join(homeDir, '.claude')
       let contents: string
       try {
         contents = readFileSync(join(configDir, '.credentials.json'), 'utf8')

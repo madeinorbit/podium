@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { hermeticChildEnv } from '../../../test-hermetic-env'
 import { runDirOp, segmentError } from './dir-ops'
 
 let home: string
@@ -15,13 +16,16 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true })
 })
 
-const options = (): { homePath: string; machine: string } => ({
+const options = (
+  env: NodeJS.ProcessEnv = hermeticChildEnv(),
+): { homePath: string; machine: string; env: NodeJS.ProcessEnv } => ({
   homePath: home,
   machine: 'test-machine',
+  env,
 })
 
-const git = (cwd: string, ...args: string[]): string =>
-  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim()
+const git = (cwd: string, env: NodeJS.ProcessEnv, ...args: string[]): string =>
+  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', env }).trim()
 
 describe('segment validation', () => {
   it('accepts an ordinary folder name', () => {
@@ -142,39 +146,21 @@ describe('renameFolder', () => {
  * git's config lookups at nothing for the duration.
  */
 describe('createRepo', () => {
-  const saved: Record<string, string | undefined> = {}
+  let gitEnv: NodeJS.ProcessEnv
   beforeAll(() => {
-    for (const key of [
-      'GIT_CONFIG_GLOBAL',
-      'GIT_CONFIG_SYSTEM',
-      'GIT_AUTHOR_NAME',
-      'GIT_AUTHOR_EMAIL',
-      'GIT_COMMITTER_NAME',
-      'GIT_COMMITTER_EMAIL',
-    ]) {
-      saved[key] = process.env[key]
-    }
-    // `/dev/null` is git's documented "no config file here" value.
-    process.env.GIT_CONFIG_GLOBAL = '/dev/null'
-    process.env.GIT_CONFIG_SYSTEM = '/dev/null'
-    for (const key of [
-      'GIT_AUTHOR_NAME',
-      'GIT_AUTHOR_EMAIL',
-      'GIT_COMMITTER_NAME',
-      'GIT_COMMITTER_EMAIL',
-    ]) {
-      delete process.env[key]
-    }
-  })
-  afterAll(() => {
-    for (const [key, value] of Object.entries(saved)) {
-      if (value === undefined) delete process.env[key]
-      else process.env[key] = value
-    }
+    // Use explicit child state: the worker's process.env is not a child boundary under Bun.
+    gitEnv = hermeticChildEnv({
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_SYSTEM: '/dev/null',
+      GIT_AUTHOR_NAME: undefined,
+      GIT_AUTHOR_EMAIL: undefined,
+      GIT_COMMITTER_NAME: undefined,
+      GIT_COMMITTER_EMAIL: undefined,
+    })
   })
 
   it('leaves a repository that can already take a worktree', async () => {
-    const result = await runDirOp('createRepo', { parentPath: home, name: 'planner' }, options())
+    const result = await runDirOp('createRepo', { parentPath: home, name: 'planner' }, options(gitEnv))
     expect(result.error).toBeUndefined()
     const repo = result.path as string
 
@@ -182,9 +168,9 @@ describe('createRepo', () => {
     // unborn, `git worktree add -b` fails, and onboarding hands the user a repo
     // that breaks on their first task — which is exactly the bug this asserts
     // against, so it is checked by DOING the thing rather than by reading a log.
-    expect(git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main')
-    expect(git(repo, 'rev-list', '--count', 'HEAD')).toBe('1')
-    git(repo, 'worktree', 'add', '-b', 'issue/1-x', join(home, 'wt'))
+    expect(git(repo, gitEnv, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main')
+    expect(git(repo, gitEnv, 'rev-list', '--count', 'HEAD')).toBe('1')
+    git(repo, gitEnv, 'worktree', 'add', '-b', 'issue/1-x', join(home, 'wt'))
     expect(existsSync(join(home, 'wt', 'README.md'))).toBe(true)
   })
 
@@ -192,15 +178,15 @@ describe('createRepo', () => {
     const result = await runDirOp(
       'createRepo',
       { parentPath: home, name: 'weather-tiles' },
-      options(),
+      options(gitEnv),
     )
     const repo = result.path as string
-    expect(git(repo, 'show', '--name-only', '--format=', 'HEAD')).toBe('README.md')
-    expect(git(repo, 'show', 'HEAD:README.md')).toBe('# weather-tiles')
+    expect(git(repo, gitEnv, 'show', '--name-only', '--format=', 'HEAD')).toBe('README.md')
+    expect(git(repo, gitEnv, 'show', 'HEAD:README.md')).toBe('# weather-tiles')
   })
 
   it('refuses the name before creating anything when it is not a name', async () => {
-    const result = await runDirOp('createRepo', { parentPath: home, name: 'a/b' }, options())
+    const result = await runDirOp('createRepo', { parentPath: home, name: 'a/b' }, options(gitEnv))
     expect(result.error).toContain('"/"')
     expect(result.path).toBeUndefined()
   })
@@ -213,9 +199,9 @@ describe('createRepo', () => {
   it('would fail to commit here without the identity fallback', () => {
     const bare = join(home, 'bare')
     mkdirSync(bare)
-    git(bare, 'init', '-b', 'main')
+    git(bare, gitEnv, 'init', '-b', 'main')
     writeFileSync(join(bare, 'README.md'), '# bare\n')
-    git(bare, 'add', '-A')
-    expect(() => git(bare, 'commit', '-m', 'Initial commit')).toThrow()
+    git(bare, gitEnv, 'add', '-A')
+    expect(() => git(bare, gitEnv, 'commit', '-m', 'Initial commit')).toThrow()
   })
 })

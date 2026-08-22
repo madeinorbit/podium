@@ -97,14 +97,14 @@ async function probeAgent(
 ): Promise<{ inventory: AgentInventory; executable?: ResolvedHarnessExecutable }> {
   let detected: HarnessLogin
   try {
-    detected = manifest.inventory.detectLogin(credentialHome)
+    detected = manifest.inventory.detectLogin(credentialHome, environment.env)
   } catch {
     detected = { state: 'unknown' }
   }
   const identityReader = declaredValue(manifest.inventory.loginIdentity)
   let identity: ReturnType<NonNullable<typeof identityReader>> | undefined
   try {
-    identity = identityReader?.(credentialHome)
+    identity = identityReader?.(credentialHome, environment.env)
   } catch {
     // Login identity is best-effort metadata.
   }
@@ -227,6 +227,7 @@ export interface BuildInventoryOptions {
   /** @deprecated Test compatibility. Prefer explicit machineHome + credentialHome. */
   homeDir?: string
   commandEnvironment?: CommandEnvironment
+  env?: NodeJS.ProcessEnv
   exec?: ProbeExec
   loginExec?: LoginProbeExec
   platform?: NodeJS.Platform
@@ -266,6 +267,7 @@ export async function buildResolvedInventory(
     opts.commandEnvironment ??
     (await createCommandEnvironment({
       machineHome,
+      env: opts.env,
       generation: opts.generation ?? 0,
       platform: hostPlatform,
     }))

@@ -104,8 +104,9 @@ if (process.env.PATH) {
 //
 // Mechanism: create the container in the ORIGINAL tmpdir, then point TMPDIR at it. Verified
 // (bun 1.x and node both) that os.tmpdir() re-reads TMPDIR at call time, so every subsequent
-// os.tmpdir()/mkdtemp in this process is contained; child processes inherit process.env, so
-// their tmp writes are contained too. Cleanup: `releaseHermeticTmpContainer()` at file end
+// os.tmpdir()/mkdtemp in this process is contained. Child processes receive the same
+// containment only when callers pass `hermeticChildEnv()` explicitly as their env option.
+// Cleanup: `releaseHermeticTmpContainer()` at file end
 // (when a caller has one), with process 'exit' and best-effort signal handlers as the
 // backstop — a SIGKILLed fork still leaks its dirs, but the prefix 'podium-test-run-' is safe
 // to sweep.
@@ -333,3 +334,27 @@ export function releaseHermeticTmpContainer(): void {
 // bun preload evaluation (before any test file's beforeEach). Bun multi-file runs remint via
 // ensureHermeticFileScopeForBun from test-hermetic-bun-hooks.ts.
 mintHermeticFileScope()
+
+/**
+ * Return a standalone environment snapshot for a real child process.
+ *
+ * Bun's Node-compatible child-process layer can retain the environment that
+ * existed when a Vitest worker was created: later writes to `process.env` are
+ * not a reliable child-process boundary. Callers that need this hermetic
+ * setup must therefore pass this copy as `spawn`/`execFile`'s `env` option;
+ * mutating `process.env` alone is not isolation.
+ */
+export function hermeticChildEnv(
+  overrides: Readonly<Record<string, string | undefined>> = {},
+): Record<string, string> {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  )
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete env[key]
+    else env[key] = value
+  }
+  return env
+}
