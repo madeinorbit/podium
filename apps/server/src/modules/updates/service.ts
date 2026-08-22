@@ -244,6 +244,9 @@ export class UpdatesService {
     UpdateChannel,
     Map<string, UpdateStatusMessage>
   >()
+  // Keep target-named terminal boot reports while a reconnecting machine is
+  // absent from the live directory; replay them once it is visible again.
+  private readonly terminalStatusesBeforeMachine = new Map<string, UpdateStatusMessage>()
   private readonly checks = new Map<UpdateChannel, ChannelCheckRecord>()
   /** One shared resolve per channel, for EVERY caller of `refreshTarget` (POD-2153). */
   private readonly refreshesInFlight = new Map<UpdateChannel, Promise<boolean>>()
@@ -388,11 +391,32 @@ export class UpdatesService {
    * for another release are stale and must not influence a later operation.
    */
   private replayTerminalStatuses(channel: UpdateChannel, targetVersion: string): void {
+    this.replayTerminalStatusesForKnownMachines()
     const deferred = this.terminalStatusesBeforeTarget.get(channel)
     if (!deferred) return
     this.terminalStatusesBeforeTarget.delete(channel)
     for (const [machineId, message] of deferred) {
       if (message.targetVersion === targetVersion) {
+        this.onStatus(asMachineId(machineId), message)
+      }
+    }
+  }
+
+  /**
+   * Replay terminal reports held while a reconnecting machine was absent.
+   * Once the directory has it again, exact target fencing still decides whether
+   * the report may affect the operation.
+   */
+  private replayTerminalStatusesForKnownMachines(): void {
+    if (this.terminalStatusesBeforeMachine.size === 0) return
+    const machines = this.deps.machines()
+    for (const [machineId, message] of this.terminalStatusesBeforeMachine) {
+      const machine = machines.find((candidate) => candidate.id === machineId)
+      if (!machine) continue
+      const target = this.target(this.channelOf(machine))
+      if (!target) continue
+      this.terminalStatusesBeforeMachine.delete(machineId)
+      if (message.targetVersion === target.version) {
         this.onStatus(asMachineId(machineId), message)
       }
     }
@@ -616,7 +640,15 @@ export class UpdatesService {
 
   onStatus(machineId: MachineId, message: UpdateStatusMessage): void {
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
-    if (!machine) return
+    if (!machine) {
+      if (
+        (message.state === 'rejected' || message.state === 'stuck') &&
+        message.targetVersion !== undefined
+      ) {
+        this.terminalStatusesBeforeMachine.set(machineId, message)
+      }
+      return
+    }
     const channel = this.channelOf(machine)
     const target = this.target(channel)
     if (!target) {
@@ -928,6 +960,7 @@ export class UpdatesService {
    * work is one pass over the machine directory.
    */
   fleet(): WaveMachine[] {
+    this.replayTerminalStatusesForKnownMachines()
     const { machines, continuing } = this.project()
     if (continuing.size === 0) return machines
     for (const channel of continuing) this.tick(channel)

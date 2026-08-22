@@ -1541,8 +1541,8 @@ describe('the step runners', () => {
 
   /**
    * A packaged all-in-one rollback can report from the daemon before the
-   * successor has resolved its feed target. The terminal report must survive
-   * that gap and settle the persisted operation through the normal bridge.
+   * reconnecting machine is back in the directory and before the successor
+   * resolves its feed target. The terminal report must survive both gaps.
    */
   it('server: settles a packaged all-in-one rollback before target resolution', async () => {
     const target = packedTarget()
@@ -1561,7 +1561,7 @@ describe('the step runners', () => {
     expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBe('pending')
     h.engine.stop()
 
-    fleet[0] = machine({ id: 'podium', name: 'podium', online: false })
+    fleet.length = 0
     const boot = h.reboot({ seedTarget: undefined })
     await boot.engine.adoptOnBoot(
       () => ({
@@ -1578,13 +1578,13 @@ describe('the step runners', () => {
     expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
     expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBe('pending')
 
-    fleet[0] = machine({ id: 'podium', name: 'podium' })
     const bridge = createUpdateFleetBridge({
       engine: boot.engine,
       updates: boot.updates,
       now: () => h.clock.clock.now(),
     })
     boot.setTargetChanged(() => bridge.onFleetChanged())
+    expect(fleet).toHaveLength(0)
     boot.updates.onStatus(asMachineId('podium'), {
       type: 'updateStatus',
       grantId: 'grant_1',
@@ -1596,6 +1596,7 @@ describe('the step runners', () => {
     })
     bridge.onFleetChanged()
     expect(h.read().state).toBe('running')
+    fleet.push(machine({ id: 'podium', name: 'podium' }))
 
     boot.updates.setTarget('dev', target)
     await boot.engine.whenSettled('op_1')
