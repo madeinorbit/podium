@@ -516,3 +516,26 @@ Rule: run `bun run typecheck` plainly and trust the result. A cache HIT is evide
 the wrapper guarantees the environment it was computed in matches yours. Force only with a
 specific reason you can name in `--uncached-because`, and expect to justify it — "to be
 sure" is not a reason, it is 110x for a guarantee you already have.
+
+### Lesson: a lease QUEUE is not serialisation — waiters run anyway
+
+`podium test:heavy --wait` blocks the waiter's ACQUIRE. It does not stop that session from
+running the gate regardless. So a queue four deep can be four concurrent whole-graph runs,
+and the queue's existence gives the coordinator false comfort: it records intent, not
+restraint.
+
+Measured 2026-08-22 by a bystander reviewer on POD-2410: the lease HOLDER (POD-2414) was
+running three whole-graph typechecks while queue position 1 (POD-2434) ran two of its own.
+The host reached load 131 with 11 GB exhausted and 23 GB of swap; `podium mail` then failed
+**20 of 21 attempts** over half an hour, so sessions that appeared to have gone quiet were
+simply unable to report. Do not diagnose a silent session during a load event.
+
+Rule, and it must be in the brief because nothing enforces it: **while you are queued you
+run nothing heavy.** A queue position is a promise not to start, not a ticket to. Targeted
+per-package lanes are fine; whole-graph typechecks, builds and browser lanes wait for the
+grant.
+
+Second half of the same lesson, this one the coordinator's: "nothing is blocked" is not
+"start everything". Sixteen agent sessions at roughly a gigabyte each do not fit on a
+six-core, 11 GB host, whatever the dependency graph says. The ceiling here is about six
+concurrent working sessions. Capacity is a constraint the tracker cannot see.
