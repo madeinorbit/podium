@@ -598,10 +598,10 @@ export class UpdatesService {
     if (message.grantId && message.grantId !== pendingGrant?.grantId) return
 
     const effectiveState =
-      message.state === 'current' &&
-      message.version !== target.version &&
-      pendingGrant !== undefined
-        ? 'granted'
+      message.state === 'current' && pendingGrant !== undefined
+        ? message.version === target.version
+          ? 'restarting'
+          : 'granted'
         : message.state
     /**
      * A HEARTBEAT IS AN ORDINARY REPORT (POD-2101). The same state arriving
@@ -626,15 +626,6 @@ export class UpdatesService {
     })
 
     const rollout = this.rollout(channel)
-    if (message.state === 'current' && message.version === target.version) {
-      if (pendingGrant !== undefined) {
-        rollout.canaryHealthy = true
-        this.pendingGrants.delete(machineId)
-      }
-      if (rollout.authorized) this.tick(channel)
-      return
-    }
-
     if (pendingGrant !== undefined && (message.state === 'rejected' || message.state === 'stuck')) {
       this.pendingGrants.delete(machineId)
       if (!rollout.canaryHealthy) rollout.halted = true

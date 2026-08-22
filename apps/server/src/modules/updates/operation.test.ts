@@ -2665,6 +2665,54 @@ describe('a silent grant, with nobody watching', () => {
   })
 })
 
+it('neither completes the canary nor widens before its handover reconnects', async () => {
+  const fleet = [machine({ id: 'a-canary' }), machine({ id: 'b' })]
+  const h = harness({
+    machines: fleet,
+    target: packedTarget(),
+    appVersion: 'dev+abc1234',
+    servedWebDigest: () => WEB_DIGEST,
+  })
+  const bridge = createUpdateFleetBridge({
+    engine: h.engine,
+    updates: h.updates,
+    now: () => h.clock.clock.now(),
+  })
+
+  await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+  await h.engine.whenSettled('op_1')
+  expect(h.sent.map(({ machineId }) => machineId)).toEqual(['a-canary'])
+
+  // Boot reconciliation can emit this before the successor's raw handshake
+  // updates the machine directory. It is evidence to keep waiting, not health.
+  h.updates.onStatus(asMachineId('a-canary'), {
+    type: 'updateStatus',
+    grantId: 'grant_1',
+    state: 'current',
+    version: 'dev+abc1234',
+  })
+  bridge.onFleetChanged()
+  await h.engine.whenSettled('op_1')
+
+  const machinesStep = h.read().steps?.find((step) => step.id === UPDATE_STEP_MACHINES)
+  expect.soft(h.sent.map(({ machineId }) => machineId)).toEqual(['a-canary'])
+  expect.soft(machinesStep).toMatchObject({
+    state: 'running',
+    progress: { done: 0, total: 2 },
+  })
+  expect.soft(machinesStep?.places?.find((place) => place.id === 'a-canary')).toMatchObject({
+    state: 'restarting',
+  })
+  expect.soft(h.read().state).toBe('running')
+
+  const canary = fleet[0]
+  if (canary) canary.version = 'dev+abc1234'
+  bridge.onFleetChanged()
+  await h.engine.whenSettled('op_1')
+
+  expect(h.sent.map(({ machineId }) => machineId)).toEqual(['a-canary', 'b'])
+})
+
 /**
  * THE FLEET SIZE THE OLD DESIGN COULD NOT SEE (POD-2167).
  *

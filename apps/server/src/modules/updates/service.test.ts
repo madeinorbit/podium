@@ -82,23 +82,27 @@ describe('UpdatesService', () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 
-  it('widens once the canary reports current at the target version', () => {
+  it('does not widen when the canary only reports target before reconnecting', () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     svc.tick()
     svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
     svc.tick()
-    expect(send.mock.calls.length).toBeGreaterThan(1)
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(svc.fleet()[0]).toMatchObject({ state: 'restarting' })
   })
 
   it('carries one authorization from the canary into the wider wave', () => {
-    const { svc, send } = make([m('a'), m('b'), m('c')])
+    const machines = [m('a'), m('b'), m('c')]
+    const { svc, send } = make(machines)
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
 
     expect(svc.authorize()).toEqual(['a'])
     expect(send).toHaveBeenCalledTimes(1)
 
-    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+    const canary = machines[0]
+    if (canary) canary.version = '0.4.2'
+    svc.fleet()
     expect(send).toHaveBeenCalledTimes(3)
   })
 
@@ -197,10 +201,13 @@ describe('UpdatesService', () => {
   })
 
   it('resets canary health when the target changes', () => {
-    const { svc, send } = make([m('a'), m('b'), m('c')])
+    const machines = [m('a'), m('b'), m('c')]
+    const { svc, send } = make(machines)
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     svc.tick()
-    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+    const canary = machines[0]
+    if (canary) canary.version = '0.4.2'
+    svc.fleet()
     svc.setTarget({ version: '0.4.3', critical: false, artifacts: {} } as never)
     send.mockClear()
     svc.tick()
@@ -298,7 +305,7 @@ describe('UpdatesService', () => {
     svc.authorize()
     svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
 
-    expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
+    expect(svc.fleet()[0]).toMatchObject({ state: 'restarting', version: '0.4.2' })
     expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
 
     const machine = machines[0]
@@ -418,15 +425,20 @@ describe('UpdatesService', () => {
      * fixes it and clicks Apply on that row.
      */
     it('keeps widening after a human applies one refused machine', () => {
-      const { svc } = make([m('a'), m('b'), m('c'), m('d'), m('e'), m('f')])
+      const machines = [m('a'), m('b'), m('c'), m('d'), m('e'), m('f')]
+      const { svc } = make(machines)
       svc.setTarget(target)
 
       expect(svc.tick()).toEqual(['a'])
       // The canary holds the target: the bundle is proven for this channel.
-      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      const canary = machines[0]
+      if (canary) canary.version = '0.4.2'
       expect(svc.tick()).toEqual(['b', 'c', 'd'])
-      svc.onStatus(asMachineId('b'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
-      svc.onStatus(asMachineId('c'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      const b = machines[1]
+      const c = machines[2]
+      if (b) b.version = '0.4.2'
+      if (c) c.version = '0.4.2'
+      svc.fleet()
       svc.onStatus(asMachineId('d'), {
         type: 'updateStatus',
         state: 'rejected',
@@ -453,14 +465,19 @@ describe('UpdatesService', () => {
      * before it moves the rest.
      */
     it('still re-proves a canary when the retry is fleet-wide', () => {
-      const { svc } = make([m('a'), m('b'), m('c'), m('d'), m('e'), m('f')])
+      const machines = [m('a'), m('b'), m('c'), m('d'), m('e'), m('f')]
+      const { svc } = make(machines)
       svc.setTarget(target)
 
       expect(svc.tick()).toEqual(['a'])
-      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      const canary = machines[0]
+      if (canary) canary.version = '0.4.2'
       expect(svc.tick()).toEqual(['b', 'c', 'd'])
-      svc.onStatus(asMachineId('b'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
-      svc.onStatus(asMachineId('c'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      const b = machines[1]
+      const c = machines[2]
+      if (b) b.version = '0.4.2'
+      if (c) c.version = '0.4.2'
+      svc.fleet()
       svc.onStatus(asMachineId('d'), {
         type: 'updateStatus',
         state: 'rejected',
@@ -630,7 +647,8 @@ describe('UpdatesService', () => {
     })
 
     it('converges a daemon that reports no percentage at all', () => {
-      const { svc } = make([m('a')])
+      const machines = [m('a')]
+      const { svc } = make(machines)
       svc.setTarget(target)
       svc.authorize()
       svc.onStatus(asMachineId('a'), {
@@ -647,6 +665,9 @@ describe('UpdatesService', () => {
         state: 'current',
         version: '0.4.2',
       })
+      expect(svc.fleet()[0]).toMatchObject({ state: 'restarting', version: '0.4.2' })
+      const machine = machines[0]
+      if (machine) machine.version = '0.4.2'
       expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
     })
   })
@@ -1121,12 +1142,17 @@ describe('target refresh bookkeeping', () => {
       expect(svc.operationActive('stable')).toBe(false)
     })
 
-    it('is false again once the machine reports it reached the target', () => {
-      const { svc } = make([m('a')])
+    it('is false again once the machine reconnects at the target', () => {
+      const machines = [m('a')]
+      const { svc } = make(machines)
       svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
       svc.authorize('dev')
       svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
 
+      expect(svc.operationActive('dev')).toBe(true)
+      const machine = machines[0]
+      if (machine) machine.version = '0.4.2'
+      svc.fleet()
       expect(svc.operationActive('dev')).toBe(false)
     })
   })
