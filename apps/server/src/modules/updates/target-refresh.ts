@@ -69,6 +69,32 @@ export interface TargetRefreshHandle {
   stop(): void
 }
 
+/**
+ * Resolve every release authority once during boot, before the server reports
+ * healthy and before the delayed refresh clock is armed.
+ *
+ * This shares the scheduler's channel list deliberately. `dev` used to be
+ * absent from the composition root's hand-written boot list even after it
+ * became a pulled feed, leaving a restarted source blind until the first
+ * jittered tick. A caller may state channels only for an armed negative control.
+ */
+export async function refreshTargetsOnBoot(deps: {
+  refresh(channel: UpdateChannel): Promise<unknown>
+  channels?: readonly UpdateChannel[]
+}): Promise<void> {
+  const channels = deps.channels ?? REFRESHABLE_CHANNELS
+  await Promise.all(
+    channels.map(async (channel) => {
+      try {
+        await deps.refresh(channel)
+      } catch {
+        // The update service records the channel-specific outcome. One feed
+        // being unavailable must not make the rest of the server unbootable.
+      }
+    }),
+  )
+}
+
 /** The production scheduler: an unref'd single-shot timer, re-armed per tick. */
 export const timerSchedule = (run: () => void, ms: number): (() => void) => {
   const timer = setTimeout(run, ms)

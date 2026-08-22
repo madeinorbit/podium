@@ -87,7 +87,11 @@ import {
 import type { ChannelFeed } from './modules/updates/release-target'
 import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
-import { startTargetRefresh, timerSchedule } from './modules/updates/target-refresh'
+import {
+  refreshTargetsOnBoot,
+  startTargetRefresh,
+  timerSchedule,
+} from './modules/updates/target-refresh'
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import type { PodiumPlugin } from './plugins'
 import {
@@ -491,21 +495,6 @@ export async function startServer(
     // which is also the auth the agents on that machine actually run under.
     modelProbe: (machineId) => registry.modules.rpc.modelProbe(machineId),
   })
-  // Resolve release authorities before serving the fleet read model. Failures are
-  // captured as per-channel unavailable reasons; startup remains operational.
-  await Promise.all([
-    registry.modules.updates.refreshTarget('edge'),
-    registry.modules.updates.refreshTarget('stable'),
-  ])
-  // …and keep asking. Boot is the only time this used to happen, so a server up
-  // for a month advertised the day-one target and a feed that was unreachable in
-  // that one boot second stayed "unavailable" for the month (POD-2100, spec §9.2).
-  const targetRefresh = startTargetRefresh({
-    refresh: (channel) => registry.modules.updates.refreshTarget(channel),
-    operationActive: (channel) => registry.modules.updates.operationActive(channel),
-    schedule: timerSchedule,
-  })
-
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled
   // local daemon reads the SAME file (or, in-process, gets this value via ServerHandle)
@@ -737,8 +726,15 @@ export async function startServer(
     bootConfig: config,
     hasLiveAgentMachine: () => registry.modules.machines.onlineMachineIds().length > 0,
   })
+  let targetsResolvedOnBoot = false
   const app = new Hono()
-  app.get('/health', (c) => c.text('ok'))
+  // The dev resolver pulls this server's own feed. The listener must therefore
+  // exist before the boot resolve, but it must not report healthy in that narrow
+  // window or a supervisor (and the packaged restart gate) could observe the
+  // exact empty fleet state boot is about to repair.
+  app.get('/health', (c) =>
+    targetsResolvedOnBoot ? c.text('ok') : c.text('resolving update targets', 503),
+  )
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   registerVersionRoute(app, {
@@ -1277,49 +1273,62 @@ export async function startServer(
         }
       },
     }
-    resolve({
-      port: server.port,
-      instanceId,
-      registry,
-      bootstrapToken,
-      localDaemonLink,
-      // Deterministic fast shutdown (POD-611): terminate WS intake, persist
-      // state unconditionally, THEN force-close lingering http sockets —
-      // see closeServerFast for the full ordering rationale. Step order
-      // below matters: sync/outbox loops stop before the store closes (a
-      // late write against a closed DB would throw), dirty activity
-      // timestamps flush while the DB is open, registry.dispose() stops the
-      // periodic flush timer, and only then does the store close.
-      close: () =>
-        closeServerFast({
-          closeWebSockets: () => ws.close(),
-          server,
-          persist: [
-            ['messaging.stop', () => messaging.stop()],
-            // An armed refresh timer that outlives the server would resolve a
-            // target against a service whose store is already closed.
-            ['updates.stopTargetRefresh', () => targetRefresh.stop()],
-            // Same hazard, same window (POD-2097): an armed operation deadline
-            // that outlives the server would wake into a closed store and try
-            // to persist a stall against it. Operations are durable, so losing
-            // the timer costs nothing — the successor adopts the operation and
-            // re-derives it from reality, which is the stronger answer anyway.
-            ['operations.stopTimers', () => registry.modules.operations.engine.stop()],
-            // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
-            // final network flush: shutdown is a user-visible latency path
-            // (POD-611 made it deterministic and fast), and a report is worth
-            // less than a fast stop. The queue is durable — it goes next boot.
-            ['telemetry.stop', () => telemetry.stop()],
-            // Release the per-origin client log descriptors. The sink writes
-            // synchronously, so nothing is buffered and this loses no records —
-            // it closes fds a long-lived process would otherwise hold.
-            ['logs.close', () => registry.modules.logs.close()],
-            ['janitorHost.close', () => janitorHost?.close()],
-            ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
-            ['registry.dispose', () => registry.dispose()],
-            ['store.close', () => store.close()],
-          ],
-        }),
+    void refreshTargetsOnBoot({
+      refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+    }).then(() => {
+      // Only after the immediate resolve succeeds or records its per-channel
+      // refusal do we expose health and arm the delayed retry. The delay remains
+      // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
+      const targetRefresh = startTargetRefresh({
+        refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+        operationActive: (channel) => registry.modules.updates.operationActive(channel),
+        schedule: timerSchedule,
+      })
+      targetsResolvedOnBoot = true
+      resolve({
+        port: server.port,
+        instanceId,
+        registry,
+        bootstrapToken,
+        localDaemonLink,
+        // Deterministic fast shutdown (POD-611): terminate WS intake, persist
+        // state unconditionally, THEN force-close lingering http sockets —
+        // see closeServerFast for the full ordering rationale. Step order
+        // below matters: sync/outbox loops stop before the store closes (a
+        // late write against a closed DB would throw), dirty activity
+        // timestamps flush while the DB is open, registry.dispose() stops the
+        // periodic flush timer, and only then does the store close.
+        close: () =>
+          closeServerFast({
+            closeWebSockets: () => ws.close(),
+            server,
+            persist: [
+              ['messaging.stop', () => messaging.stop()],
+              // An armed refresh timer that outlives the server would resolve a
+              // target against a service whose store is already closed.
+              ['updates.stopTargetRefresh', () => targetRefresh.stop()],
+              // Same hazard, same window (POD-2097): an armed operation deadline
+              // that outlives the server would wake into a closed store and try
+              // to persist a stall against it. Operations are durable, so losing
+              // the timer costs nothing — the successor adopts the operation and
+              // re-derives it from reality, which is the stronger answer anyway.
+              ['operations.stopTimers', () => registry.modules.operations.engine.stop()],
+              // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
+              // final network flush: shutdown is a user-visible latency path
+              // (POD-611 made it deterministic and fast), and a report is worth
+              // less than a fast stop. The queue is durable — it goes next boot.
+              ['telemetry.stop', () => telemetry.stop()],
+              // Release the per-origin client log descriptors. The sink writes
+              // synchronously, so nothing is buffered and this loses no records —
+              // it closes fds a long-lived process would otherwise hold.
+              ['logs.close', () => registry.modules.logs.close()],
+              ['janitorHost.close', () => janitorHost?.close()],
+              ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
+              ['registry.dispose', () => registry.dispose()],
+              ['store.close', () => store.close()],
+            ],
+          }),
+      })
     })
   })
 }
