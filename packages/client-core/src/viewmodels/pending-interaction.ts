@@ -33,6 +33,7 @@
  * card that just shrugs.
  */
 
+import { isResumeTimeRecovery } from '@podium/protocol'
 import type { InteractionAnswer, PendingInteractionWire, QuestionPrompt } from '@podium/protocol'
 
 /** One button. `answer` is the typed value `interactions.answer` takes, so a
@@ -218,6 +219,31 @@ export function pendingInteractionCard(row: PendingInteractionWire): PendingInte
         surface: 'aggregate',
       }
     case 'recovery': {
+      /**
+       * A RESUME-TIME PROMPT HAS NO BUTTON (POD-2414 re-verdict, P0/2).
+       *
+       * `cache-miss`/`trust-prompt` on the keystroke path is refused by the
+       * server BEFORE it claims the row — every answer it could make is prose
+       * over the durable send path, which would queue behind the very prompt
+       * holding startup. Rendering "Resume the session" there offers a button
+       * the server always refuses: the session is enumerable, which is half of
+       * what §§3-4 promise, and answering it from here is a dead end.
+       *
+       * So the card SAYS that instead of pretending. The predicate is the
+       * contract's, not a second copy — {@link isResumeTimeRecovery} is what
+       * the server's own answerability check reads.
+       */
+      if (row.answerable === 'keystroke-emulated' && isResumeTimeRecovery(row.payload.reason)) {
+        return {
+          ...base,
+          title: 'Session blocked at startup',
+          detail:
+            `${row.payload.prompt.trim() || 'This session is waiting on a resume decision.'} ` +
+            'Podium cannot answer this one for you — open the terminal to resolve it.',
+          actions: [],
+          surface: 'aggregate',
+        }
+      }
       const actions = row.payload.offered.flatMap((choice) => {
         const label = RECOVERY_LABELS[choice]
         // `fresh-session` has no answer path — it means spawning a NEW session,

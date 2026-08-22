@@ -36,7 +36,8 @@
  * something because nobody configured otherwise.
  */
 
-import type { InteractionAnswer, InteractionKind, RecoveryAsk } from '@podium/protocol'
+import { isResumeTimeRecovery } from '@podium/protocol'
+import type { InteractionAnswer, InteractionKind } from '@podium/protocol'
 import { matchAnswerToOptions } from '../superagent/answer-delivery'
 import type { InteractionAskSpec } from './synthesis'
 
@@ -74,10 +75,7 @@ export const DEFAULT_ANSWERS: Partial<Record<InteractionKind, InteractionAnswer>
  * ONE default that exists from silently answering a question it was not written
  * for.
  */
-const RESUME_TIME_RECOVERY: ReadonlySet<RecoveryAsk['reason']> = new Set([
-  'cache-miss',
-  'trust-prompt',
-])
+/** ONE definition, in the contract — see {@link isResumeTimeRecovery}. */
 
 /**
  * The default answer for an ask, if the table has one AND the harness offers it.
@@ -92,7 +90,7 @@ export function defaultAnswerFor(spec: InteractionAskSpec): InteractionAnswer | 
   const preset = DEFAULT_ANSWERS[spec.kind]
   if (!preset) return null
   if (spec.kind === 'recovery' && preset.kind === 'recovery') {
-    if (!RESUME_TIME_RECOVERY.has(spec.payload.reason)) return null
+    if (!isResumeTimeRecovery(spec.payload.reason)) return null
     const offered = spec.payload.offered
     if (offered.includes(preset.choice)) return preset
     if (offered.includes('summary-resume')) return { kind: 'recovery', choice: 'summary-resume' }

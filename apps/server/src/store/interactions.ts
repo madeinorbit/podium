@@ -283,6 +283,34 @@ export class InteractionsRepository {
   }
 
   /**
+   * RETIRE A ROW THIS FLOW ITSELF CLAIMED (POD-2414 re-verdict, P0/1).
+   *
+   * `answer()` claims the row BEFORE it delivers, so when the driver replies
+   * that the request is `already-answered` or `expired`, the row is sitting in
+   * `answered` — where {@link close} cannot reach it, since that one guards on
+   * `asked` and rightly so. This is the narrow correction of a claim that turned
+   * out to be answering something no longer there.
+   *
+   * Guarded on `answered_by` exactly like {@link reopen}, for the same reason: a
+   * correction aimed at one class must never retire the other's row underneath
+   * it. Returns false when the row moved first.
+   */
+  retireClaimed(
+    id: string,
+    status: 'expired' | 'superseded',
+    at: string,
+    answeredBy: InteractionAnsweredBy,
+  ): boolean {
+    const res = this.db
+      .prepare(
+        `UPDATE pending_interactions SET status = ?, expired_at = ?
+         WHERE id = ? AND status = 'answered' AND answered_by = ?`,
+      )
+      .run(status, at, id, answeredBy)
+    return res.changes > 0
+  }
+
+  /**
    * Close an open ask without answering it. NOT a decision — see
    * `InteractionStatus`.
    *

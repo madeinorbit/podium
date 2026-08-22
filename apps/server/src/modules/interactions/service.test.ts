@@ -84,6 +84,8 @@ function harness(
     transcript?: unknown[]
     /** Wire a structured delivery route — the seam a protocol driver fills. */
     structured?: boolean
+    /** Sessions the causal runtime-event stream owns failures for (P2/7). */
+    causalSessions?: SessionId[]
   } = {},
 ) {
   const db = openMigratedTestDatabase()
@@ -103,6 +105,7 @@ function harness(
       items: (options.transcript ?? []) as never,
     }),
     policyPrincipal: () => PRINCIPAL,
+    causalFailuresOwned: (sessionId) => (options.causalSessions ?? []).includes(sessionId),
     ...(options.structured ? { deliverStructured: async () => ({ ok: true as const }) } : {}),
   })
   return { svc, store, published, delivered }
@@ -792,9 +795,58 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
       principal: PRINCIPAL,
     })
     expect(outcome.ok).toBe(false)
-    expect(outcome.ok === false && outcome.reason).toBe('delivery-failed')
+    // The DRIVER'S OWN reason, not one word for every refusal (POD-2414
+    // re-verdict, P0/1): a surface renders a permanent limitation differently
+    // from a lost reply, and only one of the two is worth retrying.
+    expect(outcome.ok === false && outcome.reason).toBe('not-yet-supported')
     expect(service.get('ixn_structured_refused')).toMatchObject({ status: 'asked' })
     expect(published.at(-1)).toMatchObject({ status: 'asked' })
+  })
+
+  it('a slow question read cannot strand a card on a session that moved on', async () => {
+    // THE INTERLEAVING, DRIVEN (POD-2414 re-verdict, P1/5). Synthesizing a
+    // question awaits the transcript, and the bus that calls this discards the
+    // promise — so a `working` state used to overtake the read, find no row to
+    // close because none was inserted yet, and let the stale question land
+    // behind it. The card then said "blocked" about a session that was running.
+    const db = openMigratedTestDatabase()
+    const store = new InteractionsRepository(db)
+    const published: InteractionRow[] = []
+    let releaseRead: () => void = () => {}
+    const readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve
+    })
+    let clock = 0
+    const svc = new InteractionService({
+      store,
+      now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
+      publish: (row) => published.push(row),
+      deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
+      readTranscript: async () => {
+        await readGate
+        return { items: [] as never }
+      },
+      policyPrincipal: () => PRINCIPAL,
+    })
+
+    // A: a question arrives and blocks inside its transcript read.
+    const asking = svc.onStateChanged({
+      sessionId: S,
+      prev: undefined,
+      next: { phase: 'needs_user', need: { kind: 'question' } } as never,
+    })
+    // B: the session moves on WHILE that read is outstanding.
+    const working = svc.onStateChanged({
+      sessionId: S,
+      prev: { phase: 'needs_user', need: { kind: 'question' } } as never,
+      next: { phase: 'working' } as never,
+    })
+    releaseRead()
+    await Promise.all([asking, working])
+
+    // Whatever order the bus handed them over, the session is not left claiming
+    // to be blocked: B is applied after A, so it closes what A inserted.
+    expect(svc.listOpen(S)).toEqual([])
   })
 
   it('a policy answer overtaken by a turn boundary does NOT reopen', async () => {
@@ -839,29 +891,47 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     expect(service.listOpen()).toHaveLength(0)
   })
 
-  it("a driver's FATAL verdict suppresses the errored state's shadow ask", async () => {
-    // P2/6. Grok reports a fatal TurnFailed and then folds the same failure into
-    // `errored` with retryable:false; the legacy arm cannot see the disposition
-    // and offered Resume against an unrecoverable outcome.
-    const { svc } = harness()
+  it('a session with a CAUSAL stream does not mint from the errored shadow', async () => {
+    // REPLACES the arrival-order mechanism (POD-2414 re-verdict, P2/7). A driver
+    // reports `turn/failed` with a real disposition and then the SAME failure
+    // reappears as `errored` with only a boolean. The old fix remembered "a
+    // fatal arrived" in memory, which assumed the causal event was projected
+    // first — the board projector is one async global drain, so it may not be —
+    // and lost the answer on restart. Provenance does not depend on either:
+    // this session HAS a causal stream, so that stream owns its failures.
+    const { svc } = harness({ causalSessions: [S] })
     await svc.onTurnEvent({
       sessionId: S,
       at: '2026-08-14T00:00:00.000Z',
       ev: { ev: 'failed', turnEpoch: 1, reason: 'provider-error', disposition: 'fatal' },
     })
     expect(svc.listOpen()).toHaveLength(0)
+    // THE SHADOW ARRIVES SECOND — the ordering the old bit needed.
     await svc.onStateChanged({
       sessionId: S,
       prev: undefined,
       next: state({ phase: 'errored', error: { class: 'provider_refusal', retryable: false } }),
     })
     expect(svc.listOpen()).toHaveLength(0)
-    // A session that runs again was not fatal after all.
-    await svc.onTurnEvent({
+  })
+
+  it('suppression does not depend on the causal event arriving FIRST', async () => {
+    // The interleaving the in-memory bit got wrong: the shadow lands before the
+    // causal event is projected. Provenance is a durable property of the
+    // session, so the order cannot change the answer.
+    const { svc } = harness({ causalSessions: [S] })
+    await svc.onStateChanged({
       sessionId: S,
-      at: '2026-08-14T00:01:00.000Z',
-      ev: { ev: 'started', turnEpoch: 2, origin: 'human' },
+      prev: undefined,
+      next: state({ phase: 'errored', error: { class: 'provider_refusal', retryable: false } }),
     })
+    expect(svc.listOpen()).toHaveLength(0)
+  })
+
+  it('a session with NO causal stream still mints from the errored state', async () => {
+    // The case this issue exists for: hook-driven Claude has no causal stream,
+    // so the state path is the only evidence there is and must keep working.
+    const { svc } = harness()
     await svc.onStateChanged({
       sessionId: S,
       prev: undefined,

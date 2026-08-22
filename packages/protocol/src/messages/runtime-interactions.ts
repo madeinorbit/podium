@@ -350,6 +350,34 @@ export type RecoveryChoice = z.infer<typeof RecoveryChoice>
  * appear. The default answer table already routes the kind — see the server
  * aggregate's `DEFAULT_ANSWERS` — so the producer arrives to a decided policy.
  */
+/**
+ * THE RESUME-TIME REASONS — asked BEFORE the session is running, and the
+ * distinction is load-bearing in three separate places.
+ *
+ * A `cache-miss` or `trust-prompt` is a question about HOW TO RESUME, raised by
+ * a harness that is still starting and is holding its own handle open until it
+ * is answered. Everything about answering it differs from the same `kind`
+ * raised after a failure: a default answer is safe (auto-resuming costs
+ * nothing), the answer cannot be delivered as prose (there is no turn yet to
+ * queue it behind — it would land after the thing it is meant to unblock), and
+ * a surface must not offer a button for a route that does not exist.
+ *
+ * The failure-minted reasons (`context-overflow`, `unknown`) are the opposite
+ * on every count: auto-answering re-runs a turn into the same wall, and prose
+ * IS the delivery because the session is up.
+ *
+ * It lives HERE, in the contract, because the server's default-answer table,
+ * the server's answerability check and the client's card all have to agree
+ * about it. Three copies of this set is three chances for a surface to offer
+ * what the server always refuses, which is exactly the defect that put it here
+ * (POD-2414 re-verdict, P0/2).
+ */
+export const RESUME_TIME_RECOVERY_REASONS = ['cache-miss', 'trust-prompt'] as const
+
+export function isResumeTimeRecovery(reason: RecoveryAskReason): boolean {
+  return (RESUME_TIME_RECOVERY_REASONS as readonly string[]).includes(reason)
+}
+
 export const RecoveryAsk = z.object({
   ...ASK_VERSION,
   reason: z.enum(['cache-miss', 'trust-prompt', 'context-overflow', 'unknown']),
@@ -360,6 +388,7 @@ export const RecoveryAsk = z.object({
   offered: z.array(RecoveryChoice).readonly(),
 })
 export type RecoveryAsk = z.infer<typeof RecoveryAsk>
+export type RecoveryAskReason = RecoveryAsk['reason']
 
 export const RecoveryAnswer = z.object({
   kind: z.literal('recovery'),

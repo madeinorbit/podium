@@ -53,7 +53,14 @@ interface Harness {
   published: string[]
 }
 
-function harness(opts: { structured?: boolean; structuredFails?: boolean } = {}): Harness {
+function harness(
+  opts: {
+    structured?: boolean
+    structuredFails?: boolean
+    /** The driver's typed refusal, when the test is about which one it is. */
+    refusal?: 'already-answered' | 'expired' | 'unknown-interaction' | 'not-yet-supported'
+  } = {},
+): Harness {
   const delivered: Harness['delivered'] = []
   const keystrokes: Harness['keystrokes'] = []
   const published: string[] = []
@@ -81,6 +88,7 @@ function harness(opts: { structured?: boolean; structuredFails?: boolean } = {})
       : {
           deliverStructured: async (input) => {
             delivered.push(input)
+            if (opts.refusal) return { ok: false as const, reason: opts.refusal }
             return opts.structuredFails
               ? { ok: false as const, reason: 'delivery-failed' as const, detail: 'socket closed' }
               : { ok: true as const }
@@ -121,7 +129,12 @@ describe('a protocol ask entering the aggregate', () => {
     // because their text matched would lose one of them permanently.
     await h.service.ask({ interaction: protocolAsk('per_a') })
     await h.service.ask({ interaction: protocolAsk('per_b') })
-    expect(h.service.listOpen(SESSION).map((r) => r.id).sort()).toEqual(['per_a', 'per_b'])
+    expect(
+      h.service
+        .listOpen(SESSION)
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual(['per_a', 'per_b'])
   })
 })
 
@@ -168,7 +181,7 @@ describe('answering a structured ask', () => {
     expect(h.service.get('per_live_1')?.status).toBe('asked')
   })
 
-  it('records a FAILED delivery as unverified, and does not fall back to keystrokes', async () => {
+  it('hands a delivery-failed ask BACK, and does not fall back to keystrokes', async () => {
     const h = harness({ structuredFails: true })
     await h.service.ask({ interaction: protocolAsk() })
     const outcome = await h.service.answer({
@@ -177,13 +190,81 @@ describe('answering a structured ask', () => {
       answeredBy: 'human',
       principal: SYSTEM_INBOX_PRINCIPAL,
     })
-    // The answer was recorded — somebody decided — but delivery could not be
-    // proven, which is the same distinction `TurnReceipt`'s fourth outcome draws.
-    expect(outcome.ok).toBe(true)
-    expect(h.service.get('per_live_1')?.deliveredVia).toBe('unverified')
+    // REVERSED DELIBERATELY (POD-2414 re-verdict, P0/1). This pin used to
+    // require `ok: true` with the row left answered/unverified. That reading is
+    // the opposite of the contract it pins: `InteractionAnswerOutcome` says of
+    // `delivery-failed` that "the capability is there and the REPLY failed to
+    // reach the provider — a retry is exactly the right response. The ask stays
+    // OPEN either way, which is what keeps a session visibly blocked instead of
+    // falsely resolved." opencode, its first producer, likewise leaves the
+    // request in its own interaction map when the REST reply throws.
+    //
+    // Resolving it instead removed the only surface a still-blocked
+    // server-family session had — the exact bug this aggregate exists to
+    // prevent, committed by the aggregate. Note the sibling test above already
+    // holds this line for `not-yet-supported`; the two reasons differ in whether
+    // a RETRY is worth it, not in whether the ask survives.
+    expect(outcome).toMatchObject({ ok: false, reason: 'delivery-failed' })
+    expect(h.service.get('per_live_1')?.status).toBe('asked')
     // NEVER a keystroke fallback: a session with no terminal cannot be typed at,
     // and degrading to it would report an answer that reached nothing.
     expect(h.keystrokes).toHaveLength(0)
+  })
+
+  /**
+   * THE REFUSAL TABLE, ARM BY ARM (POD-2414 re-verdict, P0/1).
+   *
+   * These reasons are not degrees of confidence in one outcome — they are
+   * different facts, and collapsing them to a boolean got the two dangerous
+   * cases backwards at once. One test per arm so a future collapse cannot pass.
+   */
+  it('retires the row when the driver says the request is already answered', async () => {
+    const h = harness({ refusal: 'already-answered' })
+    await h.service.ask({ interaction: protocolAsk() })
+    const outcome = await h.service.answer({
+      id: 'per_live_1',
+      answer: { kind: 'permission', decision: 'allow-once' },
+      answeredBy: 'human',
+      principal: SYSTEM_INBOX_PRINCIPAL,
+    })
+    expect(outcome).toMatchObject({ ok: false, reason: 'already-answered' })
+    // SUPERSEDED, not expired: somebody reached it first, which is a different
+    // fact from the session ending underneath it — and the one the operator
+    // needs, because their answer was late rather than wasted.
+    expect(h.service.get('per_live_1')?.status).toBe('superseded')
+  })
+
+  it('retires the row as expired when the driver says the request expired', async () => {
+    const h = harness({ refusal: 'expired' })
+    await h.service.ask({ interaction: protocolAsk() })
+    const outcome = await h.service.answer({
+      id: 'per_live_1',
+      answer: { kind: 'permission', decision: 'allow-once' },
+      answeredBy: 'human',
+      principal: SYSTEM_INBOX_PRINCIPAL,
+    })
+    expect(outcome).toMatchObject({ ok: false, reason: 'expired' })
+    expect(h.service.get('per_live_1')?.status).toBe('expired')
+  })
+
+  it('does NOT manufacture an open ask from unknown-interaction', async () => {
+    const h = harness({ refusal: 'unknown-interaction' })
+    await h.service.ask({ interaction: protocolAsk() })
+    const outcome = await h.service.answer({
+      id: 'per_live_1',
+      answer: { kind: 'permission', decision: 'allow-once' },
+      answeredBy: 'human',
+      principal: SYSTEM_INBOX_PRINCIPAL,
+    })
+    expect(outcome).toMatchObject({ ok: false, reason: 'unknown-interaction' })
+    // THE ROW STAYS CLAIMED. The driver does not have the request, which is
+    // equally consistent with never having had it and with having retired it a
+    // moment ago. Reopening on that can resurrect a card after a session exit
+    // has already failed to close its answered form — a permanently open ask
+    // with nothing able to accept it. Answered/unverified is the one statement
+    // true either way.
+    expect(h.service.get('per_live_1')?.status).toBe('answered')
+    expect(h.service.get('per_live_1')?.deliveredVia).toBe('unverified')
   })
 
   it('is idempotent — a second answer is refused, not re-delivered', async () => {

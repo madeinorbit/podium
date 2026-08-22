@@ -187,6 +187,51 @@ describe('pendingInteractionCard', () => {
     expect(card.actions.map((a) => a.id)).toEqual(['full-resume'])
   })
 
+  it('offers NO button for a resume-time recovery, and says to open the terminal', () => {
+    // THE HALF THAT MAKES §§3-4 HONEST (POD-2414 re-verdict, P0/2). A
+    // `cache-miss`/`trust-prompt` on the keystroke path is refused by the server
+    // BEFORE it claims the row: every answer it could make is prose over the
+    // durable send path, which queues behind the very prompt holding startup.
+    // A "Resume the session" button there is one the server always refuses.
+    const card = pendingInteractionCard(
+      row({
+        kind: 'recovery',
+        answerable: 'keystroke-emulated',
+        payload: {
+          v: 1,
+          reason: 'cache-miss',
+          prompt: 'Resume this conversation?',
+          offered: ['full-resume', 'summary-resume'],
+        },
+      }),
+    )
+    expect(card.actions).toEqual([])
+    expect(card.detail).toContain('open the terminal')
+    // STILL ENUMERABLE. Half of the promise survives even where the other half
+    // cannot: the session is visibly blocked and says what it is blocked on.
+    expect(card.surface).toBe('aggregate')
+    expect(card.detail).toContain('Resume this conversation?')
+  })
+
+  it('still offers resume for a FAILURE-minted recovery, which has a real route', () => {
+    // The mirror of the test above, and the reason it is a separate case rather
+    // than a blanket rule: nothing is holding a handle open after a turn died,
+    // so prose over the durable path is exactly what the answer means.
+    const card = pendingInteractionCard(
+      row({
+        kind: 'recovery',
+        answerable: 'keystroke-emulated',
+        payload: {
+          v: 1,
+          reason: 'unknown',
+          prompt: 'The last turn failed: billing_error.',
+          offered: ['full-resume'],
+        },
+      }),
+    )
+    expect(card.actions.map((a) => a.id)).toEqual(['full-resume'])
+  })
+
   it('an elicitation offers only a decline, and says a form is needed', () => {
     const card = pendingInteractionCard(
       row({

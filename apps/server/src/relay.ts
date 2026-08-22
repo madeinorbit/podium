@@ -29,9 +29,7 @@ import type {
   LocalPortableStateControl,
   VisibilityResolver,
 } from '@podium/protocol'
-import type {
-  QueueDrainAbandonedReason,
-} from '@podium/protocol/daemon'
+import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import {
   formatIssueRef,
   isTerminalOperationState,
@@ -2386,6 +2384,18 @@ export class SessionRegistry {
       store: this.store.interactions,
       now: () => new Date(this.now()).toISOString(),
       publish: (row) => interactionFeed.publish(row),
+      /**
+       * PROVENANCE FOR THE FAILURE PATH (POD-2414 re-verdict, P2/7).
+       *
+       * The same durable checkpoint `RuntimeEventGate.ready` reads, and read
+       * from the store directly because the gate is private to the session
+       * wiring. A session with a checkpoint has a causal `turn/failed` stream
+       * carrying an authoritative disposition, so the aggregate drops the
+       * compatibility `errored` shadow of the same failure rather than racing
+       * it. Durable on purpose: an in-memory bit lost this across a restart.
+       */
+      causalFailuresOwned: (sessionId) =>
+        this.store.events.runtimeEventCheckpoint(sessionId) !== null,
       deliver: (input) =>
         deliverAnswerToSession(
           {
