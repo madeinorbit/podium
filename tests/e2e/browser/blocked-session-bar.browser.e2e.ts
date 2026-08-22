@@ -1,9 +1,9 @@
-import { readdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readdir, readFile, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
-import { harnessEnv } from '../harness-env'
-import { RELAY } from './_harness'
 import { loginTestClient } from '../../../apps/server/src/test-support/client-auth'
+import { harnessEnv } from '../harness-env'
+import { podium, RELAY } from './_harness'
 
 /**
  * POD-2414 — THE BLOCKED-SESSION BAR, DRIVEN END TO END.
@@ -30,19 +30,6 @@ const HOOKS_DIR = join(harnessEnv(Number(process.env.PORT ?? 8799)).stateDir, 'h
 
 test.skip(({ isMobile }) => isMobile, 'the chat-surface bar is verified on desktop here')
 
-/**
- * FIXME, AND NOT BECAUSE OF THIS SPEC — see POD-2468.
- *
- * The web shell's private replica does not boot on this branch: the app paints
- * "Podium's app did not start" before any of the assertions below are reached,
- * and the repository's OWN boot spec (`kernel-replica.browser.e2e.ts`) fails
- * 4/5 for the same reason, as do long-standing specs like `input.browser`.
- * Every step here was written against the real surfaces and is expected to pass
- * the moment the shell boots again — deleting this one line is the whole
- * re-enable, and re-driving this journey is the visual acceptance POD-2414 owes.
- */
-test.fixme()
-
 async function rpc<T>(
   request: APIRequestContext,
   proc: string,
@@ -52,14 +39,17 @@ async function rpc<T>(
   const res =
     method === 'post'
       ? await request.post(`${HTTP}/trpc/${proc}`, { data: input ?? {} })
-      : await request.get(`${HTTP}/trpc/${proc}`)
+      : await request.get(
+          `${HTTP}/trpc/${proc}${input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : ''}`,
+        )
   if (!res.ok()) throw new Error(`${proc} → ${res.status()}: ${await res.text()}`)
   const body = (await res.json()) as { result?: { data?: T } }
   return body.result?.data as T
 }
 
 async function hookSettingsFiles(): Promise<Set<string>> {
-  return new Set(await readdir(HOOKS_DIR).catch(() => []))
+  const entries = await readdir(HOOKS_DIR, { withFileTypes: true }).catch(() => [])
+  return new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name))
 }
 
 /** The hook endpoint the harness wrote for the session it just spawned. */
@@ -72,19 +62,21 @@ async function newHookUrl(existing: Set<string>): Promise<string | undefined> {
 }
 
 async function openChat(page: Page): Promise<void> {
-  // NOTHING IS PINNED HERE. Chat is the default presentation for a session that
-  // can chat, and this bar lives in that surface — so the spec takes the same
-  // path a person does rather than writing a preference key the app also has to
-  // migrate. (`_harness.openHome` pins `native` because those specs drive the
-  // xterm substrate; this one does not.)
+  // Do not pin a presentation in localStorage: the journey will use the visible
+  // panel control to enter Chat after opening the session, exactly as a person
+  // does from the desktop's default CLI presentation.
   const password = process.env.PODIUM_PASSWORD?.trim()
   if (password) {
     const login = await loginTestClient({ origin: HTTP, password })
-    await page
-      .context()
-      .addCookies([
-        { name: login.cookieName, value: login.cookieValue, url: HTTP, httpOnly: true, sameSite: 'Lax' },
-      ])
+    await page.context().addCookies([
+      {
+        name: login.cookieName,
+        value: login.cookieValue,
+        url: HTTP,
+        httpOnly: true,
+        sameSite: 'Lax',
+      },
+    ])
   }
   await page.goto(`/?server=${RELAY}&e2e=1`)
   await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
@@ -112,9 +104,25 @@ test('a needs-human failure becomes a card in chat, and answering it clears the 
   test.setTimeout(150_000)
   await page.setViewportSize({ width: 1280, height: 900 })
 
+  // THE HARNESS SCRATCH REPO BY NAME, NEVER `repos[0]`.
+  //
+  // This is what made the journey unrunnable for two days, and the symptom named
+  // nothing: `repos[0]` is whatever repo the box happens to have registered
+  // first, which on a developer machine is a deep issue worktree. The harness
+  // then creates the spawned session's own worktree INSIDE it, and the abduco
+  // control socket for that session — a unix path, capped at 107 bytes by
+  // `sun_path` — overflows. The session dies at spawn with
+  // `create-session: File name too long`, NO AGENT EVER STARTS, and every later
+  // assertion fails on a missing card that was never going to appear. The same
+  // limit is why this spec must not run under a long TMPDIR.
   const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
-  const repoPath = repos[0]
-  if (!repoPath) throw new Error('harness registered no repo')
+  const port = Number(process.env.PORT ?? 8799)
+  const repoPath = repos.find((repo) => basename(repo) === `zz-podium-e2e-repo-${port}`)
+  if (!repoPath) {
+    throw new Error(
+      `harness scratch repo zz-podium-e2e-repo-${port} is not registered; saw ${repos.join(', ')}`,
+    )
+  }
   const stamp = Date.now().toString(36)
   const title = `Blocked session ${stamp}`
 
@@ -130,8 +138,76 @@ test('a needs-human failure becomes a card in chat, and answering it clears the 
       return hookUrl
     })
     .toMatch(/^http:\/\/127\.0\.0\.1:\d+\/hooks\//)
-  sessionId = (hookUrl as string).split('/hooks/')[1] ?? ''
+  const exactHookUrl = hookUrl as string
+  sessionId = exactHookUrl.split('/hooks/')[1] ?? ''
   expect(sessionId).not.toBe('')
+
+  const session = (
+    await rpc<Array<{ sessionId: string; cwd?: string }>>(
+      request,
+      'sessions.list',
+      undefined,
+      'get',
+    )
+  ).find((candidate) => candidate.sessionId === sessionId)
+  if (!session?.cwd) throw new Error('spawned session has no driveable cwd')
+
+  // Claude's causal observer accepts a terminal event only inside a real turn:
+  // an exact provider binding, a transcript-backed prompt, and the matching
+  // UserPromptSubmit must precede StopFailure. A bare StopFailure from idle is an
+  // impossible provider sequence and is correctly discarded as a stale replay.
+  const providerSessionId = `blocked-${stamp}`
+  const transcriptPath = join(
+    harnessEnv(Number(process.env.PORT ?? 8799)).stateDir,
+    `${providerSessionId}.jsonl`,
+  )
+  const prompt = 'E2E turn that stops on a needs-human failure'
+  await writeFile(
+    transcriptPath,
+    `${JSON.stringify({
+      type: 'user',
+      uuid: `${providerSessionId}-prompt`,
+      timestamp: new Date().toISOString(),
+      message: { role: 'user', content: prompt },
+    })}\n`,
+    'utf8',
+  )
+  const binding = {
+    session_id: providerSessionId,
+    transcript_path: transcriptPath,
+    cwd: session.cwd,
+  }
+  const postHook = async (payload: Record<string, unknown>): Promise<void> => {
+    const response = await fetch(exactHookUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    expect(response.ok).toBe(true)
+  }
+  await postHook({ hook_event_name: 'SessionStart', ...binding })
+  await postHook({ hook_event_name: 'UserPromptSubmit', prompt, ...binding })
+  // A REAL SPAWN, so the default 5s poll is not enough — and if the session died
+  // at spawn instead of reaching `working`, say so with the reason rather than
+  // letting an undefined field read time out anonymously.
+  await expect
+    .poll(
+      async () => {
+        const sessions = await rpc<
+          Array<{
+            sessionId: string
+            status?: string
+            spawnFailure?: string
+            agentState?: { phase: string }
+          }>
+        >(request, 'sessions.list', undefined, 'get')
+        const found = sessions.find((candidate) => candidate.sessionId === sessionId)
+        if (found?.spawnFailure) throw new Error(`session never started: ${found.spawnFailure}`)
+        return found?.agentState?.phase
+      },
+      { timeout: 60_000 },
+    )
+    .toBe('working')
 
   await openChat(page)
   const row = page
@@ -143,17 +219,43 @@ test('a needs-human failure becomes a card in chat, and answering it clears the 
   await expect(row).toBeVisible({ timeout: 45_000 })
   await row.locator('button.flex-1').first().click()
 
+  // A terminal-capable Claude session opens in CLI on desktop. The interaction
+  // bar currently belongs to Chat, so exercise the product's real mode switch
+  // before asking the page to observe it. POD-2580 separately owns discoverability
+  // while a person remains outside Chat.
+  const chat = page.getByRole('tab', { name: 'Chat', exact: true }).locator('visible=true')
+  await expect(chat).toBeVisible({ timeout: 45_000 })
+  await chat.click()
+  await expect(chat).toHaveAttribute('aria-selected', 'true')
+
   // ---- The failure the product used to swallow. ----
   // Non-retryable and NOT auth-shaped: before POD-2414 the synthesizer's only
   // failure arm was an auth regex, so this produced no interaction at all.
-  await request.post(hookUrl as string, {
-    headers: { 'content-type': 'application/json' },
-    data: { hook_event_name: 'StopFailure', error_type: 'billing_error' },
+  await postHook({
+    hook_event_name: 'StopFailure',
+    error_type: 'billing_error',
+    ...binding,
   })
+
+  // Split materialization from rendering in the failure report: the row must
+  // first exist durably, and then the live Chat replica must surface it.
+  await expect
+    .poll(async () => {
+      const rows = await rpc<Array<{ status: string }>>(
+        request,
+        'interactions.forSession',
+        { sessionId },
+        'get',
+      )
+      return rows[0]?.status
+    })
+    .toBe('asked')
 
   const card = page.getByTestId('pending-interaction').first()
   await expect(card).toBeVisible({ timeout: 45_000 })
   await expect(card).toContainText('Session blocked')
+  const evidencePath = process.env.PODIUM_BLOCKED_SESSION_SHOT
+  if (evidencePath) await card.screenshot({ path: evidencePath })
   // The prompt names the cause rather than proposing a course of action.
   await expect(card).toContainText('billing_error')
 
@@ -195,20 +297,13 @@ test('a needs-human failure becomes a card in chat, and answering it clears the 
   // prove reached the agent — a green test over a still-blocked session.
   expect(settled?.deliveredVia).not.toBe('unverified')
 
-  // The smallest real external effect: the resume prose reached the session's
-  // own transcript, so something actually crossed to the agent.
+  // The smallest real external effect: the exact resume prose reached the
+  // far-end process through server -> daemon -> PTY. This deterministic lane
+  // launches keyecho, so `transcriptRead` still reads the seeded Claude JSONL
+  // above; keyecho's own screen is the honest live-agent boundary.
+  const cli = page.getByRole('tab', { name: 'CLI', exact: true }).locator('visible=true')
+  await cli.click()
   await expect
-    .poll(
-      async () => {
-        const page = await rpc<{ items: { text?: string }[] }>(
-          request,
-          'sessions.transcriptRead',
-          { sessionId, direction: 'before', limit: 30 },
-          'get',
-        )
-        return page.items.some((item) => (item.text ?? '').includes('Continue where you left off'))
-      },
-      { timeout: 30_000 },
-    )
-    .toBe(true)
+    .poll(() => podium.screen(page), { timeout: 30_000 })
+    .toContain('Continue where you left off')
 })
