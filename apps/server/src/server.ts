@@ -643,6 +643,20 @@ export async function startServer(
     // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
     // inventories the daemons themselves reported.
     fleetPlatforms: () => fleetHeadlessPlatforms(store.machines.listMachines()),
+    // Proposals describe the packaged fleet consumers, not this source publisher.
+    // A source-only fleet is already at HEAD, so keep its baseline bounded too.
+    proposalBaselineVersion: (headSha) => {
+      const versions = registry.modules.updates
+        .fleet()
+        .filter((machine) => machine.id !== hostMachineId)
+        .filter((machine) => machine.installKind !== 'source')
+        .map((machine) => machine.version)
+        .filter((version) => version.length > 0 && version !== 'unknown')
+      const distinct = [...new Set(versions)]
+      // Mixed rollout versions are all shown in the UI; use the first real fleet baseline
+      // here so the commit range stays bounded while the fleet converges.
+      return distinct[0] ?? `dev+${headSha}`
+    },
     artifactToken: devArtifactToken,
     setTarget: (target) => registry.modules.updates.setTarget(target),
     setTargetUnavailable: (reason) => registry.modules.updates.setTargetUnavailable('dev', reason),

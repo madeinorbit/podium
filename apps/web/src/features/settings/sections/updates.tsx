@@ -60,6 +60,21 @@ interface FleetSnapshot {
   channelChecks?: ChannelCheck[]
 }
 
+function proposalFleetVersions(fleet: FleetSnapshot | null): string[] {
+  return [
+    ...new Set(
+      (fleet?.allMachines ?? fleet?.machines ?? [])
+        .filter(
+          (machine) =>
+            machine.installKind !== 'source' &&
+            machine.version.length > 0 &&
+            machine.version !== 'unknown',
+        )
+        .map((machine) => machine.version),
+    ),
+  ]
+}
+
 interface VersionInfo {
   appVersion?: string
 }
@@ -449,6 +464,7 @@ export function UpdatesSection(): JSX.Element {
   // Every version this panel prints goes through the same display form, so a
   // minted development target reads `dev.8 (77f0e91)` here exactly as it does
   // in the rows above it (POD-2502).
+  const proposalRunningVersions = proposalFleetVersions(fleet)
   const targetVersionLabel = fleet?.targetVersion
     ? formatDisplayedVersion(fleet.targetVersion)
     : null
@@ -517,7 +533,7 @@ export function UpdatesSection(): JSX.Element {
       {proposal && (
         <Row
           label="Development release"
-          description="A landed commit is proposed first. Approval builds and publishes it; rollout remains the normal update offer."
+          description="A landed commit is proposed for the fleet first. Approval builds and publishes it; rollout remains the normal update offer."
         >
           <div
             className="flex w-full flex-col gap-2 rounded-md border border-border/70 bg-muted/15 px-3 py-2"
@@ -525,8 +541,17 @@ export function UpdatesSection(): JSX.Element {
           >
             <div>
               <p className="settings-prose text-foreground">
-                {formatDisplayedVersion(proposal.version)}
+                Build {formatDisplayedVersion(proposal.version)} for the fleet.
               </p>
+              {proposalRunningVersions.length > 0 && (
+                <p
+                  className="settings-micro"
+                  data-testid="settings-release-proposal-fleet-transition"
+                >
+                  Fleet: {proposalRunningVersions.map(formatDisplayedVersion).join(', ')} →{' '}
+                  {formatDisplayedVersion(proposal.version)}
+                </p>
+              )}
               <p className="settings-micro">
                 {proposal.branch} · {proposal.headSha}
               </p>

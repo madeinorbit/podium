@@ -9,14 +9,18 @@ export function ReleaseProposalCard({
   error,
   onApprove,
   onHide,
+  runningVersions,
 }: {
   proposal: ReleaseProposal
   pending: boolean
   error?: string
   onApprove: () => void
   onHide: () => void
+  runningVersions?: readonly string[]
 }): JSX.Element {
   const building = proposal.state === 'building' || pending
+  const targetVersion = formatDisplayedVersion(proposal.version)
+  const fleetVersions = [...new Set((runningVersions ?? []).filter(Boolean))]
   return (
     <aside
       data-testid="release-proposal-card"
@@ -28,10 +32,20 @@ export function ReleaseProposalCard({
     >
       <div className="border-b border-border px-4 pt-4 pb-3">
         <h2 className="text-[14px] font-semibold tracking-[-0.01em]">
-          Release {formatDisplayedVersion(proposal.version)} to development?
+          Build {targetVersion} for the fleet?
         </h2>
         <p className="text-[11px] leading-[1.5] text-muted-foreground">
-          {proposal.branch} · {proposal.headSha}
+          {fleetVersions.length > 0 && (
+            <>
+              <span data-testid="release-proposal-fleet-transition">
+                Fleet: {fleetVersions.map(formatDisplayedVersion).join(', ')} → {targetVersion}
+              </span>
+              <br />
+            </>
+          )}
+          <span>
+            {proposal.branch} · {proposal.headSha}
+          </span>
         </p>
       </div>
       <div className="flex flex-col gap-3 px-4 py-4">
@@ -68,9 +82,7 @@ export function ReleaseProposalCard({
         )}
         {proposal.failure && (
           <div className="flex flex-col gap-2">
-            <p className="text-[11px] leading-[1.5] text-destructive">
-              {proposal.failure.message}
-            </p>
+            <p className="text-[11px] leading-[1.5] text-destructive">{proposal.failure.message}</p>
             <details className="rounded-md border border-border/70 bg-muted/25 px-3 py-2 text-[11px]">
               <summary className="cursor-pointer font-medium text-muted-foreground">
                 Build logs
@@ -87,8 +99,8 @@ export function ReleaseProposalCard({
           </p>
         )}
         <p className="text-[11px] leading-[1.5] text-muted-foreground">
-          Approval builds and publishes only. The published release will appear as the normal
-          update offer, and will not install until someone accepts that second prompt.
+          Approval builds and publishes only. The published release will appear as the normal update
+          offer, and will not install until someone accepts that second prompt.
         </p>
       </div>
       <div className="flex items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">

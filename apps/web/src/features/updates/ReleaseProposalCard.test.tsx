@@ -20,11 +20,16 @@ describe('ReleaseProposalCard', () => {
       <ReleaseProposalCard
         proposal={PROPOSAL}
         pending={false}
+        runningVersions={['0.1.1-edge.1']}
         onApprove={vi.fn()}
         onHide={vi.fn()}
       />,
     )
     expect(screen.getByText(/feature\/branch-release/)).toBeTruthy()
+    expect(screen.getByText(/Build dev\.7 \(abcdef1\) for the fleet/)).toBeTruthy()
+    expect(screen.getByTestId('release-proposal-fleet-transition').textContent).toContain(
+      '0.1.1-edge.1 → dev.7 (abcdef1)',
+    )
     expect(screen.getByText(/Add approval flow/)).toBeTruthy()
     expect(screen.getByTestId('release-proposal-migration-warning').textContent).toMatch(
       /commits fleet databases to this branch until it merges/i,
@@ -45,6 +50,7 @@ describe('ReleaseProposalCard', () => {
           },
         }}
         pending={false}
+        runningVersions={['0.1.1-edge.1']}
         onApprove={vi.fn()}
         onHide={vi.fn()}
       />,
@@ -61,12 +67,15 @@ describe('ReleaseProposalCard', () => {
       <ReleaseProposalCard
         proposal={PROPOSAL}
         pending={false}
+        runningVersions={['0.1.1-edge.1']}
         onApprove={approve}
         onHide={vi.fn()}
       />,
     )
     fireEvent.click(screen.getByTestId('approve-release-proposal'))
     expect(approve).toHaveBeenCalledOnce()
-    expect(screen.getByText(/will not install until someone accepts that second prompt/i)).toBeTruthy()
+    expect(
+      screen.getByText(/will not install until someone accepts that second prompt/i),
+    ).toBeTruthy()
   })
 })

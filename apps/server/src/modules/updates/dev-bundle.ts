@@ -1698,6 +1698,8 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    * Defaults to this host's own.
    */
   fleetPlatforms?: () => readonly string[]
+  /** Product version currently running on the fleet this proposal would update. */
+  proposalBaselineVersion?: (headSha: string) => string | undefined | Promise<string | undefined>
   /**
    * The migrations defined AT a revision — what the published target declares
    * it can open (POD-2213). Seam for tests; defaults to reading the commit's
@@ -1751,8 +1753,13 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
   ) => Promise<void>
   /** Approved builds use a detached worktree; tests may supply an equivalent snapshot. */
   snapshotBuild?: DevBuildSnapshot
-  /** Git proposal facts seam; production reads the checkout relative to the last publish. */
-  proposalFacts?: (input: { headSha: string; sinceSha?: string }) => Promise<ReleaseProposalFacts>
+  /** Git proposal facts seam; production reads the checkout relative to the fleet baseline. */
+  proposalFacts?: (input: {
+    headSha: string
+    runningSha?: string
+    runningVersion?: string
+    sinceSha?: string
+  }) => Promise<ReleaseProposalFacts>
 }
 
 /**
@@ -2139,15 +2146,19 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         checkoutBase: resolveCheckoutReleaseBase(deps, deps.root ?? SOURCE_ROOT),
         sha: headSha,
       })
+      const root = deps.root ?? SOURCE_ROOT
+      const runningVersion = await deps.proposalBaselineVersion?.(headSha)
+      const proposalInput = {
+        headSha,
+        ...(runningVersion ? { runningVersion } : {}),
+        ...(before?.lastPublishedSha ? { sinceSha: before.lastPublishedSha } : {}),
+      }
       const facts = deps.proposalFacts
-        ? await deps.proposalFacts({
-            headSha,
-            ...(before?.lastPublishedSha ? { sinceSha: before.lastPublishedSha } : {}),
-          })
+        ? await deps.proposalFacts(proposalInput)
         : await releaseProposalFacts({
-            root: deps.root ?? SOURCE_ROOT,
-            headSha,
-            ...(before?.lastPublishedSha ? { sinceSha: before.lastPublishedSha } : {}),
+            root,
+            ...proposalInput,
+            ...(runningVersion ? {} : { runningVersion: resolveCheckoutReleaseBase(deps, root) }),
           })
       return {
         headSha,

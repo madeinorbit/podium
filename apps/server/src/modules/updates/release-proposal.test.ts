@@ -36,7 +36,7 @@ function repository(): { root: string; base: string; migration: string } {
 }
 
 describe('releaseProposalFacts', () => {
-  it('uses the published-to-HEAD range and flags only added migration definitions', async () => {
+  it('uses the last-published range only when no running baseline is supplied', async () => {
     const calls: string[][] = []
     const facts = await releaseProposalFacts({
       root: '/repo',
@@ -59,6 +59,12 @@ describe('releaseProposalFacts', () => {
       addedMigrations: ['20260821110000_branch_release'],
     })
     expect(calls).toContainEqual([
+      'log',
+      '-z',
+      '--format=%H%x00%s',
+      'aaaaaaa..bbbbbbb',
+    ])
+    expect(calls).toContainEqual([
       'diff',
       '--diff-filter=A',
       '--name-only',
@@ -67,6 +73,54 @@ describe('releaseProposalFacts', () => {
       'bbbbbbb',
       '--',
       'apps/server/src/migrations/drizzle',
+    ])
+  })
+
+  it('bounds a never-published proposal to the running fleet release', async () => {
+    const { root, base, migration } = repository()
+    execFileSync('git', ['tag', 'v0.1.1-edge.1', base], { cwd: root })
+    writeFileSync(join(root, 'operator-note.txt'), 'fleet stays on the published release\n')
+    commit(root, 'record fleet baseline')
+    const added = join(
+      root,
+      'apps/server/src/migrations/drizzle/20260821110000_proposal/migration.sql',
+    )
+    mkdirSync(join(added, '..'), { recursive: true })
+    writeFileSync(added, 'CREATE TABLE proposal(id TEXT);\n')
+    writeFileSync(migration, 'CREATE TABLE existing(id TEXT);\n')
+    const headSha = commit(root, 'publish fleet proposal')
+
+    const facts = await releaseProposalFacts({
+      root,
+      headSha,
+      runningVersion: '0.1.1-edge.1',
+    })
+
+    expect(facts.commits.map((entry) => entry.summary)).toEqual([
+      'publish fleet proposal',
+      'record fleet baseline',
+    ])
+    expect(facts.commits.map((entry) => entry.summary)).not.toContain('base migration')
+    expect(facts.addedMigrations).toEqual(['20260821110000_proposal'])
+  })
+
+  it('uses the running fleet baseline when the server has published a newer commit', async () => {
+    const { root, base } = repository()
+    writeFileSync(join(root, 'published.txt'), 'published release\n')
+    const publishedSha = commit(root, 'published but not adopted')
+    writeFileSync(join(root, 'head.txt'), 'server proposal\n')
+    const headSha = commit(root, 'server HEAD proposal')
+
+    const facts = await releaseProposalFacts({
+      root,
+      headSha,
+      runningSha: base,
+      sinceSha: publishedSha,
+    })
+
+    expect(facts.commits.map((entry) => entry.summary)).toEqual([
+      'server HEAD proposal',
+      'published but not adopted',
     ])
   })
 

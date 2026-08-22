@@ -155,6 +155,10 @@ export function wireDevBundlePublisher(deps: {
    * for beyond its own [spec:SP-6144 section 8b]. Absent mints only this host's.
    */
   readonly fleetPlatforms?: () => readonly string[]
+  /** Product version currently running on the fleet this proposal would update. */
+  readonly proposalBaselineVersion?: (
+    headSha: string,
+  ) => string | undefined | Promise<string | undefined>
   readonly artifactToken: string
   readonly signingKey: string
   readonly setTarget: (target: UpdateTarget) => void
@@ -286,6 +290,7 @@ export function wireDevBundlePublisher(deps: {
         // server is running must be covered by the next build, and this server runs for
         // days at a time.
         fleetPlatforms: deps.fleetPlatforms,
+        proposalBaselineVersion: deps.proposalBaselineVersion,
       })
     : undefined
 
