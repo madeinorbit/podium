@@ -566,7 +566,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       if (attachments.uploading) return
       lastSubmittedPromptRef.current = text || null
       setDraft('')
-      attachments.clear()
+      attachments.clearReady()
       void send.send(
         legacyPaths.length > 0 ? [legacyPaths.join('\n'), text].filter(Boolean).join('\n') : text,
         tags.length > 0 ? tags : undefined,

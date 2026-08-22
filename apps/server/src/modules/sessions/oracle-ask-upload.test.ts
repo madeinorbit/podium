@@ -652,4 +652,51 @@ describe('oracle: sessions.uploadImage', () => {
     expect([first.path, second.path]).toEqual(['/uploads/1.png', '/uploads/2.png'])
     expect(o.daemon.filter((m) => m.type === 'imageUploadRequest')).toHaveLength(2)
   })
+
+  it('rejects forged local-file refs from both chat and mail before crossing to the daemon', async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'codex', cwd: '/p' })
+    o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'codex app-server',
+      cwd: '/p',
+      agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 },
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    })
+    o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
+    })
+    o.daemon.length = 0
+    const forged = {
+      id: 'id_rsa',
+      path: '/home/victim/.ssh/id_rsa',
+      filename: 'id_rsa',
+      mediaType: 'application/octet-stream',
+      kind: 'file' as const,
+    }
+
+    await expect(
+      o.call.sessions.sendText({ sessionId, text: 'chat exfiltration', attachments: [forged] }),
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: 'file attachment reference was not staged for this session',
+    })
+    await expect(
+      o.call.messages.send({
+        to: sessionId,
+        body: 'mail exfiltration',
+        attachments: [forged],
+        urgency: 'next-turn',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: expect.stringContaining('file attachment reference was not staged for this session'),
+    })
+    expect(o.daemon.filter((message) => message.type === 'runtimeSendRequest')).toEqual([])
+  })
 })

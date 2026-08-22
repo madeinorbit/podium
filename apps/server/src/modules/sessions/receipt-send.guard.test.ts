@@ -203,7 +203,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
   it('forwards staged refs on a live send and refuses to drop them into the durable queue', async () => {
     const attachment = {
       id: 'att-1',
-      path: '/staged/shot.png',
+      path: '/state/uploads/s1/att-1.png',
       filename: 'shot.png',
       mediaType: 'image/png',
       kind: 'image' as const,
@@ -231,6 +231,61 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     expect(queued.enqueued).toEqual([])
     expect(receipts).toEqual(['unsupported'])
     await Promise.resolve()
+  })
+
+  it('refuses a staged ref on the off-contract arm instead of dropping it into legacy text', () => {
+    const attachment = {
+      id: 'att-1',
+      path: '/state/uploads/s1/att-1.png',
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    const receipts: string[] = []
+    const offContract = sender(false)
+
+    expect(
+      offContract.s.send(
+        'now',
+        { sessionId: asSessionId('s1'), text: 'describe it', attachments: [attachment] },
+        (receipt) =>
+          receipts.push(receipt.outcome === 'refused' ? receipt.refusal.reason : receipt.outcome),
+      ),
+    ).toEqual({ ok: false, reason: 'this agent cannot accept file attachments' })
+    expect(offContract.forwarded).toEqual([])
+    expect(offContract.enqueued).toEqual([])
+    expect(receipts).toEqual(['unsupported'])
+  })
+
+  it('rejects a forged filesystem ref before it reaches either send implementation', () => {
+    const receipts: string[] = []
+    const live = sender(true)
+    expect(
+      live.s.send(
+        'now',
+        {
+          sessionId: asSessionId('s1'),
+          text: 'exfiltrate this',
+          attachments: [
+            {
+              id: 'id_rsa',
+              path: '/home/victim/.ssh/id_rsa',
+              filename: 'id_rsa',
+              mediaType: 'application/octet-stream',
+              kind: 'file',
+            },
+          ],
+        },
+        (receipt) =>
+          receipts.push(receipt.outcome === 'refused' ? receipt.refusal.reason : receipt.outcome),
+      ),
+    ).toEqual({
+      ok: false,
+      reason: 'file attachment reference was not staged for this session',
+    })
+    expect(live.forwarded).toEqual([])
+    expect(live.enqueued).toEqual([])
+    expect(receipts).toEqual(['staging_failed'])
   })
 
   it('carries the idempotency key and the ledger id into the durable row', () => {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { realpathSync, statSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import type { AttachmentRef, AttachmentStager } from '@podium/agent-runtime'
 import { stateDir } from '@podium/runtime/config'
 import { uploadFilePath } from '../upload.js'
@@ -27,6 +28,32 @@ export async function writeRuntimeAttachment(
     kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
   }
   return ref
+}
+
+/** The send-time authority check: the ref must resolve to a regular file directly
+ * inside this session's real staging directory. Resolving both sides rejects
+ * traversal, cross-session refs, nonexistent files, and symlink escapes. */
+export function runtimeAttachmentBelongsToSession(
+  root: string,
+  sessionId: string,
+  attachment: AttachmentRef,
+): boolean {
+  try {
+    const stagedDir = realpathSync(join(root, 'uploads', sessionId))
+    const actual = realpathSync(attachment.path)
+    const fromStagedDir = relative(stagedDir, actual)
+    return (
+      fromStagedDir !== '' &&
+      fromStagedDir !== '..' &&
+      !fromStagedDir.startsWith(`..${sep}`) &&
+      !isAbsolute(fromStagedDir) &&
+      dirname(fromStagedDir) === '.' &&
+      basename(actual).startsWith(`${attachment.id}.`) &&
+      statSync(actual).isFile()
+    )
+  } catch {
+    return false
+  }
 }
 
 export const stageRuntimeAttachment: AttachmentStager = (input) =>

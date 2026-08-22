@@ -58,6 +58,9 @@ export interface UseAttachmentsResult {
   processFiles: (files: File[]) => Promise<void>
   remove: (id: string) => void
   clear: () => void
+  /** Spend only files that were ready for this submit. Failed chips remain so
+   * the user can see and remove or retry the refusal instead of losing it. */
+  clearReady: () => void
   /** True while any chip is still uploading — the send button waits for it. */
   uploading: boolean
   /** Legacy paths still prefix cold-start prose; staged refs travel out-of-band. */
@@ -221,6 +224,10 @@ export function useAttachments(opts: {
       [],
     ),
     clear: useCallback(() => setAttachments([]), []),
+    clearReady: useCallback(
+      () => setAttachments((prev) => prev.filter((attachment) => attachment.state === 'failed')),
+      [],
+    ),
     uploading: attachments.some((a) => a.state === 'uploading'),
     ready,
     dropHandlers: {

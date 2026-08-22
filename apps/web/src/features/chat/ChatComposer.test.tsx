@@ -35,6 +35,7 @@ const noopAttachments: UseAttachmentsResult = {
   processFiles: async () => {},
   remove: () => {},
   clear: () => {},
+  clearReady: () => {},
   uploading: false,
   ready: () => ({ paths: [], legacyPaths: [], refs: [], tags: [] }),
   dropHandlers: { onDragOver: () => {}, onDragLeave: () => {}, onDrop: () => {} },

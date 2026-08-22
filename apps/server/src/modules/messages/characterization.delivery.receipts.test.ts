@@ -246,3 +246,48 @@ describe('flag-on delivery: a legacy-driven session is untouched (R4)', () => {
     expect(receipts(h)).toEqual([])
   })
 })
+
+describe('flag-on delivery: attachment refusals notify the sender (R5)', () => {
+  it('dead-letters the attachment mail and sends its typed refusal back once', () => {
+    const target = asSessionId('sAttachmentTarget')
+    const sender = asSessionId('sAttachmentSender')
+    const h = mailHarness({
+      receipts: {
+        onContract: [target],
+        answer: () => ({
+          outcome: 'refused',
+          refusal: {
+            reason: 'unsupported',
+            detail: 'this agent cannot accept file attachments',
+          },
+        }),
+      },
+    })
+    const targetIssue = h.createIssue({ title: 'target' })
+    const senderIssue = h.createIssue({ title: 'sender' })
+    h.put({ sessionId: target, issueId: targetIssue.id, phase: 'idle' })
+    h.put({ sessionId: sender, issueId: senderIssue.id, phase: 'idle' })
+
+    const sent = h.svc.send(
+      { kind: 'agent', issueId: senderIssue.id, sessionId: sender },
+      {
+        to: { kind: 'session', id: target },
+        body: 'inspect the file',
+        attachments: [
+          {
+            id: 'att-1',
+            path: `/state/uploads/${target}/att-1.png`,
+            filename: 'shot.png',
+            mediaType: 'image/png',
+            kind: 'image',
+          },
+        ],
+      },
+    )
+
+    expect(h.svc.message(sent.message.id)).toMatchObject({ status: 'dead_letter' })
+    expect(h.pushes.filter((push) => push.sessionId === sender).map((push) => push.text)).toEqual([
+      expect.stringContaining('this agent cannot accept file attachments'),
+    ])
+  })
+})

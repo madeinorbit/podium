@@ -872,8 +872,9 @@ describe('ChatView composer', () => {
     })
     await act(async () => {
       input.dispatchEvent(new Event('change', { bubbles: true }))
-      await vi.waitFor(() => expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1))
     })
+    await vi.waitFor(() => expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1))
+    await act(async () => Promise.resolve())
     await act(async () => {
       textarea.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
@@ -888,6 +889,69 @@ describe('ChatView composer', () => {
         attachments: [attachment],
       }),
     )
+  })
+
+  it('shows the exact send refusal and preserves failed attachment chips', async () => {
+    const attachment = {
+      id: 'att-1',
+      path: '/state/uploads/s1/att-1.png',
+      filename: 'ready.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    fakeTrpc.sessions.uploadImage.mutate
+      .mockResolvedValueOnce({ path: attachment.path, attachment } as never)
+      .mockResolvedValueOnce({
+        refusal: { reason: 'unsupported', detail: 'This agent refused failed.png' },
+      } as never)
+    fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
+      ok: false,
+      disposition: 'dead_letter',
+      reason: 'driver rejected staged file',
+    } as never)
+    storeDrafts = { s1: 'send what is ready' }
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    const input = container.querySelector<HTMLInputElement>('input[type=file]')
+    const textarea = container.querySelector('textarea')
+    expect(input).not.toBeNull()
+    expect(textarea).not.toBeNull()
+    if (!input || !textarea) return
+
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [new File(['ready'], 'ready.png', { type: 'image/png' })],
+    })
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await vi.waitFor(() => expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1))
+    })
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [new File(['failed'], 'failed.png', { type: 'image/png' })],
+    })
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await vi.waitFor(() => expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(2))
+    await act(async () => Promise.resolve())
+    expect(container.textContent).toContain('This agent refused failed.png')
+
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+    })
+    await vi.waitFor(() => expect(container.textContent).toContain('driver rejected staged file'))
+
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [attachment] }),
+    )
+    const strip = container.querySelector('[data-testid="attachment-strip"]')
+    expect(strip?.textContent).toContain('failed.png')
+    expect(strip?.textContent).toContain('This agent refused failed.png')
+    expect(strip?.textContent).not.toContain('ready.png')
   })
 
   it('does not submit Enter when the browser only reports IME keyCode 229', async () => {

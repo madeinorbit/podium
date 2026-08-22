@@ -24,6 +24,8 @@ import type { SessionId } from '@podium/model'
 import type {
   RuntimeSnapshotResultMessage,
 } from '@podium/protocol/daemon'
+import { stateDir } from '@podium/runtime/config'
+import { runtimeAttachmentBelongsToSession } from './attachment-staging'
 import type { ControlHandlers, DaemonContext } from '../control/context'
 
 /**
@@ -150,6 +152,25 @@ export const runtimeHandlers: Pick<
         receipt: {
           outcome: 'refused',
           refusal: { reason: 'not_running', detail: 'session is not behind the runtime contract' },
+        },
+      })
+      return
+    }
+    const invalidAttachment = msg.attachments?.find(
+      (attachment) =>
+        !runtimeAttachmentBelongsToSession(stateDir(), msg.sessionId, attachment),
+    )
+    if (invalidAttachment) {
+      ctx.send({
+        type: 'runtimeSendResult',
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        receipt: {
+          outcome: 'refused',
+          refusal: {
+            reason: 'staging_failed',
+            detail: 'file attachment reference was not staged for this session',
+          },
         },
       })
       return

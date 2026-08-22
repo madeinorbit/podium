@@ -55,6 +55,7 @@
  * driver-side queue would drain unauthorized. Nothing here forwards one.
  */
 
+import { basename, dirname, isAbsolute, normalize } from 'node:path'
 import type { MutationId, SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import type { RuntimeAttachmentRef, TurnDelivery, TurnReceipt } from '@podium/protocol/daemon'
@@ -168,6 +169,22 @@ export interface ReceiptSenderPorts {
  *  a reconciler that batched several sends can tell them apart. */
 export type ReceiptReconciler = (receipt: TurnReceipt, via: ReceiptSendVia) => void
 
+/** A ref is usable only by the session whose daemon staging directory minted it.
+ * The daemon repeats this check against the real filesystem; this structural
+ * guard stops forged local paths before they cross the machine boundary. */
+function attachmentMatchesSession(
+  sessionId: SessionId,
+  attachment: RuntimeAttachmentRef,
+): boolean {
+  if (!isAbsolute(attachment.path) || normalize(attachment.path) !== attachment.path) return false
+  const sessionDir = dirname(attachment.path)
+  return (
+    basename(sessionDir) === sessionId &&
+    basename(dirname(sessionDir)) === 'uploads' &&
+    basename(attachment.path).startsWith(`${attachment.id}.`)
+  )
+}
+
 export class ReceiptSender {
   constructor(private readonly ports: ReceiptSenderPorts) {}
 
@@ -197,9 +214,26 @@ export class ReceiptSender {
     if (archiveReason) return { ok: false, reason: archiveReason }
     const failureReason = this.ports.failureReason?.(input.sessionId)
     if (failureReason && !input.allowErrored) return { ok: false, reason: failureReason }
+
+    const invalidAttachment = input.attachments?.find(
+      (attachment) => !attachmentMatchesSession(input.sessionId, attachment),
+    )
+    if (invalidAttachment) {
+      return this.refuseAttachments(
+        via,
+        'staging_failed',
+        'file attachment reference was not staged for this session',
+        onReceipt,
+      )
+    }
     if (!this.ports.onContract(input.sessionId)) {
       if (input.attachments?.length) {
-        return this.refuseAttachments(via, 'this agent cannot accept file attachments', onReceipt)
+        return this.refuseAttachments(
+          via,
+          'unsupported',
+          'this agent cannot accept file attachments',
+          onReceipt,
+        )
       }
       return this.legacy(via, input)
     }
@@ -238,6 +272,7 @@ export class ReceiptSender {
       if (input.attachments?.length) {
         return this.refuseAttachments(
           via,
+          'unsupported',
           'files cannot wait behind another turn; try again when pending messages have delivered',
           onReceipt,
         )
@@ -297,10 +332,11 @@ export class ReceiptSender {
 
   private refuseAttachments(
     via: ReceiptSendVia,
+    reason: 'unsupported' | 'staging_failed',
     detail: string,
     onReceipt?: ReceiptReconciler,
   ): ReceiptSendResult {
-    onReceipt?.({ outcome: 'refused', refusal: { reason: 'unsupported', detail } }, via)
+    onReceipt?.({ outcome: 'refused', refusal: { reason, detail } }, via)
     return { ok: false, reason: detail }
   }
 
