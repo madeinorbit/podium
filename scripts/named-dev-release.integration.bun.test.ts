@@ -170,6 +170,9 @@ describe('named-instance development releases', () => {
     const publishedUrl = new URL(persistedArtifactUrl)
     const artifactPath = publishedUrl.pathname + publishedUrl.search
     const publishedToken = publishedUrl.searchParams.get('token')
+    // Fail loudly rather than compare against null: a manifest URL carrying no
+    // token at all would otherwise slip through as a vacuous equality check.
+    if (!publishedToken) throw new Error('published artifact URL carried no token')
     const restartedToken = readOrCreateDevArtifactToken(state)
     expect(restartedToken).toBe(publishedToken)
 
