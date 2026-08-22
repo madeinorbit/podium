@@ -326,31 +326,55 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   // grid has already recovered the canvas, while an unchanged one has not. The DomViewportSource
   // ResizeObserver is the longer-term backstop, so giving up after ~1s is safe.
   const MAX_REVEAL_FIT_RETRIES = 60
+  // A foregrounded document can report a non-zero, otherwise plausible grid
+  // before xterm's renderer has caught up with the canvas becoming visible.
+  // Sampling through two more frames lets the browser commit that layout before
+  // we resize the PTY. This is deliberately short: it prevents the first stale
+  // fit from becoming daemon geometry without making a reveal feel delayed.
+  const REVEAL_LAYOUT_SETTLE_FRAMES = 2
+  let revealGeneration = 0
   function whenMeasurable(onMeasured: (grid: Grid, gridChanged: boolean) => void): void {
+    const generation = ++revealGeneration
+    let measurableFrames = 0
     const tryFit = (attempt: number): void => {
-      if (!eligible()) {
+      if (generation !== revealGeneration || !eligible()) {
         trace('reveal:cancelled', { attempt })
         return // hidden again before layout settled
       }
-      const before = { cols: view.cols(), rows: view.rows() }
-      const grid = view.fit()
-      if (grid) {
-        const gridChanged = grid.cols !== before.cols || grid.rows !== before.rows
-        trace('reveal:measured', { attempt, before, grid, gridChanged })
-        onMeasured(grid, gridChanged)
+      // FitAddon can return a valid grid from the previous renderer metrics while
+      // a tab is being foregrounded. Probe without changing xterm's local grid,
+      // then require consecutive visible frames before committing the fit.
+      const proposed = view.proposeFit()
+      if (proposed) {
+        measurableFrames += 1
+        if (measurableFrames > REVEAL_LAYOUT_SETTLE_FRAMES) {
+          const before = { cols: view.cols(), rows: view.rows() }
+          const grid = view.fit()
+          if (grid) {
+            const gridChanged = grid.cols !== before.cols || grid.rows !== before.rows
+            trace('reveal:measured', { attempt, before, grid, gridChanged })
+            onMeasured(grid, gridChanged)
+            return
+          }
+          // The probe and the actual fit should agree, but keep the reveal
+          // retryable if a renderer changes between those two calls.
+          measurableFrames = 0
+        }
+      } else {
+        measurableFrames = 0
+      }
+      if (attempt < MAX_REVEAL_FIT_RETRIES) {
+        requestAnimationFrame(() => tryFit(attempt + 1))
         return
       }
-      if (attempt < MAX_REVEAL_FIT_RETRIES) requestAnimationFrame(() => tryFit(attempt + 1))
-      else {
-        trace('anomaly:reveal-fit-retries-exhausted', { attempts: attempt + 1 })
-      }
+      trace('anomaly:reveal-fit-retries-exhausted', { attempts: attempt + 1 })
     }
     tryFit(0)
   }
 
   // A true REVEAL — the panel was hidden with display:none (a tab switch) or the page was
   // backgrounded, either of which frees the WebGL canvas's backing store so it comes back blank.
-  // Re-claim control, then once the container is laid out, fit it:
+  // Once the container is laid out, fit it and atomically re-claim control:
   //   - If the fit CHANGES the grid, xterm's resize has already recomputed geometry, cleared the
   //     renderer model and repainted in full — the same path a browser-window resize takes, which
   //     is exactly what recovers a freed canvas. Nothing more to do (and we inform the server when
@@ -358,8 +382,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   //   - If the grid is UNCHANGED, a same-size resize is a no-op that won't repaint the freed
   //     canvas, so clear the live renderer's atlas/model and repaint it in place. Swapping the
   //     renderer would stale xterm's wheel-scroll dimensions and churn limited WebGL contexts.
-  // Sizing waits for real layout (no fixed-frame guess), so the recompute can't run against a
-  // still-hidden/zero-size canvas; whenMeasurable re-checks eligibility each frame.
+  // Sizing waits for real layout plus a short post-layout settle, so the recompute can't run
+  // against a still-hidden/zero-size canvas; whenMeasurable re-checks eligibility each frame.
   function reveal(): void {
     if (!eligible()) {
       trace('reveal:skipped')
@@ -376,13 +400,18 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       view.repaintRecover()
       return
     }
-    if (gridMode === 'control') connection.requestControl() // last-foregrounded-wins
     whenMeasurable((grid, gridChanged) => {
       if (!eligible()) {
         trace('reveal:cancelled', { phase: 'measured-callback' })
         return
       }
-      if (grid.cols !== serverGrid.cols || grid.rows !== serverGrid.rows) {
+      if (gridMode === 'control') {
+        // Carry the measured grid on the claim. The server records it before
+        // applying the request, so a viewState/resize ordering race cannot
+        // leave the daemon at the stale pre-tab geometry.
+        trace('reveal:control-claim', { grid, gridChanged })
+        connection.requestControl({ cols: grid.cols, rows: grid.rows })
+      } else if (grid.cols !== serverGrid.cols || grid.rows !== serverGrid.rows) {
         trace('reveal:resize-send', { grid, gridChanged })
         connection.sendResize(grid.cols, grid.rows)
       }
@@ -609,13 +638,23 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     }, VIEWPORT_FIT_DEBOUNCE_MS)
   })
 
-  const onVisibility = (): void => {
-    trace('page:visibility-change')
+  const onPageResume = (source: 'visibility-change' | 'focus' | 'pageshow'): void => {
+    trace(`page:${source}`)
     syncRendererLease()
     if (eligible()) reveal() // page returning to the foreground is a reveal (canvas was freed)
   }
+  const onVisibility = (): void => onPageResume('visibility-change')
+  const onWindowFocus = (): void => onPageResume('focus')
+  const onPageShow = (): void => onPageResume('pageshow')
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', onVisibility)
+  }
+  if (typeof window !== 'undefined') {
+    // Some Chromium/PWA paths restore focus without delivering a useful
+    // visibility transition to the app. These events are cheap, and reveal's
+    // generation guard coalesces duplicate callbacks from one tab return.
+    window.addEventListener('focus', onWindowFocus)
+    window.addEventListener('pageshow', onPageShow)
   }
 
   if (opts.focusOnMount !== false) view.focus()
@@ -726,11 +765,16 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       trace('dispose')
       if (readyTimer !== undefined) clearTimeout(readyTimer)
       if (viewportFitTimer !== undefined) clearTimeout(viewportFitTimer)
+      revealGeneration += 1
       releaseRendererLease?.()
       releaseRendererLease = null
       cancelScheduledFit()
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', onVisibility)
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', onWindowFocus)
+        window.removeEventListener('pageshow', onPageShow)
       }
       offInput()
       offEchoRender()
