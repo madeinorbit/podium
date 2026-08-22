@@ -72,7 +72,7 @@ export async function reportInventory(
     // forced rebuilds into one follow-up wave: dropping the request would leave a
     // newly installed credential invisible until the next periodic refresh.
     const active = inventoryInFlight.get(key)
-    if (opts.rebuild && active) {
+    if ((opts.rebuild || opts.reprobe) && active) {
       let queued = inventoryRebuildQueued.get(key)
       if (!queued) {
         queued = (async () => {
@@ -92,7 +92,7 @@ export async function reportInventory(
       }
       return await queued
     }
-    pending = opts.rebuild ? undefined : inventoryCache.get(key)
+    pending = opts.rebuild || opts.reprobe ? undefined : inventoryCache.get(key)
     if (!pending) {
       if (!ctx.agentRuntime) throw new Error('machine runtime is not composed')
       pending = ctx.agentRuntime.inventory().then((inventory) => ({

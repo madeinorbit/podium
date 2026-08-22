@@ -191,6 +191,20 @@ describe('AgentPanel panel-mode persistence', () => {
     await render({ active: true })
     expect(stableStoreFns.setPanelMode).not.toHaveBeenCalled()
   })
+
+  it('temporarily routes a logged-out session to native without overwriting chat preference', async () => {
+    storePanelMode = { s1: 'chat' }
+    storeSessions = [meta({ condition: 'logged-out' })]
+    await render({ active: true })
+
+    expect(container.querySelector('[data-testid="terminal-surface"]')).toBeTruthy()
+    expect(container.querySelector('[data-testid="terminal-surface"]')?.className).not.toContain(
+      'hidden',
+    )
+    expect(container.querySelector('[data-testid="mode-chat"]')).toBeNull()
+    expect(stableStoreFns.setPanelMode).not.toHaveBeenCalled()
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("isn't logged in")
+  })
 })
 
 describe('AgentPanel PTY sizing is gated on the visibility foundation', () => {

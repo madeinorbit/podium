@@ -247,7 +247,7 @@ export const claudeCodeManifest: AgentManifest = {
     {
       source: 'classifier',
       confidence: 0.3,
-      mechanism: 'Claude transcript rules classify an otherwise untyped Stop verdict',
+      mechanism: 'Claude transcript and terminal-screen rules classify otherwise untyped state',
       fallbackWhen: 'the hook has no structured needs-human verdict',
     },
   ],

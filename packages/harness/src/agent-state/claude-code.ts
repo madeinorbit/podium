@@ -14,6 +14,7 @@ import type {
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
 import { locateClaudeSessionFile } from './claude-locate.js'
+import { classifyClaudeScreen } from './claude-screen.js'
 import { type DeterministicAgentState, deterministicStateToEvents } from './deterministic.js'
 import { carryAcrossRebuild, reduceAgentState } from './reducer.js'
 import type { TranscriptClassifier } from './transcript-classifier.js'
@@ -104,6 +105,7 @@ export const claudeCodeStateProvider: AgentStateProvider = {
     }
   },
   translate: async (payload) => withStateChannel(await translateClaudeHookPayload(payload), 'hook'),
+  screen: classifyClaudeScreen,
   bootEvents: async (opts) => withStateChannel(await claudeBootEvents(opts), 'classifier'),
 }
 

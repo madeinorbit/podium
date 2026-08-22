@@ -278,6 +278,10 @@ export async function createDaemonHostRuntime(args: {
       }),
   })
   const gates = createReattachGates()
+  // A native Claude login emits a terminal success line before its credential
+  // store is necessarily observable by any portable file detector. Keep the
+  // observer callback cheap and install the inventory reprobe once `ctx` exists.
+  let requestAuthRefresh: (sessionId: SessionId) => void = () => {}
   const observers = createSessionObservers({
     sessionBinding,
     send,
@@ -285,6 +289,7 @@ export async function createDaemonHostRuntime(args: {
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
     cwdTracker: sessionCwdTracker,
     onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),
+    onAuthSignal: (sessionId) => requestAuthRefresh(sessionId),
     onExactCodexBinding: async (sessionId, nativeId) => {
       await sessionBinding.transition({
         event: 'hook-repin',
@@ -757,6 +762,13 @@ export async function createDaemonHostRuntime(args: {
   // binds a session may move above this line — see that comment.
   context = ctx
 
+  let pendingAuthReprobe: Promise<void> | undefined
+  requestAuthRefresh = (_sessionId) => {
+    if (pendingAuthReprobe) return
+    pendingAuthReprobe = reportInventory(ctx, { reprobe: true }).finally(() => {
+      pendingAuthReprobe = undefined
+    })
+  }
   const frameGuard = createFrameGuard(ctx)
 
   const metricsBackground = opts.metrics?.background ?? true

@@ -407,9 +407,13 @@ export function wireBridge(
   ctx.durableLabels.set(sessionId, durableLabel)
   const pending = ctx.pendingResizes.get(sessionId)
   ctx.pendingResizes.delete(sessionId)
-  if (pending) session.resize(pending.cols, pending.rows)
+  if (pending) {
+    session.resize(pending.cols, pending.rows)
+    ctx.observers.onResize?.(sessionId, pending.cols, pending.rows)
+  }
   session.onFrame((frame) => {
     countFrame(frame.data.length)
+    ctx.observers.onFrame?.(sessionId, frame.data)
     ctx.outputScheduler.enqueue(sessionId, frame.data)
     // Draft Sync v2 (POD-859): feed the composer engine the raw PTY bytes when it's
     // running for this (flagged) session. Guarded so unflagged sessions skip the
@@ -604,13 +608,14 @@ export async function launchSpawn(
           : spawnAgent(spawnOpts)
     const geometry = wireBridge(ctx, msg.sessionId, session, msg.agentKind, label, msg.geometry)
     // Stand up the agent-state tracker, harness observer, resume transcript tail
-    // and seeded phase. A fresh spawn's CLI isn't up yet, so seed on the first
-    // frame. Same call on reattach keeps the two paths from drifting.
+    // and seeded phase. The frame tap buffers the bounded gap between bridge
+    // wiring and this setup so screen-derived state still sees the first screen.
     ctx.observers.initSessionObservers(msg, session, provider, {
       seedOnFrame: true,
       startedAtMs: spawnStartedAt,
       ...(newSessionId ? { newSessionId } : {}),
     })
+    ctx.observers.onResize?.(msg.sessionId, geometry.cols, geometry.rows)
     await bindRuntimeContract(ctx, msg, false)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
@@ -1501,6 +1506,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     ctx.observers.initSessionObservers(msg, found.session, agentStateProviderFor(msg.agentKind), {
       seedOnFrame: false,
     })
+    ctx.observers.onResize?.(msg.sessionId, geometry.cols, geometry.rows)
     await bindRuntimeContract(ctx, msg, true)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     if (msg.draftSync) {
@@ -1732,6 +1738,7 @@ export const sessionHandlers: Pick<
     if (bridge) bridge.resize(msg.cols, msg.rows)
     else if (!ctx.clientTerminals?.resize(msg.sessionId, msg.cols, msg.rows))
       ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
+    ctx.observers.onResize?.(msg.sessionId, msg.cols, msg.rows)
     ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
   },
   draftTarget: (ctx, msg) => {

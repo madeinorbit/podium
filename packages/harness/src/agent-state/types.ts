@@ -114,6 +114,20 @@ export interface AgentInstrumentation {
   file?: { path: string; contents: string }
 }
 
+/**
+ * A provider's interpretation of the visible native terminal. The daemon owns
+ * the VT buffer and calls this only after a PTY frame changes it; providers own
+ * the copy-sensitive recognition rules. `interactionVisible` lets the daemon
+ * close a previously reported wait when the prompt has disappeared without
+ * inventing a second state channel. `auth` is a provider-owned success signal,
+ * not credential material.
+ */
+export interface AgentScreenObservation {
+  events: ProviderAgentStateEvent[]
+  interactionVisible?: boolean
+  auth?: 'logged-in'
+}
+
 export interface AgentStateProvider {
   /** Spawn-time injection wiring the harness event bus to the endpoint URL.
    * seedTheme uses official CLI flags for issue-tinted terminal colours;
@@ -128,6 +142,12 @@ export interface AgentStateProvider {
   /** Translate one harness-native payload into zero or more normalized events.
    *  Async because some translations read the transcript (idle classification). */
   translate(payload: unknown): Promise<ProviderAgentStateEvent[]>
+  /**
+   * Classify one rendered terminal screen. This is event-driven: the daemon
+   * invokes it after changed PTY output, never on a timer. A provider may omit
+   * it when its state is fully represented by hooks or another observer.
+   */
+  screen?(lines: readonly string[]): AgentScreenObservation
   /**
    * Events to seed state at spawn, once the CLI is up. Needed because some
    * harnesses emit nothing at interactive boot (Claude Code fires no SessionStart

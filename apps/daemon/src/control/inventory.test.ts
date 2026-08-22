@@ -94,6 +94,13 @@ describe('daemon inventory reporting (#222)', () => {
     await vi.waitFor(() => expect(buildInventory).toHaveBeenCalledTimes(2))
   })
 
+  it('an explicit reprobe refreshes the cached fallback inventory', async () => {
+    const { ctx } = makeCtx()
+    await reportInventory(ctx)
+    await reportInventory(ctx, { reprobe: true })
+    expect(buildInventory).toHaveBeenCalledTimes(2)
+  })
+
   it('periodically rebuilds inventory and stops cleanly', async () => {
     vi.useFakeTimers()
     try {

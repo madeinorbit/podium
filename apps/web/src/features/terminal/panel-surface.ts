@@ -188,6 +188,8 @@ export function panelGates(
      * that opens says it has no terminal instead of spinning.
      */
     readonly switchAlreadyOffered: boolean
+    /** Login repair is only actionable in the native terminal. */
+    readonly loginRequired?: boolean
   },
 ): PanelGates {
   const live = surface.kind === 'live'
@@ -218,7 +220,11 @@ export function panelGates(
     // where the terminal cannot exist; but a session that HAS offered it keeps
     // it, because withdrawing a control mid-session is a worse lie than an
     // occasionally useless one.
-    modeSwitchOffered: live && input.chatCapable && (input.terminalCapable || input.switchAlreadyOffered),
+    modeSwitchOffered:
+      live &&
+      input.chatCapable &&
+      !input.loginRequired &&
+      (input.terminalCapable || input.switchAlreadyOffered),
     takeControlOffered: native,
     offerDockOffered: native,
   }

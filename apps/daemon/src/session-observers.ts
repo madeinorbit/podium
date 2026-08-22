@@ -4,6 +4,7 @@ import {
   type AgentStateEvent,
   type AgentStateProvider,
   ClaudeCausalObserver,
+  agentStateProviderFor,
   captureClaudeTranscript,
   carryAcrossRebuild,
   claudePromptHookFingerprint,
@@ -40,6 +41,10 @@ import { countTail, timeTask } from './loop-attribution'
 import type { SessionBinding } from './session-binding'
 import type { SessionCwdTracker } from './worktree-resolve'
 import { createLogger } from '@podium/logger'
+import {
+  createTerminalScreenObserver,
+  type TerminalScreenObserver,
+} from './terminal-screen-observer'
 
 const log = createLogger('daemon:session')
 
@@ -87,6 +92,8 @@ export interface SessionObserversDeps {
   /** Draft Sync v2 (POD-859): agent-idle transitions, so the composer engine only
    *  scrapes/injects while the composer is the live input. Omitted (tests) = no-op. */
   onIdleState?: (sessionId: SessionId, idle: boolean) => void
+  /** A provider saw an explicit login-success line in its native terminal. */
+  onAuthSignal?: (sessionId: SessionId) => void
 }
 
 /** The reattach message's recorded-path evidence; spawns don't carry one. */
@@ -107,6 +114,7 @@ export const IDLE_TRANSITION_DEBOUNCE_MS = 1000
 
 export const CAUSAL_DELIVERY_RETRY_BASE_MS = 250
 export const CAUSAL_DELIVERY_RETRY_MAX_MS = 4_000
+const MAX_EARLY_SCREEN_BYTES = 256 * 1024
 
 /**
  * All per-session observation state the daemon holds: agent-state trackers
@@ -127,6 +135,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   // observer lifecycle only adds/removes callbacks. [spec:SP-c29e]
   const statTick = deps.statTick ?? createSharedStatTick()
   const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
+  const screenObservers = new Map<SessionId, TerminalScreenObserver>()
+  const earlyScreenFrames = new Map<SessionId, { frames: string[]; bytes: number }>()
   // Per-session pending →idle wire emissions. Cancelled on non-idle transition
   // or session teardown so timers never leak across sessions.
   const pendingIdleEmits = new Map<SessionId, ReturnType<typeof setTimeout>>()
@@ -1257,9 +1267,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
   }
 
-  // (Re)build the per-session observers a fresh daemon must stand up right after
-  // wiring the PTY bridge: the agent-state tracker, the adapter's observation
-  // (harness state observer and/or resume transcript tail), and a seeded phase.
+  // (Re)build the per-session observers a fresh daemon must stand up after
+  // wiring the PTY bridge: the agent-state tracker, the terminal screen mirror,
+  // the adapter's observation (harness state observer and/or resume transcript
+  // tail), and a seeded phase. The frame tap replays its bounded pre-init buffer
+  // into the screen mirror before the adapter begins observing.
   // Spawn AND reattach both call this so the two paths can't silently diverge —
   // that drift left idle survivors shown 'working' with an empty chat after a
   // redeploy. 'shell' (and unknown kinds) have no adapter → no observation.
@@ -1287,16 +1299,37 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // no delivery timer, pending effect, or provider callback may survive it.
     cancelPendingRebind(msg.sessionId)
     cancelSessionObservationDeliveries(msg.sessionId)
+    screenObservers.get(msg.sessionId)?.dispose()
+    screenObservers.delete(msg.sessionId)
     pendingBindingHooks.delete(msg.sessionId)
     claudeStarting.delete(msg.sessionId)
     claudeCausal.get(msg.sessionId)?.stopConfirmationPoll?.()
     claudeCausal.delete(msg.sessionId)
     causalLeases.delete(msg.sessionId)
+    const earlyFrames = earlyScreenFrames.get(msg.sessionId)
+    earlyScreenFrames.delete(msg.sessionId)
+    const screenProvider =
+      provider ??
+      ('loginHarness' in msg && msg.loginHarness
+        ? agentStateProviderFor(msg.loginHarness)
+        : undefined)
     if (provider) {
       trackers.set(msg.sessionId, {
         provider,
         state: initialAgentState(new Date().toISOString()),
       })
+    }
+    if (screenProvider) {
+      const screenObserver = createTerminalScreenObserver(screenProvider, msg.geometry, {
+        onStateEvents: (events) => applyAgentStateEvents(msg.sessionId, events),
+        onLoginSignal: () => deps.onAuthSignal?.(msg.sessionId),
+      })
+      if (screenObserver) {
+        screenObservers.set(msg.sessionId, screenObserver)
+        for (const frame of earlyFrames?.frames ?? []) {
+          screenObserver.onData(Buffer.from(frame, 'base64'))
+        }
+      }
     }
     const adapter = adapterForKind(msg.agentKind)
     const observationProvider = ObservationProvider.safeParse(adapter?.kind)
@@ -1564,6 +1597,28 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       .catch((err) => log.warn('hook translate failed', { err, sessionId }))
   }
 
+  /** Feed raw PTY output to the provider's event-driven screen mirror. */
+  const onFrame = (sessionId: SessionId, dataBase64: string): void => {
+    const observer = screenObservers.get(sessionId)
+    if (observer) {
+      observer.onData(Buffer.from(dataBase64, 'base64'))
+      return
+    }
+    const pending = earlyScreenFrames.get(sessionId) ?? { frames: [], bytes: 0 }
+    pending.frames.push(dataBase64)
+    pending.bytes += dataBase64.length
+    while (pending.bytes > MAX_EARLY_SCREEN_BYTES && pending.frames.length > 1) {
+      const discarded = pending.frames.shift()
+      pending.bytes -= discarded?.length ?? 0
+    }
+    earlyScreenFrames.set(sessionId, pending)
+  }
+
+  /** Keep the provider's VT geometry aligned with the real PTY. */
+  const onResize = (sessionId: SessionId, cols: number, rows: number): void => {
+    screenObservers.get(sessionId)?.onResize(cols, rows)
+  }
+
   /** Current tracked agent state, if the session has a live tracker. */
   const trackedState = (sessionId: SessionId): AgentRuntimeState | undefined =>
     trackers.get(sessionId)?.state
@@ -1573,6 +1628,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     cancelPendingIdleEmit(sessionId)
     gitCapture.clearSession(sessionId)
     trackers.delete(sessionId)
+    screenObservers.get(sessionId)?.dispose()
+    screenObservers.delete(sessionId)
+    earlyScreenFrames.delete(sessionId)
     stopObservation(sessionId)
     causalLeases.delete(sessionId)
     cancelPendingRebind(sessionId)
@@ -1599,6 +1657,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       cancelObservationDelivery(pending.observation)
     }
     for (const id of [...observations.keys()]) stopObservation(id)
+    for (const observer of screenObservers.values()) observer.dispose()
+    screenObservers.clear()
+    earlyScreenFrames.clear()
     trackers.clear()
   }
 
@@ -1606,6 +1667,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     initSessionObservers,
     bindHeadlessSession,
     onHookPayload,
+    onFrame,
+    onResize,
     trackedState,
     onObservationAck,
     onProviderRebindAck,

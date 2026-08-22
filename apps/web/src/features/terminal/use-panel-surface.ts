@@ -111,15 +111,21 @@ export function usePanelSurface(input: {
   // the modeled, persisted and reported mode the same value.
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
   const savedMode = panelMode[sessionId]
-  const mode: PanelMode = effectivePanelMode({
-    startScreen,
-    chatCapable,
-    isMobile,
-    terminalCapable,
-    serverFamily: session?.driverFamily === 'server',
-    saved: savedMode,
-    deviceDefault: uiState.get(PANEL_MODE_DEFAULT_KEY),
-  })
+  // A login failure is only actionable in the native terminal, where the user
+  // can run the agent's login command. Force that surface transiently; do not
+  // persist the forced mode over the user's chat preference.
+  const loginRequired = session?.condition === 'logged-out'
+  const mode: PanelMode = loginRequired
+    ? 'native'
+    : effectivePanelMode({
+        startScreen,
+        chatCapable,
+        isMobile,
+        terminalCapable,
+        serverFamily: session?.driverFamily === 'server',
+        saved: savedMode,
+        deviceDefault: uiState.get(PANEL_MODE_DEFAULT_KEY),
+      })
   // Effects can run after a newer render has already handled a user click. Read
   // the current saved value at effect time so the initial materialization cannot
   // write the mode captured by an older render back over that pick.
@@ -130,8 +136,9 @@ export function usePanelSurface(input: {
     // derived fallback creates a stale writer when a warm/hidden panel mounts
     // while another panel is being switched.
     if (savedModeRef.current !== undefined) return
+    if (loginRequired) return
     setPanelMode(sessionId, mode)
-  }, [sessionId, mode, setPanelMode])
+  }, [sessionId, mode, loginRequired, setPanelMode])
 
   const pickMode = (m: PanelMode): void => {
     // Persist the per-session override in the store (#35)…
@@ -153,8 +160,11 @@ export function usePanelSurface(input: {
     // Only a *transition* into native fires; the first observation (prev null)
     // is the mount-in-native case, already handled by the mount effect.
     if (prev === null || prev === 'native') return
+    // The forced login-repair route is not a user-selected chat → native edge;
+    // never flush a chat draft into a terminal whose only job is authentication.
+    if (loginRequired) return
     enterNativeRef.current?.()
-  }, [mode])
+  }, [loginRequired, mode])
 
   const surface = panelSurface({
     status: session?.status,
@@ -186,6 +196,7 @@ export function usePanelSurface(input: {
     chatCapable,
     terminalCapable,
     switchAlreadyOffered: switchOfferedRef.current.offered,
+    loginRequired,
   })
   if (gates.modeSwitchOffered) switchOfferedRef.current.offered = true
 
