@@ -91,7 +91,7 @@ describe('named-instance development releases', () => {
         root,
         publisherStateDir: state,
         checkoutReleaseBase: '0.1.0-edge.20',
-        isSourceRun: true,
+        sourceCheckoutAvailable: true,
         instanceId: INSTANCE_ID,
         headSha: () => sha,
         migrationsAt: async () => ['20260715135845_baseline'],

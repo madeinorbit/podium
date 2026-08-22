@@ -359,6 +359,15 @@ export function assertWebDirMatches(webDist: string, webDest: string): void {
   )
 }
 
+export function compiledSourceMapArgs(version: string): string[] {
+  // Bun 1.3.14 embeds mapped sources in a compiled executable for every
+  // sourcemap mode. Inline is explicit about the property development needs:
+  // the installed binary remains debuggable without a checkout-relative sidecar.
+  // On the pinned Bun 1.3.14, a 19,329-byte two-module map added 8,192 bytes to
+  // the executable (a tiny one added zero); production labels still get no map.
+  return isDevChannelVersion(version) ? ['--sourcemap=inline'] : []
+}
+
 export function updateArtifactPath(
   out: string,
   version: string,
@@ -579,6 +588,7 @@ export function packageHeadlessForFreshClients(
       [
         'build',
         '--compile',
+        ...compiledSourceMapArgs(version),
         // Absent, Bun compiles for the host. Present, it downloads (and caches) the
         // target's own Bun runtime and links the bundle against that instead.
         ...(target ? [`--target=${target}`] : []),

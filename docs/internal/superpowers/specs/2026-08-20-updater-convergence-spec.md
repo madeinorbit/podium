@@ -11,7 +11,7 @@ production users run. The only differences between `dev`, `edge`, and `stable` a
 feed URL, the signing key, and who mints new artifacts — never the mechanism. A separate,
 explicit iteration mode (hot reload, updater off) is the sole sanctioned divergence.
 
-Reference topology: source checkout + server + dev feed on one VPS (ludovico); further
+Reference topology: source checkout + installed server + dev feed on one VPS (ludovico); further
 VPSs and the user's Mac (desktop all-in-one) are installed consumers on channel `dev`.
 To the user every machine just runs "Podium"; component names below are internal.
 
@@ -21,9 +21,9 @@ To the user every machine just runs "Podium"; component names below are internal
 |---|---|---|---|
 | `stable` | GitHub releases `latest` | baked release Ed25519 + baked minisign | CI on tag |
 | `edge` | GitHub releases `edge` tag | same baked keys | CI on tag |
-| `dev` | the source server's own HTTP feed | headless: instance Ed25519 key pinned at pairing; shell: the baked release minisign key (dev references edge shells, §5) | headless: ludovico, on operator approval (§6); shell: none (edge-referenced) |
+| `dev` | the development server's own HTTP feed | headless: instance Ed25519 key pinned at pairing; shell: the baked release minisign key (dev references edge shells, §5) | headless: ludovico, on operator approval (§6); shell: none (edge-referenced) |
 
-`dev` becomes a *pulled* channel: the source server publishes real manifests
+`dev` becomes a *pulled* channel: the installed development server publishes real manifests
 (`podium-update.json`, desktop `latest.json`) and all three channels resolve through
 `resolveReleaseTarget`. The publisher-push path, the `dev` exclusion in
 `target-refresh.ts`, and the `bundle`/`git` delivery kinds are retired. Dev versions
@@ -52,7 +52,7 @@ how a channel's feed and trust root are resolved):
 - `resolveReleaseTarget(channel, { fetch?, feed? })` resolves ALL THREE channels. A
   `ChannelFeed` carries four facts: `manifestUrl`, `artifactBase` (an origin fence),
   `trust` (`release` | `instance`), and optional `headers` (the machine credential). Edge
-  and stable get a built-in descriptor; `dev`'s is composition-owned — the source server's
+  and stable get a built-in descriptor; `dev`'s is composition-owned — the installed development server's
   own origin, `/updates/feed/dev/`, the instance trust root and its artifact token — and a
   server with no dev feed refuses the channel by name rather than resolving something else.
 - The TRUST ROOT is stamped by the resolver from the channel it was asked for and travels
@@ -71,7 +71,7 @@ how a channel's feed and trust root are resolved):
 - A daemon running from SOURCE now reports no delivery capability at all (it kept
   `update.delivery.git`), so it is never granted anything and stays honestly `behind`.
 - `devIdentityTarget` survives as an identity ONLY — no artifacts, published internally so
-  a source host's Update surface can still compare the served website. §6 step 1 replaces
+  a development host's Update surface can still compare the served website. §6 step 1 replaces
   it with a release proposal (POD-2507); the DELIVERABLE target always comes from the feed.
 
 ## 2. Component update matrix
@@ -222,7 +222,7 @@ payload self-updates regardless of shell age.
 Who updates the all-in-one Mac ("which fleet"): its own embedded server — every
 server carries the update engine, and the all-in-one is a coordinator of a fleet of
 one, exactly like a single-VPS install today. It pulls the channel feed itself
-(GitHub for edge/stable, the source server for dev), resolves the target, and runs
+(GitHub for edge/stable, the installed development server for dev), resolves the target, and runs
 the standard operation on its own machine. Daemon-only Macs receive grants from the
 remote server they are paired to, which pulled the same feed. (b) A shell that requires a newer payload
 (bridge-contract change) expresses it via the manifest's minimum-version lever; shell
@@ -347,7 +347,7 @@ Channels differ only in **who mints a new shell version**:
   is the single shell store. Working ON the shell uses the existing local fixture-feed
   machinery (`serve-update-feed.ts`, `verify-update.sh`) and ships via a normal edge
   release. Required change: an edge-built shell must accept channel `dev` from
-  persisted config with a configurable feed endpoint (the source server's
+  persisted config with a configurable feed endpoint (the installed development server's
   `latest.json`).
 
 Same consumer logic, same manifest shape, different mint policy — which is a cadence
@@ -362,10 +362,10 @@ before.
 
 ## 6. The dev release flow (release button, build preparation, handoff)
 
-Owner: the server's updates module on the source host grows one **pre-release stage**;
+Owner: the installed server's updates module on the development host grows one **pre-release stage**;
 everything after "manifests published" is the unchanged shared path.
 
-1. **Proposal.** The source server already watches its checkout; on a new commit on the
+1. **Proposal.** The installed development server watches its configured checkout; on a new commit on the
    release branch it publishes a *release proposal* fact (version it would become,
    commits since last release) — no building. The web UI's existing updates surface
    renders it: "Commit X landed — release to dev?". The popup is
@@ -383,7 +383,7 @@ everything after "manifests published" is the unchanged shared path.
    nothing to roll back.
 
    *What this is:* the EXISTING dev-bundle publisher, repurposed — same module inside
-   the server process on source hosts (config-gated on a checkout), same build-scope
+   the installed server process on the development host (explicitly configured with a checkout), same build-scope
    fencing (batch-tier transient scope: CPU quota so builds cannot starve the live
    server; deterministic name = build mutex), no separate daemon, no extra unit,
    nothing alive between releases. Three behavioral changes only: (a) it emits
@@ -422,8 +422,8 @@ Resolved into the spec:
 - **Rollback substrate** (4): the swap RETAINS `.old` until the parent declares the new
   version healthy; only then is it pruned. This is a change to both swap sites, and it
   is what makes §4's rollback real.
-- **Git delivery retirement is intentional** (5): exactly one machine runs from source —
-  the publisher — and it is not a fleet consumer; the dirty-checkout acceptance drive
+- **Git delivery retirement is intentional** (5): exactly one development host has a publisher checkout —
+  the publisher is still an ordinary installed fleet consumer; the source-run acceptance drive
   is deleted deliberately. (Needs operator confirmation.)
 - **`machine-cannot-restart` survives** (6) for unsupervised shapes (foreground runs,
   Windows until it has a supervisor story) — retired only where a parent exists.

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertDevClientDistMatchesVersion,
   assertDevWebDistMatchesVersion,
+  compiledSourceMapArgs,
   updateArtifactPath,
 } from './build-bun'
 
@@ -45,6 +46,18 @@ describe('assertDevWebDistMatchesVersion', () => {
         sourceSha: '47a01e3',
       }),
     ).not.toThrow()
+  })
+})
+
+describe('compiledSourceMapArgs', () => {
+  it('embeds source maps in development-channel executables', () => {
+    expect(compiledSourceMapArgs('0.2.0-dev.4+47a01e3')).toEqual(['--sourcemap=inline'])
+    expect(compiledSourceMapArgs('dev+47a01e3')).toEqual(['--sourcemap=inline'])
+  })
+
+  it('does not change production release binaries', () => {
+    expect(compiledSourceMapArgs('0.2.0')).toEqual([])
+    expect(compiledSourceMapArgs('0.2.0-edge.4')).toEqual([])
   })
 })
 

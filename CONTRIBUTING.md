@@ -10,11 +10,11 @@ bot: just open a pull request.
 
 ## Prerequisites
 
-- **Bun ≥ 1.3.14** — package manager, task runner, bundler, **and the runtime**. The backend runs on
-  Bun from source (the `@podium/source` condition resolves workspace packages to `src`), and the
-  PTY backend is selected at runtime — `Bun.Terminal` under Bun, so the `node-pty` native addon is
-  never loaded. (Node 22 is only needed for the legacy `tsx`/single-binary paths; `.nvmrc` pins it
-  for those.)
+- **Bun ≥ 1.3.14** — package manager, task runner, bundler, **and the runtime**. Source-only
+  tools use the `@podium/source` condition to resolve workspace packages to `src`; the normal live
+  development backend runs from an installed Bun-compiled bundle. The PTY backend is selected at
+  runtime — `Bun.Terminal` under Bun, so the `node-pty` native addon is never loaded. (Node 22 is
+  only needed for legacy paths; `.nvmrc` pins it for those.)
 - **macOS:** Xcode Command Line Tools (`xcode-select --install`). A C compiler (`cc`/clang) compiles
   the vendored `abduco` session helper into `~/.podium/bin/` on first daemon start; without it,
   sessions don't survive a daemon restart. `tmux` is used as a fallback, or set
@@ -43,6 +43,12 @@ your local dev.
 
 Override defaults with env vars when needed: `PODIUM_PORT` (backend, default 18787),
 `PODIUM_WEB_PORT` (web, default 55556), `PODIUM_ALLOWED_HOSTS` (comma-separated Vite allowed hosts).
+
+`bun run host` is an isolated source sandbox, not the persistent development deployment. The live
+development host runs `~/.local/bin/podium` from its installed bundle and sets
+`PODIUM_DEV_SOURCE_ROOT` to this checkout so the installed server can mint its successor. That
+keeps packaging, swap, handover, and rollback in the everyday loop. Production installs omit the
+variable and cannot become publishers.
 
 ### Changing the UI on a machine that is already running Podium
 

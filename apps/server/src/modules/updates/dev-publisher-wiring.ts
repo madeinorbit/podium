@@ -210,7 +210,7 @@ export function wireDevBundlePublisher(deps: {
     : undefined
   const publisher = sourceRoot
     ? createDevBundlePublisher({
-        isSourceRun: true,
+        sourceCheckoutAvailable: true,
         root: sourceRoot,
         instanceId,
         headSha: () => headSha?.read() ?? readHeadSha(sourceRoot),

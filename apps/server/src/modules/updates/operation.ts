@@ -576,7 +576,7 @@ export interface UpdatePlanInput {
   canPrepare: boolean
   /** This server can rebuild `apps/web/dist` without a restart. */
   canRebuildWeb: boolean
-  /** This server can restart itself onto the target (a source checkout). */
+  /** This server has a supervising parent that can hand over to the target. */
   canRestartServer: boolean
   /** Newest verified restore point, when one already exists. */
   databaseSnapshotPath?: string

@@ -220,7 +220,7 @@ WantedBy=default.target
 
 function renderDevParent(c: RenderContext): string {
   return `[Unit]
-Description=Podium parent supervisor (source checkout)
+Description=Podium parent supervisor (installed development build)
 After=network-online.target
 Wants=network-online.target
 
@@ -233,7 +233,8 @@ Environment=HOME=${c.home}
 Environment=PATH=${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=${c.port}
 Environment=PODIUM_INSTANCE=${c.instanceId}
-ExecStart=${c.home}/.local/bin/bun --conditions=@podium/source scripts/cli.ts parent --takeover
+Environment=PODIUM_DEV_SOURCE_ROOT=${c.repoRoot}
+ExecStart=%h/.local/bin/${c.command} parent --takeover
 Restart=always
 RestartSec=2
 CPUWeight=900
@@ -357,7 +358,7 @@ WantedBy=default.target
 
 /**
  * The daemon unit. `serverUrl` present → `--server <url>`; absent → config-driven bare daemon.
- * The dev profile runs the source split directly and keeps the same instance identity, unit
+ * The legacy role renderers keep the same instance identity, unit
  * naming, port, and CPU/IO tier as the packaged profile.
  */
 export function renderDaemonUnit(opts: DaemonRenderOptions = {}): string {
@@ -373,7 +374,7 @@ export function renderJanitorUnit(opts: { port: number; instanceId?: string }): 
 // There is no web-build unit any more (POD-1985). The server runs those builds
 // itself, in batch-tier transient scopes. Health probing and git-HEAD redeploy
 // units are gone too (POD-2506): the parent watchdog + self-handover subsume
-// them, and the cutover issue owns source-host update.
+// them. The dev profile now runs the installed parent with an explicit publisher checkout.
 
 /** Render the complete file set for either the release bundle or the dev host. */
 export function renderSystemdFiles(opts: SystemdRenderOptions = {}): RenderedSystemdFiles {

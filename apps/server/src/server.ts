@@ -79,6 +79,7 @@ import {
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT, fleetHeadlessPlatforms } from './modules/updates/dev-bundle'
+import { resolveDevelopmentRuntime } from './modules/updates/development-runtime'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
 import {
   createInstalledCoordinatorRestart,
@@ -597,11 +598,16 @@ export async function startServer(
   const cloud = createCloudRuntimeProviderFromEnv()
   const devArtifactToken = readOrCreateDevArtifactToken()
   let boundPort = opts.port ?? 0
-  // build-bun replaces this exact expression with the packaged product version.
-  // A detached installed process does not export PODIUM_HOME, so using that
-  // variable as the discriminator misclassified the published binary as source
-  // and silently withheld its coordinator restart capability.
-  const developmentSourceRoot = process.env.PODIUM_APP_VERSION ? undefined : DEVELOPMENT_SOURCE_ROOT
+  // BUILD IDENTITY and PUBLISHER CAPABILITY are different facts. A development
+  // server normally runs from the installed bundle (therefore uses installed
+  // swap/rollback/handover) while PODIUM_DEV_SOURCE_ROOT gives it the checkout
+  // from which it may mint the next bundle. Production services omit the opt-in.
+  const developmentRuntime = resolveDevelopmentRuntime({
+    // Must remain this literal read: build-bun replaces it with the packaged version.
+    packagedVersion: process.env.PODIUM_APP_VERSION,
+    sourceRunRoot: DEVELOPMENT_SOURCE_ROOT,
+  })
+  const developmentSourceRoot = developmentRuntime.publisherSourceRoot
   /**
    * The version the parent installed for THIS operation, which is the version
    * the handover's health gate must see the successor serving. Written by the
@@ -609,14 +615,14 @@ export async function startServer(
    * parameter did not have.
    */
   let pendingCoordinatorVersion: string | undefined
-  const requestCoordinatorRestart = developmentSourceRoot
+  const requestCoordinatorRestart = developmentRuntime.runningFromSource
     ? createSourceRedeployRequest({ instanceId })
     : createInstalledCoordinatorRestart({
         instanceId,
         port: () => boundPort,
         pendingVersion: () => pendingCoordinatorVersion,
       })
-  const prepareCoordinatorUpdate = developmentSourceRoot
+  const prepareCoordinatorUpdate = developmentRuntime.runningFromSource
     ? undefined
     : createInstalledCoordinatorUpdate({
         pinnedPubkey: updateSigningKey.publicKey,

@@ -66,7 +66,7 @@ function publisherSeams(): {
 }
 
 const base = {
-  isSourceRun: true,
+  sourceCheckoutAvailable: true,
   headSha: 'aaa',
   builtSha: null as string | null,
   lastAttemptAt: null as number | null,
@@ -143,11 +143,11 @@ describe('decideDevBuild', () => {
     })
   })
 
-  it('never builds on an installed (non-source) server', () => {
-    // An installed server has no checkout to build from. It follows a channel.
-    expect(decideDevBuild({ ...base, isSourceRun: false, explicit: true })).toEqual({
+  it('never builds without a source checkout', () => {
+    // Publisher capability follows checkout availability, not whether this server is packaged.
+    expect(decideDevBuild({ ...base, sourceCheckoutAvailable: false, explicit: true })).toEqual({
       build: false,
-      reason: 'not-a-source-run',
+      reason: 'no-source-checkout',
     })
   })
 })
@@ -1033,7 +1033,7 @@ describe('buildDevBundle', () => {
     let minute = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
       root: '/repo/podium',
@@ -1192,7 +1192,7 @@ describe('buildDevBundle', () => {
     let builds = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
       root: '/repo/podium',
@@ -1241,7 +1241,7 @@ describe('buildDevBundle', () => {
     let builds = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
       root: '/repo/podium',
@@ -1303,7 +1303,7 @@ describe('buildDevBundle', () => {
     let builds = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
       root: '/repo/podium',
@@ -1381,7 +1381,7 @@ describe('buildDevBundle', () => {
       let builds = 0
       const publisher = createDevBundlePublisher({
         ...publisherSeams(),
-        isSourceRun: true,
+        sourceCheckoutAvailable: true,
         readSourceStatus: () => '',
         readIgnoredSourceInputs: () => '',
         root: '/repo/podium',
@@ -1408,7 +1408,7 @@ describe('buildDevBundle', () => {
     const events: string[] = []
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
       headSha: () => head,
@@ -1447,7 +1447,7 @@ describe('buildDevBundle', () => {
     const order: string[] = []
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
       headSha: () => 'aaaaaaa',
@@ -1477,7 +1477,7 @@ describe('buildDevBundle', () => {
     let builds = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
       headSha: () => 'aaaaaaa',
@@ -1510,7 +1510,7 @@ describe('buildDevBundle', () => {
     let builds = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
       headSha: () => 'aaaaaaa',
@@ -1544,7 +1544,7 @@ describe('buildDevBundle', () => {
     let reads = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       root: '/repo/podium',
       headSha: () => 'aaaaaaa',
       signingKey,
@@ -1582,7 +1582,7 @@ describe('buildDevBundle', () => {
   it('refuses when the checkout cannot be verified at all', async () => {
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => {
         throw new Error('not a git repository')
@@ -1605,7 +1605,7 @@ describe('buildDevBundle', () => {
     let porcelain = nul(' M apps/server/src/server.ts')
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => porcelain,
       readIgnoredSourceInputs: () => '',
@@ -1648,7 +1648,7 @@ describe('buildDevBundle', () => {
     let builds = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       headSha: async () => 'aaaaaaa',
       readSourceStatus: async () => '',
       readIgnoredSourceInputs: async () => '',
@@ -1681,7 +1681,7 @@ describe('development bundle readiness', () => {
     let fail: string | null = null
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       headSha: () => head,
       readSourceStatus: options.porcelain ?? (() => ''),
       readIgnoredSourceInputs: () => '',
@@ -1829,7 +1829,7 @@ describe('development bundle readiness', () => {
     })
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       headSha: async () => 'aaaaaaa',
       readSourceStatus: async () => '',
       readIgnoredSourceInputs: async () => '',
@@ -1866,7 +1866,7 @@ describe('ignored source inputs gate the build', () => {
     let builds = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       headSha: () => 'aaaaaaa',
       // Clean by git status — the first query sees nothing at all.
       readSourceStatus: () => '',
@@ -1895,7 +1895,7 @@ describe('ignored source inputs gate the build', () => {
     const { bytes, signature } = signedFixture()
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () =>
@@ -1915,7 +1915,7 @@ describe('ignored source inputs gate the build', () => {
   it('refuses when the ignored-source query itself cannot be run', async () => {
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => {
@@ -1965,7 +1965,7 @@ describe('development targets declare the schema they can open', () => {
   it('publishes the declaration with the identity target', async () => {
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       headSha: () => 'f9485d31b',
       root: '/repo/podium',
       migrationsAt: async (sha: string) => (sha === 'f9485d3' ? migrations : undefined),
@@ -1992,7 +1992,7 @@ describe('development targets declare the schema they can open', () => {
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
       publisherStateDir: stateDir,
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       headSha: () => 'f9485d31b',
       root: '/repo/podium',
       migrationsAt: async () => migrations,
@@ -2011,7 +2011,7 @@ describe('development targets declare the schema they can open', () => {
   it('refuses to publish a target when migrations cannot be declared', async () => {
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       headSha: () => 'f9485d31b',
       root: '/repo/podium',
       migrationsAt: async () => undefined,
@@ -2083,7 +2083,7 @@ describe('the dev feed manifest the publisher writes', () => {
     const { bytes, signature, signingKey } = fixture
     return createDevBundlePublisher({
       ...publisherSeams(),
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
       root: '/repo/podium',
@@ -2159,7 +2159,7 @@ describe('the dev feed manifest the publisher writes', () => {
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
       root,
-      isSourceRun: true,
+      sourceCheckoutAvailable: true,
       headSha: () => sha,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',

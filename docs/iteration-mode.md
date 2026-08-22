@@ -17,7 +17,7 @@ bun run iterate
 
 Requirements:
 
-- The installed server is up (`systemctl --user start podium-server` if needed).
+- The installed server is up (`systemctl --user start podium` if needed).
 - This checkout has its own `node_modules` (`bun install` here — do not rely on a
   sibling checkout's dependencies).
 

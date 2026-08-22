@@ -28,6 +28,7 @@
  * | PODIUM_TELEMETRY_ENDPOINT     | config.telemetry.endpoint| @podium/telemetry `resolveTelemetryEndpoint()`         |
  * | PODIUM_UPDATE_FEED            | config.updateFeed       | `resolveUpdateFeed()`                                  |
  * | PODIUM_DEV_ARTIFACT_BASE_URL  | config.publicUrl        | `resolveDevArtifactOrigin()` (source publisher only)   |
+ * | PODIUM_DEV_SOURCE_ROOT        | — (env-only opt-in)     | installed development publisher checkout              |
  * | PODIUM_UPDATE_TARGET          | — → 'linux-x86_64'      | `resolveUpdateTarget()`                                |
  * | PODIUM_HOME                   | — → dirname(execPath)   | `resolveInstallDir()` (headless launcher exports it)   |
  * | PODIUM_RUN_MODE               | — (env-only)            | `resolveRunRecordMode()` ('detached' set by cli-spawn) |
@@ -676,7 +677,7 @@ function isLocalIpv6(address: string): boolean {
   const high = Number.parseInt(mapped[1] ?? '', 16)
   const low = Number.parseInt(mapped[2] ?? '', 16)
   // ::ffff:7f00:0/104 is 127.0.0.0/8; ::ffff:0:0 is 0.0.0.0.
-  return (high >> 8) === 0x7f || (high === 0 && low === 0)
+  return high >> 8 === 0x7f || (high === 0 && low === 0)
 }
 
 /** Self-update platform target: PODIUM_UPDATE_TARGET → caller-supplied fallback

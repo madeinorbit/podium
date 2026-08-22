@@ -1,7 +1,8 @@
 # Podium systemd units
 
-These files are generated copies of the renderer in `apps/cli/src/cli-systemd.ts`.
-Render them before installing:
+These files are generated copies of the renderer in `apps/cli/src/cli-systemd.ts`. The development
+profile runs the installed bundle and points its publisher at the checkout; it does not execute the
+server or parent from TypeScript source. Render it after the one-time initial bundle install:
 
 ```sh
 bun --conditions=@podium/source scripts/render-systemd.ts --profile dev
@@ -33,7 +34,9 @@ tailscale serve status   # expect: https://<host>:55555 -> http://127.0.0.1:1878
 For hot-reload UI work **beside** this live path (source Vite, updater off), see
 [`docs/iteration-mode.md`](../../docs/iteration-mode.md) (`bun run iterate`).
 
-The dev profile defaults to this host’s `/home/user/src/other/podium` checkout.
-Pass `--output` and render with a named instance when the host runs a separate
-instance; generated unit names and `Environment=PODIUM_INSTANCE` stay in lockstep
-with the packaged profile.
+The dev profile defaults to this host’s `/home/user/src/other/podium` checkout. Its service starts
+`~/.local/bin/podium`, while `PODIUM_DEV_SOURCE_ROOT` names that checkout solely as build input.
+Production units contain no publisher source root. The first source-to-installed cutover is a
+one-time supervised migration: install a built dev bundle before enabling this unit; after that,
+every accepted dev release uses the ordinary verified swap, handover, health gate, and rollback.
+Pass `--output` and render with a named instance when the host runs a separate instance.

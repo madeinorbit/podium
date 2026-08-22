@@ -92,12 +92,12 @@ async function git(root: string, args: readonly string[]): Promise<string> {
 export type BuildDecision =
   | {
       build: false
-      reason: 'up-to-date' | 'debounced' | 'in-flight' | 'not-a-source-run'
+      reason: 'up-to-date' | 'debounced' | 'in-flight' | 'no-source-checkout'
     }
   | { build: true }
 
 export interface DevBuildDecisionContext {
-  isSourceRun: boolean
+  sourceCheckoutAvailable: boolean
   headSha: string
   builtSha: string | null
   lastAttemptAt: number | null
@@ -108,7 +108,7 @@ export interface DevBuildDecisionContext {
 }
 
 export function decideDevBuild(ctx: DevBuildDecisionContext): BuildDecision {
-  if (!ctx.isSourceRun) return { build: false, reason: 'not-a-source-run' }
+  if (!ctx.sourceCheckoutAvailable) return { build: false, reason: 'no-source-checkout' }
   if (ctx.builtSha === ctx.headSha) return { build: false, reason: 'up-to-date' }
   if (ctx.inFlight) return { build: false, reason: 'in-flight' }
   if (!ctx.explicit && ctx.lastAttemptAt !== null && ctx.now - ctx.lastAttemptAt < ctx.debounceMs) {
@@ -1682,7 +1682,7 @@ export async function writeDevDesktopManifest(
 }
 
 export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSha'> {
-  isSourceRun: boolean | (() => boolean)
+  sourceCheckoutAvailable: boolean | (() => boolean)
   headSha: () => string | Promise<string>
   debounceMs?: number
   /**
@@ -1903,7 +1903,10 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         )
       }
       const decision = decideDevBuild({
-        isSourceRun: typeof deps.isSourceRun === 'function' ? deps.isSourceRun() : deps.isSourceRun,
+        sourceCheckoutAvailable:
+          typeof deps.sourceCheckoutAvailable === 'function'
+            ? deps.sourceCheckoutAvailable()
+            : deps.sourceCheckoutAvailable,
         headSha,
         builtSha,
         lastAttemptAt,

@@ -1,6 +1,7 @@
 import { parseServerVersion, type UpdateTarget } from '@podium/protocol'
 import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
+import { resolveDevelopmentRuntime } from './modules/updates/development-runtime'
 import { registerVersionRoute } from './server'
 
 async function getVersion(
@@ -71,5 +72,52 @@ describe('GET /version target descriptor', () => {
     const v = parseServerVersion(body)
     expect(v.wireVersion).toBeTypeOf('number')
     expect(v.target).toBeUndefined()
+  })
+})
+
+describe('development runtime', () => {
+  it('keeps a source process on source restart mechanics and gives it its checkout', () => {
+    expect(
+      resolveDevelopmentRuntime({
+        env: {},
+        packagedVersion: undefined,
+        sourceRunRoot: '/repo/podium',
+      }),
+    ).toEqual({
+      runningFromSource: true,
+      publisherSourceRoot: '/repo/podium',
+    })
+  })
+
+  it('keeps an ordinary packaged install out of the publisher', () => {
+    expect(
+      resolveDevelopmentRuntime({
+        env: {},
+        packagedVersion: '0.2.0',
+        sourceRunRoot: '/bundled/source/is/not/a/checkout',
+      }),
+    ).toEqual({ runningFromSource: false, publisherSourceRoot: undefined })
+  })
+
+  it('lets an explicitly configured packaged install publish without becoming a source run', () => {
+    expect(
+      resolveDevelopmentRuntime({
+        env: {
+          PODIUM_DEV_SOURCE_ROOT: '/repo/podium',
+        },
+        packagedVersion: '0.2.0-dev.4+47a01e3',
+        sourceRunRoot: '/bundled/source/is/not/a/checkout',
+      }),
+    ).toEqual({ runningFromSource: false, publisherSourceRoot: '/repo/podium' })
+  })
+
+  it('refuses a relative publisher checkout', () => {
+    expect(() =>
+      resolveDevelopmentRuntime({
+        env: { PODIUM_DEV_SOURCE_ROOT: '../podium' },
+        packagedVersion: '0.2.0',
+        sourceRunRoot: '/repo/podium',
+      }),
+    ).toThrow(/absolute checkout path/)
   })
 })
