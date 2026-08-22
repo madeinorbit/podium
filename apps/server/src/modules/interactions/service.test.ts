@@ -896,6 +896,57 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     expect(svc.listOpen(S)).toEqual([])
   })
 
+  it("a TURN FAILURE cannot overtake a slow question synthesis", async () => {
+    // THE SAME INTERLEAVING FOR THE TURN INGRESS (POD-2414 fourth pass). A
+    // question state owns a slow transcript read; a causal failure arriving
+    // behind it must not publish its login ask first. The per-session chain is
+    // the ordering guarantee, not an incidental choice of which promise wins.
+    const db = openMigratedTestDatabase()
+    const store = new InteractionsRepository(db)
+    const published: InteractionRow[] = []
+    let releaseRead: () => void = () => {}
+    const readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve
+    })
+    let startRead: () => void = () => {}
+    const readStarted = new Promise<void>((resolve) => {
+      startRead = resolve
+    })
+    const svc = new InteractionService({
+      store,
+      now: () => "2026-08-14T00:00:00.000Z",
+      publish: (row) => published.push(row),
+      deliver: async () => ({ ok: true, via: "menu", choices: [] }),
+      readTranscript: async () => {
+        startRead()
+        await readGate
+        return { items: [] as never }
+      },
+      policyPrincipal: () => PRINCIPAL,
+    })
+
+    // A: a question arrives and blocks inside its transcript read.
+    const asking = svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
+    await readStarted
+
+    // B: a causal failure arrives WHILE A read is outstanding.
+    const failed = svc.onTurnEvent({
+      sessionId: S,
+      at: "2026-08-14T00:00:30.000Z",
+      provider: "claude",
+      ev: { ev: "failed", turnEpoch: 1, reason: "auth-expired", disposition: "needs-human" },
+    })
+    releaseRead()
+    await Promise.all([asking, failed])
+
+    // A is the first ingress, so its question is announced before B failure.
+    // Calling applyTurnEvent directly makes this assertion reverse.
+    expect(published.map(({ kind, status }) => ({ kind, status }))).toEqual([
+      { kind: "question", status: "asked" },
+      { kind: "login", status: "asked" },
+    ])
+  })
+
   it('a policy answer overtaken by a turn boundary does NOT reopen', async () => {
     // P1/5. The row is `answered` while delivery is in flight, so no closer can
     // supersede it; without the in-flight guard the reopen put a blocked card
