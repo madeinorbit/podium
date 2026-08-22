@@ -29,13 +29,13 @@ import type {
   LocalPortableStateControl,
   VisibilityResolver,
 } from '@podium/protocol'
-import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import {
   formatIssueRef,
   isTerminalOperationState,
   SubscriptionRegistry,
   wireSchemaDigest,
 } from '@podium/protocol'
+import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import { resolveUpdateChannel } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
@@ -78,10 +78,9 @@ import { DaemonRequestBroker } from './modules/daemon-request'
 import { EventLogRetention } from './modules/events/retention'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
-import { IssueEventFeedPublisher } from './modules/issue-events/feed'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
-import { SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { InteractionService } from './modules/interactions/service'
+import { IssueEventFeedPublisher } from './modules/issue-events/feed'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
@@ -125,6 +124,7 @@ import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
 import { ServerTransferService } from './modules/server-transfer/service'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
+import { SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
@@ -140,8 +140,8 @@ import {
 import { scheduledShipOrderProjectionRows } from './modules/shipping/projection'
 import {
   ShippingEvidenceRegistry,
-  shipwrightApplyPatchThroughRelay,
   ShipwrightService,
+  shipwrightApplyPatchThroughRelay,
 } from './modules/shipping/shipwright'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
@@ -2385,17 +2385,27 @@ export class SessionRegistry {
       now: () => new Date(this.now()).toISOString(),
       publish: (row) => interactionFeed.publish(row),
       /**
-       * PROVENANCE FOR THE FAILURE PATH (POD-2414 re-verdict, P2/7).
+       * PROVENANCE FOR THE FAILURE PATH (POD-2414 re-verdict P2/7, narrowed by
+       * the third pass).
        *
-       * The same durable checkpoint `RuntimeEventGate.ready` reads, and read
-       * from the store directly because the gate is private to the session
-       * wiring. A session with a checkpoint has a causal `turn/failed` stream
-       * carrying an authoritative disposition, so the aggregate drops the
-       * compatibility `errored` shadow of the same failure rather than racing
-       * it. Durable on purpose: an in-memory bit lost this across a restart.
+       * Read from the store directly because the gate is private to the session
+       * wiring. Ownership means the causal stream ALREADY REPORTED THE FAILURE
+       * being shadowed, so the aggregate drops the compatibility `errored` copy
+       * of it rather than racing it. Durable on purpose: an in-memory bit lost
+       * this across a restart.
+       *
+       * IT IS NOT ENOUGH THAT A CHECKPOINT EXISTS, which is what this asked
+       * before. Every accepted coarse event checkpoints, so a terminal
+       * runtime-contract session emitting only `state`/`turn/completed` claimed
+       * ownership of failures it never reported, and its `errored` recovery ask
+       * was suppressed into silence. The checkpoint supplies the TURN; the
+       * event log supplies the FAILURE.
        */
-      causalFailuresOwned: (sessionId) =>
-        this.store.events.runtimeEventCheckpoint(sessionId) !== null,
+      causalFailuresOwned: (sessionId) => {
+        const checkpoint = this.store.events.runtimeEventCheckpoint(sessionId)
+        if (!checkpoint) return false
+        return this.store.events.hasCausalTurnFailure(sessionId, checkpoint.turnEpoch)
+      },
       deliver: (input) =>
         deliverAnswerToSession(
           {

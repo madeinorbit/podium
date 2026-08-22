@@ -1,7 +1,5 @@
 import { asSessionId } from '@podium/model'
-import type {
-  RuntimeEvent,
-} from '@podium/protocol/daemon'
+import type { RuntimeEvent } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import {
   RuntimeEventGate,
@@ -32,6 +30,35 @@ function stateEvent(input: {
     },
     observerGeneration: input.observerGeneration,
     turnEpoch: input.turnEpoch ?? 1,
+  }
+}
+
+function turnEvent(input: {
+  at: string
+  seq: number
+  turnEpoch: number
+  ev: 'started' | 'completed' | 'failed'
+  provenance?: RuntimeEvent['provenance']
+}): RuntimeEvent {
+  const ev =
+    input.ev === 'failed'
+      ? ({
+          ev: 'failed',
+          turnEpoch: input.turnEpoch,
+          reason: 'provider-error',
+          disposition: 'needs-human',
+        } as const)
+      : input.ev === 'completed'
+        ? ({ ev: 'completed', turnEpoch: input.turnEpoch, verdict: 'done' } as const)
+        : ({ ev: 'started', turnEpoch: input.turnEpoch, origin: 'human' } as const)
+  return {
+    t: 'turn',
+    ev,
+    at: input.at,
+    provenance: input.provenance ?? 'live',
+    cursor: { segmentId: 'runtime-segment', components: { seq: input.seq } },
+    observerGeneration: 1,
+    turnEpoch: input.turnEpoch,
   }
 }
 
@@ -501,5 +528,165 @@ describe('durable runtime observation gate', () => {
 
     expect(cursor).toBe(1)
     expect(records.filter((record) => record.id > cursor)).toEqual([])
+  })
+})
+
+/**
+ * WHAT COUNTS AS "THE CAUSAL STREAM OWNS THIS FAILURE" (POD-2414 third pass).
+ *
+ * The aggregate suppresses the compatibility `errored` shadow of a failure the
+ * driver already reported causally. The predicate deciding that used to be
+ * "does a checkpoint exist", and these tests exist because that was wrong in a
+ * way no service-level test could see: the service takes the predicate as a
+ * boolean, so the breadth bug lived entirely in what computes it.
+ */
+describe('causal failure ownership', () => {
+  const send = (
+    registry: SessionRegistry,
+    store: SessionStore,
+    sessionId: ReturnType<typeof bindContract>,
+    deliveryId: string,
+    event: RuntimeEvent,
+  ) =>
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId,
+      sessionId,
+      event,
+    })
+
+  it('a state/turn-completed session owns NO failure, though it has a checkpoint', () => {
+    // THE REGRESSION. A terminal runtime-contract session emits `state` and
+    // `turn/completed` and never a `turn/failed` in its life. Under the old
+    // predicate its checkpoint alone claimed ownership, so its `errored`
+    // recovery ask was dropped as a duplicate of a causal failure that does not
+    // exist, and a session waiting on a human went silent.
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const sessionId = bindContract(registry, store)
+    send(
+      registry,
+      store,
+      sessionId,
+      'bootstrap-1',
+      stateEvent({
+        at: '2026-08-22T00:00:00.000Z',
+        seq: 1,
+        observerGeneration: 1,
+        provenance: 'bootstrap',
+      }),
+    )
+    send(
+      registry,
+      store,
+      sessionId,
+      'state-1',
+      stateEvent({ at: '2026-08-22T00:00:01.000Z', seq: 2, observerGeneration: 1 }),
+    )
+    send(
+      registry,
+      store,
+      sessionId,
+      'completed-1',
+      turnEvent({ at: '2026-08-22T00:00:02.000Z', seq: 3, turnEpoch: 1, ev: 'completed' }),
+    )
+
+    const checkpoint = store.events.runtimeEventCheckpoint(sessionId)
+    // The old predicate's whole input, and it is satisfied.
+    expect(checkpoint).not.toBeNull()
+    expect(store.events.hasCausalTurnFailure(sessionId, checkpoint?.turnEpoch ?? 0)).toBe(false)
+  })
+
+  it('a LIVE turn/failed in the current turn is ownership', () => {
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const sessionId = bindContract(registry, store)
+    send(
+      registry,
+      store,
+      sessionId,
+      'bootstrap-1',
+      stateEvent({
+        at: '2026-08-22T00:00:00.000Z',
+        seq: 1,
+        observerGeneration: 1,
+        provenance: 'bootstrap',
+      }),
+    )
+    send(
+      registry,
+      store,
+      sessionId,
+      'failed-1',
+      turnEvent({ at: '2026-08-22T00:00:01.000Z', seq: 2, turnEpoch: 1, ev: 'failed' }),
+    )
+    const checkpoint = store.events.runtimeEventCheckpoint(sessionId)
+    expect(store.events.hasCausalTurnFailure(sessionId, checkpoint?.turnEpoch ?? 0)).toBe(true)
+  })
+
+  it('a failure in a PREVIOUS turn is not ownership of the current one', () => {
+    // A session that failed, recovered, and later goes `errored` through the
+    // legacy path must still be able to ask: the old failure is not evidence
+    // about this one.
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const sessionId = bindContract(registry, store)
+    send(
+      registry,
+      store,
+      sessionId,
+      'bootstrap-1',
+      stateEvent({
+        at: '2026-08-22T00:00:00.000Z',
+        seq: 1,
+        observerGeneration: 1,
+        provenance: 'bootstrap',
+      }),
+    )
+    send(
+      registry,
+      store,
+      sessionId,
+      'failed-1',
+      turnEvent({ at: '2026-08-22T00:00:01.000Z', seq: 2, turnEpoch: 1, ev: 'failed' }),
+    )
+    send(
+      registry,
+      store,
+      sessionId,
+      'started-2',
+      turnEvent({ at: '2026-08-22T00:00:02.000Z', seq: 3, turnEpoch: 2, ev: 'started' }),
+    )
+    const checkpoint = store.events.runtimeEventCheckpoint(sessionId)
+    expect(checkpoint?.turnEpoch).toBe(2)
+    expect(store.events.hasCausalTurnFailure(sessionId, 2)).toBe(false)
+    // The earlier turn's failure is still on the record; it is simply not this
+    // turn's evidence.
+    expect(store.events.hasCausalTurnFailure(sessionId, 1)).toBe(true)
+  })
+
+  it('a BOOTSTRAP turn/failed is not ownership — it never minted an ask', () => {
+    // `projectBoard` materializes failures from live events only, so counting a
+    // replayed failure as ownership would silence the shadow with nothing
+    // standing in its place.
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const sessionId = bindContract(registry, store)
+    send(
+      registry,
+      store,
+      sessionId,
+      'bootstrap-failed',
+      turnEvent({
+        at: '2026-08-22T00:00:00.000Z',
+        seq: 1,
+        turnEpoch: 1,
+        ev: 'failed',
+        provenance: 'bootstrap',
+      }),
+    )
+    const checkpoint = store.events.runtimeEventCheckpoint(sessionId)
+    expect(checkpoint).not.toBeNull()
+    expect(store.events.hasCausalTurnFailure(sessionId, checkpoint?.turnEpoch ?? 0)).toBe(false)
   })
 })

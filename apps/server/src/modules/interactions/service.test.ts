@@ -219,7 +219,7 @@ describe('InteractionService — synthesis', () => {
   it('a session exit expires everything it left behind', async () => {
     const { svc } = harness()
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
-    svc.onSessionExited(S)
+    await svc.onSessionExited(S)
     expect(svc.listOpen()).toHaveLength(0)
     // EXPIRED here: the process died and took the menu with it.
     expect(svc.listForSession(S)[0]).toMatchObject({ status: 'expired' })
@@ -388,7 +388,7 @@ describe('InteractionService — answering', () => {
     const { svc } = harness()
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
     const id = svc.listOpen()[0]!.id
-    svc.onSessionExited(S)
+    await svc.onSessionExited(S)
     expect(await answerAs(svc, id, 'allow')).toEqual({ ok: false, reason: 'expired' })
   })
 
@@ -648,7 +648,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
         answerable: 'structured',
       },
     })
-    svc.onInteractionResolved({
+    await svc.onInteractionResolved({
       sessionId: S,
       // SUPERSEDED, not answered: the aggregate did not record the decision and
       // must not claim to know what it was.
@@ -670,7 +670,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
         answerable: 'structured',
       },
     })
-    svc.onInteractionResolved({
+    await svc.onInteractionResolved({
       sessionId: asSessionId('ses_other'),
       ev: { ev: 'expired', id: 'ixn_driver', at: '2026-08-14T00:01:00.000Z' },
     })
@@ -689,7 +689,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
         answerable: 'structured',
       },
     })
-    svc.onSessionExited(S)
+    await svc.onSessionExited(S)
     expect(svc.listOpen()).toHaveLength(0)
   })
 })
@@ -846,6 +846,46 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
 
     // Whatever order the bus handed them over, the session is not left claiming
     // to be blocked: B is applied after A, so it closes what A inserted.
+    expect(svc.listOpen(S)).toEqual([])
+  })
+
+  it('a session that EXITS during a slow read is not left holding an ask', async () => {
+    // THE SAME INTERLEAVING BETWEEN DIFFERENT HANDLERS (POD-2414 third pass).
+    // Chaining `onStateChanged` alone only serialized that handler against
+    // itself. `onSessionExited` was unchained, so it swept an open list that was
+    // still empty and the transcript read then inserted an ask for a process
+    // that no longer exists — a card offering to answer a dead session.
+    const db = openMigratedTestDatabase()
+    const store = new InteractionsRepository(db)
+    let releaseRead: () => void = () => {}
+    const readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve
+    })
+    let clock = 0
+    const svc = new InteractionService({
+      store,
+      now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
+      publish: () => {},
+      deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
+      readTranscript: async () => {
+        await readGate
+        return { items: [] as never }
+      },
+      policyPrincipal: () => PRINCIPAL,
+    })
+
+    // A: a question arrives and blocks inside its transcript read.
+    const asking = svc.onStateChanged({
+      sessionId: S,
+      prev: undefined,
+      next: { phase: 'needs_user', need: { kind: 'question' } } as never,
+    })
+    // B: the process dies WHILE that read is outstanding.
+    const exited = svc.onSessionExited(S)
+    releaseRead()
+    await Promise.all([asking, exited])
+
+    // The ask A inserted is expired by B behind it, rather than surviving it.
     expect(svc.listOpen(S)).toEqual([])
   })
 

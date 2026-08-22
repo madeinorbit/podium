@@ -40,7 +40,6 @@
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
-import { isResumeTimeRecovery } from '@podium/protocol'
 import type {
   InteractionAnswer,
   InteractionAnswerability,
@@ -52,6 +51,7 @@ import type {
   PendingInteractionWire,
   RecoveryAskReason,
 } from '@podium/protocol'
+import { isResumeTimeRecovery } from '@podium/protocol'
 import type { TurnEvent } from '@podium/protocol/daemon'
 import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
 import type { InboxPrincipalReference } from '../sessions/inbox'
@@ -250,13 +250,20 @@ export class InteractionService {
    * asynchronous global drain, so nothing guarantees it), and a restart lost the
    * bit entirely.
    *
-   * The durable question is not "did a fatal arrive first" but "does this
-   * session have a causal stream at all". If it does, that stream owns failures
-   * and the state shadow of one is dropped unread — no ordering to lose, and
-   * `ready()` reads a persisted checkpoint, so a restart does not change the
-   * answer. Verified for the three causal drivers: opencode, codex and grok-acp
-   * all emit `turn/failed` with a disposition, so nothing is dropped on the
-   * floor by trusting them with it.
+   * The durable question is "HAS THE CAUSAL STREAM REPORTED A FAILURE IN THIS
+   * TURN". If it has, that stream owns the failure and the state shadow of it is
+   * dropped unread — no ordering to lose, and the evidence is a persisted event,
+   * so a restart does not change the answer.
+   *
+   * MY FIRST ANSWER WAS "DOES THIS SESSION HAVE A CAUSAL STREAM AT ALL", AND IT
+   * WAS WRONG (POD-2414 third pass). Every accepted coarse event writes a
+   * checkpoint and the checkpoint records no disposition, so a terminal
+   * runtime-contract session that emits only `state` and `turn/completed` — and
+   * never a `turn/failed` in its life — answered yes. Its `errored` recovery ask
+   * was then suppressed as the duplicate of a causal failure that did not exist,
+   * and a session waiting on a human went silent. The old in-memory
+   * `driverDeclaredFatal` would never have been set for that shape; making the
+   * bit durable must not also make it broader.
    *
    * Absent (hook-driven Claude, the uninstrumented kinds), this is false and the
    * state path remains the only evidence there is — which is exactly the case
@@ -410,22 +417,44 @@ export class InteractionService {
    * Keyed per session, so a slow transcript read on one session cannot delay
    * another's, and the chain is dropped once it drains.
    */
-  private readonly stateChain = new Map<SessionId, Promise<void>>()
+  private readonly sessionChain = new Map<SessionId, Promise<void>>()
+
+  /**
+   * Queue `work` behind everything already running for this session.
+   *
+   * EVERY session-scoped handler goes through here, not just `onStateChanged`
+   * (POD-2414 third pass). Chaining one handler only fixed that handler's race
+   * with itself, and the same interleaving exists between handlers: a session
+   * EXITS while a slow transcript read is still in flight, `onSessionExited`
+   * closes an open list that is still empty, and the read then inserts an ask
+   * for a process that no longer exists. A card for a dead session is the same
+   * lie as a card for a running one.
+   *
+   * A REJECTED PREDECESSOR MUST NOT CANCEL THE WORK QUEUED BEHIND IT, so the
+   * prior link's failure is swallowed here rather than propagated down the
+   * chain; each handler still owns its own errors.
+   *
+   * Keyed per session, so a slow read on one session cannot delay another's,
+   * and the chain is dropped once it drains.
+   */
+  private chain(sessionId: SessionId, work: () => Promise<void> | void): Promise<void> {
+    const prior = this.sessionChain.get(sessionId) ?? Promise.resolve()
+    const next = prior.catch(() => undefined).then(() => work())
+    this.sessionChain.set(sessionId, next)
+    void next.finally(() => {
+      // Only the tail clears itself; an earlier link finishing must not drop a
+      // chain that still has work queued behind it.
+      if (this.sessionChain.get(sessionId) === next) this.sessionChain.delete(sessionId)
+    })
+    return next
+  }
 
   onStateChanged(input: {
     sessionId: SessionId
     prev: AgentRuntimeState | undefined
     next: AgentRuntimeState
   }): Promise<void> {
-    const prior = this.stateChain.get(input.sessionId) ?? Promise.resolve()
-    const next = prior.then(() => this.applyStateChanged(input))
-    this.stateChain.set(input.sessionId, next)
-    void next.finally(() => {
-      // Only the tail clears itself; an earlier link finishing must not drop a
-      // chain that still has work queued behind it.
-      if (this.stateChain.get(input.sessionId) === next) this.stateChain.delete(input.sessionId)
-    })
-    return next
+    return this.chain(input.sessionId, () => this.applyStateChanged(input))
   }
 
   private async applyStateChanged(input: {
@@ -514,12 +543,21 @@ export class InteractionService {
    * between commit and projection re-delivers the event. Insert-on-conflict and
    * a close that no-ops on an already-closed row are what make that harmless.
    */
-  async onTurnEvent(input: {
+  onTurnEvent(input: {
     sessionId: SessionId
     ev: TurnEvent
     at: string
     /** The harness a `login` ask should name as the provider, when the caller
      *  knows it. */
+    provider?: string
+  }): Promise<void> {
+    return this.chain(input.sessionId, () => this.applyTurnEvent(input))
+  }
+
+  private async applyTurnEvent(input: {
+    sessionId: SessionId
+    ev: TurnEvent
+    at: string
     provider?: string
   }): Promise<void> {
     try {
@@ -585,11 +623,19 @@ export class InteractionService {
    * an answer delivered through `deliverStructured` comes straight back as an
    * `answered` event from the driver that applied it.
    */
-  onInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): void {
-    if (input.ev.ev === 'asked') return
-    // The driver settled it, so an in-flight policy answer for the same row has
-    // been overtaken and must not reopen behind it.
+  onInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): Promise<void> {
+    if (input.ev.ev === 'asked') return Promise.resolve()
+    // EAGER, DELIBERATELY AHEAD OF THE CHAIN. The driver settled it, so an
+    // in-flight policy answer for the same row has been overtaken and must not
+    // reopen behind it — and a reopen races the chain rather than joining it,
+    // so deferring this behind a slow transcript read would let exactly the
+    // resurrection {@link overtakePolicyDeliveries} exists to stop through.
     this.policyDeliveryInFlight.delete(input.ev.id)
+    return this.chain(input.sessionId, () => this.applyInteractionResolved(input))
+  }
+
+  private applyInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): void {
+    if (input.ev.ev === 'asked') return
     const row = this.deps.store.get(input.ev.id)
     // A resolution for a row this server never saw is not an error: the ask may
     // predate the aggregate's knowledge of the session, or belong to a replica.
@@ -609,8 +655,10 @@ export class InteractionService {
   /** A session ended: every ask it left behind stops being answerable. EXPIRED
    *  rather than superseded — the menu went away with the process, and nobody
    *  answered it. */
-  onSessionExited(sessionId: SessionId): void {
-    this.closeOpen(sessionId, 'expired', 'the session ended')
+  onSessionExited(sessionId: SessionId): Promise<void> {
+    return this.chain(sessionId, () => {
+      this.closeOpen(sessionId, 'expired', 'the session ended')
+    })
   }
 
   private closeOpen(

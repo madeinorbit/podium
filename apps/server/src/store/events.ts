@@ -152,6 +152,44 @@ export class EventsRepository {
     return events
   }
 
+  /**
+   * Has this session's causal stream actually REPORTED A FAILURE in the turn
+   * the checkpoint is sitting on (POD-2414 third pass)?
+   *
+   * CHECKPOINT EXISTENCE IS NOT THIS, which is the bug this replaces.
+   * `RuntimeEventGate.record` writes a checkpoint for EVERY accepted coarse
+   * event and {@link RuntimeEventCheckpoint} carries no kind or disposition, so
+   * a session that only ever emitted `state` or `turn/completed` looked
+   * failure-owned. The aggregate then suppressed the `errored` recovery ask as
+   * a duplicate shadow of a causal failure THAT NEVER HAPPENED, and a session
+   * needing human recovery went quiet — the exact failure this issue exists to
+   * prevent, reintroduced by its own fix.
+   *
+   * SCOPED TO THE TURN, not the session's whole history: a failure two turns
+   * ago is not evidence about the failure being materialized now, and a session
+   * that recovers and fails again through the legacy path must still be able to
+   * ask.
+   *
+   * LIVE ONLY, because `projectBoard` materializes failures only from live
+   * events. A replayed or bootstrap `turn/failed` never minted an ask, so
+   * counting it as ownership would silence the shadow with nothing in its
+   * place.
+   */
+  hasCausalTurnFailure(sessionId: SessionId, turnEpoch: number): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM podium_events
+           WHERE kind = ? AND subject = ?
+             AND json_extract(payload, '$.t') = 'turn'
+             AND json_extract(payload, '$.ev.ev') = 'failed'
+             AND json_extract(payload, '$.provenance') = 'live'
+             AND json_extract(payload, '$.turnEpoch') >= ?
+           LIMIT 1`,
+      )
+      .get(RUNTIME_EVENT_LOG_KIND, sessionId, turnEpoch)
+    return row !== undefined && row !== null
+  }
+
   listRuntimeEventsAfter(afterId: number, limit = 128): RuntimeEventLogRecord[] {
     const rows = this.db
       .prepare(
