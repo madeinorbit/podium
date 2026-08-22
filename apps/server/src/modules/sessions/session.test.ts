@@ -1020,6 +1020,26 @@ describe('Session transcript cache (recent-delta window)', () => {
     expect(s.terminal.transcriptItems()).toEqual([item('u1', 'c1'), item('u2', 'c2')])
   })
 
+  it('replaces a re-emitted cursor in the cache instead of recording it twice', () => {
+    const s = makeSession()
+    const partial = item('provider-v1', 'stable-cursor', 'Hel')
+    const complete = item('provider-v2', 'stable-cursor', 'Hello')
+
+    s.terminal.applyDelta([partial], {})
+    s.terminal.applyDelta([complete], {})
+
+    expect(s.terminal.transcriptItems()).toEqual([complete])
+    const late = makeClient('late')
+    s.terminal.subscribeTranscript(late)
+    expect(late.sent).toEqual([
+      {
+        type: 'transcriptDelta',
+        sessionId: asSessionId('s1'),
+        items: [complete],
+      },
+    ])
+  })
+
   it('applyDelta({reset}) clears the cache and fans out reset:true', () => {
     const s = makeSession()
     const a = makeClient('a')

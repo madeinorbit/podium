@@ -215,7 +215,7 @@ describe('opencodeDbSource', () => {
 
   it('no-anchor before returns the newest `limit` items with hasMore', async () => {
     const sid = 'ses_a'
-    // 5 text parts at increasing time_updated.
+    // 5 text parts at increasing time_created.
     const parts = [0, 1, 2, 3, 4].map((i) =>
       textPart(`prt-${i}`, `msg-${i}`, i % 2 === 0 ? 'user' : 'assistant', `m${i}`, 100 + i),
     )
@@ -226,7 +226,24 @@ describe('opencodeDbSource', () => {
     expect(r.hasMore).toBe(true)
   })
 
-  it('cursors decode to {fileId: opencode:<sid>, offset: timeUpdated, uuid: partId, sub}', async () => {
+  it('keeps a mutated part in creation order instead of moving it to the tail', async () => {
+    const sid = 'ses_mutated_order'
+    const parts = [0, 1, 2].map((i) =>
+      textPart(`prt-${i}`, `msg-${i}`, 'assistant', `m${i}`, 100 + i),
+    )
+    const { homeDir } = await seedOpencode(sid, parts)
+    const db = openDatabase(join(homeDir, '.local', 'share', 'opencode', 'opencode.db'))
+    db.prepare('UPDATE part SET time_updated = ? WHERE id = ?').run(999, 'prt-0')
+    db.close()
+
+    const read = await opencodeDbSource({ sessionId: sid, homeDir }).readSlice({
+      direction: 'before',
+      limit: 10,
+    })
+    expect(read.items.map((item) => item.text)).toEqual(['m0', 'm1', 'm2'])
+  })
+
+  it('cursors decode to {fileId: opencode:<sid>, offset: timeCreated, uuid: partId, sub}', async () => {
     const sid = 'ses_b'
     const parts = [textPart('prt-x', 'msg-x', 'user', 'hello', 555)]
     const { homeDir } = await seedOpencode(sid, parts)
@@ -330,9 +347,9 @@ describe('opencodeDbSource', () => {
     expect(after.hasMore).toBe(true)
   })
 
-  it('disambiguates same-timeUpdated parts by partId (full-cursor anchor match)', async () => {
+  it('disambiguates same-timeCreated parts by partId (full-cursor anchor match)', async () => {
     const sid = 'ses_g'
-    // Three parts share the SAME time_updated; order is by (time_updated, id).
+    // Three parts share the SAME time_created; order is by (time_created, id).
     const parts = [
       textPart('prt-a', 'msg-1', 'user', 'first', 300),
       textPart('prt-b', 'msg-1', 'user', 'second', 300),
@@ -376,6 +393,34 @@ describe('stampOpencodeItems (shared by live observer + DB read)', () => {
     expect(stamped.map((i) => i.text)).toEqual(['m0', 'm1', 'm2'])
     // Cursor namespace is derived from the sessionId.
     expect(decodeCursor(stamped[0]?.cursor ?? '')?.fileId).toBe(`opencode:${sid}`)
+  })
+
+  it('keeps a part cursor stable when OpenCode mutates time_updated', () => {
+    const sid = 'ses_mutable'
+    const firstRow = {
+      messageId: 'msg-mutable',
+      partId: 'prt-mutable',
+      sessionId: sid,
+      timeCreated: 500,
+      timeUpdated: 600,
+      messageData: JSON.stringify({ role: 'assistant' }),
+      partData: JSON.stringify({ type: 'text', text: 'Hel' }),
+    }
+    const first = stampOpencodeItems([firstRow], sid)[0]
+    const complete = stampOpencodeItems(
+      [
+        {
+          ...firstRow,
+          timeUpdated: 900,
+          partData: JSON.stringify({ type: 'text', text: 'Hello' }),
+        },
+      ],
+      sid,
+    )[0]
+
+    expect(first?.cursor).toBe(complete?.cursor)
+    expect(decodeCursor(complete?.cursor ?? '')?.offset).toBe(500)
+    expect(complete?.text).toBe('Hello')
   })
 
   it('returns [] for no rows', () => {

@@ -70,18 +70,18 @@ function opencodeFileId(sessionId: string): string {
 /**
  * Map opencode part rows to cursor-stamped items, stamping each item with a
  * cursor that encodes the part's position in the session's total
- * `(time_updated, id, sub)` order. One part → 0..N items (a tool part is a call +
+ * `(time_created, id, sub)` order. One part → 0..N items (a tool part is a call +
  * a result), so each item gets its own `sub` index within the part. We can't
  * reuse `stampCursors` directly: every row is its own sub-sequence keyed by the
- * row's `timeUpdated` and `partId`, not a single shared `(offset, uuid)`.
+ * row's `timeCreated` and `partId`, not a single shared `(offset, uuid)`.
  *
- *   - `offset` = `row.timeUpdated` (the DB's primary order key)
- *   - `uuid`   = `row.partId`      (disambiguates same-`time_updated` ties; the
+ *   - `offset` = `row.timeCreated` (the DB's primary order key)
+ *   - `uuid`   = `row.partId`      (disambiguates same-`time_created` ties; the
  *                                   secondary `id` order key)
  *   - `sub`    = item index within the part
  *
  * The triple is the part-position analog of the file `(offset, uuid, sub)` and
- * yields a total order matching the DB's `(time_updated, id, sub)`.
+ * yields a total order matching the DB's `(time_created, id, sub)`.
  *
  * Shared so the daemon's live opencode observer stamps emitted items with the
  * EXACT SAME cursor scheme as `opencodeDbSource`'s on-demand read — live deltas
@@ -103,7 +103,7 @@ export function stampOpencodeItems(
       if (!item) continue
       out.push({
         ...item,
-        cursor: encodeCursor({ fileId, offset: row.timeUpdated, uuid: row.partId, sub }),
+        cursor: encodeCursor({ fileId, offset: row.timeCreated, uuid: row.partId, sub }),
       })
     }
   }
@@ -120,7 +120,7 @@ export function stampOpencodeItems(
  * right shape here. Exported for @podium/harness's `opencodeDbSource`.
  *
  * Anchor matching is exact (cursor string) first, then drift-tolerant on the FULL
- * `{fileId, offset, uuid, sub}` — opencode `time_updated` ties are common, so the
+ * `{fileId, offset, uuid, sub}` — opencode `time_created` ties are common, so the
  * partId (`uuid`) is load-bearing for disambiguation, unlike the file source which
  * may drift on `{fileId, offset, sub}` alone. A missing/undecodable/not-found
  * anchor falls back to the default window (newest for `before`, oldest for

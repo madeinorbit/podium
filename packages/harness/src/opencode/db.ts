@@ -174,7 +174,7 @@ export function loadOpencodeTranscriptTail(
        FROM part p
        JOIN message m ON m.id = p.message_id
        WHERE p.session_id = ?
-       ORDER BY p.time_updated DESC, p.id DESC
+       ORDER BY p.time_created DESC, p.id DESC
        LIMIT ?`,
     )
     .all(sessionId, maxParts) as OpencodeMessagePartRow[]

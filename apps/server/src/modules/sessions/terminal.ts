@@ -17,6 +17,35 @@ function submitsCommandLine(base64: string): boolean {
   return bytes.includes(0x0d) || bytes.includes(0x0a)
 }
 
+/**
+ * Keep only the newest form of each cursor. Provider rows can be re-emitted as
+ * their content grows; late subscribers must replay one logical item, not every
+ * version.
+ */
+function transcriptItemKey(item: TranscriptItem): string {
+  return item.cursor ?? item.id
+}
+
+function mergeTranscriptCache(
+  previous: TranscriptItem[],
+  delta: TranscriptItem[],
+): TranscriptItem[] {
+  if (delta.length === 0) return previous
+  const next = [...previous]
+  const indexByKey = new Map(next.map((item, index) => [transcriptItemKey(item), index]))
+  for (const item of delta) {
+    const key = transcriptItemKey(item)
+    const existingIndex = indexByKey.get(key)
+    if (existingIndex === undefined) {
+      indexByKey.set(key, next.length)
+      next.push(item)
+    } else {
+      next[existingIndex] = item
+    }
+  }
+  return next
+}
+
 // biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
 const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 
@@ -264,8 +293,7 @@ export class SessionTerminal {
       this.transcriptAvailable = true
       this.init.onTranscriptAvailable?.()
     }
-    if (opts.reset) this.transcript = []
-    this.transcript = this.transcript.concat(items)
+    this.transcript = mergeTranscriptCache(opts.reset ? [] : this.transcript, items)
     if (this.transcript.length > MAX_TRANSCRIPT_ITEMS) {
       this.transcript = this.transcript.slice(-MAX_TRANSCRIPT_ITEMS)
     }
