@@ -512,6 +512,16 @@ host repeatedly hit load 30-106 with sessions queueing behind each other.
 Its own header states the cost: a forced 22-package run is **~3m of CPU versus 2s cached —
 110x — on a host shared with a live Podium instance.**
 
+MEASURED ON THIS HOST, 2026-08-22, by POD-2414 — the wrapper's own "~3m" is the quiet-box
+figure and understates it badly under contention:
+
+    forced (uncached)   1h 19m 45s
+    plain (cache used)        2m 02s
+    fully cached               818ms
+
+That is not 110x, it is roughly 3,500x against a cache hit, and the forced run is what
+pushed the box to load 124 while its own lease expired underneath it.
+
 Rule: run `bun run typecheck` plainly and trust the result. A cache HIT is evidence, because
 the wrapper guarantees the environment it was computed in matches yours. Force only with a
 specific reason you can name in `--uncached-because`, and expect to justify it — "to be
