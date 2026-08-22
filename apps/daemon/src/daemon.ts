@@ -53,7 +53,8 @@ export interface DaemonHandle {
   readonly connected: boolean
   /**
    * Detach from live sessions and close the server connection. Durable masters
-   * survive unless `reapSessions` is explicitly requested.
+   * survive unless `reapSessions` is explicitly requested; that full-reap mode
+   * also retires registered server-family children and their binding journals.
    */
   close(opts?: { reapSessions?: boolean }): Promise<void>
 }

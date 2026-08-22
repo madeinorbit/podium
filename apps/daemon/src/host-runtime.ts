@@ -82,6 +82,7 @@ import { daemonRuntimeHost } from './runtime/host'
 import { createOpencodeClientTerminals } from './runtime/opencode-attach'
 import { createDaemonOpencodeRuntime, type DaemonOpencodeRuntime } from './runtime/opencode-driver'
 import { createOpencodeHost } from './runtime/opencode-server'
+import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
 import { createScopeMonitor } from './runtime/scope-monitor'
 import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
 import { SessionBinding } from './session-binding'
@@ -110,6 +111,27 @@ export interface DaemonHostRuntime {
   connected(): void
   receive(raw: RawData): void
   close(opts?: { reapSessions?: boolean }): Promise<void>
+}
+
+/**
+ * Full harness shutdown is the one daemon close mode that owns server-family
+ * children too. Snapshot the bindings while the handles still exist, then let
+ * the common measured reaper terminate each server family before the runtime
+ * maps are disposed. Retirement is intentional: a throwaway harness session
+ * must not leave its credentialed journal address behind.
+ *
+ * The optional I/O seam keeps the call site regression deterministic without
+ * changing the production reaper, whose default measures real pids and scopes.
+ */
+export function reapServerSessionsOnClose(
+  ctx: DaemonContext,
+  agentRuntime: Pick<DaemonMachineRuntime, 'registeredBindings'> | undefined,
+  io?: ServerReapIo,
+): void {
+  for (const binding of agentRuntime?.registeredBindings() ?? []) {
+    if (binding.family !== 'server') continue
+    beginServerDriverReap(ctx, binding.sessionId, { retire: true }, io)
+  }
 }
 
 /** Keep the synchronous spawn gate on the exact home inventory uses. */
@@ -885,6 +907,7 @@ export async function createDaemonHostRuntime(args: {
       else turn.dispose?.()
     }
     ctx.runningHeadlessTurns.clear()
+    if (reapSessions) reapServerSessionsOnClose(ctx, agentRuntime)
     agentRuntime?.dispose()
     observers.disposeObservers()
     composerEngine.disposeAll()
