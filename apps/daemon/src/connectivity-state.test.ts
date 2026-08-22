@@ -98,8 +98,6 @@ describe('daemon connectivity state (#19)', () => {
     try {
       const conn = readConnectivity(dir)
       expect(conn?.state).toBe('connected')
-      expect(conn?.processId).toBe(process.pid)
-      expect(conn?.appVersion).toBeTruthy()
       expect(conn?.lastHelloOkAt).toBeTruthy()
       expect(conn?.serverUrl).toBe(`ws://localhost:${port}`)
       // Token persisted; identity survived.

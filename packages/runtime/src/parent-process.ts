@@ -31,7 +31,6 @@ import { existsSync, mkdirSync, openSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { resolveInstallDir } from './config'
-import { readConnectivity } from './connectivity'
 import {
   clearParentRequest,
   PARENT_HANDOVER_SIGNAL,
@@ -47,10 +46,8 @@ import {
   CHILD_START_ORDER,
   clearPostUpdate,
   componentsProjection,
-  type DaemonHandoverHealthProbe,
   emptyParentSnapshot,
   type HandoverHealthProbe,
-  isDaemonHandoverHealthy,
   isHandoverHealthy,
   isPostUpdateCrashLoop,
   markPostUpdate,
@@ -62,7 +59,7 @@ import {
   watchdogPetDecision,
 } from './parent-supervisor'
 import { type ParentUpdateSwapResult, parseUpdateTarget } from './parent-update-swap'
-import { liveRecord, logDir } from './run-registry'
+import { logDir } from './run-registry'
 import { sdNotify, watchdogPetIntervalMs } from './sd-notify'
 import { oldBundlePresent, pruneOldBundle, restoreOldBundle } from './update-install'
 
@@ -101,7 +98,6 @@ export type SpawnChildFn = (
 ) => ChildProcess
 
 export type HealthProbeFn = (port: number) => Promise<HandoverHealthProbe>
-export type DaemonHealthProbeFn = () => Promise<DaemonHandoverHealthProbe>
 
 export interface ParentProcessDeps {
   installDir?: string
@@ -120,8 +116,6 @@ export interface ParentProcessDeps {
   spawn?: SpawnChildFn
   /** Probe used for boot readiness and handover health (disposition 24). */
   probeHealth?: HealthProbeFn
-  /** Daemon-only readiness proof from the remote connection + boot reconciliation record. */
-  probeDaemonHealth?: DaemonHealthProbeFn
   /** Whether the release that just swapped carried new migrations (decision 4). */
   releaseHadMigrations?: boolean
   /** Notify systemd (READY / MAINPID / WATCHDOG). */
@@ -250,18 +244,6 @@ async function defaultProbeHealth(port: number): Promise<HandoverHealthProbe> {
   }
 }
 
-async function defaultProbeDaemonHealth(): Promise<DaemonHandoverHealthProbe> {
-  const connectivity = readConnectivity()
-  const daemon = liveRecord('daemon')
-  const isCurrentProcess =
-    connectivity?.processId !== undefined && connectivity.processId === daemon?.pid
-  return {
-    connected: isCurrentProcess && connectivity?.state === 'connected',
-    appVersion: isCurrentProcess ? (connectivity?.appVersion ?? null) : null,
-    convergedVersion: isCurrentProcess ? (connectivity?.convergedVersion ?? null) : null,
-  }
-}
-
 const sleep = (ms: number): Promise<void> => new Promise<void>((r) => setTimeout(r, ms))
 
 export class ParentProcess {
@@ -269,10 +251,7 @@ export class ParentProcess {
   private readonly childProcs = new Map<SupervisedChild, ChildProcess>()
   private readonly childOrder: readonly SupervisedChild[]
   private readonly deps: Required<
-    Pick<
-      ParentProcessDeps,
-      'port' | 'spawn' | 'probeHealth' | 'probeDaemonHealth' | 'notify' | 'now' | 'sleep'
-    >
+    Pick<ParentProcessDeps, 'port' | 'spawn' | 'probeHealth' | 'notify' | 'now' | 'sleep'>
   > &
     ParentProcessDeps
   private readonly installDir: string
@@ -303,7 +282,6 @@ export class ParentProcess {
       port: deps.port,
       spawn: deps.spawn ?? spawn,
       probeHealth: deps.probeHealth ?? defaultProbeHealth,
-      probeDaemonHealth: deps.probeDaemonHealth ?? defaultProbeDaemonHealth,
       notify: deps.notify ?? sdNotify,
       now: deps.now ?? Date.now,
       sleep: deps.sleep ?? sleep,
@@ -555,14 +533,7 @@ export class ParentProcess {
     while (this.deps.now() < deadline) {
       if (this.terminating) return false
       if (!wantsServer && wantsDaemon) {
-        const probe = await this.deps.probeDaemonHealth()
-        const versionOk =
-          expectedVersion === 'dev' || !expectedVersion || probe.appVersion === expectedVersion
-        const ok =
-          this.snap.phase === 'handover_incoming'
-            ? isDaemonHandoverHealthy(probe, expectedVersion)
-            : probe.connected && versionOk
-        if (ok) return true
+        if (this.snap.children.daemon.status === 'running') return true
         await this.deps.sleep(200)
         continue
       }
@@ -846,13 +817,10 @@ export class ParentProcess {
     this.deps.reportSuccessorPid?.(successorPid)
 
     const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? 90_000)
-    const wantsServer = this.childOrder.includes('server')
     while (this.deps.now() < deadline) {
       if (this.terminating) return
-      const healthy = wantsServer
-        ? isHandoverHealthy(await this.deps.probeHealth(this.deps.port), expectedVersion)
-        : isDaemonHandoverHealthy(await this.deps.probeDaemonHealth(), expectedVersion)
-      if (healthy) {
+      const probe = await this.deps.probeHealth(this.deps.port)
+      if (isHandoverHealthy(probe, expectedVersion)) {
         // The gate has passed: NOW tell systemd where its main process moved.
         // nginx-reload pattern, but strictly after health, never before.
         this.deps.notify(`MAINPID=${successorPid}`)

@@ -24,12 +24,6 @@ export const ConnectivityStatus = z.object({
   serverUrl: z.string().optional(),
   /** ISO time of the last successful handshake (survives disconnects — "last seen"). */
   lastHelloOkAt: z.string().optional(),
-  /** PID of the daemon process that wrote this observation. */
-  processId: z.number().int().positive().optional(),
-  /** Build carried by that daemon process. */
-  appVersion: z.string().optional(),
-  /** Pending update version this process confirmed after boot, when applicable. */
-  convergedVersion: z.string().optional(),
   /** Last socket/handshake error, when disconnected. */
   lastError: z.string().optional(),
   /** Current reconnect backoff, when disconnected. */
