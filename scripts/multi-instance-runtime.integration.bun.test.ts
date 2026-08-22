@@ -68,22 +68,21 @@ let packagedCli: string | undefined
 const packagedSpecs: Array<{ executable: string; spec: InstanceSpec }> = []
 let packagedSource: RunningInstance | undefined
 
-const freePorts = (() => {
-  const servers = Array.from({ length: 18 }, () =>
-    Bun.serve({
+const allocatedPorts = new Set<number>()
+const freePort = (): number => {
+  while (true) {
+    const server = Bun.serve({
       hostname: '127.0.0.1',
       port: 0,
       fetch: () => new Response('reserved'),
-    }),
-  )
-  const ports = servers.map((server) => server.port)
-  for (const server of servers) server.stop(true)
-  return ports
-})()
-const freePort = (): number => {
-  const port = freePorts.shift()
-  if (port === undefined) throw new Error('port pool exhausted')
-  return port
+    })
+    const port = server.port
+    server.stop(true)
+    if (!allocatedPorts.has(port)) {
+      allocatedPorts.add(port)
+      return port
+    }
+  }
 }
 
 function makeSpec(id: InstanceSpec['id'], rootTag: string = id): InstanceSpec {
@@ -430,13 +429,13 @@ describe('long instance durable sockets', () => {
     let session: Awaited<ReturnType<typeof spawnAbducoAgent>> | undefined
     let label: string | undefined
     try {
-      const old = spawnSync(bin, ['-n', oldLabel, '/bin/true'], {
-        env: {
-          ...process.env,
-          PODIUM_INSTANCE: instanceId,
-          ABDUCO_SOCKET_DIR: oldSocketDir,
-          PODIUM_NO_SCOPE: '1',
-        },
+      // ABDUCO_SOCKET_DIR is only abduco's first candidate. If it cannot bind there,
+      // the native tool silently falls through HOME, TMPDIR, and /tmp, so a relative
+      // label cannot force this negative control. An absolute name has no fallback and
+      // proves the legacy pathname itself exceeds sun_path before the bounded product
+      // derivation below is allowed to succeed.
+      const old = spawnSync(bin, ['-n', oldPath, '/bin/true'], {
+        env: { ...process.env, PODIUM_NO_SCOPE: '1' },
         encoding: 'utf8',
       })
       expect(old.status).not.toBe(0)
@@ -465,8 +464,15 @@ describe('long instance durable sockets', () => {
       await killAbducoSession(label)
 
       mkdirSync(impossibleDir, { recursive: true })
-      const raw = spawnSync(bin, ['-n', label, '/bin/true'], {
-        env: { ...process.env, ABDUCO_SOCKET_DIR: impossibleDir },
+      const impossiblePath = abducoSocketPathname(
+        impossibleDir,
+        label,
+        userInfo().username,
+        hostname(),
+      )
+      expect(Buffer.byteLength(impossiblePath)).toBeGreaterThan(LINUX_UNIX_SOCKET_PATH_BYTES)
+      const raw = spawnSync(bin, ['-n', impossiblePath, '/bin/true'], {
+        env: { ...process.env, PODIUM_NO_SCOPE: '1' },
         encoding: 'utf8',
       })
       expect(raw.status).not.toBe(0)
