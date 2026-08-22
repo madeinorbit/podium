@@ -85,7 +85,10 @@ import {
   createInstalledCoordinatorUpdate,
 } from './modules/updates/installed-restart'
 import type { ChannelFeed } from './modules/updates/release-target'
-import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
+import {
+  readOrCreateDevArtifactToken,
+  readOrCreateUpdateSigningKey,
+} from './modules/updates/signing-key'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import {
   refreshTargetsOnBoot,
@@ -585,7 +588,7 @@ export async function startServer(
   })
   messaging.configure()
   const cloud = createCloudRuntimeProviderFromEnv()
-  const devArtifactToken = randomUUID()
+  const devArtifactToken = readOrCreateDevArtifactToken()
   let boundPort = opts.port ?? 0
   // build-bun replaces this exact expression with the packaged product version.
   // A detached installed process does not export PODIUM_HOME, so using that

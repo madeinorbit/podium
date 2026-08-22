@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -17,6 +17,7 @@ import { registerDevFeedRoutes } from '../apps/server/src/modules/updates/artifa
 import { withDevBuildSnapshot } from '../apps/server/src/modules/updates/dev-build-snapshot'
 import { resolveReleaseTarget } from '../apps/server/src/modules/updates/release-target'
 import { UpdatesService } from '../apps/server/src/modules/updates/service'
+import { readOrCreateDevArtifactToken } from '../apps/server/src/modules/updates/signing-key'
 import { refreshTargetsOnBoot } from '../apps/server/src/modules/updates/target-refresh'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -85,7 +86,7 @@ describe('named-instance development releases', () => {
     git(root, 'commit', '--quiet', '-m', 'approved')
     const sha = git(root, 'rev-parse', '--short=7', 'HEAD')
 
-    const createPublisher = () =>
+    const createPublisher = (artifactToken = readOrCreateDevArtifactToken(state)) =>
       createDevBundlePublisher({
         root,
         publisherStateDir: state,
@@ -118,7 +119,7 @@ describe('named-instance development releases', () => {
         },
         platform: 'linux-x86_64',
         artifactUrl: (version, platform) =>
-          `https://named.test/updates/feed/dev/artifact/${version}/${platform}`,
+          `https://named.test/updates/feed/dev/artifact/${version}/${platform}?token=${encodeURIComponent(artifactToken)}`,
         edgeDesktopManifest: async () => ({
           version: '0.1.0-edge.20',
           bridgeVersion: 1,
@@ -163,10 +164,17 @@ describe('named-instance development releases', () => {
     )
     if (!expectedArtifact) throw new Error('development release did not mint linux-x86_64')
 
-    const restartedPublisher = createPublisher()
+    const persistedTarget = JSON.parse(persistedManifest) as UpdateTarget
+    const persistedArtifactUrl = persistedTarget.artifacts.headless?.platforms['linux-x86_64']?.url
+    if (!persistedArtifactUrl) throw new Error('published manifest omitted linux-x86_64')
+    const publishedUrl = new URL(persistedArtifactUrl)
+    const artifactPath = publishedUrl.pathname + publishedUrl.search
+    const publishedToken = publishedUrl.searchParams.get('token')
+    const restartedToken = readOrCreateDevArtifactToken(state)
+    expect(restartedToken).toBe(publishedToken)
+
+    const restartedPublisher = createPublisher(restartedToken)
     expect(restartedPublisher.current()).toBeNull()
-    const artifactPath = `/updates/feed/dev/artifact/${encodeURIComponent(built.version)}/linux-x86_64`
-    const request = { headers: { authorization: 'Bearer machine-token' } }
 
     // ARMED NEGATIVE CONTROL: this is the pre-fix route lookup, restored
     // literally against the new process's empty in-memory build record.
@@ -178,30 +186,45 @@ describe('named-instance development releases', () => {
         return held.artifacts.find((artifact) => artifact.platform === platform) ?? null
       },
       manifestPath: () => restartedPublisher.feedManifestPath(),
-      authenticate: () => true,
+      authenticate: (request) => new URL(request.url).searchParams.get('token') === restartedToken,
     })
-    expect((await inMemoryOnly.request(artifactPath, request)).status).toBe(404)
+    expect((await inMemoryOnly.request(artifactPath)).status).toBe(404)
 
-    const routesFor = (candidate: ReturnType<typeof createPublisher>) => {
+    const routesFor = (candidate: ReturnType<typeof createPublisher>, acceptedToken: string) => {
       const app = new Hono()
       registerDevFeedRoutes(app, {
         publishedArtifact: (version, platform) => candidate.publishedArtifact(version, platform),
         manifestPath: () => candidate.feedManifestPath(),
-        authenticate: (incoming) =>
-          incoming.headers.get('authorization') === 'Bearer machine-token',
+        authenticate: (request) => new URL(request.url).searchParams.get('token') === acceptedToken,
       })
       return app
     }
 
-    const unknownPath = `/updates/feed/dev/artifact/${encodeURIComponent(built.version + '-unknown')}/linux-x86_64`
-    expect((await routesFor(createPublisher()).request(unknownPath, request)).status).toBe(404)
+    // ARMED CREDENTIAL CONTROL: restoring the per-boot random token rejects the
+    // exact URL that the previous process persisted in its manifest.
+    const rotatedToken = randomUUID()
+    expect(rotatedToken).not.toBe(publishedToken)
+    expect(
+      (await routesFor(createPublisher(rotatedToken), rotatedToken).request(artifactPath)).status,
+    ).toBe(401)
+
+    const unknownPath = `/updates/feed/dev/artifact/${encodeURIComponent(
+      built.version + '-unknown',
+    )}/linux-x86_64${publishedUrl.search}`
+    expect((await routesFor(createPublisher(), restartedToken).request(unknownPath)).status).toBe(
+      404,
+    )
 
     const publishedBytes = readFileSync(expectedArtifact.path)
     writeFileSync(expectedArtifact.path, 'tampered after publication')
-    expect((await routesFor(createPublisher()).request(artifactPath, request)).status).toBe(404)
+    expect((await routesFor(createPublisher(), restartedToken).request(artifactPath)).status).toBe(
+      404,
+    )
     writeFileSync(expectedArtifact.path, publishedBytes)
 
-    const artifactResponse = await routesFor(createPublisher()).request(artifactPath, request)
+    const artifactResponse = await routesFor(createPublisher(), restartedToken).request(
+      artifactPath,
+    )
     const fetched = new Uint8Array(await artifactResponse.arrayBuffer())
     expect(artifactResponse.status).toBe(200)
     expect(Array.from(fetched)).toEqual(Array.from(publishedBytes))
