@@ -1,6 +1,25 @@
 import { isProvablyNewer } from '@podium/protocol'
 import { canonicalMigrationName } from './migration-ledger'
 
+/**
+ * Did this target carry migrations this machine has not applied?
+ *
+ * Undefined is intentionally a real answer: an undeclared target has not
+ * proved the fact needed for rollback, so the parent must keep refusing. No
+ * local ledger means this is a daemon-only machine with no database to migrate,
+ * which is the one case where `false` is proven without comparing names.
+ */
+export function releaseCarriesNewMigrations(
+  target: { schema?: { migrations?: readonly string[] } },
+  applied: readonly string[] | undefined,
+): boolean | undefined {
+  const defines = target.schema?.migrations
+  if (defines === undefined) return undefined
+  if (applied === undefined) return false
+  const have = new Set(applied.map(canonicalMigrationName))
+  return defines.some((name) => !have.has(canonicalMigrationName(name)))
+}
+
 const SCHEMA_ADVANCED = 'schema-advanced'
 const SCHEMA_UNKNOWN = 'schema-unknown'
 const SCHEMA_UNREADABLE = 'schema-unreadable'

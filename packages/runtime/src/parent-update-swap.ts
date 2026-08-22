@@ -22,10 +22,12 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { planConvergence, UpdateTarget } from '@podium/protocol'
-import { canonicalMigrationName, readAppliedMigrations } from './migration-ledger'
+import { readAppliedMigrations } from './migration-ledger'
 import { type DeliveryDeps, fetchArtifact, PODIUM_UPDATE_PUBKEY } from './update-delivery'
 import { swapHeadlessBundle } from './update-install'
-import { createSchemaGate } from './update-schema'
+import { createSchemaGate, releaseCarriesNewMigrations } from './update-schema'
+
+export { releaseCarriesNewMigrations } from './update-schema'
 
 export interface ParentUpdateSwapDeps {
   installDir: string
@@ -48,8 +50,9 @@ export interface ParentUpdateSwapResult {
    * Did this release define migrations the database had not applied? Decision 4
    * makes rollback UNAVAILABLE when it did — going back across a migration needs
    * a database restore by hand, so the parent must report why instead of doing it.
+   * Undefined means the declaration or ledger could not prove either answer.
    */
-  releaseHadMigrations: boolean
+  releaseHadMigrations: boolean | undefined
   /** False when the bundle was already the target and nothing was written. */
   swapped: boolean
 }
@@ -63,22 +66,6 @@ export function runningPlatform(): string {
 
 function defaultInstalledVersion(installDir: string): string {
   return readFileSync(join(installDir, 'VERSION'), 'utf8').trim()
-}
-
-/**
- * Does `target` define migrations this database has not applied? Unknown
- * declarations (a target that says nothing about schema) count as NO new
- * migrations: decision 4 must not withhold rollback on a guess, and the schema
- * gate above has already refused every case where the unknown is dangerous.
- */
-export function releaseCarriesNewMigrations(
-  target: { schema?: { migrations?: readonly string[] } },
-  applied: readonly string[] | undefined,
-): boolean {
-  const defines = target.schema?.migrations
-  if (!defines || defines.length === 0) return false
-  const have = new Set((applied ?? []).map(canonicalMigrationName))
-  return defines.some((name) => !have.has(canonicalMigrationName(name)))
 }
 
 /**
@@ -118,14 +105,18 @@ export function createParentUpdateSwap(
 
   return async (target: UpdateTarget): Promise<ParentUpdateSwapResult> => {
     const current = installedVersion(installDir)
+    let ledgerReadable = true
     const applied = (() => {
       try {
         return readApplied()
       } catch {
+        ledgerReadable = false
         return undefined
       }
     })()
-    const releaseHadMigrations = releaseCarriesNewMigrations(target, applied)
+    const releaseHadMigrations = ledgerReadable
+      ? releaseCarriesNewMigrations(target, applied)
+      : undefined
     if (current === target.version) {
       return { version: current, releaseHadMigrations, swapped: false }
     }

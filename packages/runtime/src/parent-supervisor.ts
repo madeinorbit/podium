@@ -322,7 +322,7 @@ export function watchdogPetDecision(input: {
  * found a `.old` it did not create — is guessing. Restoring old code over a
  * migrated database corrupts data rather than merely inconveniencing the user,
  * so a parent that cannot answer the question refuses and says so. (Contrast
- * `releaseCarriesNewMigrations`, where a target that declares NO migrations is
+ * `releaseCarriesNewMigrations`, where an explicit empty declaration is
  * knowledge, not absence of it.)
  */
 export function rollbackDecision(input: {

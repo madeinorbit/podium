@@ -419,6 +419,13 @@ export class ParentProcess {
           await this.runSwapRequest(request)
           return
         }
+        // A remote packaged daemon performs its own artifact swap, so this old
+        // parent did not run `runSwapRequest` and cannot learn the migration
+        // fact anywhere else. Preserve UNKNOWN: only an explicit publisher-
+        // proved boolean is allowed to arm automatic rollback.
+        if (request.releaseHadMigrations !== undefined) {
+          this.deps.releaseHadMigrations = request.releaseHadMigrations
+        }
         clearParentRequest()
         await this.handover(request.expectedVersion)
       } catch (error) {
@@ -470,7 +477,12 @@ export class ParentProcess {
         swapped: result.swapped,
         releaseHadMigrations: result.releaseHadMigrations,
       })
-      answer({ ok: true, releaseHadMigrations: result.releaseHadMigrations })
+      answer({
+        ok: true,
+        ...(result.releaseHadMigrations !== undefined
+          ? { releaseHadMigrations: result.releaseHadMigrations }
+          : {}),
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       log.error('parent update swap failed', { err: error })

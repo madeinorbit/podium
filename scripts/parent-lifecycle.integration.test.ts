@@ -27,6 +27,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { requestParentHandover } from '../packages/runtime/src/parent-control'
 
 const ROOT = join(import.meta.dirname, '..')
 const FIXTURE = join(ROOT, 'scripts/fixtures/parent-stack-fixture.ts')
@@ -171,6 +172,23 @@ async function startStack(
       return pids
     },
     notifications,
+  }
+}
+
+function requestFixtureHandover(
+  stack: Stack,
+  request: { expectedVersion: string; releaseHadMigrations?: boolean },
+): ReturnType<typeof requestParentHandover> {
+  // Parent control resolves the live parent through the configured instance,
+  // while its explicit stateDir selects the request channel. Point both reads
+  // at this isolated real-process stack for the duration of the synchronous ask.
+  const previous = process.env.PODIUM_STATE_DIR
+  process.env.PODIUM_STATE_DIR = stack.stateDir
+  try {
+    return requestParentHandover(request, { stateDir: stack.stateDir })
+  } finally {
+    if (previous === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = previous
   }
 }
 
@@ -463,11 +481,7 @@ describe('parent lifecycle (real processes)', () => {
    */
   it('R2 — a failed handover ROLLS BACK to .old and comes back serving on it', async () => {
     const stack = await startStack(
-      {
-        FIXTURE_HANDOVER_TIMEOUT_MS: '6000',
-        // The parent that ran the swap knows this; it is what decision 4 turns on.
-        FIXTURE_RELEASE_HAD_MIGRATIONS: '0',
-      },
+      { FIXTURE_HANDOVER_TIMEOUT_MS: '6000' },
       { separateInstallDir: true },
     )
     await until(
@@ -482,18 +496,15 @@ describe('parent lifecycle (real processes)', () => {
     writeFileSync(join(`${stack.installDir}.old`, 'VERSION'), '1.0.0\n')
     writeFileSync(join(stack.installDir, 'VERSION'), '2.0.0\n')
 
-    const { writeParentRequest } = await import('../packages/runtime/src/parent-control')
-    writeParentRequest(
-      {
-        requestId: 'rollback-handover',
-        kind: 'handover',
+    expect(
+      requestFixtureHandover(stack, {
         // Nothing will ever serve this, so the gate expires and the abort runs.
         expectedVersion: '9.9.9-never-arrives',
-        requestedAt: new Date().toISOString(),
-      },
-      stack.stateDir,
-    )
-    process.kill(stack.parentPid, 'SIGUSR1')
+        // The packaged daemon performed the swap. This fact therefore has to
+        // survive the production request boundary into the already-running parent.
+        releaseHadMigrations: false,
+      }),
+    ).toEqual({ ok: true, pid: stack.parentPid })
 
     const version = await until(
       () => {
@@ -530,7 +541,7 @@ describe('parent lifecycle (real processes)', () => {
    */
   it('R2 — a failed handover on a MIGRATING release refuses to roll back, and reports why', async () => {
     const stack = await startStack(
-      { FIXTURE_HANDOVER_TIMEOUT_MS: '6000', FIXTURE_RELEASE_HAD_MIGRATIONS: '1' },
+      { FIXTURE_HANDOVER_TIMEOUT_MS: '6000' },
       { separateInstallDir: true },
     )
     await until(
@@ -542,17 +553,12 @@ describe('parent lifecycle (real processes)', () => {
     writeFileSync(join(`${stack.installDir}.old`, 'VERSION'), '1.0.0\n')
     writeFileSync(join(stack.installDir, 'VERSION'), '2.0.0\n')
 
-    const { writeParentRequest } = await import('../packages/runtime/src/parent-control')
-    writeParentRequest(
-      {
-        requestId: 'stuck-handover',
-        kind: 'handover',
+    expect(
+      requestFixtureHandover(stack, {
         expectedVersion: '9.9.9-never-arrives',
-        requestedAt: new Date().toISOString(),
-      },
-      stack.stateDir,
-    )
-    process.kill(stack.parentPid, 'SIGUSR1')
+        releaseHadMigrations: true,
+      }),
+    ).toEqual({ ok: true, pid: stack.parentPid })
 
     const outcome = await until(
       () => {

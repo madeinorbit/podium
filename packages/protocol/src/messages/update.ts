@@ -51,6 +51,12 @@ export type ConvergenceState = (typeof CONVERGENCE_STATES)[number]
 export const UpdateStatusMessage = z.object({
   type: z.literal('updateStatus'),
   grantId: z.string().min(1).optional(),
+  /**
+   * Target named by a durable boot-recovery report. This lets a terminal
+   * report survive the coordinator replacing its original grant id while the
+   * packaged process was down, without applying an old report to a new target.
+   */
+  targetVersion: z.string().min(1).optional(),
   state: z.enum(CONVERGENCE_STATES),
   /** A label, never parsed or ordered as a semver. */
   version: z.string().min(1),

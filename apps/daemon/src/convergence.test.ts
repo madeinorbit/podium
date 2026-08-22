@@ -137,31 +137,46 @@ describe('refuseConvergence', () => {
 describe('restartAfterGrant', () => {
   it('asks a supervising parent to hand over to the granted version', () => {
     const requestHandover = vi.fn(() => ({ ok: true as const, pid: 42 }))
-    restartAfterGrant('2.0.0', {
-      parentManaged: true,
-      requestHandover,
-      exit: vi.fn(),
+    restartAfterGrant(
+      '2.0.0',
+      { releaseHadMigrations: false },
+      {
+        parentManaged: true,
+        requestHandover,
+        exit: vi.fn(),
+      },
+    )
+    expect(requestHandover).toHaveBeenCalledWith({
+      expectedVersion: '2.0.0',
+      releaseHadMigrations: false,
     })
-    expect(requestHandover).toHaveBeenCalledWith('2.0.0')
   })
 
   it('exits a direct daemon for its shell or service manager to respawn', () => {
     const exit = vi.fn()
-    restartAfterGrant('2.0.0', {
-      parentManaged: false,
-      requestHandover: vi.fn(),
-      exit,
-    })
+    restartAfterGrant(
+      '2.0.0',
+      {},
+      {
+        parentManaged: false,
+        requestHandover: vi.fn(),
+        exit,
+      },
+    )
     expect(exit).toHaveBeenCalledWith(0)
   })
 
   it('reports a vanished parent instead of pretending to restart', () => {
     expect(() =>
-      restartAfterGrant('2.0.0', {
-        parentManaged: true,
-        requestHandover: () => ({ ok: false, reason: 'no-parent' }),
-        exit: vi.fn(),
-      }),
+      restartAfterGrant(
+        '2.0.0',
+        {},
+        {
+          parentManaged: true,
+          requestHandover: () => ({ ok: false, reason: 'no-parent' }),
+          exit: vi.fn(),
+        },
+      ),
     ).toThrow(/machine-cannot-restart/)
   })
 })

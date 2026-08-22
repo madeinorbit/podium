@@ -70,10 +70,12 @@ export interface GrantApplyDeps {
    * another.
    */
   refuse?(target: UpdateGrantMessage['target']): string | undefined
+  /** Publisher declaration compared with this machine's live migration ledger. */
+  releaseHadMigrations?(target: UpdateGrantMessage['target']): boolean | undefined
   /** Persist before asking the process manager to restart us. */
   writePending(grant: PendingGrant): void
   /** Restart into the exact version whose bundle was just swapped into place. */
-  restart(expectedVersion: string): void
+  restart(expectedVersion: string, handover: { releaseHadMigrations?: boolean }): void
   report(status: UpdateStatusMessage): void
   now(): number
 }
@@ -182,7 +184,11 @@ export async function applyGrant(
       startedAt: deps.now(),
     })
     report(deps, grant, 'restarting', current)
-    deps.restart(grant.target.version)
+    const releaseHadMigrations = deps.releaseHadMigrations?.(grant.target)
+    deps.restart(
+      grant.target.version,
+      releaseHadMigrations === undefined ? {} : { releaseHadMigrations },
+    )
   } catch (error) {
     if (signal?.aborted) return
     report(deps, grant, 'rejected', current, error instanceof Error ? error.message : String(error))

@@ -77,7 +77,7 @@ describe('applyGrant', () => {
     expect(d.fetchArtifact).toHaveBeenCalled()
     expect(d.swap).toHaveBeenCalled()
     expect(d.writePending).toHaveBeenCalled()
-    expect(d.restart).toHaveBeenCalledWith('0.4.2')
+    expect(d.restart).toHaveBeenCalledWith('0.4.2', {})
   })
 
   it('writes the pending marker BEFORE restarting', async () => {
@@ -88,6 +88,31 @@ describe('applyGrant', () => {
     })
     await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
     expect(order).toEqual(['write', 'restart'])
+  })
+
+  /**
+   * THE ROLLBACK FACT TRAVELS WITH THE PACKAGED HANDOVER.
+   *
+   * False and unknown are distinct all the way through: collapsing absence to
+   * false here would turn an unreadable/undeclared schema into permission to
+   * restore old code over a database migrations may already have changed.
+   */
+  it('carries only a proven migration fact into the packaged handover', async () => {
+    const migrationFree = deps({ releaseHadMigrations: () => false })
+    await applyGrant({ type: 'updateGrant', grantId: 'g-safe', target }, migrationFree)
+    expect(migrationFree.restart).toHaveBeenCalledWith('0.4.2', {
+      releaseHadMigrations: false,
+    })
+
+    const migrating = deps({ releaseHadMigrations: () => true })
+    await applyGrant({ type: 'updateGrant', grantId: 'g-migrating', target }, migrating)
+    expect(migrating.restart).toHaveBeenCalledWith('0.4.2', {
+      releaseHadMigrations: true,
+    })
+
+    const unknown = deps({ releaseHadMigrations: () => undefined })
+    await applyGrant({ type: 'updateGrant', grantId: 'g-unknown', target }, unknown)
+    expect(unknown.restart).toHaveBeenCalledWith('0.4.2', {})
   })
 
   /**

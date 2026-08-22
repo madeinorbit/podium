@@ -54,6 +54,11 @@ export const ParentRequest = z.object({
    * construction — it is what pairing daemons are handed.
    */
   pinnedPubkey: z.string().optional(),
+  /**
+   * For a daemon-initiated packaged handover: the target declaration compared
+   * with this machine's ledger. Absence stays unknown, so rollback stays refused.
+   */
+  releaseHadMigrations: z.boolean().optional(),
 })
 export type ParentRequest = z.infer<typeof ParentRequest>
 
@@ -191,7 +196,12 @@ const sleepMs = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, 
 
 function post(
   kind: ParentRequestKind,
-  request: { expectedVersion: string; target?: Record<string, unknown>; pinnedPubkey?: string },
+  request: {
+    expectedVersion: string
+    target?: Record<string, unknown>
+    pinnedPubkey?: string
+    releaseHadMigrations?: boolean
+  },
   opts: ParentRequestOptions,
 ): { ok: true; pid: number; requestId: string } | { ok: false; reason: 'no-parent' } {
   const dir = opts.stateDir ?? stateDir()
@@ -206,6 +216,9 @@ function post(
       requestedAt: new Date(opts.now?.() ?? Date.now()).toISOString(),
       ...(request.target ? { target: request.target } : {}),
       ...(request.pinnedPubkey ? { pinnedPubkey: request.pinnedPubkey } : {}),
+      ...(request.releaseHadMigrations !== undefined
+        ? { releaseHadMigrations: request.releaseHadMigrations }
+        : {}),
     },
     dir,
   )
@@ -221,7 +234,7 @@ function post(
  * (disposition 6).
  */
 export function requestParentHandover(
-  request: { expectedVersion: string },
+  request: { expectedVersion: string; releaseHadMigrations?: boolean },
   opts: ParentRequestOptions = {},
 ): { ok: true; pid: number } | { ok: false; reason: 'no-parent' } {
   const posted = post('handover', request, opts)

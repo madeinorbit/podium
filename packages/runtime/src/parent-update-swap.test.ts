@@ -44,7 +44,7 @@ describe('createParentUpdateSwap', () => {
 
     expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ version: '0.4.2' }), '0.4.1')
     expect(swap).toHaveBeenCalledOnce()
-    expect(result).toEqual({ version: '0.4.2', releaseHadMigrations: false, swapped: true })
+    expect(result).toEqual({ version: '0.4.2', releaseHadMigrations: undefined, swapped: true })
   })
 
   it('does no delivery when the bundle is already the target', async () => {
@@ -121,8 +121,9 @@ describe('createParentUpdateSwap', () => {
 })
 
 describe('releaseCarriesNewMigrations', () => {
-  it('is false when the target declares nothing — a guess must not withhold rollback', () => {
-    expect(releaseCarriesNewMigrations({}, ['a'])).toBe(false)
+  it('preserves unknown when the target declares nothing', () => {
+    expect(releaseCarriesNewMigrations({}, ['a'])).toBeUndefined()
+    expect(releaseCarriesNewMigrations({}, undefined)).toBeUndefined()
     expect(releaseCarriesNewMigrations({ schema: { migrations: [] } }, ['a'])).toBe(false)
   })
 
@@ -134,6 +135,27 @@ describe('releaseCarriesNewMigrations', () => {
 
   it('is true for a declared migration the database has not applied', () => {
     expect(releaseCarriesNewMigrations({ schema: { migrations: ['a', 'z'] } }, ['a'])).toBe(true)
+  })
+
+  it('is false on a daemon-only machine with no database to migrate', () => {
+    expect(releaseCarriesNewMigrations({ schema: { migrations: ['a', 'b'] } }, undefined)).toBe(
+      false,
+    )
+  })
+
+  it('preserves unknown when the local ledger cannot be read', async () => {
+    const installDir = installDirAt('0.4.2')
+    const swap = createParentUpdateSwap({
+      installDir,
+      readApplied: () => {
+        throw new Error('ledger unavailable')
+      },
+      deliver: async () => new Uint8Array(),
+    })
+
+    await expect(
+      swap({ version: '0.4.2', critical: false, schema: { migrations: ['a'] }, artifacts: {} }),
+    ).resolves.toMatchObject({ releaseHadMigrations: undefined, swapped: false })
   })
 })
 

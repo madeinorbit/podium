@@ -1461,6 +1461,57 @@ describe('the step runners', () => {
     expect(operation.error?.message).toContain('vmi3407763')
   })
 
+  /**
+   * A packaged daemon can be down long enough for the coordinator to replace
+   * its grant before the rolled-back process reads the durable marker. The
+   * marker still names grant_1; the live operation is now waiting on grant_2.
+   * That exact mismatch made the terminal crash report disappear.
+   *
+   * The assertion is the persisted operation row a person sees, not only the
+   * fleet cache: the crash must settle it as failed and leave it in history.
+   */
+  it('machines: a packaged crash after grant replacement remains a failed operation', async () => {
+    const target = packedTarget()
+    const h = harness({
+      machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
+      target,
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    const originalGrantId = h.sent[0]?.message.grantId
+    expect(originalGrantId).toBe('grant_1')
+    expect(h.updates.reissueGrants('dev')).toEqual(['vmi'])
+    expect(h.sent[1]?.message.grantId).toBe('grant_2')
+
+    h.updates.onStatus(asMachineId('vmi'), {
+      type: 'updateStatus',
+      grantId: originalGrantId,
+      targetVersion: target.version,
+      state: 'rejected',
+      version: '0.4.1',
+      detail:
+        'attempt 2 of 2 did not reach dev+abc1234 (running 0.4.1); applying again will retry it',
+    })
+    createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    }).onFleetChanged()
+    await h.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.state).toBe('failed')
+    expect(stepState(operation, UPDATE_STEP_MACHINES)).toBe('failed')
+    expect(operation.error?.code).toBe('machine-update-not-confirmed')
+    expect(operation.error?.message).toContain('vmi3407763')
+    expect(
+      h.store.history(UPDATE_OPERATION_KIND).some((entry) => entry.operation?.id === operation.id),
+    ).toBe(true)
+  })
+
   it('machines: carries the recorded snapshot into schema-advanced failure copy', async () => {
     const snapshotPath = '/state/podium.db.backup-vupdate-0.4.1-to-0.4.2-2026-08-17'
     const h = harness({

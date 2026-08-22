@@ -103,7 +103,7 @@ describe('requestParentHandover', () => {
         mode: 'systemd',
       })
       const result = requestParentHandover(
-        { expectedVersion: '9.9.9' },
+        { expectedVersion: '9.9.9', releaseHadMigrations: false },
         { stateDir: dir, signal: (pid, signal) => signaled.push({ pid, signal }) },
       )
       expect(result).toEqual({ ok: true, pid: process.pid })
@@ -111,6 +111,7 @@ describe('requestParentHandover', () => {
       const written = readParentRequest(dir)
       expect(written?.kind).toBe('handover')
       expect(written?.expectedVersion).toBe('9.9.9')
+      expect(written?.releaseHadMigrations).toBe(false)
     } finally {
       if (prev === undefined) delete process.env.PODIUM_STATE_DIR
       else process.env.PODIUM_STATE_DIR = prev

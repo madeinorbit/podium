@@ -572,6 +572,69 @@ describe('UpdatesService', () => {
       expect(send.mock.calls[0]?.[1]).toMatchObject({ type: 'updateGrant', grantId: 'g2' })
     })
 
+    it('keeps a packaged crash report after the coordinator replaced its grant', () => {
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'restarting',
+        version: '0.4.1',
+      })
+
+      // The operation spends its bounded retry while the crashed packaged
+      // process is down, so g2 is now the coordinator's correlation id. The
+      // durable marker that survives the process crash still names g1.
+      expect(svc.reissueGrants('dev')).toEqual(['a'])
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        targetVersion: '0.4.2',
+        state: 'rejected',
+        version: '0.4.1',
+        detail: 'attempt 2 of 2 did not reach 0.4.2 (running 0.4.1); applying again will retry it',
+      })
+
+      const failed = svc.fleet()[0]
+      expect(failed).toMatchObject({
+        state: 'rejected',
+        version: '0.4.1',
+        detail: expect.stringContaining('did not reach 0.4.2'),
+      })
+      expect(classifyMachineFailure(failed?.detail)).toBe('machine-update-not-confirmed')
+      expect(svc.operationActive('dev')).toBe(false)
+    })
+
+    it('does not apply a recovered crash report to a different packaged target', () => {
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'restarting',
+        version: '0.4.1',
+      })
+      expect(svc.reissueGrants('dev')).toEqual(['a'])
+
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        targetVersion: '0.4.3',
+        state: 'rejected',
+        version: '0.4.1',
+        detail: 'belongs to another release',
+      })
+
+      expect(svc.fleet()[0]).toMatchObject({
+        state: 'granted',
+        version: '0.4.1',
+      })
+      expect(svc.fleet()[0]).not.toHaveProperty('detail')
+      expect(svc.operationActive('dev')).toBe(true)
+    })
+
     it('does not re-grant a machine that is offline or already at the target', () => {
       const { svc, send } = make([m('a', { online: false }), m('b', { version: '0.4.2' })])
       svc.setTarget(target)

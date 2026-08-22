@@ -1,6 +1,10 @@
 import type { PendingGrant } from './pending-grant'
 
-export { createSchemaGate, refuseSchemaRegression } from '@podium/runtime/update-schema'
+export {
+  createSchemaGate,
+  refuseSchemaRegression,
+  releaseCarriesNewMigrations,
+} from '@podium/runtime/update-schema'
 
 export const MAX_CONVERGENCE_ATTEMPTS = 2
 
@@ -103,9 +107,10 @@ export function disarmExitSeam(input: { provided?: () => void; shape: ProcessSha
 export interface GrantRestartDeps {
   provided?: () => void
   parentManaged: boolean
-  requestHandover(expectedVersion: string):
-    | { ok: true; pid: number }
-    | { ok: false; reason: string }
+  requestHandover(request: {
+    expectedVersion: string
+    releaseHadMigrations?: boolean
+  }): { ok: true; pid: number } | { ok: false; reason: string }
   exit(code: number): void
 }
 
@@ -119,6 +124,7 @@ export interface GrantRestartDeps {
  */
 export function restartAfterGrant(
   expectedVersion: string,
+  handover: { releaseHadMigrations?: boolean },
   deps: GrantRestartDeps,
 ): void {
   if (deps.provided) {
@@ -129,7 +135,7 @@ export function restartAfterGrant(
     deps.exit(0)
     return
   }
-  const result = deps.requestHandover(expectedVersion)
+  const result = deps.requestHandover({ expectedVersion, ...handover })
   if (!result.ok) {
     throw new Error(
       `machine-cannot-restart: no supervising parent to hand over to (${result.reason})`,

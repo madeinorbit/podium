@@ -25,9 +25,11 @@ describe('update frames', () => {
       type: 'updateStatus',
       grantId: 'g1',
       state: 'restarting',
+      targetVersion: '0.4.2',
       version: '0.4.1',
     })
     expect(s.state).toBe('restarting')
+    expect(s.targetVersion).toBe('0.4.2')
   })
 
   it('is routable as a daemon-to-server frame', () => {

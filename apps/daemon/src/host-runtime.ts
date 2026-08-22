@@ -39,6 +39,7 @@ import {
   createSchemaGate,
   MAX_CONVERGENCE_ATTEMPTS,
   refuseConvergence,
+  releaseCarriesNewMigrations,
   restartAfterGrant,
   resolveOnBoot,
 } from './convergence'
@@ -389,6 +390,7 @@ export async function createDaemonHostRuntime(args: {
     send({
       type: 'updateStatus',
       grantId: pending.grantId,
+      targetVersion: pending.targetVersion,
       state,
       version: runningVersion,
       ...(detail ? { detail } : {}),
@@ -454,12 +456,21 @@ export async function createDaemonHostRuntime(args: {
       return swapHeadlessBundle(bytes, installDir)
     },
     refuse: (target) => convergenceRefusal ?? schemaGate(target),
+    releaseHadMigrations: (target) => {
+      try {
+        return releaseCarriesNewMigrations(target, readAppliedMigrations())
+      } catch {
+        // The gate immediately above already refuses an unreadable ledger.
+        // Preserve unknown if the second read races with a filesystem failure.
+        return undefined
+      }
+    },
     writePending: (pending) => writePendingGrant(instance.runtimeDir, pending),
-    restart: (expectedVersion) =>
-      restartAfterGrant(expectedVersion, {
+    restart: (expectedVersion, handover) =>
+      restartAfterGrant(expectedVersion, handover, {
         ...(opts.restartAfterUpdate ? { provided: opts.restartAfterUpdate } : {}),
         parentManaged: process.env.PODIUM_UNDER_PARENT === '1',
-        requestHandover: (version) => requestParentHandover({ expectedVersion: version }),
+        requestHandover: (request) => requestParentHandover(request),
         exit: process.exit,
       }),
     report: (status) => send(status),

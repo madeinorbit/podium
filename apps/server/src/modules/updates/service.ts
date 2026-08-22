@@ -593,9 +593,15 @@ export class UpdatesService {
 
     const pending = this.pendingGrants.get(machineId)
     const pendingGrant = pending?.channel === channel ? pending : undefined
-    // A status carrying a grant id must belong to the grant currently issued for
-    // this channel and target. Late reports from a channel the machine left are inert.
-    if (message.grantId && message.grantId !== pendingGrant?.grantId) return
+    // Ordinary progress carrying a grant id must belong to the current grant.
+    // A packaged process can, however, be DOWN while the coordinator spends its
+    // one retry and replaces that id. Its durable boot report is still the
+    // machine's terminal truth for this SAME target, so accept that narrowly;
+    // targetVersion prevents an old crash report poisoning a later release.
+    const terminal = message.state === 'rejected' || message.state === 'stuck'
+    const grantMismatch = message.grantId !== undefined && message.grantId !== pendingGrant?.grantId
+    const recoveredTerminal = grantMismatch && terminal && message.targetVersion === target.version
+    if (grantMismatch && !recoveredTerminal) return
 
     const effectiveState =
       message.state === 'current' && pendingGrant !== undefined
@@ -619,7 +625,11 @@ export class UpdatesService {
       channel,
       state: effectiveState,
       version: message.version,
-      ...(message.grantId ? { grantId: message.grantId } : {}),
+      ...(pendingGrant && recoveredTerminal
+        ? { grantId: pendingGrant.grantId }
+        : message.grantId
+          ? { grantId: message.grantId }
+          : {}),
       ...(message.detail ? { detail: message.detail } : {}),
       ...(message.percent !== undefined ? { percent: message.percent } : {}),
       ...(message.phaseDetail ? { phaseDetail: message.phaseDetail } : {}),
