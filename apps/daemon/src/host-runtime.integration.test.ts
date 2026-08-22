@@ -1,9 +1,12 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { AgentSessionHandle } from '@podium/agent-runtime'
-import type { SessionId } from '@podium/model'
+import { asMachineId, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
-import type { DaemonContext } from './control/context'
-import { reapServerSessionsBeforeDispose } from './host-runtime'
+import { buildReport } from './build-report'
+import { createDaemonHostRuntime } from './host-runtime'
 import type { DaemonMachineRuntime } from './runtime/machine-runtime'
 import type { ServerReapIo } from './runtime/server-reap'
 
@@ -58,32 +61,74 @@ describe('full-reap daemon close', () => {
         await killGate
       },
     } as unknown as AgentSessionHandle
-    const sent: DaemonMessage[] = []
-    const ctx = {
-      agentRuntime: {
-        serverHandleFor: (sessionId: SessionId) => (sessionId === SESSION ? handle : undefined),
-        journalledServerProcess: () => undefined,
-      },
-      send: (message: DaemonMessage) => void sent.push(message),
-    } as unknown as DaemonContext
     const runtime = {
       registeredBindings: () => [handle.binding],
-    } as unknown as Pick<DaemonMachineRuntime, 'registeredBindings'>
+      serverHandleFor: (sessionId: SessionId) => (sessionId === SESSION ? handle : undefined),
+      journalledServerProcess: () => undefined,
+      dispose: disposed,
+    } as unknown as Pick<
+      DaemonMachineRuntime,
+      'registeredBindings' | 'serverHandleFor' | 'journalledServerProcess' | 'dispose'
+    >
 
     const io = reapIo(state)
-    const closing = reapServerSessionsBeforeDispose(ctx, runtime, true, disposed, io)
-    await vi.waitFor(() => expect(calls).toEqual(['kill']))
-    expect(disposed).not.toHaveBeenCalled()
-    releaseKill()
-    await closing
-    expect(disposed).toHaveBeenCalledOnce()
+    const root = mkdtempSync(join(tmpdir(), 'podium-host-close-'))
+    const instance = {
+      instanceId: 'default',
+      runtimeDir: join(root, 'runtime'),
+      settingsDir: join(root, 'settings'),
+      hookSocketPath: join(root, 'runtime', 'codex-hooks.sock'),
+      codexReceiptDir: join(root, 'receipts'),
+    }
+    const previousStateDir = process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = join(root, 'state')
+    const sent: DaemonMessage[] = []
+    let host: Awaited<ReturnType<typeof createDaemonHostRuntime>> | undefined
+    let closing: Promise<void> | undefined
+    try {
+      host = await createDaemonHostRuntime({
+        options: {
+          serverUrl: 'ws://127.0.0.1:1',
+          identityDir: join(root, 'identity'),
+          machineId: asMachineId('11111111-1111-4111-8111-111111111111'),
+          backend: 'none',
+          launch: () => ({ cmd: process.execPath, args: [], cwd: root }),
+          hooks: { port: 0, settingsDir: instance.settingsDir },
+          agentRelay: { port: 0 },
+          discovery: { background: false, cachePath: ':memory:', homeDir: root },
+          metrics: { background: false },
+        },
+        instance,
+        build: buildReport({}, undefined, 'test'),
+        installDir: undefined,
+        send: (message) => void sent.push(message),
+        acknowledgeQueueDrainReport: () => {},
+        acknowledgeRuntimeEvent: () => {},
+        testAgentRuntime: runtime,
+        testServerReapIo: io,
+      })
 
-    expect(state.alive).toBe(false)
-    expect(io.signals).toEqual(['SIGKILL'])
-    expect(calls).toEqual(['kill', 'kill'])
-    expect(sent.find((message) => message.type === 'sessionKillResult')).toMatchObject({
-      killed: true,
-      sessionId: SESSION,
-    })
+      closing = host.close({ reapSessions: true })
+      await vi.waitFor(() => expect(calls).toEqual(['kill']))
+      expect(disposed).not.toHaveBeenCalled()
+      releaseKill()
+      await closing
+      expect(disposed).toHaveBeenCalledOnce()
+
+      expect(state.alive).toBe(false)
+      expect(io.signals).toEqual(['SIGKILL'])
+      expect(calls).toEqual(['kill', 'kill'])
+      expect(sent.find((message) => message.type === 'sessionKillResult')).toMatchObject({
+        killed: true,
+        sessionId: SESSION,
+      })
+    } finally {
+      releaseKill()
+      await closing?.catch(() => undefined)
+      await host?.close().catch(() => undefined)
+      if (previousStateDir === undefined) delete process.env.PODIUM_STATE_DIR
+      else process.env.PODIUM_STATE_DIR = previousStateDir
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

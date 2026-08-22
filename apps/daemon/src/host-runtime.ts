@@ -113,6 +113,11 @@ export interface DaemonHostRuntime {
   close(opts?: { reapSessions?: boolean }): Promise<void>
 }
 
+type CloseAgentRuntime = Pick<
+  DaemonMachineRuntime,
+  'registeredBindings' | 'serverHandleFor' | 'journalledServerProcess' | 'dispose'
+>
+
 /**
  * Full harness shutdown is the one daemon close mode that owns server-family
  * children too. Snapshot the bindings while the handles still exist, then let
@@ -171,6 +176,10 @@ export async function createDaemonHostRuntime(args: {
   send: (message: DaemonMessage) => void
   acknowledgeQueueDrainReport: (reportId: string) => void
   acknowledgeRuntimeEvent: (deliveryId: string) => void
+  /** Test-only runtime seam for exercising the returned host close contract. */
+  testAgentRuntime?: CloseAgentRuntime
+  /** Test-only server-child process effects; production uses real process probes. */
+  testServerReapIo?: ServerReapIo
 }): Promise<DaemonHostRuntime> {
   const { options: opts, instance, build, installDir, send: sendUpstream } = args
   /**
@@ -790,7 +799,8 @@ export async function createDaemonHostRuntime(args: {
         ? (await harnessRuntime.current()).inventory
         : (await buildMachineInventory({ machineId, ...(homeDir ? { homeDir } : {}) })).inventory,
   })
-  ctx.agentRuntime = agentRuntime
+  const closeAgentRuntime = args.testAgentRuntime ?? agentRuntime
+  ctx.agentRuntime = closeAgentRuntime as DaemonMachineRuntime
   // Closes the cycle the `let context` declaration above describes. Nothing that
   // binds a session may move above this line — see that comment.
   context = ctx
@@ -918,8 +928,15 @@ export async function createDaemonHostRuntime(args: {
       else turn.dispose?.()
     }
     ctx.runningHeadlessTurns.clear()
-    await reapServerSessionsBeforeDispose(ctx, agentRuntime, reapSessions, () =>
-      agentRuntime?.dispose(),
+    await reapServerSessionsBeforeDispose(
+      ctx,
+      closeAgentRuntime,
+      reapSessions,
+      () => {
+        closeAgentRuntime?.dispose()
+        if (closeAgentRuntime !== agentRuntime) agentRuntime?.dispose()
+      },
+      args.testServerReapIo,
     )
     observers.disposeObservers()
     composerEngine.disposeAll()

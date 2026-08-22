@@ -269,20 +269,47 @@ describe('teardown through a live handle — once per driver registry', () => {
     expect(killResult(sent)?.reason).toMatch(/still running/)
   })
 
-  it('a verb that THROWS still answers, with the pid probe as the verdict', async () => {
-    const state: FakeProcessState = { alive: true, diesOn: 'never' }
+  it('a throwing initial kill still signals and reclaims its scope', async () => {
+    const state: FakeProcessState = { alive: true, diesOn: 'SIGKILL' }
     const handle = {
-      binding: { process: { key: 'podium-x-sess-1', pid: 4321 } },
-      async stop() {
+      binding: {
+        process: {
+          key: 'podium-x-sess-1',
+          pid: 4321,
+          scopeUnit: 'podium-x-sess-1.scope',
+        },
+      },
+      async kill() {
         throw new Error('endpoint unreachable')
       },
     } as unknown as AgentSessionHandle
     const { ctx, sent } = fakeCtx('opencodeRuntime', { handle })
+    const io = fakeIo(state)
 
-    await beginServerDriverReap(ctx, SESSION, { retire: false }, fakeIo(state))
+    await beginServerDriverReap(ctx, SESSION, { retire: true }, io)
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
-    expect(killResult(sent)).toMatchObject({ killed: false, reason: 'endpoint unreachable' })
+    expect(io.signals).toContainEqual({ pid: 4321, signal: 'SIGKILL' })
+    expect(io.systemctl.flat().join(' ')).toContain('podium-x-sess-1.scope')
+    expect(killResult(sent)).toMatchObject({ killed: true, reason: 'endpoint unreachable' })
+  })
+
+  it('a never-settling kill is bounded before SIGKILL escalation', async () => {
+    const state: FakeProcessState = { alive: true, diesOn: 'SIGKILL' }
+    const { handle, calls } = fakeHandle({
+      pid: 4321,
+      onKill: () => new Promise<void>(() => {}),
+    })
+    const { ctx, sent } = fakeCtx('opencodeRuntime', { handle })
+    const io = fakeIo(state)
+
+    await beginServerDriverReap(ctx, SESSION, { retire: true }, io)
+    await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
+
+    expect(calls).toEqual(['kill', 'kill'])
+    expect(io.signals).toContainEqual({ pid: 4321, signal: 'SIGKILL' })
+    expect(killResult(sent)).toMatchObject({ killed: true })
+    expect(killResult(sent)?.reason).toMatch(/timed out/)
   })
 
   it('with no recorded pid the verbs are trusted, not measured — and nothing touches the process table', async () => {

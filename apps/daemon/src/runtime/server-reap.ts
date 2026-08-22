@@ -85,6 +85,7 @@ const log = createLogger('daemon:server-reap')
 const TERM_GRACE_MS = 3000
 const KILL_GRACE_MS = 2000
 const POLL_GAP_MS = 250
+const HANDLE_VERB_TIMEOUT_MS = 1000
 
 /** The identity this module kills by: what a handle's binding and a journal
  *  entry both carry. */
@@ -257,6 +258,48 @@ async function pollDead(
   return pollGone(() => io.pidAlive(pid), windowMs, io)
 }
 
+/** Driver verbs are cooperative code at the edge of teardown. A wedged
+ * transport must not turn a full daemon close into a permanent await. The
+ * underlying promise remains observed by Promise.race, so a late rejection
+ * cannot become an unhandled rejection after the measured escalation. */
+async function runBoundedHandleVerb(
+  name: 'stop' | 'kill',
+  verb: () => Promise<void>,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      Promise.resolve().then(verb),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(new Error(`server-driver ${name} timed out after ${HANDLE_VERB_TIMEOUT_MS}ms`)),
+          HANDLE_VERB_TIMEOUT_MS,
+        )
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+/** Scope cleanup is best effort but never allowed to suppress the raw signal
+ * or the measured receipt. This is the handle path's equivalent of the
+ * journal path's cgroup reclaim and covers grandchildren a pid signal misses. */
+async function reclaimScope(identity: ServerProcessIdentity, io: ServerReapIo): Promise<void> {
+  if (!identity.scopeUnit) return
+  try {
+    if (!(await io.canScope())) return
+    for (const args of scopeReclaimArgvs(identity.scopeUnit)) await io.runSystemctl(args)
+  } catch (err) {
+    log.warn('could not reclaim the server-driver scope', {
+      err,
+      processKey: identity.key,
+      scopeUnit: identity.scopeUnit,
+    })
+  }
+}
+
 async function reapViaHandle(
   ctx: DaemonContext,
   sessionId: SessionId,
@@ -265,44 +308,54 @@ async function reapViaHandle(
   io: ServerReapIo,
 ): Promise<void> {
   const identity: ServerProcessIdentity = handle.binding.process
+  const verbName = opts.retire ? 'kill' : 'stop'
+  const verb = opts.retire ? () => handle.kill() : () => handle.stop()
+  let verbError: unknown
   try {
     // Retire goes straight to `kill()` — it clears the journal and SIGKILLs.
-    // The park path earns the graceful ending first.
-    if (opts.retire) await handle.kill()
-    else await handle.stop()
-    let dead = await pollDead(identity, TERM_GRACE_MS, io)
-    if (dead === false) {
-      log.warn('the server-driver process survived its stop — escalating', {
-        sessionId,
-        processKey: identity.key,
-      })
-      // THE RAW SIGKILL GOES FIRST. It is the escalation's last resort — the
-      // path for an unscoped opencode child the driver verbs can no longer
-      // reach (the host's child map entry was consumed by the first verb) —
-      // and the only reason this branch runs is that the verbs are already
-      // misbehaving, so it must not sit behind an await that can throw.
-      if (identity.pid !== undefined && io.pidAlive(identity.pid)) {
-        io.signal(identity.pid, 'SIGKILL')
-      }
-      // `kill()` re-runs the scope stop, clears the journal, and closes the
-      // client terminal — the parts a raw signal cannot do.
-      await handle.kill()
-      dead = await pollDead(identity, KILL_GRACE_MS, io)
-    }
-    sendKillResult(ctx, sessionId, identity.key, dead)
+    // The park path earns the graceful ending first. Both are bounded because
+    // a stalled transport cannot hold daemon close open forever.
+    await runBoundedHandleVerb(verbName, verb)
   } catch (err) {
-    // A verb that THREW proves nothing about the process; report what the pid
-    // says rather than a guess — the same posture as `reapDurableHost`'s catch.
-    log.warn('could not reap the server-driver session', { err, sessionId })
-    const alive = identity.pid !== undefined && io.pidAlive(identity.pid)
-    ctx.send({
-      type: 'sessionKillResult',
-      sessionId,
-      durableLabel: identity.key,
-      killed: !alive,
-      reason: err instanceof Error ? err.message : String(err),
-    })
+    verbError = err
+    log.warn('could not complete the server-driver verb', { err, sessionId, verb: verbName })
   }
+
+  let dead = await pollDead(identity, TERM_GRACE_MS, io)
+  if (dead === false || verbError !== undefined) {
+    log.warn('the server-driver process needs measured escalation', {
+      sessionId,
+      processKey: identity.key,
+      ...(verbError !== undefined ? { verb: verbName } : {}),
+    })
+    // THE RAW SIGKILL GOES FIRST. It is the escalation's last resort — the
+    // path for an unscoped opencode child the driver verbs can no longer
+    // reach (the host's child map entry was consumed by the first verb) —
+    // and it must not sit behind a verb that threw or never settled.
+    if (identity.pid !== undefined && io.pidAlive(identity.pid)) {
+      io.signal(identity.pid, 'SIGKILL')
+    }
+    await reclaimScope(identity, io)
+    // `kill()` re-runs the scope stop, clears the journal, and closes the
+    // client terminal — the parts a raw signal cannot do. It is bounded too.
+    try {
+      await runBoundedHandleVerb('kill', () => handle.kill())
+    } catch (err) {
+      if (verbError === undefined) verbError = err
+      log.warn('could not complete the server-driver kill escalation', {
+        err,
+        sessionId,
+      })
+    }
+    dead = await pollDead(identity, KILL_GRACE_MS, io)
+  }
+  sendKillResult(
+    ctx,
+    sessionId,
+    identity.key,
+    dead,
+    verbError instanceof Error ? verbError.message : verbError ? String(verbError) : undefined,
+  )
 }
 
 /** Is the journalled process still THIS session's process, and alive? The
@@ -335,16 +388,12 @@ async function reapByIdentity(
   io: ServerReapIo,
 ): Promise<void> {
   const identity = reap.identity
-  const reclaimScope = async (): Promise<void> => {
-    if (!identity.scopeUnit || !(await io.canScope())) return
-    for (const args of scopeReclaimArgvs(identity.scopeUnit)) await io.runSystemctl(args)
-  }
   try {
     const ours = await corroboratedAlive(reap, io)
     let dead = true
     if (ours) {
       if (identity.pid !== undefined) io.signal(identity.pid, 'SIGTERM')
-      await reclaimScope()
+      await reclaimScope(identity, io)
       dead = await pollGone(() => corroboratedAlive(reap, io), TERM_GRACE_MS, io)
       if (!dead) {
         log.warn('the journalled server-driver process survived SIGTERM — escalating', {
@@ -363,7 +412,7 @@ async function reapByIdentity(
       // this session has no PROVEN live process — which is also why this arm
       // reports killed rather than inverting into the permanent `killed:false`
       // that would make `reviveParkedButAlive` resurrect a long-dead session.
-      await reclaimScope()
+      await reclaimScope(identity, io)
       // THE AMBIGUOUS CORNER, SAID OUT LOUD (review residual). A pid that is
       // PRESENT but uncorroborable is genuinely unknown — for an unscoped
       // wedged opencode (the one driver whose child outlives the daemon) it
