@@ -22,8 +22,9 @@
  * display agree with itself exactly when the truth is that it should not.
  */
 
-import type { UiSource } from '@/lib/ui-source'
+import { buildsDiffer } from '@podium/protocol'
 import { formatDisplayedVersion, type SkewMark } from '@/lib/machine-version-skew'
+import type { UiSource } from '@/lib/ui-source'
 import { CHANNEL_LABELS, type FleetChannel } from './updates-view'
 
 /** The same expected/unexpected question the machine rows answer. */
@@ -44,8 +45,10 @@ export interface ComponentVersionRow {
 export interface ComponentVersionsInput {
   /** The coordinating server's own build, as `/version` reports it. */
   serverVersion?: string
+  /** The coordinating server's source identity, independent of its display label. */
+  serverDigest?: string
   /** This document: the build stamp it carries, and which layer served it. */
-  page: { version: string; source: UiSource }
+  page: { version: string; digest?: string; source: UiSource }
   /** The phone bundle this server serves (`servedWebIdentity`), if it has one. */
   phone?: { present: boolean; appVersion?: string; digest?: string }
   /** The desktop web dist's source digest — the phone's comparison partner. */
@@ -77,7 +80,8 @@ function desktopNote(channel: FleetChannel | null): string {
 }
 
 export function componentVersions(input: ComponentVersionsInput): ComponentVersionsView {
-  const { serverVersion, page, phone, servedWebDigest, desktopVersion, channel } = input
+  const { serverVersion, serverDigest, page, phone, servedWebDigest, desktopVersion, channel } =
+    input
   const rows: ComponentVersionRow[] = []
   /** Anything that must keep the breakdown open, whether or not it is a fault. */
   let divergent = false
@@ -86,7 +90,10 @@ export function componentVersions(input: ComponentVersionsInput): ComponentVersi
     rows.push({ key: 'server', label: 'Server', value: formatDisplayedVersion(serverVersion) })
   }
 
-  const pageDiffers = serverVersion !== undefined && page.version !== serverVersion
+  const pageDiffers = buildsDiffer(
+    { version: page.version, digest: page.digest },
+    { version: serverVersion, digest: serverDigest },
+  )
   const interfaceRow: ComponentVersionRow = {
     key: 'interface',
     label: 'Interface',
@@ -120,18 +127,20 @@ export function componentVersions(input: ComponentVersionsInput): ComponentVersi
     // same-or-different without ever being printed, and it must not be dressed
     // up as the phone's version. It also catches what a version cannot — two
     // bundles carrying one version number but built from different source.
-    const digestDiffers = Boolean(
-      phone.digest && servedWebDigest && phone.digest !== servedWebDigest,
+    const phoneDiffers = buildsDiffer(
+      { version: phone.appVersion, digest: phone.digest },
+      { version: serverVersion, digest: serverDigest },
     )
+    const digestDiffers = buildsDiffer({ digest: phone.digest }, { digest: servedWebDigest })
     if (phone.appVersion) {
       row.value = formatDisplayedVersion(phone.appVersion)
-      if (serverVersion !== undefined && phone.appVersion !== serverVersion) {
-        row.mark = 'unexpected'
-        row.note = 'The phone interface on this server is from a different build than the server.'
-        divergent = true
-      } else if (digestDiffers) {
+      if (digestDiffers) {
         row.mark = 'unexpected'
         row.note = 'The phone interface on this server was built from different source.'
+        divergent = true
+      } else if (phoneDiffers) {
+        row.mark = 'unexpected'
+        row.note = 'The phone interface on this server is from a different build than the server.'
         divergent = true
       }
     } else if (phone.digest && servedWebDigest) {

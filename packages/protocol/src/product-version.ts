@@ -29,6 +29,52 @@ export function formatSourceVersion(sourceSha: string): string {
   return `dev+${sourceSha.toLowerCase().slice(0, 7)}`
 }
 
+export interface BuildIdentity {
+  /** Human-readable product label. It is fallback evidence, never stronger than a digest. */
+  version?: string
+  /** Source checkout identity, in the same currency as `artifacts.web.digest`. */
+  digest?: string
+}
+
+/** Normalize full and abbreviated git identities into the seven characters targets publish. */
+export function sourceDigest(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toLowerCase()
+  return normalized && isSourceSha(normalized) ? normalized.slice(0, 7) : undefined
+}
+
+/**
+ * Read a source digest carried as version build metadata (`dev+abc1234` or
+ * `0.4.2-edge.1+abc1234`). This keeps old servers useful while newer ones send
+ * the digest as its own field.
+ */
+export function sourceDigestFromVersion(version: string | undefined): string | undefined {
+  const metadata = version?.split('+', 2)[1]
+  if (!metadata) return undefined
+  for (const part of metadata.split('.')) {
+    const digest = sourceDigest(part)
+    if (digest) return digest
+  }
+  return undefined
+}
+
+/**
+ * Whether two reported builds are known to differ.
+ *
+ * A digest is authoritative whenever both sides have one. Exact display-label
+ * equality remains the compatibility fallback for older reports without source
+ * identity; absence on either side is not evidence of staleness.
+ */
+export function buildsDiffer(current: BuildIdentity, expected: BuildIdentity): boolean {
+  const currentDigest = sourceDigest(current.digest) ?? sourceDigestFromVersion(current.version)
+  const expectedDigest = sourceDigest(expected.digest) ?? sourceDigestFromVersion(expected.version)
+  if (currentDigest && expectedDigest) return currentDigest !== expectedDigest
+  return (
+    current.version !== undefined &&
+    expected.version !== undefined &&
+    current.version !== expected.version
+  )
+}
+
 /**
  * Forensic identities that used to occupy `appVersion` after POD-1965.
  * A stamp that still carries one is an old artefact: derive the product

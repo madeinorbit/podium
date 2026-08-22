@@ -3,9 +3,12 @@ import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
 import { registerVersionRoute } from './server'
 
-async function getVersion(updateTarget?: () => UpdateTarget | undefined) {
+async function getVersion(
+  updateTarget?: () => UpdateTarget | undefined,
+  sourceDigest?: () => string | undefined,
+) {
   const app = new Hono()
-  registerVersionRoute(app, { instanceId: 'inst-1', updateTarget })
+  registerVersionRoute(app, { instanceId: 'inst-1', updateTarget, sourceDigest })
   const res = await app.request('/version')
   return { status: res.status, body: (await res.json()) as unknown }
 }
@@ -39,6 +42,11 @@ describe('GET /version target descriptor', () => {
     const v = parseServerVersion(body)
     expect(v.target?.version).toBe('0.4.2')
     expect(v.target?.artifacts.headless?.delivery).toBe('feed')
+  })
+
+  it('reports server source identity separately from its display version', async () => {
+    const { body } = await getVersion(undefined, () => '47a01e3')
+    expect(parseServerVersion(body).sourceDigest).toBe('47a01e3')
   })
 
   it('reports a development identity as the target version', async () => {

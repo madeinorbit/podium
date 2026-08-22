@@ -23,27 +23,28 @@
  *    lands cannot report the case it exists for.
  */
 import {
+  buildsDiffer,
   classifySkew,
   isDevChannelVersion,
   type Operation,
-  type ReleaseProposal,
-  ReleaseProposal as ReleaseProposalSchema,
   parseBuildStamp,
   parseServerVersion,
+  type ReleaseProposal,
+  ReleaseProposal as ReleaseProposalSchema,
   type ServerVersion,
   WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isServerUnavailable, makeTrpc } from '@/app/trpc'
-import { pageBuildVersion } from '@/lib/logging/build-version'
+import { pageBuildDigest, pageBuildVersion } from '@/lib/logging/build-version'
 import {
   isNativeDesktopUpdateError,
   type NativeDesktopUpdateChannel,
   type NativeDesktopUpdateProgress,
   nativeDesktopBridge,
-  persistNativeDesktopUpdateChannel,
   onNativeDesktopUpdateProgress,
+  persistNativeDesktopUpdateChannel,
 } from '@/lib/nativeDesktop'
 import { RELOAD_BUDGET_SENTENCE, reloadBudgetSpent } from '@/lib/reload-budget'
 import { usePolledQuery } from '@/lib/use-polled-query'
@@ -577,12 +578,13 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const localVersion = pageBuildVersion()
   const target = server.target
   const desktopTargeted = surface !== 'web' && target?.artifacts.desktop !== undefined
-  const serverBehind = Boolean(
-    target?.version !== undefined &&
-      server.appVersion !== undefined &&
-      server.appVersion !== target.version,
-  )
   const targetWebDigest = target?.artifacts.web?.digest
+  const serverBehind = target
+    ? buildsDiffer(
+        { version: server.appVersion, digest: server.sourceDigest },
+        { version: target.version, digest: targetWebDigest },
+      )
+    : false
   const phoneStale = targetWebDigest !== undefined && phoneBehind(server, targetWebDigest)
   const skew = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
 
@@ -632,12 +634,20 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    * operation. A service worker holding a newer build is the same fact arriving
    * by another route.
    */
-  const operationTarget = ((operation?.details as { target?: { version?: unknown } } | undefined)
-    ?.target?.version ?? undefined) as string | undefined
+  const operationTarget = (
+    operation?.details as
+      | { target?: { version?: string; artifacts?: { web?: { digest?: string } } } }
+      | undefined
+  )?.target
+  const operationTargetVersion = operationTarget?.version
   const behind =
     options.needRefresh ||
     skew !== 'ok' ||
-    (operationTarget !== undefined && operationTarget !== localVersion)
+    (operationTargetVersion !== undefined &&
+      buildsDiffer(
+        { version: localVersion, digest: pageBuildDigest() },
+        { version: operationTargetVersion, digest: operationTarget?.artifacts?.web?.digest },
+      ))
 
   const installUpdate = nativeDesktopBridge()?.installUpdate
   /**

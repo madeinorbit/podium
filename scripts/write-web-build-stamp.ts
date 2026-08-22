@@ -23,9 +23,9 @@
  * protocol digest. `bundleVersion` is not that identity either — it names
  * the emitted chunk a crash stack already prints.
  *
- * Also writes the product version into `<meta name="podium-version">` so the
- * running page can read the same string synchronously (About and web logs)
- * without fetching the stamp and without treating the chunk hash as `v`.
+ * Also writes the product version and source digest into the HTML so the
+ * running page can synchronously display the former and compare the latter
+ * without fetching a stamp that may have changed since this page loaded.
  *
  * ---------------------------------------------------------------------------
  * WHY A SCRIPT AND NOT A VITE PLUGIN
@@ -64,6 +64,7 @@ import {
   bundleVersionFromHtml,
   PRODUCT_VERSION_META,
   resolveProductVersion,
+  SOURCE_DIGEST_META,
   WIRE_VERSION,
   wireSchemaDigest,
 } from '../packages/protocol/src/index'
@@ -110,6 +111,7 @@ export function resolveWebSourceSha(
 }
 
 const EXISTING_META = /<meta\s+name=["']podium-version["'][^>]*>/i
+const EXISTING_SOURCE_META = /<meta\s+name=["']podium-source-digest["'][^>]*>/i
 
 function escapeAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
@@ -119,6 +121,14 @@ function escapeAttr(value: string): string {
 export function injectProductVersionMeta(html: string, version: string): string {
   const tag = `<meta name="${PRODUCT_VERSION_META}" content="${escapeAttr(version)}">`
   if (EXISTING_META.test(html)) return html.replace(EXISTING_META, tag)
+  if (html.includes('</head>')) return html.replace('</head>', `  ${tag}\n</head>`)
+  return `${tag}\n${html}`
+}
+
+/** Put the source identity in the HTML so the loaded page can be compared after a redeploy. */
+export function injectSourceDigestMeta(html: string, digest: string): string {
+  const tag = `<meta name="${SOURCE_DIGEST_META}" content="${escapeAttr(digest)}">`
+  if (EXISTING_SOURCE_META.test(html)) return html.replace(EXISTING_SOURCE_META, tag)
   if (html.includes('</head>')) return html.replace('</head>', `  ${tag}\n</head>`)
   return `${tag}\n${html}`
 }
@@ -251,7 +261,10 @@ export function writeWebBuildStamp(
     )
   }
   const stamp = webBuildStamp(indexHtml, now, sourceSha, packagedVersion)
-  const stamped = injectProductVersionMeta(indexHtml, stamp.appVersion)
+  const versionStamped = injectProductVersionMeta(indexHtml, stamp.appVersion)
+  const stamped = stamp.sourceSha
+    ? injectSourceDigestMeta(versionStamped, stamp.sourceSha)
+    : versionStamped
   writeFileSync(indexPath, stamped)
   refreshCompressedSiblings(indexPath, stamped)
   const stampBytes = `${JSON.stringify(stamp, null, 2)}\n`

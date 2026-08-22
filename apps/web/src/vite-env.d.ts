@@ -4,6 +4,7 @@
 
 interface ImportMetaEnv {
   readonly PODIUM_APP_VERSION?: string
+  readonly PODIUM_SOURCE_SHA?: string
   /**
    * True only under `bun run iterate` (scripts/iterate.ts): this bundle is
    * source served by a dev server in front of the installed backend, not the

@@ -7,15 +7,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/clipboard'
-import { pageBuildVersion } from '@/lib/logging/build-version'
-import { nativeDesktopBridge, persistNativeDesktopUpdateChannel } from '@/lib/nativeDesktop'
-import { uiSource } from '@/lib/ui-source'
-import { useFeature } from '@/lib/use-feature'
+import { pageBuildDigest, pageBuildVersion } from '@/lib/logging/build-version'
 import {
   formatDisplayedVersion,
   machineVersionSkew,
   type VersionSkewVerdict,
 } from '@/lib/machine-version-skew'
+import { nativeDesktopBridge, persistNativeDesktopUpdateChannel } from '@/lib/nativeDesktop'
+import { uiSource } from '@/lib/ui-source'
+import { useFeature } from '@/lib/use-feature'
 import { Row, Section } from './shared'
 import {
   CHANNEL_LABELS,
@@ -40,6 +40,7 @@ interface FleetMachine {
 
 interface FleetSnapshot {
   appVersion?: string
+  sourceDigest?: string
   servedWebDigest?: string
   servedMobileWeb?: {
     present: boolean
@@ -163,14 +164,14 @@ export function UpdatesSection(): JSX.Element {
     let cancelled = false
     const refresh = (): void => {
       void readProposal()
-      .then((raw) => {
-        if (cancelled) return
-        setProposal(raw)
-      })
-      // Older servers and non-publisher profiles simply have no card.
-      .catch(() => {
-        if (!cancelled) setProposal(null)
-      })
+        .then((raw) => {
+          if (cancelled) return
+          setProposal(raw)
+        })
+        // Older servers and non-publisher profiles simply have no card.
+        .catch(() => {
+          if (!cancelled) setProposal(null)
+        })
     }
     refresh()
     const timer = window.setInterval(refresh, SETTINGS_RELEASE_PROPOSAL_POLL_MS)
@@ -435,7 +436,8 @@ export function UpdatesSection(): JSX.Element {
    */
   const versions = componentVersions({
     serverVersion,
-    page: { version: pageBuildVersion(), source: uiSource() },
+    serverDigest: fleet?.sourceDigest,
+    page: { version: pageBuildVersion(), digest: pageBuildDigest(), source: uiSource() },
     phone: fleet?.servedMobileWeb,
     servedWebDigest: fleet?.servedWebDigest,
     desktopVersion: nativeDesktopBridge()?.currentVersion,

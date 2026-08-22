@@ -42,7 +42,11 @@ let developing = false
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => developing }))
 
 let webVersion = '0.4.1'
-vi.mock('@/lib/logging/build-version', () => ({ pageBuildVersion: () => webVersion }))
+let webDigest: string | undefined
+vi.mock('@/lib/logging/build-version', () => ({
+  pageBuildVersion: () => webVersion,
+  pageBuildDigest: () => webDigest,
+}))
 
 const { SETTINGS_RELEASE_PROPOSAL_POLL_MS, UpdatesSection } = await import('./updates')
 
@@ -69,6 +73,7 @@ afterEach(() => {
   pageServedFrom(BROWSER_URL)
   developing = false
   webVersion = '0.4.1'
+  webDigest = undefined
   machines[0]!.updateChannelOverride = null
   machines[0]!.targetUnavailableReason = null
   machines[0]!.targetVersion = null
@@ -196,6 +201,30 @@ describe('UpdatesSection', () => {
     expect(screen.queryByText('Server')).toBeNull()
     expect(screen.queryByText('Phone')).toBeNull()
     expect(screen.queryByText('Desktop app')).toBeNull()
+  })
+
+  it('keeps one running-version line when labels differ but build digests agree', async () => {
+    webVersion = '0.1.1-edge.1'
+    webDigest = 'a5f041c'
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: 'dev+a5f041c' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({
+      ...emptyFleet,
+      appVersion: 'dev+a5f041c',
+      sourceDigest: 'a5f041c',
+      servedWebDigest: 'a5f041c',
+      servedMobileWeb: {
+        present: true,
+        appVersion: '0.1.1-edge.1',
+        digest: 'a5f041c',
+      },
+    })
+
+    render(<UpdatesSection />)
+
+    await screen.findByText('None published')
+    expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
   })
 
   it('marks a shell that trails its server on Development as expected', async () => {

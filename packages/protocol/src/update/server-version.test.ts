@@ -3,6 +3,7 @@ import { classifySkew, parseServerVersion } from './server-version'
 
 const full = {
   appVersion: '0.4.2',
+  sourceDigest: '47a01e3',
   wireVersion: 2,
   minSupportedVersion: 1,
   wireSchemaDigest: 'abc123',

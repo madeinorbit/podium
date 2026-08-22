@@ -5,11 +5,15 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
-import { developmentSourceVersion } from '../../packages/runtime/src/source-version'
+import {
+  developmentSourceSha,
+  developmentSourceVersion,
+} from '../../packages/runtime/src/source-version'
 import { mobileRedirectLocation, NAVIGATION_FALLBACK_DENYLIST } from './mobile-routing'
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
 const productVersion = process.env.PODIUM_APP_VERSION ?? developmentSourceVersion(repoRoot)
+const sourceDigest = developmentSourceSha(repoRoot)
 
 // Hosts permitted by Vite's host check, comma-separated via PODIUM_ALLOWED_HOSTS. localhost and
 // IP-literal hosts are always allowed by Vite, so plain `localhost` dev needs nothing here; the
@@ -430,6 +434,9 @@ export default defineConfig(({ mode }) => {
       // the <meta name="podium-version"> the stamp writer injects, so a
       // packaged restamp can change the string without rebuilding JS.
       'import.meta.env.PODIUM_APP_VERSION': JSON.stringify(productVersion),
+      'import.meta.env.PODIUM_SOURCE_SHA': sourceDigest
+        ? JSON.stringify(sourceDigest)
+        : 'undefined',
       /**
        * ITERATION MODE (POD-2513, scripts/iterate.ts). Only `bun run iterate`
        * exports this, and it only ever runs the DEV server — so every built

@@ -566,6 +566,11 @@ export function packageHeadlessForFreshClients(
       // Bake the real version so the compiled server's /version reports it (not 'dev').
       // Inlined at build time wherever process.env.PODIUM_APP_VERSION is read.
       'process.env.PODIUM_APP_VERSION': `"${version}"`,
+      // The display version is not build identity. Keep the source digest as its
+      // own compiled fact so /version remains comparable under any naming scheme.
+      'process.env.PODIUM_SOURCE_SHA': webStamp?.sourceSha
+        ? JSON.stringify(webStamp.sourceSha)
+        : 'undefined',
       ...opts.defines,
     }
     const defineArgs = Object.entries(defines).flatMap(([k, v]) => ['--define', `${k}=${v}`])

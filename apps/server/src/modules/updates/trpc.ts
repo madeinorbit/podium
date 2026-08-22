@@ -2,12 +2,11 @@ import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
 import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { serverBuildVersion } from '../../build-version'
+import { serverBuildSourceDigest, serverBuildVersion } from '../../build-version'
 import { attributionOf } from '../../command-principal'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
 import type { OperationsModule } from '../operations'
-import { ReleaseApprovalRefusal } from './release-approval'
 import {
   fleetCanTakeTargetNow,
   LIFECYCLE_EXCLUSION_GROUP,
@@ -21,6 +20,7 @@ import {
   type UpdateSurface,
   updateOperationDetails,
 } from './operation'
+import { ReleaseApprovalRefusal } from './release-approval'
 import type { ChannelCheckRecord, UpdatesService } from './service'
 import type { WaveMachine } from './wave'
 
@@ -97,6 +97,8 @@ export interface UpdateFleetMachine {
 export interface UpdateFleetSnapshot {
   /** Running coordinator version; additive so an older web bundle can ignore it. */
   appVersion?: string
+  /** Running coordinator source identity; authoritative when comparing build labels. */
+  sourceDigest?: string
   /** Served desktop-web checkout identity. A digest is comparison evidence, not display copy. */
   servedWebDigest?: string
   /** Served phone bundle identity, absent when this installation has no phone export. */
@@ -474,9 +476,11 @@ export function updateFleet(ctx: Context): UpdateFleetSnapshot {
   } catch {
     servedMobileWeb = undefined
   }
+  const sourceDigest = serverBuildSourceDigest()
   return {
     ...fleet,
     appVersion: serverBuildVersion(),
+    ...(sourceDigest ? { sourceDigest } : {}),
     ...(servedWebDigest ? { servedWebDigest } : {}),
     ...(servedMobileWeb ? { servedMobileWeb } : {}),
     startability,

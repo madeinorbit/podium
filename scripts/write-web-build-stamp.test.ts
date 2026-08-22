@@ -17,6 +17,7 @@ import {
   CLIENT_BUILD_MANIFEST_FILE,
   type ClientBuildManifest,
   injectProductVersionMeta,
+  injectSourceDigestMeta,
   resolveWebSourceSha,
   webBuildStamp,
   writeWebBuildStamp,
@@ -114,6 +115,9 @@ describe('webBuildStamp', () => {
     expect(written.sourceSha).toBe('47a01e3')
     expect(readFileSync(join(dir, 'index.html'), 'utf8')).toContain(
       '<meta name="podium-version" content="dev+47a01e3">',
+    )
+    expect(readFileSync(join(dir, 'index.html'), 'utf8')).toContain(
+      '<meta name="podium-source-digest" content="47a01e3">',
     )
   })
 
@@ -264,6 +268,20 @@ describe('injectProductVersionMeta', () => {
     expect(twice.match(/podium-version/g)).toHaveLength(1)
     expect(twice).toContain('content="0.4.2"')
     expect(twice).not.toContain('dev+aaaaaaa')
+  })
+})
+
+describe('injectSourceDigestMeta', () => {
+  it('adds the source identity independently of the product label', () => {
+    const html = injectSourceDigestMeta(BUILT_INDEX, '47a01e3')
+    expect(html).toContain('<meta name="podium-source-digest" content="47a01e3">')
+  })
+
+  it('replaces an existing identity rather than adding a second one', () => {
+    const once = injectSourceDigestMeta(BUILT_INDEX, 'aaaaaaa')
+    const twice = injectSourceDigestMeta(once, 'bbbbbbb')
+    expect(twice.match(/podium-source-digest/g)).toHaveLength(1)
+    expect(twice).toContain('content="bbbbbbb"')
   })
 })
 

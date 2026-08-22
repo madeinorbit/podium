@@ -6,6 +6,7 @@
  * The states themselves are table-tested in `operation-view.test.ts` — this file
  * is deliberately about the wiring, not the copy.
  */
+import type { UpdateTarget } from '@podium/protocol'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -38,7 +39,7 @@ vi.mock('@/app/trpc', async (importOriginal) => ({
   makeTrpc: mocks.makeTrpc,
 }))
 
-const target = { version: '0.4.2', critical: false, artifacts: {} }
+const target: UpdateTarget = { version: '0.4.2', critical: false, artifacts: {} }
 
 const reloadAction = vi.fn()
 
@@ -82,7 +83,10 @@ function notFound(path: string): Error & { data: { code: string } } {
 }
 
 function setupTransport(
-  version: { appVersion: string; target?: typeof target } = { appVersion: '0.4.1', target },
+  version: { appVersion: string; sourceDigest?: string; target?: UpdateTarget } = {
+    appVersion: '0.4.1',
+    target,
+  },
 ): void {
   mocks.history.mockResolvedValue([])
   mocks.fleet.mockResolvedValue({ total: 1, behind: 1, converging: 0, failed: 0 })
@@ -110,7 +114,15 @@ function setupTransport(
     'fetch',
     vi.fn(async (url: string) => ({
       ok: true,
-      json: async () => (url.endsWith('/version') ? version : { appVersion: '0.4.1' }),
+      json: async () =>
+        url.endsWith('/version')
+          ? version
+          : {
+              appVersion: '0.4.1',
+              ...(version.target?.artifacts.web?.digest
+                ? { sourceSha: version.target.artifacts.web.digest }
+                : {}),
+            },
     })),
   )
 }
@@ -156,6 +168,14 @@ function setPageVersion(version: string): void {
   document.head.append(meta)
 }
 
+function setPageDigest(digest: string): void {
+  document.head.querySelector('meta[name="podium-source-digest"]')?.remove()
+  const meta = document.createElement('meta')
+  meta.setAttribute('name', 'podium-source-digest')
+  meta.setAttribute('content', digest)
+  document.head.append(meta)
+}
+
 afterEach(() => {
   cleanup()
   // The poll cache is process-wide by design, so one test's answer would
@@ -167,6 +187,7 @@ afterEach(() => {
   // next one's news.
   globalThis.localStorage?.clear()
   document.head.querySelector('meta[name="podium-version"]')?.remove()
+  document.head.querySelector('meta[name="podium-source-digest"]')?.remove()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
@@ -208,6 +229,62 @@ describe('native desktop update surface', () => {
     })
     stubDesktopShell({ launchMode: undefined })
     expect(surfaceFromDesktopBridge()).toBe('desktop-remote')
+  })
+})
+
+describe('useUpdateState — digest build identity', () => {
+  const digestTarget: UpdateTarget = {
+    version: '0.1.1-edge.1.dev.1+a5f041c',
+    critical: false,
+    artifacts: { web: { digest: 'a5f041c' } },
+  }
+
+  it('does not call a dev-named server behind when its target digest matches', async () => {
+    setPageVersion('0.1.1-edge.1')
+    setPageDigest('a5f041c')
+    setupTransport({
+      appVersion: 'dev+a5f041c',
+      sourceDigest: 'a5f041c',
+      target: digestTarget,
+    })
+    mocks.active.mockResolvedValue(null)
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} behind={0} />)
+
+    await waitFor(() => expect(results.at(-1)?.server.appVersion).toBe('dev+a5f041c'))
+    expect(results.at(-1)?.view.state).toBe('none')
+  })
+
+  it('still asks a genuinely older loaded page to reload', async () => {
+    setPageVersion(digestTarget.version)
+    setPageDigest('b4c9e12')
+    setupTransport({
+      appVersion: 'dev+a5f041c',
+      sourceDigest: 'a5f041c',
+      target: digestTarget,
+    })
+    globalThis.localStorage?.setItem(
+      'podium.update.watched-operation',
+      JSON.stringify({ id: 'op_digest', at: Date.now() }),
+    )
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      {
+        id: 'op_digest',
+        kind: 'update',
+        state: 'done',
+        details: { target: digestTarget },
+        finishedAt: Date.now() - 2_000,
+        steps: [],
+      },
+    ])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} withReload behind={0} />)
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('waiting-you'))
+    expect(results.at(-1)?.view.primary?.kind).toBe('reload')
   })
 })
 

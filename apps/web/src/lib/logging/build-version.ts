@@ -1,4 +1,4 @@
-import { PRODUCT_VERSION_META } from '@podium/protocol'
+import { PRODUCT_VERSION_META, sourceDigest, SOURCE_DIGEST_META } from '@podium/protocol'
 
 /**
  * WHICH PRODUCT IS RUNNING, read out of the page itself.
@@ -17,10 +17,21 @@ export function pageBuildVersion(
   doc: Pick<Document, 'querySelector'> = document,
   declared: string | undefined = import.meta.env.PODIUM_APP_VERSION,
 ): string {
-  const fromPage = doc.querySelector(`meta[name="${PRODUCT_VERSION_META}"]`)?.getAttribute('content')
+  const fromPage = doc
+    .querySelector(`meta[name="${PRODUCT_VERSION_META}"]`)
+    ?.getAttribute('content')
   const labeled = fromPage?.trim()
   if (labeled) return labeled
   const baked = declared?.trim()
   if (baked) return baked
   return 'dev'
+}
+
+/** Source identity embedded in this loaded HTML; unlike a fetched stamp, it cannot move on reload. */
+export function pageBuildDigest(
+  doc: Pick<Document, 'querySelector'> = document,
+  declared: string | undefined = import.meta.env.PODIUM_SOURCE_SHA,
+): string | undefined {
+  const fromPage = doc.querySelector(`meta[name="${SOURCE_DIGEST_META}"]`)?.getAttribute('content')
+  return sourceDigest(fromPage ?? declared)
 }

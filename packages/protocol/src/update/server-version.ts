@@ -23,6 +23,8 @@ export type MobileWebIdentity = z.infer<typeof MobileWebIdentity>
 export const ServerVersion = z
   .object({
     appVersion: z.string().optional(),
+    /** Server source identity, in the same currency as `target.artifacts.web.digest`. */
+    sourceDigest: z.string().optional(),
     wireVersion: z.number().int().optional(),
     minSupportedVersion: z.number().int().optional(),
     wireSchemaDigest: z.string().optional(),

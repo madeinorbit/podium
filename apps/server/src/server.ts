@@ -49,7 +49,7 @@ import {
   requestUserId,
   resolveClientCredential,
 } from './auth-route'
-import { captureServerBuildVersion } from './build-version'
+import { captureServerBuildVersion, serverBuildSourceDigest } from './build-version'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
 import { openEnrollmentLedger } from './enrollment-ledger'
@@ -265,6 +265,8 @@ export function registerVersionRoute(
      */
     updateTarget?: () => UpdateTarget | undefined | Promise<UpdateTarget | undefined>
     appVersion?: () => string
+    /** Source identity of this server process, independent of its display version. */
+    sourceDigest?: () => string | undefined
     /**
      * The phone website on disk, so Update can tell whether the phone is on this
      * commit (POD-1980). Read per request, like the target: the export is built
@@ -301,6 +303,7 @@ export function registerVersionRoute(
     } catch {
       mobileWeb = undefined
     }
+    const sourceDigest = deps.sourceDigest?.()
     const daemonConnected = deps.daemonConnected?.() === true
     const janitor = deps.janitor?.()
     const components = {
@@ -317,6 +320,7 @@ export function registerVersionRoute(
        */
       wireSchemaDigest: wireSchemaDigest(),
       appVersion: deps.appVersion?.() ?? process.env.PODIUM_APP_VERSION ?? 'dev',
+      ...(sourceDigest ? { sourceDigest } : {}),
       instanceId: deps.instanceId,
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       daemonConnected,
@@ -743,6 +747,7 @@ export async function startServer(
   registerVersionRoute(app, {
     instanceId,
     appVersion: () => appVersion,
+    sourceDigest: serverBuildSourceDigest,
     // Straight through to the Authority, which delegates to the policy object it
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),

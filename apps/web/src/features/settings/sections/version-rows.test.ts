@@ -13,7 +13,8 @@ const baked: UiSource = { kind: 'baked', label: 'Built-in copy', note: 'fell bac
 function input(over: Partial<ComponentVersionsInput> = {}): ComponentVersionsInput {
   return {
     serverVersion: '0.1.1-edge.1',
-    page: { version: '0.1.1-edge.1', source: live },
+    serverDigest: '47a01e3',
+    page: { version: '0.1.1-edge.1', digest: '47a01e3', source: live },
     phone: { present: true, appVersion: '0.1.1-edge.1', digest: '47a01e3' },
     servedWebDigest: '47a01e3',
     channel: 'edge',
@@ -33,6 +34,19 @@ describe('componentVersions', () => {
 
   it('collapses in a plain browser, where there is no shell to report', () => {
     expect(componentVersions(input()).single).toBe('0.1.1-edge.1')
+  })
+
+  it('collapses when display labels differ but source digests agree', () => {
+    const view = componentVersions(
+      input({
+        serverVersion: 'dev+a5f041c',
+        serverDigest: 'a5f041c',
+        page: { version: '0.1.1-edge.1', digest: 'a5f041c', source: live },
+        phone: { present: true, appVersion: '0.1.1-edge.1', digest: 'a5f041c' },
+        servedWebDigest: 'a5f041c',
+      }),
+    )
+    expect(view.single).toBe('dev+a5f041c')
   })
 
   it('collapses when the offline cache holds the build the server is on', () => {
