@@ -358,13 +358,13 @@ describe('UpdatesSection', () => {
     // raw lineage string, and that holds for every row this panel prints.
     vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'macos', currentVersion: '0.1.1-edge.4' })
     trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
-    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.1.1-edge.4.dev.7+ab12cd3' })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.1.1-dev.7+ab12cd3' })
     quietHistory()
-    webVersion = '0.1.1-edge.4.dev.7+ab12cd3'
+    webVersion = '0.1.1-dev.7+ab12cd3'
     trpc.updates.fleet.query.mockResolvedValue({
       ...emptyFleet,
-      appVersion: '0.1.1-edge.4.dev.7+ab12cd3',
-      targetVersion: '0.1.1-edge.4.dev.8+77f0e91',
+      appVersion: '0.1.1-dev.7+ab12cd3',
+      targetVersion: '0.1.1-dev.8+77f0e91',
     })
 
     render(<UpdatesSection />)
@@ -376,8 +376,8 @@ describe('UpdatesSection', () => {
       'dev.7 (ab12cd3)',
     )
     expect(screen.getByText('dev.8 (77f0e91)')).toBeTruthy()
-    expect(document.body.textContent).not.toContain('0.1.1-edge.4.dev.7+ab12cd3')
-    expect(document.body.textContent).not.toContain('0.1.1-edge.4.dev.8+77f0e91')
+    expect(document.body.textContent).not.toContain('0.1.1-dev.7+ab12cd3')
+    expect(document.body.textContent).not.toContain('0.1.1-dev.8+77f0e91')
   })
 
   it('says where the running interface came from', async () => {

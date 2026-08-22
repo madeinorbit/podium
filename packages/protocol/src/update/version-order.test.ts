@@ -26,21 +26,21 @@ describe('isProvablyNewer', () => {
     ['0.1.4-alpha.1', '0.1.4-alpha.beta', false, 'numeric ranks below alphanumeric'],
     ['0.1.4+abc1234', '0.1.4', false, 'build metadata takes no part in precedence'],
     ['0.1.5+abc1234', '0.1.4', true, 'and does not prevent a real comparison either'],
-    // Publisher-minted development versions (POD-2502): appended prerelease
-    // identifiers `.dev.<N>` with the commit as build metadata.
+    // Flat publisher development versions: the dev marker deliberately outranks edge.
     [
-      '0.1.0-edge.20.dev.5+656f49b',
-      '0.1.0-edge.20',
+      '0.1.2-dev.1+656f49b',
+      '0.1.2-edge.1',
       true,
-      'a dest mint ranks above the edge cut it builds on',
+      'dev.1 outranks the edge.1 it was built past',
     ],
-    ['0.1.0-edge.20.dev.5+656f49b', '0.1.0-edge.21', false, 'and below the next edge cut'],
+    ['0.1.2-edge.9', '0.1.2-dev.7+656f49b', false, 'dev outranks every edge cut of its core'],
     [
-      '0.1.0-edge.20.dev.10+aaa',
-      '0.1.0-edge.20.dev.4+bbb',
+      '0.1.2-dev.10+aaa',
+      '0.1.2-dev.4+bbb',
       true,
-      'dest counters compare numerically; build metadata is ignored',
+      'dev counters compare numerically; build metadata is ignored',
     ],
+    ['0.1.2', '0.1.2-dev.10+aaa', true, 'the stable release still outranks its dev prereleases'],
     // FAIL CLOSED. Both callers read `false` as "cannot be proven ahead", never
     // as "is older": one leaves an install where it is, the other refuses a swap
     // it cannot prove survivable.
@@ -85,5 +85,47 @@ describe('compareVersions', () => {
     // version as the release it is being asked to swap for.
     expect(compareVersions('0.1.4', '0.1.4')).toBe(0)
     expect(compareVersions('dev+abc1234', 'dev+abc1234')).toBeNull()
+  })
+})
+
+describe('mixed stable, edge, and dev precedence', () => {
+  it('sorts adjacent cycles with stable, edge, and flat dev labels', () => {
+    const versions = [
+      '0.1.2-dev.10+fedcba0',
+      '0.1.3',
+      '0.1.2-edge.9',
+      '0.1.1',
+      '0.1.3-dev.10+0123456',
+      '0.1.2',
+      '0.1.3-edge.10',
+      '0.1.2-dev.1+656f49b',
+      '0.1.2-edge.1',
+      '0.1.3-dev.1+abcdef0',
+      '0.1.3-edge.1',
+    ]
+
+    const sorted = [...versions].sort((a, b) => {
+      const order = compareVersions(a, b)
+      if (order === null) throw new Error(`test fixture should be orderable: ${a} vs ${b}`)
+      return order
+    })
+
+    expect(sorted).toEqual([
+      '0.1.1',
+      '0.1.2-edge.1',
+      '0.1.2-edge.9',
+      '0.1.2-dev.1+656f49b',
+      '0.1.2-dev.10+fedcba0',
+      '0.1.2',
+      '0.1.3-edge.1',
+      '0.1.3-edge.10',
+      '0.1.3-dev.1+abcdef0',
+      '0.1.3-dev.10+0123456',
+      '0.1.3',
+    ])
+
+    // Arming case: restoring plain text comparison makes this exact assertion
+    // fail because lexical `dev` < `edge`.
+    expect(compareVersions('0.1.2-dev.1+656f49b', '0.1.2-edge.1')).toBe(1)
   })
 })

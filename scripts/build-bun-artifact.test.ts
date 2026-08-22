@@ -36,12 +36,12 @@ describe('assertDevWebDistMatchesVersion', () => {
 
   it('still guards publisher-minted versions (not only the legacy det+ form)', () => {
     expect(() =>
-      assertDevWebDistMatchesVersion('0.1.0-edge.20.dev.5+47a01e3', {
+      assertDevWebDistMatchesVersion('0.1.0-dev.5+47a01e3', {
         sourceSha: 'aaaaaaa',
       }),
-    ).toThrow(/not built from 0\.1\.0-edge\.20\.dev\.5\+47a01e3/)
+    ).toThrow(/not built from 0\.1\.0-dev\.5\+47a01e3/)
     expect(() =>
-      assertDevWebDistMatchesVersion('0.1.0-edge.20.dev.5+47a01e3', {
+      assertDevWebDistMatchesVersion('0.1.0-dev.5+47a01e3', {
         sourceSha: '47a01e3',
       }),
     ).not.toThrow()

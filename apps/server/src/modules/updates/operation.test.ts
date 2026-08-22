@@ -163,7 +163,7 @@ describe('planUpdateOperation', () => {
     {
       name: 'a source coordinator at the target commit plans no packaged self-update',
       input: {
-        target: { ...packedTarget(), version: '0.1.1-edge.1.dev.1+abc1234' },
+        target: { ...packedTarget(), version: '0.1.1-dev.1+abc1234' },
         appVersion: 'dev+abc1234',
         sourceDigest: WEB_DIGEST,
         serverInstallKind: 'source',

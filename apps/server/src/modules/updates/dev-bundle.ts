@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import {
   commitShaFromDevVersion,
+  isFlatPublisherDevVersion,
   isHeadlessPlatform,
   isPublisherDevVersion,
   mintDevVersion,
@@ -120,7 +121,7 @@ export function decideDevBuild(ctx: DevBuildDecisionContext): BuildDecision {
  * SOURCE IDENTITY.
  *
  * A development *bundle* is published under a publisher-minted orderable
- * version (`<base>.dev.<N>+<sha>`, POD-2502). The `+<sha>` build metadata is
+ * version (`X.Y.Z-dev.<N>+<sha>`, POD-2502). The `+<sha>` build metadata is
  * still the claim "compiled from that commit". `scripts/build-bun.ts` compiles
  * the LIVE working tree, so an edited checkout would ship code that is not that
  * commit under a name that claims it is.
@@ -466,7 +467,7 @@ export interface BuiltDevBundle {
 /**
  * NAMING, so that "the previous one" is a fact on disk rather than a guess.
  *
- * The published version is a publisher mint (`<base>.dev.<N>+<sha>`). The FILE
+ * The published version is a publisher mint (`X.Y.Z-dev.<N>+<sha>`). The FILE
  * also carries the moment it was built, which buys two things the version alone
  * cannot: rebuilding the same commit produces a new file instead of silently
  * overwriting the one a request may be streaming, and legacy stamp-ordered
@@ -880,9 +881,10 @@ function resolveCheckoutReleaseBase(
  *
  * READ-MODIFY-WRITE, AND NOT SERIALISED against a concurrent build. `target()`
  * calls this on the `/version` path, outside the lock `buildDevBundle` holds,
- * so two callers can interleave. Safe because allocation is idempotent per SHA
- * (`lastSha`/`lastVersion` short-circuit) and the counter only ever moves
- * forward — an interleaving costs a wasted N, never a reused one. Anything that
+ * so two callers can interleave. A current flat allocation is idempotent per SHA
+ * (`lastSha`/`lastVersion` short-circuit); a legacy label takes one monotonic
+ * migration before the same rule applies. The counter only ever moves forward —
+ * an interleaving costs a wasted N, never a reused one. Anything that
  * makes allocation depend on more than the SHA needs the lock first.
  */
 export function allocateDevPublishVersion(input: {
@@ -892,7 +894,11 @@ export function allocateDevPublishVersion(input: {
 }): { version: string; base: string; counter: number } {
   const existing = readDevPublisherState(input.stateDir)
   const sha = shortSha(input.sha)
-  if (existing?.lastSha === sha && existing.lastVersion) {
+  if (
+    existing?.lastSha === sha &&
+    existing.lastVersion &&
+    isFlatPublisherDevVersion(existing.lastVersion)
+  ) {
     return {
       version: existing.lastVersion,
       base: existing.base,

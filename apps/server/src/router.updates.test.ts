@@ -408,7 +408,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     registry.dispose()
   })
   it('excludes a source checkout while retaining an outdated packaged machine', async () => {
-    const release = '0.1.1-edge.1.dev.1+6e57311'
+    const release = '0.1.1-dev.1+6e57311'
     const { registry, caller } = harness({ serverInstallKind: 'source' })
     const host = registry.sessionStore.hostMachineId
     registry.modules.machines.setMachineBuild(
@@ -428,7 +428,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     registry.modules.machines.setUpdateChannel(asMachineId('packaged'), 'dev')
     registry.modules.machines.setMachineBuild(
       asMachineId('packaged'),
-      { appVersion: '0.1.1-edge.1.dev.0+old0000', installKind: 'installed' },
+      { appVersion: '0.1.1-dev.0+old0000', installKind: 'installed' },
       ['update.delivery.feed', 'podium.shipping-train'],
       '2026-08-22T00:00:00.000Z',
     )

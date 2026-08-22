@@ -27,8 +27,10 @@ To the user every machine just runs "Podium"; component names below are internal
 (`podium-update.json`, desktop `latest.json`) and all three channels resolve through
 `resolveReleaseTarget`. The publisher-push path, the `dev` exclusion in
 `target-refresh.ts`, and the `bundle`/`git` delivery kinds are retired. Dev versions
-become orderable: `<base>.dev.<N>+<sha>` replaces `dev+<sha>`, so `isProvablyNewer`,
+become orderable: `X.Y.Z-dev.<N>+<sha>` replaces `dev+<sha>`, so `isProvablyNewer`,
 drift refusal, and `critical` behave identically on every channel.
+Within one core, `dev` deliberately outranks `edge`; stable still outranks every
+prerelease.
 
 AS BUILT (POD-2502, approved 2026-08-21 — this paragraph is the authority, superseding
 the sketch in §8 disposition 23 and §8c decision 13): the base and counter are
@@ -36,9 +38,10 @@ the sketch in §8 disposition 23 and §8c decision 13): the base and counter are
 the checkout. The gate asks one question — does the version about to be handed out clear
 the PREVIOUS MINT? — rather than comparing bases, which is what let a stable cut mint
 backwards. After a bare `X.Y.Z` base the publisher mints on the next patch
-(`X.Y.(Z+1)-dev.N+<sha>`), so it sorts above the release it builds on, above every
-`X.Y.Z-edge.N.dev.M`, and below `X.Y.(Z+1)-edge.1` — rejoining the edge train instead of
-minting `X.Y.(Z+1)-dev.N` forever. Ordering therefore holds across the edge train, across
+(`X.Y.(Z+1)-dev.N+<sha>`), so it sorts above the release it builds on. An edge or
+prerelease checkout uses its own `X.Y.Z` core; `X.Y.Z-dev.N` deliberately outranks
+`X.Y.Z-edge.N`, while a stable release still outranks both prerelease forms.
+Ordering therefore holds across the edge train, across
 a stable cut, and across branch hops to an older base. Normalisation happens where the
 value ENTERS; on read the stored base is only validated for orderability, never re-bumped
 (re-bumping on read made an unchanged checkout climb 0.1.2 → 0.1.5 over four mints).
@@ -446,12 +449,12 @@ Resolved into the spec:
 - **Retention** (17): local publisher retention keeps the last N releases by manifest
   reference (same rule as §5), replacing the `dev+<sha>` sweep pattern together with
   the version rename.
-- **Version ordering** (23): dev versions are the last release's version with an
-  APPENDED prerelease segment plus the commit as semver build metadata — e.g.
-  `0.1.0-edge.20.dev.5+656f49b` — which sorts above the release it builds on and below
-  the next edge cut (build metadata is ignored for ordering but keeps the commit
-  visible and greppable). Dev versions exist ONLY for publisher-minted headless
-  bundles; shells never carry one (§2.2), and edge/stable names are unchanged. UI may
+- **Version ordering** (23): dev versions use the release cycle core as
+  `X.Y.Z-dev.N+<sha>` — e.g. `0.1.0-dev.5+656f49b`. For the same core,
+  `dev` deliberately outranks `edge`, while a stable release still outranks its
+  prereleases. Build metadata is ignored for ordering but keeps the commit visible
+  and greppable. Dev versions exist ONLY for publisher-minted headless bundles;
+  shells never carry one (§2.2), and edge/stable names are unchanged. UI may
   display the short form "dev.5 (656f49b)". Schema declarations ship in every dev
   manifest (the publisher reads them from the checkout, as `release.ts` does).
 - **Health gate probe** (24): "healthy" = both children running, server serving

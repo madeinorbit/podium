@@ -1,18 +1,18 @@
 /**
  * PUBLISHER-OWNED DEVELOPMENT VERSIONS.
  *
- * A minted development release is `<lineage>.dev.<N>+<sha>` (or
- * `<lineage>-dev.<N>+<sha>` when the lineage has no prerelease). The lineage is
- * publisher-owned monotonic state — not the checkout's package.json alone —
- * and `<N>` increments on that lineage. Build metadata carries the commit;
+ * A minted development release is `X.Y.Z-dev.<N>+<sha>`. The base is the
+ * release cycle being worked toward, not the edge cut that happened to produce
+ * the checkout. The publisher-owned monotonic state — not the checkout's
+ * package.json alone — supplies `<N>`. Build metadata carries the commit;
  * semver §10 discards it for precedence.
  *
  * Spec: updater-convergence §1, disposition 23, decision 13 (POD-2502).
  *
- * Stable cuts: a bare `X.Y.Z` checkout is minted on the NEXT PATCH lineage
- * (`X.Y.(Z+1)-dev.N+sha`) so the mint sorts above the release it builds on and
- * above every prior `X.Y.Z-edge.*.dev.*` mint. Minting on `X.Y.Z-dev.N` would
- * sort *below* both — the trap this module exists to close.
+ * Stable cuts: a bare `X.Y.Z` checkout is minted on the NEXT PATCH cycle
+ * (`X.Y.(Z+1)-dev.N+sha`) so the mint sorts above the release it builds on.
+ * Edge/prerelease checkouts use their own `X.Y.Z` core, and the shared version
+ * ordering deliberately places that cycle's `-dev.N` labels above `-edge.N`.
  *
  * Source checkouts still report `dev+<sha>` for log / process identity
  * ({@link ../product-version.ts}); published targets (bundle or identity) carry
@@ -24,8 +24,8 @@ import { compareVersions, isProvablyNewer } from './version-order'
 /** Monotonic minting state owned by one publisher instance. */
 export interface DevPublisherVersionState {
   /**
-   * Mint lineage base (e.g. `0.1.0-edge.20`, or `0.1.2` after a stable `0.1.1`
-   * cut bumped to the next patch). Never a bare stable that still needs bumping.
+   * Mint cycle base (e.g. `0.1.0`, or `0.1.2` after a stable `0.1.1` cut
+   * bumped to the next patch). Never a bare stable that still needs bumping.
    */
   base: string
   /** Counter on {@link base}; increments on every mint at that base. */
@@ -33,42 +33,50 @@ export interface DevPublisherVersionState {
 }
 
 const SOURCE_IDENTITY = /^dev\+[0-9a-f]{7,40}$/i
-const STABLE_CORE = /^(\d+)\.(\d+)\.(\d+)$/
+const VERSION_WITH_OPTIONAL_PRERELEASE =
+  /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/
 /**
- * Prerelease lineage form: `0.1.0-edge.20.dev.5+656f49b`.
- * Base is everything before the final `.dev.<N>+<sha>`.
+ * Legacy prerelease lineage form: `0.1.0-edge.20.dev.5+656f49b`.
+ * It remains parseable so retained artifacts and persisted state can be
+ * recognized while all new mints use the flat form below.
  */
 const PUBLISHER_DEV = /^(.*?)\.dev\.(\d+)\+([0-9a-f]{7,40})$/i
-/** Next-patch lineage form: `0.1.2-dev.5+656f49b`. */
-const PUBLISHER_DEV_STABLE_LINEAGE = /^(\d+\.\d+\.\d+)-dev\.(\d+)\+([0-9a-f]{7,40})$/i
+/** Flat publisher form: `0.1.2-dev.5+656f49b`. */
+const PUBLISHER_DEV_FLAT = /^(\d+\.\d+\.\d+)-dev\.(\d+)\+([0-9a-f]{7,40})$/i
 
 export function shortCommitSha(sha: string): string {
   return sha.trim().toLowerCase().slice(0, 7)
 }
 
 /**
- * Map a checkout release version onto the mint lineage base.
+ * Map a checkout release version onto the mint cycle base.
  *
- * Edge/prerelease checkouts pass through. A bare `X.Y.Z` becomes `X.Y.(Z+1)` so
- * `-dev.N` mints sort above that release and above its edge lineage.
+ * Edge/prerelease checkouts collapse to their `X.Y.Z` cycle. A bare `X.Y.Z`
+ * becomes `X.Y.(Z+1)` so `-dev.N` mints sort above that release.
  */
 export function effectiveMintBase(checkoutBase: string): string {
   const trimmed = checkoutBase.trim()
   if (!trimmed) throw new Error('checkout release base is required')
-  const stable = STABLE_CORE.exec(trimmed)
-  if (!stable) return trimmed
-  const major = stable[1] as string
-  const minor = stable[2] as string
-  const patch = Number(stable[3])
+  const parsed = VERSION_WITH_OPTIONAL_PRERELEASE.exec(trimmed)
+  if (!parsed) return trimmed
+  const major = parsed[1] as string
+  const minor = parsed[2] as string
+  const patch = Number(parsed[3])
+  if (parsed[4] !== undefined) return `${major}.${minor}.${patch}`
   return `${major}.${minor}.${patch + 1}`
 }
 
+function coreVersion(raw: string): string | null {
+  const parsed = VERSION_WITH_OPTIONAL_PRERELEASE.exec(raw)
+  if (!parsed) return null
+  return `${parsed[1]}.${parsed[2]}.${parsed[3]}`
+}
+
 /**
- * Format a publisher mint from an already-resolved lineage base.
+ * Format a publisher mint from an already-resolved cycle base.
  *
- * Pass {@link effectiveMintBase} output (or a stored state.base), not a raw
- * stable cut — a bare `X.Y.Z` here still produces `X.Y.Z-dev.N`, which sorts
- * below that release. Minting goes through {@link mintDevVersion}.
+ * A legacy stored edge base is normalized as a safety net; all newly persisted
+ * state is the flat `X.Y.Z` cycle base.
  */
 export function formatDevVersion(base: string, counter: number, sha: string): string {
   if (!Number.isInteger(counter) || counter < 1) {
@@ -76,18 +84,18 @@ export function formatDevVersion(base: string, counter: number, sha: string): st
   }
   const trimmed = base.trim()
   if (!trimmed) throw new Error('development version base is required')
-  const withDev = trimmed.includes('-') ? `${trimmed}.dev.${counter}` : `${trimmed}-dev.${counter}`
-  return `${withDev}+${shortCommitSha(sha)}`
+  const cycle = coreVersion(trimmed) ?? trimmed
+  return `${cycle}-dev.${counter}+${shortCommitSha(sha)}`
 }
 
 /**
  * Advance publisher state and mint the next orderable development version.
  *
- * - The mint the checkout's lineage would produce clears the previous mint →
- *   adopt that lineage, reset counter to 1.
- * - Otherwise keep the publisher base (branch-vintage / same base / a lineage
+ * - The mint the checkout's cycle would produce clears the previous mint →
+ *   adopt that cycle, reset counter to 1.
+ * - Otherwise keep the publisher cycle (branch-vintage / same cycle / a cycle
  *   whose first mint would not clear) and bump N.
- * - `state === null` seeds from the effective checkout lineage at counter 1.
+ * - `state === null` seeds from the effective checkout cycle at counter 1.
  *
  * ONE GATE, ON THE THING THE INVARIANT IS ABOUT. The rule this module owes the
  * fleet is "every mint is provably newer than the previous mint" — so the gate
@@ -98,11 +106,9 @@ export function formatDevVersion(base: string, counter: number, sha: string): st
  * individually sufficient, so removing EITHER left the suite green, and the
  * guards could not be shown to be doing anything (POD-2502 round-2 review, M2
  * and M3 both survived). It was also wrong on its own terms — a base-only
- * comparison keeps the publisher on the bumped stable lineage after the first
- * stable cut (`0.1.2-dev.N` forever), because `0.1.2-edge.1` sorts BELOW
- * `0.1.2` even though `0.1.2-edge.1.dev.1` sorts above `0.1.2-dev.1`. The
- * single gate rejoins the edge train and keeps disposition 23's stated form
- * (`<last release>.dev.<N>+<sha>`).
+ * comparison can reset the counter when the checkout moves to a later cycle
+ * without proving that the first mint clears the previous mint. The single mint
+ * gate keeps this publisher's one flat identity monotonic.
  *
  * Both remaining checks are separately observable, which is the point: mutate
  * this gate in either direction, or delete the fail-closed throw below, and a
@@ -120,7 +126,8 @@ export function mintDevVersion(
     return { version: formatDevVersion(lineage, 1, sha), state: next }
   }
 
-  const previousMint = formatDevVersion(state.base, state.counter, '0000000')
+  const storedBase = coreVersion(state.base) ?? state.base
+  const previousMint = formatDevVersion(storedBase, state.counter, '0000000')
   const adoptVersion = formatDevVersion(lineage, 1, sha)
 
   if (isProvablyNewer(adoptVersion, previousMint)) {
@@ -135,13 +142,13 @@ export function mintDevVersion(
   // offered an update it already ran. The publisher's callers treat a throw
   // here as "no release available" (`dev-bundle.ts` `target()`).
   const counter = state.counter + 1
-  const version = formatDevVersion(state.base, counter, sha)
+  const version = formatDevVersion(storedBase, counter, sha)
   if (!isProvablyNewer(version, previousMint)) {
     throw new Error(
       `development mint ${version} is not provably newer than previous mint ${previousMint}`,
     )
   }
-  return { version, state: { base: state.base, counter } }
+  return { version, state: { base: storedBase, counter } }
 }
 
 export interface ParsedPublisherDevVersion {
@@ -165,24 +172,29 @@ function parsedMint(
   return { base, counter, sha: shaRaw.toLowerCase(), version }
 }
 
-/** Parse a publisher-minted development version, or `null` when it is not one. */
+/** Parse a flat publisher mint, or a legacy nested mint retained on disk. */
 export function parsePublisherDevVersion(raw: string): ParsedPublisherDevVersion | null {
   const value = raw.trim()
-  // Next-patch lineage form first: more specific (`X.Y.Z-dev.N+sha`).
-  const stable = PUBLISHER_DEV_STABLE_LINEAGE.exec(value)
-  if (stable) {
-    return parsedMint(stable[1] as string, stable[2] as string, stable[3] as string, value)
+  const flat = PUBLISHER_DEV_FLAT.exec(value)
+  if (flat) {
+    return parsedMint(flat[1] as string, flat[2] as string, flat[3] as string, value)
   }
-  const edge = PUBLISHER_DEV.exec(value)
-  if (edge) {
-    return parsedMint(edge[1] as string, edge[2] as string, edge[3] as string, value)
+  const legacy = PUBLISHER_DEV.exec(value)
+  if (legacy) {
+    return parsedMint(legacy[1] as string, legacy[2] as string, legacy[3] as string, value)
   }
   return null
 }
 
-/** True for a publisher-minted `<base>.dev.<N>+<sha>` (not a bare `dev+<sha>`). */
+/** True for a flat or legacy publisher mint (not a bare `dev+<sha>`). */
 export function isPublisherDevVersion(version: string): boolean {
   return parsePublisherDevVersion(version) !== null
+}
+
+/** True only for the current flat publisher form; legacy mints remain parseable. */
+export function isFlatPublisherDevVersion(version: string): boolean {
+  const value = version.trim()
+  return PUBLISHER_DEV_FLAT.test(value) && parsePublisherDevVersion(value) !== null
 }
 
 /** True for `dev+<sha>` source identity OR a publisher-minted development version. */

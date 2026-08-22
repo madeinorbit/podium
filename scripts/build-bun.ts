@@ -301,7 +301,7 @@ export function assertDevClientDistMatchesVersion(
   label: string,
   stamp: { sourceSha?: string } | null,
 ): void {
-  // Publisher mints are `<base>.dev.<N>+<sha>` (POD-2502); forensic identity is
+  // Publisher mints are `X.Y.Z-dev.<N>+<sha>` (POD-2502); forensic identity is
   // still `dev+<sha>`. Key on either — packing yesterday's dist under today's
   // commit claim is the lie this guard exists to catch.
   //

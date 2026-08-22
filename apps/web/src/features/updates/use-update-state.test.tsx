@@ -239,7 +239,7 @@ describe('native desktop update surface', () => {
 
 describe('useUpdateState — digest build identity', () => {
   const digestTarget: UpdateTarget = {
-    version: '0.1.1-edge.1.dev.1+a5f041c',
+    version: '0.1.1-dev.1+a5f041c',
     critical: false,
     artifacts: { web: { digest: 'a5f041c' } },
   }
@@ -284,7 +284,7 @@ describe('useUpdateState — digest build identity', () => {
   it('suppresses a different packaged target for an explicit source coordinator', async () => {
     const newer = {
       ...digestTarget,
-      version: '0.1.1-edge.1.dev.2+b4c9e12',
+      version: '0.1.1-dev.2+b4c9e12',
       artifacts: { web: { digest: 'b4c9e12' } },
     }
     setPageVersion(digestTarget.version)
@@ -307,7 +307,7 @@ describe('useUpdateState — digest build identity', () => {
   it('keeps an unknown install shape visible instead of treating uncertainty as source', async () => {
     const newer = {
       ...digestTarget,
-      version: '0.1.1-edge.1.dev.2+b4c9e12',
+      version: '0.1.1-dev.2+b4c9e12',
       artifacts: { web: { digest: 'b4c9e12' } },
     }
     setPageVersion(newer.version)

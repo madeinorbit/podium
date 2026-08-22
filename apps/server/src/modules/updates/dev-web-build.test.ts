@@ -106,14 +106,14 @@ describe('development web build', () => {
     const { web } = builder({
       stamps: [
         { sourceSha: 'aaaaaaa', appVersion: 'old' },
-        { sourceSha: 'aaaaaaa', appVersion: '0.1.0-edge.20.dev.1+aaaaaaa' },
+        { sourceSha: 'aaaaaaa', appVersion: '0.1.0-dev.1+aaaaaaa' },
       ],
       phones: [
         { present: true, digest: 'aaaaaaa', appVersion: 'old' },
         {
           present: true,
           digest: 'aaaaaaa',
-          appVersion: '0.1.0-edge.20.dev.1+aaaaaaa',
+          appVersion: '0.1.0-dev.1+aaaaaaa',
         },
       ],
       runStep: (_step, appVersion) => {
@@ -122,8 +122,8 @@ describe('development web build', () => {
       },
     })
 
-    await web.ensure('aaaaaaa', '0.1.0-edge.20.dev.1+aaaaaaa')
-    expect(versions).toEqual(['0.1.0-edge.20.dev.1+aaaaaaa', '0.1.0-edge.20.dev.1+aaaaaaa'])
+    await web.ensure('aaaaaaa', '0.1.0-dev.1+aaaaaaa')
+    expect(versions).toEqual(['0.1.0-dev.1+aaaaaaa', '0.1.0-dev.1+aaaaaaa'])
   })
 
   it('runs the web build then the mobile build when the dist is stale', async () => {

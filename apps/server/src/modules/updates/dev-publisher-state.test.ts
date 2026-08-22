@@ -28,7 +28,7 @@ describe('dev publisher state', () => {
       {
         base: '0.1.0-edge.20',
         counter: 5,
-        retainedArtifacts: ['podium-headless-0.1.0-edge.20.dev.5+abc.tar.gz'],
+        retainedArtifacts: ['podium-headless-0.1.0-dev.5+abc.tar.gz'],
         lastPublishedSha: 'abc1234',
       },
       dir,
@@ -36,7 +36,7 @@ describe('dev publisher state', () => {
     expect(readDevPublisherState(dir)).toEqual({
       base: '0.1.0-edge.20',
       counter: 5,
-      retainedArtifacts: ['podium-headless-0.1.0-edge.20.dev.5+abc.tar.gz'],
+      retainedArtifacts: ['podium-headless-0.1.0-dev.5+abc.tar.gz'],
       lastPublishedSha: 'abc1234',
     })
   })
@@ -75,6 +75,27 @@ describe('dev publisher state', () => {
     ).toBe('0.1.2-dev.3+3333333')
   })
 
+  it('migrates a legacy label instead of reusing it', () => {
+    const dir = tempDir()
+    writeDevPublisherState(
+      {
+        base: '0.1.0-edge.20',
+        counter: 5,
+        retainedArtifacts: [],
+        lastSha: 'abc1234',
+        lastVersion: '0.1.0-edge.20.dev.5+abc1234',
+      },
+      dir,
+    )
+    const allocated = allocateDevPublishVersion({
+      stateDir: dir,
+      checkoutBase: '0.1.0-edge.20',
+      sha: 'abc1234',
+    })
+    expect(allocated.version).toBe('0.1.0-dev.6+abc1234')
+    expect(readDevPublisherState(dir)?.lastVersion).toBe('0.1.0-dev.6+abc1234')
+  })
+
   it('mints monotonically and remembers artifact basenames for the sweep allowlist', () => {
     const dir = tempDir()
     const first = allocateDevPublishVersion({
@@ -82,13 +103,13 @@ describe('dev publisher state', () => {
       checkoutBase: '0.1.0-edge.20',
       sha: '1111111',
     })
-    expect(first.version).toBe('0.1.0-edge.20.dev.1+1111111')
+    expect(first.version).toBe('0.1.0-dev.1+1111111')
     const referenced = rememberDevArtifact({
       stateDir: dir,
       // One publish is one artifact PER PLATFORM (POD-2504); the ledger remembers them
       // together so a sweep cannot reclaim part of a build it just published.
       artifactNames: [
-        'podium-headless-0.1.0-edge.20.dev.1+1111111-linux-x86_64-20260812T182015Z.tar.gz',
+        'podium-headless-0.1.0-dev.1+1111111-linux-x86_64-20260812T182015Z.tar.gz',
       ],
     })
     const second = allocateDevPublishVersion({
@@ -96,12 +117,12 @@ describe('dev publisher state', () => {
       checkoutBase: '0.1.0-edge.18', // older checkout — publisher base wins
       sha: '2222222',
     })
-    expect(second.version).toBe('0.1.0-edge.20.dev.2+2222222')
+    expect(second.version).toBe('0.1.0-dev.2+2222222')
     expect(readDevPublisherState(dir)?.counter).toBe(2)
     expect(referenced[0]).toContain('dev.1+1111111')
     // File on disk is valid JSON after the atomic rename.
     expect(JSON.parse(readFileSync(join(dir, 'dev-publisher-version.json'), 'utf8')).base).toBe(
-      '0.1.0-edge.20',
+      '0.1.0',
     )
   })
 
@@ -128,7 +149,7 @@ describe('dev publisher state', () => {
       sha: 'main222',
     })
 
-    expect(compareVersions(vintage.version, '0.1.0-edge.20.dev.4+published')).toBe(1)
+    expect(compareVersions(vintage.version, '0.1.0-dev.4+published')).toBe(1)
     expect(compareVersions(main.version, vintage.version)).toBe(1)
     expect(readDevPublisherState(dir)?.lastPublishedSha).toBe('published')
   })

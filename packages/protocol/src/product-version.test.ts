@@ -61,7 +61,7 @@ describe('isForensicBundleIdentity', () => {
 describe('build identity', () => {
   it('extracts source digests without depending on the product label', () => {
     expect(sourceDigestFromVersion('dev+a5f041c')).toBe('a5f041c')
-    expect(sourceDigestFromVersion('0.1.1-edge.1.dev.1+a5f041c')).toBe('a5f041c')
+    expect(sourceDigestFromVersion('0.1.1-dev.1+a5f041c')).toBe('a5f041c')
     expect(sourceDigestFromVersion('0.1.1-edge.1')).toBeUndefined()
   })
 
@@ -69,7 +69,7 @@ describe('build identity', () => {
     expect(
       buildsDiffer(
         { version: 'dev+a5f041c', digest: 'a5f041c' },
-        { version: '0.1.1-edge.1.dev.1+a5f041c', digest: 'a5f041c' },
+        { version: '0.1.1-dev.1+a5f041c', digest: 'a5f041c' },
       ),
     ).toBe(false)
   })
@@ -78,7 +78,7 @@ describe('build identity', () => {
     expect(
       buildsDiffer(
         { version: 'dev+b4c9e12', digest: 'b4c9e12' },
-        { version: '0.1.1-edge.1.dev.1+a5f041c', digest: 'a5f041c' },
+        { version: '0.1.1-dev.1+a5f041c', digest: 'a5f041c' },
       ),
     ).toBe(true)
   })

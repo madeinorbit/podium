@@ -18,7 +18,7 @@
  * FAILS CLOSED, and every caller must treat it that way: `null` means "these two
  * labels have no order", not "equal". A source checkout's forensic `dev+<sha>`
  * identity has nothing to compare; publisher-minted development versions
- * (`<base>.dev.<N>+<sha>`, POD-2502) are ordinary semver and order here.
+ * (`X.Y.Z-dev.<N>+<sha>`) are orderable here.
  */
 
 /**
@@ -39,7 +39,7 @@ const numericOrText = (id: string): string | number => (/^\d+$/.test(id) ? Numbe
 
 /** `null` for anything that is not a semver — including the forensic
  *  `dev+<sha>` / plain `dev` labels a source checkout carries. Publisher mints
- *  with appended `.dev.<N>` identifiers parse and order normally. */
+ *  with flat `X.Y.Z-dev.<N>` identifiers parse and order normally. */
 function parseVersion(raw: string): ParsedVersion | null {
   const m = SEMVER.exec(raw.trim())
   if (!m) return null
@@ -59,14 +59,18 @@ function parseVersion(raw: string): ParsedVersion | null {
 }
 
 /**
- * Semver §11 precedence over the prerelease identifiers. The two rules that a
- * naive dot-splitting comparison cannot express, and that decide real Podium
- * versions:
+ * Semver §11 precedence over the prerelease identifiers, with Podium's one
+ * deliberate deviation: for the same core, `dev` outranks `edge`. The three
+ * rules that a naive dot-splitting comparison cannot express, and that decide
+ * real Podium versions:
  *
  * - **A release outranks its own prereleases.** `0.1.4` > `0.1.4-edge.4`, so an
  *   edge install stops offering itself the prerelease once the release lands.
  * - **Numeric identifiers compare NUMERICALLY.** `edge.10` > `edge.4`; compared
  *   as text it is the other way round, and edge would stall at `.9` forever.
+ * - **A development cycle outranks the edge cycle of the same core.**
+ *   `0.1.2-dev.1` > `0.1.2-edge.1`, so flattening the publisher label does not
+ *   make a development build look older than the edge release it was built past.
  *
  * Mixed identifiers: numeric always ranks below alphanumeric, and a shorter set
  * of otherwise-equal identifiers ranks below a longer one.
@@ -86,7 +90,11 @@ function comparePrerelease(
     const rightIsNumber = typeof right === 'number'
     if (leftIsNumber !== rightIsNumber) return leftIsNumber ? -1 : 1
     if (leftIsNumber && rightIsNumber) return left < right ? -1 : 1
-    return (left as string) < (right as string) ? -1 : 1
+    const leftText = left as string
+    const rightText = right as string
+    if (leftText === 'dev' && rightText === 'edge') return 1
+    if (leftText === 'edge' && rightText === 'dev') return -1
+    return leftText < rightText ? -1 : 1
   }
   return a.length === b.length ? 0 : a.length < b.length ? -1 : 1
 }
