@@ -1,8 +1,12 @@
 import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
+import {
+  UPDATE_ARTIFACT_INTEGRITY_REFUSAL,
+  UPDATE_ARTIFACT_REFUSAL_HEADER,
+} from '@podium/protocol'
 import type { Context, Hono } from 'hono'
-import type { DevBundleArtifact } from './dev-bundle'
+import { DevArtifactIntegrityError, type DevBundleArtifact } from './dev-bundle'
 import { DEV_DESKTOP_MANIFEST, DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
 
 export const DEV_BUNDLE_CONTENT_TYPE = 'application/gzip'
@@ -110,7 +114,18 @@ export function registerDevFeedRoutes(app: Hono, deps: DevFeedRouteDeps): void {
   ) => {
     if (!(await deps.authenticate(c.req.raw, c))) return c.text('unauthorized', 401)
 
-    const artifact = await deps.publishedArtifact(requestedVersion, requestedPlatform)
+    let artifact: DevBundleArtifact | null
+    try {
+      artifact = await deps.publishedArtifact(requestedVersion, requestedPlatform)
+    } catch (error) {
+      if (!(error instanceof DevArtifactIntegrityError)) throw error
+      // Keep the route fail-closed and non-enumerating: authenticated callers
+      // still receive the same 404 body and status. The marker preserves the
+      // verdict across that disposition so the daemon does not flatten a
+      // security finding into a connection problem.
+      c.header(UPDATE_ARTIFACT_REFUSAL_HEADER, UPDATE_ARTIFACT_INTEGRITY_REFUSAL)
+      return c.text('not found', 404)
+    }
     if (
       !artifact ||
       artifact.version !== requestedVersion ||

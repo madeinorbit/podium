@@ -11,7 +11,12 @@
  * from — see {@link DeliveryDeps.trust}.
  */
 import { createHash, verify as cryptoVerify } from 'node:crypto'
-import type { UpdateArtifact, UpdateTrustRoot } from '@podium/protocol'
+import {
+  UPDATE_ARTIFACT_INTEGRITY_REFUSAL,
+  UPDATE_ARTIFACT_REFUSAL_HEADER,
+  type UpdateArtifact,
+  type UpdateTrustRoot,
+} from '@podium/protocol'
 
 /** The baked Podium release key: the `release` trust root. */
 export const PODIUM_UPDATE_PUBKEY = 'MCowBQYDK2VwAyEAG12/153QJI/SePyYeJQhBSbh1ZsFgkoMkwb823NiYOU='
@@ -248,7 +253,16 @@ export async function fetchArtifact(
   let bytes: Uint8Array
   try {
     const res = await deps.fetch(asset.url, { signal: abort.signal })
-    if (!res.ok) throw new Error(`artifact download returned ${res.status}`)
+    if (!res.ok) {
+      const refusal = res.headers?.get(UPDATE_ARTIFACT_REFUSAL_HEADER)
+      if (res.status === 404 && refusal === UPDATE_ARTIFACT_INTEGRITY_REFUSAL) {
+        throw new Error(
+          'published artifact digest verification FAILED — refusing to install because the ' +
+            'stored bytes changed after publication',
+        )
+      }
+      throw new Error(`artifact download returned ${res.status}`)
+    }
     bytes = await readArtifact(res, deps)
   } catch (error) {
     if (deps.signal?.aborted) throw new Error('artifact download was superseded by a newer grant')

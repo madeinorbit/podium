@@ -60,6 +60,20 @@
  */
 
 /**
+ * An authenticated artifact endpoint keeps its fail-closed HTTP disposition
+ * while carrying the narrower reason to the downloader in this header. The
+ * value is deliberately closed: an ordinary 404, a stale version, and an
+ * unavailable origin must not be promoted into a security finding.
+ */
+export const UPDATE_ARTIFACT_REFUSAL_HEADER = 'x-podium-update-artifact-refusal'
+
+/**
+ * The publishing server re-read stored bytes and found that they no longer
+ * match the digest recorded when the release was published.
+ */
+export const UPDATE_ARTIFACT_INTEGRITY_REFUSAL = 'integrity-failed'
+
+/**
  * What an operator is being told, and therefore what copy is owed.
  *
  * Open at the wire (a newer server may send a code this bundle predates, and

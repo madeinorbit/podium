@@ -1769,6 +1769,17 @@ export type DevBundleReadiness =
       publicReason: string
     }
 
+/**
+ * Published metadata still identifies an artifact, but the bytes at that path
+ * no longer match it. This is intentionally distinct from `null`: `null`
+ * means absent, stale, or unsupported and remains an ordinary not-found
+ * response; this verdict is a security event the authenticated downloader must
+ * be able to name.
+ */
+export class DevArtifactIntegrityError extends Error {
+  override readonly name = 'DevArtifactIntegrityError'
+}
+
 export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   requestBuild(
     explicit?: boolean,
@@ -2221,6 +2232,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         (entry) =>
           entry.version === requestedVersion && (entry.platform || hostPlatform) === platform,
       )
+      let storedBytesFailedIntegrity = false
       for (const entry of candidates) {
         const path = join(dir, entry.name)
         const metadata = await readMetadata(fs, path)
@@ -2236,7 +2248,10 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         const signature = (await readOptionalText(fs, path + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
         if (!signature || signature !== named.signature) continue
         const actual = await fs.digest(path)
-        if (actual.digest !== metadata.digest || actual.size !== metadata.size) continue
+        if (actual.digest !== metadata.digest || actual.size !== metadata.size) {
+          storedBytesFailedIntegrity = true
+          continue
+        }
         const recovered: DevBundleArtifact = {
           version: requestedVersion,
           platform,
@@ -2248,7 +2263,13 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         recoveredPublishedArtifacts.set(cacheKey, recovered)
         return recovered
       }
-    } catch {
+      if (storedBytesFailedIntegrity) {
+        throw new DevArtifactIntegrityError(
+          `published artifact bytes failed digest verification for ${requestedVersion} ${platform}`,
+        )
+      }
+    } catch (error) {
+      if (error instanceof DevArtifactIntegrityError) throw error
       // A missing directory, unreadable sidecar, or failed hash is the same
       // honest route answer as a file retention removed: this host has no
       // verified artifact for that published address.

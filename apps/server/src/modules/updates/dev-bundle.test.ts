@@ -4,7 +4,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { matchUpdateFailureToken, UpdateTarget } from '@podium/protocol'
+import { fetchArtifact } from '@podium/runtime/update-delivery'
+import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
+import { registerDevFeedRoutes } from './artifact-route'
 import {
   assertSourceMatchesHead,
   buildDevBundle,
@@ -31,6 +34,7 @@ import {
 } from './dev-bundle'
 import { createServerDevBundleLock } from './dev-bundle-lock'
 import { withDevBuildSnapshot } from './dev-build-snapshot'
+import { classifyMachineFailure, describeUpdateOperationFailure } from './operation'
 
 const CHECKOUT_BASE = '0.1.0-edge.20'
 const publisherDirs: string[] = []
@@ -2074,8 +2078,9 @@ describe('the dev feed manifest the publisher writes', () => {
       addedMigrations: [],
     }),
     prepareWebDist?: (headSha: string, explicit: boolean) => Promise<void>,
+    fixture = signedFixture(),
   ) {
-    const { bytes, signature, signingKey } = signedFixture()
+    const { bytes, signature, signingKey } = fixture
     return createDevBundlePublisher({
       ...publisherSeams(),
       isSourceRun: true,
@@ -2221,6 +2226,61 @@ describe('the dev feed manifest the publisher writes', () => {
     // The resolver stamps the trust root and REFUSES a manifest that names one,
     // so a publisher that wrote one would make its own releases unresolvable.
     expect(parsed.trust).toBeUndefined()
+  })
+
+  it('names integrity when published artifact bytes change after publication', async () => {
+    const store = memoryFs()
+    const fixture = signedFixture()
+    const publisher = publisherFor(store, () => 'aaaaaaa', undefined, undefined, fixture)
+    await publisher.requestBuild(true)
+    expect(await publisher.publishFeed()).toBe(true)
+
+    const published = publisher.current()?.artifacts[0]
+    expect(published).toBeDefined()
+    if (!published) throw new Error('fixture did not publish a host artifact')
+    store.blobs.set(published.path, new Uint8Array([...fixture.bytes, 9]))
+
+    // A fresh publisher has no in-memory build descriptor to trust. It must
+    // reconstruct the artifact from the publication and hash the bytes that
+    // are now on disk, which is the same path exercised after a server restart.
+    const restarted = publisherFor(store, () => 'aaaaaaa', undefined, undefined, fixture)
+    const app = new Hono()
+    registerDevFeedRoutes(app, {
+      publishedArtifact: (version, platform) => restarted.publishedArtifact(version, platform),
+      manifestPath: () => restarted.feedManifestPath(),
+      authenticate: () => true,
+    })
+
+    const manifest = UpdateTarget.parse(
+      JSON.parse(await store.fs.readText(restarted.feedManifestPath())),
+    )
+    const asset = manifest.artifacts.headless?.platforms['linux-x86_64']
+    expect(asset).toBeDefined()
+    if (!asset) throw new Error('fixture manifest did not name the host artifact')
+
+    let detail = ''
+    try {
+      await fetchArtifact(asset, {
+        fetch: async (input, init) => app.request(input, init),
+        pubkey: 'unused-release-key',
+        pinnedPubkey: 'unused-instance-key',
+        trust: 'instance',
+      })
+    } catch (error) {
+      detail = error instanceof Error ? error.message : String(error)
+    }
+
+    const code = classifyMachineFailure(detail)
+    const visible = describeUpdateOperationFailure({
+      code,
+      places: ['m_a', 'm_b'],
+      names: ['fleet-a', 'fleet-b'],
+      detail,
+    })
+    expect(code).toBe('machine-artifact-rejected')
+    expect(detail).toMatch(/digest|signature|integrity/i)
+    expect(visible.message).toMatch(/verification|signed|integrity/i)
+    expect(`${visible.message} ${detail}`).not.toMatch(/could not download|check the connection/i)
   })
 
   it('publishes the approved commit if HEAD advances while it builds', async () => {
