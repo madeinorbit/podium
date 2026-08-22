@@ -456,3 +456,28 @@ Two rules from it. Before parking a session whose issue still has work, decide w
 the checkout next — a stop is a handoff, not a cleanup. And treat "exited without reporting
 with an empty transcript" as a placement question first: check the cwd exists before
 re-reading the brief. Filed as POD-2563.
+
+### Lesson: a started sub-issue can be cut from main, not from the epic branch
+
+`podium issue start` takes no `--parent-branch`; the base is fixed when the issue is
+CREATED. Create a sub-issue without naming the base and its branch is cut from `main`,
+which on this epic means it contains NONE of the integration branch's landed work.
+
+Measured 2026-08-22: five sub-issues started in one batch (POD-2580, POD-2602, POD-2603,
+POD-2605, POD-2618) came up based on main's tip 25942eecf, while three created the same
+day (POD-2600, POD-2601, POD-2604) correctly based on the epic tip. The five were caught
+before they produced code, by checking each branch's merge-base rather than trusting the
+start output.
+
+Three costs, in increasing order of nastiness: the work cannot ff-only land onto
+integration (a fast-forward from a base the target does not contain is impossible); tests
+pass or fail for reasons unrelated to the change, because the epic's landed behaviour is
+absent; and an author can "fix" something the epic already fixed differently, producing a
+conflict that looks like a disagreement about design.
+
+Rule: pass the epic's branch as `--parent-branch` at CREATE time, and after starting any
+issue verify the base before the agent writes code —
+`git merge-base --is-ancestor <branch> issue/1761-agent-runtime` or compare
+`git merge-base <branch> main` against `git merge-base <branch> issue/1761-agent-runtime`.
+The remedy once started is cheap only while the branch is empty: have the OWNING session
+rebase onto the integration branch; never rebase another session's branch for it.
