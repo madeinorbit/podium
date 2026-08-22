@@ -582,6 +582,22 @@ describe('UpdatesService', () => {
       expect(send.mock.calls[0]?.[1]).toMatchObject({ type: 'updateGrant', grantId: 'g2' })
     })
 
+    it('does not replay a terminal boot report for a different target', () => {
+      const { svc } = makeClock([m('a')])
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        targetVersion: '0.4.3',
+        state: 'stuck',
+        version: '0.4.1',
+        detail: 'belongs to another release',
+      })
+
+      svc.setTarget(target)
+
+      expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.1' })
+    })
+
     it('keeps a packaged crash report after the coordinator replaced its grant', () => {
       const { svc } = make([m('a')])
       svc.setTarget(target)

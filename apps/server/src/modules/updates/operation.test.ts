@@ -954,6 +954,7 @@ function harness(options: HarnessOptions = {}) {
    * the same shape — `operations?.engine` is optional there for the same reason.
    */
   let engine: OperationEngine | undefined
+  let targetChanged: ((channel: UpdateChannel) => void) | undefined
   const requireEngine = (): OperationEngine => {
     if (!engine) throw new Error('harness engine is not constructed yet')
     return engine
@@ -969,8 +970,10 @@ function harness(options: HarnessOptions = {}) {
    */
   const newUpdatesService = (
     driver: () => OperationEngine | undefined,
-    seed: UpdateTarget | undefined = options.target ?? devTarget(),
+    seed?: UpdateTarget,
+    seedProvided = false,
   ) => {
+    const initialTarget = seedProvided ? seed : options.target ?? devTarget()
     const service = new UpdatesService({
       machines: () => fleet,
       send: (machineId, message) => sent.push({ machineId, message }),
@@ -981,8 +984,9 @@ function harness(options: HarnessOptions = {}) {
       exclusiveOperationActive: () => driver()?.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
       exclusiveOperationVersion: (channel) =>
         exclusiveUpdateVersion(driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
+      onTargetChanged: (channel) => targetChanged?.(channel),
     })
-    if (seed) service.setTarget('dev', seed)
+    if (initialTarget) service.setTarget('dev', initialTarget)
     return service
   }
   const updates = newUpdatesService(() => engine)
@@ -1050,6 +1054,9 @@ function harness(options: HarnessOptions = {}) {
     clock,
     sent,
     context,
+    setTargetChanged(listener: (channel: UpdateChannel) => void): void {
+      targetChanged = listener
+    },
     get engine() {
       return requireEngine()
     },
@@ -1082,6 +1089,7 @@ function harness(options: HarnessOptions = {}) {
       engine: OperationEngine
       updates: UpdatesService
       context: () => UpdateOperationContext
+      setTargetChanged: (listener: (channel: UpdateChannel) => void) => void
     } {
       const nextEngine = new OperationEngine({ store, registry, clock: clock.clock })
       // `seedTarget: undefined` is the honest shape of a successor that has not
@@ -1089,12 +1097,15 @@ function harness(options: HarnessOptions = {}) {
       // is what hid POD-2228 from every adoption drill in this file.
       const nextUpdates =
         'seedTarget' in opts
-          ? newUpdatesService(() => nextEngine, opts.seedTarget)
+          ? newUpdatesService(() => nextEngine, opts.seedTarget, true)
           : newUpdatesService(() => nextEngine)
       return {
         engine: nextEngine,
         updates: nextUpdates,
         context: () => contextOver(nextUpdates, () => nextEngine),
+        setTargetChanged(listener: (channel: UpdateChannel) => void): void {
+          targetChanged = listener
+        },
       }
     },
   }
@@ -1523,6 +1534,77 @@ describe('the step runners', () => {
     expect(stepState(operation, UPDATE_STEP_MACHINES)).toBe('failed')
     expect(operation.error?.code).toBe('machine-update-not-confirmed')
     expect(operation.error?.message).toContain('vmi3407763')
+    expect(
+      h.store.history(UPDATE_OPERATION_KIND).some((entry) => entry.operation?.id === operation.id),
+    ).toBe(true)
+  })
+
+  /**
+   * A packaged all-in-one rollback can report from the daemon before the
+   * successor has resolved its feed target. The terminal report must survive
+   * that gap and settle the persisted operation through the normal bridge.
+   */
+  it('server: settles a packaged all-in-one rollback before target resolution', async () => {
+    const target = packedTarget()
+    const fleet = [machine({ id: 'podium', name: 'podium' })]
+    const h = harness({
+      machines: fleet,
+      target,
+      appVersion: '0.4.1',
+      servedWebDigest: () => WEB_DIGEST,
+      requestCoordinatorRestart: vi.fn(),
+      hostMachineId: 'podium',
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+    expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBe('pending')
+    h.engine.stop()
+
+    fleet[0] = machine({ id: 'podium', name: 'podium', online: false })
+    const boot = h.reboot({ seedTarget: undefined })
+    await boot.engine.adoptOnBoot(
+      () => ({
+        appVersion: '0.4.1',
+        servedWebDigest: WEB_DIGEST,
+        machineDirectory: fleet,
+        now: h.clock.clock.now(),
+      }),
+      () => boot.context(),
+    )
+    await boot.engine.whenSettled('op_1')
+    expect(boot.updates.target('dev')).toBeUndefined()
+    expect(h.read().state).toBe('running')
+    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+    expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBe('pending')
+
+    fleet[0] = machine({ id: 'podium', name: 'podium' })
+    const bridge = createUpdateFleetBridge({
+      engine: boot.engine,
+      updates: boot.updates,
+      now: () => h.clock.clock.now(),
+    })
+    boot.setTargetChanged(() => bridge.onFleetChanged())
+    boot.updates.onStatus(asMachineId('podium'), {
+      type: 'updateStatus',
+      grantId: 'grant_1',
+      targetVersion: target.version,
+      state: 'stuck',
+      version: '0.4.1',
+      detail:
+        `did not reach ${target.version} after 2 attempt(s); running 0.4.1, pinned to last-known-good`,
+    })
+    bridge.onFleetChanged()
+    expect(h.read().state).toBe('running')
+
+    boot.updates.setTarget('dev', target)
+    await boot.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.state).toBe('failed')
+    expect(stepState(operation, UPDATE_STEP_MACHINES)).toBe('failed')
+    expect(stepState(operation, UPDATE_STEP_SERVER)).toBe('pending')
+    expect(operation.error?.code).toBe('machine-update-not-confirmed')
     expect(
       h.store.history(UPDATE_OPERATION_KIND).some((entry) => entry.operation?.id === operation.id),
     ).toBe(true)

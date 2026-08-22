@@ -10,6 +10,7 @@ import type {
   MachineId,
   SessionId,
   SessionMeta,
+  UpdateChannel,
 } from '@podium/model'
 import {
   actorAgent,
@@ -447,6 +448,7 @@ export class SessionRegistry {
       this.store.repos,
     )
     let updates: UpdatesService | undefined
+    let targetChanged: ((channel: UpdateChannel) => void) | undefined
     // Forward-declared for the same reason `updates` is: the update SERVICE has
     // to be able to ask whether a durable operation holds the lifecycle group
     // (single-flight's other half, P6), and the operations module is composed
@@ -547,6 +549,7 @@ export class SessionRegistry {
       // (POD-2228). This process has no memory of having published it.
       exclusiveOperationVersion: (channel) =>
         exclusiveUpdateVersion(operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
+      onTargetChanged: (channel) => targetChanged?.(channel),
     })
     updates = updatesService
     const requestBroker = new DaemonRequestBroker({
@@ -2313,6 +2316,7 @@ export class SessionRegistry {
       engine: operationsModule.engine,
       updates: updatesService,
     })
+    targetChanged = () => updateFleetBridge.onFleetChanged()
     /**
      * THE STANDING RECONCILIATION (§3.6, POD-2105). Offline machines are
      * `deferred` at plan time so an update can finish without them; this is what

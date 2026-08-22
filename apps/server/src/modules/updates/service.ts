@@ -74,6 +74,8 @@ export interface UpdatesDeps {
    * transition. Absent, or `undefined`, degrades to the memory test alone.
    */
   exclusiveOperationVersion?(channel: UpdateChannel): string | undefined
+  /** A packaged rollback may be reported before target resolution finishes. */
+  onTargetChanged?(channel: UpdateChannel): void
 }
 
 /** What one channel's last release-target lookup produced. */
@@ -236,6 +238,12 @@ export class UpdatesService {
   private readonly rollouts = new Map<UpdateChannel, ChannelRolloutState>()
   private readonly machineStates = new Map<string, MachineConvergenceState>()
   private readonly pendingGrants = new Map<string, PendingGrant>()
+  // Keep only target-named terminal boot reports until the feed resolves.
+  // Uncorrelated progress remains discarded so rollback fencing is unchanged.
+  private readonly terminalStatusesBeforeTarget = new Map<
+    UpdateChannel,
+    Map<string, UpdateStatusMessage>
+  >()
   private readonly checks = new Map<UpdateChannel, ChannelCheckRecord>()
   /** One shared resolve per channel, for EVERY caller of `refreshTarget` (POD-2153). */
   private readonly refreshesInFlight = new Map<UpdateChannel, Promise<boolean>>()
@@ -308,6 +316,7 @@ export class UpdatesService {
         detail: `${TARGET_WITHDRAWN_TOKEN}: ${reason}`,
       })
     }
+    this.deps.onTargetChanged?.(channel)
   }
 
   setTarget(channel: UpdateChannel, target: UpdateTarget): void
@@ -346,6 +355,8 @@ export class UpdatesService {
       }
       this.unavailableReasons.delete(channel)
       this.targets.set(channel, target)
+      this.replayTerminalStatuses(channel, target.version)
+      this.deps.onTargetChanged?.(channel)
       return
     }
 
@@ -367,6 +378,23 @@ export class UpdatesService {
     }
     for (const [machineId, pending] of this.pendingGrants) {
       if (pending.channel === channel) this.pendingGrants.delete(machineId)
+    }
+    this.replayTerminalStatuses(channel, target.version)
+    this.deps.onTargetChanged?.(channel)
+  }
+
+  /**
+   * Replay only terminal reports that name the target just resolved. Reports
+   * for another release are stale and must not influence a later operation.
+   */
+  private replayTerminalStatuses(channel: UpdateChannel, targetVersion: string): void {
+    const deferred = this.terminalStatusesBeforeTarget.get(channel)
+    if (!deferred) return
+    this.terminalStatusesBeforeTarget.delete(channel)
+    for (const [machineId, message] of deferred) {
+      if (message.targetVersion === targetVersion) {
+        this.onStatus(asMachineId(machineId), message)
+      }
     }
   }
 
@@ -591,7 +619,20 @@ export class UpdatesService {
     if (!machine) return
     const channel = this.channelOf(machine)
     const target = this.target(channel)
-    if (!target) return
+    if (!target) {
+      if (
+        (message.state === 'rejected' || message.state === 'stuck') &&
+        message.targetVersion !== undefined
+      ) {
+        let deferred = this.terminalStatusesBeforeTarget.get(channel)
+        if (!deferred) {
+          deferred = new Map()
+          this.terminalStatusesBeforeTarget.set(channel, deferred)
+        }
+        deferred.set(machineId, message)
+      }
+      return
+    }
 
     const pending = this.pendingGrants.get(machineId)
     const pendingGrant = pending?.channel === channel ? pending : undefined
