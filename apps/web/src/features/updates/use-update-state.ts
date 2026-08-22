@@ -89,6 +89,7 @@ export interface UpdateMachineState {
   id: string
   name?: string
   version: string
+  installKind?: string
   state: 'current' | 'granted' | 'downloading' | 'restarting' | 'rejected' | 'stuck'
   online: boolean
   busy: boolean
@@ -579,12 +580,14 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const target = server.target
   const desktopTargeted = surface !== 'web' && target?.artifacts.desktop !== undefined
   const targetWebDigest = target?.artifacts.web?.digest
-  const serverBehind = target
+  const serverDiffers = target
     ? buildsDiffer(
         { version: server.appVersion, digest: server.sourceDigest },
         { version: target.version, digest: targetWebDigest },
       )
     : false
+  const sourceCannotTakeTarget = server.installKind === 'source' && serverDiffers
+  const serverBehind = server.installKind !== 'source' && serverDiffers
   const phoneStale = targetWebDigest !== undefined && phoneBehind(server, targetWebDigest)
   const skew = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
 
@@ -599,6 +602,12 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         phoneBehind: phoneStale,
       })
     : { app: false, server: serverBehind, machines: fleet.behind > 0, phone: false }
+  if (sourceCannotTakeTarget) {
+    // A source checkout cannot turn target package bytes into a new checkout.
+    // Keep packaged fleet consumers in the offer, but promise no local move.
+    touched.app = false
+    touched.phone = false
+  }
   if (options.needRefresh || desktopUpdate !== undefined || desktopTargeted) touched.app = true
 
   const offerInput: UpdateInput = {

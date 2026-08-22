@@ -368,6 +368,16 @@ describe('UpdatesService', () => {
       })
     })
 
+    it('refuses a source checkout explicitly without issuing a grant', () => {
+      const { svc, send } = make([m('source', { installKind: 'source' })])
+      svc.setTarget(target)
+
+      expect(svc.authorizeMachine(asMachineId('source'))).toEqual({
+        result: 'source-checkout',
+      })
+      expect(send).not.toHaveBeenCalled()
+    })
+
     it('grants an equal-version payload when the operator requests repair', () => {
       const { svc, send } = make([m('current', { version: '0.4.2' })])
       svc.setTarget(target)

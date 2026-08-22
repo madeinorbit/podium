@@ -33,10 +33,11 @@ export function useServerAppVersion(trpc: Store['trpc']): string | null {
  * for compatibility with older servers that did not project channel targets.
  */
 export function machineNeedsUpdate(
-  machine: Pick<MachineWire, 'inventory' | 'targetVersion' | 'versionState'>,
+  machine: Pick<MachineWire, 'inventory' | 'targetVersion' | 'versionState' | 'installKind'>,
   serverAppVersion: string | null,
 ): boolean {
   const daemonVersion = machine.inventory?.podiumVersion
+  if (machine.installKind === 'source') return false
 
   if (machine.versionState !== undefined) return machine.versionState === 'behind'
 

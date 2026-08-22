@@ -161,6 +161,17 @@ describe('planUpdateOperation', () => {
       steps: [UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES, UPDATE_STEP_WEB],
     },
     {
+      name: 'a source coordinator at the target commit plans no packaged self-update',
+      input: {
+        target: { ...packedTarget(), version: '0.1.1-edge.1.dev.1+abc1234' },
+        appVersion: 'dev+abc1234',
+        sourceDigest: WEB_DIGEST,
+        serverInstallKind: 'source',
+        servedWebDigest: WEB_DIGEST,
+      },
+      steps: [],
+    },
+    {
       name: 'a website already at the target digest is not rebuilt',
       input: { servedWebDigest: WEB_DIGEST, fleet: [machine({ id: 'vmi' })] },
       steps: [UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES, UPDATE_STEP_SERVER],
@@ -226,18 +237,17 @@ describe('planUpdateOperation', () => {
    * target already offers, and for nobody else.
    */
   it('never waves a source machine, which can take no delivery at all', () => {
-    // The protection this replaces was the mirror image: a source machine could
-    // take git and needed no pack. Now it can take nothing, and the honest plan
-    // is to defer it rather than grant it bytes it has nowhere to put — the
-    // fleet must not learn that by failing.
+    // A source checkout is not a packaged rollout target. It belongs to its
+    // operator, so the plan excludes it rather than granting bytes it cannot
+    // install or representing that deliberate exclusion as a failure.
     const plan = planUpdateOperation(
       planInput({
         target: packedTarget(),
-        fleet: [machine({ id: 'src', deliveryCaps: SOURCE_CAPS })],
+        fleet: [machine({ id: 'src', installKind: 'source', deliveryCaps: SOURCE_CAPS })],
       }),
     )
     expect(plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places ?? []).toEqual([])
-    expect(plan.deferred).toEqual([{ id: 'src', name: 'src', reason: 'cannot-take-delivery' }])
+    expect(plan.deferred).toEqual([])
   })
 
   /**
@@ -250,18 +260,18 @@ describe('planUpdateOperation', () => {
   })
 
   /**
-   * THE MIXED FLEET. One machine runs from source and can take nothing; one is
-   * installed and can take a feed once there is one. The honest plan publishes
-   * once and waves the installed machine — which is NOT deferred for the state
-   * of an artifact this very plan is about to produce — while the source
-   * machine is deferred, because no step of this plan can make it deliverable.
+   * THE MIXED FLEET. One machine runs from source and is not a rollout target; one
+   * is installed and can take a feed once there is one. The plan publishes once
+   * and waves the installed machine — which is NOT deferred for the state of an
+   * artifact this very plan is about to produce — while omitting the source
+   * machine entirely.
    */
-  it('plans the publish for the installed machine and defers the source one', () => {
+  it('plans the publish for the installed machine and excludes the source one', () => {
     const plan = planUpdateOperation(
       planInput({
         target: identityTarget(),
         fleet: [
-          machine({ id: 'src', deliveryCaps: SOURCE_CAPS }),
+          machine({ id: 'src', installKind: 'source', deliveryCaps: SOURCE_CAPS }),
           machine({ id: 'vmi', deliveryCaps: FEED_CAPS }),
         ],
       }),
@@ -275,7 +285,7 @@ describe('planUpdateOperation', () => {
     expect(
       plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places?.map((p) => p.id),
     ).toEqual(['vmi'])
-    expect(plan.deferred).toEqual([{ id: 'src', name: 'src', reason: 'cannot-take-delivery' }])
+    expect(plan.deferred).toEqual([])
   })
 
   /**
@@ -353,7 +363,9 @@ describe('planUpdateOperation', () => {
       planInput({ fleet: [machine({ id: 'macbook', supervised: true })] }),
     )
     expect(stepIds(plan)).toContain(UPDATE_STEP_MACHINES)
-    expect(plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places?.[0]?.id).toBe('macbook')
+    expect(plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places?.[0]?.id).toBe(
+      'macbook',
+    )
     expect(plan.deferred).toEqual([])
   })
 
@@ -392,7 +404,11 @@ describe('planUpdateOperation', () => {
       }),
     )
     expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
-    expect(plan.steps[1]?.places?.map((place) => place.id)).toEqual(['macbook', 'linux-a', 'linux-b'])
+    expect(plan.steps[1]?.places?.map((place) => place.id)).toEqual([
+      'macbook',
+      'linux-a',
+      'linux-b',
+    ])
     expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
     expect(plan.deferred).toEqual([])
   })

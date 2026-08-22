@@ -20,6 +20,12 @@ export interface WaveMachine {
   /** The phase that percentage is about — `downloading`, and nothing else now. */
   phaseDetail?: string
   /**
+   * Whether this daemon owns a packaged install that a fleet grant can replace.
+   * Absent for older reports and therefore deliberately eligible: uncertainty
+   * must stay visible rather than silently dropping a machine from a wave.
+   */
+  installKind?: string
+  /**
    * How this machine can take delivery, as its daemon reported at handshake
    * (`deliveryCaps` in apps/daemon/src/build-report.ts): an INSTALLED machine
    * offers `update.delivery.feed`, and a machine running from SOURCE offers no
@@ -32,6 +38,11 @@ export interface WaveMachine {
    * fleet-managed according to deliveryCaps. Absent means no desktop supervisor.
    */
   supervised?: boolean
+}
+
+/** Explicit source checkouts are operators of their files, not package consumers. */
+export function isPackagedRolloutTarget(machine: Pick<WaveMachine, 'installKind'>): boolean {
+  return machine.installKind !== 'source'
 }
 
 /**
@@ -76,8 +87,9 @@ export function offeredDeliveries(target: {
  * granting it a feed target would send it a quarter-gigabyte download it has
  * nowhere to install.
  *
- * A machine that cannot take it is simply not selected. It stays `behind` —
- * honest, and it converges the moment a target it CAN take is published.
+ * A packaged machine that cannot take the current delivery is simply not selected.
+ * Source checkouts are excluded earlier because they are not packaged rollout
+ * targets; an unknown install kind remains eligible so uncertainty stays visible.
  *
  * UNKNOWN CAPS MEAN YES. A machine that has never reported a build predates the
  * report or has not handshaken yet; refusing it would silently strand it
@@ -125,6 +137,7 @@ export function planWave(ctx: {
   const inFlight = ctx.machines.filter((machine) => IN_FLIGHT.has(machine.state)).length
   const eligible = ctx.machines.filter(
     (machine) =>
+      isPackagedRolloutTarget(machine) &&
       machine.online &&
       machine.version !== ctx.targetVersion &&
       !IN_FLIGHT.has(machine.state) &&

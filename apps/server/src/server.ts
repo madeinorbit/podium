@@ -267,6 +267,8 @@ export function registerVersionRoute(
     appVersion?: () => string
     /** Source identity of this server process, independent of its display version. */
     sourceDigest?: () => string | undefined
+    /** Whether this process owns an installed package or a source checkout. */
+    installKind?: () => 'installed' | 'source'
     /**
      * The phone website on disk, so Update can tell whether the phone is on this
      * commit (POD-1980). Read per request, like the target: the export is built
@@ -321,6 +323,7 @@ export function registerVersionRoute(
       wireSchemaDigest: wireSchemaDigest(),
       appVersion: deps.appVersion?.() ?? process.env.PODIUM_APP_VERSION ?? 'dev',
       ...(sourceDigest ? { sourceDigest } : {}),
+      ...(deps.installKind ? { installKind: deps.installKind() } : {}),
       instanceId: deps.instanceId,
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       daemonConnected,
@@ -683,6 +686,8 @@ export async function startServer(
       // back against.
       channel: registry.modules.updates.operationChannel(hostMachineId),
       appVersion: () => appVersion,
+      sourceDigest: serverBuildSourceDigest,
+      serverInstallKind: developmentSourceRoot ? 'source' : 'installed',
       hostMachineId,
       ...(desktopSupervised ? { desktopSupervised: true } : {}),
       createDatabaseSnapshot: (from, target) =>
@@ -748,6 +753,7 @@ export async function startServer(
     instanceId,
     appVersion: () => appVersion,
     sourceDigest: serverBuildSourceDigest,
+    installKind: () => (developmentSourceRoot ? 'source' : 'installed'),
     // Straight through to the Authority, which delegates to the policy object it
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
@@ -966,6 +972,7 @@ export async function startServer(
           ...(desktopSupervised ? { desktopSupervised: true } : {}),
           ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
           ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
+          serverInstallKind: developmentSourceRoot ? 'source' : 'installed',
           // The web build is the server's own step now, not a systemd unit to
           // restart (POD-1985) — but the context shape is unchanged, so the
           // Update panel's "the website is behind" path still just calls this.

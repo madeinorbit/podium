@@ -79,9 +79,9 @@ export function captureDaemonBootBuild(
  * publisher) and it is not a fleet consumer. A source daemon has no install
  * directory, so a feed artifact is bytes it could verify and then have nowhere
  * to put; `swapHeadlessBundle` would throw at the last possible moment, after
- * a quarter-gigabyte download. Reporting no delivery cap makes the fleet's
- * planner skip it and leaves it honestly `behind` instead — the same outcome
- * the wave filter already documented for a git-only machine offered a tarball.
+ * a quarter-gigabyte download. Reporting no delivery cap prevents accidental
+ * transport, while the explicit source install kind lets rollout planning omit
+ * it as a non-target rather than misreporting it as behind.
  *
  * It keeps {@link SHIPPING_TRAIN_CAPABILITY}, which is not about delivery: the
  * cap set is open and additive, and stripping an unrelated capability would be

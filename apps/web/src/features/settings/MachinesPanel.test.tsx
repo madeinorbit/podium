@@ -877,6 +877,15 @@ describe('MachinesPanel update action', () => {
 
   const applyButton = () => screen.getByRole('button', { name: /apply update to ludovico/i })
 
+  it('shows source ownership instead of a package Apply control', async () => {
+    storeState.machines = [managed({ installKind: 'source' })]
+    setUpdateTrpc({})
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText('Source checkout')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /apply update to ludovico/i })).toBeNull()
+  })
+
   it('says nothing about an update it never watched', async () => {
     storeState.machines = [managed({ appVersion: 'dev+4f36e8e' })]
     setUpdateTrpc({

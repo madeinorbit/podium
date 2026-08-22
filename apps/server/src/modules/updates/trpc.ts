@@ -1,5 +1,6 @@
 import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
 import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } from '@podium/protocol'
+import { buildsDiffer } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { serverBuildSourceDigest, serverBuildVersion } from '../../build-version'
@@ -22,7 +23,7 @@ import {
 } from './operation'
 import { ReleaseApprovalRefusal } from './release-approval'
 import type { ChannelCheckRecord, UpdatesService } from './service'
-import type { WaveMachine } from './wave'
+import { isPackagedRolloutTarget, type WaveMachine } from './wave'
 
 const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set(['granted', 'downloading', 'restarting'])
 const FAILED: ReadonlySet<ConvergenceState> = new Set(['rejected', 'stuck'])
@@ -181,7 +182,12 @@ function fleetSnapshot(
       ...(convergedBy ? { convergedBy } : {}),
     }
   })
-  const machines = allMachines.filter((machine) => isOnChannel(updates, machine, channel))
+  // `allMachines` remains the complete Settings inventory. The operation-facing
+  // projection is narrower: a source checkout has no packaged install to swap.
+  // Only the explicit source fact excludes; old/unknown reports stay visible.
+  const machines = allMachines.filter(
+    (machine) => isOnChannel(updates, machine, channel) && isPackagedRolloutTarget(machine),
+  )
   const target = updates.target(channel)
   const targetVersion = target?.version
   // PER MACHINE, not per target (POD-2195): a fleet that can take git delivery
@@ -220,6 +226,8 @@ export function updateOperationContext(input: {
   operations: OperationsModule
   channel: UpdateChannel
   appVersion: () => string
+  sourceDigest?: () => string | undefined
+  serverInstallKind?: 'installed' | 'source'
   hostMachineId?: string
   desktopSupervised?: boolean
   surface?: UpdateSurface
@@ -246,6 +254,8 @@ export function updateOperationContext(input: {
     updates: input.updates,
     channel: input.channel,
     appVersion: input.appVersion,
+    ...(input.sourceDigest ? { sourceDigest: input.sourceDigest } : {}),
+    ...(input.serverInstallKind ? { serverInstallKind: input.serverInstallKind } : {}),
     ...(input.hostMachineId ? { hostMachineId: input.hostMachineId } : {}),
     ...(input.desktopSupervised ? { desktopSupervised: true } : {}),
     ...(input.surface ? { surface: input.surface } : {}),
@@ -297,6 +307,8 @@ function contextFor(
     // per-row action (POD-2100).
     channel: state.modules.updates.operationChannel(state.store.hostMachineId),
     appVersion: serverBuildVersion,
+    sourceDigest: serverBuildSourceDigest,
+    ...(ctx.serverInstallKind ? { serverInstallKind: ctx.serverInstallKind } : {}),
     hostMachineId: state.store.hostMachineId,
     ...(ctx.desktopSupervised ? { desktopSupervised: true } : {}),
     ...extra,
@@ -342,7 +354,10 @@ export function updateStartability(input: UpdatePlanInput): UpdateStartability {
   }
   const expectedWeb = input.target.artifacts.web?.digest
   const webBehind = expectedWeb !== undefined && input.servedWebDigest !== expectedWeb
-  const serverBehind = input.appVersion !== input.target.version
+  const serverBehind = buildsDiffer(
+    { version: input.appVersion, digest: input.sourceDigest },
+    { version: input.target.version, digest: input.target.artifacts.web?.digest },
+  )
   if (webBehind && !serverBehind && !input.canRebuildWeb && !input.canPrepare) {
     return {
       startable: false,

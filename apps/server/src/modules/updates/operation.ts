@@ -9,7 +9,7 @@ import type {
   StepPlace,
   UpdateTarget,
 } from '@podium/protocol'
-import { classifyUpdateFailureDetail } from '@podium/protocol'
+import { buildsDiffer, classifyUpdateFailureDetail } from '@podium/protocol'
 import {
   DEFAULT_DOWNLOAD_TIMEOUT_MS,
   PROGRESS_REPORT_INTERVAL_MS,
@@ -25,6 +25,7 @@ import type {
 import type { UpdatesService } from './service'
 import {
   machineCanTakeDelivery,
+  isPackagedRolloutTarget,
   offeredDeliveries,
   TERMINAL_STATES,
   type WaveMachine,
@@ -565,6 +566,10 @@ export interface UpdatePlanInput {
   channelOf: (machine: WaveMachine) => UpdateChannel
   /** This server's own build version, as `/version` reports it. */
   appVersion: string
+  /** This server's source identity, authoritative across deliberate display labels. */
+  sourceDigest?: string
+  /** Whether this coordinator owns a package that the operation may replace. */
+  serverInstallKind?: 'installed' | 'source'
   /** The served website's commit — BOTH dists, or undefined while they disagree. */
   servedWebDigest: string | undefined
   /** This server can pack a development tarball (the dev publisher is wired). */
@@ -720,8 +725,15 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   }
 
   const channelMachines = input.fleet.filter(
-    (machine) => input.channelOf(machine) === input.channel,
+    (machine) => input.channelOf(machine) === input.channel && isPackagedRolloutTarget(machine),
   )
+  const serverDiffers = buildsDiffer(
+    { version: input.appVersion, digest: input.sourceDigest },
+    { version: target.version, digest: target.artifacts.web?.digest },
+  )
+  // A source process can rebuild its own current checkout, but it cannot swap
+  // to a package for a different checkout. The operator owns that transition.
+  const sourceCannotTakeTarget = input.serverInstallKind === 'source' && serverDiffers
   const host = input.hostMachineId
     ? input.fleet.find((machine) => machine.id === input.hostMachineId)
     : undefined
@@ -798,7 +810,12 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
     })
   }
 
-  if (!desktopHosted && input.appVersion !== target.version && input.canRestartServer) {
+  if (
+    !desktopHosted &&
+    input.serverInstallKind !== 'source' &&
+    serverDiffers &&
+    input.canRestartServer
+  ) {
     steps.push({
       id: UPDATE_STEP_SERVER,
       title: 'Updating your server',
@@ -810,6 +827,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   const webBehind = expectedWeb !== undefined && input.servedWebDigest !== expectedWeb
   if (
     !desktopHosted &&
+    !sourceCannotTakeTarget &&
     webBehind &&
     (input.canRebuildWeb || input.canPrepare || input.canRestartServer)
   ) {
@@ -1046,6 +1064,10 @@ export interface UpdateOperationContext {
   channel: UpdateChannel
   /** This server's own build version. */
   appVersion: () => string
+  /** This server's source identity, independent of its display label. */
+  sourceDigest?: () => string | undefined
+  /** Explicit process install shape; absent remains unknown and actionable. */
+  serverInstallKind?: 'installed' | 'source'
   /** THIS host's machine id — how an all-in-one installation recognises itself. */
   hostMachineId?: string
   /** The coordinating server is a child of, and replaced by, Podium Desktop. */
@@ -2110,6 +2132,8 @@ export function planInputFrom(context: UpdateOperationContext): UpdatePlanInput 
     fleet: context.updates.fleet(),
     channelOf: (machine) => context.updates.channelOf(machine),
     appVersion: context.appVersion(),
+    sourceDigest: context.sourceDigest?.(),
+    ...(context.serverInstallKind ? { serverInstallKind: context.serverInstallKind } : {}),
     servedWebDigest: context.servedWebDigest?.(),
     canPrepare: context.requestDestBundle !== undefined,
     canRebuildWeb: context.requestWebRebuild !== undefined,

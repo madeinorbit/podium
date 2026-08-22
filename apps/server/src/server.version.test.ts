@@ -6,9 +6,10 @@ import { registerVersionRoute } from './server'
 async function getVersion(
   updateTarget?: () => UpdateTarget | undefined,
   sourceDigest?: () => string | undefined,
+  installKind?: () => 'installed' | 'source',
 ) {
   const app = new Hono()
-  registerVersionRoute(app, { instanceId: 'inst-1', updateTarget, sourceDigest })
+  registerVersionRoute(app, { instanceId: 'inst-1', updateTarget, sourceDigest, installKind })
   const res = await app.request('/version')
   return { status: res.status, body: (await res.json()) as unknown }
 }
@@ -47,6 +48,10 @@ describe('GET /version target descriptor', () => {
   it('reports server source identity separately from its display version', async () => {
     const { body } = await getVersion(undefined, () => '47a01e3')
     expect(parseServerVersion(body).sourceDigest).toBe('47a01e3')
+  })
+  it('reports whether the coordinator is a source checkout', async () => {
+    const { body } = await getVersion(undefined, undefined, () => 'source')
+    expect(parseServerVersion(body).installKind).toBe('source')
   })
 
   it('reports a development identity as the target version', async () => {

@@ -1383,6 +1383,13 @@ export function describeApplyOutcome(
         tone: 'progress',
         message: `Updating ${machineName} to ${outcome.version}…`,
       }
+    case 'source-checkout':
+      return {
+        tone: 'error',
+        message:
+          machineName +
+          ' runs from a source checkout. Update its checkout and restart Podium from the terminal.',
+      }
     case 'already-current':
       return { tone: 'ok', message: `${machineName} is already up to date.` }
     case 'in-flight':
@@ -1542,6 +1549,7 @@ function MachineUpdateControls({
     }
   }
 
+  const sourceRun = machine.installKind === 'source'
   const alreadyCurrent =
     targetVersion !== null && machine.appVersion !== null && machine.appVersion === targetVersion
   const targetLabel = targetVersion
@@ -1629,12 +1637,14 @@ function MachineUpdateControls({
       {/* The action keeps one place in the row. Anything that can appear or
           disappear — reasons, errors, progress — lives on its own line below,
           so a click never moves the button out from under the pointer. */}
+      {sourceRun && <span className="settings-micro ml-auto flex-none">Source checkout</span>}
       <Button
         type="button"
         variant="outline"
         size="sm"
         className="ml-auto flex-none"
         disabled={busy || changingChannel || !machine.online || !targetVersion || alreadyCurrent}
+        hidden={sourceRun}
         aria-busy={busy}
         aria-label={`Apply update to ${machine.name}`}
         title={

@@ -83,7 +83,12 @@ function notFound(path: string): Error & { data: { code: string } } {
 }
 
 function setupTransport(
-  version: { appVersion: string; sourceDigest?: string; target?: UpdateTarget } = {
+  version: {
+    appVersion: string
+    installKind?: 'installed' | 'source'
+    sourceDigest?: string
+    target?: UpdateTarget
+  } = {
     appVersion: '0.4.1',
     target,
   },
@@ -244,6 +249,7 @@ describe('useUpdateState — digest build identity', () => {
     setPageDigest('a5f041c')
     setupTransport({
       appVersion: 'dev+a5f041c',
+      installKind: 'source',
       sourceDigest: 'a5f041c',
       target: digestTarget,
     })
@@ -256,11 +262,72 @@ describe('useUpdateState — digest build identity', () => {
     expect(results.at(-1)?.view.state).toBe('none')
   })
 
+  it('still offers the packaged rollout when an installed machine is behind', async () => {
+    setPageVersion(digestTarget.version)
+    setPageDigest('a5f041c')
+    setupTransport({
+      appVersion: 'dev+a5f041c',
+      installKind: 'source',
+      sourceDigest: 'a5f041c',
+      target: digestTarget,
+    })
+    mocks.active.mockResolvedValue(null)
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} behind={1} />)
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+    expect(results.at(-1)?.view.primary?.kind).toBe('start')
+    expect(results.at(-1)?.view.places).toMatchObject([{ kind: 'machines' }])
+  })
+
+  it('suppresses a different packaged target for an explicit source coordinator', async () => {
+    const newer = {
+      ...digestTarget,
+      version: '0.1.1-edge.1.dev.2+b4c9e12',
+      artifacts: { web: { digest: 'b4c9e12' } },
+    }
+    setPageVersion(digestTarget.version)
+    setPageDigest('a5f041c')
+    setupTransport({
+      appVersion: 'dev+a5f041c',
+      installKind: 'source',
+      sourceDigest: 'a5f041c',
+      target: newer,
+    })
+    mocks.active.mockResolvedValue(null)
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} behind={0} />)
+
+    await waitFor(() => expect(results.at(-1)?.server.installKind).toBe('source'))
+    expect(results.at(-1)?.view.state).toBe('none')
+  })
+
+  it('keeps an unknown install shape visible instead of treating uncertainty as source', async () => {
+    const newer = {
+      ...digestTarget,
+      version: '0.1.1-edge.1.dev.2+b4c9e12',
+      artifacts: { web: { digest: 'b4c9e12' } },
+    }
+    setPageVersion(newer.version)
+    setPageDigest('b4c9e12')
+    setupTransport({ appVersion: 'dev+a5f041c', sourceDigest: 'a5f041c', target: newer })
+    mocks.active.mockResolvedValue(null)
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} behind={0} />)
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+    expect(results.at(-1)?.view.places).toMatchObject([{ kind: 'server' }])
+  })
+
   it('still asks a genuinely older loaded page to reload', async () => {
     setPageVersion(digestTarget.version)
     setPageDigest('b4c9e12')
     setupTransport({
       appVersion: 'dev+a5f041c',
+      installKind: 'source',
       sourceDigest: 'a5f041c',
       target: digestTarget,
     })

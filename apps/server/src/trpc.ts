@@ -71,6 +71,8 @@ export interface Context {
   /** Source-host only: schedule the verified redeploy unit after an operator
    * authorizes a target newer than this server's boot identity. */
   requestCoordinatorRestart?: () => void
+  /** This coordinator's own install shape; absent remains unknown and visible. */
+  serverInstallKind?: 'installed' | 'source'
   /** This server process is supervised and replaced by the native desktop shell. */
   desktopSupervised?: boolean
   /** Installed coordinator-only exact-target delivery before the process-manager restart. */

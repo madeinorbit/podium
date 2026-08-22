@@ -40,6 +40,7 @@ const priorAppVersion = process.env.PODIUM_APP_VERSION
 const priorChannel = process.env.PODIUM_UPDATE_CHANNEL
 
 interface HarnessOptions {
+  serverInstallKind?: 'installed' | 'source'
   requestCoordinatorRestart?: () => void
   requestWebRebuild?: () => void
   requestDestBundle?: () => Promise<unknown>
@@ -75,6 +76,7 @@ function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
     superagent,
     capability: OPERATOR,
     principal: userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'),
+    ...(opts.serverInstallKind ? { serverInstallKind: opts.serverInstallKind } : {}),
     ...(opts.requestCoordinatorRestart
       ? { requestCoordinatorRestart: opts.requestCoordinatorRestart }
       : {}),
@@ -403,6 +405,54 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     expect(fleet.machines.map((machine) => machine.id)).toEqual([
       registry.sessionStore.hostMachineId,
     ])
+    registry.dispose()
+  })
+  it('excludes a source checkout while retaining an outdated packaged machine', async () => {
+    const release = '0.1.1-edge.1.dev.1+6e57311'
+    const { registry, caller } = harness({ serverInstallKind: 'source' })
+    const host = registry.sessionStore.hostMachineId
+    registry.modules.machines.setMachineBuild(
+      host,
+      { appVersion: 'dev+6e57311', installKind: 'source' },
+      ['podium.shipping-train'],
+      '2026-08-22T00:00:00.000Z',
+    )
+    registry.sessionStore.machines.upsertMachine({
+      id: 'packaged',
+      name: 'Packaged',
+      hostname: 'packaged',
+      tokenHash: 'packaged-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.gateway.attachDaemon(asMachineId('packaged'), () => {})
+    registry.modules.machines.setUpdateChannel(asMachineId('packaged'), 'dev')
+    registry.modules.machines.setMachineBuild(
+      asMachineId('packaged'),
+      { appVersion: '0.1.1-edge.1.dev.0+old0000', installKind: 'installed' },
+      ['update.delivery.feed', 'podium.shipping-train'],
+      '2026-08-22T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget('dev', target(release))
+
+    const offered = await caller.updates.fleet()
+    expect(offered.total).toBe(1)
+    expect(offered.behind).toBe(1)
+    expect(offered.machines.map((machine) => machine.id)).toEqual(['packaged'])
+    expect(offered.allMachines.map((machine) => machine.id)).toContain(host)
+
+    registry.modules.machines.setMachineBuild(
+      asMachineId('packaged'),
+      { appVersion: release, installKind: 'installed' },
+      ['update.delivery.feed', 'podium.shipping-train'],
+      '2026-08-22T00:01:00.000Z',
+    )
+    const current = await caller.updates.fleet()
+    expect(current.behind).toBe(0)
+    expect(current.startability).toEqual({
+      startable: false,
+      reason: 'Podium is already at this version everywhere.',
+    })
+    await expect(caller.updates.start()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
     registry.dispose()
   })
 

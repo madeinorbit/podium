@@ -9,6 +9,7 @@ import type {
 import { isProvablyNewer } from '@podium/protocol'
 import {
   IN_FLIGHT_STATES,
+  isPackagedRolloutTarget,
   offeredDeliveries,
   planWave,
   TERMINAL_STATES,
@@ -160,6 +161,7 @@ export const TARGET_WITHDRAWN_TOKEN = 'update-withdrawn'
 export type MachineApplyOutcome =
   | { result: 'granted'; version: string }
   | { result: 'already-current'; version: string }
+  | { result: 'source-checkout' }
   | { result: 'offline' }
   | { result: 'unknown-machine' }
   | { result: 'no-target'; reason: string }
@@ -772,6 +774,7 @@ export class UpdatesService {
     // method would plan against the fleet as it was before that happened.
     const machine = this.project().machines.find((candidate) => candidate.id === machineId)
     if (!machine) return { result: 'unknown-machine' }
+    if (!isPackagedRolloutTarget(machine)) return { result: 'source-checkout' }
     const channel = this.channelOf(machine)
     const target = this.target(channel)
     if (!target) {
@@ -822,6 +825,7 @@ export class UpdatesService {
   repairMachine(machineId: MachineId): MachineApplyOutcome {
     const machine = this.project().machines.find((candidate) => candidate.id === machineId)
     if (!machine) return { result: 'unknown-machine' }
+    if (!isPackagedRolloutTarget(machine)) return { result: 'source-checkout' }
     const channel = this.channelOf(machine)
     const target = this.target(channel)
     if (!target) {

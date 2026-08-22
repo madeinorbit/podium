@@ -503,6 +503,10 @@ export class SessionRegistry {
           state: 'current',
           online: machine.online,
           busy: false,
+          // Explicit source checkouts are visible machines, but they are not
+          // package rollout targets. Unknown stays absent and therefore fails
+          // toward visibility for older daemons.
+          ...(machine.installKind ? { installKind: machine.installKind } : {}),
           // How this machine can take delivery, as its daemon reported. Without
           // it the wave grants updates a machine has already said it cannot
           // use, and the fleet learns by failing (POD-2004).

@@ -70,10 +70,19 @@ function versionStateOf(
 }
 
 export function machineVersionSkew(
-  machine: Pick<MachineWire, 'inventory' | 'targetVersion' | 'versionState' | 'appVersion'>,
+  machine: Pick<
+    MachineWire,
+    'inventory' | 'targetVersion' | 'versionState' | 'appVersion' | 'installKind'
+  >,
   serverAppVersion: string | null = null,
   convergenceState: MachineConvergenceState | null = null,
 ): VersionSkewVerdict {
+  if (machine.installKind === 'source') {
+    return {
+      label: 'Source checkout',
+      note: 'Update its checkout and restart Podium from the terminal.',
+    }
+  }
   const state = versionStateOf(machine, serverAppVersion)
 
   if (state === 'current') return { label: 'Current' }

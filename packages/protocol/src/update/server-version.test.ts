@@ -4,6 +4,7 @@ import { classifySkew, parseServerVersion } from './server-version'
 const full = {
   appVersion: '0.4.2',
   sourceDigest: '47a01e3',
+  installKind: 'installed',
   wireVersion: 2,
   minSupportedVersion: 1,
   wireSchemaDigest: 'abc123',
@@ -26,6 +27,11 @@ describe('parseServerVersion is a frozen contract', () => {
 
   it('parses a completely empty payload', () => {
     expect(() => parseServerVersion({})).not.toThrow()
+  })
+  it('drops an unfamiliar install kind without dropping the version payload', () => {
+    const parsed = parseServerVersion({ ...full, installKind: 'something-new' })
+    expect(parsed.installKind).toBeUndefined()
+    expect(parsed.appVersion).toBe(full.appVersion)
   })
 })
 

@@ -32,6 +32,7 @@ import { componentVersions } from './version-rows'
 
 interface FleetMachine {
   id: string
+  installKind?: string
   version: string
   state: 'current' | 'granted' | 'downloading' | 'restarting' | 'rejected' | 'stuck'
   online: boolean
@@ -379,6 +380,7 @@ export function UpdatesSection(): JSX.Element {
           targetUnavailableReason: null,
           skew: machineVersionSkew(
             {
+              installKind: machine.installKind,
               versionState: fleet?.targetVersion
                 ? machine.version === fleet.targetVersion
                   ? 'current'

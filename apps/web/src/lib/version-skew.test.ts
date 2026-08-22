@@ -25,6 +25,12 @@ describe('machineVersionSkew', () => {
     expect(verdict.label).toBe('Update available')
     expect(verdict.badge).toBe('update available')
   })
+  it('labels a source checkout without offering a packaged update', () => {
+    const verdict = machineVersionSkew(machine({ installKind: 'source' }))
+    expect(verdict.label).toBe('Source checkout')
+    expect(verdict.badge).toBeUndefined()
+    expect(verdict.note).toMatch(/restart Podium from the terminal/i)
+  })
 
   it('separates a machine that never arrived from one that was never asked', () => {
     expect(machineVersionSkew(machine(), null, 'stuck').mark).toBe('unexpected')
@@ -73,5 +79,13 @@ describe('machineNeedsUpdate', () => {
   it('prefers the server verdict over any local comparison', () => {
     expect(machineNeedsUpdate(machine({ versionState: 'behind' }), '0.1.0')).toBe(true)
     expect(machineNeedsUpdate(machine({ versionState: 'current' }), '9.9.9')).toBe(false)
+  })
+  it('never treats an explicit source checkout as a packaged update target', () => {
+    expect(
+      machineNeedsUpdate(machine({ installKind: 'source', versionState: 'behind' }), '9.9.9'),
+    ).toBe(false)
+    expect(
+      machineNeedsUpdate(machine({ installKind: undefined, versionState: 'behind' }), '9.9.9'),
+    ).toBe(true)
   })
 })

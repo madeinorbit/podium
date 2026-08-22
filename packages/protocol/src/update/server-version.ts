@@ -23,6 +23,8 @@ export type MobileWebIdentity = z.infer<typeof MobileWebIdentity>
 export const ServerVersion = z
   .object({
     appVersion: z.string().optional(),
+    /** Whether this process can consume a packaged coordinator update. */
+    installKind: z.enum(['installed', 'source']).optional().catch(undefined),
     /** Server source identity, in the same currency as `target.artifacts.web.digest`. */
     sourceDigest: z.string().optional(),
     wireVersion: z.number().int().optional(),
