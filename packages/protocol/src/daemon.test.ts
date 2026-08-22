@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import * as commonProtocol from './index'
 import {
   ControlMessage,
   DaemonMessage,
-  ShippingJobRequestMessage,
   encodeDaemonMessage,
   parseControlMessage,
   parseDaemonMessage,
+  ShippingJobRequestMessage,
   shippingJobRequestFingerprint,
 } from './daemon'
+import * as commonProtocol from './index'
 
 describe('daemon-only protocol entry', () => {
   it('keeps daemon and shipping runtime exports out of the common browser barrel', () => {
@@ -114,8 +114,28 @@ describe('daemon-only protocol entry', () => {
  * daemon-plane request/result envelopes into the browser. The only thing that
  * caught it was the size ratchet — a byte ceiling that names no cause — and
  * POD-2560's paydown will create exactly the headroom for it to fit back in
- * silently. This assertion is what should catch it next time, in the currency
- * of the actual rule rather than in bytes.
+ * silently.
+ *
+ * THIS SUITE IS NOT THE GUARD, AND MUST NOT BE READ AS ONE. It compares export
+ * NAMES, and a reviewer defeated it in one line:
+ *
+ *     export { RuntimeEvent as BrowserRuntimeEvent } from './runtime'
+ *
+ * That rebuilds the exact dependency the split removed — the whole module lands
+ * back in every browser bundle — while exposing no name the derivation below is
+ * looking for, and this file stayed 5/5 green. A namespace check cannot see a
+ * rename, because the thing that costs bytes is the import EDGE and an edge
+ * does not care what the symbol is called on the way through.
+ *
+ * THE REAL GUARD IS `manifest-plane-leak` in scripts/check-boundaries.ts: it
+ * walks the barrel's TRANSITIVE closure and refuses any edge into a module
+ * `daemon.ts` owns, whatever the symbols are renamed to. Transitivity is the
+ * other half — the original leak was `index -> sync -> runtime`, two hops, so a
+ * scan of the barrel alone would have been green throughout the incident.
+ *
+ * What is kept here is the narrower statement the closure rule cannot make: the
+ * daemon plane is not REDECLARED on the browser barrel by copy-paste, which
+ * creates no edge to walk. Useful, and not a boundary guard.
  */
 describe('the runtime contract browser boundary', () => {
   it('keeps every daemon-plane runtime export out of the common barrel', async () => {
@@ -141,7 +161,10 @@ describe('the runtime contract browser boundary', () => {
     // it is not merely allowed in the browser — it is required there.
     expect(commonProtocol).toHaveProperty('PendingInteractionWire')
     for (const name of Object.keys(browserHalf)) {
-      expect(commonProtocol, `${name} is browser-facing and must stay on the common barrel`).toHaveProperty(name)
+      expect(
+        commonProtocol,
+        `${name} is browser-facing and must stay on the common barrel`,
+      ).toHaveProperty(name)
     }
   })
 

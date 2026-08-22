@@ -575,12 +575,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     // first tool opencode adds — which is exactly the drift a shared port
     // exists to prevent. The edge points from a PORT to a PARSER, both L2, and
     // carries no capability: `@podium/transcript` is pure normalization.
-    deps: [
-      'packages/protocol',
-      'packages/model',
-      'packages/harness',
-      'packages/transcript',
-    ],
+    deps: ['packages/protocol', 'packages/model', 'packages/harness', 'packages/transcript'],
     consumers: ['apps/daemon', 'scripts'],
     openEntrypoints: ['@podium/agent-runtime/metadata'],
   },
@@ -750,6 +745,47 @@ export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
   ['@podium/sync/adapters/indexeddb', 'packages/sync/src/adapters/indexeddb/index.ts'],
   ['@podium/sync/adapters/mobile-sqlite', 'packages/sync/src/adapters/mobile-sqlite/index.ts'],
   ['@podium/sync/adapters/legacy-replica', 'packages/sync/src/adapters/legacy-replica/index.ts'],
+])
+
+/**
+ * PLANE-SPLIT PACKAGES: browser barrel -> the entry that owns the other plane.
+ *
+ * A package on this list ships two wire planes from one source tree, and the
+ * split is load-bearing rather than tidy: eager Zod schemas are constructed at
+ * MODULE SCOPE, so one value import from the browser barrel pulls the whole
+ * module into every browser bundle and no bundler can shake it back out. Only
+ * the import EDGE decides membership. Rule `manifest-plane-leak` walks the
+ * barrel's transitive closure and refuses to find the other plane's modules in
+ * it.
+ *
+ * DERIVED, NOT LISTED. The forbidden set is whatever the restricted entry
+ * itself re-exports, read at check time — so a new daemon-plane family is
+ * protected the moment `daemon.ts` picks it up, with nobody having to remember
+ * this file. That is the specific failure this rule exists for: POD-1761 W1
+ * added a whole new runtime contract and every named assertion stayed green
+ * because none of them knew to grow.
+ *
+ * WHY AN EDGE RULE AND NOT A NAME RULE (POD-2470, and this is the second
+ * attempt). The first guard compared EXPORT NAMES — it diffed the two halves'
+ * `Object.keys` and asserted the daemon-plane names were absent from the common
+ * barrel. A reviewer defeated it in one line:
+ *
+ *     export { RuntimeEvent as BrowserRuntimeEvent } from './runtime'
+ *
+ * which recreates the exact dependency the split removed while exposing no name
+ * the guard was looking for. A rename is invisible to a namespace check and
+ * plain to an edge check. The other half of the argument is TRANSITIVITY: the
+ * original leak was `index -> sync -> runtime`, two hops, because `sync.ts`
+ * parsed one interaction schema out of the daemon-plane module. A one-hop scan
+ * of the barrel would not have caught the bug this rule is named after.
+ */
+export const PLANE_SPLIT_ENTRIES: ReadonlyMap<string, string> = new Map([
+  // @podium/protocol — the browser speaks ClientMessage/ServerMessage; control,
+  // daemon, runtime and shipping frames live on the server-to-daemon socket.
+  // Before the split, ~19 kB of daemon-plane request/result envelopes sat in
+  // every browser bundle and the only thing that noticed was a byte ceiling,
+  // which names no cause and goes quiet the moment POD-2560 returns headroom.
+  ['packages/protocol/src/index.ts', 'packages/protocol/src/daemon.ts'],
 ])
 
 /** The declared browser specifiers of one workspace, for a failure message that
@@ -1625,6 +1661,9 @@ export const MANIFEST_RULES: ReadonlySet<string> = new Set([
   'harness-branching',
   'harness-classifier-boundary',
   'manifest-retired-path',
+  // POD-2470 — the browser/daemon plane split, enforced on the import EDGE.
+  // See PLANE_SPLIT_ENTRIES for why a name-level check was not enough.
+  'manifest-plane-leak',
 ])
 
 /**
