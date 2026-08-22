@@ -78,6 +78,9 @@ const freePort = (): number => {
     })
     const port = server.port
     server.stop(true)
+    // Throw rather than `continue`: a listening socket that reports no port is a
+    // broken assumption, and retrying it would spin this loop forever.
+    if (port === undefined) throw new Error('Bun.serve reported no port for a bound socket')
     if (!allocatedPorts.has(port)) {
       allocatedPorts.add(port)
       return port
