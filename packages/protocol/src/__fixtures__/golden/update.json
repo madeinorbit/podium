@@ -110,6 +110,7 @@
       "wire": {
         "type": "updateStatus",
         "grantId": "grantId",
+        "targetVersion": "targetVersion",
         "state": "current",
         "version": "version",
         "detail": "detail",
@@ -119,7 +120,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"updateStatus\",\"grantId\":\"grantId\",\"state\":\"current\",\"version\":\"version\",\"detail\":\"detail\",\"percent\":1,\"phaseDetail\":\"phaseDetail\"}"
+      "encoded": "{\"type\":\"updateStatus\",\"grantId\":\"grantId\",\"targetVersion\":\"targetVersion\",\"state\":\"current\",\"version\":\"version\",\"detail\":\"detail\",\"percent\":1,\"phaseDetail\":\"phaseDetail\"}"
     }
   ]
 }
