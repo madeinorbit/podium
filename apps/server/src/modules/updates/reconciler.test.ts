@@ -186,6 +186,11 @@ describe('decideReconciliation', () => {
       because: 'no-target',
     },
     {
+      name: 'a source checkout is not standing convergence work',
+      over: { machine: machine({ id: 'source', installKind: 'source' }) },
+      because: 'not-packaged-rollout-target',
+    },
+    {
       name: 'a machine already on the target is left alone',
       over: { machine: machine({ id: 'laptop', version: TARGET_VERSION }) },
       because: 'at-target',

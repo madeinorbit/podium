@@ -2444,6 +2444,20 @@ describe('the fleet bridge', () => {
     const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
     expect(step?.places?.map((place) => place.id)).toEqual(['vmi', 'laptop'])
   })
+  it('does not re-admit a source checkout from a persisted deferred place', () => {
+    const fleet = [machine({ id: 'source', installKind: 'source' })]
+    const h = harness({ machines: fleet })
+    const operation = {
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      deferred: [{ id: 'source', name: 'source', reason: 'offline' }],
+    } as Operation
+
+    expect(
+      admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, h.updates),
+    ).toEqual([])
+  })
 
   /**
    * A target identity with no delivery descriptor does not filter any machine.

@@ -1006,6 +1006,7 @@ export class UpdatesService {
     const candidates = this.project().machines.filter(
       (machine) =>
         this.channelOf(machine) === channel &&
+        isPackagedRolloutTarget(machine) &&
         machine.online &&
         IN_FLIGHT_STATES.has(machine.state) &&
         (machineIds === undefined || machineIds.includes(machine.id)),

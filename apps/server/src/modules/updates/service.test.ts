@@ -645,6 +645,18 @@ describe('UpdatesService', () => {
       expect(svc.operationActive('dev')).toBe(true)
     })
 
+    it('does not re-grant a source checkout from legacy in-flight state', () => {
+      const source = { ...m('a'), installKind: 'installed' }
+      const { svc, send } = make([source])
+      svc.setTarget(target)
+      svc.authorize()
+      source.installKind = 'source'
+      send.mockClear()
+
+      expect(svc.reissueGrants('dev')).toEqual([])
+      expect(send).not.toHaveBeenCalled()
+    })
+
     it('does not re-grant a machine that is offline or already at the target', () => {
       const { svc, send } = make([m('a', { online: false }), m('b', { version: '0.4.2' })])
       svc.setTarget(target)

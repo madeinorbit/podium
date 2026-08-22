@@ -5,6 +5,7 @@ import { UPDATE_BUDGETS } from './operation'
 import { GRANT_TIMED_OUT_DETAIL, type MachineApplyOutcome, type UpdatesService } from './service'
 import {
   IN_FLIGHT_STATES,
+  isPackagedRolloutTarget,
   machineCanTakeDelivery,
   offeredDeliveries,
   TERMINAL_STATES,
@@ -68,6 +69,7 @@ export type ReconcileRefusal =
   | 'operation-active'
   | 'unknown-machine'
   | 'no-target'
+  | 'not-packaged-rollout-target'
   | 'at-target'
   | 'offline'
   | 'cannot-take-delivery'
@@ -148,6 +150,9 @@ export function decideReconciliation(facts: ReconcileFacts): ReconcileDecision {
   const machine = facts.machine
   if (!machine) return { converge: false, because: 'unknown-machine' }
   if (!facts.target) return { converge: false, because: 'no-target' }
+  if (!isPackagedRolloutTarget(machine)) {
+    return { converge: false, because: 'not-packaged-rollout-target' }
+  }
   if (machine.version === facts.target.version) return { converge: false, because: 'at-target' }
   if (!machine.online) return { converge: false, because: 'offline' }
   if (!machineCanTakeDelivery(machine, offeredDeliveries(facts.target))) {

@@ -2101,6 +2101,7 @@ export function admissibleDeferredPlaces(
   for (const place of deferred) {
     const machine = fleet.get(place.id)
     if (!machine?.online) continue
+    if (!isPackagedRolloutTarget(machine)) continue
     if (machine.version === details.target.version) continue
     if (updates.channelOf(machine) !== details.channel) continue
     if (deliveries.length > 0 && !machineCanTakeDelivery(machine, deliveries)) continue
