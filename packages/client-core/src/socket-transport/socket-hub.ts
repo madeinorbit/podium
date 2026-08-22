@@ -354,6 +354,11 @@ const PING_QUEUE_CAP = 8
 // can't replay an unbounded burst of stale typing into the agent on return.
 const INPUT_QUEUE_CAP = 1_000
 
+const TRANSIENT_SGR_MOUSE_REPORTS = /^(?:\x1b\[<\d+;\d+;\d+[Mm])+$/u
+function isTransientMouseInput(msg: Parameters<typeof encode>[0]): boolean {
+  return msg.type === 'input' && TRANSIENT_SGR_MOUSE_REPORTS.test(fromBase64Utf8(msg.data))
+}
+
 /** Fold one oplog change into an entity list (upsert replaces by id or appends;
  *  an upsert with no value is a producer bug the protocol says to drop). */
 function applyChange<T>(
@@ -1610,6 +1615,10 @@ export class SocketHub {
       this.sendRaw(msg)
       return
     }
+    // Pointer coordinates are snapshots, not replayable keystrokes: once the
+    // socket reconnects, an old report can be echoed by a terminal that no
+    // longer has mouse reporting enabled.
+    if (isTransientMouseInput(msg)) return
     if (this.inputQueue.length < INPUT_QUEUE_CAP) this.inputQueue.push(msg)
   }
 
