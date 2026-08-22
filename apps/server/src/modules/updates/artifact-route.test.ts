@@ -5,7 +5,11 @@ import { join } from 'node:path'
 import { Hono } from 'hono'
 import { afterAll, describe, expect, it } from 'vitest'
 import { registerDevFeedRoutes } from './artifact-route'
-import { type BuiltDevBundle, DevBundleUnavailableError } from './dev-bundle'
+import {
+  type BuiltDevBundle,
+  type DevBundleArtifact,
+  DevBundleUnavailableError,
+} from './dev-bundle'
 import {
   developmentArtifactUrl,
   selectDevelopmentArtifactOrigin,
@@ -72,11 +76,28 @@ const built: BuiltDevBundle = {
     },
   ],
 }
+function resolveBuiltArtifact(
+  bundle: BuiltDevBundle | null,
+  version: string,
+  platform?: string,
+): DevBundleArtifact | null {
+  if (!bundle || bundle.version !== version) return null
+  if (platform !== undefined) {
+    return bundle.artifacts.find((artifact) => artifact.platform === platform) ?? null
+  }
+  const host = bundle.artifacts[0]
+  if (!host) return null
+  return {
+    ...host,
+    version: bundle.version,
+    path: bundle.path,
+  }
+}
 
 function appFor(authenticated = true) {
   const app = new Hono()
   registerDevFeedRoutes(app, {
-    current: () => built,
+    publishedArtifact: (version, platform) => resolveBuiltArtifact(built, version, platform),
     manifestPath: () => manifestPath,
     desktopManifestPath: () => desktopManifestPath,
     authenticate: (request: Request) =>
@@ -360,7 +381,7 @@ describe('development artifact route', () => {
     it('says not found when nothing has been published into the feed', async () => {
       const app = new Hono()
       registerDevFeedRoutes(app, {
-        current: () => built,
+        publishedArtifact: (version, platform) => resolveBuiltArtifact(built, version, platform),
         manifestPath: () => undefined,
         authenticate: () => true,
       })
@@ -425,7 +446,12 @@ describe('development artifact route', () => {
     // between publication and a request, and the honest answer is "not here".
     const app = new Hono()
     registerDevFeedRoutes(app, {
-      current: () => ({ ...built, path: join(stage, 'never-written.tar.gz') }),
+      publishedArtifact: (version, platform) =>
+        resolveBuiltArtifact(
+          { ...built, path: join(stage, 'never-written.tar.gz') },
+          version,
+          platform,
+        ),
       manifestPath: () => manifestPath,
       authenticate: () => true,
     })
@@ -436,7 +462,7 @@ describe('development artifact route', () => {
     const opened: string[] = []
     const app = new Hono()
     registerDevFeedRoutes(app, {
-      current: () => built,
+      publishedArtifact: (version, platform) => resolveBuiltArtifact(built, version, platform),
       manifestPath: () => manifestPath,
       authenticate: (request: Request) =>
         request.headers.get('authorization') === 'Bearer machine-token',
@@ -474,7 +500,7 @@ describe('development artifact route', () => {
     let current: BuiltDevBundle | null = built
     const app = new Hono()
     registerDevFeedRoutes(app, {
-      current: () => current,
+      publishedArtifact: (version, platform) => resolveBuiltArtifact(current, version, platform),
       manifestPath: () => manifestPath,
       authenticate: () => true,
     })

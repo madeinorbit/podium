@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
 import type { Context, Hono } from 'hono'
-import type { BuiltDevBundle } from './dev-bundle'
+import type { DevBundleArtifact } from './dev-bundle'
 import { DEV_DESKTOP_MANIFEST, DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
 
 export const DEV_BUNDLE_CONTENT_TYPE = 'application/gzip'
@@ -16,8 +16,15 @@ export interface OpenedDevBundle {
 }
 
 export interface DevFeedRouteDeps {
-  /** The last successful build only; a failed build must not become readable. */
-  current(): BuiltDevBundle | null
+  /**
+   * The exact artifact this host published, or nothing for an unknown version
+   * or platform. May reconstruct and verify the descriptor from disk after a
+   * restart; a merely built, unpublished artifact must not become readable.
+   */
+  publishedArtifact(
+    version: string,
+    platform?: string,
+  ): DevBundleArtifact | null | Promise<DevBundleArtifact | null>
   /**
    * Where the publisher wrote `podium-update.json`, or nothing on a server that
    * publishes no feed. Read per request rather than captured: the manifest is a
@@ -103,18 +110,17 @@ export function registerDevFeedRoutes(app: Hono, deps: DevFeedRouteDeps): void {
   ) => {
     if (!(await deps.authenticate(c.req.raw, c))) return c.text('unauthorized', 401)
 
-    const current = deps.current()
-    if (!current || requestedVersion !== current.version) return c.text('not found', 404)
-
-    const artifact = requestedPlatform
-      ? current.artifacts.find((candidate) => candidate.platform === requestedPlatform)
-      : // No platform in the URL is the pre-multi-platform form, which only ever named
-        // this host's own bundle — `current.path` is still exactly that.
-        { path: current.path }
-    if (!artifact) return c.text('not found', 404)
+    const artifact = await deps.publishedArtifact(requestedVersion, requestedPlatform)
+    if (
+      !artifact ||
+      artifact.version !== requestedVersion ||
+      (requestedPlatform !== undefined && artifact.platform !== requestedPlatform)
+    ) {
+      return c.text('not found', 404)
+    }
 
     const opened = await open(artifact.path)
-    if (!opened) return c.text('not found', 404)
+    if (!opened || opened.size !== artifact.size) return c.text('not found', 404)
 
     return c.body(opened.stream, 200, {
       'content-type': DEV_BUNDLE_CONTENT_TYPE,

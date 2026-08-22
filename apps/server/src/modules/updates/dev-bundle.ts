@@ -14,7 +14,7 @@ import {
   parsePublisherDevVersion,
   platformTargetFor,
   type ReleaseProposal,
-  type UpdateTarget,
+  UpdateTarget,
 } from '@podium/protocol'
 import { resolveInstanceId, stateDir } from '@podium/runtime/config'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
@@ -1776,6 +1776,15 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   ): Promise<BuiltDevBundle | null>
   current(): BuiltDevBundle | null
   /**
+   * Resolve one artifact from the release this host actually published.
+   *
+   * Unlike {@link current}, this survives a process restart: the served feed
+   * manifest is the publication fact, and the recovered file must still match
+   * both that manifest and the publisher-authored metadata before it is handed
+   * to the route.
+   */
+  publishedArtifact(version: string, platform?: string): Promise<DevBundleArtifact | null>
+  /**
    * WHAT THIS SOURCE HOST IS, for the current HEAD — an identity, never a
    * deliverable (see {@link devIdentityTarget}). Nothing, rather than an older
    * commit's.
@@ -1818,6 +1827,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   const now = deps.now ?? Date.now
   const debounceMs = deps.debounceMs ?? 60_000
   const fs = deps.fs ?? nodeDevBundleFs
+  const recoveredPublishedArtifacts = new Map<string, DevBundleArtifact>()
 
   const currentHeadSha = async (): Promise<string | null> => {
     try {
@@ -2164,6 +2174,88 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     })
   }
 
+  /**
+   * RECONSTRUCT FROM THE PUBLICATION, NOT FROM THIS PROCESS'S BUILD HISTORY.
+   *
+   * The manifest is read on every request because replacing it is the act of
+   * publication. The quarter-gigabyte artifact is hashed only on the first
+   * successful request after a restart; the verified descriptor is then safe
+   * to reuse under the same digest/signature tuple, exactly as an in-process
+   * build descriptor was already reused after its publication-time hash.
+   */
+  const publishedArtifact = async (
+    requestedVersion: string,
+    requestedPlatform?: string,
+  ): Promise<DevBundleArtifact | null> => {
+    const root = deps.root ?? SOURCE_ROOT
+    let manifest: UpdateTarget
+    try {
+      const raw = await fs.readText(devFeedManifestPath(root))
+      manifest = UpdateTarget.parse(JSON.parse(raw))
+    } catch {
+      return null
+    }
+    if (manifest.version !== requestedVersion) return null
+
+    const platform = requestedPlatform ?? deps.platform ?? developmentPlatformTarget()
+    const named = manifest.artifacts.headless?.platforms[platform]
+    if (!named) return null
+
+    const matchesPublication = (artifact: DevBundleArtifact): boolean =>
+      artifact.version === requestedVersion &&
+      artifact.platform === platform &&
+      artifact.digest === named.digest &&
+      artifact.signature === named.signature
+
+    const live = current?.artifacts.find((artifact) => artifact.platform === platform)
+    if (live && matchesPublication(live)) return live
+
+    const cacheKey = `${requestedVersion}\0${platform}`
+    const cached = recoveredPublishedArtifacts.get(cacheKey)
+    if (cached && matchesPublication(cached)) return cached
+
+    try {
+      const dir = devBundleDirectory(root)
+      const hostPlatform = deps.platform ?? developmentPlatformTarget()
+      const candidates = listDevBundles(await fs.list(dir)).filter(
+        (entry) =>
+          entry.version === requestedVersion && (entry.platform || hostPlatform) === platform,
+      )
+      for (const entry of candidates) {
+        const path = join(dir, entry.name)
+        const metadata = await readMetadata(fs, path)
+        if (
+          !metadata ||
+          metadata.version !== requestedVersion ||
+          (metadata.platform !== undefined && metadata.platform !== platform) ||
+          metadata.digest !== named.digest ||
+          metadata.keyFingerprint !== devBundleKeyFingerprint(deps.signingKey)
+        ) {
+          continue
+        }
+        const signature = (await readOptionalText(fs, path + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
+        if (!signature || signature !== named.signature) continue
+        const actual = await fs.digest(path)
+        if (actual.digest !== metadata.digest || actual.size !== metadata.size) continue
+        const recovered: DevBundleArtifact = {
+          version: requestedVersion,
+          platform,
+          path,
+          size: actual.size,
+          digest: actual.digest,
+          signature,
+        }
+        recoveredPublishedArtifacts.set(cacheKey, recovered)
+        return recovered
+      }
+    } catch {
+      // A missing directory, unreadable sidecar, or failed hash is the same
+      // honest route answer as a file retention removed: this host has no
+      // verified artifact for that published address.
+    }
+    return null
+  }
+
   return {
     requestBuild(explicit = false, approved) {
       const admitted = admissions.then(() => admit(explicit, approved))
@@ -2173,6 +2265,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       )
     },
     current: () => current,
+    publishedArtifact,
     unavailable: () => unavailable,
     readiness: async () => {
       const headSha = await currentHeadSha()

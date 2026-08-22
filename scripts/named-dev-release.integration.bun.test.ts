@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -6,11 +7,13 @@ import { fileURLToPath } from 'node:url'
 import type { UpdateChannel } from '@podium/model'
 import type { UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'bun:test'
+import { Hono } from 'hono'
 import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import {
   assertSourceMatchesHead,
   createDevBundlePublisher,
 } from '../apps/server/src/modules/updates/dev-bundle'
+import { registerDevFeedRoutes } from '../apps/server/src/modules/updates/artifact-route'
 import { withDevBuildSnapshot } from '../apps/server/src/modules/updates/dev-build-snapshot'
 import { resolveReleaseTarget } from '../apps/server/src/modules/updates/release-target'
 import { UpdatesService } from '../apps/server/src/modules/updates/service'
@@ -82,55 +85,58 @@ describe('named-instance development releases', () => {
     git(root, 'commit', '--quiet', '-m', 'approved')
     const sha = git(root, 'rev-parse', '--short=7', 'HEAD')
 
-    const publisher = createDevBundlePublisher({
-      root,
-      publisherStateDir: state,
-      checkoutReleaseBase: '0.1.0-edge.20',
-      isSourceRun: true,
-      instanceId: INSTANCE_ID,
-      headSha: () => sha,
-      migrationsAt: async () => ['20260715135845_baseline'],
-      proposalFacts: async () => ({
-        branch: 'main',
-        commits: [{ sha, summary: 'Approved release' }],
-        addedMigrations: [],
-      }),
-      snapshotBuild: (approvedSha, build) =>
-        withDevBuildSnapshot(
-          { sourceRoot: root, approvedSha, install: async () => {} },
-          async (snapshotRoot) => {
-            const result = await build(snapshotRoot)
-            await assertSourceMatchesHead(snapshotRoot, approvedSha)
-            return result
-          },
-        ),
-      prepareWebDist: async (_headSha, _explicit, snapshotRoot) => {
-        replayClientPackagingRecipe(snapshotRoot)
-      },
-      lock: {
-        acquire: async () => true,
-        renew: async () => {},
-        release: async () => {},
-      },
-      platform: 'linux-x86_64',
-      artifactUrl: (version, platform) =>
-        `https://named.test/updates/feed/dev/artifact/${version}/${platform}`,
-      edgeDesktopManifest: async () => ({
-        version: '0.1.0-edge.20',
-        bridgeVersion: 1,
-        platforms: {
-          'linux-x86_64': {
-            url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium.AppImage',
-            signature: 'edge-signature',
-          },
+    const createPublisher = () =>
+      createDevBundlePublisher({
+        root,
+        publisherStateDir: state,
+        checkoutReleaseBase: '0.1.0-edge.20',
+        isSourceRun: true,
+        instanceId: INSTANCE_ID,
+        headSha: () => sha,
+        migrationsAt: async () => ['20260715135845_baseline'],
+        proposalFacts: async () => ({
+          branch: 'main',
+          commits: [{ sha, summary: 'Approved release' }],
+          addedMigrations: [],
+        }),
+        snapshotBuild: (approvedSha, build) =>
+          withDevBuildSnapshot(
+            { sourceRoot: root, approvedSha, install: async () => {} },
+            async (snapshotRoot) => {
+              const result = await build(snapshotRoot)
+              await assertSourceMatchesHead(snapshotRoot, approvedSha)
+              return result
+            },
+          ),
+        prepareWebDist: async (_headSha, _explicit, snapshotRoot) => {
+          replayClientPackagingRecipe(snapshotRoot)
         },
-      }),
-      spawnBuild: async ({ artifactPath }) => {
-        mkdirSync(dirname(artifactPath), { recursive: true })
-        writeFileSync(artifactPath, 'named release bytes')
-        return { path: artifactPath, signature: 'development-signature' }
-      },
-    })
+        lock: {
+          acquire: async () => true,
+          renew: async () => {},
+          release: async () => {},
+        },
+        platform: 'linux-x86_64',
+        artifactUrl: (version, platform) =>
+          `https://named.test/updates/feed/dev/artifact/${version}/${platform}`,
+        edgeDesktopManifest: async () => ({
+          version: '0.1.0-edge.20',
+          bridgeVersion: 1,
+          platforms: {
+            'linux-x86_64': {
+              url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium.AppImage',
+              signature: 'edge-signature',
+            },
+          },
+        }),
+        spawnBuild: async ({ artifactPath }) => {
+          mkdirSync(dirname(artifactPath), { recursive: true })
+          writeFileSync(artifactPath, 'named release bytes')
+          writeFileSync(artifactPath + '.sig', 'development-signature\n')
+          return { path: artifactPath, signature: 'development-signature' }
+        },
+      })
+    const publisher = createPublisher()
     const proposal = await publisher.proposal()
     expect(proposal?.headSha).toBe(sha)
 
@@ -144,13 +150,65 @@ describe('named-instance development releases', () => {
     /**
      * RESTART BOUNDARY. The publisher above is the old source process; the
      * services below have no in-memory target and can learn only from the
-     * manifest that process left on disk. The fetch adapter is the packaged
-     * source's authenticated feed route reduced to its two observable effects:
-     * GET the persisted manifest and HEAD its named artifact.
+     * manifest, metadata, and artifacts that process left on disk. The new
+     * publisher is wired to the authenticated feed route before either the
+     * resolver or an artifact client asks it for the persisted release.
      */
     const manifestUrl = 'https://named.test/updates/feed/dev/podium-update.json'
     const artifactBase = 'https://named.test/updates/feed/dev/'
     const persistedManifest = readFileSync(publisher.feedManifestPath(), 'utf8')
+    if (!built) throw new Error('development release did not build')
+    const expectedArtifact = built.artifacts.find(
+      (artifact) => artifact.platform === 'linux-x86_64',
+    )
+    if (!expectedArtifact) throw new Error('development release did not mint linux-x86_64')
+
+    const restartedPublisher = createPublisher()
+    expect(restartedPublisher.current()).toBeNull()
+    const artifactPath = `/updates/feed/dev/artifact/${encodeURIComponent(built.version)}/linux-x86_64`
+    const request = { headers: { authorization: 'Bearer machine-token' } }
+
+    // ARMED NEGATIVE CONTROL: this is the pre-fix route lookup, restored
+    // literally against the new process's empty in-memory build record.
+    const inMemoryOnly = new Hono()
+    registerDevFeedRoutes(inMemoryOnly, {
+      publishedArtifact: (version, platform) => {
+        const held = restartedPublisher.current()
+        if (!held || held.version !== version) return null
+        return held.artifacts.find((artifact) => artifact.platform === platform) ?? null
+      },
+      manifestPath: () => restartedPublisher.feedManifestPath(),
+      authenticate: () => true,
+    })
+    expect((await inMemoryOnly.request(artifactPath, request)).status).toBe(404)
+
+    const routesFor = (candidate: ReturnType<typeof createPublisher>) => {
+      const app = new Hono()
+      registerDevFeedRoutes(app, {
+        publishedArtifact: (version, platform) => candidate.publishedArtifact(version, platform),
+        manifestPath: () => candidate.feedManifestPath(),
+        authenticate: (incoming) =>
+          incoming.headers.get('authorization') === 'Bearer machine-token',
+      })
+      return app
+    }
+
+    const unknownPath = `/updates/feed/dev/artifact/${encodeURIComponent(built.version + '-unknown')}/linux-x86_64`
+    expect((await routesFor(createPublisher()).request(unknownPath, request)).status).toBe(404)
+
+    const publishedBytes = readFileSync(expectedArtifact.path)
+    writeFileSync(expectedArtifact.path, 'tampered after publication')
+    expect((await routesFor(createPublisher()).request(artifactPath, request)).status).toBe(404)
+    writeFileSync(expectedArtifact.path, publishedBytes)
+
+    const artifactResponse = await routesFor(createPublisher()).request(artifactPath, request)
+    const fetched = new Uint8Array(await artifactResponse.arrayBuffer())
+    expect(artifactResponse.status).toBe(200)
+    expect(Array.from(fetched)).toEqual(Array.from(publishedBytes))
+    expect('sha256-' + createHash('sha256').update(fetched).digest('base64')).toBe(
+      expectedArtifact.digest,
+    )
+
     const feedFetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = input instanceof Request ? input.url : String(input)
       if (init?.method === 'HEAD' && url.startsWith(artifactBase)) {

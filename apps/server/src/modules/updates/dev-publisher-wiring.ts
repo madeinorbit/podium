@@ -507,7 +507,7 @@ export function wireDevBundlePublisher(deps: {
     registerRoute: (app) => {
       if (!publisher) return
       registerDevFeedRoutes(app, {
-        current: () => publisher.current(),
+        publishedArtifact: (version, platform) => publisher.publishedArtifact(version, platform),
         manifestPath: () => publisher.feedManifestPath(),
         desktopManifestPath: () => publisher.desktopManifestPath(),
         /**
