@@ -2,7 +2,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pending-grant'
+import {
+  clearPendingGrant,
+  finalizePendingGrant,
+  readPendingGrant,
+  writePendingGrant,
+} from './pending-grant'
 
 let dir: string
 
@@ -28,6 +33,16 @@ describe('pending grant marker', () => {
   it('round-trips', () => {
     writePendingGrant(dir, grant)
     expect(readPendingGrant(dir)).toEqual(grant)
+  })
+
+  it('finalizes only the target the complete parent gate proved', () => {
+    writePendingGrant(dir, grant)
+
+    expect(finalizePendingGrant(dir, '0.4.3')).toBe(false)
+    expect(readPendingGrant(dir)).toEqual(grant)
+
+    expect(finalizePendingGrant(dir, grant.targetVersion)).toBe(true)
+    expect(readPendingGrant(dir)).toBeNull()
   })
 
   it('clears', () => {

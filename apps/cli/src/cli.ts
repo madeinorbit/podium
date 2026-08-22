@@ -12,6 +12,7 @@
  */
 
 import { renameSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { asSessionId, isAgentKind, type MachineId } from '@podium/model'
 import {
   ApprovalChannelTarget,
@@ -34,12 +35,14 @@ import {
   resolveLoggingMode,
   resolvePort,
   resolveRunRecordMode,
+  stateDir,
   resolveUpdateChannel,
   resolveUpdateFeed,
   selectInstance,
 } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { finalizePendingGrant } from '@podium/runtime/update-pending'
 
 /** Resolved deployment-mode inputs (mode + connection details) — the sub-plan the
  *  daemon options are computed from. Formerly the whole plan, now one field of it. */
@@ -1544,6 +1547,11 @@ export async function main(
       const parent = new ParentProcess({
         port: plan.port,
         children,
+        finalizePendingGrant:
+          children.includes('server') && children.includes('daemon')
+            ? (expectedVersion) =>
+                finalizePendingGrant(join(stateDir(), 'runtime'), expectedVersion)
+            : undefined,
         env: {
           ...process.env,
           ...(compiled

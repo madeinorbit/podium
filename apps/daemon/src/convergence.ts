@@ -194,6 +194,22 @@ export type BootVerdict =
   | { action: 'retry'; attempts: number }
   | { action: 'rollback'; state: 'rejected' | 'stuck'; detail: string }
 
+/**
+ * Decide whether boot reconciliation may consume its recovery marker.
+ *
+ * A bounded retry always keeps the marker with its spent attempt. A daemon-only
+ * confirmation can consume it immediately because that daemon is the whole
+ * supervised unit. In a parent-managed all-in-one, confirmation is provisional:
+ * the sibling server still has to pass the parent's complete health gate.
+ */
+export function shouldClearPendingGrantOnBoot(input: {
+  verdict: BootVerdict
+  parentHasServer: boolean
+}): boolean {
+  return input.verdict.action !== 'retry' &&
+    !(input.parentHasServer && input.verdict.action === 'confirm')
+}
+
 export function resolveOnBoot(ctx: {
   pending: PendingGrant | null
   runningVersion: string

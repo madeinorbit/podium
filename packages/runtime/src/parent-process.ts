@@ -72,6 +72,12 @@ export const PARENT_SUCCESSOR_PID_ENV = 'PODIUM_PARENT_SUCCESSOR_PID'
 export const PARENT_HANDOVER_EXPECTED_VERSION_ENV = 'PODIUM_HANDOVER_EXPECTED_VERSION'
 export const PARENT_POST_UPDATE_ENV = 'PODIUM_PARENT_POST_UPDATE'
 /**
+ * Set on a daemon child only when this parent also supervises its sibling
+ * server. A daemon-only parent may consume its marker on its own confirmation;
+ * an all-in-one parent must wait for the complete server+daemon health gate.
+ */
+export const PARENT_HAS_SERVER_ENV = 'PODIUM_PARENT_HAS_SERVER'
+/**
  * Set on a successor parent. The successor MUST NOT reclaim the pidfile: doing
  * so SIGTERMs its own predecessor, whose shutdown then takes down the healthy
  * children the successor was about to replace. See invariant 2.
@@ -122,6 +128,11 @@ export interface ParentProcessDeps {
   probeHealth?: HealthProbeFn
   /** Daemon-only readiness proof from the remote connection + boot reconciliation record. */
   probeDaemonHealth?: DaemonHealthProbeFn
+  /**
+   * Consume a daemon's exact pending grant only after the complete parent health
+   * gate has passed. Wired by the composition root; absent for daemon-only tests.
+   */
+  finalizePendingGrant?: (expectedVersion: string) => void
   /** Whether the release that just swapped carried new migrations (decision 4). */
   releaseHadMigrations?: boolean
   /** Notify systemd (READY / MAINPID / WATCHDOG). */
@@ -342,6 +353,14 @@ export class ParentProcess {
     this.deps.onSnapshot?.(this.snap)
   }
 
+  private finalizePendingGrant(expectedVersion: string): void {
+    try {
+      this.deps.finalizePendingGrant?.(expectedVersion)
+    } catch (error) {
+      log.error('could not finalize the daemon pending grant', { expectedVersion, err: error })
+    }
+  }
+
   /**
    * Install every signal handler this process needs. Idempotent, and safe to
    * call BEFORE `start()` — the composition root does exactly that so the
@@ -505,6 +524,7 @@ export class ParentProcess {
     const healthy = await this.waitForHealthy(expected, 60_000)
     this.bootHealthy = healthy
     if (this.terminating) return
+    if (healthy) this.finalizePendingGrant(expected)
     if (!healthy) {
       log.error('parent boot health gate failed', { expected })
     }
@@ -627,6 +647,7 @@ export class ParentProcess {
       PODIUM_PORT: String(this.deps.port),
       PODIUM_HOME: this.installDir,
       PODIUM_UNDER_PARENT: '1',
+      [PARENT_HAS_SERVER_ENV]: this.childOrder.includes('server') ? '1' : '0',
     }
     // Children must not inherit the parent's notify socket — the parent pets systemd.
     delete childEnv.NOTIFY_SOCKET

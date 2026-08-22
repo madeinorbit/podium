@@ -39,6 +39,7 @@
     "./update-delivery": "./src/update-delivery.ts",
     "./update-install": "./src/update-install.ts",
     "./update-schema": "./src/update-schema.ts",
+    "./update-pending": "./src/update-pending.ts",
     "./source-version": "./src/source-version.ts",
     "./command-environment": "./src/command-environment.ts",
     "./client-build-provenance": "./src/client-build-provenance.ts"

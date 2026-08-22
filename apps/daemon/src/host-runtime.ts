@@ -24,6 +24,7 @@ import { durableSessionLabel } from '@podium/runtime/instance'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
 import { requestParentHandover } from '@podium/runtime/parent-control'
+import { PARENT_HAS_SERVER_ENV } from '@podium/runtime/parent-process'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
 import type { RawData } from 'ws'
 import { type ProvisionedAccountHomeSource, provisionedAccountHome } from './account-home'
@@ -42,6 +43,7 @@ import {
   releaseCarriesNewMigrations,
   restartAfterGrant,
   resolveOnBoot,
+  shouldClearPendingGrantOnBoot,
 } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
@@ -353,6 +355,9 @@ export async function createDaemonHostRuntime(args: {
     flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
   })
 
+  const parentHasServer =
+    process.env.PODIUM_UNDER_PARENT === '1' && process.env[PARENT_HAS_SERVER_ENV] === '1'
+
   const reconcilePendingUpdate = (): string | undefined => {
     const pending = readPendingGrant(instance.runtimeDir)
     if (!pending) return
@@ -399,7 +404,9 @@ export async function createDaemonHostRuntime(args: {
       writePendingGrant(instance.runtimeDir, { ...pending, attempts: verdict.attempts })
       return
     }
-    clearPendingGrant(instance.runtimeDir)
+    if (shouldClearPendingGrantOnBoot({ verdict, parentHasServer })) {
+      clearPendingGrant(instance.runtimeDir)
+    }
     return verdict.action === 'confirm' ? pending.targetVersion : undefined
   }
 

@@ -8,6 +8,7 @@ import {
   refuseSchemaRegression,
   restartAfterGrant,
   resolveOnBoot,
+  shouldClearPendingGrantOnBoot,
 } from './convergence'
 
 const pending = {
@@ -27,6 +28,29 @@ describe('resolveOnBoot', () => {
     expect(resolveOnBoot({ pending, runningVersion: '0.4.2' })).toEqual({
       action: 'confirm',
       state: 'current',
+    })
+  })
+
+  it('keeps a packaged all-in-one marker armed when the daemon confirms before its sibling server', () => {
+    const confirmed = resolveOnBoot({ pending, runningVersion: pending.targetVersion })
+    expect(confirmed).toMatchObject({ action: 'confirm', state: 'current' })
+    expect(
+      shouldClearPendingGrantOnBoot({ verdict: confirmed!, parentHasServer: true }),
+      'the parent health gate still has to prove the sibling server before this target can be consumed',
+    ).toBe(false)
+
+    // Once the parent rolls back the bundle, the restored daemon can name the
+    // exact target in the terminal verdict because the marker survived the
+    // earlier daemon-only confirmation.
+    expect(
+      resolveOnBoot({
+        pending: { ...pending, attempts: MAX_CONVERGENCE_ATTEMPTS },
+        runningVersion: pending.previousVersion,
+      }),
+    ).toMatchObject({
+      action: 'rollback',
+      state: 'stuck',
+      detail: expect.stringContaining(pending.targetVersion),
     })
   })
 

@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { type ParentOutcome, readParentOutcome } from './parent-control'
 import {
   PARENT_HANDOVER_EXPECTED_VERSION_ENV,
+  PARENT_HAS_SERVER_ENV,
   PARENT_POST_UPDATE_ENV,
   PARENT_RELEASE_MIGRATIONS_ENV,
   PARENT_SUCCESSOR_ENV,
@@ -143,6 +144,41 @@ describe('ParentProcess', () => {
     expect(notifications).toContain('READY=1')
     expect(parent.snapshot().children.server.status).toBe('running')
     expect(parent.snapshot().children.daemon.status).toBe('running')
+  })
+
+  it('holds a packaged all-in-one marker until the complete server+daemon health gate', async () => {
+    let daemonEnv: NodeJS.ProcessEnv | undefined
+    let probeCount = 0
+    const finalized: string[] = []
+    let nextPid = 150
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installBinary: '/opt/podium/podium',
+        env: { PODIUM_APP_VERSION: '2.0.0' },
+        spawn: ((_cmd, args, options) => {
+          if (args[0] === 'daemon') daemonEnv = options.env
+          return new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: async () => {
+          probeCount++
+          return healthy('2.0.0')
+        },
+        finalizePendingGrant: (version) => {
+          expect(probeCount).toBeGreaterThan(0)
+          finalized.push(version)
+        },
+        notify: () => {},
+        sleep: async () => {},
+        now: () => 1_000,
+        exit: () => {},
+      }),
+    )
+
+    await parent.start()
+
+    expect(daemonEnv?.[PARENT_HAS_SERVER_ENV]).toBe('1')
+    expect(finalized).toEqual(['2.0.0'])
   })
 
   it('starts a daemon-only fleet member with its configured remote credential', async () => {
