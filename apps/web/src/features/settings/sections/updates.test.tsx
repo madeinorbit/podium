@@ -245,6 +245,24 @@ describe('UpdatesSection', () => {
     expect(desktop.textContent).not.toContain('0.4.1')
   })
 
+  it('shows a present phone export whose build identity is unavailable', async () => {
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({
+      ...emptyFleet,
+      appVersion: '0.4.1',
+      servedWebDigest: '47a01e3',
+      servedMobileWeb: { present: true },
+    })
+
+    render(<UpdatesSection />)
+
+    expect(await screen.findByTestId('component-version-breakdown')).toBeTruthy()
+    expect(screen.getByText('Phone')).toBeTruthy()
+    expect(screen.getByText('Build identity unavailable')).toBeTruthy()
+  })
+
   it('names each component when the phone bundle comes from a different build', async () => {
     vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux', currentVersion: '0.4.1' })
     trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })

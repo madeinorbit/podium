@@ -69,7 +69,7 @@ export interface ComponentVersionsView {
   rows: ComponentVersionRow[]
 }
 
-const PHONE_UNREPORTED = 'Not reported'
+const PHONE_UNREPORTED = 'Build identity unavailable'
 
 /** The shell trails or leads its server by design; only the reason changes. */
 function desktopNote(channel: FleetChannel | null): string {

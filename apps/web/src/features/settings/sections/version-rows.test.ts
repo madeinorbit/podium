@@ -114,7 +114,7 @@ describe('componentVersions', () => {
   it('refuses to read an unreportable phone bundle as agreement', () => {
     const view = componentVersions(input({ phone: { present: true } }))
     expect(view.single).toBeNull()
-    expect(row(view, 'phone')?.value).toBe('Not reported')
+    expect(row(view, 'phone')?.value).toBe('Build identity unavailable')
     expect(row(view, 'phone')?.mark).toBeUndefined()
   })
 
