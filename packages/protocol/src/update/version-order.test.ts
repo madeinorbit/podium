@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import { compareVersions, isProvablyNewer } from './version-order'
 
+const sortVersions = (versions: readonly string[]): string[] =>
+  [...versions].sort((a, b) => {
+    const order = compareVersions(a, b)
+    if (order === null) throw new Error(`test fixture should be orderable: ${a} vs ${b}`)
+    return order
+  })
+
+function permutations<T>(items: readonly T[]): T[][] {
+  if (items.length === 0) return [[]]
+  const result: T[][] = []
+  for (let i = 0; i < items.length; i++) {
+    const remainder = [...items.slice(0, i), ...items.slice(i + 1)]
+    for (const suffix of permutations(remainder)) result.push([items[i] as T, ...suffix])
+  }
+  return result
+}
+
 /**
  * The ordering moved here from `apps/cli/src/podium-update.ts` (POD-2221) so the
  * daemon's schema gate and `podium update` share ONE answer. Its own suite came
@@ -104,11 +121,7 @@ describe('mixed stable, edge, and dev precedence', () => {
       '0.1.3-edge.1',
     ]
 
-    const sorted = [...versions].sort((a, b) => {
-      const order = compareVersions(a, b)
-      if (order === null) throw new Error(`test fixture should be orderable: ${a} vs ${b}`)
-      return order
-    })
+    const sorted = sortVersions(versions)
 
     expect(sorted).toEqual([
       '0.1.1',
@@ -127,5 +140,51 @@ describe('mixed stable, edge, and dev precedence', () => {
     // Arming case: restoring plain text comparison makes this exact assertion
     // fail because lexical `dev` < `edge`.
     expect(compareVersions('0.1.2-dev.1+656f49b', '0.1.2-edge.1')).toBe(1)
+  })
+})
+
+describe('prerelease precedence is a total order', () => {
+  const labels = [
+    '0.1.2-alpha.1',
+    '0.1.2-dzz.1',
+    '0.1.2-edge.1',
+    '0.1.2-dev.1+656f49b',
+    '0.1.2',
+    '0.1.3-edge.1',
+    '0.1.3-dev.1+abcdef0',
+  ]
+
+  it('is transitive for every triple in the realistic label set', () => {
+    for (const a of labels) {
+      for (const b of labels) {
+        for (const c of labels) {
+          const ab = compareVersions(a, b)
+          const bc = compareVersions(b, c)
+          const ac = compareVersions(a, c)
+          expect(ab).not.toBeNull()
+          expect(bc).not.toBeNull()
+          expect(ac).not.toBeNull()
+          if (ab !== null && bc !== null && ac !== null && ab > 0 && bc > 0) {
+            expect(ac, `${a} > ${b} > ${c}`).toBeGreaterThan(0)
+          }
+        }
+      }
+    }
+  })
+
+  it('sorts to one order regardless of input permutation', () => {
+    const expected = [
+      '0.1.2-alpha.1',
+      '0.1.2-dzz.1',
+      '0.1.2-edge.1',
+      '0.1.2-dev.1+656f49b',
+      '0.1.2',
+      '0.1.3-edge.1',
+      '0.1.3-dev.1+abcdef0',
+    ]
+
+    for (const permutation of permutations(labels)) {
+      expect(sortVersions(permutation)).toEqual(expected)
+    }
   })
 })

@@ -60,9 +60,14 @@ function parseVersion(raw: string): ParsedVersion | null {
 
 /**
  * Semver §11 precedence over the prerelease identifiers, with Podium's one
- * deliberate deviation: for the same core, `dev` outranks `edge`. The three
- * rules that a naive dot-splitting comparison cannot express, and that decide
- * real Podium versions:
+ * deliberate deviation: for the same core, known channel identifiers have
+ * explicit tiers — `dev` above `edge` above every other alphanumeric
+ * identifier. The tier is compared before text, and text is compared
+ * alphabetically only within the same tier. This makes the deviation a total
+ * order instead of a pairwise exception.
+ *
+ * The three rules that a naive dot-splitting comparison cannot express, and
+ * that decide real Podium versions:
  *
  * - **A release outranks its own prereleases.** `0.1.4` > `0.1.4-edge.4`, so an
  *   edge install stops offering itself the prerelease once the release lands.
@@ -92,11 +97,24 @@ function comparePrerelease(
     if (leftIsNumber && rightIsNumber) return left < right ? -1 : 1
     const leftText = left as string
     const rightText = right as string
-    if (leftText === 'dev' && rightText === 'edge') return 1
-    if (leftText === 'edge' && rightText === 'dev') return -1
+    const leftRank = prereleaseTextRank(leftText)
+    const rightRank = prereleaseTextRank(rightText)
+    if (leftRank !== rightRank) return leftRank < rightRank ? -1 : 1
     return leftText < rightText ? -1 : 1
   }
   return a.length === b.length ? 0 : a.length < b.length ? -1 : 1
+}
+
+/**
+ * Known publisher channels get explicit precedence. Unknown alphanumeric
+ * prerelease identifiers share the fallback tier and remain text-ordered
+ * within it; putting `edge` above that tier prevents a label such as `dzz`
+ * from closing a cycle between `dev` and `edge`.
+ */
+function prereleaseTextRank(identifier: string): number {
+  if (identifier === 'dev') return 2
+  if (identifier === 'edge') return 1
+  return 0
 }
 
 /**
