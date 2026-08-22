@@ -28,14 +28,25 @@
  * precedence, and two builds of one version are the same version here.
  */
 interface ParsedVersion {
-  core: readonly [number, number, number]
-  prerelease: readonly (string | number)[]
+  core: readonly [string, string, string]
+  prerelease: readonly string[]
 }
 
 const SEMVER =
   /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 
-const numericOrText = (id: string): string | number => (/^\d+$/.test(id) ? Number(id) : id)
+const isNumericIdentifier = (id: string): boolean => /^\d+$/.test(id)
+
+/**
+ * Semver numeric identifiers are arbitrary-precision non-negative integers.
+ * They stay as canonical decimal strings so digit length followed by
+ * lexicographic comparison remains exact beyond JavaScript's safe-integer
+ * range. Leading zeroes are rejected by `parseVersion` before this runs.
+ */
+function compareNumericIdentifiers(a: string, b: string): number {
+  if (a.length !== b.length) return a.length < b.length ? -1 : 1
+  return a === b ? 0 : a < b ? -1 : 1
+}
 
 /** `null` for anything that is not a semver — including the forensic
  *  `dev+<sha>` / plain `dev` labels a source checkout carries. Publisher mints
@@ -53,8 +64,8 @@ function parseVersion(raw: string): ParsedVersion | null {
   if (prerelease.some((identifier) => /^0\d+$/.test(identifier))) return null
 
   return {
-    core: [Number(m[1]), Number(m[2]), Number(m[3])],
-    prerelease: prerelease.map(numericOrText),
+    core: [m[1] as string, m[2] as string, m[3] as string],
+    prerelease,
   }
 }
 
@@ -81,22 +92,22 @@ function parseVersion(raw: string): ParsedVersion | null {
  * of otherwise-equal identifiers ranks below a longer one.
  */
 function comparePrerelease(
-  a: readonly (string | number)[],
-  b: readonly (string | number)[],
+  a: readonly string[],
+  b: readonly string[],
 ): number {
   if (a.length === 0 && b.length === 0) return 0
   if (a.length === 0) return 1
   if (b.length === 0) return -1
   for (let i = 0; i < Math.min(a.length, b.length); i++) {
-    const left = a[i] as string | number
-    const right = b[i] as string | number
+    const left = a[i] as string
+    const right = b[i] as string
     if (left === right) continue
-    const leftIsNumber = typeof left === 'number'
-    const rightIsNumber = typeof right === 'number'
+    const leftIsNumber = isNumericIdentifier(left)
+    const rightIsNumber = isNumericIdentifier(right)
     if (leftIsNumber !== rightIsNumber) return leftIsNumber ? -1 : 1
-    if (leftIsNumber && rightIsNumber) return left < right ? -1 : 1
-    const leftText = left as string
-    const rightText = right as string
+    if (leftIsNumber && rightIsNumber) return compareNumericIdentifiers(left, right)
+    const leftText = left
+    const rightText = right
     const leftRank = prereleaseTextRank(leftText)
     const rightRank = prereleaseTextRank(rightText)
     if (leftRank !== rightRank) return leftRank < rightRank ? -1 : 1
@@ -126,9 +137,8 @@ export function compareVersions(a: string, b: string): number | null {
   const right = parseVersion(b)
   if (!left || !right) return null
   for (let i = 0; i < 3; i++) {
-    const l = left.core[i] as number
-    const r = right.core[i] as number
-    if (l !== r) return l < r ? -1 : 1
+    const order = compareNumericIdentifiers(left.core[i] as string, right.core[i] as string)
+    if (order !== 0) return order
   }
   return comparePrerelease(left.prerelease, right.prerelease)
 }

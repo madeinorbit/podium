@@ -83,6 +83,12 @@ describe('compareVersions', () => {
   const cases: [left: string, right: string, order: number | null, why: string][] = [
     ['0.1.4-edge.0', '0.1.4-edge.1', -1, 'zero itself is a valid numeric identifier'],
     ['0.1.4-edge.10', '0.1.4-edge.2', 1, 'multi-digit identifiers may start nonzero'],
+    [
+      '0.1.4-edge.9007199254740993',
+      '0.1.4-edge.9007199254740992',
+      1,
+      'numeric identifiers stay exact beyond JavaScript safe integers',
+    ],
     ['00.1.5', '0.1.4', null, 'a major component cannot have a leading zero'],
     ['0.01.5', '0.1.4', null, 'a minor component cannot have a leading zero'],
     ['0.1.05', '0.1.4', null, 'a patch component cannot have a leading zero'],
@@ -155,6 +161,17 @@ describe('prerelease precedence is a total order', () => {
   ]
 
   it('is transitive for every triple in the realistic label set', () => {
+    const dev = '0.1.2-dev.1+656f49b'
+    const edge = '0.1.2-edge.1'
+    const fallback = '0.1.2-dzz.1'
+
+    // These premises must be explicit. A plain lexical comparator makes
+    // `dev > edge` false, which otherwise causes the implication below to
+    // skip the only tier-sensitive chain instead of proving it.
+    expect(compareVersions(dev, edge), 'tier witness requires dev > edge').toBe(1)
+    expect(compareVersions(edge, fallback), 'tier witness requires edge > fallback').toBe(1)
+    expect(compareVersions(dev, fallback), 'tier witness requires dev > fallback').toBe(1)
+
     for (const a of labels) {
       for (const b of labels) {
         for (const c of labels) {
@@ -173,6 +190,18 @@ describe('prerelease precedence is a total order', () => {
   })
 
   it('sorts to one order regardless of input permutation', () => {
+    const tierLabels = [
+      '0.1.2-dzz.1',
+      '0.1.2-edge.1',
+      '0.1.2-dev.1+656f49b',
+    ] as const
+    for (const permutation of permutations(tierLabels)) {
+      expect(
+        sortVersions(permutation),
+        'tier-sensitive permutations must keep fallback < edge < dev',
+      ).toEqual([...tierLabels])
+    }
+
     const expected = [
       '0.1.2-alpha.1',
       '0.1.2-dzz.1',
