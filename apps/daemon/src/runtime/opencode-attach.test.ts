@@ -25,11 +25,7 @@ import {
   opencodeAttachLabel,
   WARM_TTL_MS,
 } from './opencode-attach'
-import {
-  createOpencodeHost,
-  opencodeScopeLabel,
-  STRIPPED_PROVIDER_KEYS,
-} from './opencode-server'
+import { createOpencodeHost, opencodeScopeLabel, STRIPPED_PROVIDER_KEYS } from './opencode-server'
 import type { OpencodeJournal, OpencodeJournalEntry } from '@podium/agent-runtime'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
@@ -237,15 +233,61 @@ describe('the client terminal a server-family attach produces', () => {
     expect(endpoint.streamId).toBe(SESSION)
   })
 
-  it('subscribes before requesting the initial client paint', async () => {
+  it.each([
+    ['opencode', 'cold', target, 'opencode', false],
+    [
+      'codex',
+      'cold',
+      {
+        kind: 'codex' as const,
+        threadId: 'thread-paint',
+        clientAddress: 'unix:///instance/runtime/codex-paint.sock',
+        workdir: '/work/codex',
+      },
+      'codex',
+      false,
+    ],
+    [
+      'grok',
+      'cold',
+      { kind: 'grok' as const, grokSessionId: 'grok-paint', workdir: '/work/grok' },
+      'grok',
+      false,
+    ],
+    ['opencode', 'adopted', target, 'opencode', true],
+    [
+      'codex',
+      'adopted',
+      {
+        kind: 'codex' as const,
+        threadId: 'thread-paint',
+        clientAddress: 'unix:///instance/runtime/codex-paint.sock',
+        workdir: '/work/codex',
+      },
+      'codex',
+      true,
+    ],
+    [
+      'grok',
+      'adopted',
+      { kind: 'grok' as const, grokSessionId: 'grok-paint', workdir: '/work/grok' },
+      'grok',
+      true,
+    ],
+  ] as const)('%s %s client subscribes before requesting its initial paint', async (_harnessKind, _startKind, paintTarget, clientKind, adopted) => {
     const initialPaint = Buffer.from('\x1b[2Jopencode ready').toString('base64')
-    const { terminals, state } = harness({ redrawFrame: initialPaint })
+    const { terminals, state } = harness({
+      redrawFrame: initialPaint,
+      hasMaster: () => adopted,
+    })
 
-    const endpoint = await terminals.attach({ sessionId: SESSION, target })
+    if (adopted) terminals.adopt(SESSION, clientKind)
 
-    // A hot PTY may have painted before spawn() returned. The attach seam must
-    // request one paint after its relay listener exists, or opencode can leave a
-    // valid lease and endpoint whose client never receives a single frame.
+    const endpoint = await terminals.attach({ sessionId: SESSION, target: paintTarget })
+
+    // The browser's attach-time redraw can arrive before an asynchronous
+    // server-family client exists. Every harness, including a master adopted
+    // after daemon restart, gets the request replayed after relay subscription.
     expect(state.frames).toEqual([{ streamId: endpoint.streamId, data: initialPaint }])
     expect(state.clients[0]?.redraws).toBe(1)
   })

@@ -398,18 +398,18 @@ export function createOpencodeClientTerminals(
       record.session = undefined
     })
     /**
-     * SUBSCRIBE, THEN ASK FOR THE FIRST PAINT.
+     * SUBSCRIBE, THEN REPLAY THE ATTACH-TIME REDRAW.
      *
-     * `spawnAbducoAgent` has to attach a live PTY before it can return the
-     * `AgentSession`, and that attach nudges the TUI to repaint. A fast client
-     * can answer both halves of the resize nudge before this caller gets to
-     * register `onFrame`; opencode does exactly that, leaving a valid client and
-     * control lease behind with no bytes ever entering the relay. Codex and Grok
-     * happened to emit later startup work, which hid the same hot-source race.
+     * A fresh browser attach asks the daemon to redraw from `SessionTerminal`,
+     * but a server-family client is created later, from the viewer-priority
+     * frame. If that redraw arrives before this spawn finishes,
+     * `clientTerminals.redraw(sessionId)` correctly returns false: there is no
+     * client PTY yet, and nothing replays the request when one appears.
      *
-     * A second redraw after the consumers are installed makes the contract at
-     * this seam explicit for every harness client. It also covers adoption,
-     * where abduco has no history to replay and a fresh paint is required.
+     * Reissue it after the relay consumer exists. The current abduco attach also
+     * performs an idempotent resize nudge, but that is an implementation detail
+     * of one spawn port, not the ordering contract for OpenCode, Codex, Grok and
+     * adopted masters at this shared seam.
      */
     session.redraw()
     return session
