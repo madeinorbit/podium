@@ -495,6 +495,10 @@ describe('UpdateReconciler: a grant that goes silent', () => {
       grantId: 'g2',
     })
     h.live[1] = machine({ id: 'vps', version: TARGET_VERSION })
+    // The directory changes when the daemon handshake lands; the reconnect is
+    // the event that makes the service project that raw proof and retire the
+    // pending grant. A current status alone is deliberately insufficient.
+    h.reconciler.onMachineConnected('vps')
     expect(h.updates.operationActive('dev')).toBe(false)
   })
 

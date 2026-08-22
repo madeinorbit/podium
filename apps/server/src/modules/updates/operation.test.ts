@@ -2665,7 +2665,7 @@ describe('a silent grant, with nobody watching', () => {
   })
 })
 
-it('neither completes the canary nor widens before its handover reconnects', async () => {
+it('stays closed before the canary handover reconnects and widens after it does', async () => {
   const fleet = [machine({ id: 'a-canary' }), machine({ id: 'b' })]
   const h = harness({
     machines: fleet,
@@ -2915,6 +2915,11 @@ describe('two machines, one of them dead', () => {
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
     })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     const canary = fleet[0]
@@ -2925,15 +2930,12 @@ describe('two machines, one of them dead', () => {
       state: 'current',
       version: 'dev+abc1234',
     })
-    await h.engine.whenSettled('op_1')
-    expect(grantedMachines(h)).toEqual(['a-canary', 'b', 'c', 'd'])
-    const bridge = createUpdateFleetBridge({
-      engine: h.engine,
-      updates: h.updates,
-      now: () => h.clock.clock.now(),
-    })
+    // A raw directory mutation is only observable once the reconnect event
+    // reaches the operation bridge. That proof opens the wave; the optimistic
+    // status above never does so by itself.
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
+    expect(grantedMachines(h)).toEqual(['a-canary', 'b', 'c', 'd'])
 
     const claimed = machinesStep(h)
       ?.places?.filter((place) => place.lastProgressAt !== undefined)
