@@ -1554,7 +1554,10 @@ export function projectMachines(
     ) {
       return { ...place, ...(machine.name ? { name: machine.name } : {}) }
     }
-    if (targetVersion !== undefined && machine.version === targetVersion) {
+    if (
+      targetVersion !== undefined &&
+      context.updates.machineBootedAtTarget(machine.id as MachineId, targetVersion)
+    ) {
       return {
         ...place,
         state: 'current',
@@ -1620,9 +1623,7 @@ export function projectMachines(
     }
   }
 
-  const done = places.filter(
-    (place) => place.state === 'current' || place.state === 'restarting',
-  ).length
+  const done = places.filter((place) => place.state === 'current').length
   return { places, progress: { done, total: places.length } }
 }
 
@@ -1660,8 +1661,8 @@ export function describeUpdateStall(input: {
 
 /**
  * Has the wave reached an outcome? `done` when every planned machine is at the
- * target (or has crossed the restart boundary), `failed` when one reported a
- * verdict only a human can clear.
+ * target by raw reconnect identity, `failed` when one reported a verdict only
+ * a human can clear. Crossing the restart boundary remains in progress.
  */
 function settleMachines(
   operation: Operation,
@@ -2052,8 +2053,7 @@ export function createUpdateFleetBridge(deps: {
   }
 }
 
-const isArrived = (place: StepPlace): boolean =>
-  place.state === 'current' || place.state === 'restarting'
+const isArrived = (place: StepPlace): boolean => place.state === 'current'
 
 /**
  * WHICH DEFERRED PLACES MAY JOIN THE WAVE NOW (§3.6).

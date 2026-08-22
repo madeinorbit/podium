@@ -235,6 +235,29 @@ export function isHandoverHealthy(probe: HandoverHealthProbe, expectedVersion: s
 }
 
 /**
+ * Daemon-only handover proof. Unlike a co-located stack there is no local HTTP
+ * server to probe: the successor daemon itself must be the live registered
+ * process, authenticated to its remote server, running the target build, and
+ * have confirmed that target from its pending grant during boot reconciliation.
+ */
+export interface DaemonHandoverHealthProbe {
+  connected: boolean
+  appVersion: string | null
+  convergedVersion: string | null
+}
+
+export function isDaemonHandoverHealthy(
+  probe: DaemonHandoverHealthProbe,
+  expectedVersion: string,
+): boolean {
+  return (
+    probe.connected &&
+    probe.appVersion === expectedVersion &&
+    probe.convergedVersion === expectedVersion
+  )
+}
+
+/**
  * How long a janitor that claims to be RUNNING may leave its progress token
  * unchanged before the parent stops petting the systemd watchdog. The janitor's
  * tick is 30s, so this is 20 ticks: comfortably past a slow tick or a long

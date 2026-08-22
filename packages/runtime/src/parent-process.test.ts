@@ -22,7 +22,7 @@ import {
   ParentProcess,
   type SpawnChildFn,
 } from './parent-process'
-import type { HandoverHealthProbe } from './parent-supervisor'
+import type { DaemonHandoverHealthProbe, HandoverHealthProbe } from './parent-supervisor'
 
 class FakeChild extends EventEmitter {
   pid: number
@@ -51,6 +51,11 @@ const healthy = (version: string): HandoverHealthProbe => ({
   serverVersion: version,
   daemonConnected: true,
 })
+
+const daemonHealthy = (
+  appVersion: string,
+  convergedVersion: string | null = null,
+): DaemonHandoverHealthProbe => ({ connected: true, appVersion, convergedVersion })
 
 /** A clock the test advances by hand, so backoff deadlines are really reached. */
 function fakeClock(start = 1_000): { now: () => number; advance: (ms: number) => void } {
@@ -153,6 +158,7 @@ describe('ParentProcess', () => {
           return new FakeChild(200) as unknown as ReturnType<SpawnChildFn>
         }) as SpawnChildFn,
         probeHealth: async () => healthy('1.0.0'),
+        probeDaemonHealth: async () => daemonHealthy('1.0.0'),
         notify: () => {},
         sleep: async () => {},
         now: () => 1_000,
@@ -163,6 +169,50 @@ describe('ParentProcess', () => {
     await parent.start()
 
     expect(spawned).toEqual([{ cmd: '/opt/podium/podium', args: ['daemon', '--takeover'] }])
+  })
+
+  it('completes daemon-only handover after the live successor reconnects and converges', async () => {
+    const clock = fakeClock()
+    let nextPid = 220
+    let successorConverged = false
+    let waits = 0
+    let localServerProbes = 0
+    const notifications: string[] = []
+    const exits: number[] = []
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: '/opt/podium',
+        installBinary: '/opt/podium/podium',
+        children: ['daemon'],
+        env: { PODIUM_APP_VERSION: '1.0.0' },
+        spawn: (() =>
+          new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        // A daemon-only host has no local server. Reaching this probe would
+        // recreate the production timeout this regression guards.
+        probeHealth: async () => {
+          localServerProbes++
+          return { serverRunning: false, serverVersion: null, daemonConnected: false }
+        },
+        probeDaemonHealth: async () =>
+          successorConverged ? daemonHealthy('2.0.0', '2.0.0') : daemonHealthy('1.0.0'),
+        notify: (state) => notifications.push(state),
+        sleep: async () => {
+          clock.advance(250)
+          if (++waits >= 2) successorConverged = true
+        },
+        now: clock.now,
+        handoverTimeoutMs: 1_000,
+        exit: (code) => exits.push(code),
+      }),
+    )
+
+    await parent.start()
+    await parent.handover('2.0.0')
+
+    expect(localServerProbes).toBe(0)
+    expect(notifications.filter((state) => state.startsWith('MAINPID='))).toHaveLength(1)
+    expect(exits).toEqual([0])
   })
 
   it('RESPAWNS a crashed child once its backoff deadline passes', async () => {

@@ -87,7 +87,7 @@ export interface DaemonHostRuntime {
   readonly agentRelayPort: number
   /** Source-transfer seam: pause/drain daemon portable writers, or resume after safe abort. */
   readonly portableState: PortableStateControl
-  connected(): void
+  connected(): { convergedVersion?: string }
   receive(raw: RawData): void
   close(opts?: { reapSessions?: boolean }): Promise<void>
 }
@@ -352,7 +352,7 @@ export async function createDaemonHostRuntime(args: {
     flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
   })
 
-  const reconcilePendingUpdate = (): void => {
+  const reconcilePendingUpdate = (): string | undefined => {
     const pending = readPendingGrant(instance.runtimeDir)
     if (!pending) return
 
@@ -398,6 +398,7 @@ export async function createDaemonHostRuntime(args: {
       return
     }
     clearPendingGrant(instance.runtimeDir)
+    return verdict.action === 'confirm' ? pending.targetVersion : undefined
   }
 
   /**
@@ -558,7 +559,7 @@ export async function createDaemonHostRuntime(args: {
     timer.unref?.()
   }
 
-  const connected = (): void => {
+  const connected = (): { convergedVersion?: string } => {
     if (!kickedOff) {
       kickedOff = true
       discoveryLoop.start()
@@ -579,13 +580,14 @@ export async function createDaemonHostRuntime(args: {
       reapStaleAbducoBindTemps()
     }
     for (const diagnostic of portConflicts) send({ type: 'machineDiagnostic', ...diagnostic })
-    reconcilePendingUpdate()
+    const convergedVersion = reconcilePendingUpdate()
     pushDurableSessionCensus()
     void reportInventory(ctx)
     void replayPendingBindingReceipts().catch((error) =>
       log.warn('Codex identity receipt replay failed', { err: error }),
     )
     browserOpen.replay()
+    return convergedVersion ? { convergedVersion } : {}
   }
 
   const close = async (closeOpts?: { reapSessions?: boolean }): Promise<void> => {

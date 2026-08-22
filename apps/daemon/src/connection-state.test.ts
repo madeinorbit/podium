@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import { type PeerHello, type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+import { readConnectivity } from '@podium/runtime/connectivity'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
@@ -105,6 +106,30 @@ describe('daemon connection credential state machine', () => {
     } else {
       expect(hello?.caps).toEqual(expect.arrayContaining(['update.delivery.feed']))
     }
+    await state.close()
+  })
+
+  it('persists the live process and boot convergence proof after authentication', async () => {
+    const options = localOptions(() => {})
+    const build = { ...buildReport(process.env, undefined), appVersion: '2.0.0' }
+    const state = createDaemonConnection({
+      options,
+      build,
+      machineId: MACHINE_ID,
+      identity: { token: 'token' },
+      receiveApplicationFrame: vi.fn(),
+      sendApplicationFrame: vi.fn(),
+      onConnected: () => ({ convergedVersion: '2.0.0' }),
+      onTerminal: vi.fn(),
+    })
+
+    await state.start()
+    expect(readConnectivity(options.identityDir as string)).toMatchObject({
+      state: 'connected',
+      processId: process.pid,
+      appVersion: '2.0.0',
+      convergedVersion: '2.0.0',
+    })
     await state.close()
   })
 

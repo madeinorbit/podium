@@ -1,7 +1,13 @@
 import { spawn } from 'node:child_process'
 import { hostname } from 'node:os'
 import type { MachineId } from '@podium/model'
-import { createHandshakeDialer, type LocalDaemonAttachment, type PeerBuild, type PeerCredential, type PeerHelloRejected } from '@podium/protocol'
+import {
+  createHandshakeDialer,
+  type LocalDaemonAttachment,
+  type PeerBuild,
+  type PeerCredential,
+  type PeerHelloRejected,
+} from '@podium/protocol'
 import { type DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
@@ -68,7 +74,7 @@ export interface DaemonConnectionDeps {
   readonly identity: { token?: string; updatePubkey?: string }
   readonly receiveApplicationFrame: (raw: RawData) => void
   readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => void
-  readonly onConnected: () => void
+  readonly onConnected: () => { convergedVersion?: string } | void
   readonly onTerminal: () => void | Promise<void>
   readonly openSocket?: (url: string) => SocketLike
   readonly restartAfterUpdate?: () => void
@@ -109,6 +115,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let started = false
   let pairFallbackTried = false
   let lastSocketError: string | undefined
+  let convergedVersion: string | undefined
   // Host diagnostics are durable attention, not telemetry. Keep the latest one
   // per code/version until an authenticated machine transport exists; ordinary
   // runtime frames retain the historical drop-while-offline behavior.
@@ -127,7 +134,16 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   const report = (patch: Omit<Parameters<typeof writeConnectivity>[0], 'serverUrl'>): void => {
     if (!connectivityDir) return
     try {
-      writeConnectivity({ serverUrl: options.serverUrl, ...patch }, connectivityDir)
+      writeConnectivity(
+        {
+          serverUrl: options.serverUrl,
+          processId: process.pid,
+          appVersion: deps.build.appVersion ?? 'dev',
+          ...(convergedVersion ? { convergedVersion } : {}),
+          ...patch,
+        },
+        connectivityDir,
+      )
     } catch (error) {
       log.warn('could not write the connectivity status file', { err: error, connectivityDir })
     }
@@ -201,17 +217,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
 
   const persistBootstrapPin = (updatePubkey: string): void => {
     identity.updatePubkey = updatePubkey
-    savePinnedUpdatePubkey(
-      updatePubkey,
-      options.identityDir ? { dir: options.identityDir } : {},
-    )
+    savePinnedUpdatePubkey(updatePubkey, options.identityDir ? { dir: options.identityDir } : {})
   }
 
-  const established = (
-    issuedToken?: string,
-    updatePubkey?: string,
-    active?: SocketLike,
-  ): void => {
+  const established = (issuedToken?: string, updatePubkey?: string, active?: SocketLike): void => {
     if (issuedToken) {
       persistPairing(issuedToken, updatePubkey)
     } else if (updatePubkey !== undefined) {
@@ -235,8 +244,12 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     state = 'connected'
     reconnectBackoffMs = RECONNECT_MIN_MS
     lastSocketError = undefined
-    report({ state: 'connected', lastHelloOkAt: new Date().toISOString() })
-    deps.onConnected()
+    const boot = deps.onConnected() ?? {}
+    convergedVersion = boot.convergedVersion ?? convergedVersion
+    report({
+      state: 'connected',
+      lastHelloOkAt: new Date().toISOString(),
+    })
     for (const diagnostic of pendingDiagnostics.values()) {
       if (localAttachment) localAttachment.deliver(diagnostic)
       else deps.sendApplicationFrame(socket, diagnostic)
