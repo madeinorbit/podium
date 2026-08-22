@@ -28,7 +28,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type WebSocket from 'ws'
-import { CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS, connectCodexWebSocket } from './codex-app-server'
+import {
+  CodexAppServerLaunchRefused,
+  CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS,
+  connectCodexWebSocket,
+} from './codex-app-server'
 
 /** RFC 6455 §1.3, concatenated with the client's key to derive the accept value. */
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -314,6 +318,28 @@ describe('connecting to a listener that cannot complete', () => {
     expect(err.message).toMatch(/Unix listener was not ready at .+: \S/)
     expect(err.message).not.toMatch(/\[object \w+\]/)
     expect(err.message).not.toMatch(/did not complete the upgrade/)
+  })
+
+  it('turns a retired config value into a typed refusal naming the setting', async () => {
+    const err = await failureOf(
+      connectCodexWebSocket(
+        join(tmpdir(), 'never-bound.sock'),
+        { exitCode: 1, signalCode: null },
+        () =>
+          'Error: approval_policy = "untrusted" is no longer supported; remove this setting',
+        5_000,
+      ),
+    )
+
+    expect(err).toBeInstanceOf(CodexAppServerLaunchRefused)
+    expect((err as CodexAppServerLaunchRefused).refusal).toEqual({
+      reason: 'unsupported-setting',
+      setting: 'approval_policy',
+    })
+    expect(err.message).toBe(
+      "codex app-server refused unsupported setting 'approval_policy'; remove that setting from its launch configuration",
+    )
+    expect(err.message).not.toContain('untrusted')
   })
 
   it('blames the CHILD, with its stderr, when the child is already gone', async () => {

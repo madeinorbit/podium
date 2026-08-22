@@ -255,12 +255,12 @@ function defaultVersionProbe(): Promise<{ output: string; ok: boolean }> {
 /**
  * The `-c` overrides every app-server session carries.
  *
- * `approval_policy` IS THE LOAD-BEARING ONE and the plan says so explicitly:
- * it must be a policy that ROUTES approvals to server→client requests. `never`
- * silences them, which would make the whole approval half of this driver dead
- * code and the acceptance item impossible to demonstrate. `untrusted` is the
- * policy that asks about everything it has not been told is safe; it is what the
- * live approval was captured under.
+ * APPROVAL ROUTING IS DELIBERATELY ABSENT. Codex 0.149 removed the old
+ * `approval_policy="untrusted"` config value and refuses to start when it is
+ * present. The app-server's current default routes approval requests through
+ * server→client JSON-RPC, which is the behaviour this driver consumes; pinning
+ * a retired policy both duplicates the harness default and kills every session
+ * before that protocol can open.
  *
  * `sandbox_mode=workspace-write` matches what a Podium session is for — an agent
  * that may edit the worktree it was pointed at — and keeps the network closed
@@ -291,8 +291,6 @@ export function codexAppServerConfigArgs(input: {
   const mcp = config ? codexMcpArgs(config, 'app-server') : { args: [], env: {} }
   return {
     args: [
-      '-c',
-      'approval_policy="untrusted"',
       '-c',
       'sandbox_mode="workspace-write"',
       ...(mcp.args.length > 0
@@ -742,6 +740,38 @@ export interface CodexChildLiveness {
  */
 class HandshakeTimeout extends Error {}
 
+/** A child configuration Codex rejected before its listener could open. */
+export interface CodexAppServerLaunchRefusal {
+  reason: 'unsupported-setting'
+  setting: string
+}
+
+/**
+ * A DISCRIMINATED STARTUP REFUSAL, not a stderr-shaped process crash.
+ *
+ * Codex validates configuration before binding its listener. When a setting is
+ * retired, the only protocol available is the child's stderr; classify that
+ * narrow diagnostic here so callers can branch on `refusal.reason` and show the
+ * actionable setting name without publishing an arbitrary stderr tail.
+ */
+export class CodexAppServerLaunchRefused extends Error {
+  override readonly name = 'CodexAppServerLaunchRefused'
+
+  constructor(readonly refusal: CodexAppServerLaunchRefusal) {
+    super(
+      `codex app-server refused unsupported setting '${refusal.setting}'; remove that setting from its launch configuration`,
+    )
+  }
+}
+
+function unsupportedSettingRefusal(stderr: string): CodexAppServerLaunchRefusal | undefined {
+  const setting =
+    /\b([A-Za-z][A-Za-z0-9_.-]*)\s*=\s*(?:"[^"]*"|'[^']*'|\S+)\s+is no longer supported;\s*remove this setting\b/i.exec(
+      stderr,
+    )?.[1]
+  return setting ? { reason: 'unsupported-setting', setting } : undefined
+}
+
 /**
  * THE REASON A FAILED CONNECT CARRIES, WHATEVER SHAPE IT ARRIVES IN.
  *
@@ -794,6 +824,8 @@ export async function connectCodexWebSocket(
   while (Date.now() < deadline) {
     if (child.exitCode !== null || child.signalCode !== null) {
       const detail = banner().trim()
+      const refusal = unsupportedSettingRefusal(detail)
+      if (refusal) throw new CodexAppServerLaunchRefused(refusal)
       throw new Error(
         `codex app-server exited before its Unix listener was ready${detail ? `: ${detail.slice(-500)}` : ''}`,
       )

@@ -71,16 +71,12 @@ describe('env hygiene — the subscription-auth mechanism', () => {
 })
 
 describe('the spawn config', () => {
-  it('routes approvals to server→client requests rather than silencing them', () => {
-    /**
-     * THE LOAD-BEARING OVERRIDE. `-a never` silences approvals, which would make
-     * the entire approval half of this driver dead code and the acceptance item
-     * — "approval round-trip: request → PendingInteraction → answer → the turn
-     * continues" — impossible to demonstrate.
-     */
+  it('leaves approval routing to the current app-server contract', () => {
+    // Codex 0.149 refuses the retired `untrusted` value before opening its
+    // listener. Its current default produces the server→client approval
+    // requests this driver handles, so no approval policy is generated at all.
     const { args } = codexAppServerConfigArgs({})
-    expect(args.join(' ')).toContain('approval_policy="untrusted"')
-    expect(args.join(' ')).not.toContain('approval_policy="never"')
+    expect(args.join(' ')).not.toContain('approval_policy')
     expect(args.join(' ')).toContain('sandbox_mode="workspace-write"')
   })
 

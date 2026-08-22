@@ -101,7 +101,7 @@ function liveHost(workdir: string): {
       for (const key of STRIPPED_CODEX_CREDENTIALS) delete env[key]
       const child = spawn(
         'codex',
-        ['app-server', '-c', 'approval_policy="untrusted"', '-c', 'sandbox_mode="workspace-write"'],
+        ['app-server', '-c', 'sandbox_mode="workspace-write"'],
         { cwd: input.workdir, env, stdio: ['pipe', 'pipe', 'pipe'] },
       )
       children.push(child)
