@@ -13,6 +13,7 @@ import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  applyHarnessEnv,
   applyRealAgentCodexEnv,
   harnessEnv,
   harnessPidFile,
@@ -103,11 +104,24 @@ describe('harness abduco socket budget', () => {
     // test-hermetic-env.ts points TMPDIR at a random per-fork container; a
     // harness path derived from it could not be reaped by Playwright's
     // globalTeardown or the next run's startup reap, which never load it.
+    const dirs = harnessEnv(9921)
     expect(process.env.PODIUM_TEST_HOST_TMPDIR).toBeTruthy()
-    expect(harnessEnv(9921).base).toBe(
-      join(process.env.PODIUM_TEST_HOST_TMPDIR as string, 'podium-e2e-9921'),
+    expect(dirs.base).toBe(
+      join(process.env.PODIUM_TEST_HOST_TMPDIR as string, `podium-e2e-9921-${dirs.runId}`),
     )
-    expect(harnessEnv(9921).base.startsWith(tmpdir())).toBe(false)
+    expect(dirs.base.startsWith(tmpdir())).toBe(false)
+  })
+
+  it('gives concurrent same-port runs distinct roots while staying socket-short', () => {
+    const first = harnessEnv(9922, 'first')
+    const second = harnessEnv(9922, 'second')
+    expect(first.base).not.toBe(second.base)
+    const firstSocket =
+      `${first.abducoSocketDir}/abduco/${userInfo().username}/podium-${randomUUID()}@${hostname()}`
+    const secondSocket =
+      `${second.abducoSocketDir}/abduco/${userInfo().username}/podium-${randomUUID()}@${hostname()}`
+    expect(firstSocket.length).toBeLessThan(SUN_PATH_MAX)
+    expect(secondSocket.length).toBeLessThan(SUN_PATH_MAX)
   })
 })
 
@@ -166,7 +180,7 @@ describe('reapHarnessSessions isolation', () => {
     const sentinel = spawn('sleep', ['30'], { stdio: 'ignore' })
     cleanups.push(() => sentinel.kill('SIGKILL'))
 
-    const { abducoSocketDir } = harnessEnv(PORT)
+    const { abducoSocketDir } = applyHarnessEnv(PORT)
     // abduco 0.6 layout: sockets nest in an `abduco/` subdir of the socket dir.
     // The session's socket file IS in the isolated dir → it's ours → reapable.
     mkdirSync(join(abducoSocketDir, 'abduco'), { recursive: true })
@@ -193,9 +207,9 @@ describe('reapHarnessSessions isolation', () => {
   })
 })
 /**
- * POD-107: reapHarnessSessions is keyed by port, so a hard-killed run on an
- * ad-hoc port parked its abduco masters under /tmp/podium-e2e-<port> forever.
- * reapStaleHarnessDirs sweeps abandoned sibling-port dirs — and ONLY those.
+ * POD-107: abandoned harness roots used to be keyed only by port, so an ad-hoc
+ * run could park its abduco masters forever. reapStaleHarnessDirs sweeps
+ * abandoned roots carrying this harness's ownership marker — and ONLY those.
  */
 describe('reapStaleHarnessDirs', () => {
   const root = join(tmpdir(), `podium-stale-root-${process.pid}`)
@@ -212,52 +226,58 @@ describe('reapStaleHarnessDirs', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
-  const seedDir = (port: number, pid?: number | string): string => {
-    const base = join(root, `podium-e2e-${port}`)
-    mkdirSync(join(base, 'state'), { recursive: true })
-    if (pid !== undefined) writeFileSync(harnessPidFile(port), String(pid))
-    return base
+  const seedDir = (
+    port: number,
+    pid: number,
+    runId = 'r' + port,
+  ): ReturnType<typeof harnessEnv> => {
+    const dirs = harnessEnv(port, runId)
+    mkdirSync(join(dirs.base, 'state'), { recursive: true })
+    writeFileSync(
+      dirs.ownerFile,
+      JSON.stringify({ version: 1, port, runId: dirs.runId, pid, createdAt: Date.now() }),
+    )
+    writeFileSync(harnessPidFile(port, dirs.runId), String(pid))
+    return dirs
   }
 
-  it('reaps a dir whose recorded harness pid is dead', () => {
+  it('reaps a marked dir whose recorded owner pid is dead', () => {
     // Far beyond any kernel pid_max — kill(pid, 0) is a guaranteed ESRCH.
-    const base = seedDir(9931, 2 ** 30)
+    const dirs = seedDir(9931, 2 ** 30)
     expect(reapStaleHarnessDirs()).toContain(9931)
-    expect(existsSync(base)).toBe(false)
+    expect(existsSync(dirs.base)).toBe(false)
   })
 
-  it('leaves a dir whose harness pid is alive (a concurrent run on another port)', () => {
-    const base = seedDir(9932, process.pid)
+  it('leaves a marked dir whose owner pid is alive', () => {
+    const dirs = seedDir(9932, process.pid)
     expect(reapStaleHarnessDirs()).not.toContain(9932)
-    expect(existsSync(base)).toBe(true)
+    expect(existsSync(dirs.base)).toBe(true)
   })
 
-  it('does not turn a corrupt pid marker into a reap of a fresh dir', () => {
-    const base = seedDir(9933, 'not-a-pid')
+  it('does not turn a corrupt harness pid file into a reap', () => {
+    const dirs = seedDir(9933, process.pid)
+    writeFileSync(harnessPidFile(9933, dirs.runId), 'not-a-pid')
     expect(reapStaleHarnessDirs()).not.toContain(9933)
+    expect(existsSync(dirs.base)).toBe(true)
+  })
+
+  it('refuses to reap an unowned matching directory even when it is old', () => {
+    const base = join(root, 'podium-e2e-9934-unowned')
+    mkdirSync(join(base, 'state'), { recursive: true })
+    expect(reapStaleHarnessDirs(Date.now() + 31 * 60 * 1000)).not.toContain(9934)
     expect(existsSync(base)).toBe(true)
   })
 
-  it('age-gates pid-file-less dirs: fresh stays (a harness mid-startup), stale goes', () => {
-    const base = seedDir(9934)
-    expect(reapStaleHarnessDirs()).not.toContain(9934)
-    expect(existsSync(base)).toBe(true)
-    expect(reapStaleHarnessDirs(Date.now() + 31 * 60 * 1000)).toContain(9934)
-    expect(existsSync(base)).toBe(false)
-  })
-
-  it('age-gates orphaned scratch repos whose state dir is already gone', () => {
+  it('leaves an unowned legacy scratch repo alone', () => {
     const orphan = join(root, 'zz-podium-e2e-repo-9936')
     mkdirSync(orphan, { recursive: true })
-    reapStaleHarnessDirs()
-    expect(existsSync(orphan)).toBe(true) // fresh — could belong to a starting run
     reapStaleHarnessDirs(Date.now() + 31 * 60 * 1000)
-    expect(existsSync(orphan)).toBe(false)
+    expect(existsSync(orphan)).toBe(true)
   })
 
-  it('reaps the per-port scratch repos alongside the state dir', () => {
-    seedDir(9935, 2 ** 30)
-    const scratch = join(root, 'zz-podium-e2e-repo-9935')
+  it('reaps scratch repos nested under their owned run root', () => {
+    const dirs = seedDir(9935, 2 ** 30)
+    const scratch = join(dirs.base, 'zz-podium-e2e-repo-9935')
     for (const dir of [scratch, `${scratch}-feat`, `${scratch}-target`]) {
       mkdirSync(dir, { recursive: true })
     }
@@ -265,6 +285,26 @@ describe('reapStaleHarnessDirs', () => {
     for (const dir of [scratch, `${scratch}-feat`, `${scratch}-target`]) {
       expect(existsSync(dir)).toBe(false)
     }
+  })
+
+  it('reaps only the owned same-port run', () => {
+    const first = applyHarnessEnv(9937, 'first')
+    const second = applyHarnessEnv(9937, 'second')
+    expect(first.base).not.toBe(second.base)
+
+    reapHarnessSessions(9937, first.runId)
+    expect(existsSync(first.base)).toBe(false)
+    expect(existsSync(second.base)).toBe(true)
+
+    reapHarnessSessions(9937, second.runId)
+    expect(existsSync(second.base)).toBe(false)
+  })
+
+  it('does not claim a non-empty unowned run root', () => {
+    const dirs = harnessEnv(9938, 'unowned')
+    mkdirSync(join(dirs.base, 'state'), { recursive: true })
+    expect(() => applyHarnessEnv(9938, dirs.runId)).toThrow(/run root is unowned/)
+    expect(existsSync(dirs.base)).toBe(true)
   })
 })
 
@@ -324,7 +364,7 @@ describe('harness process shutdown ordering', () => {
     readyFile: string
     stoppedFile: string
   } {
-    const { stateDir } = harnessEnv(PORT)
+    const { stateDir } = applyHarnessEnv(PORT)
     const readyFile = join(stateDir, 'writer.ready')
     const stoppedFile = join(stateDir, 'writer.stopped')
     const transcriptDir = join(stateDir, 'transcripts', 'machine')

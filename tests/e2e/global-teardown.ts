@@ -10,8 +10,8 @@ export default async function globalTeardown(): Promise<void> {
   await stopHarnessProcess(port)
   try {
     reapHarnessSessions(port)
-    // Sweep abandoned sibling-port dirs too (dead harness pid or long-stale dir);
-    // a hard-killed ad-hoc run is otherwise never revisited — POD-107.
+    // Sweep abandoned sibling run roots too; a hard-killed ad-hoc run is otherwise
+    // never revisited — POD-107.
     reapStaleHarnessDirs()
   } catch (err) {
     // Cleanup is best-effort at the END of a run: a stale isolated temp dir is

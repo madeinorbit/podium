@@ -14,7 +14,6 @@
  */
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // @podium/harness is EMPTY — POD-396 took the PTY half to @podium/pty and
@@ -45,7 +44,7 @@ import {
   applyHarnessEnv,
   applyRealAgentCodexEnv,
   harnessPidFile,
-  reapHarnessSessions,
+  harnessScratchRepo,
   reapStaleHarnessDirs,
 } from './harness-env'
 
@@ -103,25 +102,14 @@ const PORT = Number(process.env.PORT ?? 8799)
 const KEYECHO_CLI = fileURLToPath(new URL('../keyecho/src/cli.tsx', import.meta.url))
 const KEYECHO_PKG = fileURLToPath(new URL('../keyecho', import.meta.url))
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/, '')
-
-// Reap leftovers from a previous hard-killed run, then isolate this run's state +
-// abduco/tmux sockets in a per-port dir (never touches the user's ~/.podium or
-// real sessions). globalTeardown reaps the same dir after the suite.
-reapHarnessSessions(PORT)
-// Also sweep ABANDONED sibling ports (an ad-hoc run SIGKILLed days ago leaves its
-// abduco masters parked under /tmp/podium-e2e-<other-port> that no same-port run
-// will ever revisit) — POD-107.
+// Reap only abandoned, explicitly owned run roots before claiming this run.
+// A fresh short run token makes simultaneous same-port harnesses independent.
 reapStaleHarnessDirs()
 const { stateDir } = applyHarnessEnv(PORT)
 
-// A scratch repo WITH a linked worktree, at a deterministic per-port path so specs
-// can compute it (tmpdir()/zz-podium-e2e-repo-<PORT>; the zz- prefix keeps it
-// sorted BEHIND the real repo, so specs that hover "the first worktree row"
-// keep browsing this repo's tree). Scanning THIS repo (unlike
-// REPO_ROOT, which is often itself a linked worktree and scans as a single entry)
-// yields a main worktree + a sibling — the multi-worktree sidebar that the
-// worktree-follow specs need a session to move between.
-const SCRATCH_REPO = join(tmpdir(), `zz-podium-e2e-repo-${PORT}`)
+// Keep the scratch repo inside this run's owned root. Its basename stays stable
+// so existing sidebar assertions can identify it, while the parent path is unique.
+const SCRATCH_REPO = harnessScratchRepo(PORT)
 const SCRATCH_FEAT = `${SCRATCH_REPO}-feat`
 rmSync(SCRATCH_REPO, { recursive: true, force: true })
 const E2E_TARGET_ID = 'e2e-target'
