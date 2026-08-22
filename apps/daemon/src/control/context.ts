@@ -16,6 +16,7 @@ import type { PortableStateFence } from '../portable-state-fence'
 import type { OpencodeClientTerminals } from '../runtime/opencode-attach'
 import type { ScopeMonitor } from '../runtime/scope-monitor'
 import type { DaemonMachineRuntime } from '../runtime/machine-runtime'
+import type { ServerReapIo } from '../runtime/server-reap'
 import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
 import type { ShippingExecutionPlane } from '../shipping/executor'
@@ -175,6 +176,8 @@ export interface DaemonContext {
   serverTransferCrashPoint?: (
     point: import('../server-transfer').ServerTransferCrashPoint,
   ) => void | Promise<void>
+  /** Test-only injected server-child reaper I/O; production uses real process/scope probes. */
+  serverReapIo?: ServerReapIo
 
   /** Server-granted convergence is wired by the production composition root. */
   applyUpdateGrant: (

@@ -51,6 +51,11 @@ interface Corroboration {
   probe?: boolean
 }
 
+/** Each driver's corroboration: opencode by its credentialed probe, codex/grok
+ * by cgroup membership of the scope unit. */
+const corroborationFor = (driver: string): Corroboration =>
+  driver === 'opencode' ? { probe: true } : { cgroup: true }
+
 function fakeIo(
   state: FakeProcessState,
   corroboration: Corroboration = {},
@@ -297,11 +302,6 @@ describe('teardown through a live handle — once per driver registry', () => {
 })
 
 describe('teardown from the journal alone — the post-daemon-restart arm, once per driver', () => {
-  /** Each driver's corroboration, as the module records it: opencode by its
-   *  credentialed probe, codex/grok by cgroup membership of the scope unit. */
-  const corroborationFor = (driver: string): Corroboration =>
-    driver === 'opencode' ? { probe: true } : { cgroup: true }
-
   it.each(
     DRIVERS,
   )('$driver: a corroborated survivor is signalled, its scope stopped, and the kill measured', async ({
@@ -394,6 +394,126 @@ describe('teardown from the journal alone — the post-daemon-restart arm, once 
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(io.signals).toContainEqual({ pid: 7777, signal: 'SIGTERM' })
+    expect(killResult(sent)).toMatchObject({ killed: true })
+  })
+})
+
+describe('startup reattach of a retired server session', () => {
+  /**
+   * A daemon that dies uncleanly has no live handle on restart. The server's
+   * reattach verdict is the durable-session census: `not-found` says the row is
+   * gone, so the journal is a ghost and the identity-only reaper must retire it
+   * without adopting a fresh child. This is deliberately once per family — a
+   * startup fix that only asks opencode still leaves Codex/Grok orphans behind.
+   */
+  it.each(DRIVERS)('$driver: a missing row reaps its journaled child', async ({ driver, slot }) => {
+    const state: FakeProcessState = { alive: true, diesOn: 'SIGKILL' }
+    const { ctx, sent, journalCleared } = fakeCtx(slot, {
+      journalEntry: journalEntryFor(driver),
+    })
+    const io = fakeIo(state, corroborationFor(driver))
+    const transition = vi.fn(async () => ({
+      status: 'denied' as const,
+      event: 'reattach' as const,
+      reason: 'not-found' as const,
+      terminal: true as const,
+    }))
+    Object.assign(ctx, {
+      machineId: 'machine-1',
+      sessionBinding: { transition },
+      serverReapIo: io,
+    })
+
+    sessionHandlers.reattach(ctx, {
+      type: 'reattach',
+      sessionId: SESSION,
+      durableLabel: `podium-x-${SESSION}`,
+      agentKind: 'codex',
+      cwd: '/tmp',
+      geometry: { cols: 80, rows: 24 },
+      binding: {
+        transitionId: `reattach:${SESSION}`,
+        machineAccess: 'allowed',
+        sessionAccess: 'not-found',
+        principal: { kind: 'user', userId: 'user-1' },
+      },
+    } as never)
+
+    await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
+
+    expect(transition).toHaveBeenCalledOnce()
+    expect(sent).toContainEqual({
+      type: 'reattachFailed',
+      sessionId: SESSION,
+      reason: 'session not found',
+    })
+    expect(io.signals.map((signal) => signal.signal)).toEqual(['SIGTERM', 'SIGKILL'])
+    expect(state.alive).toBe(false)
+    expect(journalCleared).toEqual([SESSION])
+    expect(killResult(sent)).toMatchObject({ killed: true })
+  })
+})
+
+describe('startup adoption failure', () => {
+  /**
+   * This is the unclean-parent case: the server still probes the session row,
+   * but the daemon cannot rebind the journaled process. The failure must not
+   * leave the old child resident while the row transitions to reattachFailed.
+   */
+  it.each(DRIVERS)('$driver: a failed adoption reaps the journaled child', async ({
+    driver,
+    slot,
+  }) => {
+    const state: FakeProcessState = { alive: true, diesOn: 'SIGKILL' }
+    const { ctx, sent, journalCleared } = fakeCtx(slot, {
+      journalEntry: journalEntryFor(driver),
+    })
+    const io = fakeIo(state, corroborationFor(driver))
+    const transition = vi.fn(async () => ({
+      status: 'applied' as const,
+      event: 'reattach' as const,
+      binding: { transitionHistory: [] } as never,
+    }))
+    ctx.agentRuntime = {
+      ...ctx.agentRuntime,
+      adoptJournalled: async () => ({
+        found: true as const,
+        what: driver + ' server',
+        workdir: '/tmp',
+      }),
+    } as never
+    Object.assign(ctx, {
+      machineId: 'machine-1',
+      sessionBinding: { transition },
+      serverReapIo: io,
+    })
+
+    sessionHandlers.reattach(ctx, {
+      type: 'reattach',
+      sessionId: SESSION,
+      durableLabel: 'podium-x-' + SESSION,
+      agentKind: 'codex',
+      cwd: '/tmp',
+      geometry: { cols: 80, rows: 24 },
+      binding: {
+        transitionId: 'reattach:' + SESSION,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'user', userId: 'user-1' },
+      },
+    } as never)
+
+    await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
+
+    expect(transition).toHaveBeenCalledOnce()
+    expect(sent).toContainEqual({
+      type: 'reattachFailed',
+      sessionId: SESSION,
+      reason: 'the ' + driver + ' server session recorded in the binding journal could not be rebound',
+    })
+    expect(io.signals.map((signal) => signal.signal)).toEqual(['SIGTERM', 'SIGKILL'])
+    expect(state.alive).toBe(false)
+    expect(journalCleared).toEqual([SESSION])
     expect(killResult(sent)).toMatchObject({ killed: true })
   })
 })

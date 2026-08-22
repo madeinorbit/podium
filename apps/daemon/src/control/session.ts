@@ -873,6 +873,20 @@ async function adoptServerDriverSession(
    */
   const runtime = ctx.agentRuntime
   if (!runtime) return false
+  const reapFailedAdoption = (): void => {
+    // Adoption failure is terminal for this startup probe: the server will
+    // record the reattach failure, so retaining the journal would leave a
+    // credentialed child with no owner. Reap from the journal identity rather
+    // than calling adopt again — Codex/Grok adoption starts a replacement.
+    try {
+      beginServerDriverReap(ctx, msg.sessionId, { retire: true }, ctx.serverReapIo)
+    } catch (err) {
+      log.warn('could not start reaping a failed server reattach', {
+        err,
+        sessionId: msg.sessionId,
+      })
+    }
+  }
   try {
     const adoption = await runtime.adoptJournalled(msg.sessionId)
     if (!adoption.found) return false
@@ -885,6 +899,7 @@ async function adoptServerDriverSession(
        * one layer down with a reason that names abduco — which would send the
        * next reader looking for a master that was never supposed to exist.
        */
+      reapFailedAdoption()
       ctx.send({
         type: 'reattachFailed',
         sessionId: msg.sessionId,
@@ -913,6 +928,7 @@ async function adoptServerDriverSession(
     reconcileNativeClientTerminal(ctx, msg.sessionId)
     return true
   } catch (err) {
+    reapFailedAdoption()
     ctx.send({
       type: 'reattachFailed',
       sessionId: msg.sessionId,
@@ -1321,6 +1337,15 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     }
     const failure = bindingFailureMessage(outcome)
     if (failure) {
+      // A daemon restart can leave a server-family child behind after its parent
+      // dies uncleanly. When the server's reattach verdict says the session row
+      // is gone, the durable binding journal is now a ghost: reap by its recorded
+      // identity before reporting the failure, so a credentialed child cannot
+      // survive until reboot. Other binding failures are not proof that the row
+      // is gone and must not kill a still-owned session.
+      if (outcome.status === 'denied' && outcome.reason === 'not-found') {
+        beginServerDriverReap(ctx, msg.sessionId, { retire: true }, ctx.serverReapIo)
+      }
       ctx.send({
         type: 'reattachFailed',
         sessionId: msg.sessionId,
