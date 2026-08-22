@@ -491,3 +491,28 @@ the integration tip plus the session's own work:
     git stash pop                            # or cherry-pick the session's own commits
 
 Have the OWNING session do it; never reset another session's branch for it.
+
+### Lesson: do NOT force uncached typechecks — the repo already closed that hole
+
+I told most sessions on this epic to run "one uncached whole-graph typecheck per landing".
+That instruction was wrong, redundant, and expensive, and it is a large part of why this
+host repeatedly hit load 30-106 with sessions queueing behind each other.
+
+`bun run typecheck` goes through `scripts/typecheck.ts`, which exists precisely for this
+(POD-1378). It already:
+
+  1. refuses to run when `node_modules/@podium` has no usable links or points outside the
+     checkout — the "cached green with a broken install" case (POD-1343 saw 22/22 cached
+     green with zero links) cannot silently pass;
+  2. fingerprints bunfig.toml plus the `@podium` link census into `PODIUM_CHECK_ENV_HASH`,
+     declared in turbo.json `globalEnv`, so **environment drift is an automatic cache MISS
+     — no `--force` needed**;
+  3. refuses `--force`/`TURBO_FORCE` unless you pass `--uncached-because="<reason>"`.
+
+Its own header states the cost: a forced 22-package run is **~3m of CPU versus 2s cached —
+110x — on a host shared with a live Podium instance.**
+
+Rule: run `bun run typecheck` plainly and trust the result. A cache HIT is evidence, because
+the wrapper guarantees the environment it was computed in matches yours. Force only with a
+specific reason you can name in `--uncached-because`, and expect to justify it — "to be
+sure" is not a reason, it is 110x for a guarantee you already have.
