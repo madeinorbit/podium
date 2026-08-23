@@ -158,7 +158,8 @@ describe('ParentProcess', () => {
         installBinary: '/opt/podium/podium',
         env: { PODIUM_APP_VERSION: '1.0.0', [PARENT_SUCCESSOR_ENV]: '1' },
         children: ['server'],
-        spawn: (() => new FakeChild(125)) as SpawnChildFn,
+        spawn: (() =>
+          new FakeChild(125) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
         probeHealth: async () => {
           probeCount++
           return { serverRunning: false, serverVersion: null, daemonConnected: false }
