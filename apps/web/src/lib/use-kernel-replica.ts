@@ -106,6 +106,37 @@ function principalFromAuthBootstrap(
   throw new ReplicaGateError(auth.message, auth.failure)
 }
 
+function replicaFailureSemantics(failure: ReplicaFailure): readonly (string | number | null)[] {
+  switch (failure.kind) {
+    case 'server-starting':
+      return [
+        failure.kind,
+        failure.readiness.state,
+        failure.readiness.reason,
+        failure.readiness.dataPlane,
+      ]
+    case 'auth-refused':
+      return [failure.kind, failure.status]
+    case 'offline-ambiguous':
+      return [failure.kind, failure.count]
+    case 'signed-out':
+    case 'account-missing':
+    case 'auth-insecure':
+    case 'auth-intercepted':
+    case 'offline-unknown':
+    case 'replica-blocked':
+    case 'unknown':
+      return [failure.kind]
+  }
+}
+
+/** The primitive meaning of the LoginGate handoff, independent of object identity. */
+function authBootstrapSemantics(auth: AuthBootstrap | undefined): string {
+  if (auth === undefined || auth.kind === 'unreachable') return '["resolve"]'
+  if (auth.kind === 'principal') return JSON.stringify(['principal', auth.principal])
+  return JSON.stringify(['failure', auth.message, ...replicaFailureSemantics(auth.failure)])
+}
+
 /**
  * Resolve the slice owner without creating a raw "last user" key.
  *
@@ -194,7 +225,9 @@ export function useKernelReplica(args: {
     openAssembly = openKernelAssembly,
   } = args
   const [gate, setGate] = useState<KernelReplicaGate>({ status: 'resolving' })
+  const authSemantics = authBootstrapSemantics(auth)
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: authSemantics includes every auth field read below and excludes throwaway object identity.
   useEffect(() => {
     let alive = true
     let opened: KernelAssembly | undefined
@@ -261,7 +294,7 @@ export function useKernelReplica(args: {
       alive = false
       if (opened) void opened.dispose()
     }
-  }, [auth, httpOrigin, openAssembly, resolvePrincipal, trpc])
+  }, [authSemantics, httpOrigin, openAssembly, resolvePrincipal, trpc])
 
   return gate
 }
