@@ -9,6 +9,8 @@ import { color, font, mono, radius } from '../theme/theme'
 
 const START_SLOP = 7
 const CONFIRMED_MS = 700
+const PULLING_TRANSITION = 'opacity 80ms linear'
+const SETTLING_TRANSITION = 'transform 180ms ease, opacity 160ms ease'
 
 interface ActivePointer {
   id: number
@@ -44,22 +46,66 @@ export function PullToRefreshBoundary({
   const boundaryRef = useRef<HTMLDivElement>(null)
   const pointer = useRef<ActivePointer | null>(null)
   const touch = useRef<ActivePointer | null>(null)
+  const indicatorRef = useRef<HTMLDivElement>(null)
   const distanceRef = useRef(0)
+  const pendingDistanceRef = useRef(0)
+  const animationFrameRef = useRef<number | null>(null)
+  const armedRef = useRef(false)
   const refreshTriggered = useRef(false)
   const wasRefreshing = useRef(false)
   const confirmationTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [distance, setDistance] = useState(0)
+  const [armed, setArmed] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
-  const armed = pullWillRefresh(distance)
 
-  const setPullDistance = useCallback((next: number) => {
-    distanceRef.current = next
-    setDistance(next)
+  const paintPullDistance = useCallback((distance: number) => {
+    const indicator = indicatorRef.current
+    if (!indicator) return
+    indicator.style.transition = distance > 0 ? PULLING_TRANSITION : SETTLING_TRANSITION
+    indicator.style.opacity = distance > 0 ? '1' : '0'
+    indicator.style.transform = `translate(-50%, ${distance - 42}px)`
   }, [])
+
+  const cancelScheduledFrame = useCallback(() => {
+    if (animationFrameRef.current === null) return
+    cancelAnimationFrame(animationFrameRef.current)
+    animationFrameRef.current = null
+  }, [])
+
+  const schedulePullDistance = useCallback(
+    (next: number) => {
+      distanceRef.current = next
+      pendingDistanceRef.current = next
+
+      const nextArmed = pullWillRefresh(next)
+      if (nextArmed !== armedRef.current) {
+        armedRef.current = nextArmed
+        setArmed(nextArmed)
+      }
+
+      if (animationFrameRef.current !== null) return
+      animationFrameRef.current = requestAnimationFrame(() => {
+        animationFrameRef.current = null
+        paintPullDistance(pendingDistanceRef.current)
+      })
+    },
+    [paintPullDistance],
+  )
+
+  const clearPullDistance = useCallback(() => {
+    cancelScheduledFrame()
+    distanceRef.current = 0
+    pendingDistanceRef.current = 0
+    if (armedRef.current) {
+      armedRef.current = false
+      setArmed(false)
+    }
+    if (!refreshing) paintPullDistance(0)
+  }, [cancelScheduledFrame, paintPullDistance, refreshing])
 
   useEffect(() => {
     if (refreshing) {
       wasRefreshing.current = true
+      clearPullDistance()
       setConfirmed(false)
       if (confirmationTimer.current) clearTimeout(confirmationTimer.current)
       return
@@ -68,20 +114,21 @@ export function PullToRefreshBoundary({
     wasRefreshing.current = false
     setConfirmed(true)
     confirmationTimer.current = setTimeout(() => setConfirmed(false), CONFIRMED_MS)
-  }, [refreshing])
+  }, [clearPullDistance, refreshing])
 
   useEffect(
     () => () => {
+      cancelScheduledFrame()
       if (confirmationTimer.current) clearTimeout(confirmationTimer.current)
     },
-    [],
+    [cancelScheduledFrame],
   )
 
   const reset = useCallback(() => {
     pointer.current = null
     touch.current = null
-    if (!refreshing) setPullDistance(0)
-  }, [refreshing, setPullDistance])
+    clearPullDistance()
+  }, [clearPullDistance])
 
   const triggerRefresh = useCallback(() => {
     if (refreshTriggered.current || refreshing || !pullWillRefresh(distanceRef.current)) return
@@ -118,7 +165,7 @@ export function PullToRefreshBoundary({
         return
       }
       event.preventDefault()
-      setPullDistance(resistedPullDistance(rawDistance - START_SLOP))
+      schedulePullDistance(resistedPullDistance(rawDistance - START_SLOP))
     }
     const onTouchEnd = (event: TouchEvent) => {
       const active = touch.current
@@ -138,7 +185,7 @@ export function PullToRefreshBoundary({
       boundary.removeEventListener('touchend', onTouchEnd)
       boundary.removeEventListener('touchcancel', reset)
     }
-  }, [reset, setPullDistance, triggerRefresh])
+  }, [reset, schedulePullDistance, triggerRefresh])
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return
@@ -163,7 +210,7 @@ export function PullToRefreshBoundary({
     // so no compositor frame can rubber-band behind the indicator.
     event.preventDefault()
     event.currentTarget.setPointerCapture?.(event.pointerId)
-    setPullDistance(resistedPullDistance(rawDistance - START_SLOP))
+    schedulePullDistance(resistedPullDistance(rawDistance - START_SLOP))
   }
 
   const finishPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -172,18 +219,18 @@ export function PullToRefreshBoundary({
     event.currentTarget.releasePointerCapture?.(event.pointerId)
     pointer.current = null
     triggerRefresh()
-    setPullDistance(0)
+    clearPullDistance()
   }
 
   const cancelPointer = () => {
     pointer.current = null
     // A physical touch continues through the non-passive listener above after
     // the browser cancels its PointerEvent. Do not erase that gesture's travel.
-    if (!touch.current && !refreshing) setPullDistance(0)
+    if (!touch.current) clearPullDistance()
   }
 
-  const visible = distance > 0 || refreshing || confirmed
-  const indicatorDistance = refreshing || confirmed ? PULL_REFRESH_THRESHOLD : distance
+  const visible = refreshing || confirmed
+  const indicatorDistance = visible ? PULL_REFRESH_THRESHOLD : 0
   const label = refreshing
     ? connected
       ? 'Checking for updates…'
@@ -219,6 +266,7 @@ export function PullToRefreshBoundary({
         Refresh list
       </button>
       <div
+        ref={indicatorRef}
         role="status"
         aria-live="polite"
         aria-atomic="true"
@@ -227,8 +275,7 @@ export function PullToRefreshBoundary({
           ...indicatorStyle,
           opacity: visible ? 1 : 0,
           transform: `translate(-50%, ${indicatorDistance - 42}px)`,
-          transition:
-            distance > 0 ? 'opacity 80ms linear' : 'transform 180ms ease, opacity 160ms ease',
+          transition: SETTLING_TRANSITION,
         }}
       >
         <span aria-hidden="true" style={glyphStyle}>
