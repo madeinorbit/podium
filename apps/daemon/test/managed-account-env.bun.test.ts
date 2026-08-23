@@ -31,7 +31,7 @@ import { SpawnMessage } from '@podium/protocol'
 import { hasBunTerminal } from '@podium/pty'
 import { credentialEnv } from '@podium/runtime'
 import type { DaemonContext } from '../src/control/context'
-import { sessionHandlers } from '../src/control/session'
+import { launchSpawn } from '../src/control/session'
 
 const CREDENTIAL = 'sk-test-xyz'
 /** A key on the DAEMON, standing in for one an operator exported before starting it. */
@@ -172,6 +172,7 @@ async function dumpEnvOfSpawnedProcess(
     type: 'spawn',
     sessionId,
     agentKind,
+    runtimeContract: 'generic-pty',
     cwd: process.cwd(),
     geometry: { cols: 120, rows: 30 },
     binding: {
@@ -181,7 +182,9 @@ async function dumpEnvOfSpawnedProcess(
     },
     ...(env ? { env } : {}),
   })
-  await sessionHandlers.spawn(ctx, msg)
+  // The environment contract lives at the terminal launch boundary. Server
+  // admission is orthogonal and has its own process-level coverage.
+  await launchSpawn(ctx, msg, { handled: false })
   // The handler dispatches the launch and returns; the bridge appears when the
   // PTY is up, an await or two later. Wait for it rather than racing it.
   await waitFor(() => bridges.has(sessionId)).catch(() => {
@@ -311,6 +314,7 @@ it("STRIP: an operator's shell keeps the key they exported themselves", async ()
   const dump = await dumpEnvOfSpawnedProcess('bun-operator-shell', undefined)
 
   expect(dump).toContain(`ANTHROPIC_API_KEY=${INHERITED_KEY}`)
+})
 
 it("PRESERVE: an operator's shell keeps harness variables they exported", async () => {
   process.env.CLAUDE_CODE_CHILD_SESSION = '1'
@@ -323,5 +327,4 @@ it("PRESERVE: an operator's shell keeps harness variables they exported", async 
   expect(dump).toContain('CLAUDE_CODE_SESSION_ID=operator-shell-session')
   expect(dump).toContain('CODEX_HOME=/operator/chosen/.codex')
   expect(dump).toContain('PODIUM_SESSION_ID=bun-shell-harness-env')
-})
 })

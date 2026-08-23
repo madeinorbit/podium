@@ -213,7 +213,10 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       expect(seen.HOME).not.toBe(process.env.HOME)
       expect(seen.PATH?.startsWith(join(instanceHome, '.local', 'bin'))).toBe(true)
       expect(seen.MANAGED).toBe('rides-through')
-      expect(seen.CODEX_HOME).toBeUndefined()
+      // Isolation is harness-owned, not a global allowlist: opencode does not
+      // read either selector, so unrelated machine settings still ride through.
+      expect(seen.CODEX_HOME).toBe('/daemon/operator/.codex')
+      expect(seen.GROK_HOME).toBe('/daemon/operator/.grok')
     } finally {
       await endpoint.kill()
     }
