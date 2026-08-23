@@ -1,18 +1,3 @@
-import {
-  type CollisionDetection,
-  closestCenter,
-  DndContext,
-  type DragEndEvent,
-  DragOverlay,
-  type DragStartEvent,
-  PointerSensor,
-  pointerWithin,
-  useDroppable,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core'
-import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import type { Pane, WorktreeView } from '@podium/client-core/viewmodels'
@@ -45,6 +30,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   Suspense,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -80,6 +66,7 @@ import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { REVEAL_IN_DECK_EVENT } from './shell-state'
 import { type FileTab, useReplicaIssues, useStoreSelector } from './store'
 import { closeActiveWorkspaceTab } from './workspace-close'
+import type { TabDragComponents, TabDragItemBindings } from './workspace-tab-drag'
 
 // The cold-start composer only renders in the empty pane (no issue selected),
 // and it fronts the whole first-run setup graph — loading it on demand keeps
@@ -88,6 +75,15 @@ const ColdStartComposer = lazy(() =>
   import('@/features/setup/ColdStartComposer').then((module) => ({
     default: module.ColdStartComposer,
   })),
+)
+
+// dnd-kit is interaction infrastructure, not first-paint UI. A post-paint load
+// makes the provider ready for the first drag, while pointer or keyboard intent
+// can start the same import sooner. The live panel deck stays outside the lazy
+// provider and never remounts when it arrives.
+const loadWorkspaceTabDrag = () => import('./workspace-tab-drag')
+const WorkspaceTabDragRuntime = lazy(() =>
+  loadWorkspaceTabDrag().then((module) => ({ default: module.WorkspaceTabDragRuntime })),
 )
 
 // A tab in the strip is either an agent/shell session or an open file editor. Both
@@ -161,14 +157,40 @@ export function Workspace(): JSX.Element {
   // The tab being dragged, for the overlay and for mounting the drop zones only
   // while a drag is in flight.
   const [dragTabId, setDragTabId] = useState<string | null>(null)
+  const [dragRuntimeReady, setDragRuntimeReady] = useState(false)
+  const dragRuntimeRequested = useRef(false)
+  const dragFocusToRestore = useRef<string | null>(null)
+  const workspaceRef = useRef<HTMLElement | null>(null)
   // Sizes being dragged on a pane divider, held locally until the pointer is
   // released — the same shape as the shell's ResizableColumn, which tracks the
   // width in React and persists once on pointerup rather than writing storage
   // on every frame.
   const [dragSizes, setDragSizes] = useState<{ path: number[]; sizes: number[] } | null>(null)
-  // A small drag threshold keeps plain clicks (select/close) working — the drag
-  // only starts once the pointer has actually moved.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const preloadDragRuntime = useCallback((focusedTabId?: string): void => {
+    if (focusedTabId) dragFocusToRestore.current = focusedTabId
+    if (dragRuntimeRequested.current) return
+    dragRuntimeRequested.current = true
+    void loadWorkspaceTabDrag().then(() => setDragRuntimeReady(true))
+  }, [])
+
+  // The plain strip is keyboard-focusable while its runtime is loading. If the
+  // provider's arrival replaces that focused node, put focus back on the same
+  // tab so Space and the arrow keys work without another trip through the tab
+  // order.
+  const restoreDragFocus = useCallback((): void => {
+    const tabId = dragFocusToRestore.current
+    if (!tabId) return
+    dragFocusToRestore.current = null
+    const current = document.activeElement
+    if (current instanceof HTMLElement) {
+      if (current.dataset.session === tabId && current.isConnected) return
+      if (current !== document.body && current.isConnected) return
+    }
+    const replacement = [
+      ...(workspaceRef.current?.querySelectorAll<HTMLElement>('[data-session]') ?? []),
+    ].find((candidate) => candidate.dataset.session === tabId)
+    replacement?.focus()
+  }, [])
 
   const allWorktrees = reposToViews(repos).flatMap((r) => r.worktrees)
   const worktree: WorktreeView | undefined = allWorktrees.find((w) => w.path === selectedWorktree)
@@ -255,6 +277,16 @@ export function Workspace(): JSX.Element {
   const deckTabs = resolveAll(allTabIds(layout))
   const byId = new Map(deckTabs.map((t) => [t.id, t]))
   const activeTabId = activePane?.activeTabId ?? null
+
+  // Start fetching after the workspace has painted, but before an operator can
+  // reasonably press, touch, or keyboard-pick up its first tab. Pointer and
+  // focus intent remain as the faster path when they reach the strip first.
+  // Empty panes stay cold because there is nothing in them to drag.
+  useEffect(() => {
+    if (deckTabs.length === 0 || dragRuntimeRequested.current) return
+    const timer = window.setTimeout(preloadDragRuntime, 0)
+    return () => window.clearTimeout(timer)
+  }, [deckTabs.length, preloadDragRuntime])
   // M6: the issue's designated coordinator sessions, resolved once for every
   // pane's strip rather than per tab.
   const coordinatorIds = new Set(
@@ -378,18 +410,16 @@ export function Workspace(): JSX.Element {
    *      the plain reorder this always did; pane order IS the tab order now, so
    *      the server-side `tabOrders` overlay has no job here).
    */
-  const onDragEnd = (event: DragEndEvent) => {
+  const onDragEnd = (activeId: string, overId: string | null): void => {
     setDragTabId(null)
-    const { active, over } = event
-    if (!over) return
-    const drop = resolveTabDrop(layout, String(active.id), String(over.id))
+    if (!overId) return
+    const drop = resolveTabDrop(layout, activeId, overId)
     if (!drop) return
     if (drop.kind === 'split') splitWorkspacePane(drop.paneId, drop.axis, { tabId: drop.tabId })
     else if (drop.kind === 'move') moveWorkspaceTab(drop.tabId, drop.paneId, drop.index)
     else activateWorkspaceTab(drop.tabId)
   }
 
-  const onDragStart = (event: DragStartEvent) => setDragTabId(String(event.active.id))
   const dragTab = dragTabId === null ? undefined : byId.get(dragTabId)
 
   // A divider drag previews locally and lands in the LAYOUT — split proportions
@@ -432,110 +462,103 @@ export function Workspace(): JSX.Element {
     activateWorkspaceTab(t.id)
   }
 
+  const renderChrome = (drag?: TabDragComponents): JSX.Element => (
+    <>
+      {geometry.panes.map((rect) => {
+        const paneOf = layout.panes[rect.paneId]
+        if (!paneOf) return null
+        return (
+          <PaneChrome
+            key={rect.paneId}
+            rect={rect}
+            pane={paneOf}
+            tabs={resolveAll(paneOf.tabs)}
+            otherTabs={deckTabs.filter((t) => !paneOf.tabs.includes(t.id))}
+            focused={paneOf.id === activePane?.id}
+            alone={geometry.panes.length === 1}
+            previewTabId={previewTabId}
+            coordinatorIds={coordinatorIds}
+            drag={drag}
+            onDragIntent={preloadDragRuntime}
+            // biome-ignore lint/style/noNonNullAssertion: the early return above guarantees worktree or issue (which makes panelTarget defined)
+            panelTarget={panelTarget!}
+            issueId={issue?.id}
+            onFocus={() => focusPane(paneOf.id)}
+            onSelectTab={selectTab}
+            onCloseTab={closeTab}
+            onKeepOpen={promoteWorkspaceTab}
+            onSplit={(axis, tabId) => splitWorkspacePane(paneOf.id, axis, { tabId })}
+            onClosePane={() => closeWorkspacePane(paneOf.id)}
+            onOpened={(sid) => openSessionTab(sid, { permanent: true, paneId: paneOf.id })}
+            onAdopt={(id) => {
+              // Filling an empty pane marks the session read too (#126).
+              if (byId.get(id)?.kind === 'session') void markSessionRead(asSessionId(id))
+              moveWorkspaceTab(id, paneOf.id, 0)
+            }}
+          />
+        )
+      })}
+      {/* Drop targets exist only DURING a drag: a pane's body is not a click
+        target the rest of the time, and mounting them permanently would put
+        four inert overlays over every terminal. */}
+      {drag &&
+        dragTabId !== null &&
+        geometry.panes.map((rect) => <PaneDropZones key={rect.paneId} rect={rect} drag={drag} />)}
+    </>
+  )
+
   return (
     // THE SHEET (POD-725). The stage used to be a column like the others; it is
     // now a sheet lying in a gutter, with the app ground visible around it and
     // the window's one real drop shadow under it. The pane region, its strips
     // and its seams are unchanged — the sheet only clips and lifts them.
-    <section className="native-agents-pane relative">
+    <section ref={workspaceRef} className="native-agents-pane relative">
       <div className="workspace-sheet relative">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={paneCollision}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onDragCancel={() => setDragTabId(null)}
-        >
-          {/* THE DECK BOX. Panes are rectangles inside it rather than nested
-            containers, so the panel list underneath stays FLAT (see panel-deck.ts):
-            splitting, resizing and dragging a tab across panes are pure layout
-            changes and never reparent — so never remount — a live terminal. */}
-          <div className="relative min-h-0 min-w-0 flex-1">
-            {/* The panel deck [POD-782] [spec:SP-0b2e]: the current workspace's tabs
+        {/* THE DECK BOX. Panes are rectangles inside it rather than nested
+          containers, so the panel list underneath stays FLAT (see panel-deck.ts):
+          splitting, resizing and dragging a tab across panes are pure layout
+          changes and never reparent — so never remount — a live terminal. */}
+        <div className="relative min-h-0 min-w-0 flex-1">
+          {/* The panel deck [POD-782] [spec:SP-0b2e]: the current workspace's tabs
               plus the foreign warm sessions carried over from previously-viewed
               issues — all mounted, only the on-screen panes visible (display:none
               for the rest). */}
-            <PanelDeck
-              items={composeDeck({
-                tabs: deckTabs,
-                warm,
-                knownSessionIds,
-                panes: visiblePanes,
-              })}
-              panes={geometry.panes}
-              onCloseFile={closeTab}
-              previewTabId={previewTabId}
-              onPromote={promoteWorkspaceTab}
-              onFocusPane={focusPane}
-              focusedTabId={activeTabId}
-            />
-            {geometry.panes.map((rect) => {
-              const paneOf = layout.panes[rect.paneId]
-              if (!paneOf) return null
-              return (
-                <PaneChrome
-                  key={rect.paneId}
-                  rect={rect}
-                  pane={paneOf}
-                  tabs={resolveAll(paneOf.tabs)}
-                  otherTabs={deckTabs.filter((t) => !paneOf.tabs.includes(t.id))}
-                  focused={paneOf.id === activePane?.id}
-                  alone={geometry.panes.length === 1}
-                  previewTabId={previewTabId}
-                  coordinatorIds={coordinatorIds}
-                  // biome-ignore lint/style/noNonNullAssertion: the early return above guarantees worktree or issue (which makes panelTarget defined)
-                  panelTarget={panelTarget!}
-                  issueId={issue?.id}
-                  onFocus={() => focusPane(paneOf.id)}
-                  onSelectTab={selectTab}
-                  onCloseTab={closeTab}
-                  onKeepOpen={promoteWorkspaceTab}
-                  onSplit={(axis, tabId) => splitWorkspacePane(paneOf.id, axis, { tabId })}
-                  onClosePane={() => closeWorkspacePane(paneOf.id)}
-                  onOpened={(sid) => openSessionTab(sid, { permanent: true, paneId: paneOf.id })}
-                  onAdopt={(id) => {
-                    // Filling an empty pane marks the session read too (#126).
-                    if (byId.get(id)?.kind === 'session') void markSessionRead(asSessionId(id))
-                    moveWorkspaceTab(id, paneOf.id, 0)
-                  }}
-                />
-              )
+          <PanelDeck
+            items={composeDeck({
+              tabs: deckTabs,
+              warm,
+              knownSessionIds,
+              panes: visiblePanes,
             })}
-            {geometry.seams.map((seam) => (
-              <PaneSeam key={seam.id} seam={seam} onResize={onSeamResize} />
-            ))}
-            {/* Drop targets exist only DURING a drag: a pane's body is not a click
-              target the rest of the time, and mounting them permanently would put
-              four inert overlays over every terminal. */}
-            {dragTabId !== null &&
-              geometry.panes.map((rect) => <PaneDropZones key={rect.paneId} rect={rect} />)}
-          </div>
-          {/* The dragged tab rides in an overlay so it is not clipped by the strip
-            it is leaving — a cross-pane drag whose tab vanishes at the edge of
-            its own strip does not read as a drag at all. */}
-          <DragOverlay dropAnimation={null}>
-            {dragTab ? <TabGhost tab={dragTab} /> : null}
-          </DragOverlay>
-        </DndContext>
+            panes={geometry.panes}
+            onCloseFile={closeTab}
+            previewTabId={previewTabId}
+            onPromote={promoteWorkspaceTab}
+            onFocusPane={focusPane}
+            focusedTabId={activeTabId}
+          />
+          {dragRuntimeReady ? (
+            <Suspense fallback={renderChrome()}>
+              <WorkspaceTabDragRuntime
+                overlay={dragTab ? <TabGhost tab={dragTab} /> : null}
+                onDragStart={setDragTabId}
+                onDragEnd={onDragEnd}
+                onDragCancel={() => setDragTabId(null)}
+                onReady={restoreDragFocus}
+              >
+                {renderChrome}
+              </WorkspaceTabDragRuntime>
+            </Suspense>
+          ) : (
+            renderChrome()
+          )}
+          {geometry.seams.map((seam) => (
+            <PaneSeam key={seam.id} seam={seam} onResize={onSeamResize} />
+          ))}
+        </div>
       </div>
     </section>
   )
-}
-
-/**
- * Collision detection for a workspace full of panes.
- *
- * `pointerWithin` first, because the targets NEST — a tab sits inside a strip,
- * a split zone sits inside a pane body — and it resolves nesting the way the
- * operator reads it: of the containers actually under the pointer, the one whose
- * centre is nearest wins, so the small precise target beats the large one it is
- * drawn on. `closestCenter` is the fallback for a pointer that is over nothing
- * at all (dragged past the edge of the deck), which would otherwise cancel a
- * drag that clearly meant *somewhere*.
- */
-const paneCollision: CollisionDetection = (args) => {
-  const inside = pointerWithin(args)
-  return inside.length > 0 ? inside : closestCenter(args)
 }
 
 /**
@@ -556,6 +579,8 @@ function PaneChrome({
   alone,
   previewTabId,
   coordinatorIds,
+  drag,
+  onDragIntent,
   panelTarget,
   issueId,
   onFocus,
@@ -578,6 +603,8 @@ function PaneChrome({
   alone: boolean
   previewTabId: string | null
   coordinatorIds: ReadonlySet<string>
+  drag?: TabDragComponents
+  onDragIntent: (focusedTabId?: string) => void
   panelTarget: WorktreeView
   issueId?: IssueId
   onFocus: () => void
@@ -589,10 +616,52 @@ function PaneChrome({
   onOpened: (sessionId: SessionId) => void
   onAdopt: (tabId: string) => void
 }): JSX.Element {
-  const { setNodeRef, isOver } = useDroppable({ id: stripDropId(pane.id) })
   const activeTabId = pane.activeTabId
   const hasPanel = activeTabId !== null && tabs.some((t) => t.id === activeTabId)
-  return (
+  const tabItems = tabs.map((t) =>
+    drag ? (
+      <drag.Item key={t.id} id={t.id}>
+        {(bindings) => (
+          <SortableTab
+            tab={t}
+            active={t.id === activeTabId}
+            preview={t.id === previewTabId}
+            coordinator={coordinatorIds.has(t.id)}
+            drag={bindings}
+            onSelect={() => onSelectTab(t)}
+            onClose={() => onCloseTab(t.id)}
+            onCloseOthers={() => {
+              for (const other of tabs) if (other.id !== t.id) onCloseTab(other.id)
+            }}
+            onCloseAll={() => {
+              for (const other of tabs) onCloseTab(other.id)
+            }}
+            onKeepOpen={() => onKeepOpen(t.id)}
+            onSplit={(axis: SplitAxis) => onSplit(axis, t.id)}
+          />
+        )}
+      </drag.Item>
+    ) : (
+      <SortableTab
+        key={t.id}
+        tab={t}
+        active={t.id === activeTabId}
+        preview={t.id === previewTabId}
+        coordinator={coordinatorIds.has(t.id)}
+        onSelect={() => onSelectTab(t)}
+        onClose={() => onCloseTab(t.id)}
+        onCloseOthers={() => {
+          for (const other of tabs) if (other.id !== t.id) onCloseTab(other.id)
+        }}
+        onCloseAll={() => {
+          for (const other of tabs) onCloseTab(other.id)
+        }}
+        onKeepOpen={() => onKeepOpen(t.id)}
+        onSplit={(axis: SplitAxis) => onSplit(axis, t.id)}
+      />
+    ),
+  )
+  const strip = (setNodeRef?: (node: HTMLElement | null) => void, isOver = false): JSX.Element => (
     <div className="pointer-events-none absolute flex flex-col" style={paneBoxStyle(rect)}>
       {/* Tab strip (POD-725): 38px, the tabstrip surface, a soft bottom hairline,
           and tabs that are PILLS centred in it rather than browser tabs stretched
@@ -616,7 +685,21 @@ function PaneChrome({
         data-testid="native-tab-strip"
         data-pane={pane.id}
         data-focused={focused ? 'true' : undefined}
-        onPointerDownCapture={onFocus}
+        data-drag-runtime={drag ? 'ready' : undefined}
+        onPointerEnter={() => onDragIntent()}
+        onPointerDownCapture={() => {
+          onFocus()
+          onDragIntent()
+        }}
+        onPointerMoveCapture={() => onDragIntent()}
+        onFocusCapture={(event) => {
+          const target = event.target
+          onDragIntent(
+            target instanceof HTMLElement && target.matches('[data-session]')
+              ? target.dataset.session
+              : undefined,
+          )
+        }}
         className={cn(
           'pointer-events-auto relative flex h-[38px] flex-none items-center gap-[4px] border-b border-hairline-soft issue-base-tabstrip px-[10px]',
           isOver
@@ -626,30 +709,19 @@ function PaneChrome({
               : 'issue-mix-1 issue-mix-slate-0',
         )}
       >
-        <SortableContext items={tabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
+        {drag ? (
+          <drag.List items={tabs.map((t) => t.id)}>
+            <div className="flex min-w-0 flex-1 items-stretch gap-[2px] overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {tabs.length === 0 && <GhostTabs />}
+              {tabItems}
+            </div>
+          </drag.List>
+        ) : (
           <div className="flex min-w-0 flex-1 items-stretch gap-[2px] overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {tabs.length === 0 && <GhostTabs />}
-            {tabs.map((t) => (
-              <SortableTab
-                key={t.id}
-                tab={t}
-                active={t.id === activeTabId}
-                preview={t.id === previewTabId}
-                coordinator={coordinatorIds.has(t.id)}
-                onSelect={() => onSelectTab(t)}
-                onClose={() => onCloseTab(t.id)}
-                onCloseOthers={() => {
-                  for (const other of tabs) if (other.id !== t.id) onCloseTab(other.id)
-                }}
-                onCloseAll={() => {
-                  for (const other of tabs) onCloseTab(other.id)
-                }}
-                onKeepOpen={() => onKeepOpen(t.id)}
-                onSplit={(axis: SplitAxis) => onSplit(axis, t.id)}
-              />
-            ))}
+            {tabItems}
           </div>
-        </SortableContext>
+        )}
         <div className="flex flex-none items-center gap-0.5">
           {/* NewPanelMenu owns the portalled dropdown; the strip supplies a
               quiet inline "+" trigger (untinted per §2.2). Split keeps its
@@ -715,6 +787,13 @@ function PaneChrome({
         </div>
       )}
     </div>
+  )
+  return drag ? (
+    <drag.Strip id={stripDropId(pane.id)}>
+      {({ setNodeRef, isOver }) => strip(setNodeRef, isOver)}
+    </drag.Strip>
+  ) : (
+    strip()
   )
 }
 
@@ -816,31 +895,44 @@ function PaneSeam({
  * a leading-edge zone would promise a placement the model does not have; two
  * honest zones beat four where half of them land somewhere else.
  */
-function PaneDropZones({ rect }: { rect: PaneRect }): JSX.Element {
+function PaneDropZones({ rect, drag }: { rect: PaneRect; drag: TabDragComponents }): JSX.Element {
   return (
     <div className="pointer-events-none absolute" style={panelBoxStyle(rect)}>
-      <DropZone id={paneDropId(rect.paneId)} className="absolute inset-0" />
+      <DropZone id={paneDropId(rect.paneId)} className="absolute inset-0" drag={drag} />
       <DropZone
         id={splitDropId('row', rect.paneId)}
         className="absolute inset-y-0 right-0 w-[26%]"
+        drag={drag}
       />
       <DropZone
         id={splitDropId('column', rect.paneId)}
         className="absolute inset-x-0 bottom-0 h-[26%]"
+        drag={drag}
       />
     </div>
   )
 }
 
-function DropZone({ id, className }: { id: string; className: string }): JSX.Element {
-  const { setNodeRef, isOver } = useDroppable({ id })
+function DropZone({
+  id,
+  className,
+  drag,
+}: {
+  id: string
+  className: string
+  drag: TabDragComponents
+}): JSX.Element {
   return (
-    <div
-      ref={setNodeRef}
-      data-dropzone={id}
-      data-over={isOver ? 'true' : undefined}
-      className={cn(className, isOver && 'bg-primary/15 outline outline-1 outline-primary/45')}
-    />
+    <drag.DropZone id={id}>
+      {({ setNodeRef, isOver }) => (
+        <div
+          ref={setNodeRef}
+          data-dropzone={id}
+          data-over={isOver ? 'true' : undefined}
+          className={cn(className, isOver && 'bg-primary/15 outline outline-1 outline-primary/45')}
+        />
+      )}
+    </drag.DropZone>
   )
 }
 
@@ -865,6 +957,7 @@ function SortableTab({
   active,
   preview,
   coordinator = false,
+  drag,
   onSelect,
   onClose,
   onCloseOthers,
@@ -878,6 +971,7 @@ function SortableTab({
   preview: boolean
   /** M6: issue's designated coordinator session — elevated marker on the tab. */
   coordinator?: boolean
+  drag?: TabDragItemBindings
   onSelect: () => void
   onClose: () => void
   onCloseOthers: () => void
@@ -888,9 +982,7 @@ function SortableTab({
   const renameSession = useStoreSelector((s) => s.renameSession)
   const [editing, setEditing] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: tab.id,
-  })
+  const isDragging = drag?.isDragging === true
   const node = useRef<HTMLDivElement | null>(null)
   // The strip scrolls when crowded — keep the active tab visible in it.
   useEffect(() => {
@@ -929,7 +1021,7 @@ function SortableTab({
     <div
       ref={(el) => {
         node.current = el
-        setNodeRef(el)
+        drag?.setNodeRef(el)
       }}
       // A PILL, NOT A BROWSER TAB (POD-725). Tabs used to share the strip evenly
       // and shrink as more opened, which is the file-editor idiom — but an editor
@@ -960,9 +1052,14 @@ function SortableTab({
           : undefined
       }
       onPointerLeave={isSessionTab ? () => clearHoveredSession(tab.id) : undefined}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      {...attributes}
-      {...listeners}
+      style={drag?.style}
+      {...(drag?.attributes ?? {
+        role: 'button',
+        tabIndex: 0,
+        'aria-disabled': false,
+        'aria-roledescription': 'sortable',
+      })}
+      {...drag?.listeners}
     >
       {tab.kind === 'session' && editing ? (
         <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1">

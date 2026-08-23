@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { REVEAL_IN_DECK_EVENT } from './shell-state'
@@ -159,6 +159,68 @@ const label = (id: string): HTMLElement => {
 }
 
 describe('Workspace tab strip', () => {
+  it('keeps dnd-kit out of the initial render and mounts it just after paint', async () => {
+    render(<Workspace />)
+
+    expect(strip().getAttribute('data-drag-runtime')).toBeNull()
+    // The first Vitest transform evaluates this dynamic module cold; production
+    // fetches the already-built chunk, but the assertion should cover both.
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'), {
+      timeout: 5_000,
+    })
+  })
+
+  it.each([
+    'mouse',
+    'touch',
+  ])('observes the first %s pointerdown once ready', async (pointerType) => {
+    render(<Workspace />)
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+
+    fireEvent.pointerDown(tab('s1'), {
+      pointerId: 1,
+      pointerType,
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: 10,
+      clientY: 10,
+    })
+    fireEvent.pointerMove(document, {
+      pointerId: 1,
+      pointerType,
+      isPrimary: true,
+      buttons: 1,
+      clientX: 16,
+      clientY: 10,
+    })
+
+    await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeTruthy())
+    fireEvent.pointerCancel(document, { pointerId: 1, pointerType, isPrimary: true })
+    await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeNull())
+  })
+
+  it('restores the focused sortable tab when keyboard intent loads drag support', async () => {
+    render(<Workspace />)
+    tab('s1').focus()
+
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+    expect(document.activeElement?.getAttribute('data-session')).toBe('s1')
+  })
+
+  it('observes the first keyboard pickup once ready and cancels it with Escape', async () => {
+    render(<Workspace />)
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+    const sortable = tab('s1')
+    sortable.focus()
+
+    fireEvent.keyDown(sortable, { key: ' ', code: 'Space' })
+    await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeTruthy())
+
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' })
+    await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeNull())
+  })
+
   // The decoupling: membership comes from the workspace layout, not from "every
   // session in the mission". s3 is live and in this task — and has no tab.
   it('renders the focused pane, not the mission session list', () => {
