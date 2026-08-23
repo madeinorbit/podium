@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   PULL_REFRESH_THRESHOLD,
   pullWillRefresh,
@@ -51,6 +51,7 @@ export function PullToRefreshBoundary({
   const pendingDistanceRef = useRef(0)
   const animationFrameRef = useRef<number | null>(null)
   const armedRef = useRef(false)
+  const pinnedRef = useRef(refreshing)
   const refreshTriggered = useRef(false)
   const wasRefreshing = useRef(false)
   const confirmationTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -58,6 +59,7 @@ export function PullToRefreshBoundary({
   const [confirmed, setConfirmed] = useState(false)
 
   const paintPullDistance = useCallback((distance: number) => {
+    if (pinnedRef.current) return
     const indicator = indicatorRef.current
     if (!indicator) return
     indicator.style.transition = distance > 0 ? PULLING_TRANSITION : SETTLING_TRANSITION
@@ -73,6 +75,7 @@ export function PullToRefreshBoundary({
 
   const schedulePullDistance = useCallback(
     (next: number) => {
+      if (pinnedRef.current) return
       distanceRef.current = next
       pendingDistanceRef.current = next
 
@@ -85,6 +88,7 @@ export function PullToRefreshBoundary({
       if (animationFrameRef.current !== null) return
       animationFrameRef.current = requestAnimationFrame(() => {
         animationFrameRef.current = null
+        if (pinnedRef.current) return
         paintPullDistance(pendingDistanceRef.current)
       })
     },
@@ -99,13 +103,22 @@ export function PullToRefreshBoundary({
       armedRef.current = false
       setArmed(false)
     }
-    if (!refreshing) paintPullDistance(0)
-  }, [cancelScheduledFrame, paintPullDistance, refreshing])
+    if (!pinnedRef.current) paintPullDistance(0)
+  }, [cancelScheduledFrame, paintPullDistance])
+
+  const pinned = refreshing || confirmed
+
+  useLayoutEffect(() => {
+    pinnedRef.current = pinned
+    if (!pinned) return
+    pointer.current = null
+    touch.current = null
+    clearPullDistance()
+  }, [clearPullDistance, pinned])
 
   useEffect(() => {
     if (refreshing) {
       wasRefreshing.current = true
-      clearPullDistance()
       setConfirmed(false)
       if (confirmationTimer.current) clearTimeout(confirmationTimer.current)
       return
@@ -145,6 +158,7 @@ export function PullToRefreshBoundary({
     // escape hatch: it keeps the same physical gesture alive and prevents only
     // a downward top-edge move, leaving ordinary mid-list scrolling untouched.
     const onTouchStart = (event: TouchEvent) => {
+      if (pinnedRef.current) return
       const point = event.touches[0]
       if (!point) return
       const scrollElement = verticalScroller(event.target, boundary)
@@ -188,6 +202,7 @@ export function PullToRefreshBoundary({
   }, [reset, schedulePullDistance, triggerRefresh])
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (pinnedRef.current) return
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return
     const boundary = boundaryRef.current
     if (!boundary) return
@@ -229,8 +244,7 @@ export function PullToRefreshBoundary({
     if (!touch.current) clearPullDistance()
   }
 
-  const visible = refreshing || confirmed
-  const indicatorDistance = visible ? PULL_REFRESH_THRESHOLD : 0
+  const indicatorDistance = pinned ? PULL_REFRESH_THRESHOLD : 0
   const label = refreshing
     ? connected
       ? 'Checking for updates…'
@@ -273,7 +287,7 @@ export function PullToRefreshBoundary({
         data-pull-to-refresh-indicator
         style={{
           ...indicatorStyle,
-          opacity: visible ? 1 : 0,
+          opacity: pinned ? 1 : 0,
           transform: `translate(-50%, ${indicatorDistance - 42}px)`,
           transition: SETTLING_TRANSITION,
         }}
