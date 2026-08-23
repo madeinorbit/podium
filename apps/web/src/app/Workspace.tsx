@@ -291,7 +291,6 @@ export function Workspace({
   // DndContext cannot replace the button before its click arrives.
   const fixedStripFocusToRestore = useRef<FixedStripControlTarget | null>(null)
   const fixedStripPress = useRef<{
-    pointerId: number
     target: HTMLElement
     locator: FixedStripControlTarget
   } | null>(null)
@@ -392,10 +391,10 @@ export function Workspace({
     const runtime = deferredDragRuntime.current
     fixedStripPress.current = null
     deferredDragRuntime.current = null
-    if (!runtime) return
     if (press && document.activeElement === press.target) {
       fixedStripFocusToRestore.current = press.locator
     }
+    if (!runtime) return
     setDragRuntime(() => runtime)
   }, [])
 
@@ -407,14 +406,14 @@ export function Workspace({
 
       dragFocusToRestore.current = null
       const press = {
-        pointerId: event.pointerId,
         target: fixedTarget.element,
         locator: fixedTarget.locator,
       }
       fixedStripPress.current = press
+      const pointerId = event.pointerId
       const ownerDocument = fixedTarget.element.ownerDocument
       const finishAfterClick = (end: PointerEvent): void => {
-        if (end.pointerId !== press.pointerId || fixedStripPressTimer.current !== null) return
+        if (end.pointerId !== pointerId || fixedStripPressTimer.current !== null) return
         clearFixedStripPressListeners.current?.()
         clearFixedStripPressListeners.current = null
         fixedStripPressTimer.current = window.setTimeout(finishFixedStripPress, 0)
@@ -425,6 +424,34 @@ export function Workspace({
         ownerDocument.removeEventListener('pointerup', finishAfterClick, true)
         ownerDocument.removeEventListener('pointercancel', finishAfterClick, true)
       }
+      return true
+    },
+    [finishFixedStripPress],
+  )
+
+  const captureColdFixedStripKeyPress = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>): boolean => {
+      if (!dragRuntimeRequested.current) return false
+      const fixedTarget = fixedStripControlTarget(event.target)
+      if (!fixedTarget) return false
+      if (fixedStripPress.current) return true
+
+      dragFocusToRestore.current = null
+      fixedStripPress.current = {
+        target: fixedTarget.element,
+        locator: fixedTarget.locator,
+      }
+      const code = event.code
+      const ownerDocument = fixedTarget.element.ownerDocument
+      const finishAfterClick = (end: KeyboardEvent): void => {
+        if (end.code !== code || fixedStripPressTimer.current !== null) return
+        clearFixedStripPressListeners.current?.()
+        clearFixedStripPressListeners.current = null
+        fixedStripPressTimer.current = window.setTimeout(finishFixedStripPress, 0)
+      }
+      ownerDocument.addEventListener('keyup', finishAfterClick, true)
+      clearFixedStripPressListeners.current = () =>
+        ownerDocument.removeEventListener('keyup', finishAfterClick, true)
       return true
     },
     [finishFixedStripPress],
@@ -443,11 +470,15 @@ export function Workspace({
             deferredDragRuntime.current = module.WorkspaceTabDragRuntime
             return
           }
+          fixedStripFocusToRestore.current =
+            fixedStripControlTarget(workspaceRef.current?.ownerDocument.activeElement ?? null)
+              ?.locator ?? null
           setDragRuntime(() => module.WorkspaceTabDragRuntime)
         },
         () => {
           clearPendingDragActivation()
           dragFocusToRestore.current = null
+          fixedStripFocusToRestore.current = null
           dragRuntimeRequested.current = false
         },
       )
@@ -624,6 +655,7 @@ export function Workspace({
   const captureColdKeyboardActivation = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>): void => {
       if (DragRuntime || (event.code !== 'Space' && event.code !== 'Enter')) return
+      if (captureColdFixedStripKeyPress(event)) return
       const target = event.target
       if (!(target instanceof HTMLElement) || !target.matches('[data-tab-drag-id]')) return
       const tabId = target.dataset.tabDragId
@@ -658,7 +690,12 @@ export function Workspace({
         document.removeEventListener('keydown', onKeyDown, true)
       preloadDragRuntime(target, true)
     },
-    [DragRuntime, clearPendingDragActivation, preloadDragRuntime],
+    [
+      DragRuntime,
+      captureColdFixedStripKeyPress,
+      clearPendingDragActivation,
+      preloadDragRuntime,
+    ],
   )
 
   const preparePendingDragActivation = useCallback((): PendingTabDragActivation | null => {

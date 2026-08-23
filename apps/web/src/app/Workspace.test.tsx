@@ -800,6 +800,79 @@ describe('Workspace splitting', () => {
     },
   )
 
+  it('restores a fixed action focused before the pending runtime resolves', async () => {
+    featureEnabled['tab-splitting'] = true
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    fireEvent.pointerEnter(intentTab)
+
+    const original = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    original.focus()
+    fireEvent.pointerDown(original, {
+      pointerId: 13,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+    })
+    fireEvent.pointerUp(original, {
+      pointerId: 13,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 0,
+    })
+    fireEvent.click(original)
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+
+    expect(actions.splitWorkspacePane).toHaveBeenCalledWith('p1', 'row', { tabId: undefined })
+    expect(original.isConnected).toBe(true)
+    expect(document.activeElement).toBe(original)
+
+    await runtime.release()
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+    const replacement = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    expect(original.isConnected).toBe(false)
+    expect(document.activeElement).toBe(replacement)
+  })
+
+  it('holds an in-flight drag runtime through a fixed action keyboard activation', async () => {
+    featureEnabled['tab-splitting'] = true
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    fireEvent.pointerEnter(intentTab)
+
+    const original = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    original.focus()
+    fireEvent.keyDown(original, { key: ' ', code: 'Space' })
+    await runtime.release()
+
+    expect(original.isConnected).toBe(true)
+    expect(document.activeElement).toBe(original)
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+
+    fireEvent.keyUp(original, { key: ' ', code: 'Space' })
+    fireEvent.click(original)
+    expect(actions.splitWorkspacePane).toHaveBeenCalledWith('p1', 'row', { tabId: undefined })
+
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+    const replacement = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    expect(original.isConnected).toBe(false)
+    expect(document.activeElement).toBe(replacement)
+  })
+
   it.each(['label', 'close'] as const)(
     'finishes a cold drag without dispatching its browser click to the source %s control',
     async (control) => {
