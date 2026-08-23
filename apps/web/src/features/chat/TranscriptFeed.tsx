@@ -401,6 +401,7 @@ export function TranscriptFeed({
                 // indicator. MOUNT POSITION, not `idx`: `rows` is the bounded
                 // trailing window while `idx` is the absolute index.
                 live={trailingRunLive && pos === rows.length - 1}
+                ownsTail={false}
                 arrived={arrived}
                 turn={turn}
                 sessionId={sessionId}
