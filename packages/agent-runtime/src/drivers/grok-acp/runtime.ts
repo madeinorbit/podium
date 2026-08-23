@@ -7,6 +7,7 @@
  * this package owns protocol, receipts, permissions, observation and resume.
  */
 import {
+  classifyGrokProviderFailure,
   type AgentStateEvent,
   initialAgentState,
   reduceAgentState,
@@ -69,6 +70,7 @@ import {
   GROK_ACP_METHODS,
   type GrokAcpFrame,
   GrokAcpPermissionRequest,
+  GrokAcpRpcError,
   type GrokAcpPromptResult,
   GrokAcpPromptResult as GrokAcpPromptResultSchema,
   GrokAcpSessionResult,
@@ -733,16 +735,84 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       | 'timeout'
       | 'interrupted'
     disposition: 'retryable' | 'needs-human' | 'fatal'
+    errorClass?: string
     detail?: string
+  }
+
+  function compactProviderDetail(value: string): string | undefined {
+    const detail = value.replace(/\s+/g, ' ').trim()
+    return detail ? detail.slice(0, 1000) : undefined
+  }
+
+  function nestedProviderDetail(value: unknown, seen = new Set<object>()): string | undefined {
+    if (typeof value === 'string') return compactProviderDetail(value)
+    if (value instanceof Error) return compactProviderDetail(value.message)
+    if (typeof value !== 'object' || value === null) return undefined
+    if (seen.has(value)) return undefined
+    seen.add(value)
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        const detail = nestedProviderDetail(entry, seen)
+        if (detail) return detail
+      }
+      return undefined
+    }
+    const record = value as Record<string, unknown>
+    for (const key of [
+      'message',
+      'detail',
+      'agent_result',
+      'reason',
+      'description',
+      'error',
+      'data',
+    ]) {
+      const detail = nestedProviderDetail(record[key], seen)
+      if (detail) return detail
+    }
+    return undefined
+  }
+
+  function promptResultDetail(result: GrokAcpPromptResult): string | undefined {
+    return nestedProviderDetail(result)
+  }
+
+  function promptErrorDetail(error: unknown): string | undefined {
+    if (error instanceof GrokAcpRpcError) {
+      const status = error.code >= 400 && error.code <= 599 ? `status ${error.code}` : undefined
+      const detail = nestedProviderDetail(error.data)
+      const message = compactProviderDetail(
+        error.message.replace(/^grok ACP [^:]+:\s*/i, ''),
+      )
+      return compactProviderDetail([status, detail ?? message].filter(Boolean).join(': '))
+    }
+    return nestedProviderDetail(error)
+  }
+
+  function promptFailureFromDetail(detail: string): PromptFailure {
+    return causalTurnFailure(classifyGrokProviderFailure({ agent_result: detail }))
   }
 
   function promptFailure(result: GrokAcpPromptResult): PromptFailure | null {
     if (result.stopReason === 'end_turn') return null
     if (result.stopReason === 'cancelled')
       return { reason: 'interrupted', disposition: 'retryable' }
+    const detail = promptResultDetail(result)
+    if (detail) return promptFailureFromDetail(detail)
     return {
       reason: 'provider-error',
       disposition: result.stopReason === 'max_tokens' ? 'retryable' : 'fatal',
+      errorClass: result.stopReason,
+    }
+  }
+
+  function promptFailureFromError(error: unknown): PromptFailure {
+    const detail = promptErrorDetail(error)
+    if (detail) return promptFailureFromDetail(detail)
+    return {
+      reason: 'provider-error',
+      disposition: 'retryable',
+      errorClass: 'provider_error',
     }
   }
 
@@ -766,6 +836,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     return {
       reason,
       disposition: change.retryable ? 'retryable' : 'needs-human',
+      errorClass: change.errorClass,
       ...(change.detail ? { detail: change.detail } : {}),
     }
   }
@@ -807,7 +878,13 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       translatedFailure ??
       (result
         ? promptFailure(result)
-        : { reason: 'provider-error' as const, disposition: 'retryable' as const })
+        : error !== undefined
+          ? promptFailureFromError(error)
+          : {
+              reason: 'provider-error' as const,
+              disposition: 'retryable' as const,
+              errorClass: 'provider_error',
+            })
     if (!failure) {
       emit(session, { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' } }, at)
       foldState(session, { kind: 'turn_completed' }, at, 'live')
@@ -839,7 +916,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
             ? { kind: 'turn_completed', verdict: { kind: 'interrupted' } }
             : {
                 kind: 'turn_failed',
-                errorClass: result?.stopReason ?? 'provider_error',
+                errorClass: failure.errorClass ?? result?.stopReason ?? 'provider_error',
                 retryable: failure.disposition === 'retryable',
                 ...(failure.detail ? { detail: failure.detail } : {}),
               },

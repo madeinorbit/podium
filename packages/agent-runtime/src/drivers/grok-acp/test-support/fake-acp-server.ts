@@ -20,7 +20,7 @@ export interface FakeGrokAcpServer {
   askPermission(): string
   completeTurn(stopReason?: 'end_turn' | 'cancelled' | 'refusal'): void
   failProviderTurn(detail: string): void
-  failNextPrompt(): void
+  failNextPrompt(detail?: string): void
   crash(): void
 }
 
@@ -36,6 +36,7 @@ export function startFakeGrokAcpServer(
     | { id: string | number; result: { stopReason: 'end_turn' | 'cancelled' | 'refusal' } }
     | undefined
   let failNext = false
+  let failNextDetail = 'fixture prompt failure'
   let eventSeq = 0
 
   const push = (frame: unknown): void => {
@@ -92,7 +93,7 @@ export function startFakeGrokAcpServer(
                 push({
                   jsonrpc: '2.0',
                   id: frame.id,
-                  error: { code: -32000, message: 'fixture prompt failure' },
+                  error: { code: -32000, message: failNextDetail },
                 })
                 return
               }
@@ -192,8 +193,9 @@ export function startFakeGrokAcpServer(
       lastPromptResult = { id, result }
       response(id, result)
     },
-    failNextPrompt() {
+    failNextPrompt(detail = 'fixture prompt failure') {
       failNext = true
+      failNextDetail = detail
     },
     crash() {
       if (!server.alive) return

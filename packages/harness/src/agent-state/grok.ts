@@ -121,7 +121,7 @@ export async function translateGrokUpdatePayload(
     case 'turn_completed': {
       const stopReason = normalizeName(stringField(update, 'stop_reason'))
       if (stopReason === 'error') {
-        return withEventTime([grokTurnFailedEvent(update)], at)
+        return withEventTime([classifyGrokProviderFailure(update)], at)
       }
       // Grok's authoritative end-of-turn signal (stop_reason: end_turn). It lands
       // AFTER the Stop hook and the final agent_message_chunk, so it is the record
@@ -140,7 +140,7 @@ export async function translateGrokUpdatePayload(
       const retryState = normalizeName(stringField(update, 'type'))
       if (retryState === 'retrying') return withEventTime([{ kind: 'activity' }], at)
       if (retryState === 'failed' || retryState === 'exhausted') {
-        return withEventTime([grokTurnFailedEvent(update)], at)
+        return withEventTime([classifyGrokProviderFailure(update)], at)
       }
       return []
     }
@@ -575,7 +575,7 @@ async function grokLifecycleEvents(
       return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
     }
     case 'stop_failure': {
-      return [grokTurnFailedEvent(fields)]
+      return [classifyGrokProviderFailure(fields)]
     }
     case 'pre_compact':
       return [{ kind: 'compaction', phase: 'start' }]
@@ -1280,7 +1280,9 @@ function stringField(value: unknown, key: string): string | undefined {
 /** Grok reports provider failures in retry_state and in the authoritative
  * turn_completed record. Keep the provider-specific vocabulary here and emit
  * only the normalized failure event to shared layers. [spec:SP-8b0e] */
-function grokTurnFailedEvent(fields: Record<string, unknown>): AgentStateEvent {
+export function classifyGrokProviderFailure(
+  fields: Record<string, unknown>,
+): Extract<AgentStateEvent, { kind: 'turn_failed' }> {
   const message =
     stringField(fields, 'agent_result') ??
     stringField(fields, 'message') ??

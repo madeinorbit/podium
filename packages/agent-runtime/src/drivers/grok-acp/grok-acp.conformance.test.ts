@@ -5,6 +5,8 @@ import { PERMITTED_FAILURES } from '../../permitted-failures.js'
 // same corpus function the run judges its endpoint arm with. From the module
 // rather than the `testing/` barrel, which is the corpus's surface to curate.
 import { assertAttachHonoursOneControlLease } from '../../testing/conformance/suite.js'
+import type { AgentSessionHandle } from '../../driver.js'
+import type { RuntimeEvent } from '../../events.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
 import { runConformance } from '../../testing/index.js'
 import { createGrokAcpClient } from './client.js'
@@ -43,6 +45,7 @@ interface WorldOptions {
 function makeWorld(options: WorldOptions = {}): {
   target: ConformanceTarget
   failProviderTurn(sessionId: SessionId, detail: string): void
+  failNextPrompt(sessionId: SessionId, detail?: string): void
 } {
   const hostsClientTerminals = options.hostsClientTerminals ?? true
   let runtime: GrokAcpRuntime | undefined
@@ -171,6 +174,7 @@ function makeWorld(options: WorldOptions = {}): {
   }
   return {
     failProviderTurn: (sessionId, detail) => serverFor(sessionId).failProviderTurn(detail),
+    failNextPrompt: (sessionId, detail) => serverFor(sessionId).failNextPrompt(detail),
     target: {
       name: 'grok-acp',
       family: 'server',
@@ -206,6 +210,19 @@ function makeWorld(options: WorldOptions = {}): {
 
 const { target } = makeWorld()
 
+async function eventsThroughTurnFailure(handle: AgentSessionHandle): Promise<RuntimeEvent[]> {
+  const observed: RuntimeEvent[] = []
+  let sawTurnFailure = false
+  let sawStateFailure = false
+  for await (const event of handle.events('bootstrap')) {
+    observed.push(event)
+    if (event.t === 'turn' && event.ev.ev === 'failed') sawTurnFailure = true
+    if (event.t === 'state' && event.change.kind === 'turn_failed') sawStateFailure = true
+    if (sawTurnFailure && sawStateFailure) break
+  }
+  return observed
+}
+
 describe('grok-acp provider failure detail', () => {
   it('keeps a causal 402 detail when the prompt response closes the turn', async () => {
     const world = makeWorld()
@@ -217,8 +234,29 @@ describe('grok-acp provider failure detail', () => {
         handle.binding.sessionId,
         'API error (status 402 Payment Required): Grok Build usage balance exhausted',
       )
-      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      const observed = await eventsThroughTurnFailure(handle)
 
+      expect(observed).toContainEqual(
+        expect.objectContaining({
+          t: 'state',
+          change: expect.objectContaining({
+            kind: 'turn_failed',
+            errorClass: 'usage_limit',
+            retryable: false,
+            detail: 'API error (status 402 Payment Required): Grok Build usage balance exhausted',
+          }),
+        }),
+      )
+      expect(observed).toContainEqual(
+        expect.objectContaining({
+          t: 'turn',
+          ev: expect.objectContaining({
+            ev: 'failed',
+            disposition: 'needs-human',
+            detail: 'API error (status 402 Payment Required): Grok Build usage balance exhausted',
+          }),
+        }),
+      )
       await expect(handle.state()).resolves.toMatchObject({
         phase: 'errored',
         error: {
@@ -226,6 +264,49 @@ describe('grok-acp provider failure detail', () => {
           retryable: false,
           detail: 'API error (status 402 Payment Required): Grok Build usage balance exhausted',
         },
+      })
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('classifies an immediate 402 prompt rejection before chat materialization', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    const detail = 'API error (status 402 Payment Required): Grok Build usage balance exhausted'
+    try {
+      const handle = await driver.create(world.target.spec())
+      world.failNextPrompt(handle.binding.sessionId, detail)
+      await handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      const observed = await eventsThroughTurnFailure(handle)
+
+      const stateFailure = observed.find(
+        (entry) => entry.t === 'state' && entry.change.kind === 'turn_failed',
+      )
+      if (!stateFailure || stateFailure.t !== 'state') {
+        throw new Error('missing immediate rejection state failure')
+      }
+      expect(stateFailure.change).toEqual({
+        kind: 'turn_failed',
+        errorClass: 'usage_limit',
+        retryable: false,
+        detail,
+      })
+
+      const turnFailure = observed.find(
+        (entry) => entry.t === 'turn' && entry.ev.ev === 'failed',
+      )
+      if (!turnFailure || turnFailure.t !== 'turn') {
+        throw new Error('missing immediate rejection turn failure')
+      }
+      expect(turnFailure.ev).toMatchObject({
+        ev: 'failed',
+        disposition: 'needs-human',
+        detail,
+      })
+      await expect(handle.state()).resolves.toMatchObject({
+        phase: 'errored',
+        error: { class: 'usage_limit', retryable: false, detail },
       })
     } finally {
       world.target.reset()
