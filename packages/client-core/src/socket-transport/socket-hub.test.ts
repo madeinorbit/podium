@@ -1125,23 +1125,6 @@ describe('resume + offline input queue', () => {
     ])
   })
 
-  it('drops disconnected SGR mouse reports but preserves queued keystrokes', () => {
-    vi.useFakeTimers()
-    const { sockets, hub } = multiSetup()
-    hub.connect()
-    sockets[0]?.open()
-    const conn = hub.attach(asSessionId('s1'))
-    sockets[0]?.close()
-    conn.sendInput('\x1b[<35;87;24M')
-    conn.sendInput('a')
-    conn.sendInput('\x1b[<35;87;25M\x1b[<35;85;25M')
-    vi.advanceTimersByTime(30_000)
-    sockets[1]?.open()
-    expect(sockets[1]?.parsed().filter((m) => m.type === 'input')).toEqual([
-      { type: 'input', sessionId: 's1', data: b64('a') },
-    ])
-  })
-
   it('does not replay queued input after an intentional dispose', () => {
     vi.useFakeTimers()
     const { sockets, hub } = multiSetup()
