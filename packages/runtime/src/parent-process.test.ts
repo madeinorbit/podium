@@ -146,6 +146,51 @@ describe('ParentProcess', () => {
     expect(parent.snapshot().children.daemon.status).toBe('running')
   })
 
+  it('AUDIT NEGATIVE CONTROL: failed boot health must not claim ready ownership', async () => {
+    const clock = fakeClock()
+    const notifications: string[] = []
+    let claimed = false
+    let probeCount = 0
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: '/opt/podium',
+        installBinary: '/opt/podium/podium',
+        env: { PODIUM_APP_VERSION: '1.0.0', [PARENT_SUCCESSOR_ENV]: '1' },
+        children: ['server'],
+        spawn: (() => new FakeChild(125)) as SpawnChildFn,
+        probeHealth: async () => {
+          probeCount++
+          return { serverRunning: false, serverVersion: null, daemonConnected: false }
+        },
+        claimRole: () => {
+          claimed = true
+        },
+        notify: (state) => notifications.push(state),
+        sleep: async (ms) => clock.advance(ms),
+        now: clock.now,
+        exit: () => {},
+      }),
+    )
+
+    await parent.start()
+
+    expect(probeCount).toBeGreaterThan(0)
+    expect({
+      bootHealthy: parent.isBootHealthy(),
+      phase: parent.snapshot().phase,
+      claimed,
+      ready: notifications.includes('READY=1'),
+      watchdog: notifications.includes('WATCHDOG=1'),
+    }).toEqual({
+      bootHealthy: false,
+      phase: 'degraded',
+      claimed: false,
+      ready: false,
+      watchdog: false,
+    })
+  })
+
   it('holds a packaged all-in-one marker until the complete server+daemon health gate', async () => {
     let daemonEnv: NodeJS.ProcessEnv | undefined
     let probeCount = 0

@@ -509,7 +509,7 @@ export class ParentProcess {
     }
   }
 
-  /** Boot children in priority order and signal READY once the health gate passes. */
+  /** Boot children in priority order and signal READY only when the health gate passes. */
   async start(): Promise<void> {
     // BEFORE the first spawn. See invariant 1.
     this.installSignalHandlers()
@@ -524,10 +524,19 @@ export class ParentProcess {
     const healthy = await this.waitForHealthy(expected, 60_000)
     this.bootHealthy = healthy
     if (this.terminating) return
-    if (healthy) this.finalizePendingGrant(expected)
     if (!healthy) {
       log.error('parent boot health gate failed', { expected })
+      // This is deliberately degraded rather than fatal. During the one-unit
+      // topology migration the caller observes `isBootHealthy() === false` and
+      // re-arms the legacy units; making the parent exit here would skip that
+      // rollback path. Degraded is NOT ready, though: a successor must not take
+      // ownership or tell systemd that the failed stack is fit to serve.
+      this.snap = { ...this.snap, phase: 'degraded' }
+      this.publish()
+      this.startSupervisionLoop()
+      return
     }
+    this.finalizePendingGrant(expected)
     this.snap = {
       ...this.snap,
       phase: Object.keys(this.snap.refusals).length > 0 ? 'degraded' : 'running',
@@ -543,6 +552,10 @@ export class ParentProcess {
     // WatchdogSec budget rather than that minus one pet interval.
     this.deps.notify('WATCHDOG=1')
     this.lastPetMs = this.deps.now()
+    this.startSupervisionLoop()
+  }
+
+  private startSupervisionLoop(): void {
     // NOT unref'd — the supervision loop is what keeps this process alive when no
     // child does. See invariant 3.
     this.tickTimer = setInterval(() => {
@@ -694,7 +707,10 @@ export class ParentProcess {
   private async tick(): Promise<void> {
     if (this.stopping || this.terminating) return
     await this.pollComponents()
-    this.petWatchdog()
+    // A failed boot stays supervised for topology rollback, but it never pets a
+    // watchdog it did not arm with READY. Otherwise the first timer tick would
+    // erase the distinction this boot gate establishes.
+    if (this.bootHealthy) this.petWatchdog()
     if (this.snap.phase === 'handover_outgoing' || this.snap.phase === 'rolling_back') return
     const now = this.deps.now()
     for (const child of this.childOrder) {
