@@ -10,6 +10,7 @@ import {
   type IssueProjection,
   type IssueUserOverlay,
   type IssueWire,
+  type MachineId,
   isIssueBlocked,
   isIssueClosed,
   isIssueDeferred,
@@ -83,6 +84,20 @@ export class IssueStore {
    */
   private viewerState: Map<string, StoredIssueUserState> | null = null
   constructor(readonly deps: IssueDeps) {}
+
+  /**
+   * Freeze the machine choice an implicit operation would otherwise make inside
+   * DaemonRpcService. Explicit pins already bypass that resolver and keep winning.
+   * The fallback preserves lightweight test fixtures that do not wire the port;
+   * the relay always supplies MachinesService.resolveMachine.
+   */
+  resolveWorktreeMachine(machineId: MachineId | null | undefined, cwd: string): MachineId {
+    return (
+      machineId ??
+      this.deps.resolveMachine?.(undefined, cwd) ??
+      this.deps.store.hostMachineId
+    )
+  }
 
   /**
    * WHOSE per-user markers the broadcast carries. `FIRST_ADMIN_USER_ID` spelled

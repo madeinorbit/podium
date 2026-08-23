@@ -474,20 +474,17 @@ export function listReclaimableWorktreesClient(args: {
 /**
  * WHICH OF THESE CHECKOUTS BELONG TO THE MACHINE ON THIS CHIP.
  *
- * The rule exists because an issue row's `machineId` is usually NULL: the
- * server records one only when an issue is deliberately placed on a remote
- * machine, and every git op it runs passes `row.machineId ?? undefined`, which
- * routes to the LOCAL daemon. So "no machine recorded" does not mean "nowhere",
- * it means "the hub". Filtering `row.machineId === thisMachine` — the obvious
- * reading — therefore drops every ordinary checkout and leaves a panel that
- * confidently reports zero while the disk fills up.
+ * Historical issue rows may have a NULL `machineId` because the server used to
+ * leave implicit routing decisions unrecorded. That did not necessarily mean
+ * the hub: the daemon router selected an online machine by repository affinity,
+ * then fell back to its default machine. The client cannot reconstruct which
+ * machine handled an old operation after the fact.
  *
- * The client cannot name the hub (no wire field says which machine runs the
- * server), so:
+ * The client cannot recover that historical decision, so:
  *
  * - a row that NAMES a machine belongs to that machine and no other;
- * - a row that names none belongs here when this is the only machine, where
- *   "the hub" is unambiguous;
+ * - a row that names none belongs here when this is the only machine, where its
+ *   placement is unambiguous;
  * - otherwise it cannot be placed, and is COUNTED rather than dropped, so a
  *   multi-machine instance says "N unplaceable" instead of quietly under-
  *   reporting. Offering them under every chip would double-count them and offer

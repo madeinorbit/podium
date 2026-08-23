@@ -111,7 +111,7 @@ describe('SessionRegistry', () => {
     ])
   })
 
-  it('routes an explicit host id to the host daemon when another daemon is the fleet default', async () => {
+  it('records and reuses repo-affine targets for host and remote worktrees', async () => {
     const store = new SessionStore(':memory:', asMachineId('host-under-test'))
     store.machines.upsertMachine({
       id: 'remote-first',
@@ -127,15 +127,16 @@ describe('SessionRegistry', () => {
       tokenHash: 'host-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    store.machines.setMachineInventory(
-      store.hostMachineId,
-      JSON.stringify({
-        os: 'linux',
-        arch: 'x64',
-        agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
-        tools: [],
-      }),
-    )
+    const inventory = JSON.stringify({
+      os: 'linux',
+      arch: 'x64',
+      agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+      tools: [],
+    })
+    store.machines.setMachineInventory(asMachineId('remote-first'), inventory)
+    store.machines.setMachineInventory(store.hostMachineId, inventory)
+    store.repos.addRepo('/host/project', store.hostMachineId)
+    store.repos.addRepo('/remote/project', asMachineId('remote-first'))
 
     const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const remote: ControlMessage[] = []
@@ -154,23 +155,32 @@ describe('SessionRegistry', () => {
       }
 
     try {
-      // Without the explicit host route, repo affinity falls through to the first
-      // online daemon. Attach the remote first so this test distinguishes the seams.
+      // Attach the remote first so default ordering cannot accidentally make the
+      // host case pass; repository affinity must select each registered owner.
       reg.gateway.attachDaemon('remote-first', answerRepoOps('remote-first', remote))
       reg.gateway.attachDaemon(store.hostMachineId, answerRepoOps(store.hostMachineId, host))
-      const issue = reg.modules.issues.create({
-        repoPath: '/r',
+      const hostIssue = reg.modules.issues.create({
+        repoPath: '/host/project',
         title: 'Host routed',
         startNow: false,
       })
+      const remoteIssue = reg.modules.issues.create({
+        repoPath: '/remote/project',
+        title: 'Remote routed',
+        startNow: false,
+      })
 
-      const started = await reg.modules.issues.start(issue.id)
+      const hostStarted = await reg.modules.issues.start(hostIssue.id)
+      const remoteStarted = await reg.modules.issues.start(remoteIssue.id)
 
-      expect(started.machineId).toBe(store.hostMachineId)
+      expect(hostStarted.machineId).toBe(store.hostMachineId)
+      expect(remoteStarted.machineId).toBe('remote-first')
       expect(
         host.filter((message) => message.type === 'repoOpRequest' && message.op === 'worktreeAdd'),
       ).toHaveLength(1)
-      expect(remote.filter((message) => message.type === 'repoOpRequest')).toHaveLength(0)
+      expect(
+        remote.filter((message) => message.type === 'repoOpRequest' && message.op === 'worktreeAdd'),
+      ).toHaveLength(1)
     } finally {
       reg.dispose()
     }

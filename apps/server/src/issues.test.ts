@@ -52,6 +52,7 @@ function harness(sessions: SessionMeta[] = []) {
       }),
     spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
+    resolveMachine: vi.fn(() => store.hostMachineId),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
     setSessionArchived,
@@ -167,14 +168,27 @@ describe('IssueService CRUD', () => {
     // members) — what changed is that the issue payload no longer carries the
     // answer, so a session's `lastActiveAt` cannot dirty it.
     const sessions = [sess('/r/wt', 'working'), sess('/r/wt/pkg', 'idle'), sess('/elsewhere')]
-    const { svc, store } = harness(sessions)
+    const { svc, store, deps } = harness(sessions)
     const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     const updated = svc.update(wire.id, { worktreePath: '/r/wt', stage: 'planning' })
     expect(updated.machineId).toBe(store.hostMachineId)
+    expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/r/wt')
     expect(updated).not.toHaveProperty('sessions')
     expect(updated).not.toHaveProperty('sessionSummary')
     // The rule the embed used to express, read from the session side instead.
     expect(sessionsForIssue('/r/wt', sessions, updated.id)).toHaveLength(2)
+  })
+
+  it('does not place a historical NULL worktree during an unrelated update', () => {
+    const { svc, deps, store } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'Legacy', startNow: false })
+    svc.update(wire.id, { worktreePath: '/r/wt' })
+    svc.update(wire.id, { machineId: null })
+    ;(deps.resolveMachine as ReturnType<typeof vi.fn>).mockClear()
+
+    expect(svc.update(wire.id, { stage: 'planning' }).machineId).toBeUndefined()
+    expect(store.issues.getIssue(wire.id)?.machineId).toBeNull()
+    expect(deps.resolveMachine).not.toHaveBeenCalled()
   })
 
   it('update patches fields; archive sets the flag', () => {
@@ -1315,27 +1329,6 @@ describe('new agent after worktree free (POD-580)', () => {
     ).toBe(true)
   })
 
-  /**
-   * POD-2651. An unpinned start must still land on the machine that HOLDS the
-   * repository. Handing repoOp an explicit id skips its own resolution, so the id
-   * we record is also the id we route to — assuming the host silently retargets
-   * every issue whose repo lives on another machine, at a path that is not there.
-   */
-  it('start routes a fresh worktree to the repo-holding machine, not the host', async () => {
-    const { svc, deps, store } = harness()
-    const holder = asMachineId('m-holds-repo')
-    deps.machineHoldingRepo = () => holder
-    const w = svc.create({ repoPath: '/r', title: 'Lives elsewhere', startNow: false })
-    await svc.start(w.id)
-    expect(store.hostMachineId).not.toBe(holder)
-    expect(deps.repoOp).toHaveBeenCalledWith(
-      'worktreeAdd',
-      '/r',
-      expect.objectContaining({ branch: expect.stringContaining('lives-elsewhere') }),
-      holder,
-    )
-    expect(svc.get(w.id)!.machineId).toBe(holder)
-  })
 })
 
 describe('IssueService next-message defer (#430)', () => {
@@ -1445,6 +1438,7 @@ describe('IssueService.start', () => {
     expect(started.branch).toBe('issue/1-fix-login')
     expect(started.worktreePath).toBe('/r/.worktrees/issue-1-fix-login')
     expect(started.machineId).toBe(store.hostMachineId)
+    expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/r')
     expect(deps.repoOp).toHaveBeenCalledWith(
       'worktreeAdd',
       '/r',
@@ -1462,6 +1456,31 @@ describe('IssueService.start', () => {
       spawnedBy: `issue:${created.id}`,
       machineId: store.hostMachineId,
     })
+  })
+
+  it('records and reuses the resolver-selected remote machine', async () => {
+    const { svc, deps } = harness()
+    const selected = asMachineId('repo-affine-remote')
+    deps.resolveMachine = vi.fn(() => selected)
+    const created = svc.create({
+      repoPath: '/remote/repo',
+      title: 'Repo affine',
+      startNow: false,
+    })
+
+    const started = await svc.start(created.id)
+
+    expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/remote/repo')
+    expect(started.machineId).toBe(selected)
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/remote/repo',
+      expect.objectContaining({ branch: 'issue/1-repo-affine' }),
+      selected,
+    )
+    expect(deps.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ machineId: selected }),
+    )
   })
 
   it('fires onWorktreesChanged with the issue repoPath after a successful worktree add (POD-665)', async () => {
@@ -1542,6 +1561,7 @@ describe('IssueService.start', () => {
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ machineId: 'mach-b' }),
     )
+    expect(deps.resolveMachine).not.toHaveBeenCalled()
   })
 
   /**

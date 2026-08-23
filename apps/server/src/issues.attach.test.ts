@@ -35,6 +35,7 @@ function harness(sessions: SessionMeta[] = []) {
       }),
     spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
+    resolveMachine: vi.fn(() => store.hostMachineId),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-06T00:00:00.000Z',

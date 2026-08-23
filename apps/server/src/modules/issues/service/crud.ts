@@ -933,12 +933,15 @@ export class IssueCrudModule {
     } else {
       Object.assign(row, rowPatch)
     }
-    // `update` is also the adoption seam for worktrees reported by a harness or
-    // supplied by an operator. A checkout without an explicit remote placement is
-    // on this host; never persist that fact as NULL, which clients cannot place in
-    // a multi-machine fleet.
-    if (row.worktreePath !== null && row.machineId === null) {
-      row.machineId = this.store.d.store.hostMachineId
+    // `update` is also an adoption seam for worktrees reported by a harness or
+    // supplied by an operator. Only a patch that actually supplies a worktree can
+    // establish placement; unrelated updates must not guess for historical NULL rows.
+    if (
+      'worktreePath' in rowPatch &&
+      row.worktreePath !== null &&
+      row.machineId === null
+    ) {
+      row.machineId = this.store.resolveWorktreeMachine(undefined, row.worktreePath)
     }
     // parentBranch is an INPUT to derived gitState. Mutating it without
     // re-probing leaves the old snapshot (computed against the old base)
