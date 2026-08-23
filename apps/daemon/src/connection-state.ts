@@ -28,6 +28,8 @@ const log = createLogger('daemon:connection')
 
 const RECONNECT_MIN_MS = 500
 const RECONNECT_MAX_MS = 5_000
+const SOCKET_OPEN_DEADLINE_MS = 10_000
+const PEER_HELLO_ACK_DEADLINE_MS = 10_000
 
 /**
  * How long a protocol-mismatch `podium update` may run before it is killed.
@@ -117,6 +119,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let socket: SocketLike | undefined
   let localAttachment: Extract<LocalDaemonAttachment, { established: true }> | undefined
   let reconnectTimer: unknown | undefined
+  let socketGeneration = 0
+  let openDeadline: { generation: number; handle: unknown } | undefined
+  let acknowledgementDeadline: { generation: number; handle: unknown } | undefined
   let reconnectBackoffMs = RECONNECT_MIN_MS
   let closing = false
   let started = false
@@ -162,6 +167,28 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return { kind: 'machineToken', token: identity.token, machineHint: deps.machineId }
     if (options.pairCode) return { kind: 'pairCode', code: options.pairCode }
     return null
+  }
+
+  const clearOpenDeadline = (generation?: number): void => {
+    if (!openDeadline || (generation !== undefined && openDeadline.generation !== generation))
+      return
+    timers.clearTimeout(openDeadline.handle)
+    openDeadline = undefined
+  }
+
+  const clearAcknowledgementDeadline = (generation?: number): void => {
+    if (
+      !acknowledgementDeadline ||
+      (generation !== undefined && acknowledgementDeadline.generation !== generation)
+    )
+      return
+    timers.clearTimeout(acknowledgementDeadline.handle)
+    acknowledgementDeadline = undefined
+  }
+
+  const clearHandshakeDeadlines = (generation?: number): void => {
+    clearOpenDeadline(generation)
+    clearAcknowledgementDeadline(generation)
   }
 
   const scheduleReconnect = (): void => {
@@ -409,6 +436,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
 
   const connectLocal = (): void => {
     state = 'connecting'
+    report({ state: 'connecting' })
     const localLink = options.localLink
     if (!localLink) {
       terminal('blocked', 'configuration', 'local connection requested without a local link')
@@ -422,6 +450,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     }
     state = 'awaiting-ack'
+    report({ state: 'awaiting-ack' })
     const attachment = localLink.attach({
       hello: dialer.hello(),
       deliver: (msg) => deps.receiveApplicationFrame(Buffer.from(JSON.stringify(msg))),
@@ -433,35 +462,69 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   function connectSocket(): void {
     if (closing) return
     state = 'connecting'
+    report({ state: 'connecting' })
     const active = openSocket(`${options.serverUrl}/daemon`)
+    const generation = ++socketGeneration
     socket = active
+    const isCurrent = (): boolean => !closing && socket === active && socketGeneration === generation
     let dialer: ReturnType<typeof createHandshakeDialer> | undefined
+    openDeadline = {
+      generation,
+      handle: timers.setTimeout(() => {
+        if (openDeadline?.generation !== generation) return
+        openDeadline = undefined
+        if (!isCurrent() || state !== 'connecting') return
+        lastSocketError = `WebSocket open timed out after ${SOCKET_OPEN_DEADLINE_MS}ms`
+        active.close()
+      }, SOCKET_OPEN_DEADLINE_MS),
+    }
     active.once('open', () => {
+      if (!isCurrent()) return
+      clearOpenDeadline(generation)
       try {
         dialer = makeDialer()
         state = 'awaiting-ack'
+        report({ state: 'awaiting-ack' })
+        acknowledgementDeadline = {
+          generation,
+          handle: timers.setTimeout(() => {
+            if (acknowledgementDeadline?.generation !== generation) return
+            acknowledgementDeadline = undefined
+            if (!isCurrent() || state !== 'awaiting-ack') return
+            lastSocketError = `peerHello acknowledgement timed out after ${PEER_HELLO_ACK_DEADLINE_MS}ms`
+            active.close()
+          }, PEER_HELLO_ACK_DEADLINE_MS),
+        }
         active.send(JSON.stringify(dialer.hello()))
       } catch (error) {
+        clearAcknowledgementDeadline(generation)
         terminal('blocked', 'configuration', String(error), active)
       }
     })
     active.on('message', (raw) => {
+      if (!isCurrent()) return
       if (!dialer) {
         terminal('blocked', 'handshake-protocol', 'reply-before-hello', active)
         return
       }
       receiveReply(dialer, raw, active)
+      if (state !== 'awaiting-ack') clearAcknowledgementDeadline(generation)
     })
     if (!process.versions.bun) {
       active.on('unexpected-response', (_req, response) => {
+        if (!isCurrent()) return
         if (response.statusCode === 426) handleProtocolMismatch(active, 'http-426')
       })
     }
     active.on('error', (error) => {
+      if (!isCurrent()) return
       lastSocketError = error instanceof Error ? error.message : String(error)
     })
     active.on('close', () => {
-      if (socket === active) socket = undefined
+      if (socket !== active || socketGeneration !== generation) return
+      socket = undefined
+      clearHandshakeDeadlines(generation)
+      if (closing) return
       scheduleReconnect()
     })
   }
@@ -504,6 +567,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         timers.clearTimeout(reconnectTimer)
         reconnectTimer = undefined
       }
+      clearHandshakeDeadlines()
       localAttachment?.close()
       localAttachment = undefined
       const active = socket

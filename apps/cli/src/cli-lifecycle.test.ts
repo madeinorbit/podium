@@ -152,6 +152,24 @@ describe('renderStatus', () => {
       expect(out).toContain('podium set-server <join-code>')
     })
 
+    it.each([
+      ['connecting', 'connecting'],
+      ['awaiting-ack', 'awaiting handshake acknowledgement'],
+    ] as const)('reports an in-progress %s handshake without claiming connectivity', (state, text) => {
+      const out = renderStatus({
+        live: [rec({ role: 'daemon', pid: 7 })],
+        config: { mode: 'daemon' },
+        nowMs: T0,
+        connectivity: {
+          state,
+          serverUrl: 'wss://relay.example',
+          updatedAt: new Date(T0).toISOString(),
+        },
+      })
+      expect(out).toContain(text)
+      expect(out).not.toContain('✓ server link')
+    })
+
     it('a connected daemon reports the server URL and last contact', () => {
       const out = renderStatus({
         live: [rec({ role: 'daemon', pid: 7 })],

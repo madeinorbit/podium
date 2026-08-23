@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import { type PeerHello, type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
-import { readConnectivity } from '@podium/runtime/connectivity'
+import { readConnectivity, writeConnectivity } from '@podium/runtime/connectivity'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
 import {
   readOrCreateUpdateSigningKey,
@@ -354,10 +354,12 @@ describe('daemon connection credential state machine', () => {
 class FakeSocket extends EventEmitter {
   readyState = 1
   sent: string[] = []
+  closeCalls = 0
   send(data: string): void {
     this.sent.push(data)
   }
   close(): void {
+    this.closeCalls += 1
     this.readyState = 3
     this.emit('close')
   }
@@ -366,33 +368,213 @@ class FakeSocket extends EventEmitter {
   }
 }
 
-it('reports transport loss as backoff and schedules a retry', async () => {
-  const socket = new FakeSocket()
-  const setTimeout = vi.fn((_fn: () => void, ms: number) => ({ ms }))
+interface ScheduledTimer {
+  readonly fn: () => void
+  readonly ms: number
+  cleared: boolean
+}
+
+function timerHarness() {
+  const scheduled: ScheduledTimer[] = []
+  const timers: ReconnectTimers = {
+    setTimeout: vi.fn((fn: () => void, ms: number) => {
+      const timer = { fn, ms, cleared: false }
+      scheduled.push(timer)
+      return timer
+    }),
+    clearTimeout: vi.fn((handle: unknown) => {
+      ;(handle as ScheduledTimer).cleared = true
+    }),
+  }
+  const next = (ms: number): ScheduledTimer | undefined =>
+    scheduled.find((timer) => timer.ms === ms && !timer.cleared)
+  const runNext = (ms: number): void => {
+    const timer = next(ms)
+    if (!timer) throw new Error(`no pending ${ms}ms timer`)
+    timer.cleared = true
+    timer.fn()
+  }
+  return { timers, next, runNext }
+}
+
+function remoteConnection(
+  sockets: FakeSocket[],
+  timers: ReconnectTimers,
+  identityDir = temp(),
+) {
+  let socketIndex = 0
+  const onConnected = vi.fn()
+  const onTerminal = vi.fn()
   const state = createDaemonConnection({
-    options: {
-      serverUrl: 'ws://server',
-      identityDir: temp(),
-      reconnectTimers: { setTimeout, clearTimeout: vi.fn() },
-    },
+    options: { serverUrl: 'ws://server', identityDir, reconnectTimers: timers },
     build: buildReport(process.env, undefined),
     machineId: MACHINE_ID,
     identity: { token: 'token' },
     receiveApplicationFrame: vi.fn(),
     sendApplicationFrame: vi.fn(),
-    onConnected: vi.fn(),
-    onTerminal: vi.fn(),
-    openSocket: () => socket,
+    onConnected,
+    onTerminal,
+    openSocket: () => {
+      const active = sockets[socketIndex++]
+      if (!active) throw new Error('test exhausted its fake sockets')
+      return active
+    },
   })
+  return { state, onConnected, onTerminal }
+}
+
+it('closes an open-stalled socket and enters reconnect backoff', async () => {
+  const socket = new FakeSocket()
+  const harness = timerHarness()
+  const identityDir = temp()
+  writeConnectivity(
+    { state: 'disconnected', serverUrl: 'ws://server', retryBackoffMs: 5_000 },
+    identityDir,
+  )
+  const { state } = remoteConnection([socket], harness.timers, identityDir)
+
+  void state.start()
+
+  expect(state.state).toBe('connecting')
+  expect(readConnectivity(identityDir)).toMatchObject({ state: 'connecting' })
+  expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
+
+  harness.runNext(10_000)
+
+  expect(socket.closeCalls).toBe(1)
+  expect(state.state).toBe('backoff')
+  expect(readConnectivity(identityDir)).toMatchObject({
+    state: 'disconnected',
+    retryBackoffMs: 500,
+    lastError: 'WebSocket open timed out after 10000ms',
+  })
+  await state.close()
+})
+
+it('closes a socket whose peerHello acknowledgement stalls', async () => {
+  const socket = new FakeSocket()
+  const harness = timerHarness()
+  const identityDir = temp()
+  const { state } = remoteConnection([socket], harness.timers, identityDir)
+
+  void state.start()
+  socket.emit('open')
+
+  expect(socket.sent).toHaveLength(1)
+  expect(state.state).toBe('awaiting-ack')
+  expect(readConnectivity(identityDir)).toMatchObject({ state: 'awaiting-ack' })
+  expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
+
+  harness.runNext(10_000)
+
+  expect(socket.closeCalls).toBe(1)
+  expect(state.state).toBe('backoff')
+  expect(readConnectivity(identityDir)?.lastError).toBe(
+    'peerHello acknowledgement timed out after 10000ms',
+  )
+  await state.close()
+})
+
+it('ignores late events from a superseded socket generation', async () => {
+  const sockets = [new FakeSocket(), new FakeSocket()]
+  const harness = timerHarness()
+  const { state, onTerminal } = remoteConnection(sockets, harness.timers)
 
   const started = state.start()
-  socket.emit('open')
-  socket.message(ok)
+  harness.runNext(10_000)
+  harness.runNext(500)
+
+  sockets[0]?.emit('open')
+  sockets[0]?.message({
+    type: 'peerHelloRejected',
+    reason: 'auth-failed',
+    message: 'late denial',
+  })
+  sockets[0]?.emit('error', new Error('late error'))
+  sockets[0]?.emit('close')
+
+  expect(state.state).toBe('connecting')
+  expect(sockets[0]?.sent).toHaveLength(0)
+  expect(harness.next(500)).toBeUndefined()
+  expect(onTerminal).not.toHaveBeenCalled()
+
+  sockets[1]?.emit('open')
+  sockets[1]?.message(ok)
   await started
-  socket.emit('close')
+
+  sockets[0]?.message({
+    type: 'peerHelloRejected',
+    reason: 'auth-failed',
+    message: 'later denial',
+  })
+  sockets[0]?.emit('error', new Error('later error'))
+  sockets[0]?.emit('close')
+
+  expect(state.state).toBe('connected')
+  expect(onTerminal).not.toHaveBeenCalled()
+  await state.close()
+})
+
+it('clears handshake deadlines after progress and shutdown', async () => {
+  const connectedSocket = new FakeSocket()
+  const connectedHarness = timerHarness()
+  const { state: connected } = remoteConnection([connectedSocket], connectedHarness.timers)
+
+  const started = connected.start()
+  const openDeadline = connectedHarness.next(10_000)
+  connectedSocket.emit('open')
+  expect(openDeadline?.cleared).toBe(true)
+
+  const acknowledgementDeadline = connectedHarness.next(10_000)
+  connectedSocket.message(ok)
+  await started
+  expect(acknowledgementDeadline?.cleared).toBe(true)
+  expect(connectedHarness.next(10_000)).toBeUndefined()
+  await connected.close()
+
+  const openingSocket = new FakeSocket()
+  const openingHarness = timerHarness()
+  const { state: opening } = remoteConnection([openingSocket], openingHarness.timers)
+  void opening.start()
+  const shutdownDeadline = openingHarness.next(10_000)
+
+  await opening.close()
+
+  expect(shutdownDeadline?.cleared).toBe(true)
+  expect(openingHarness.next(10_000)).toBeUndefined()
+})
+
+it('normally reconnects and resets truthful connectivity state', async () => {
+  const sockets = [new FakeSocket(), new FakeSocket()]
+  const harness = timerHarness()
+  const identityDir = temp()
+  const { state, onConnected } = remoteConnection(sockets, harness.timers, identityDir)
+
+  const started = state.start()
+  sockets[0]?.emit('open')
+  sockets[0]?.message(ok)
+  await started
+  sockets[0]?.emit('close')
 
   expect(state.state).toBe('backoff')
-  expect(setTimeout).toHaveBeenCalledWith(expect.any(Function), 500)
+  expect(readConnectivity(identityDir)).toMatchObject({
+    state: 'disconnected',
+    retryBackoffMs: 500,
+  })
+
+  harness.runNext(500)
+
+  expect(state.state).toBe('connecting')
+  expect(readConnectivity(identityDir)).toMatchObject({ state: 'connecting' })
+  expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
+
+  sockets[1]?.emit('open')
+  expect(readConnectivity(identityDir)).toMatchObject({ state: 'awaiting-ack' })
+  sockets[1]?.message(ok)
+
+  expect(state.state).toBe('connected')
+  expect(onConnected).toHaveBeenCalledTimes(2)
+  expect(harness.next(10_000)).toBeUndefined()
   await state.close()
 })
 
