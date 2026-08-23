@@ -106,14 +106,20 @@ export class DiscoveryWorkerClient {
     this.worker = undefined
   }
 
-  runJob(kind: WorkerJob['kind'], input: unknown): Promise<unknown> {
-    const existing = this.inflightByKind.get(kind)
+  runJob(
+    kind: WorkerJob['kind'],
+    input: unknown,
+    timeoutMs: number = this.timeoutMs,
+    coalesce = true,
+  ): Promise<unknown> {
+    const coalesceKey = coalesce ? kind : undefined
+    const existing = coalesceKey ? this.inflightByKind.get(coalesceKey) : undefined
     if (existing) return existing
     const id = randomUUID()
     const promise = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(
         () => this.settle({ id, ok: false, error: `${kind} timed out` }),
-        this.timeoutMs,
+        timeoutMs,
       )
       this.pending.set(id, { resolve, reject, timer })
       this.ensureWorker().postMessage({ id, kind, input } as WorkerJob)
@@ -121,12 +127,14 @@ export class DiscoveryWorkerClient {
       // Guarded delete: only clear the map if it still holds THIS promise. A
       // stale/abandoned finally (e.g. one rejected by crash()/stop()) must never
       // delete a newer same-kind entry that was set after this job was replaced.
-      if (this.inflightByKind.get(kind) === promise) this.inflightByKind.delete(kind)
+      if (coalesceKey && this.inflightByKind.get(coalesceKey) === promise) {
+        this.inflightByKind.delete(coalesceKey)
+      }
     })
     // Keep an internally-swallowed copy so an abandoned/coalesced in-flight job
     // rejected by stop()/crash() never surfaces as an unhandled rejection; the
     // promise returned to the caller still rejects for real awaiters.
-    this.inflightByKind.set(kind, promise)
+    if (coalesceKey) this.inflightByKind.set(coalesceKey, promise)
     promise.catch(() => {})
     return promise
   }

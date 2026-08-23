@@ -31,6 +31,7 @@ import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
 import type { CreateIssueInput, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
+import { sameWorktreePath } from './worktree-safety'
 
 /**
  * Board-organization fields only — pin / drag-reorder. These must not bump
@@ -916,6 +917,17 @@ export class IssueCrudModule {
     // is exactly how one person's pin became the issue's. It is split out first so
     // both branches below are assigning shared-row fields only.
     const { pinned: pinnedPatch, ...rowPatch } = patch
+    if (
+      rowPatch.worktreePath &&
+      this.store.d.store.repos
+        .listRepos(rowPatch.machineId ?? row.machineId ?? undefined)
+        .some((repo) => sameWorktreePath(repo.path, rowPatch.worktreePath as string))
+    ) {
+      throw new Error(
+        `refusing worktree path ${rowPatch.worktreePath}: a repository root cannot be recorded as an issue worktree`,
+      )
+    }
+
     if (pinnedPatch !== undefined) {
       // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away.
       const prevPinnedAt = this.store.issueUserState(row.id)?.pinnedAt ?? null
@@ -936,11 +948,7 @@ export class IssueCrudModule {
     // `update` is also an adoption seam for worktrees reported by a harness or
     // supplied by an operator. Only a patch that actually supplies a worktree can
     // establish placement; unrelated updates must not guess for historical NULL rows.
-    if (
-      'worktreePath' in rowPatch &&
-      row.worktreePath !== null &&
-      row.machineId === null
-    ) {
+    if ('worktreePath' in rowPatch && row.worktreePath !== null && row.machineId === null) {
       row.machineId = this.store.resolveWorktreeMachine(undefined, row.worktreePath)
     }
     // parentBranch is an INPUT to derived gitState. Mutating it without

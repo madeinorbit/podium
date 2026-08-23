@@ -1,4 +1,3 @@
-import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
 // @vitest-environment happy-dom
 /**
  * #136: the host status strip is machine-aware.
@@ -8,12 +7,19 @@ import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
  *  - Quota: the overlay groups by machine so two accounts are both visible.
  */
 import type { MachineQuotaWire } from '@podium/model'
+import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HeaderHostIndicators, HostIndicators } from './HostIndicators'
 import { QuotaIndicator } from './QuotaIndicator'
 
 const memoryBreakdown = vi.fn()
+const reclaimInventory = vi.fn(async () => ({
+  candidates: [],
+  orphans: [],
+  diagnostics: [],
+  estimate: { status: 'unknown', recoverableBytes: null, measuredAt: null },
+}))
 const quotaSummary = vi.fn()
 let maxIdleSessions = 8
 let sessions: SessionMeta[] = []
@@ -106,7 +112,10 @@ vi.mock('@/app/store', () => {
     setSettingsTab,
     trpc: {
       quota: { summary: { query: quotaSummary } },
-      hosts: { memoryBreakdown: { mutate: memoryBreakdown } },
+      hosts: {
+        memoryBreakdown: { mutate: memoryBreakdown },
+        reclaimInventory: { mutate: reclaimInventory },
+      },
       settings: { get: { query: settingsGet } },
       setup: { info: { query: setupInfo } },
       issues: { stop: { mutate: vi.fn() } },

@@ -34,6 +34,7 @@ import {
 import {
   AgentQuotaRequestMessage,
   MemoryBreakdownRequestMessage,
+  ReclaimDiskEstimateRequestMessage,
   UsageRequestMessage,
 } from './host'
 import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
@@ -120,6 +121,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ResizeMessage,
   RedrawMessage,
   MemoryBreakdownRequestMessage,
+  ReclaimDiskEstimateRequestMessage,
   TranscriptReadRequestMessage,
   FileReadRequestMessage,
   FileAssetRequestMessage,

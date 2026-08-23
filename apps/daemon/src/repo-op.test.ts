@@ -223,6 +223,50 @@ describe('repoOpCommand', () => {
       argv: ['pr', 'create', '--base', 'main', '--head', 'issue/1-x', '--fill'],
     })
   })
+  it('reads authoritative worktree metadata and detached reachability without writes', () => {
+    expect(repoOpCommand('worktreeList')).toEqual({
+      bin: 'git',
+      argv: ['worktree', 'list', '--porcelain', '-z'],
+    })
+    expect(repoOpCommand('revListUnreachableCount', { head: 'abc123' })).toEqual({
+      bin: 'git',
+      argv: ['rev-list', '--count', 'abc123', '--not', '--glob=refs/*'],
+    })
+    expect(repoOpCommand('revListUnreachableCount', { head: '--all' })).toEqual({
+      error: "unsafe head: must not start with '-' (got '--all')",
+    })
+  })
+
+  it('excludes the current detached HEAD when counting commits unprotected by refs', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'podium-detached-reachability-'))
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo })
+      execFileSync('git', ['config', 'user.name', 'Podium Test'], { cwd: repo })
+      execFileSync('git', ['config', 'user.email', 'test@podium.invalid'], { cwd: repo })
+      execFileSync('git', ['commit', '--allow-empty', '-qm', 'base'], { cwd: repo })
+      execFileSync('git', ['checkout', '--detach', '-q'], { cwd: repo })
+      execFileSync('git', ['commit', '--allow-empty', '-qm', 'detached'], { cwd: repo })
+
+      const head = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: repo,
+        encoding: 'utf8',
+      }).trim()
+      const command = repoOpCommand('revListUnreachableCount', { head })
+      if ('error' in command) throw new Error(command.error)
+      const count = (): number =>
+        Number.parseInt(
+          execFileSync(command.bin, command.argv, { cwd: repo, encoding: 'utf8' }).trim(),
+          10,
+        )
+
+      expect(count()).toBe(1)
+      execFileSync('git', ['branch', 'protect-detached', head], { cwd: repo })
+      expect(count()).toBe(0)
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
   it('cleanup ops: worktreeRemove / branchDelete / isMergedInto (never --force / -D by default)', () => {
     expect(repoOpCommand('worktreeRemove', { path: '/r/.worktrees/issue-1-x' })).toEqual({
       bin: 'git',

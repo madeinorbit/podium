@@ -32,6 +32,7 @@ import type { RepoRegistry } from '../../repo-registry'
 export interface HostState {
   readonly hosts: RegistryModules['hosts']
   readonly rpc: RegistryModules['rpc']
+  readonly issues: RegistryModules['issues']
   readonly repos: RepoRegistry
 }
 
@@ -69,6 +70,27 @@ export const HOST_COMMANDS_TRPC = {
       }
       return breakdown
     }) satisfies HostHandler<z.infer<(typeof HOST_CONTRACTS)['memoryBreakdown']['input']>, unknown>,
+  },
+  reclaimInventory: {
+    contract: HOST_CONTRACTS.reclaimInventory,
+    handler: (async (state, input) => {
+      const machineId = input?.machineId
+      const inventory = await state.issues.listReclaimableWorktrees(Date.now(), machineId)
+      const estimate = state.hosts.reclaimDiskEstimate(
+        inventory.allWorktreePaths,
+        inventory.reclaimableDiskPaths,
+        machineId,
+      )
+      const {
+        allWorktreePaths: _allWorktreePaths,
+        reclaimableDiskPaths: _reclaimableDiskPaths,
+        ...publicInventory
+      } = inventory
+      return { ...publicInventory, estimate }
+    }) satisfies HostHandler<
+      z.infer<(typeof HOST_CONTRACTS)['reclaimInventory']['input']>,
+      unknown
+    >,
   },
 } as const satisfies Record<HostContractName, HostCommand>
 

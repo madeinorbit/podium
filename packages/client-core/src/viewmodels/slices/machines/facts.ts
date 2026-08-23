@@ -26,13 +26,13 @@ import {
   asIssueId,
   type GitRepositoryWire,
   type HostMetricsWire,
+  type IssueId,
   isIssueClosed,
+  type MachineId,
   normalizeOriginUrl,
   repoNameFromOrigin,
   type SessionMeta,
   type SessionStatus,
-  type MachineId,
-  type IssueId,
 } from '@podium/model'
 import type { RepoView, WorktreeView } from '../../types'
 
@@ -213,6 +213,21 @@ const totalGib = (bytes: number): string => {
 export function formatMemBytes(bytes: number): string {
   if (bytes >= GIB) return `${(bytes / GIB).toFixed(1)} GB`
   return `${Math.round(bytes / 1024 ** 2)} MB`
+}
+export function reclaimSpaceLabel(
+  estimate: {
+    status: 'unknown' | 'measuring' | 'ready'
+    recoverableBytes: number | null
+  } | null,
+): string {
+  if (
+    estimate?.status !== 'ready' ||
+    estimate.recoverableBytes === null ||
+    !Number.isFinite(estimate.recoverableBytes)
+  ) {
+    return estimate?.status === 'measuring' ? 'space unknown · measuring' : 'space unknown'
+  }
+  return `${formatMemBytes(estimate.recoverableBytes)} recoverable`
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   listReclaimableWorktreesClient,
   occupiedRootsFromKey,
   placeReclaimable,
+  reclaimSpaceLabel,
   residencyBreakdown,
   residentSessionsOnMachine,
   residentWorktreeKey,
@@ -51,6 +52,19 @@ const session = (
     ...over,
     sessionId: asSessionId(over.sessionId),
   }) as SessionMeta
+
+describe('reclaimSpaceLabel', () => {
+  it('renders absent and in-flight measurements as unknown, never zero', () => {
+    expect(reclaimSpaceLabel(null)).toBe('space unknown')
+    expect(reclaimSpaceLabel({ status: 'measuring', recoverableBytes: null })).toBe(
+      'space unknown · measuring',
+    )
+  })
+
+  it('renders a completed zero measurement as a known zero', () => {
+    expect(reclaimSpaceLabel({ status: 'ready', recoverableBytes: 0 })).toBe('0 MB recoverable')
+  })
+})
 
 describe('hostLoadView', () => {
   it('fills the meter against loadPerCore, not 100%', () => {

@@ -64,7 +64,10 @@ export interface MachinesDaemonPort {
   detach(machineId: MachineId, send?: ControlSend): boolean
   flushQueued(machineId: MachineId): void
   broadcastMachines(): void
-  recordInventory(machineId: MachineId, inventory: DaemonFrame<'inventoryReport'>['inventory']): void
+  recordInventory(
+    machineId: MachineId,
+    inventory: DaemonFrame<'inventoryReport'>['inventory'],
+  ): void
   recordDiagnostic(machineId: MachineId, diagnostic: DaemonFrame<'machineDiagnostic'>): void
 }
 
@@ -78,6 +81,10 @@ export interface UpdatesDaemonPort {
 export interface HostsDaemonPort {
   onHostMetrics(machineId: MachineId, sample: Omit<DaemonFrame<'hostMetrics'>, 'type'>): void
   onMemoryBreakdownResult(machineId: MachineId, msg: DaemonFrame<'memoryBreakdownResult'>): void
+  onReclaimDiskEstimateResult(
+    machineId: MachineId,
+    msg: DaemonFrame<'reclaimDiskEstimateResult'>,
+  ): void
 }
 
 /** CONVERSATIONS. Discovery is per-machine; the mirror read is request-correlated

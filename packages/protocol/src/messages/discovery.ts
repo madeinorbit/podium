@@ -181,6 +181,8 @@ export const RepoOp = z.enum([
   // to name paths on another machine's disk is a traversal surface no validation closes.
   'bundleCreate',
   'bundleFetch',
+  'worktreeList',
+  'revListUnreachableCount',
   'worktreeAdd',
   // stop→resume [spec:SP-9904]: re-materialize a worktree for an EXISTING branch
   // (no -b/-B). worktreeAdd always creates a new branch; this attaches the

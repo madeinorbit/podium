@@ -34,6 +34,12 @@ const memoryBreakdown = vi.fn(async () => ({
   projects: [],
   otherBytes: 12e9,
 }))
+const reclaimInventory = vi.fn(async () => ({
+  candidates: [],
+  orphans: [],
+  diagnostics: [],
+  estimate: { status: 'unknown', recoverableBytes: null, measuredAt: null },
+}))
 
 const agentSession = (sessionId: string, phase: 'idle' | 'working' | 'needs_user'): SessionMeta =>
   ({
@@ -69,7 +75,10 @@ vi.mock('@/app/store', () => {
     setView: vi.fn(),
     setSettingsTab: vi.fn(),
     trpc: {
-      hosts: { memoryBreakdown: { mutate: memoryBreakdown } },
+      hosts: {
+        memoryBreakdown: { mutate: memoryBreakdown },
+        reclaimInventory: { mutate: reclaimInventory },
+      },
       settings: { get: { query: settingsGet } },
     },
   })

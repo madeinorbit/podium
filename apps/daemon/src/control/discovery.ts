@@ -1,7 +1,13 @@
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { type GitDiscoveryDiagnostic, type GitRepositorySummary, scanGitRepositories, scanGitRepositoriesAtPath } from '@podium/harness'
+import {
+  type GitDiscoveryDiagnostic,
+  type GitRepositorySummary,
+  scanGitRepositories,
+  scanGitRepositoriesAtPath,
+} from '@podium/harness'
+import { createLogger } from '@podium/logger'
 import type {
   DirectoryEntryWire,
   DirectoryListingWire,
@@ -13,7 +19,6 @@ import { runDirOp } from '../dir-ops'
 import { sampleHostMemory } from '../host-metrics'
 import type { MemoryAttribution } from '../memory-breakdown'
 import type { ControlHandlers, DaemonContext } from './context'
-import { createLogger } from '@podium/logger'
 
 const log = createLogger('daemon:discovery')
 
@@ -304,6 +309,29 @@ async function memoryBreakdown(
   })
 }
 
+async function reclaimDiskEstimate(
+  ctx: DaemonContext,
+  requestId: string,
+  roots: string[],
+  reclaimRoots: string[],
+): Promise<void> {
+  try {
+    const result = (await ctx.workerClient.runJob(
+      'reclaimDiskEstimate',
+      { roots, reclaimRoots },
+      10 * 60_000,
+      false,
+    )) as { recoverableBytes: number; measuredAt: string }
+    ctx.send({ type: 'reclaimDiskEstimateResult', requestId, ...result })
+  } catch (err) {
+    ctx.send({
+      type: 'reclaimDiskEstimateResult',
+      requestId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
+
 export const discoveryHandlers: Pick<
   ControlHandlers,
   | 'scanRequest'
@@ -311,6 +339,7 @@ export const discoveryHandlers: Pick<
   | 'browseDirsRequest'
   | 'dirOpRequest'
   | 'memoryBreakdownRequest'
+  | 'reclaimDiskEstimateRequest'
 > = {
   scanRequest: (ctx, msg) => {
     void scan(ctx, msg.requestId)
@@ -332,5 +361,8 @@ export const discoveryHandlers: Pick<
   },
   memoryBreakdownRequest: (ctx, msg) => {
     void memoryBreakdown(ctx, msg.requestId, msg.roots)
+  },
+  reclaimDiskEstimateRequest: (ctx, msg) => {
+    void reclaimDiskEstimate(ctx, msg.requestId, msg.roots, msg.reclaimRoots)
   },
 }

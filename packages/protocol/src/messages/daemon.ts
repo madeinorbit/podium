@@ -37,6 +37,7 @@ import {
   HostMetricsMessage,
   MachineDiagnosticMessage,
   MemoryBreakdownResultMessage,
+  ReclaimDiskEstimateResultMessage,
   UsageResultMessage,
 } from './host'
 import { InventoryReportMessage, ModelProbeResultMessage } from './inventory'
@@ -205,6 +206,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   HostMetricsMessage,
   MachineDiagnosticMessage,
   MemoryBreakdownResultMessage,
+  ReclaimDiskEstimateResultMessage,
   TranscriptDeltaMessage,
   TranscriptReadResultMessage,
   FileReadResultMessage,

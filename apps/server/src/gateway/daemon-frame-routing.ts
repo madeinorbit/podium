@@ -16,7 +16,7 @@
  */
 
 import { DAEMON_PLANE_CLASS, type PlaneClass } from '@podium/protocol'
-import { type DaemonMessage } from '@podium/protocol/daemon'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 
 /**
  * The feature ports the daemon edge routes to. Each is owned by a module; the
@@ -75,6 +75,7 @@ export const DAEMON_FRAME_PORTS = {
   // ---- host-owned ----
   hostMetrics: ['hosts'],
   memoryBreakdownResult: ['hosts'],
+  reclaimDiskEstimateResult: ['hosts'],
 
   // ---- conversation-owned ----
   conversationsChanged: ['conversations'],
@@ -184,6 +185,7 @@ export const MACHINE_SCOPE_CARRIER = {
   updateStatus: 'principal',
   hostMetrics: 'principal',
   memoryBreakdownResult: 'request-correlated',
+  reclaimDiskEstimateResult: 'request-correlated',
   scanResult: 'principal',
   conversationsChanged: 'principal',
   scanReposResult: 'request-correlated',
