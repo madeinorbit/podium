@@ -2,6 +2,7 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
+import '@/test-support/model-catalog-mock'
 import { IssuePage } from './IssuePage'
 
 const PARENT = makeIssue({
@@ -47,6 +48,7 @@ vi.mock('@/app/store', () => {
         },
       },
       hub: { onIssues: () => () => {} },
+      repos: [],
       machines: [],
       issues: mockIssues,
       setSelectedWorktree: vi.fn(),

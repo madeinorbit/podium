@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
+import '@/test-support/model-catalog-mock'
 import { IssuePage } from './IssuePage'
 
 // The page's mutation runner reports a refused write through the app's shared
@@ -33,6 +34,7 @@ vi.mock('@/app/store', () => {
         },
       },
       hub: { onIssues: () => () => {} },
+      repos: [],
       machines: [],
       // The launch box reads the fleet to grey harnesses this repo's hosts
       // cannot run; an absent slice crashes `reposToViews` rather than

@@ -2,6 +2,7 @@ import { asAccountId } from '@podium/model'
 import { nativeAccountId } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import '@/test-support/model-catalog-mock'
 import { accountOptions, RoleBackendEditor } from './shared'
 
 vi.mock('@/app/store', () => {

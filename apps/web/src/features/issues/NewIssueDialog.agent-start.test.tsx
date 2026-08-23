@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { InputHTMLAttributes } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
+import '@/test-support/model-catalog-mock'
 import { NewIssueDialog } from './NewIssueDialog'
 
 // Typed input so the assertions below can read back the payload create received.

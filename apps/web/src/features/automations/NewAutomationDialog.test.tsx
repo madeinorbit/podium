@@ -1,6 +1,7 @@
 import { type AutomationWire, asAutomationId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import '@/test-support/model-catalog-mock'
 
 const create = vi.fn(async () => ({}))
 const update = vi.fn(async () => ({}))

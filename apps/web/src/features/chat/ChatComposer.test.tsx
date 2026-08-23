@@ -2,6 +2,7 @@ import type { useVoiceInput } from '@podium/terminal-client-react'
 import { act, createRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import '@/test-support/model-catalog-mock'
 import { ChatComposer } from './ChatComposer'
 import type { UseAttachmentsResult } from './use-attachments'
 
