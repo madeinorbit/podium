@@ -654,3 +654,26 @@ Rules that follow:
   `free -m` immediately before, not five minutes before.
 - Stopping a session that has barely begun costs almost nothing and is the cheapest lever
   once you are already in trouble; the branch is kept and a restart resumes from it.
+
+### `session stop --force` destroys uncommitted work — I did it during a load event
+
+2026-08-24. Under load 76 with 989 MB free I stopped the most recently started session to
+relieve the box. The plain `podium session stop` timed out, so I retried with `--force` and
+it succeeded: "worktree freed (branch kept)". The session had an in-progress uncommitted fix.
+The worktree came back clean, the branch carried no commits, and the work was gone. Nothing
+in `git fsck --lost-found` was attributable to it.
+
+**The plain stop refuses on unsaved changes for exactly this reason.** `--force` is the
+override for that refusal, and I reached for it because the first attempt had *timed out* —
+a completely different failure. Under pressure I treated the flag as "try harder" when it
+means "discard".
+
+The rule: before force-stopping any session, preserve its work first —
+
+    git -C <worktree> stash push -m "coordinator rescue POD-<n>"   # NAME it; a bare pop can steal another session's
+
+or commit on its branch. Then stop. If the control plane is too degraded to reach the session
+but not to run git, the git side still works: that is the order to do things in.
+
+And when a stop times out, retry the *plain* stop. A timeout says nothing about whether the
+tree is dirty.
