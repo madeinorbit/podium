@@ -538,63 +538,77 @@ describe('Workspace splitting', () => {
     state.workspaces = { 'mission:task-1': makeSplitLayout() }
   })
 
-  it('finishes a cold drag into another pane after the pointer is already up', async () => {
-    const rect = vi
-      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
-      .mockImplementation(function (this: HTMLElement) {
-        const tabId = this.dataset.tabDragId
-        if (tabId === 's1') return new DOMRect(10, 5, 80, 28)
-        if (tabId === 's2') return new DOMRect(270, 5, 80, 28)
-        if (tabId === 's3') return new DOMRect(355, 5, 80, 28)
-        if (this.dataset.testid === 'native-tab-strip') {
-          return this.dataset.pane === 'p1'
-            ? new DOMRect(0, 0, 250, 38)
-            : new DOMRect(250, 0, 250, 38)
-        }
-        return new DOMRect()
+  it.each(['label', 'close'] as const)(
+    'finishes a cold drag without dispatching its browser click to the source %s control',
+    async (control) => {
+      const rect = vi
+        .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+        .mockImplementation(function (this: HTMLElement) {
+          const tabId = this.dataset.tabDragId
+          if (tabId === 's1') return new DOMRect(10, 5, 80, 28)
+          if (tabId === 's2') return new DOMRect(270, 5, 80, 28)
+          if (tabId === 's3') return new DOMRect(355, 5, 80, 28)
+          if (this.dataset.testid === 'native-tab-strip') {
+            return this.dataset.pane === 'p1'
+              ? new DOMRect(0, 0, 250, 38)
+              : new DOMRect(250, 0, 250, 38)
+          }
+          return new DOMRect()
+        })
+      const runtime = delayedDragRuntime()
+      render(<Workspace loadDragRuntime={runtime.load} />)
+      const source = document.querySelector<HTMLElement>('[data-tab-drag-id="s1"]')
+      if (!source) throw new Error('no source tab')
+      const clickTarget =
+        control === 'label'
+          ? source.querySelector<HTMLElement>('button')
+          : within(source).getByRole('button', { name: 'Close tab' })
+      if (!clickTarget) throw new Error(`no source ${control} control`)
+
+      fireEvent.pointerDown(clickTarget, {
+        pointerId: 9,
+        pointerType: 'mouse',
+        isPrimary: true,
+        button: 0,
+        buttons: 1,
+        clientX: 20,
+        clientY: 15,
       })
-    const runtime = delayedDragRuntime()
-    render(<Workspace loadDragRuntime={runtime.load} />)
-    const source = document.querySelector<HTMLElement>('[data-tab-drag-id="s1"]')
-    if (!source) throw new Error('no source tab')
+      fireEvent.pointerMove(document, {
+        pointerId: 9,
+        pointerType: 'mouse',
+        isPrimary: true,
+        buttons: 1,
+        clientX: 480,
+        clientY: 15,
+      })
+      fireEvent.pointerUp(document, {
+        pointerId: 9,
+        pointerType: 'mouse',
+        isPrimary: true,
+        button: 0,
+        buttons: 0,
+        clientX: 480,
+        clientY: 15,
+      })
+      expect(actions.moveWorkspaceTab).not.toHaveBeenCalled()
 
-    fireEvent.pointerDown(source, {
-      pointerId: 9,
-      pointerType: 'mouse',
-      isPrimary: true,
-      button: 0,
-      buttons: 1,
-      clientX: 20,
-      clientY: 15,
-    })
-    fireEvent.pointerMove(document, {
-      pointerId: 9,
-      pointerType: 'mouse',
-      isPrimary: true,
-      buttons: 1,
-      clientX: 480,
-      clientY: 15,
-    })
-    fireEvent.pointerUp(document, {
-      pointerId: 9,
-      pointerType: 'mouse',
-      isPrimary: true,
-      button: 0,
-      buttons: 0,
-      clientX: 480,
-      clientY: 15,
-    })
-    expect(actions.moveWorkspaceTab).not.toHaveBeenCalled()
+      // Browsers dispatch this click from the physical pointerdown/pointerup pair.
+      // The deferred runtime has not mounted dnd-kit's own click blocker yet.
+      expect(fireEvent.click(clickTarget)).toBe(false)
+      expect(actions.activateWorkspaceTab).not.toHaveBeenCalled()
+      expect(actions.closeWorkspaceTab).not.toHaveBeenCalled()
 
-    await runtime.release()
-    await waitFor(() => expect(actions.moveWorkspaceTab).toHaveBeenCalledWith('s1', 'p2', 2))
-    expect(document.querySelector('[data-dropzone]')).toBeNull()
-    // PointerSensor keeps its click blocker for 50ms after a completed drag so
-    // the release cannot select the tab underneath. Let that documented guard
-    // detach before the next test clicks a pane control.
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 60))
-    rect.mockRestore()
-  })
+      await runtime.release()
+      await waitFor(() => expect(actions.moveWorkspaceTab).toHaveBeenCalledWith('s1', 'p2', 2))
+      expect(document.querySelector('[data-dropzone]')).toBeNull()
+      // PointerSensor keeps its click blocker for 50ms after a completed drag so
+      // the release cannot select the tab underneath. Let that documented guard
+      // detach before the next test clicks a pane control.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 60))
+      rect.mockRestore()
+    },
+  )
 
   it('renders every pane with its own strip', () => {
     render(<Workspace />)

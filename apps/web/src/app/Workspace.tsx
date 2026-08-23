@@ -107,6 +107,11 @@ const pointerSnapshot = (event: PointerEvent): TabDragPointerEventSnapshot => ({
   metaKey: event.metaKey,
 })
 
+const passedTabDragThreshold = (
+  start: TabDragPointerEventSnapshot,
+  current: TabDragPointerEventSnapshot,
+): boolean => Math.hypot(current.clientX - start.clientX, current.clientY - start.clientY) >= 5
+
 const keyboardSnapshot = (event: KeyboardEvent): TabDragKeyboardEventSnapshot => ({
   key: event.key,
   code: event.code,
@@ -203,11 +208,14 @@ export function Workspace({
         start: TabDragPointerEventSnapshot
         latestMove: TabDragPointerEventSnapshot | null
         end: TabDragPointerEventSnapshot | null
+        dragThresholdCrossed: boolean
       }
     | { kind: 'keyboard'; tabId: string; events: TabDragKeyboardEventSnapshot[] }
     | null
   >(null)
   const clearPendingDragListeners = useRef<(() => void) | null>(null)
+  const clearColdDragClickListener = useRef<(() => void) | null>(null)
+  const coldDragClickTimer = useRef<number | null>(null)
   const workspaceRef = useRef<HTMLElement | null>(null)
   // Sizes being dragged on a pane divider, held locally until the pointer is
   // released — the same shape as the shell's ResizableColumn, which tracks the
@@ -226,11 +234,49 @@ export function Workspace({
     [loadDragRuntime],
   )
 
+  const clearColdDragClickSuppression = useCallback((): void => {
+    if (coldDragClickTimer.current !== null) {
+      window.clearTimeout(coldDragClickTimer.current)
+      coldDragClickTimer.current = null
+    }
+    clearColdDragClickListener.current?.()
+    clearColdDragClickListener.current = null
+  }, [])
+
+  const deferColdDragClickCleanup = useCallback((): void => {
+    if (!clearColdDragClickListener.current || coldDragClickTimer.current !== null) return
+    coldDragClickTimer.current = window.setTimeout(clearColdDragClickSuppression, 0)
+  }, [clearColdDragClickSuppression])
+
+  const suppressNextColdDragClick = useCallback(
+    (tabId: string): void => {
+      if (clearColdDragClickListener.current) return
+      const ownerDocument = workspaceRef.current?.ownerDocument
+      if (!ownerDocument) return
+      const suppressClick = (click: MouseEvent): void => {
+        const target = click.target
+        const clickedTab =
+          target instanceof Element
+            ? target.closest<HTMLElement>('[data-tab-drag-id]')?.dataset.tabDragId
+            : undefined
+        if (clickedTab !== tabId) return
+        click.preventDefault()
+        click.stopPropagation()
+        clearColdDragClickSuppression()
+      }
+      ownerDocument.addEventListener('click', suppressClick, true)
+      clearColdDragClickListener.current = () =>
+        ownerDocument.removeEventListener('click', suppressClick, true)
+    },
+    [clearColdDragClickSuppression],
+  )
+
   const clearPendingDragActivation = useCallback((): void => {
     clearPendingDragListeners.current?.()
     clearPendingDragListeners.current = null
     pendingDragActivation.current = null
-  }, [])
+    clearColdDragClickSuppression()
+  }, [clearColdDragClickSuppression])
 
   useEffect(() => clearPendingDragActivation, [clearPendingDragActivation])
 
@@ -269,16 +315,26 @@ export function Workspace({
         start: TabDragPointerEventSnapshot
         latestMove: TabDragPointerEventSnapshot | null
         end: TabDragPointerEventSnapshot | null
+        dragThresholdCrossed: boolean
       } = {
         kind: 'pointer' as const,
         tabId,
         start: pointerSnapshot(event.nativeEvent),
         latestMove: null,
         end: null,
+        dragThresholdCrossed: false,
       }
       pendingDragActivation.current = pending
       const onMove = (move: PointerEvent): void => {
-        if (move.pointerId === pending.start.pointerId) pending.latestMove = pointerSnapshot(move)
+        if (move.pointerId !== pending.start.pointerId) return
+        pending.latestMove = pointerSnapshot(move)
+        if (
+          !pending.dragThresholdCrossed &&
+          passedTabDragThreshold(pending.start, pending.latestMove)
+        ) {
+          pending.dragThresholdCrossed = true
+          suppressNextColdDragClick(tabId)
+        }
       }
       const stopListening = (): void => {
         clearPendingDragListeners.current?.()
@@ -288,17 +344,18 @@ export function Workspace({
         if (end.pointerId !== pending.start.pointerId) return
         const finish = pointerSnapshot(end)
         const latest = pending.latestMove ?? finish
-        const moved = Math.hypot(
-          latest.clientX - pending.start.clientX,
-          latest.clientY - pending.start.clientY,
-        )
-        if (moved < 5) {
+        if (!pending.dragThresholdCrossed && passedTabDragThreshold(pending.start, latest)) {
+          pending.dragThresholdCrossed = true
+          suppressNextColdDragClick(tabId)
+        }
+        if (!pending.dragThresholdCrossed) {
           clearPendingDragActivation()
           return
         }
         pending.latestMove = latest
         pending.end = finish
         stopListening()
+        deferColdDragClickCleanup()
       }
       const onCancel = (cancel: PointerEvent): void => {
         if (cancel.pointerId === pending.start.pointerId) clearPendingDragActivation()
@@ -313,7 +370,13 @@ export function Workspace({
       }
       preloadDragRuntime()
     },
-    [DragRuntime, clearPendingDragActivation, preloadDragRuntime],
+    [
+      DragRuntime,
+      clearPendingDragActivation,
+      deferColdDragClickCleanup,
+      preloadDragRuntime,
+      suppressNextColdDragClick,
+    ],
   )
 
   const captureColdKeyboardActivation = useCallback(
@@ -597,6 +660,7 @@ export function Workspace({
    *      the server-side `tabOrders` overlay has no job here).
    */
   const onDragEnd = (activeId: string, overId: string | null): void => {
+    deferColdDragClickCleanup()
     setDragTabId(null)
     if (!overId) return
     const drop = resolveTabDrop(layout, activeId, overId)
@@ -730,7 +794,10 @@ export function Workspace({
               overlay={dragTab ? <TabGhost tab={dragTab} /> : null}
               onDragStart={setDragTabId}
               onDragEnd={onDragEnd}
-              onDragCancel={() => setDragTabId(null)}
+              onDragCancel={() => {
+                clearColdDragClickSuppression()
+                setDragTabId(null)
+              }}
               onReady={preparePendingDragActivation}
             >
               {renderChrome}
