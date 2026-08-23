@@ -591,6 +591,20 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         !sameGrid(stateGrid, requested)
           ? { ...requested }
           : null
+      // The assertion fences only an in-flight local claim. Once the transport
+      // clears requestedGeometry, a different server grid supersedes that claim.
+      if (
+        assertedControlGrid !== null &&
+        pendingRequestedGrid === null &&
+        state.requestedGeometry === null &&
+        !sameGrid(stateGrid, applied)
+      ) {
+        trace('connection:assertion-superseded', {
+          state,
+          asserted: assertedControlGrid,
+        })
+        clearControlAssertion()
+      }
       const asserted = pendingRequestedGrid ?? assertedControlGrid
       const holdClaimedGrid =
         gridMode === 'control' &&

@@ -468,6 +468,40 @@ describe('mountSession eligibility-gated sizing', () => {
     vi.advanceTimersByTime(1)
   })
 
+  it('removes the focus resume listener when disposed', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+    })
+    const requestControlBeforeDispose = calls.requestControl
+    mounted.dispose()
+    window.dispatchEvent(new Event('focus'))
+    vi.advanceTimersByTime(16 * 3)
+    expect(calls.requestControl).toBe(requestControlBeforeDispose)
+  })
+
+  it('removes the pageshow resume listener when disposed', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+    })
+    const requestControlBeforeDispose = calls.requestControl
+    mounted.dispose()
+    window.dispatchEvent(new Event('pageshow'))
+    vi.advanceTimersByTime(16 * 3)
+    expect(calls.requestControl).toBe(requestControlBeforeDispose)
+  })
+
   it('cancels stale reveal callbacks when a newer page resume supersedes them', () => {
     withResizeObserver()
     withFakeTimedRaf()
@@ -505,7 +539,7 @@ describe('mountSession eligibility-gated sizing', () => {
     // The server's delayed 80×24 echo arrives after the correct claim. It must
     // not reflow the view back to the stale grid; the client must re-assert the
     // applied fitted grid instead.
-    state(80, 24)
+    state(80, 24, 'controller', { cols: 150, rows: 50 })
     expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
       cols: 150,
       rows: 50,
@@ -515,6 +549,53 @@ describe('mountSession eligibility-gated sizing', () => {
       { cols: 150, rows: 50 },
       { cols: 150, rows: 50 },
     ])
+
+    // A second stale echo must remain fenced until the requested geometry is
+    // acknowledged; one repair frame is not enough for the live race.
+    state(80, 24, 'controller', { cols: 150, rows: 50 })
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
+    vi.advanceTimersByTime(16)
+    expect(calls.claims).toEqual([
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+    ])
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('lets a non-pending server resize supersede a stale claim', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: false,
+    })
+    mounted.setActive(true)
+    vi.advanceTimersByTime(16 * 2)
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
+
+    state(80, 24, 'controller', { cols: 150, rows: 50 })
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
+
+    // No pending local claim: this authoritative server resize must win.
+    state(100, 30)
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 100,
+      rows: 30,
+    })
     mounted.dispose()
     vi.advanceTimersByTime(1)
   })
