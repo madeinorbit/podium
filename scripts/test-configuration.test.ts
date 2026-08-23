@@ -366,6 +366,7 @@ describe('test lane configuration', () => {
   it('keeps the frontend performance lane deterministic and explicit', () => {
     expect(config(frontendPerfConfig).test?.include).toEqual([
       'src/perf/large-state.frontend-perf.tsx',
+      'src/perf/responsive-filtering.frontend-perf.tsx',
       'src/perf/scoped-session-render.test.tsx',
       'src/features/issues/IssuesKanban.test.tsx',
     ])
