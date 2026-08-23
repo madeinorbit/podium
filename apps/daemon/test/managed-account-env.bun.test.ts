@@ -22,10 +22,11 @@
 // developer's live agent sessions.
 
 import { afterEach, beforeEach, expect, it } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand } from '@podium/harness'
+import type { HarnessAgent } from '@podium/model'
 import { SpawnMessage } from '@podium/protocol'
 import { hasBunTerminal } from '@podium/pty'
 import { credentialEnv } from '@podium/runtime'
@@ -35,12 +36,22 @@ import { sessionHandlers } from '../src/control/session'
 const CREDENTIAL = 'sk-test-xyz'
 /** A key on the DAEMON, standing in for one an operator exported before starting it. */
 const INHERITED_KEY = 'sk-test-inherited-from-the-daemon'
+const HARNESS_ENV_KEYS = [
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_EXECPATH',
+  'CODEX_HOME',
+  'GROK_HOME',
+  'PODIUM_TEST_REQUIRED_ENV',
+] as const
 
 let settingsDir: string
 let home: string
 let savedHome: string | undefined
 let savedShell: string | undefined
 let savedKey: string | undefined
+let savedHarnessEnv: Record<(typeof HARNESS_ENV_KEYS)[number], string | undefined>
 
 beforeEach(() => {
   settingsDir = mkdtempSync(join(tmpdir(), 'podium-bun-spawn-settings-'))
@@ -48,6 +59,9 @@ beforeEach(() => {
   savedHome = process.env.HOME
   savedShell = process.env.SHELL
   savedKey = process.env.ANTHROPIC_API_KEY
+  savedHarnessEnv = Object.fromEntries(
+    HARNESS_ENV_KEYS.map((key) => [key, process.env[key]]),
+  ) as typeof savedHarnessEnv
   // The daemon passes its OWN environment down to the agent, so "Podium injected nothing"
   // is only observable against a clean ambient env: an empty HOME (no ~/.bashrc that might
   // export the var itself), a known shell, and no inherited ANTHROPIC_API_KEY.
@@ -64,6 +78,11 @@ afterEach(() => {
   else process.env.SHELL = savedShell
   if (savedKey === undefined) delete process.env.ANTHROPIC_API_KEY
   else process.env.ANTHROPIC_API_KEY = savedKey
+  for (const key of HARNESS_ENV_KEYS) {
+    const value = savedHarnessEnv[key]
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
   rmSync(settingsDir, { recursive: true, force: true })
   rmSync(home, { recursive: true, force: true })
 })
@@ -86,7 +105,8 @@ async function waitFor(pred: () => boolean, timeoutMs = 10_000): Promise<void> {
 }
 
 /** Spawn a real shell through the daemon's real spawn handler and return what its
- *  own `env` printed. `env` (not `echo $VAR`) so we read the process's actual environ.
+ *  own `env` wrote to a landing file. `env` (not `echo $VAR`) reports the
+ *  process's actual environ, and the parent only reads the child's artifact.
  *
  *  `agentKind` is the kind the FRAME declares — the daemon composes the env for
  *  that harness — while the process launched is always a shell, because a shell is
@@ -95,10 +115,10 @@ async function waitFor(pred: () => boolean, timeoutMs = 10_000): Promise<void> {
 async function dumpEnvOfSpawnedProcess(
   sessionId: string,
   env: Record<string, string> | undefined,
-  agentKind: 'shell' | 'claude-code' = 'shell',
+  agentKind: 'shell' | HarnessAgent = 'shell',
 ): Promise<string> {
   let buffer = ''
-  let lastFrameAt = Date.now()
+  const landing = join(home, `${sessionId}.env`)
   const bridges = new Map<string, { pid: number; write(b64: string): void; dispose(): void }>()
   const ctx = {
     send: () => {},
@@ -137,7 +157,6 @@ async function dumpEnvOfSpawnedProcess(
     outputScheduler: {
       enqueue: (_id: string, data: string) => {
         buffer += Buffer.from(data, 'base64').toString('utf8')
-        lastFrameAt = Date.now()
       },
       remove: () => {},
     },
@@ -174,13 +193,16 @@ async function dumpEnvOfSpawnedProcess(
   const pid = session.pid
   try {
     await waitFor(() => buffer.length > 0)
-    session.write(Buffer.from('env\n', 'utf8').toString('base64'))
+    session.write(Buffer.from(`env > ${JSON.stringify(landing)}\n`, 'utf8').toString('base64'))
     // PODIUM_SESSION_ID is bound by the daemon on EVERY spawn: seeing it proves the dump
-    // really printed and that this process came out of Podium's spawn path — which is what
+    // really landed and that this process came out of Podium's spawn path — which is what
     // makes the credential's ABSENCE in the negative case meaningful rather than just early.
-    await waitFor(() => buffer.includes(`PODIUM_SESSION_ID=${sessionId}`))
-    while (Date.now() - lastFrameAt < 250) await Bun.sleep(25) // let the dump settle
-    return buffer
+    await waitFor(
+      () =>
+        existsSync(landing) &&
+        readFileSync(landing, 'utf8').includes(`PODIUM_SESSION_ID=${sessionId}`),
+    )
+    return readFileSync(landing, 'utf8')
   } finally {
     session.dispose() // reap by explicit pid — never pattern-kill
     await waitFor(() => !alive(pid), 5_000)
@@ -221,6 +243,50 @@ it("STRIP: the daemon's own ANTHROPIC_API_KEY never reaches a claude session", a
   expect(dump).not.toContain('ANTHROPIC_API_KEY=')
 })
 
+it('ISOLATION: parent Claude controls are absent while ordinary daemon env still arrives', async () => {
+  process.env.CLAUDE_CODE_CHILD_SESSION = '1'
+  process.env.CLAUDE_CODE_SESSION_ID = 'parent-session-id'
+  process.env.CLAUDE_CODE_ENTRYPOINT = 'parent-entrypoint'
+  process.env.CLAUDE_CODE_EXECPATH = '/parent/claude'
+  process.env.PODIUM_TEST_REQUIRED_ENV = 'machine-setting-the-agent-needs'
+
+  const dump = await dumpEnvOfSpawnedProcess('bun-claude-isolated', undefined, 'claude-code')
+
+  expect(dump).toContain('PODIUM_SESSION_ID=bun-claude-isolated')
+  expect(dump).toContain('PODIUM_TEST_REQUIRED_ENV=machine-setting-the-agent-needs')
+  for (const key of HARNESS_ENV_KEYS.slice(0, 4)) expect(dump).not.toContain(`${key}=`)
+})
+
+it('ISOLATION: Codex state follows the named instance instead of the daemon selector', async () => {
+  process.env.CODEX_HOME = '/daemon-parent/.codex'
+
+  const dump = await dumpEnvOfSpawnedProcess(
+    'bun-codex-home',
+    { PODIUM_TEST_REQUIRED_ENV: 'codex-managed-value' },
+    'codex',
+  )
+
+  expect(dump).toContain('PODIUM_TEST_REQUIRED_ENV=codex-managed-value')
+  expect(dump).toContain('PODIUM_SESSION_ID=bun-codex-home')
+  expect(dump).toContain(`CODEX_HOME=${join(home, '.codex')}`)
+  expect(dump).not.toContain('CODEX_HOME=/daemon-parent/.codex')
+})
+
+it('ISOLATION: Grok state follows the named instance instead of the daemon selector', async () => {
+  process.env.GROK_HOME = '/daemon-parent/.grok'
+
+  const dump = await dumpEnvOfSpawnedProcess(
+    'bun-grok-home',
+    { PODIUM_TEST_REQUIRED_ENV: 'grok-managed-value' },
+    'grok',
+  )
+
+  expect(dump).toContain('PODIUM_TEST_REQUIRED_ENV=grok-managed-value')
+  expect(dump).toContain('PODIUM_SESSION_ID=bun-grok-home')
+  expect(dump).toContain(`GROK_HOME=${join(home, '.grok')}`)
+  expect(dump).not.toContain('GROK_HOME=/daemon-parent/.grok')
+})
+
 it('STRIP: a managed credential still reaches the child that the daemon key does not', async () => {
   // The two are the same variable and must not share a fate: one is the account
   // Podium resolved for this session, the other is a leak from the host.
@@ -245,4 +311,17 @@ it("STRIP: an operator's shell keeps the key they exported themselves", async ()
   const dump = await dumpEnvOfSpawnedProcess('bun-operator-shell', undefined)
 
   expect(dump).toContain(`ANTHROPIC_API_KEY=${INHERITED_KEY}`)
+
+it("PRESERVE: an operator's shell keeps harness variables they exported", async () => {
+  process.env.CLAUDE_CODE_CHILD_SESSION = '1'
+  process.env.CLAUDE_CODE_SESSION_ID = 'operator-shell-session'
+  process.env.CODEX_HOME = '/operator/chosen/.codex'
+
+  const dump = await dumpEnvOfSpawnedProcess('bun-shell-harness-env', undefined)
+
+  expect(dump).toContain('CLAUDE_CODE_CHILD_SESSION=1')
+  expect(dump).toContain('CLAUDE_CODE_SESSION_ID=operator-shell-session')
+  expect(dump).toContain('CODEX_HOME=/operator/chosen/.codex')
+  expect(dump).toContain('PODIUM_SESSION_ID=bun-shell-harness-env')
+})
 })

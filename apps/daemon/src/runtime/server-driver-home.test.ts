@@ -52,12 +52,16 @@ interface Landing {
   HOME: string | undefined
   PATH: string | undefined
   MANAGED: string | undefined
+  CODEX_HOME: string | undefined
+  GROK_HOME: string | undefined
 }
 
 let root: string
 let instanceHome: string
 let workdir: string
 let previousStateDir: string | undefined
+let previousCodexHome: string | undefined
+let previousGrokHome: string | undefined
 
 /**
  * A fake harness binary. A `/bin/sh` wrapper exec's the test runtime itself
@@ -82,6 +86,8 @@ fs.writeFileSync(process.env.PODIUM_TEST_LANDING, JSON.stringify({
   HOME: process.env.HOME,
   PATH: process.env.PATH,
   MANAGED: process.env.PODIUM_TEST_MANAGED,
+  CODEX_HOME: process.env.CODEX_HOME,
+  GROK_HOME: process.env.GROK_HOME,
 }))
 if (process.argv.includes('--rig-check')) process.exit(0)
 const portIx = process.argv.indexOf('--port')
@@ -163,13 +169,21 @@ beforeAll(() => {
   // The journals live under the state dir; keep this test's writes out of the
   // machine's real one.
   previousStateDir = process.env.PODIUM_STATE_DIR
+  previousCodexHome = process.env.CODEX_HOME
+  previousGrokHome = process.env.GROK_HOME
   process.env.PODIUM_STATE_DIR = join(root, 'state')
+  process.env.CODEX_HOME = '/daemon/operator/.codex'
+  process.env.GROK_HOME = '/daemon/operator/.grok'
   for (const name of ['opencode', 'codex', 'grok']) installFakeBinary(name)
 })
 
 afterAll(() => {
   if (previousStateDir === undefined) delete process.env.PODIUM_STATE_DIR
   else process.env.PODIUM_STATE_DIR = previousStateDir
+  if (previousCodexHome === undefined) delete process.env.CODEX_HOME
+  else process.env.CODEX_HOME = previousCodexHome
+  if (previousGrokHome === undefined) delete process.env.GROK_HOME
+  else process.env.GROK_HOME = previousGrokHome
   rmSync(root, { recursive: true, force: true })
 })
 
@@ -199,6 +213,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       expect(seen.HOME).not.toBe(process.env.HOME)
       expect(seen.PATH?.startsWith(join(instanceHome, '.local', 'bin'))).toBe(true)
       expect(seen.MANAGED).toBe('rides-through')
+      expect(seen.CODEX_HOME).toBeUndefined()
     } finally {
       await endpoint.kill()
     }
@@ -215,13 +230,18 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
       workdir,
-      env: { PODIUM_TEST_LANDING: landing, PODIUM_TEST_MANAGED: 'rides-through' },
+      env: {
+        PODIUM_TEST_LANDING: landing,
+        PODIUM_TEST_MANAGED: 'rides-through',
+      },
     })
     try {
       const seen = await readLanding(landing)
       expect(seen.HOME).toBe(instanceHome)
       expect(seen.HOME).not.toBe(process.env.HOME)
       expect(seen.MANAGED).toBe('rides-through')
+      expect(seen.CODEX_HOME).toBe(join(instanceHome, '.codex'))
+      expect(seen.CODEX_HOME).not.toBe('/daemon/operator/.codex')
       const socketPath = endpoint.clientAddress.slice('unix://'.length)
       expect(socketPath.startsWith(join(root, 'state', 'runtime'))).toBe(true)
       expect(
@@ -242,13 +262,18 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
       workdir,
-      env: { PODIUM_TEST_LANDING: landing, PODIUM_TEST_MANAGED: 'rides-through' },
+      env: {
+        PODIUM_TEST_LANDING: landing,
+        PODIUM_TEST_MANAGED: 'rides-through',
+      },
     })
     try {
       const seen = await readLanding(landing)
       expect(seen.HOME).toBe(instanceHome)
       expect(seen.HOME).not.toBe(process.env.HOME)
       expect(seen.MANAGED).toBe('rides-through')
+      expect(seen.GROK_HOME).toBe(join(instanceHome, '.grok'))
+      expect(seen.GROK_HOME).not.toBe('/daemon/operator/.grok')
     } finally {
       await endpoint.kill()
     }
