@@ -27,6 +27,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createMachineDirectory } from './gateway/machine-directory'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
+import { captureLogs } from './test-support/capture-logs'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
@@ -202,6 +203,75 @@ describe('the one-time boot upgrade (migrateLegacyMachineIdentity)', () => {
     expect(() => new SessionStore(path, HOST)).toThrow(
       /legacy machine identity survived the boot upgrade.*legacy_pins: 1/s,
     )
+  })
+})
+
+describe('the legacy issue worktree machine backfill', () => {
+  it('attributes only NULL-pinned worktrees to the host and is idempotent', () => {
+    const path = tmpDb()
+    new SessionStore(path, HOST).close()
+
+    const other = asMachineId('11112222-3333-4444-5555-666677778888')
+    const db = openDatabase(path)
+    db.exec(`
+      INSERT INTO issues
+        (id, repo_path, seq, title, stage, worktree_path, parent_branch, default_agent,
+         created_at, updated_at, machine_id)
+      VALUES
+        ('iss_unplaced-worktree', '/r', 101, 'unplaced worktree', 'done', '/w/legacy',
+         'main', 'claude-code', 't', 't', NULL),
+        ('iss_remote-worktree', '/r', 102, 'remote worktree', 'done', '/w/remote',
+         'main', 'claude-code', 't', 't', '${other}'),
+        ('iss_remote-evidence', '/r', 103, 'remote evidence', 'done', '/w/adopted',
+         'main', 'claude-code', 't', 't', NULL),
+        ('iss_no-worktree', '/r', 104, 'no worktree', 'done', NULL,
+         'main', 'claude-code', 't', 't', NULL);
+
+      INSERT INTO sessions
+        (id, owner_user_id, agent_kind, cwd, title, origin_kind, status, durable_label,
+         created_at, last_active_at, machine_id, issue_id, ref_issue_id)
+      VALUES
+        ('s_remote-adopter', 'user:sole', 'shell', '/w/adopted', 'remote adopter',
+         'spawn', 'exited', 'podium-s_remote-adopter', 't', 't', '${other}',
+         'iss_remote-evidence', 'iss_remote-evidence');
+    `)
+    db.close()
+
+    const logs = captureLogs()
+    try {
+      const store = new SessionStore(path, HOST)
+
+      expect(store.issues.getIssue('iss_unplaced-worktree')?.machineId).toBe(HOST)
+      expect(store.issues.getIssue('iss_remote-worktree')?.machineId).toBe(other)
+      expect(store.issues.getIssue('iss_remote-evidence')?.machineId).toBeNull()
+      expect(store.issues.getIssue('iss_no-worktree')?.machineId).toBeNull()
+      expect(logs.at('info')).toContainEqual(
+        expect.objectContaining({
+          ns: 'server:store',
+          msg:
+            `backfilled 1 worktree rows to ${HOST}; ` +
+            'skipped 1 rows with sessions on other machines',
+        }),
+      )
+
+      expect(store.migrateLegacyIssueWorktreeMachineIdentity(HOST)).toEqual({
+        backfilled: 0,
+        skipped: 1,
+      })
+      const raw = openDatabase(path)
+      raw.prepare('UPDATE sessions SET issue_id = NULL WHERE id = ?').run('s_remote-adopter')
+      raw.close()
+      expect(store.migrateLegacyIssueWorktreeMachineIdentity(HOST)).toEqual({
+        backfilled: 0,
+        skipped: 1,
+      })
+      expect(store.issues.getIssue('iss_remote-worktree')?.machineId).toBe(other)
+      expect(store.issues.getIssue('iss_remote-evidence')?.machineId).toBeNull()
+      expect(store.issues.getIssue('iss_no-worktree')?.machineId).toBeNull()
+      store.close()
+    } finally {
+      logs.restore()
+    }
   })
 })
 

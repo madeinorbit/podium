@@ -261,6 +261,7 @@ export class SessionStore {
     // "no reader ever sees a legacy machine id" true by construction instead of by
     // call-order discipline.
     this.migrateLegacyMachineIdentity(this.hostMachineId)
+    this.migrateLegacyIssueWorktreeMachineIdentity(this.hostMachineId)
     this.conversations.ensureFts()
     this.superagent.seedGlobalThread()
     // The legacy repos.json import is the ONE writer left that can still hand the
@@ -547,5 +548,66 @@ export class SessionStore {
     // (POD-1638). Tell it directly, or the next `listRepos()` answers with the
     // pre-upgrade machine id.
     this.repos.invalidate()
+  }
+
+  /**
+   * ONE-TIME BOOT BACKFILL for worktrees created before ordinary issue starts
+   * recorded their machine. Most NULL pins are historical hub work, but the
+   * old session-CWD adoption path could copy a remote session's worktree onto an
+   * issue without copying its machine.
+   *
+   * Session rows are the durable contradiction: the adopting session was
+   * already linked to the issue and authenticated as its real machine. Both its
+   * current issue_id and its sticky birth ref_issue_id count, so rehoming cannot
+   * erase the evidence. A row with ANY linked non-host session therefore stays
+   * NULL for manual recovery rather than being routed to the wrong disk. The
+   * legacy-machine rewrite runs immediately before this method, so old local
+   * sentinels have already become hostMachineId and do not look remote here.
+   *
+   * Existing pins always win, worktree-less issues remain genuinely unplaced,
+   * and reruns update nothing. Contradictory rows remain countable on every boot
+   * so the operator can see that the migration deliberately left work behind.
+   */
+  migrateLegacyIssueWorktreeMachineIdentity(
+    hostMachineId: MachineId,
+  ): { backfilled: number; skipped: number } {
+    const result = this.transact(() => {
+      const contradictorySession = `EXISTS (
+        SELECT 1
+          FROM sessions
+         WHERE (sessions.issue_id = issues.id OR sessions.ref_issue_id = issues.id)
+           AND sessions.machine_id <> ?
+      )`
+      const skipped = Number(
+        (
+          this.db
+            .prepare(
+              `SELECT COUNT(*) AS count
+                 FROM issues
+                WHERE worktree_path IS NOT NULL
+                  AND machine_id IS NULL
+                  AND ${contradictorySession}`,
+            )
+            .get(hostMachineId) as { count: number | bigint }
+        ).count,
+      )
+      const backfilled = Number(
+        this.db
+          .prepare(
+            `UPDATE issues
+                SET machine_id = ?
+              WHERE worktree_path IS NOT NULL
+                AND machine_id IS NULL
+                AND NOT ${contradictorySession}`,
+          )
+          .run(hostMachineId, hostMachineId).changes,
+      )
+      return { backfilled, skipped }
+    })
+    log.info(
+      `backfilled ${result.backfilled} worktree rows to ${hostMachineId}; ` +
+        `skipped ${result.skipped} rows with sessions on other machines`,
+    )
+    return result
   }
 }
