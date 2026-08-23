@@ -8,6 +8,7 @@ import {
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import './test-support/client-core-mock'
 
 // ---------------------------------------------------------------------------
 // THE QUESTION THAT IS NOT IN THE TRANSCRIPT (POD-1273).
