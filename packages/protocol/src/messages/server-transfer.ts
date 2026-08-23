@@ -79,6 +79,9 @@ export type ServerTransferSpaceProof = z.infer<typeof ServerTransferSpaceProof>
 export const ServerTransferTargetCapability = z.literal('server-only')
 export type ServerTransferTargetCapability = z.infer<typeof ServerTransferTargetCapability>
 
+export const ServerBindHost = z.enum(['127.0.0.1', '0.0.0.0'])
+export type ServerBindHost = z.infer<typeof ServerBindHost>
+
 /** Read-only evidence that the staged/imported instance matches the requested transfer. */
 export const ServerTransferProof = z.object({
   operationId,
@@ -94,6 +97,7 @@ export type ServerTransferProof = z.infer<typeof ServerTransferProof>
 /** Proof created only after the promoted server has passed its serving callback. */
 export const ServerTransferServingProof = ServerTransferProof.extend({
   publicUrl: z.string().min(1).max(2048),
+  bindHost: ServerBindHost,
   port: z.number().int().positive().max(65_535),
   health: z.literal('serving'),
 })
@@ -144,6 +148,7 @@ export const ServerTransferPromoteRequestMessage = z.object({
   transferId,
   manifestDigest: digest,
   publicUrl: z.string().min(1).max(2048),
+  bindHost: ServerBindHost,
   port: z.number().int().positive().max(65_535),
   targetMode: z.literal('server'),
   idempotencyKey: z.string().min(1).max(200),

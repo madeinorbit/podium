@@ -41,6 +41,7 @@ import type {
   RepoOp,
   ServerTransferManifest,
   ServerTransferManifestEntry,
+  ServerBindHost,
   ServerTransferResultMessage,
   WorkspaceCleanResultMessage,
   WorkspaceExportResultMessage,
@@ -1380,6 +1381,7 @@ export class DaemonRpcService {
     transferId: string,
     manifestDigest: string,
     publicUrl: string,
+    bindHost: ServerBindHost,
     machineId: MachineId,
     port: number,
   ): Promise<Payload<ServerTransferResultMessage>> {
@@ -1401,6 +1403,7 @@ export class DaemonRpcService {
         transferId,
         manifestDigest,
         publicUrl,
+        bindHost,
         port,
         targetMode: 'server',
         idempotencyKey: transferId,

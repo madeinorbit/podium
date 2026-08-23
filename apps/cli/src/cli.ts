@@ -1090,6 +1090,7 @@ export interface HostModules {
     /** In-process daemon channel [POD-196] — passed to the all-in-one daemon
      *  so per-frame traffic skips the loopback WebSocket entirely. */
     localDaemonLink?: LocalDaemonLink
+    recoveryOnly: boolean
   }>
   isAddressInUseError(err: unknown): boolean
   startDaemon(
@@ -1200,6 +1201,7 @@ async function runInProcess(
   let serverPort = port
   let localBootstrapToken: string | undefined
   let localDaemonLink: LocalDaemonLink | undefined
+  let recoveryOnly = false
   const host = roles.server || roles.janitor || roles.daemon ? await loadHost() : undefined
   if (roles.server && host) {
     const { startServer, isAddressInUseError } = host
@@ -1222,6 +1224,7 @@ async function runInProcess(
     serverPort = server.port
     localBootstrapToken = server.bootstrapToken
     localDaemonLink = server.localDaemonLink
+    recoveryOnly = server.recoveryOnly
     console.log(`podium server up on ${localServerUrl(serverPort)}`)
     if (plan.showSetupHint) {
       console.log(`\n  → Open setup:  ${localServerUrl(serverPort)}/\n`)

@@ -99,6 +99,8 @@ function parsedEntry(raw: string): TransferJournalEntry {
     typeof candidate.record !== 'object' ||
     candidate.record === null ||
     typeof candidate.record.transferId !== 'string' ||
+    (candidate.record.bindHost !== '127.0.0.1' &&
+      candidate.record.bindHost !== '0.0.0.0') ||
     typeof candidate.createdAt !== 'string' ||
     typeof candidate.updatedAt !== 'string'
   ) {

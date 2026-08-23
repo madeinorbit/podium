@@ -1,5 +1,6 @@
 import type { MachineId } from '@podium/model'
 import type {
+  ServerBindHost,
   ServerTransferManifest as ProtocolServerTransferManifest,
   ServerTransferManifestEntry as ProtocolServerTransferManifestEntry,
   ServerTransferProof,
@@ -43,6 +44,7 @@ export interface TransferRecord {
   transferId: string
   targetMachineId: MachineId
   publicUrl: string
+  bindHost: ServerBindHost
   port: number
   sourceMachineId: MachineId
   sourceInstanceId: string
@@ -67,6 +69,7 @@ export interface TransferJournalEntry {
 export interface ServerTransferInput {
   targetMachineId: MachineId
   publicUrl: string
+  bindHost: ServerBindHost
   port?: number
   confirmation: typeof SERVER_TRANSFER_CONFIRMATION
 }
@@ -97,6 +100,7 @@ export interface PromotedTargetMetadata {
   sourceMachineId: MachineId
   targetMachineId: MachineId
   publicUrl: string
+  bindHost: ServerBindHost
   manifestDigest: string
   port: number
   state: 'promoted'
@@ -110,6 +114,7 @@ export interface PromotingTargetMetadata {
   sourceMachineId: MachineId
   targetMachineId: MachineId
   publicUrl: string
+  bindHost: ServerBindHost
   manifestDigest: string
   port: number
   state: 'promoting'
@@ -177,6 +182,7 @@ export interface ServerTransferRpc {
       transferId: string
       manifestDigest: string
       publicUrl: string
+      bindHost: ServerBindHost
       port: number
       targetMode: 'server'
       idempotencyKey: string

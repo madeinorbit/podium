@@ -438,7 +438,12 @@ export async function startServer(
   // activates. Explicit opts win; else the H1 shape, core + hub.
   const config = loadConfig()
   const desktopSupervised = process.env.PODIUM_DESKTOP_SUPERVISED === '1'
-  const host = resolveBindHost(opts)
+  // A promoted server carries an explicit durable listen contract; it must outrank the
+  // target daemon process environment that initiated the restart.
+  const host = resolveBindHost({
+    ...opts,
+    ...(opts.host === undefined ? { host: config.bindHost } : {}),
+  })
   const role = resolveServerRole(opts.role)
   // WHO THIS HOST IS, read (or minted) once, before anything can write a row. Every
   // other consumer in the process takes it from here — the store carries it to the
@@ -1190,7 +1195,7 @@ export async function startServer(
     readiness,
     // A source launcher is not enough on its own: PODIUM_HOST=0.0.0.0 is an explicit
     // reachability choice, so that server must retain password/reachability setup.
-    localSetupDefault: shouldAdvertiseLocalSetupDefault(opts),
+    localSetupDefault: shouldAdvertiseLocalSetupDefault({ ...opts, host }),
   })
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is

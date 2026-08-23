@@ -30,6 +30,7 @@ async function fixture() {
     transferId: 'transfer-1',
     targetMachineId: asMachineId('target-1'),
     publicUrl: 'https://podium.example.com',
+    bindHost: '0.0.0.0',
     port: 443,
     sourceMachineId: asMachineId('source-1'),
     sourceInstanceId: 'instance-1',

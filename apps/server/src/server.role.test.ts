@@ -91,6 +91,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
         trpc.machines.moveServer.mutate({
           targetMachineId: handle.registry.modules.machines.hostMachineId,
           publicUrl: 'https://podium.example.com',
+          bindHost: '0.0.0.0',
           confirmation: 'TRANSFER SERVER',
         }),
       () =>

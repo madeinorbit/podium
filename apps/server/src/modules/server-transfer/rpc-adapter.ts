@@ -1,5 +1,9 @@
 import type { MachineId } from '@podium/model'
-import type { ServerTransferManifest, ServerTransferResultMessage } from '@podium/protocol'
+import type {
+  ServerBindHost,
+  ServerTransferManifest,
+  ServerTransferResultMessage,
+} from '@podium/protocol'
 import type { ServerTransferRpc, ServerTransferRpcResult } from './types'
 
 type WireReply = Omit<ServerTransferResultMessage, 'type' | 'requestId'>
@@ -30,6 +34,7 @@ interface WireOwnedRpc {
     id: string,
     digest: string,
     publicUrl: string,
+    bindHost: ServerBindHost,
     machineId: MachineId,
     port: number,
   ): Promise<WireReply>
@@ -176,6 +181,7 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
         input.transferId,
         input.manifestDigest,
         input.publicUrl,
+        input.bindHost,
         targetMachineId,
         input.port,
       )

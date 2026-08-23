@@ -208,6 +208,7 @@ export const machineMoveServerHandler = async ({
 }: FleetArgs<{
   targetMachineId: MachineId
   publicUrl: string
+  bindHost: '127.0.0.1' | '0.0.0.0'
   port?: number
   confirmation: 'TRANSFER SERVER'
 }>) => {

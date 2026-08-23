@@ -76,6 +76,12 @@ describe('resolveModePlan', () => {
       }),
     ).toMatchObject({ pairCode: 'FLAG1' })
   })
+  it('carries the durable bind host into every server launch plan', () => {
+    expect(resolveModePlan(['server'], { mode: 'server', bindHost: '0.0.0.0' })).toMatchObject({
+      mode: 'server',
+      bindHost: '0.0.0.0',
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------

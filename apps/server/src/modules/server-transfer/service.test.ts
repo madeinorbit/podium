@@ -39,7 +39,13 @@ function fakeRpc(
   const chunks = new Map<string, Map<number, Buffer>>()
   let firstChunk = true
   let promotion:
-    | { transferId: string; targetMachineId: string; publicUrl: string; port: number }
+    | {
+        transferId: string
+        targetMachineId: string
+        publicUrl: string
+        bindHost: '127.0.0.1' | '0.0.0.0'
+        port: number
+      }
     | undefined
   let promoteReplyLost = false
   const rpc: ServerTransferRpc = {
@@ -117,6 +123,7 @@ function fakeRpc(
         transferId: input.transferId,
         targetMachineId,
         publicUrl: input.publicUrl,
+        bindHost: input.bindHost,
         port: input.port,
       }
       if (options.promote === 'throw-once' && !promoteReplyLost) {
@@ -137,6 +144,7 @@ function fakeRpc(
           buildVersion: 'test',
           health: 'serving' as const,
           publicUrl: input.publicUrl,
+          bindHost: input.bindHost,
           port: input.port,
         },
       }
@@ -200,6 +208,7 @@ function fakeRpc(
           buildVersion: 'test',
           health: 'serving' as const,
           publicUrl: promotion.publicUrl,
+          bindHost: promotion.bindHost,
           port: promotion.port,
         },
         sourceConnected: true,
@@ -239,6 +248,7 @@ function makeService(
 const input = {
   targetMachineId: asMachineId('target-1'),
   publicUrl: 'https://podium.example.com',
+  bindHost: '0.0.0.0' as const,
   confirmation: SERVER_TRANSFER_CONFIRMATION,
 }
 const allow = { reauthorize: vi.fn() }

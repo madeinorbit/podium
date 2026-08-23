@@ -204,8 +204,8 @@ function startInstance(
   // the operator data plane.
   mkdirSync(spec.stateDir, { recursive: true })
   const configFile = join(spec.stateDir, 'config.json')
-  const config = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')) : {}
-  writeFileSync(configFile, JSON.stringify({ ...config, mode: 'all-in-one' }))
+  const existingConfig = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')) : {}
+  writeFileSync(configFile, JSON.stringify({ ...existingConfig, mode: 'all-in-one', ...config }))
   const child = spawn(
     process.execPath,
     ['--conditions=@podium/source', CLI, '--instance', spec.id, 'all'],

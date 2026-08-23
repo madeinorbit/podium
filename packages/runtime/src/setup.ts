@@ -68,6 +68,8 @@ export function validatePublicUrl(
   return { ok: true, normalized: u.toString().replace(/\/$/, '') }
 }
 
+export type ServerBindHost = '127.0.0.1' | '0.0.0.0'
+
 export function wssFrom(publicUrl: string): string {
   return publicUrl.replace(/^http(s?):\/\//, (_m, s) => (s ? 'wss://' : 'ws://')).replace(/\/$/, '')
 }
@@ -167,6 +169,7 @@ export function applySetup(input: {
   publicUrl: string
   mode?: 'all-in-one' | 'server'
   port?: number
+  bindHost?: ServerBindHost
 }): PodiumConfig {
   assertConfigWritable()
   const prev = loadConfig()
@@ -180,6 +183,7 @@ export function applySetup(input: {
     mode,
     publicUrl: input.publicUrl,
     ...(input.port === undefined ? {} : { port: input.port }),
+    ...(input.bindHost === undefined ? {} : { bindHost: input.bindHost }),
     // Web setup can't start the backend from inside the serving process (stopping
     // the old one would kill the request in flight), but it CAN record the
     // choice — and since POD-333 that is all there is to record. The next
@@ -219,7 +223,7 @@ export function applySetup(input: {
 export function applyJoin(token: string): { name: string; warning?: string } {
   assertConfigWritable()
   const p = decodeJoin(token)
-  const { publicUrl: _hostOnly, pairCode: _stale, ...prev } = loadConfig()
+  const { publicUrl: _hostOnly, bindHost: _hostBind, pairCode: _stale, ...prev } = loadConfig()
   saveConfig({
     ...prev,
     mode: 'daemon',

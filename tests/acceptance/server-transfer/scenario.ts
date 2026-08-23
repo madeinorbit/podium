@@ -169,6 +169,7 @@ async function successCase(
   const transfer = source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
+    bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
   await eventually(
@@ -303,6 +304,7 @@ async function lostReplyCase(
   const started = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
+    bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
   assert(started.started, `server move did not start: ${JSON.stringify(started)}`)
@@ -441,6 +443,7 @@ async function fenceWriteCase(
   const started = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
+    bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
   assert(started.started, `server move did not start: ${JSON.stringify(started)}`)
@@ -497,6 +500,7 @@ async function cancelCase(
   const started = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
+    bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
   assert(started.started, `server move did not start: ${JSON.stringify(started)}`)
@@ -546,6 +550,7 @@ async function retryCase(
   const first = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
+    bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
   assert(first.started, `first server move did not start: ${JSON.stringify(first)}`)
@@ -557,6 +562,7 @@ async function retryCase(
   const second = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
+    bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
   assert(second.started, `retry server move did not start: ${JSON.stringify(second)}`)
@@ -573,6 +579,7 @@ async function restartResumeCase(
   const started = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
+    bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
   assert(started.started, `server move did not start: ${JSON.stringify(started)}`)
@@ -610,6 +617,7 @@ async function reclaimCase(
   const first = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
+    bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
   assert(first.started, `server move did not start: ${JSON.stringify(first)}`)
@@ -632,6 +640,7 @@ async function reclaimCase(
   const second = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
+    bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
   assert(second.started, `fresh move after reclaim did not start: ${JSON.stringify(second)}`)

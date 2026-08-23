@@ -20,7 +20,7 @@
  * | PODIUM_AGENT_RELAY_PORT       | config.agentRelayPort   | `resolveAgentRelayPort()` (daemon CLI relay)            |
  * | PODIUM_AGENT_HOME             | config.agentHome        | `resolveAgentHomeDir()` (native runtime/history)       |
  * | PODIUM_ADOPT_STATE            | — (env-only flag)       | explicit adoption of named non-empty state roots       |
- * | PODIUM_HOST                   | — → 127.0.0.1           | apps/server bindHost (injectable env param)            |
+ * | PODIUM_HOST                   | config.bindHost → loopback | apps/server bindHost (promotion config is explicit)    |
  * | PODIUM_PASSWORD               | — (env-only, one-shot)  | apps/server applyEnvPassword (headless deploy seam)    |
  * | PODIUM_UPDATE_CHANNEL         | config.updateChannel    | `resolveUpdateChannel()`                               |
  * | DO_NOT_TRACK                  | — (env-only kill switch)| @podium/telemetry `telemetrySuppressedBy()` [SP-f933]  |
@@ -120,6 +120,8 @@ export const PodiumConfig = z.object({
   mode: PodiumMode.optional(),
   serverUrl: z.string().optional(),
   port: z.number().int().positive().optional(),
+  /** Durable server listen contract. Set by promotion; absent preserves legacy env/default. */
+  bindHost: z.enum(['127.0.0.1', '0.0.0.0']).optional(),
   /** Stable daemon hook-ingest endpoint; env PODIUM_HOOK_PORT wins. */
   hookPort: z.number().int().positive().optional(),
   /** Stable per-session CLI relay endpoint; env PODIUM_AGENT_RELAY_PORT wins. */

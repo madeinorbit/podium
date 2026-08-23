@@ -19,6 +19,7 @@ import {
   SERVER_TRANSFER_CAPACITY_MARGIN,
   SERVER_TRANSFER_MAX_CHUNK_BYTES,
   canonicalServerTransferManifest,
+  type ServerBindHost,
   type ServerTransferErrorCode,
   type ServerTransferManifest,
   type ServerTransferManifestEntry,
@@ -69,6 +70,7 @@ interface StageMeta {
   promotion?: {
     idempotencyKey: string
     publicUrl: string
+    bindHost: ServerBindHost
     port: number
     targetMode: 'server'
   }
@@ -886,8 +888,12 @@ async function installPortableFile(
   await syncDirectory(dirname(destination))
 }
 
-async function persistTargetConfig(publicUrl: string, port: number): Promise<void> {
-  applySetup({ mode: 'server', publicUrl, port })
+async function persistTargetConfig(
+  publicUrl: string,
+  bindHost: ServerBindHost,
+  port: number,
+): Promise<void> {
+  applySetup({ mode: 'server', publicUrl, bindHost, port })
   const path = configPath()
   const handle = await open(path, 'r')
   try {
@@ -927,6 +933,7 @@ async function promote(
   const promotion = {
     idempotencyKey: msg.idempotencyKey,
     publicUrl: checked.normalized,
+    bindHost: msg.bindHost,
     port: msg.port,
     targetMode: msg.targetMode,
   } as const
@@ -976,12 +983,13 @@ async function promote(
     for (const entry of meta.manifest.files) await installPortableFile(meta, entry)
     await crashPoint(ctx, 'after-install-before-config')
 
-    await persistTargetConfig(checked.normalized, msg.port)
+    await persistTargetConfig(checked.normalized, msg.bindHost, msg.port)
     await crashPoint(ctx, 'after-config-before-health')
 
     const expected: ServerTransferServingProof = {
       ...meta.proof,
       publicUrl: checked.normalized,
+      bindHost: msg.bindHost,
       port: msg.port,
       health: 'serving',
     }

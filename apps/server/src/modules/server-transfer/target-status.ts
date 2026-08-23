@@ -1,5 +1,6 @@
 import { asMachineId } from '@podium/model'
 import type { MachineId } from '@podium/model'
+import type { ServerBindHost } from '@podium/protocol'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type {
@@ -15,6 +16,26 @@ function string(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0
 }
 
+function promotionBindHost(
+  value: unknown,
+  transferId: string,
+  publicUrl: string,
+  port: number,
+): ServerBindHost | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const promotion = value as Record<string, unknown>
+  if (
+    promotion.idempotencyKey !== transferId ||
+    promotion.publicUrl !== publicUrl ||
+    promotion.port !== port ||
+    (promotion.bindHost !== '127.0.0.1' && promotion.bindHost !== '0.0.0.0') ||
+    promotion.targetMode !== 'server'
+  ) {
+    return undefined
+  }
+  return promotion.bindHost
+}
+
 function proof(
   value: unknown,
   operationId: string,
@@ -22,6 +43,7 @@ function proof(
   digest: string,
   targetMachineId: MachineId,
   publicUrl: string,
+  bindHost: ServerBindHost,
   port: number,
 ): TargetHealthProof | undefined {
   if (typeof value !== 'object' || value === null) return undefined
@@ -33,6 +55,7 @@ function proof(
     candidate.targetMachineId !== targetMachineId ||
     candidate.health !== 'serving' ||
     candidate.publicUrl !== publicUrl ||
+    candidate.bindHost !== bindHost ||
     candidate.port !== port ||
     !string(candidate.feedId) ||
     !string(candidate.feedEpoch) ||
@@ -91,17 +114,13 @@ function parsePromoting(
   ) {
     return undefined
   }
-  const promotion = candidate.promotion
-  if (
-    typeof promotion !== 'object' ||
-    promotion === null ||
-    (promotion as Record<string, unknown>).idempotencyKey !== candidate.transferId ||
-    (promotion as Record<string, unknown>).publicUrl !== candidate.publicUrl ||
-    (promotion as Record<string, unknown>).port !== candidate.port ||
-    (promotion as Record<string, unknown>).targetMode !== 'server'
-  ) {
-    return undefined
-  }
+  const bindHost = promotionBindHost(
+    candidate.promotion,
+    candidate.transferId,
+    candidate.publicUrl,
+    candidate.port,
+  )
+  if (!bindHost) return undefined
   const validated = candidateProof(
     candidate.proof,
     candidate.operationId,
@@ -116,6 +135,7 @@ function parsePromoting(
     sourceMachineId: asMachineId(candidate.sourceMachineId),
     targetMachineId: asMachineId(candidate.targetMachineId),
     publicUrl: candidate.publicUrl,
+    bindHost,
     manifestDigest: candidate.manifestDigest,
     port: candidate.port,
     state: 'promoting',
@@ -146,6 +166,13 @@ function parsePromoted(
   ) {
     return undefined
   }
+  const bindHost = promotionBindHost(
+    candidate.promotion,
+    candidate.transferId,
+    candidate.publicUrl,
+    candidate.port,
+  )
+  if (!bindHost) return undefined
   const validated = proof(
     candidate.servingProof,
     candidate.operationId,
@@ -153,6 +180,7 @@ function parsePromoted(
     candidate.manifestDigest,
     asMachineId(candidate.targetMachineId),
     candidate.publicUrl,
+    bindHost,
     candidate.port,
   )
   if (!validated) return undefined
@@ -162,6 +190,7 @@ function parsePromoted(
     sourceMachineId: asMachineId(candidate.sourceMachineId),
     targetMachineId: asMachineId(candidate.targetMachineId),
     publicUrl: candidate.publicUrl,
+    bindHost,
     manifestDigest: candidate.manifestDigest,
     port: candidate.port,
     state: 'promoted',

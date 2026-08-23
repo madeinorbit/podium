@@ -129,12 +129,14 @@ function healthProofMatches(
   manifest: ServerTransferManifest,
   targetMachineId: MachineId,
   publicUrl: string,
+  bindHost: '127.0.0.1' | '0.0.0.0',
   port: number,
 ): proof is TargetHealthProof {
   return (
     proofMatches(proof, manifest, targetMachineId) &&
     proof.health === 'serving' &&
     proof.publicUrl === publicUrl &&
+    proof.bindHost === bindHost &&
     proof.port === port
   )
 }
@@ -294,6 +296,7 @@ export class ServerTransferService {
     hooks: ServerTransferHooks = {},
   ): Promise<ServerTransferOutcome> {
     const publicUrl = normalizedPublicUrl(input)
+    const bindHost = input.bindHost
     const port = resolvedTransferPort(input, publicUrl)
     await this.lock.acquire()
     try {
@@ -302,6 +305,7 @@ export class ServerTransferService {
         if (
           existing.record.targetMachineId === input.targetMachineId &&
           existing.record.publicUrl === publicUrl &&
+          existing.record.bindHost === bindHost &&
           existing.record.port === port
         ) {
           return this.outcome(existing.record, true, 'committed')
@@ -320,6 +324,7 @@ export class ServerTransferService {
         existing.record.operationId === hooks.operationId &&
         existing.record.targetMachineId === input.targetMachineId &&
         existing.record.publicUrl === publicUrl &&
+        existing.record.bindHost === bindHost &&
         existing.record.port === port
           ? existing
           : undefined
@@ -349,6 +354,7 @@ export class ServerTransferService {
         transferId: probeTransferId,
         targetMachineId: input.targetMachineId,
         publicUrl,
+        bindHost,
         port,
         sourceMachineId: this.deps.sourceMachineId,
         sourceInstanceId: this.deps.sourceInstanceId,
@@ -513,6 +519,7 @@ export class ServerTransferService {
             transferId: finalManifest.transferId,
             manifestDigest: finalManifest.digest,
             publicUrl,
+            bindHost,
             port,
             targetMode: 'server',
             idempotencyKey: record.idempotencyKey,
@@ -522,7 +529,14 @@ export class ServerTransferService {
         if (
           !promoted.ok ||
           promoted.state !== 'promoted' ||
-          !healthProofMatches(promoted.proof, finalManifest, input.targetMachineId, publicUrl, port)
+          !healthProofMatches(
+            promoted.proof,
+            finalManifest,
+            input.targetMachineId,
+            publicUrl,
+            bindHost,
+            port,
+          )
         ) {
           throw fail(
             TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,
@@ -838,6 +852,7 @@ export class ServerTransferService {
               transferId: record.transferId,
               manifestDigest: record.manifest.digest,
               publicUrl: record.publicUrl,
+              bindHost: record.bindHost,
               port: record.port,
               targetMode: 'server',
               idempotencyKey: record.idempotencyKey,
@@ -852,6 +867,7 @@ export class ServerTransferService {
               record.manifest,
               record.targetMachineId,
               record.publicUrl,
+              record.bindHost,
               record.port,
             )
           ) {
@@ -869,6 +885,7 @@ export class ServerTransferService {
             record.manifest,
             record.targetMachineId,
             record.publicUrl,
+            record.bindHost,
             record.port,
           )
         ) {

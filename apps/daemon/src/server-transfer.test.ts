@@ -191,6 +191,7 @@ async function prepareAndValidateCandidate(): Promise<{
       transferId,
       manifestDigest,
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0',
       port: 24_444,
       targetMode: 'server',
       idempotencyKey: `promote-${transferId}`,
@@ -367,6 +368,7 @@ describe('server transfer target daemon', () => {
       transferId,
       manifestDigest,
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0',
       port: 24_444,
       targetMode: 'server',
       idempotencyKey: 'promote-once',
@@ -386,6 +388,7 @@ describe('server transfer target daemon', () => {
         manifestDigest,
         targetMachineId,
         publicUrl: 'https://podium.example.com',
+        bindHost: '0.0.0.0',
         health: 'serving',
       },
     })
@@ -413,6 +416,7 @@ describe('server transfer target daemon', () => {
         manifestDigest,
         targetMachineId,
         publicUrl: 'https://podium.example.com',
+        bindHost: '0.0.0.0',
         health: 'serving',
       },
     })
@@ -427,6 +431,7 @@ describe('server transfer target daemon', () => {
     expect(await readFile(join(stateRoot, 'daemon.secret'), 'utf8')).toBe('target-daemon-secret')
     expect(JSON.parse(await readFile(join(stateRoot, 'config.json'), 'utf8'))).toMatchObject({
       mode: 'server',
+      bindHost: '0.0.0.0',
       port: 24_444,
     })
     expect(
@@ -446,6 +451,7 @@ describe('server transfer target daemon', () => {
         operationId: 'operation-1',
         targetMachineId,
         publicUrl: 'https://podium.example.com',
+        bindHost: '0.0.0.0',
         health: 'serving',
       },
     })
@@ -841,6 +847,7 @@ describe('server transfer target daemon', () => {
           manifestDigest,
           targetMachineId,
           publicUrl: 'https://podium.example.com',
+          bindHost: '0.0.0.0',
           health: 'serving',
         },
       })
@@ -902,6 +909,7 @@ describe('server transfer target daemon', () => {
     ).toMatchObject({ ok: true, state: 'promoted', servingProof: { health: 'serving' } })
     expect(loadConfig()).toMatchObject({
       mode: 'server',
+      bindHost: '0.0.0.0',
       serverUrl: 'wss://source.example',
     })
 
@@ -1041,6 +1049,7 @@ describe('server transfer target daemon', () => {
       transferId,
       manifestDigest,
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0',
       targetMode: 'server',
       idempotencyKey: 'rollback-once',
     })

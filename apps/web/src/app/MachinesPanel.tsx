@@ -766,6 +766,7 @@ function ServerMoveDialog({
 }): JSX.Element {
   const [internalOpen, setInternalOpen] = useState(false)
   const [publicUrl, setPublicUrl] = useState('')
+  const [bindHost, setBindHost] = useState<'0.0.0.0' | '127.0.0.1'>('0.0.0.0')
   const [confirmation, setConfirmation] = useState('')
   const [starting, setStarting] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -792,6 +793,7 @@ function ServerMoveDialog({
       const result = await startServerMove(trpc, {
         targetMachineId: machine.id,
         publicUrl,
+        bindHost,
         confirmation: SERVER_MOVE_CONFIRMATION,
       })
       if (!result.supported) {
@@ -844,6 +846,23 @@ function ServerMoveDialog({
                 placeholder="https://podium.example.com"
                 autoComplete="url"
               />
+            </label>
+            <label htmlFor="server-move-bind" className="flex flex-col gap-1">
+              <span className="text-muted-foreground">Server reachability</span>
+              <select
+                id="server-move-bind"
+                className="h-9 rounded-md border border-input bg-background px-3"
+                value={bindHost}
+                onChange={(event) =>
+                  setBindHost(event.currentTarget.value as '0.0.0.0' | '127.0.0.1')
+                }
+              >
+                <option value="0.0.0.0">Other machines (all network interfaces)</option>
+                <option value="127.0.0.1">This machine only (loopback)</option>
+              </select>
+              <span className="text-[11px] text-muted-foreground">
+                Choose loopback only when a same-machine proxy provides the public URL.
+              </span>
             </label>
             <label htmlFor="server-move-confirmation" className="flex flex-col gap-1">
               <span className="text-muted-foreground">

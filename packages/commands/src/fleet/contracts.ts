@@ -182,6 +182,7 @@ export const machineRevokeInput = z.object({ id: z.string() })
 export const machineMoveServerInput = z.object({
   targetMachineId: z.string().min(1).pipe(MachineIdField),
   publicUrl: z.string().min(1).max(2048),
+  bindHost: z.enum(['127.0.0.1', '0.0.0.0']),
   port: z.number().int().min(1).max(65535).optional(),
   confirmation: z.literal('TRANSFER SERVER'),
 })

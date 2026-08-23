@@ -264,6 +264,7 @@ describe('the machine verb is read from the contract, per command', () => {
     const input = {
       targetMachineId: 'laptop',
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0',
       confirmation: 'TRANSFER SERVER' as const,
     }
     expect(fleetAuthzFailure('machines.moveServer', input, deps(user(OWNER)))).toBeUndefined()

@@ -98,11 +98,12 @@ export { rolesForMode } from '@podium/runtime/transfer-lifecycle'
 export async function startDetachedStack(
   mode: PodiumConfig['mode'],
   port: number,
+  bindHost?: ServerBindHost,
 ): Promise<{ serverUp: boolean }> {
   if (mode === 'client') return { serverUp: false }
-  spawnDetached('parent', { port })
+  spawnDetached('parent', { port, ...(bindHost ? { bindHost } : {}) })
   if (mode === 'daemon') return { serverUp: true }
-  return { serverUp: await waitForHealth(port) }
+  return { serverUp: await waitForHealth(port, bindHost) }
 }
 
 /**
@@ -115,8 +116,8 @@ export async function ensureDetachedUp(
 ): Promise<{ started: RunRole[] }> {
   if (config.mode === 'client') return { started: [] }
   if (liveRecord('parent')) return { started: [] }
-  spawnDetached('parent', { port })
-  if (config.mode !== 'daemon') await waitForHealth(port)
+  spawnDetached('parent', { port, ...(config.bindHost ? { bindHost: config.bindHost } : {}) })
+  if (config.mode !== 'daemon') await waitForHealth(port, config.bindHost)
   return { started: ['parent'] }
 }
 
