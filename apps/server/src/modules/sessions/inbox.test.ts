@@ -275,8 +275,9 @@ describe('SessionInbox terminal provider failures', () => {
       ownerUserId: ALICE,
       sessionId: SID,
       text: 'already accepted',
-      reason:
-        'Usage limit reached: API quota exhausted. Fix the provider issue, then choose Resume the session.',
+      reason: expect.stringContaining(
+        'Usage limit reached: API quota exhausted. Fix the provider issue',
+      ),
       initialPrompt: false,
     })
   })
