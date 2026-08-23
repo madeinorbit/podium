@@ -481,6 +481,38 @@ describe('mountSession eligibility-gated sizing', () => {
     vi.advanceTimersByTime(1)
   })
 
+  it('reclaims the fitted grid after a stale server state overwrites it', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: false,
+    })
+    state(80, 24)
+    mounted.setActive(true)
+    vi.advanceTimersByTime(16 * 2)
+    expect(calls.claims).toEqual([{ cols: 150, rows: 50 }])
+
+    // The server's delayed 80×24 echo arrives after the correct claim. It must
+    // not reflow the view back to the stale grid; the client must re-assert the
+    // applied fitted grid instead.
+    state(80, 24)
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
+    vi.advanceTimersByTime(16)
+    expect(calls.claims).toEqual([
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+    ])
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
   it('resets the reveal settle streak after an invalid measurement', () => {
     withResizeObserver()
     withFakeTimedRaf()

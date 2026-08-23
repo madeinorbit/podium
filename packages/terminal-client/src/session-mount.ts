@@ -171,6 +171,69 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       view: view.diagnosticSnapshot(),
     })
   }
+  // In control mode a fitted grid is a claim, not merely a proposal. Keep the
+  // applied grid while the server acknowledges it: a delayed state echo can
+  // carry the old winsize after the correct claim and must not reflow the view.
+  let assertedControlGrid: Grid | null = null
+  let controlRepairRaf: number | undefined
+  let repairingControlGrid = false
+
+  const sameGrid = (left: Grid, right: Grid): boolean =>
+    left.cols === right.cols && left.rows === right.rows
+
+  function hasOtherController(state: ConnectionState): boolean {
+    return (
+      state.role === 'spectator' &&
+      state.controllerId !== null &&
+      state.requestedGeometry === null
+    )
+  }
+
+  function cancelControlRepair(): void {
+    if (controlRepairRaf !== undefined) cancelAnimationFrame(controlRepairRaf)
+    controlRepairRaf = undefined
+  }
+
+  function clearControlAssertion(): void {
+    assertedControlGrid = null
+    cancelControlRepair()
+  }
+
+  function scheduleControlRepair(state: ConnectionState): void {
+    const asserted = assertedControlGrid
+    if (
+      gridMode !== 'control' ||
+      asserted === null ||
+      !eligible() ||
+      !state.connected ||
+      hasOtherController(state)
+    )
+      return
+    if (controlRepairRaf !== undefined || repairingControlGrid) return
+    trace('connection:repair-scheduled', { state, asserted })
+    controlRepairRaf = requestAnimationFrame(() => {
+      controlRepairRaf = undefined
+      const expected = assertedControlGrid
+      if (gridMode !== 'control' || expected === null || !eligible()) return
+      const latest = connection.state()
+      if (!latest.connected || hasOtherController(latest)) {
+        if (hasOtherController(latest)) clearControlAssertion()
+        return
+      }
+      const applied = { cols: view.cols(), rows: view.rows() }
+      if (!sameGrid(applied, expected)) {
+        trace('connection:repair-skipped', { expected, applied })
+        return
+      }
+      repairingControlGrid = true
+      try {
+        trace('connection:repair-claim', { grid: expected, state: latest })
+        connection.requestControl({ ...expected })
+      } finally {
+        repairingControlGrid = false
+      }
+    })
+  }
   trace('mount')
 
   // fit-with-retry: a measurable container fits immediately; an unmeasurable one
@@ -425,7 +488,13 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         // Carry the measured grid on the claim. The server records it before
         // applying the request, so a viewState/resize ordering race cannot
         // leave the daemon at the stale pre-tab geometry.
+        const applied = { cols: view.cols(), rows: view.rows() }
+        if (!sameGrid(applied, grid)) {
+          trace('reveal:claim-mismatch', { grid, applied })
+          return
+        }
         trace('reveal:control-claim', { grid, gridChanged })
+        assertedControlGrid = { ...grid }
         connection.requestControl({ cols: grid.cols, rows: grid.rows })
       } else if (grid.cols !== serverGrid.cols || grid.rows !== serverGrid.rows) {
         trace('reveal:resize-send', { grid, gridChanged })
@@ -507,7 +576,20 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         lastTracedState = signature
         trace('connection:state', { state })
       }
-      if (view.cols() !== state.cols || view.rows() !== state.rows) {
+      if (hasOtherController(state)) clearControlAssertion()
+      const asserted = assertedControlGrid
+      const applied = { cols: view.cols(), rows: view.rows() }
+      const stateGrid = { cols: state.cols, rows: state.rows }
+      const holdClaimedGrid =
+        gridMode === 'control' &&
+        state.connected &&
+        asserted !== null &&
+        sameGrid(applied, asserted) &&
+        !sameGrid(stateGrid, asserted) &&
+        (state.role === 'controller' ||
+          state.controllerId === null ||
+          (state.requestedGeometry !== null && sameGrid(state.requestedGeometry, asserted)))
+      if (!holdClaimedGrid && (view.cols() !== state.cols || view.rows() !== state.rows)) {
         trace('connection:apply-server-grid', { state })
         view.resize(state.cols, state.rows)
         // xterm reflows the existing buffer into the new grid. For alt-screen
@@ -522,6 +604,10 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         // changed (the "caret at top, my text at bottom, rest black" symptom). Force a
         // full repaint so the whole grid redraws at the new geometry.
         view.forceRepaint()
+      }
+      if (holdClaimedGrid) {
+        trace('connection:hold-claimed-grid', { state, asserted })
+        scheduleControlRepair(state)
       }
       serverGrid = { cols: state.cols, rows: state.rows }
       const roleChanged = state.role !== lastRole
@@ -750,6 +836,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         // hidden panes remain mounted and retain their own terminal views.
         if (testApi) (globalThis as unknown as { __podium?: unknown }).__podium = testApi
         reveal()
+      } else {
+        clearControlAssertion()
       }
       // going inactive: do nothing — never resize a hidden panel
     },
@@ -782,6 +870,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       if (readyTimer !== undefined) clearTimeout(readyTimer)
       if (viewportFitTimer !== undefined) clearTimeout(viewportFitTimer)
       revealGeneration += 1
+      clearControlAssertion()
       releaseRendererLease?.()
       releaseRendererLease = null
       cancelScheduledFit()
