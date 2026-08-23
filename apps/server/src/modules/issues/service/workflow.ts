@@ -376,17 +376,22 @@ export class IssueGitWorkflowModule {
       if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, startRepoPath)
       const branch = this.store.slug(row.seq, row.title)
       path = this.worktreePathFor(startRepoPath, branch)
+      // A worktree is machine-local even when its placement was implicit. Persist the
+      // host's real machine id instead of encoding "the hub" as NULL; the same id is
+      // also a safe explicit route because the host daemon attaches under it at boot.
+      const worktreeMachineId = row.machineId ?? this.store.d.store.hostMachineId
       const res = await this.store.d.repoOp(
         'worktreeAdd',
         startRepoPath,
         { path, branch, ...(startPoint ? { startPoint } : {}) },
-        row.machineId ?? undefined,
+        worktreeMachineId,
       )
       if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
       // POD-665: the daemon just created this worktree out from under connected
       // clients — nudge them to re-fetch repos rather than sit invisible until reload.
-      this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
+      this.store.d.onWorktreesChanged?.(row.repoPath, worktreeMachineId)
       row.branch = branch
+      row.machineId = worktreeMachineId
       row.worktreePath = path
       /**
        * repoPath TRAVELS WITH the worktree (POD-1461).
@@ -449,7 +454,11 @@ export class IssueGitWorkflowModule {
       if (originId) {
         void this.releaseWorktreeIfIdle(originId, systemPrincipal('start')).catch(
           (err: unknown) => {
-            log.warn('could not release vacated origin worktree', { err, originId, issueId: row.id })
+            log.warn('could not release vacated origin worktree', {
+              err,
+              originId,
+              issueId: row.id,
+            })
           },
         )
       }
@@ -728,7 +737,10 @@ export class IssueGitWorkflowModule {
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot create an issue worktree')
     }
-    const machineId = requestedMachineId ?? row.machineId ?? undefined
+    // An implicit placement is still the host machine, not an absence of placement.
+    // Passing the real id also exercises the same daemon route every later operation
+    // will use once the row is stamped.
+    const machineId = requestedMachineId ?? row.machineId ?? this.store.d.store.hostMachineId
     const repoPath = this.repoPathOnMachine(row.repoPath, machineId)
     // A worktree path is machine-local. It is reusable only when the issue is
     // already homed on the requested machine AND its repository resolves to the
@@ -749,6 +761,12 @@ export class IssueGitWorkflowModule {
     if (recordedWorktreePath) {
       const st = await this.store.d.repoOp('status', recordedWorktreePath, undefined, machineId)
       if (st.ok) {
+        // Confirming a recorded checkout is also adoption: legacy NULL rows become
+        // explicit as soon as this path establishes where their worktree lives.
+        if (row.machineId === null) {
+          row.machineId = machineId
+          this.store.persistRow(row)
+        }
         return {
           ok: true,
           output: 'worktree already present',
@@ -801,7 +819,7 @@ export class IssueGitWorkflowModule {
       }
     }
     row.repoPath = repoPath
-    if (requestedMachineId !== undefined) row.machineId = asMachineId(requestedMachineId)
+    row.machineId = asMachineId(machineId)
     row.worktreePath = path
     this.store.persistRow(row)
     this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)

@@ -304,7 +304,9 @@ export class IssueAttentionModule {
     target.worktreePath = origin.worktreePath
     target.branch = origin.branch
     target.parentBranch = origin.parentBranch
-    if (origin.machineId) target.machineId = origin.machineId
+    // Taking over an existing checkout is an adoption, including for historical
+    // hub rows whose machine_id is still NULL until the dedicated backfill lands.
+    target.machineId = origin.machineId ?? this.store.d.store.hostMachineId
     origin.worktreePath = null
     origin.branch = null
     this.store.persistRow(origin)
