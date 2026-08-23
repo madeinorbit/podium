@@ -4,7 +4,7 @@
  * and the list, its ⌘F chord, and what the column does when a query matches
  * nothing.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -157,72 +157,85 @@ function titles(): string[] {
     .map((row) => row.querySelector('.shell-work-row-title')?.textContent ?? '')
 }
 
+async function expectTitles(expected: string[]): Promise<void> {
+  await waitFor(() => expect(titles()).toEqual(expected))
+}
+
 afterEach(() => {
   cleanup()
   ui.reset()
 })
 
 describe('SidebarUnified inline filter (POD-1078)', () => {
-  it('advertises the chord until there is a query, then counts the hits', () => {
+  it('advertises the chord until there is a query, then counts the hits', async () => {
     render(<SidebarUnified />)
     // The counter IS the affordance: it names the shortcut that focuses the
     // field, so nothing else has to carry a hint for it.
     expect(screen.getByTestId('work-search-count').textContent).toBe('⌘F')
     type('rocket')
-    expect(screen.getByTestId('work-search-count').textContent).toBe('2/3')
+    expect(field().value).toBe('rocket')
+    await waitFor(() => expect(screen.getByTestId('work-search-count').textContent).toBe('2/3'))
   })
 
-  it('narrows the list to matching rows, across the pinned section and the groups', () => {
+  it('narrows the list to matching rows, across the pinned section and the groups', async () => {
     render(<SidebarUnified />)
     expect(titles()).toEqual(['Pinned rocket', 'Beta rocket', 'Alpha lander'])
     type('lander')
-    expect(titles()).toEqual(['Alpha lander'])
+    // The field commits on the urgent path. Only the expensive row tree waits
+    // for the deferred query.
+    expect(field().value).toBe('lander')
+    await expectTitles(['Alpha lander'])
     // A section with no hit leaves whole: an empty band under a filter is chrome
     // claiming a group with nothing to show.
     expect(screen.queryByTestId('pinned-section')).toBeNull()
   })
 
-  it('matches on the ref as well as the title — the number is what people paste', () => {
+  it('matches on the ref as well as the title — the number is what people paste', async () => {
     render(<SidebarUnified />)
     type('969')
-    expect(titles()).toEqual(['Beta rocket'])
+    await expectTitles(['Beta rocket'])
     type('POD-844')
-    expect(titles()).toEqual(['Alpha lander'])
+    await expectTitles(['Alpha lander'])
   })
 
-  it('is case-insensitive and ignores surrounding whitespace', () => {
+  it('is case-insensitive and ignores surrounding whitespace', async () => {
     render(<SidebarUnified />)
     type('  ALPHA ')
-    expect(titles()).toEqual(['Alpha lander'])
+    await expectTitles(['Alpha lander'])
   })
 
-  it('says no matches rather than borrowing the empty-list ghost', () => {
+  it('says no matches rather than borrowing the empty-list ghost', async () => {
     render(<SidebarUnified />)
     type('zzzz')
-    expect(titles()).toEqual([])
+    await expectTitles([])
     expect(screen.getByTestId('work-filter-empty')).toBeTruthy()
     // The ghost claims "nothing is here yet", which would be a lie about a
     // column holding three rows this query happens to miss.
     expect(screen.queryByTestId('work-ghost-rows')).toBeNull()
   })
 
-  it('names the haystack under a filtered list, and only while filtering', () => {
+  it('names the haystack under a filtered list, and only while filtering', async () => {
     render(<SidebarUnified />)
     expect(screen.queryByTestId('work-filter-footnote')).toBeNull()
     type('rocket')
-    expect(screen.getByTestId('work-filter-footnote').textContent).toContain('searching 3 tasks')
+    expect((await screen.findByTestId('work-filter-footnote')).textContent).toContain(
+      'searching 3 tasks',
+    )
   })
 
-  it('clears back to the whole column, and hands focus back to the field', () => {
+  it('clears back to the whole column, and hands focus back to the field', async () => {
     render(<SidebarUnified />)
     type('lander')
+    await expectTitles(['Alpha lander'])
     fireEvent.click(screen.getByTestId('work-search-clear'))
-    expect(titles()).toHaveLength(3)
     expect(document.activeElement).toBe(field())
+    expect(field().value).toBe('')
+    await waitFor(() => expect(titles()).toHaveLength(3))
     // Escape is the keyboard's version of the same button.
     type('lander')
+    await expectTitles(['Alpha lander'])
     fireEvent.keyDown(field(), { key: 'Escape' })
-    expect(titles()).toHaveLength(3)
+    await waitFor(() => expect(titles()).toHaveLength(3))
   })
 
   it('focuses and selects the field on ⌘F, and on Ctrl+F off the Mac', () => {
@@ -248,7 +261,7 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
     expect(document.activeElement).not.toBe(field())
   })
 
-  it('withdraws the reorder grips while a query is narrowing the column (POD-1102)', () => {
+  it('withdraws the reorder grips while a query is narrowing the column (POD-1102)', async () => {
     render(<SidebarUnified />)
     expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(3)
     // A filtered column is a VIEW, not the scope. The drop reads the new order
@@ -257,9 +270,9 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
     // the visible ones are invisible to the plan, and the backfill path would
     // renumber the sample and scatter everything it could not see.
     type('rocket')
-    expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(0)
+    await waitFor(() => expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(0))
     fireEvent.click(screen.getByTestId('work-search-clear'))
-    expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(3)
+    await waitFor(() => expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(3))
   })
 
   it('gaps every section but the first (the design’s 14px)', () => {

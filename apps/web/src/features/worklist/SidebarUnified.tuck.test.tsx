@@ -15,8 +15,26 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
 const setIssueTucked = vi.hoisted(() => vi.fn(async () => {}))
-const uiStateGet = vi.hoisted(() => vi.fn((_key: string) => null))
-const uiStateSet = vi.hoisted(() => vi.fn())
+const uiState = vi.hoisted(() => {
+  const rows = new Map<string, string>()
+  const listeners = new Set<() => void>()
+  return {
+    get: vi.fn((key: string): string | null => rows.get(key) ?? null),
+    set: vi.fn((key: string, value: string | null): void => {
+      if (value === null) rows.delete(key)
+      else rows.set(key, value)
+      for (const listener of listeners) listener()
+    }),
+    subscribe: (callback: () => void): (() => void) => {
+      listeners.add(callback)
+      return () => listeners.delete(callback)
+    },
+    reset: (): void => {
+      rows.clear()
+      listeners.clear()
+    },
+  }
+})
 /** Flipped per-test before render: the server's view of the row's ending. */
 const state = vi.hoisted(() => ({
   tuckedAt: null as string | null,
@@ -69,9 +87,9 @@ vi.mock('@/app/store', () => {
     readAt: new Date(Date.now() - 30_000).toISOString(),
   }
   const useStore = () => ({
-    // Reading or writing local ui-state for the tuck flag is the bug: the fold
-    // must come off the wire. Nothing else in this render touches ui-state.
-    uiState: { get: uiStateGet, set: uiStateSet, subscribe: () => () => {} },
+    // Reading or writing a local tuck flag is the bug. The fold's own disclosure
+    // preference still uses the real subscribed UI-state contract.
+    uiState,
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     sessions: [],
     machines: [],
@@ -137,8 +155,9 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 afterEach(() => {
   cleanup()
   setIssueTucked.mockClear()
-  uiStateGet.mockClear()
-  uiStateSet.mockClear()
+  uiState.get.mockClear()
+  uiState.set.mockClear()
+  uiState.reset()
   state.tuckedAt = null
   state.closedReason = 'done'
   state.branch = null
@@ -157,7 +176,7 @@ describe('tuck-away persistence (POD-333)', () => {
     // The dismissal goes to the SERVER (outboxed store action), not to a
     // `podium:sidebar:tucked:*` key only this browser can see.
     expect(setIssueTucked).toHaveBeenCalledWith('finished', true)
-    expect(tuckKeys(uiStateSet.mock.calls)).toEqual([])
+    expect(tuckKeys(uiState.set.mock.calls)).toEqual([])
   })
 
   it.each([
@@ -196,10 +215,10 @@ describe('tuck-away persistence (POD-333)', () => {
     // what must NOT come from local storage is WHICH rows are in the fold.)
     expect(screen.getByTestId('closed-issue-fold')).toBeTruthy()
     expect(screen.queryByTestId('tuck-away')).toBeNull()
-    expect(tuckKeys(uiStateGet.mock.calls)).toEqual([])
+    expect(tuckKeys(uiState.get.mock.calls)).toEqual([])
   })
 
-  it('shows when the issue was tucked rather than when it closed', () => {
+  it('shows when the issue was tucked rather than when it closed', async () => {
     // The row closed a minute ago (the fixture above) but entered Closed only
     // now. Its compact timestamp describes that later, operator-facing event.
     state.tuckedAt = new Date(Date.now() - 10_000).toISOString()
@@ -207,7 +226,7 @@ describe('tuck-away persistence (POD-333)', () => {
     render(<SidebarUnified />)
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
 
-    const row = screen.getByText('Settled issue').closest('[data-testid="folded-work-row"]')
+    const row = (await screen.findByText('Settled issue')).closest('[data-testid="folded-work-row"]')
     expect(row?.textContent).toContain('just now')
     expect(row?.textContent).not.toContain('1m ago')
   })
