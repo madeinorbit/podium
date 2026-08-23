@@ -100,6 +100,13 @@ describe('agent manifest registry', () => {
         }
       }
       expect(typeof manifest.resumeKind).toBe('string')
+      expect(
+        Array.isArray(manifest.environment.removeInherited),
+        `${kind}.environment.removeInherited`,
+      ).toBe(true)
+      expect(new Set(manifest.environment.removeInherited).size).toBe(
+        manifest.environment.removeInherited.length,
+      )
       // Which env overrides this CLI's stored login is a fact only the manifest
       // can answer, and the spawn path deletes exactly what is declared here
       // (POD-2296). An array is required so a new harness cannot arrive silently
@@ -127,6 +134,23 @@ describe('agent manifest registry', () => {
         expect(key.startsWith('PODIUM_'), `${kind} declares ${key}`).toBe(false)
       }
     }
+  })
+
+  it('declares parent controls and named-instance state selectors', () => {
+    expect(AGENT_MANIFESTS['claude-code'].environment.removeInherited).toEqual([
+      'CLAUDE_CODE_CHILD_SESSION',
+      'CLAUDE_CODE_SESSION_ID',
+      'CLAUDE_CODE_ENTRYPOINT',
+      'CLAUDE_CODE_EXECPATH',
+    ])
+    expect(AGENT_MANIFESTS.codex.environment.instanceHome).toEqual({
+      variable: 'CODEX_HOME',
+      relativeDir: '.codex',
+    })
+    expect(AGENT_MANIFESTS.grok.environment.instanceHome).toEqual({
+      variable: 'GROK_HOME',
+      relativeDir: '.grok',
+    })
   })
 
   // A LOGIN COMMAND IS ARGV, NOT PROSE (POD-1307). `claude login` shipped here and
@@ -476,6 +500,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       displayName: 'Fictional',
       capabilities: { ...AGENT_MANIFESTS['claude-code'].capabilities },
       resumeKind: 'fictional-session',
+      environment: { removeInherited: [] },
       inventory: {
         executable: { names: ['fictional'], versionArgs: ['--version'] },
         detectLogin: () => ({ state: 'unknown' }),

@@ -510,6 +510,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         : serveArgv
 
       const env: NodeJS.ProcessEnv = serverChildEnv({
+        agentKind: 'opencode',
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
       })

@@ -134,6 +134,10 @@ export const grokManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'grok-session',
+  environment: {
+    removeInherited: [],
+    instanceHome: { variable: 'GROK_HOME', relativeDir: '.grok' },
+  },
 
   inventory: {
     executable: { names: ['grok'], versionArgs: ['--version'] },

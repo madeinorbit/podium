@@ -532,6 +532,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       const [command, ...args] = scoped ? ['systemd-run', ...systemdScopeArgv(unit, argv)] : argv
 
       const env: NodeJS.ProcessEnv = serverChildEnv({
+        agentKind: 'codex',
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
         harnessEnv: config.env,

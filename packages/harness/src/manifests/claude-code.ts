@@ -75,6 +75,17 @@ export const claudeCodeManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'claude-session',
+  environment: {
+    // A daemon started inside Claude carries another conversation's identity.
+    // Passing it on makes the child subordinate itself to that session and
+    // disables transcript saving — also Podium's state/history channel.
+    removeInherited: [
+      'CLAUDE_CODE_CHILD_SESSION',
+      'CLAUDE_CODE_SESSION_ID',
+      'CLAUDE_CODE_ENTRYPOINT',
+      'CLAUDE_CODE_EXECPATH',
+    ],
+  },
 
   inventory: {
     executable: { names: ['claude'], versionArgs: ['--version'] },

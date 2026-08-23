@@ -60,6 +60,25 @@ export function foreignCredentialEnv(
   return (declared ?? []).filter((key) => !(sessionEnv && key in sessionEnv))
 }
 
+/** Parent-harness controls that must never describe a Podium-owned child. */
+export function harnessChildStripEnv(
+  agentKind: AgentKind | string | undefined,
+  sessionEnv?: Readonly<Record<string, string>>,
+): string[] {
+  const controls = agentKind ? manifestFor(agentKind)?.environment.removeInherited : undefined
+  return [...new Set([...foreignCredentialEnv(agentKind, sessionEnv), ...(controls ?? [])])]
+}
+
+/** Redirect a harness-specific state selector into the named instance home. */
+export function harnessInstanceEnv(
+  agentKind: AgentKind | string | undefined,
+  homeDir?: string,
+): Record<string, string> {
+  if (!agentKind || !homeDir) return {}
+  const selector = manifestFor(agentKind)?.environment.instanceHome
+  return selector ? { [selector.variable]: join(homeDir, selector.relativeDir) } : {}
+}
+
 /** Merge the server-resolved session env (managed credentials, #216) under
  *  Podium's own per-session bindings. Podium's win a collision on purpose: an
  *  injected credential must never be able to shadow the agent-relay wiring.
@@ -111,15 +130,19 @@ export function spawnEnv(
  *     under the instance home resolves.
  *   - VERSION PROBES (`<binary> --version`): the daemon's own env, unchanged.
  *     They answer "what can this MACHINE run", the same question inventory
- *     asks, and read no per-user auth or session state.
+ *     asks, and read no per-user auth or session state. Some CLIs still create
+ *     caches or temp directories under that HOME; this policy deliberately
+ *     distinguishes those probes from the long-lived agent children above.
  *   - `systemctl` / `systemd-run` SCOPE MANAGEMENT: the daemon's own env — it
  *     talks to the daemon's user manager and must keep its `XDG_RUNTIME_DIR`.
  *     (`systemd-run --scope` execs the agent child with the env passed to it,
  *     so the wrapped child still gets this composition.)
  */
 export function serverChildEnv(input: {
+  /** Harness whose inherited controls and state selector this child reads. */
+  agentKind: AgentKind
   /** `ctx.homeDir` — the instance agent home. Absent = default instance; the
-   *  child keeps the daemon's env exactly as before. */
+   *  child keeps the daemon's HOME while still dropping harness controls. */
   homeDir?: string
   /** The server-resolved session env off the spawn frame (managed credentials). */
   sessionEnv?: Readonly<Record<string, string>>
@@ -133,9 +156,12 @@ export function serverChildEnv(input: {
     ...spawnEnv({
       ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
       ...(input.harnessEnv ? { harnessEnv: input.harnessEnv } : {}),
-      podiumEnv: input.homeDir ? { HOME: input.homeDir } : {},
+      podiumEnv: input.homeDir
+        ? { HOME: input.homeDir, ...harnessInstanceEnv(input.agentKind, input.homeDir) }
+        : {},
     }, processEnv),
   }
+  for (const key of harnessChildStripEnv(input.agentKind, input.sessionEnv)) delete env[key]
   if (!input.homeDir) return env
 
   // Server-driver spawn() replaces the child env and does not receive the PTY

@@ -128,6 +128,7 @@ it('gives a server-driver child the INSTANCE home, never the daemon one (POD-224
   // isolated grok session refreshed the operator's real ~/.grok credentials.
   const env = serverChildEnv(
     {
+      agentKind: 'opencode',
       homeDir: '/tmp/pod-op/state/agent-home',
       sessionEnv: { ANTHROPIC_API_KEY: 'sk-1' },
     },
@@ -147,15 +148,17 @@ it('cannot have the instance home shadowed by a server-sent env', () => {
   // Same precedence rule spawnEnv gives podiumEnv: an injected credential must
   // never redirect a child back into the operator's real home.
   const env = serverChildEnv({
+    agentKind: 'codex',
     homeDir: '/instance/home',
     sessionEnv: { HOME: '/home/operator' },
     harnessEnv: { HOME: '/also/not/this' },
   })
   expect(env.HOME).toBe('/instance/home')
+  expect(env.CODEX_HOME).toBe('/instance/home/.codex')
 })
 
 it('leaves a default instance exactly as before — daemon env plus overlays', () => {
-  const env = serverChildEnv({ sessionEnv: { MANAGED: 'x' } })
+  const env = serverChildEnv({ agentKind: 'opencode', sessionEnv: { MANAGED: 'x' } })
   expect(env.HOME).toBe(process.env.HOME)
   expect(env.PATH).toBe(process.env.PATH)
   expect(env.MANAGED).toBe('x')

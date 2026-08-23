@@ -58,6 +58,7 @@ export const cursorManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'cursor-chat',
+  environment: { removeInherited: [] },
 
   inventory: {
     executable: {

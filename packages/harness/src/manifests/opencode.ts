@@ -83,6 +83,7 @@ export const opencodeManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'opencode-session',
+  environment: { removeInherited: [] },
 
   inventory: {
     executable: {

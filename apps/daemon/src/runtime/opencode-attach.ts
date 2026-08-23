@@ -82,7 +82,12 @@ import {
   killAbducoSession,
   spawnAbducoAgent,
 } from '@podium/pty'
-import { harnessCompatEnv, spawnEnv } from '../control/session-env'
+import {
+  harnessChildStripEnv,
+  harnessCompatEnv,
+  harnessInstanceEnv,
+  spawnEnv,
+} from '../control/session-env'
 import { STRIPPED_CODEX_CREDENTIALS } from './codex-app-server'
 import { STRIPPED_PROVIDER_KEYS } from './opencode-server'
 
@@ -349,6 +354,7 @@ export function createOpencodeClientTerminals(
           }
         : {}),
       ...(ports.homeDir ? { HOME: ports.homeDir } : {}),
+      ...harnessInstanceEnv(kind, ports.homeDir),
     }
     const session = await spawn({
       label: record.label,
@@ -376,12 +382,16 @@ export function createOpencodeClientTerminals(
        * asymmetry would go unnoticed: two processes of one binary, opposite
        * treatment, for no stated reason.
        */
-      stripEnv:
-        kind === 'codex'
-          ? STRIPPED_CODEX_CREDENTIALS
-          : kind === 'grok'
-            ? ['XAI_API_KEY']
-            : STRIPPED_PROVIDER_KEYS,
+      stripEnv: [
+        ...new Set([
+          ...(kind === 'codex'
+            ? STRIPPED_CODEX_CREDENTIALS
+            : kind === 'grok'
+              ? ['XAI_API_KEY']
+              : STRIPPED_PROVIDER_KEYS),
+          ...harnessChildStripEnv(kind),
+        ]),
+      ],
       // The overlay abduco layers over the daemon env — composed through the
       // same `spawnEnv` the PTY path uses, so an instance home overrides HOME
       // (and prepends its bin roots to PATH) here exactly as it does for the

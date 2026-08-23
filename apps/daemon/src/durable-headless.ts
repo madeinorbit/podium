@@ -33,7 +33,7 @@ import {
   spawnAbducoAgent,
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
-import { foreignCredentialEnv } from './control/session-env.js'
+import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
 import {
   buildHeadlessExec,
   headlessChildEnv,
@@ -588,7 +588,11 @@ export function runDurableHeadlessTurn(
 
   const label = spec.durableLabel ?? `podium-${sessionId}`
   const { knownSessionId, env: execEnv } = writeRunner(spec, paths, snapshot)
-  const spawnEnv = { ...spec.env, ...execEnv }
+  const spawnEnv = {
+    ...spec.env,
+    ...execEnv,
+    ...harnessInstanceEnv(spec.agent, spec.env?.HOME),
+  }
   let attachment: AgentSession | undefined
   let settled = false
   let disposed = false
@@ -704,7 +708,7 @@ export function runDurableHeadlessTurn(
           // the harness. Delete manifest-declared account overrides at that
           // process boundary; explicit per-turn credentials remain because the
           // helper excludes keys present in spawnEnv.
-          stripEnv: foreignCredentialEnv(spec.agent, spawnEnv),
+          stripEnv: harnessChildStripEnv(spec.agent, spawnEnv),
         })
       }
       if (disposed) {

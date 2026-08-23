@@ -245,6 +245,7 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
       const argv = ['grok', 'agent', 'stdio']
       const [command, ...args] = scoped ? ['systemd-run', ...systemdScopeArgv(unit, argv)] : argv
       const env: NodeJS.ProcessEnv = serverChildEnv({
+        agentKind: 'grok',
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
       })

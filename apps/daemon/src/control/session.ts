@@ -57,7 +57,12 @@ import { beginServerDriverReap } from '../runtime/server-reap'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
-import { foreignCredentialEnv, harnessCompatEnv, spawnEnv } from './session-env'
+import {
+  harnessChildStripEnv,
+  harnessCompatEnv,
+  harnessInstanceEnv,
+  spawnEnv,
+} from './session-env'
 export { harnessCompatEnv } from './session-env'
 import { sourceForRead } from './transcripts'
 
@@ -577,6 +582,7 @@ export async function launchSpawn(
           ),
           ...browserOpenEnv(ctx.settingsDir),
           ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
+          ...harnessInstanceEnv(msg.loginHarness ?? msg.agentKind, ctx.homeDir),
           // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
           ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
           // Globally-installed hooks are env-gated per session by their adapter.
@@ -598,7 +604,7 @@ export async function launchSpawn(
       // let an inherited key outrank it — `claude login` under a stray
       // ANTHROPIC_API_KEY greets you with "Detected a custom API key in your
       // environment" instead.
-      stripEnv: foreignCredentialEnv(msg.loginHarness ?? msg.agentKind, msg.env),
+      stripEnv: harnessChildStripEnv(msg.loginHarness ?? msg.agentKind, msg.env),
     }
     const session =
       ctx.backend === 'abduco'

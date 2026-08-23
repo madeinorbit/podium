@@ -18,7 +18,7 @@ import {
 } from '@podium/harness'
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
-import { foreignCredentialEnv } from './control/session-env.js'
+import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
 
 const DEFAULT_TURN_TIMEOUT_MS = 600_000
 
@@ -107,8 +107,12 @@ export function headlessChildEnv(
   agent: HarnessAgent,
   explicit?: Readonly<Record<string, string>>,
 ): Record<string, string> {
-  const env = { ...process.env, ...explicit } as Record<string, string>
-  for (const key of foreignCredentialEnv(agent, explicit)) delete env[key]
+  const env = {
+    ...process.env,
+    ...explicit,
+    ...harnessInstanceEnv(agent, explicit?.HOME),
+  } as Record<string, string>
+  for (const key of harnessChildStripEnv(agent, explicit)) delete env[key]
   return env
 }
 

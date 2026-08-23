@@ -13,6 +13,10 @@ import { buildHarnessExec } from '../harness-exec.js'
 import { repoOpCommand } from '../repo-op'
 import { scanHostUsage } from '../usage-scan'
 import type { ControlHandlers, DaemonContext } from './context'
+import {
+  harnessChildStripEnv,
+  harnessInstanceEnv,
+} from './session-env'
 
 const execFileAsync = promisify(execFile)
 
@@ -144,11 +148,18 @@ async function runHarnessExec(
     // ALWAYS close the pipe, or stdin-appending CLIs (codex) block on EOF.
     // Timeout/maxBuffer kill-budget semantics are execFileAsync's, unchanged.
     // codex's MCP bearer token rides `execEnv` (POD-1021), merged over process.env.
+    const childEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...execEnv,
+      ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
+      ...harnessInstanceEnv(msg.agent, ctx.homeDir),
+    }
+    for (const key of harnessChildStripEnv(msg.agent, execEnv)) delete childEnv[key]
     const pending = execFileAsync(cmd, args, {
       timeout: msg.timeoutMs ?? 240_000,
       maxBuffer: 4 * 1024 * 1024,
       ...(msg.cwd ? { cwd: msg.cwd } : {}),
-      ...(execEnv ? { env: { ...process.env, ...execEnv } } : {}),
+      env: childEnv,
     })
     pending.child.stdin?.end(stdin ?? '')
     const { stdout } = await pending

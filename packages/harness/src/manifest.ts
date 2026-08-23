@@ -825,6 +825,25 @@ export interface AgentManifest {
   capabilities: HarnessCapabilities
   /** The resume.kind stamped on this harness's native conversations. */
   resumeKind: string
+  /**
+   * Environment isolation owned by this harness.
+   *
+   * `removeInherited` names controls that describe a parent invocation of the
+   * same CLI, never machine configuration for the child Podium owns.
+   * `instanceHome` names a CLI-specific home selector that must follow a named
+   * instance's HOME; otherwise an ambient selector can redirect the child back
+   * into the daemon operator's real harness state.
+   *
+   * Required (empty is a decision) so a newly added harness cannot silently
+   * inherit its parent's identity.
+   */
+  environment: {
+    removeInherited: readonly string[]
+    instanceHome?: {
+      variable: string
+      relativeDir: string
+    }
+  }
   /** Machine-local installation and account discovery owned by this harness. */
   inventory: HarnessInventory
   /** Interactive spawn command (fresh vs resume, model/effort flags, argv prompt). */

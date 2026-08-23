@@ -201,6 +201,10 @@ export const codexManifest: AgentManifest = {
     interruptQuitsWhenIdle: true,
   },
   resumeKind: 'codex-thread',
+  environment: {
+    removeInherited: [],
+    instanceHome: { variable: 'CODEX_HOME', relativeDir: '.codex' },
+  },
 
   inventory: {
     executable: { names: ['codex'], versionArgs: ['--version'] },
