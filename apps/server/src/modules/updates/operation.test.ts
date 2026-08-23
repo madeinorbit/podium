@@ -65,6 +65,7 @@ afterEach(() => {
 // ───────────────────────────── fixtures ──────────────────────────────
 
 const WEB_DIGEST = 'abc1234'
+const NEXT_WEB_DIGEST = 'def5678'
 
 function devTarget(over: Partial<UpdateTarget> = {}): UpdateTarget {
   return {
@@ -161,13 +162,22 @@ describe('planUpdateOperation', () => {
       steps: [UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES, UPDATE_STEP_WEB],
     },
     {
-      name: 'a source coordinator at the target commit plans no packaged self-update',
+      name: 'a source coordinator behind the target plans no packaged self-update',
       input: {
-        target: { ...packedTarget(), version: '0.1.1-dev.1+abc1234' },
+        target: {
+          ...packedTarget(),
+          version: `0.1.1-dev.1+${NEXT_WEB_DIGEST}`,
+          artifacts: {
+            ...packedTarget().artifacts,
+            web: { digest: NEXT_WEB_DIGEST },
+          },
+        },
         appVersion: 'dev+abc1234',
         sourceDigest: WEB_DIGEST,
         serverInstallKind: 'source',
-        servedWebDigest: WEB_DIGEST,
+        // Keep the website current so only packaged coordinator eligibility can
+        // decide whether the plan contains a server step.
+        servedWebDigest: NEXT_WEB_DIGEST,
       },
       steps: [],
     },
