@@ -233,6 +233,13 @@ describe('the client terminal a server-family attach produces', () => {
     expect(endpoint.streamId).toBe(SESSION)
   })
 
+  /**
+   * The adopted rows exercise the shared client-terminal seam, not identical
+   * production recovery paths for all three families. Only OpenCode server
+   * adoption calls `clientTerminals.adopt()` before a viewer attaches. Codex
+   * and Grok restore their server handles without pre-adopting this record; a
+   * later `attach()` finds and reconnects their durable client master instead.
+   */
   it.each([
     ['opencode', 'cold', target, 'opencode', false],
     [
@@ -281,7 +288,14 @@ describe('the client terminal a server-family attach produces', () => {
       hasMaster: () => adopted,
     })
 
-    if (adopted) terminals.adopt(SESSION, clientKind)
+    if (adopted) {
+      terminals.adopt(SESSION, clientKind)
+      // Prove this is an adopted record BEFORE attach can create the same
+      // observable client through the cold path.
+      expect(state.spawns).toHaveLength(0)
+      expect(state.armed).toBe(1)
+      expect(terminals.reclaimable()).toBe(1)
+    }
 
     const endpoint = await terminals.attach({ sessionId: SESSION, target: paintTarget })
 
