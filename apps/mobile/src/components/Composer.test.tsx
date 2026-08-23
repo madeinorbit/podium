@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentProps, ReactNode } from 'react'
 import type { View } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -22,10 +22,37 @@ vi.mock('expo-haptics', () => ({
 vi.mock('lucide-react-native', () => ({
   ArrowUp: () => null,
   ClipboardPaste: () => null,
+  Mic: () => null,
+  MicOff: () => null,
   Paperclip: () => null,
+  Square: () => null,
 }))
 
-const { Composer } = await import('./Composer')
+const { Composer, composerVoiceStatus } = await import('./Composer')
+
+interface FakeVoiceResult {
+  isFinal: boolean
+  length: number
+  0: { transcript: string }
+}
+
+class FakeSpeechRecognition {
+  static instances: FakeSpeechRecognition[] = []
+
+  lang = ''
+  continuous = false
+  interimResults = true
+  onstart: (() => void) | null = null
+  onresult: ((event: { resultIndex: number; results: FakeVoiceResult[] }) => void) | null = null
+  onend: (() => void) | null = null
+  onerror: ((event: { error: string }) => void) | null = null
+  start = vi.fn()
+  stop = vi.fn()
+
+  constructor() {
+    FakeSpeechRecognition.instances.push(this)
+  }
+}
 
 describe('Composer activity caption', () => {
   it('shares the composer bar and disappears without reserving a row', () => {
@@ -101,6 +128,151 @@ describe('Composer floating dock', () => {
   it('drops no glyph in front of the text field', () => {
     const { container } = render(<Composer placeholder="Message the agent…" onSend={vi.fn()} />)
     expect(container.textContent).not.toContain('>')
+  })
+})
+
+describe('Composer web dictation', () => {
+  afterEach(() => {
+    FakeSpeechRecognition.instances = []
+    vi.unstubAllGlobals()
+  })
+
+  const supportDictation = () => {
+    vi.stubGlobal('SpeechRecognition', FakeSpeechRecognition)
+  }
+
+  it('shows platform download status instead of the generic starting label', () => {
+    expect(
+      composerVoiceStatus({
+        starting: true,
+        listening: false,
+        error: null,
+        statusMessage: 'Downloading speech model, 42%',
+      }),
+    ).toBe('Downloading speech model, 42%')
+  })
+
+  it('keeps the control hidden when the browser has no speech API', () => {
+    vi.stubGlobal('SpeechRecognition', undefined)
+    vi.stubGlobal('webkitSpeechRecognition', undefined)
+
+    render(<Composer placeholder="Message…" onSend={vi.fn()} />)
+
+    expect(screen.queryByTestId('composer-voice')).toBeNull()
+  })
+
+  it('uses a 44pt target and appends finalized speech to the live draft', () => {
+    supportDictation()
+    const { container } = render(<Composer placeholder="Message…" onSend={vi.fn()} />)
+    const input = container.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'Typed note' } })
+
+    const microphone = screen.getByTestId('composer-voice')
+    expect(microphone.style.width).toBe('44px')
+    expect(microphone.style.height).toBe('44px')
+    expect(microphone.getAttribute('aria-label')).toBe('Start dictation')
+    const send = screen.getByLabelText('Send')
+    expect(send.style.width).toBe('44px')
+    expect(send.style.height).toBe('44px')
+
+    fireEvent.click(microphone)
+    const recognition = FakeSpeechRecognition.instances[0]
+    expect(screen.getByTestId('composer-voice-status').textContent).toBe('Starting dictation…')
+    expect(microphone.getAttribute('aria-busy')).toBe('true')
+
+    act(() => recognition.onstart?.())
+    expect(screen.getByTestId('composer-voice-status').textContent).toBe('Listening…')
+    expect(microphone.getAttribute('aria-label')).toBe('Stop dictation')
+
+    act(() =>
+      recognition.onresult?.({
+        resultIndex: 0,
+        results: [{ isFinal: true, length: 1, 0: { transcript: '  spoken words  ' } }],
+      }),
+    )
+    expect(input.value).toBe('Typed note spoken words')
+  })
+
+  it('shows permission failure and lets the operator retry without losing text', () => {
+    supportDictation()
+    const { container } = render(<Composer placeholder="Message…" onSend={vi.fn()} />)
+    const input = container.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'Keep this draft' } })
+    const microphone = screen.getByTestId('composer-voice')
+    fireEvent.click(microphone)
+    const recognition = FakeSpeechRecognition.instances[0]
+
+    act(() => recognition.onerror?.({ error: 'not-allowed' }))
+
+    expect(input.value).toBe('Keep this draft')
+    expect(screen.getByTestId('composer-voice-status').textContent).toBe(
+      'Microphone access is blocked. Allow it in your browser settings and try again.',
+    )
+    expect(microphone.getAttribute('aria-label')).toBe('Retry dictation')
+
+    fireEvent.click(microphone)
+    expect(FakeSpeechRecognition.instances).toHaveLength(2)
+    expect(input.value).toBe('Keep this draft')
+  })
+
+  it('invalidates speech before send so a captured late result cannot fill the next draft', () => {
+    supportDictation()
+    const onSend = vi.fn()
+    const { container } = render(<Composer placeholder="Message…" onSend={onSend} />)
+    const input = container.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'Typed' } })
+    fireEvent.click(screen.getByTestId('composer-voice'))
+    const recognition = FakeSpeechRecognition.instances[0]
+    act(() => recognition.onstart?.())
+    const staleResult = recognition.onresult
+    act(() =>
+      recognition.onresult?.({
+        resultIndex: 0,
+        results: [{ isFinal: true, length: 1, 0: { transcript: 'spoken' } }],
+      }),
+    )
+    expect(input.value).toBe('Typed spoken')
+
+    fireEvent.click(screen.getByLabelText('Send'))
+    expect(onSend).toHaveBeenCalledWith('Typed spoken', undefined)
+    expect(input.value).toBe('')
+
+    act(() =>
+      staleResult?.({
+        resultIndex: 1,
+        results: [
+          { isFinal: true, length: 1, 0: { transcript: 'spoken' } },
+          { isFinal: true, length: 1, 0: { transcript: 'late' } },
+        ],
+      }),
+    )
+    expect(input.value).toBe('')
+  })
+
+  it('invalidates speech when the operator clears the field', () => {
+    supportDictation()
+    const { container } = render(<Composer placeholder="Message…" onSend={vi.fn()} />)
+    const input = container.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.click(screen.getByTestId('composer-voice'))
+    const recognition = FakeSpeechRecognition.instances[0]
+    const staleResult = recognition.onresult
+    act(() =>
+      recognition.onresult?.({
+        resultIndex: 0,
+        results: [{ isFinal: false, length: 1, 0: { transcript: 'temporary' } }],
+      }),
+    )
+    expect(input.value).toBe('temporary')
+
+    fireEvent.change(input, { target: { value: '' } })
+    expect(recognition.stop).toHaveBeenCalledOnce()
+    act(() =>
+      staleResult?.({
+        resultIndex: 0,
+        results: [{ isFinal: true, length: 1, 0: { transcript: 'late final' } }],
+      }),
+    )
+    expect(input.value).toBe('')
   })
 })
 
