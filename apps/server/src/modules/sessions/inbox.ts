@@ -73,6 +73,9 @@ const WOKEN_DRAIN_DEADLINE_MS = 60_000
 /** How long a typed prompt has to show up as a turn before we call it lost.
  *  Only counted while the agent is FREE to take it — see {@link SessionInbox.drain}. */
 const CONFIRM_TIMEOUT_MS = 5_000
+/** A creation prompt gets one longer confirmation window before it is failed
+ * visibly; ordinary queued sends retain the shorter retry cadence. */
+const INITIAL_PROMPT_CONFIRM_TIMEOUT_MS = 30_000
 const CONFIRM_POLL_MS = 250
 /** Poll cadence while the CLI is holding our prompt behind a running turn. The
  *  wait is measured in minutes, so it is not worth a 250ms tick; a second still
@@ -222,6 +225,8 @@ export interface InboxAttentionPort {
     observation?: AgentObservation
   }): void
   answered(input: { ownerUserId: UserId; sessionId: SessionId; attribution: Attribution }): void
+  /** The creation prompt was not witnessed before its bounded confirmation window. */
+  promptFailed(input: { ownerUserId: UserId; sessionId: SessionId; reason: string }): void
 }
 
 export interface SessionInboxDeps {
@@ -715,11 +720,28 @@ export class SessionInbox {
         setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
       } else stop()
     }
+    const failInitialPrompt = (
+      current: Session,
+      head: QueuedInboxMessage,
+      reason: string,
+    ): void => {
+      const ownerUserId = this.deps.ownerOf(sessionId)
+      if (ownerUserId) {
+        this.deps.attention.promptFailed({ ownerUserId, sessionId, reason })
+      }
+      // The row is retired only after the failure notification has been
+      // emitted. Later queued rows stay untouched: typing another prompt into
+      // the same unverified native composer is the concatenation bug this row
+      // exists to prevent.
+      removeHead(current, head.id)
+      stop()
+    }
     /**
      * Poll for our own prompt arriving as the transcript's last user turn. Not
      * finding it is not proof of loss — a slow harness may simply not have
-     * written the record yet — so the timeout retypes rather than dead-letters,
-     * and gives up leaving the row exactly where a retry can find it.
+     * written the record yet — so an ordinary row retries rather than
+     * dead-letters. A creation row has a bounded confirmation window and emits
+     * a visible failure if it never becomes a witnessed turn.
      *
      * A BUSY AGENT IS NOT A LOST PROMPT (POD-1242). The CLI parks typed input in
      * its own composer queue and does not write the user turn until the running
@@ -734,7 +756,9 @@ export class SessionInbox {
      * several times over.
      */
     const confirm = (head: QueuedInboxMessage, needle: string, attempt: number): void => {
-      let until = this.deps.now() + CONFIRM_TIMEOUT_MS
+      const initialPrompt = isInitialPromptRow(sessionId, head)
+      let until =
+        this.deps.now() + (initialPrompt ? INITIAL_PROMPT_CONFIRM_TIMEOUT_MS : CONFIRM_TIMEOUT_MS)
       const heldUntil = this.deps.now() + HELD_CONFIRM_CEILING_MS
       const poll = (): void => {
         const current = this.deps.getSession(sessionId)
@@ -756,6 +780,13 @@ export class SessionInbox {
           // Held, not lost. Give up only at the ceiling, and leave the row
           // exactly where a later re-arm finds it — with its attempts intact.
           if (now >= heldUntil) {
+            if (initialPrompt) {
+              failInitialPrompt(
+                current,
+                head,
+                'the agent stayed busy without confirming the creation prompt',
+              )
+            }
             stop()
             return
           }
@@ -768,12 +799,19 @@ export class SessionInbox {
           return
         }
         // Unconfirmed. The row is still queued and still durable; the operator
-        // keeps seeing it, and a later bind or daemon attach re-arms this pass.
-        // The creation prompt is different from an ordinary unobservable send:
-        // retyping it can append another copy to the native composer. Keep the
-        // durable row for a later readiness/reconnect event instead of silently
-        // turning one uncertain prompt into several.
-        if (isInitialPromptRow(sessionId, head) || attempt >= MAX_DELIVERY_ATTEMPTS) {
+        // keeps seeing it, and an ordinary row gets a later retry. The creation
+        // prompt is different: retyping it can append another copy to the native
+        // composer, so its bounded timeout is a visible terminal failure rather
+        // than an indefinite queue or a second blind write.
+        if (initialPrompt) {
+          failInitialPrompt(
+            current,
+            head,
+            'the agent transcript did not confirm the creation prompt before the deadline',
+          )
+          return
+        }
+        if (attempt >= MAX_DELIVERY_ATTEMPTS) {
           stop()
           return
         }

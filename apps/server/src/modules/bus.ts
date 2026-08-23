@@ -114,7 +114,12 @@ export interface EventMap {
   /** A host reported a fresh metrics sample. */
   'host.metrics': { sample: HostMetricsWire }
   /** An agent needs attention (the attention-notice seam notify consumes). */
-  'attention.raised': { sessionId: SessionId; title: string; body: string }
+  'attention.raised': {
+    sessionId: SessionId
+    ownerUserId: UserId
+    title: string
+    body: string
+  }
   /** Per-user Telegram delivery requested after notification policy decides to push. */
   'notification.telegramRequested': {
     ownerUserId: UserId

@@ -360,6 +360,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           payload: { sessionId, ownerUserId, attribution },
         })
       },
+      promptFailed: ({ ownerUserId, sessionId, reason }) =>
+        bag.bus.emit('attention.raised', {
+          ownerUserId,
+          sessionId,
+          title: 'Initial prompt not delivered',
+          body: `${reason}. Send it again after checking the session.`,
+        }),
     },
     now: () => bag.now(),
     persist: (session, options) =>

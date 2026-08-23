@@ -55,6 +55,7 @@ function harness(
   const contractCalls: unknown[] = []
   const rejected: unknown[] = []
   const answered: unknown[] = []
+  const promptFailed = vi.fn()
   let authorized = true
   const applied = vi.fn()
   const injected = vi.fn()
@@ -125,6 +126,7 @@ function harness(
     attention: {
       stateChanged: vi.fn(),
       answered: (input) => answered.push(input),
+      promptFailed,
     },
     now: () => Date.now(),
     persist: vi.fn(),
@@ -167,6 +169,7 @@ function harness(
     contractCalls,
     rejected,
     answered,
+    promptFailed,
     applied,
     injected,
     handleInput,
@@ -769,6 +772,31 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
 
     expect(h.rows).toEqual([])
     expect(h.session.queuedMessageCount).toBe(0)
+  })
+
+  it('fails a creation prompt visibly instead of leaving it queued forever', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'opencode', transcriptAvailable: true })
+
+    expect(h.inbox.queueInitialPrompt({ sessionId: SID, text: 'hello' })).toEqual({
+      ok: true,
+      queued: true,
+    })
+    vi.advanceTimersByTime(10_400)
+    expect(typedTexts(h.sent)).toEqual(['hello'])
+    expect(h.rows).toHaveLength(1)
+
+    vi.advanceTimersByTime(30_000)
+
+    expect(h.rows).toEqual([])
+    expect(h.session.queuedMessageCount).toBe(0)
+    expect(h.applied).not.toHaveBeenCalled()
+    expect(h.promptFailed).toHaveBeenCalledWith({
+      ownerUserId: ALICE,
+      sessionId: SID,
+      reason: 'the agent transcript did not confirm the creation prompt before the deadline',
+    })
   })
 
   it('keeps the row queued when the typed prompt never becomes a turn', () => {
