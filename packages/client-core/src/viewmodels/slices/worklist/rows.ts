@@ -26,7 +26,7 @@ import {
   isDraftAgentVessel,
   issueAwaitingMerge,
 } from '../issues'
-import type { SidebarSections } from './nav'
+import type { SidebarSections, WorktreeNavView } from './nav'
 import { compareManualOrder, sortUnifiedWorkRows } from './row-order'
 import { rowSessions, type UnifiedIssueRow, type UnifiedWorkRow } from './row-types'
 import { issueVisibleInSidebar, sessionVisibleInSidebar } from './visibility'
@@ -36,7 +36,9 @@ import { issueVisibleInSidebar, sessionVisibleInSidebar } from './visibility'
  *   - non-archived human-origin issues (drafts included) that have ≥1 live
  *     (non-archived, non-shell) member session — a worktree or a non-backlog
  *     stage alone is NOT enough; the unified list is live work, not a tree;
- *   - nav worktrees owned by no issue that have ≥1 (non-shell) session.
+ *   - nav worktrees with ≥1 (non-shell) session that is not already rendered
+ *     under a visible issue row. These are the fallback route for plain repo
+ *     sessions and for sessions whose issue has gone away.
  * Sessions attached to a live issue only render under that issue's row, so an
  * agent-created worktree whose issue never stamped worktreePath won't show twice.
  * After the flat pass, top-level agent-started issues nest under the starter
@@ -151,10 +153,52 @@ function buildUnifiedRows(
     const went = issueContinuation(row.issue, issueById, sessions)
     return went ? { ...row, continuation: went.line } : row
   })
-  // The work sidebar is issue-only. Unattached and orphaned sessions remain
-  // available through session/history surfaces, but a repository branch is
-  // never promoted into a pseudo-issue row (for example "podium · main").
-  return nestStartedByIssues(continued, sessions, allWorktreePaths, issues, ownership)
+  const nested = nestStartedByIssues(continued, sessions, allWorktreePaths, issues, ownership)
+  const issueSessionIds = new Set<string>()
+  const collectIssueSessions = (issueRows: readonly UnifiedWorkRow[]): void => {
+    for (const row of issueRows) {
+      if (row.kind !== 'issue') continue
+      for (const session of row.sessions) issueSessionIds.add(session.sessionId)
+      collectIssueSessions(row.startedByChildren ?? [])
+    }
+  }
+  collectIssueSessions(nested)
+
+  const issueByIdForSession = new Map(issues.map((issue) => [issue.id, issue]))
+  const worktreeRows: UnifiedWorkRow[] = []
+  for (const worktree of sidebarWorktrees(sections)) {
+    const guests = worktree.sessions.filter((session) => {
+      if (issueSessionIds.has(session.sessionId)) return false
+      const issue = session.issueId ? issueByIdForSession.get(session.issueId) : undefined
+      return sessionVisibleInSidebar(session, now, issue)
+    })
+    if (guests.length === 0) continue
+    worktreeRows.push({
+      kind: 'worktree',
+      worktree: { ...worktree, sessions: guests },
+      activityAt: guests.reduce(
+        (max, session) => Math.max(max, Date.parse(session.lastActiveAt) || 0),
+        0,
+      ),
+    })
+  }
+  return [...nested, ...worktreeRows]
+}
+
+/** Flatten the nav's three mutually-exclusive worktree lanes once. */
+function sidebarWorktrees(sections: SidebarSections): WorktreeNavView[] {
+  const seen = new Set<string>()
+  const out: WorktreeNavView[] = []
+  const add = (worktree: WorktreeNavView): void => {
+    if (seen.has(worktree.path)) return
+    seen.add(worktree.path)
+    out.push(worktree)
+  }
+  for (const worktree of sections.pinnedWorktrees) add(worktree)
+  for (const repo of [...sections.pinnedRepos, ...sections.repos]) {
+    for (const worktree of repo.worktrees) add(worktree)
+  }
+  return out
 }
 
 /**
@@ -357,7 +401,7 @@ export function partitionUnifiedWork(
   now: number = Date.now(),
 ): UnifiedWorkPartition {
   const rows = sortUnifiedWorkRows(
-    buildUnifiedRows(sections, issues, sessions, allWorktreePaths, now),
+    buildUnifiedRows(sections, issues, sessions, allWorktreePaths, now, sections.sessionOwnership),
     now,
   )
   const working: WorkingEntry[] = []

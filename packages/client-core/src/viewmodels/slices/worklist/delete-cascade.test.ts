@@ -10,15 +10,16 @@
  * true. The two facts it rests on are both properties of the worklist, not of
  * the outbox, which is precisely why they need a test HERE:
  *
- *   1. the work sidebar is ISSUE-ONLY (`rows.ts` — "a repository branch is
- *      never promoted into a pseudo-issue row"), so a session reaches the screen
- *      only nested under the issue that owns it;
+ *   1. issue-owned sessions reach the screen nested under the issue that owns
+ *      them; the separate worktree roster only receives sessions not already
+ *      represented by a visible issue row;
  *   2. ownership is already delete-aware (`issueIdOwningSession` refuses to own
  *      a session whose issue carries `deletedAt`).
  *
- * If either changed — a future orphan-session lane, say — a delete would start
- * leaving its sessions on screen for the length of the round trip, and this file
- * is what says so before a user finds out.
+ * If either changed — for example, if delete-aware ownership stopped taking the
+ * issue session with it — a delete would leave a session in the wrong row for
+ * the length of the round trip, and this file is what says so before a user
+ * finds out.
  */
 
 import type { SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
