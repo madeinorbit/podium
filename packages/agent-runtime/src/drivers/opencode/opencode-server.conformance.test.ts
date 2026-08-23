@@ -33,6 +33,7 @@
 
 import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { RuntimeEvent } from '../../events.js'
 // `assertAttachHonoursOneControlLease` is the assertion, not a copy of it: the
 // refusal arm below is judged by the same corpus function the run judges its
 // endpoint arm with. Imported from the module rather than the `testing/` barrel
@@ -90,6 +91,7 @@ interface WorldOptions {
 function makeWorld(options: WorldOptions = {}): {
   target: ConformanceTarget
   prompt(sessionId: SessionId): ReturnType<FakeOpencodeServer['lastPrompt']>
+  failTurn(sessionId: SessionId): void
 } {
   const hostsClientTerminals = options.hostsClientTerminals ?? true
   let runtime: OpencodeRuntime | undefined
@@ -335,6 +337,11 @@ function makeWorld(options: WorldOptions = {}): {
 
   return {
     prompt: (sessionId) => serverFor(sessionId).lastPrompt(opencodeIdFor(sessionId)),
+    failTurn: (sessionId) =>
+      serverFor(sessionId).emit('session.error', {
+        sessionID: opencodeIdFor(sessionId),
+        error: { name: 'ProviderError', message: 'fixture provider failure' },
+      }),
 
     target: {
       name: 'opencode-server',
@@ -366,6 +373,40 @@ function makeWorld(options: WorldOptions = {}): {
 }
 
 const { target } = makeWorld()
+
+describe('opencode provider failure detail', () => {
+  it('carries the provider text on the normalized state event', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const events: RuntimeEvent[] = []
+      const collect = (async () => {
+        for await (const event of handle.events('bootstrap')) {
+          events.push(event)
+          if (event.t === 'state' && event.change.kind === 'turn_failed') break
+        }
+      })()
+      await handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      world.failTurn(handle.binding.sessionId)
+      await collect
+
+      expect(
+        events.find((event) => event.t === 'state' && event.change.kind === 'turn_failed'),
+      ).toMatchObject({
+        t: 'state',
+        change: {
+          kind: 'turn_failed',
+          errorClass: 'provider-error',
+          retryable: true,
+          detail: expect.stringContaining('fixture provider failure'),
+        },
+      })
+    } finally {
+      world.target.reset()
+    }
+  })
+})
 describe('attachment file-part prompts', () => {
   it('returns a raw typed staging failure', async () => {
     const world = makeWorld({

@@ -6,6 +6,7 @@ import {
   buildChatRows,
   dedupeByCursor,
   freshOlderPage,
+  markPendingSendingFailed,
   isBatchableTool,
   mergeByCursor,
   pairToolResults,
@@ -16,6 +17,23 @@ import {
   toolRunElapsedMs,
   toolRunFailures,
 } from './chat'
+
+describe('markPendingSendingFailed', () => {
+  it('fails only a send that has not crossed the delivery boundary', () => {
+    const pending = [
+      { id: 'sending', text: 'one', at: 1, state: 'sending' as const },
+      { id: 'sent', text: 'two', at: 2, state: 'sent' as const },
+      { id: 'queued', text: 'three', at: 3, state: 'queued' as const },
+      { id: 'failed', text: 'four', at: 4, state: 'failed' as const, failure: 'old' },
+    ]
+    expect(markPendingSendingFailed(pending, 'quota exhausted')).toEqual([
+      { id: 'sending', text: 'one', at: 1, state: 'failed', failure: 'quota exhausted' },
+      { id: 'sent', text: 'two', at: 2, state: 'sent' },
+      { id: 'queued', text: 'three', at: 3, state: 'queued' },
+      { id: 'failed', text: 'four', at: 4, state: 'failed', failure: 'old' },
+    ])
+  })
+})
 
 const tool = (toolName: string, id: string): TranscriptItem => ({
   id,
@@ -438,10 +456,7 @@ describe('FileLinkPathIndex (AgentPanel file-link delta contract)', () => {
 
   it('caps retained history so a marathon transcript cannot grow the index forever', () => {
     const index = new FileLinkPathIndex(3)
-    index.add([
-      pathItem('a', ['/1.ts', '/2.ts']),
-      pathItem('b', ['/3.ts', '/4.ts']),
-    ])
+    index.add([pathItem('a', ['/1.ts', '/2.ts']), pathItem('b', ['/3.ts', '/4.ts'])])
     expect(index.knownPaths.size).toBe(3)
     expect([...index.knownPaths]).toEqual(['/2.ts', '/3.ts', '/4.ts'])
     expect(FILE_LINK_PATH_CAP).toBeGreaterThan(3)

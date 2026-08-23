@@ -231,7 +231,7 @@ describe('SessionInbox terminal provider failures', () => {
     ).toEqual({
       ok: false,
       reason:
-        'Usage limit reached: API quota exhausted. Fix the provider issue, then choose Resume the session.',
+        'Usage limit reached: API quota exhausted. Fix the provider issue, then choose “Resume the session”.',
     })
     expect(h.sent).toEqual([])
     expect(h.rows).toEqual([])
@@ -260,6 +260,51 @@ describe('SessionInbox terminal provider failures', () => {
     expect(typedTexts(h.sent)).toEqual([])
     expect(h.rows).toHaveLength(1)
     expect(h.session.queuedMessageCount).toBe(1)
+  })
+
+  it('drains a recovery answer and its held message through the errored-session gate', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ status: 'starting' })
+    Object.assign(h.session, {
+      agentState: {
+        phase: 'errored',
+        since: '2026-08-22T10:00:00.000Z',
+        error: { class: 'usage_limit', retryable: false, detail: 'API quota exhausted' },
+      },
+    })
+
+    expect(
+      h.inbox.resumeAndSend({
+        sessionId: SID,
+        text: 'Continue where you left off.',
+        mutationId: asMutationId('recovery-answer'),
+        principal: agentPrincipal(),
+        allowErrored: true,
+      }),
+    ).toEqual({ ok: true, queued: true })
+    h.setStatus('live')
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    expect(typedTexts(h.sent)).toContain('Continue where you left off.')
+    expect(h.rows).toEqual([])
+  })
+
+  it('names the login action for an authentication-shaped failure', () => {
+    const h = harness()
+    Object.assign(h.session, {
+      agentState: {
+        phase: 'errored',
+        since: '2026-08-22T10:00:00.000Z',
+        error: { class: 'authentication', retryable: false, detail: 'token expired' },
+      },
+    })
+
+    expect(h.inbox.sendText({ sessionId: SID, text: 'hello' })).toEqual({
+      ok: false,
+      reason:
+        'Provider authentication failed: token expired. Re-authenticate with the provider, then choose “I signed in — retry”.',
+    })
   })
 })
 

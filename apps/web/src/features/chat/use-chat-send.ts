@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import type { PendingItem, QueuedChatMessage } from './chat'
-import { queuedOperatorMessages, reconcilePending } from './chat'
+import { markPendingSendingFailed, queuedOperatorMessages, reconcilePending } from './chat'
 import type { UseHeadlessTurnResult } from './use-headless-turn'
 
 /**
@@ -252,9 +252,9 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     return () => clearTimeout(t)
   }, [pending])
 
-  // A terminal provider failure is authoritative for every optimistic bubble that
-  // has not been reconciled into the transcript. The first send used to settle to
-  // a plain "sent" bubble after the grace timer; that was the invisible failure.
+  // A terminal provider failure is authoritative for an optimistic bubble that
+  // is still in flight. A `sent` bubble has already crossed the send boundary;
+  // rewriting it as "not delivered" would lie about a message that arrived.
   useEffect(() => {
     const error =
       session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
@@ -262,16 +262,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         : undefined
     if (!error) return
     const failure = formatAgentError(error)
-    setPending((items) => {
-      let changed = false
-      const next = items.map((item) => {
-        if (item.state === 'queued' || (item.state === 'failed' && item.failure === failure))
-          return item
-        changed = true
-        return { ...item, state: 'failed' as const, failure }
-      })
-      return changed ? next : items
-    })
+    setPending((items) => markPendingSendingFailed(items, failure))
   }, [session?.agentState?.error, session?.agentState?.phase])
   // Clear the optimistic flag once the agent actually reports working (the badge
   // keeps the row visible) or after a short ceiling so it never sticks.

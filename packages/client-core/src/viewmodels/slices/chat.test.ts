@@ -347,9 +347,9 @@ describe('composer, queue, offer and activity', () => {
       sendable: false,
       canResume: false,
       placeholder:
-        'Usage limit reached: API quota exhausted — fix the provider issue, then choose Resume the session.',
+        'Usage limit reached: API quota exhausted — Fix the provider issue, then choose “Resume the session”.',
       refusalReason:
-        'Usage limit reached: API quota exhausted — fix the provider issue, then choose Resume the session.',
+        'Usage limit reached: API quota exhausted — Fix the provider issue, then choose “Resume the session”.',
     })
     expect(
       chatSendRoute({
@@ -361,8 +361,29 @@ describe('composer, queue, offer and activity', () => {
     ).toEqual({
       kind: 'refused',
       reason:
-        'Usage limit reached: API quota exhausted — fix the provider issue, then choose Resume the session.',
+        'Usage limit reached: API quota exhausted — Fix the provider issue, then choose “Resume the session”.',
     })
+  })
+
+  it('names the login action instead of promising a resume for auth failures', () => {
+    const blocked = session({
+      agentState: {
+        phase: 'errored',
+        since: '2026-08-22T10:00:00.000Z',
+        nativeSubagentCount: 0,
+        error: { class: 'authentication', retryable: false, detail: 'token expired' },
+      },
+    } as Partial<SessionMeta>)
+    expect(
+      composerState({
+        session: blocked,
+        headless: false,
+        turnRunning: false,
+        compact: false,
+      }).placeholder,
+    ).toBe(
+      'Provider authentication failed: token expired — Re-authenticate with the provider, then choose “I signed in — retry”.',
+    )
   })
 
   // POD-762. The whole point of these three is that they read the SERVER's

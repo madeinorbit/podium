@@ -52,6 +52,7 @@
  */
 
 import type { InteractionAskSpec, RecoveryChoice } from '@podium/protocol'
+import { isAgentAuthenticationError } from '@podium/model'
 import type { FailureDisposition, TurnFailureReason } from '@podium/protocol/daemon'
 
 /**
@@ -76,10 +77,6 @@ import type { FailureDisposition, TurnFailureReason } from '@podium/protocol/dae
  * inventing one is not this issue's to invent.
  */
 const FAILURE_RECOVERY_CHOICES: readonly RecoveryChoice[] = ['full-resume']
-
-/** Error classes that mean "this session needs a credential, not a retry". The
- *  harness vocabulary is open, so this matches rather than enumerates. */
-const AUTH_ERROR = /auth|login|credential|unauthor|forbidden|api[_-]?key/i
 
 /** Error classes that mean the conversation outgrew its window. Same open
  *  vocabulary, same reason for matching rather than enumerating. */
@@ -133,7 +130,7 @@ export function failureDisposition(evidence: FailureEvidence): FailureDispositio
   // expired credential it is not — continuing re-fails. This is also what keeps
   // the pre-existing behaviour of the `errored` arm exactly intact: it minted a
   // `login` for every auth-shaped class and never consulted the flag.
-  if (AUTH_ERROR.test(evidence.errorClass)) return 'needs-human'
+  if (isAgentAuthenticationError({ class: evidence.errorClass })) return 'needs-human'
   return evidence.retryable ? 'retryable' : 'needs-human'
 }
 
@@ -179,7 +176,7 @@ function failureInteractionKind(evidence: FailureEvidence): FailureShape {
     if (evidence.reason === 'context-overflow') return 'overflow'
     return 'other'
   }
-  if (AUTH_ERROR.test(evidence.errorClass)) return 'login'
+  if (isAgentAuthenticationError({ class: evidence.errorClass })) return 'login'
   if (OVERFLOW_ERROR.test(evidence.errorClass)) return 'overflow'
   return 'other'
 }
@@ -203,10 +200,10 @@ function failurePrompt(evidence: FailureEvidence, shape: FailureShape): string {
   const cause = classOf(evidence)
   const detail = evidence.detail?.trim() ? ` — ${evidence.detail.trim()}` : ''
   if (cause === 'usage_limit') {
-    return `This session stopped because the provider usage limit was reached (${cause})${detail}. Add credits or wait for the quota to reset, then choose Resume the session.`
+    return `This session stopped because the provider usage limit was reached (${cause})${detail}.`
   }
   if (cause === 'billing_error') {
-    return `This session stopped because the provider reported a billing problem (${cause})${detail}. Fix billing or credits, then choose Resume the session.`
+    return `This session stopped because the provider reported a billing problem (${cause})${detail}.`
   }
   if (shape === 'overflow') {
     return `This session's turn failed because the conversation outgrew the model's context window (${cause})${detail}.`

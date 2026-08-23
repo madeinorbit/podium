@@ -19,6 +19,7 @@ export interface FakeGrokAcpServer {
   answers: Map<string | number, unknown>
   askPermission(): string
   completeTurn(stopReason?: 'end_turn' | 'cancelled' | 'refusal'): void
+  failProviderTurn(detail: string): void
   failNextPrompt(): void
   crash(): void
 }
@@ -173,10 +174,23 @@ export function startFakeGrokAcpServer(
           content: { type: 'text', text: 'done' },
         })
       }
-      const result = replayed ? lastPromptResult?.result ?? { stopReason } : { stopReason }
+      const result = replayed ? (lastPromptResult?.result ?? { stopReason }) : { stopReason }
       lastPromptResult = { id, result }
       response(id, result)
       if (replayed) options.onReplayedPromptResult?.()
+    },
+    failProviderTurn(detail) {
+      const id = pendingPrompt
+      if (id === undefined) return
+      pendingPrompt = undefined
+      notifyUpdate({
+        sessionUpdate: 'turn_completed',
+        stop_reason: 'error',
+        agent_result: detail,
+      })
+      const result = { stopReason: 'refusal' as const }
+      lastPromptResult = { id, result }
+      response(id, result)
     },
     failNextPrompt() {
       failNext = true

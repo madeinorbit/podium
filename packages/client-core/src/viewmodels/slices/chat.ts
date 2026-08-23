@@ -50,6 +50,7 @@
  *    field at all.
  */
 import {
+  agentErrorRecoveryInstruction,
   formatAgentError,
   type SessionId,
   type SessionMeta,
@@ -527,8 +528,7 @@ export function composerState(input: {
           'Ask across all tasks…'
         : 'Message the agent…'
     : terminalError
-      ? formatAgentError(terminalError) +
-        ' — fix the provider issue, then choose Resume the session.'
+      ? formatAgentError(terminalError) + ' — ' + agentErrorRecoveryInstruction(terminalError)
       : waking
         ? 'Waking the agent — message queues…'
         : sendable

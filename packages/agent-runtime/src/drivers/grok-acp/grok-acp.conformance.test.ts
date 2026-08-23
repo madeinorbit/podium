@@ -40,7 +40,10 @@ interface WorldOptions {
   hostsClientTerminals?: boolean | 'spectators-only'
 }
 
-function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
+function makeWorld(options: WorldOptions = {}): {
+  target: ConformanceTarget
+  failProviderTurn(sessionId: SessionId, detail: string): void
+} {
   const hostsClientTerminals = options.hostsClientTerminals ?? true
   let runtime: GrokAcpRuntime | undefined
   let replayPromptSettlement: (() => void) | undefined
@@ -167,6 +170,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
     },
   }
   return {
+    failProviderTurn: (sessionId, detail) => serverFor(sessionId).failProviderTurn(detail),
     target: {
       name: 'grok-acp',
       family: 'server',
@@ -201,6 +205,33 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
 }
 
 const { target } = makeWorld()
+
+describe('grok-acp provider failure detail', () => {
+  it('keeps a causal 402 detail when the prompt response closes the turn', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      world.failProviderTurn(
+        handle.binding.sessionId,
+        'API error (status 402 Payment Required): Grok Build usage balance exhausted',
+      )
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+      await expect(handle.state()).resolves.toMatchObject({
+        phase: 'errored',
+        error: {
+          class: 'usage_limit',
+          retryable: false,
+          detail: 'API error (status 402 Payment Required): Grok Build usage balance exhausted',
+        },
+      })
+    } finally {
+      world.target.reset()
+    }
+  })
+})
 
 /**
  * THE REFUSAL ARM, ON A REAL DRIVER (POD-2486; the arms are POD-2121's and

@@ -79,6 +79,7 @@ describe('grok live state provider', () => {
     const usageLimit = `API error (status 402 Payment Required): Grok Build usage balance exhausted
 
 Request URL: https://cli-chat-proxy.grok.com/v1/responses`
+    const normalizedUsageLimit = usageLimit.replace(/\s+/g, ' ').trim()
 
     await expect(
       translateGrokUpdatePayload({
@@ -92,12 +93,12 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
           },
         },
       }),
-    ).resolves.toMatchObject([
+    ).resolves.toEqual([
       {
         kind: 'turn_failed',
         errorClass: 'usage_limit',
         retryable: false,
-        detail: expect.any(String),
+        detail: normalizedUsageLimit,
       },
     ])
 
@@ -113,12 +114,12 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
           },
         },
       }),
-    ).resolves.toMatchObject([
+    ).resolves.toEqual([
       {
         kind: 'turn_failed',
         errorClass: 'rate_limit',
         retryable: true,
-        detail: expect.any(String),
+        detail: 'API error (status 429 Too Many Requests): service at capacity',
       },
     ])
 
@@ -133,12 +134,12 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
           },
         },
       }),
-    ).resolves.toMatchObject([
+    ).resolves.toEqual([
       {
         kind: 'turn_failed',
         errorClass: 'usage_limit',
         retryable: false,
-        detail: expect.any(String),
+        detail: normalizedUsageLimit,
       },
     ])
   })

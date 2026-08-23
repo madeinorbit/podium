@@ -767,6 +767,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
             kind: 'turn_failed',
             errorClass: failure.reason,
             retryable: failure.disposition === 'retryable',
+            ...(failure.text ? { detail: failure.text } : {}),
             at,
           },
         },

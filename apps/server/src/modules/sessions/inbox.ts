@@ -21,6 +21,7 @@ import type {
   UserId,
 } from '@podium/model'
 import {
+  agentErrorRecoveryInstruction,
   formatAgentError,
   actorAgent,
   actorSystem,
@@ -424,7 +425,7 @@ const stateStampMs = (session: Session): number | undefined => {
 export function blockedSessionSendReason(session: Pick<Session, 'agentState'>): string | undefined {
   const state = session.agentState
   if (state?.phase !== 'errored' || !state.error || state.error.retryable) return undefined
-  return formatAgentError(state.error) + '. Fix the provider issue, then choose Resume the session.'
+  return formatAgentError(state.error) + '. ' + agentErrorRecoveryInstruction(state.error)
 }
 
 export class SessionInbox {

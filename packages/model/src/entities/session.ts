@@ -218,6 +218,18 @@ export function formatAgentError(error: AgentError): string {
   return error.detail ? label + ': ' + error.detail : label
 }
 
+/** Whether the provider error needs a credential refresh rather than a blind retry. */
+export function isAgentAuthenticationError(error: Pick<AgentError, 'class'>): boolean {
+  return /auth|login|credential|unauthor|forbidden|api[_-]?key/i.test(error.class)
+}
+
+/** The action sentence for a blocked send, shared by server and client surfaces. */
+export function agentErrorRecoveryInstruction(error: Pick<AgentError, 'class'>): string {
+  return isAgentAuthenticationError(error)
+    ? 'Re-authenticate with the provider, then choose “I signed in — retry”.'
+    : 'Fix the provider issue, then choose “Resume the session”.'
+}
+
 /** One live native harness subagent (Claude Task/Agent tool, etc.).
  *  Identity rides on the hook channel (`agent_id` / `agent_type` on SubagentStart
  *  / SubagentStop); optional so older daemons omit it. [spec:SP-dae6] */

@@ -54,7 +54,8 @@ export class FileLinkPathIndex {
   private readonly paths = new Set<string>()
 
   constructor(private readonly cap = FILE_LINK_PATH_CAP) {
-    if (!Number.isInteger(cap) || cap < 1) throw new RangeError('file-link path cap must be positive')
+    if (!Number.isInteger(cap) || cap < 1)
+      throw new RangeError('file-link path cap must be positive')
   }
 
   get knownPaths(): ReadonlySet<string> {
@@ -334,6 +335,19 @@ export interface PendingItem {
    * normalize those paths out of `text`, so they are the stable identity used
    * to reconcile attachment-bearing turns. */
   toolPaths?: string[]
+}
+
+/** Mark only an optimistic send that is still in flight as failed. A `sent`
+ * bubble has already crossed the send boundary and must not be rewritten as
+ * "not delivered" merely because a later turn failed. */
+export function markPendingSendingFailed(pending: PendingItem[], failure: string): PendingItem[] {
+  let changed = false
+  const next = pending.map((item) => {
+    if (item.state !== 'sending') return item
+    changed = true
+    return { ...item, state: 'failed' as const, failure }
+  })
+  return changed ? next : pending
 }
 
 /** A human chat message durably held in the unified message ledger until the

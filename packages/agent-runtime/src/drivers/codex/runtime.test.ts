@@ -246,6 +246,32 @@ describe('attachment local-image prompts', () => {
   })
 })
 
+describe('provider failure detail', () => {
+  it('carries the provider text on the normalized state event', async () => {
+    const w = await world()
+    try {
+      await w.handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      w.server.completeTurn('failed')
+      await settle()
+
+      const failure = w
+        .events()
+        .find((event) => event.t === 'state' && event.change.kind === 'turn_failed')
+      expect(failure).toMatchObject({
+        t: 'state',
+        change: {
+          kind: 'turn_failed',
+          errorClass: 'provider-error',
+          retryable: true,
+          detail: 'provider exploded',
+        },
+      })
+    } finally {
+      w.dispose()
+    }
+  })
+})
+
 describe('native steer — the thing no other driver in the fleet can do', () => {
   it('joins the OPEN turn and reports `steer`, not a downgrade', async () => {
     const w = await world()
@@ -529,10 +555,7 @@ describe('the fine-watch upgrade, which reconnects', () => {
      */
     const w = await world()
     const bindingBefore = w.handle.binding.bindingVersion
-    const [releaseA, releaseB] = await Promise.all([
-      w.handle.watch('fine'),
-      w.handle.watch('fine'),
-    ])
+    const [releaseA, releaseB] = await Promise.all([w.handle.watch('fine'), w.handle.watch('fine')])
     await settle()
     await settle()
     expect(w.counts()).toMatchObject({ launches: 1, reconnects: 1, stopped: 0 })
@@ -848,4 +871,3 @@ describe('a throwing report does not leak the child — POD-2297 review, 2', () 
     expect(w.abandonments).toEqual([])
   })
 })
-

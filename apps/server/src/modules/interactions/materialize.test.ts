@@ -48,7 +48,10 @@ describe('materializeFailure — turn failures', () => {
     })
     expect(spec?.kind).toBe('recovery')
     expect(spec?.kind === 'recovery' && spec.payload.reason).toBe('unknown')
-    expect(spec?.kind === 'recovery' && spec.payload.prompt).toContain('insufficient credit')
+    expect(spec?.kind === 'recovery' && spec.payload.prompt).toBe(
+      'This session stopped on a failure it cannot resolve by retrying (provider-error) — insufficient credit.',
+    )
+    expect(spec?.kind === 'recovery' && spec.payload.prompt).not.toContain('Resume')
   })
 
   it('a retryable failure materializes NOTHING', () => {
@@ -99,9 +102,26 @@ describe('materializeFailure — legacy agent-state errors', () => {
       evidence: 'agent-state',
       errorClass: 'billing_error',
       retryable: false,
+      detail: 'insufficient credit',
     })
     expect(spec?.kind).toBe('recovery')
-    expect(spec?.kind === 'recovery' && spec.payload.prompt).toContain('billing_error')
+    expect(spec?.kind === 'recovery' && spec.payload.prompt).toBe(
+      'This session stopped because the provider reported a billing problem (billing_error) — insufficient credit.',
+    )
+    expect(spec?.kind === 'recovery' && spec.payload.prompt).not.toContain('Resume')
+  })
+
+  it('keeps a usage-limit detail in the state-derived recovery prompt', () => {
+    const spec = materializeFailure({
+      evidence: 'agent-state',
+      errorClass: 'usage_limit',
+      retryable: false,
+      detail: 'API error (status 402 Payment Required): balance exhausted',
+    })
+    expect(spec?.kind).toBe('recovery')
+    expect(spec?.kind === 'recovery' && spec.payload.prompt).toBe(
+      'This session stopped because the provider usage limit was reached (usage_limit) — API error (status 402 Payment Required): balance exhausted.',
+    )
   })
 
   it('a retryable non-auth error class materializes nothing', () => {

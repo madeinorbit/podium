@@ -177,6 +177,10 @@ interface DriverSession {
   usage: UsageSnapshot
   disposed: boolean
   ingestChain: Promise<void>
+  lastTurnFailure?: {
+    turnEpoch: number
+    change: Extract<AgentStateEvent, { kind: 'turn_failed' }>
+  }
 }
 
 export interface GrokAcpRuntime {
@@ -272,6 +276,12 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     provenance: ObservationProvenance,
     native?: { eventId?: string; ordinal?: number },
   ): void {
+    if (change.kind === 'turn_failed') {
+      session.lastTurnFailure = {
+        turnEpoch: session.openTurnEpoch ?? session.turnEpoch,
+        change,
+      }
+    }
     const next = reduceAgentState(session.state, change, at)
     if (next === session.state) return
     session.state = next
@@ -714,16 +724,49 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     })
   }
 
-  function promptFailure(result: GrokAcpPromptResult): {
-    reason: 'provider-error' | 'interrupted'
-    disposition: 'retryable' | 'fatal'
-  } | null {
+  type PromptFailure = {
+    reason:
+      | 'rate-limit'
+      | 'auth-expired'
+      | 'context-overflow'
+      | 'provider-error'
+      | 'timeout'
+      | 'interrupted'
+    disposition: 'retryable' | 'needs-human' | 'fatal'
+    detail?: string
+  }
+
+  function promptFailure(result: GrokAcpPromptResult): PromptFailure | null {
     if (result.stopReason === 'end_turn') return null
     if (result.stopReason === 'cancelled')
       return { reason: 'interrupted', disposition: 'retryable' }
     return {
       reason: 'provider-error',
       disposition: result.stopReason === 'max_tokens' ? 'retryable' : 'fatal',
+    }
+  }
+
+  /** Translate the already-normalized state failure back to the causal turn
+   * event. The two events are one provider failure: state carries the richer
+   * harness class, while the turn contract carries disposition and detail. */
+  function causalTurnFailure(
+    change: Extract<AgentStateEvent, { kind: 'turn_failed' }>,
+  ): PromptFailure {
+    const errorClass = change.errorClass.toLowerCase()
+    const reason: PromptFailure['reason'] =
+      /auth|login|credential|unauthor|forbidden|api[_-]?key/.test(errorClass)
+        ? 'auth-expired'
+        : /context|overflow|too[_-]?long|token[_-]?limit/.test(errorClass)
+          ? 'context-overflow'
+          : /rate[_-]?limit|429/.test(errorClass)
+            ? 'rate-limit'
+            : /timeout|timed[_-]?out/.test(errorClass)
+              ? 'timeout'
+              : 'provider-error'
+    return {
+      reason,
+      disposition: change.retryable ? 'retryable' : 'needs-human',
+      ...(change.detail ? { detail: change.detail } : {}),
     }
   }
 
@@ -737,12 +780,17 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     }
   }
 
-  function finishPrompt(
+  async function finishPrompt(
     session: DriverSession,
     epoch: number,
     result: GrokAcpPromptResult | undefined,
     error?: unknown,
-  ): void {
+  ): Promise<void> {
+    if (session.disposed || session.openTurnEpoch !== epoch) return
+    // ACP sends the provider update before its prompt response. Wait for the
+    // already-enqueued translation so the response settlement cannot overwrite
+    // a richer causal failure with its generic stop reason.
+    await session.ingestChain.catch(() => undefined)
     if (session.disposed || session.openTurnEpoch !== epoch) return
     const at = iso()
     flushUser(session, 'live')
@@ -751,9 +799,15 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     session.openTurnEpoch = undefined
     session.interruptPending = false
     if (result) updateUsage(session, result)
-    const failure = result
-      ? promptFailure(result)
-      : { reason: 'provider-error' as const, disposition: 'retryable' as const }
+    const translatedFailure =
+      session.lastTurnFailure?.turnEpoch === epoch
+        ? causalTurnFailure(session.lastTurnFailure.change)
+        : undefined
+    const failure =
+      translatedFailure ??
+      (result
+        ? promptFailure(result)
+        : { reason: 'provider-error' as const, disposition: 'retryable' as const })
     if (!failure) {
       emit(session, { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' } }, at)
       foldState(session, { kind: 'turn_completed' }, at, 'live')
@@ -767,23 +821,32 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
             turnEpoch: epoch,
             reason: failure.reason,
             disposition: failure.disposition,
-            detail: result?.stopReason ?? String(error),
+            ...(failure.detail
+              ? { detail: failure.detail }
+              : result?.stopReason
+                ? { detail: result.stopReason }
+                : error !== undefined
+                  ? { detail: String(error) }
+                  : {}),
           },
         },
         at,
       )
-      foldState(
-        session,
-        failure.reason === 'interrupted'
-          ? { kind: 'turn_completed', verdict: { kind: 'interrupted' } }
-          : {
-              kind: 'turn_failed',
-              errorClass: result?.stopReason ?? 'provider_error',
-              retryable: failure.disposition === 'retryable',
-            },
-        at,
-        'live',
-      )
+      if (!translatedFailure) {
+        foldState(
+          session,
+          failure.reason === 'interrupted'
+            ? { kind: 'turn_completed', verdict: { kind: 'interrupted' } }
+            : {
+                kind: 'turn_failed',
+                errorClass: result?.stopReason ?? 'provider_error',
+                retryable: failure.disposition === 'retryable',
+                ...(failure.detail ? { detail: failure.detail } : {}),
+              },
+          at,
+          'live',
+        )
+      }
     }
     wakeIdle(session)
     void drainQueue(session)
@@ -803,6 +866,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     session.turnEpoch += 1
     const epoch = session.turnEpoch
     session.openTurnEpoch = epoch
+    session.lastTurnFailure = undefined
     session.busy = true
     session.ignoreUserEcho = input.text
     addItem(

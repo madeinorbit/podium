@@ -12,7 +12,7 @@ import {
   isInteractiveTool,
   sessionWaking,
 } from '@podium/client-core/viewmodels'
-import { formatAgentError } from '@podium/model/browser'
+import { agentErrorRecoveryInstruction, formatAgentError } from '@podium/model/browser'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { ArrowUp, Image as ImageIcon } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
@@ -159,12 +159,15 @@ export function turnPosition(row: ChatRow): TurnPosition | undefined {
   return undefined
 }
 
-function queueIsBlocked(session: SessionMeta | undefined): boolean {
+export function queueIsBlocked(session: SessionMeta | undefined): boolean {
   return session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
 }
-function queuedDeliveryLabel(session: SessionMeta | undefined): string {
+export function queuedDeliveryLabel(session: SessionMeta | undefined): string {
   const error = queueIsBlocked(session) ? session?.agentState?.error : undefined
-  if (error) return `blocked · ${formatAgentError(error)} — fix it, then Resume to send`
+  if (error) {
+    const instruction = agentErrorRecoveryInstruction(error).replace(/\.$/, '')
+    return `blocked · ${formatAgentError(error)} — ${instruction} to send`
+  }
   return sessionWaking(session)
     ? 'pending · sends once the agent is up'
     : 'pending · sends after this turn'
