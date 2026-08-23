@@ -1053,6 +1053,17 @@ export class MachinesService {
    */
   ensureHostMachine(hostname: string, secret: string = randomUUID()): string {
     const id = this.deps.hostMachineId
+    const existing = this.deps.store.machines.getMachine(id)
+    const enrollmentOwner = this.deps.enrollment
+      ? (existing?.ownerUserId ?? deviceGradeSoleOwner())
+      : deviceGradeSoleOwner()
+    // Ledger first: this is the durable commit point shared with pairing. A
+    // revoked host throws before its row or credential can be recreated.
+    const ownerUserId = credentials.ensureHostEnrollment(
+      this.enrollmentHost,
+      id,
+      enrollmentOwner,
+    )
     this.deps.store.machines.upsertMachine({
       id,
       name: hostname,
@@ -1063,8 +1074,11 @@ export class MachinesService {
       // honestly-named placeholder — see `device-grade-owner.ts`. The COALESCE in
       // `upsertMachine` means a later real owner is never overwritten by this
       // boot-time write.
-      ownerUserId: deviceGradeSoleOwner(),
+      ownerUserId,
     })
+    // The ledger owner wins over a stale or restored row. `upsertMachine`
+    // deliberately preserves an existing owner, so project explicitly here.
+    if (this.deps.enrollment) this.deps.store.machines.setMachineOwner(id, ownerUserId)
     this.invalidateMachineCache()
     // THE COORDINATOR RUNS HERE (POD-2700). The server is the only honest source
     // for this — no machine self-reports being the server — and stamping it at

@@ -177,6 +177,23 @@ function mintEnrolledToken(
   if (!ledger) return randomUUID()
   const serial = ledger.nextSerial(machineId)
   const token = mintPairingToken(ledger.pairingRoot, { machineId, serial })
+  appendEnrollment(host, machineId, serial, ownerUserId)
+  return token
+}
+
+/**
+ * The one enrollment commit path for paired and server-host machines. Keeping
+ * the append here makes ledger provenance mean the same thing regardless of
+ * which trusted credential provisioner established it.
+ */
+function appendEnrollment(
+  host: EnrollmentHost,
+  machineId: MachineId,
+  serial: number,
+  ownerUserId: UserId | null,
+): void {
+  const ledger = host.deps.enrollment
+  if (!ledger) return
   // Ledger append is the enrollment commit point (D19.4d). Failure aborts pair.
   const ok = ledger.appendEnroll({
     id: newLedgerTxnId(),
@@ -186,7 +203,41 @@ function mintEnrolledToken(
     at: new Date().toISOString(),
   })
   if (!ok) throw new Error('enrollment ledger refused the enroll append')
-  return token
+}
+
+/**
+ * Establish durable enrollment provenance for the trusted server host.
+ *
+ * A fresh host appends through the same commit path as pairing. A promoted
+ * host already has active pairing provenance and keeps its recorded owner.
+ * Reboot is a no-op. Revocation wins permanently until an explicit re-pair
+ * appends a newer serial; boot must never turn an old enroll line (or a forged
+ * database row with no enroll line) into fresh authority.
+ */
+export function ensureHostEnrollment(
+  host: EnrollmentHost,
+  machineId: MachineId,
+  initialOwnerUserId: UserId | null,
+): UserId | null {
+  const ledger = host.deps.enrollment
+  if (!ledger) return initialOwnerUserId
+
+  if (ledger.isActivelyEnrolled(machineId)) {
+    const recordedOwner = ledger.recordedOwner(machineId)
+    if (recordedOwner === undefined) {
+      throw new Error(`host machine '${machineId}' has enrollment without an owner record`)
+    }
+    return resolveOwnerForRecovery(host, recordedOwner)
+  }
+
+  // Any prior serial or revoke is durable negative evidence. In particular, a
+  // revoke-without-row must not be bypassed by ordinary server boot.
+  if (ledger.nextSerial(machineId) > 1 || ledger.revokeSerial(machineId) !== undefined) {
+    throw new Error(`host machine '${machineId}' enrollment is revoked`)
+  }
+
+  appendEnrollment(host, machineId, 1, initialOwnerUserId)
+  return resolveOwnerForRecovery(host, initialOwnerUserId)
 }
 
 function isTokenRevoked(host: EnrollmentHost, machineId: MachineId, token: string): boolean {
