@@ -33,6 +33,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react'
@@ -298,6 +299,13 @@ export function Workspace({
     ].find((candidate) => candidate.dataset.tabDragId === tabId)
     replacement?.focus()
   }, [])
+
+  // Restore focus in the commit that replaces the plain tabs. Waiting for the
+  // runtime's passive replay effect leaves a painted, observable frame on body
+  // when a cold keyboard pickup was cancelled before the import resolved.
+  useLayoutEffect(() => {
+    if (DragRuntime) restoreDragFocus()
+  }, [DragRuntime, restoreDragFocus])
 
   const captureColdPointerActivation = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>): void => {

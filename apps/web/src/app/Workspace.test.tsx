@@ -279,7 +279,8 @@ describe('Workspace tab strip', () => {
 
     await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
     expect(document.querySelector('[data-dropzone]')).toBeNull()
-    expect(document.activeElement?.getAttribute('data-tab-drag-id')).toBe('s1')
+    expect(sortable.isConnected).toBe(false)
+    expect(document.activeElement).toBe(tab('s1'))
   })
 
   // The decoupling: membership comes from the workspace layout, not from "every
