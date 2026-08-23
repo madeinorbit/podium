@@ -549,3 +549,27 @@ Second half of the same lesson, this one the coordinator's: "nothing is blocked"
 "start everything". Sixteen agent sessions at roughly a gigabyte each do not fit on a
 six-core, 11 GB host, whatever the dependency graph says. The ceiling here is about six
 concurrent working sessions. Capacity is a constraint the tracker cannot see.
+
+### The ceiling is memory, not load average
+
+Corollary to the previous lesson, learned the hard way on 2026-08-23 after I raised the
+fleet to fifteen sessions while watching only `uptime`. Load sat at a comfortable 9-19 the
+whole time and I read that as headroom. It was not: the box was at **145 MB free of 11.9 GB
+with 18.9 GB swapped**, and the first thing to break was the one tool that catches product
+bugs nobody else catches — headless Chromium crashed its renderer on page load, three runs
+in a row, in two independent sessions.
+
+Load average measures runnable processes. Agent sessions parked between turns are not
+runnable, so a fleet that has swapped itself to death still reports a healthy load. By the
+time load reflects the problem the box is already thrashing.
+
+Diagnose it correctly before blaming the product. A browser that dies loading the app looks
+exactly like a regression that crashes the app. Separate them: load `about:blank`, then
+`setContent`, then the app root in a small viewport with short waits. All three passing
+while the full drive dies is memory, not code. On this host a 1600x1000 viewport was the
+difference between surviving and not.
+
+Watch `free -m` alongside `uptime` every sweep, and treat **available memory under ~1.5 GB**
+as the stop-starting line regardless of what load says. Reclaim by stopping sessions whose
+work is genuinely finished — but check first whether a reviewer is living in the worktree
+you are about to free, because `session stop` frees it.
