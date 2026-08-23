@@ -1444,10 +1444,12 @@ main() {
   local proposal response detail proposal_log="$WORK/logs/release-proposal-initial.json"
   proposal="$(rpc GET updates.proposal)"
   printf "%s\n" "$proposal" >"$proposal_log"
-  if ! jq -e '(.headSha[0:7]) as $short |
-    .state=="pending" and (.headSha|length>0) and
-    (.version|test("\\.dev\\.[1-9][0-9]*\\+[0-9a-f]{7}$")) and
-    (.version|endswith("+\($short)"))' <<<"$proposal" >/dev/null; then
+  # Publisher mints are the flat `X.Y.Z-dev.N+sha` form. Grammar alone is not
+  # the safety contract: the build metadata must still name this exact HEAD.
+  if ! jq -e '.headSha as $head |
+    .state=="pending" and ($head|test("^[0-9a-f]{7}$")) and
+    (.version|test("^[0-9]+\\.[0-9]+\\.[0-9]+-dev\\.[1-9][0-9]*\\+[0-9a-f]{7}$")) and
+    (.version|endswith("+\($head)"))' <<<"$proposal" >/dev/null; then
     fail dev-release "proposal did not satisfy the HEAD/version identity contract; raw payload: logs/release-proposal-initial.json"
     exit 1
   fi
