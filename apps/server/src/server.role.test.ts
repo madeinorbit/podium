@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FLEET_CONTRACTS } from '@podium/commands'
@@ -48,6 +48,14 @@ describe('startServer with the hub role disabled (node shape)', () => {
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-role-node-'))
+    writeFileSync(
+      join(stateDir, 'config.json'),
+      JSON.stringify({
+        configVersion: 2,
+        mode: 'all-in-one',
+        persistence: 'systemd',
+      }),
+    )
     process.env.PODIUM_STATE_DIR = stateDir
     handle = await startServer({ port: 0, role: { hub: false } })
     trpc = createTRPCClient<AppRouter>({
@@ -184,6 +192,14 @@ describe('startServer default role keeps hub surfaces on', () => {
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-role-hub-'))
+    writeFileSync(
+      join(stateDir, 'config.json'),
+      JSON.stringify({
+        configVersion: 2,
+        mode: 'all-in-one',
+        persistence: 'systemd',
+      }),
+    )
     process.env.PODIUM_STATE_DIR = stateDir
     handle = await startServer({ port: 0 })
   })

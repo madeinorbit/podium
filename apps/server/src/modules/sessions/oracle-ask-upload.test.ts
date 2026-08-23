@@ -416,7 +416,7 @@ describe('oracle: sessions.uploadImage', () => {
    * absolute path it gets back has to be valid on the machine that mission is
    * about to run on — the default machine is a coin flip. `machineId` answers
    * the routing question the missing session cannot. */
-  it('routes an upload for a session that does not exist yet to the machine the caller named', async () => {
+  it(`${MUST_NOT_CHANGE}: routes an upload for a session that does not exist yet to the machine the caller named`, async () => {
     const o = makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
     const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), asMachineId('other'))
 

@@ -144,21 +144,14 @@ describe('/client WS auth gate', () => {
     expect(await attempt(url)).toBe('rejected')
   })
 
-  test('rejects a blocked-readiness client with an explicit 503 handshake', async () => {
+  test('returns an explicit 503 from a blocked-readiness client endpoint', async () => {
     const url = await startNotReady()
-    const response = await new Promise<{ status: number; body: string }>((resolve) => {
-      const ws = new WebSocket(url)
-      ws.on('unexpected-response', (_request, incoming) => {
-        let body = ''
-        incoming.on('data', (chunk) => {
-          body += String(chunk)
-        })
-        incoming.on('end', () => resolve({ status: incoming.statusCode ?? 0, body }))
-      })
-      ws.on('error', () => {})
-    })
+    // Bun's ws client does not implement 'unexpected-response', so it cannot
+    // observe a deliberate non-101 upgrade response. Fetching the same native
+    // endpoint observes the exact response returned before upgrade negotiation.
+    const response = await fetch(url.replace('ws:', 'http:'))
     expect(response.status).toBe(503)
-    expect(JSON.parse(response.body)).toEqual({
+    expect(await response.json()).toEqual({
       error: 'server_not_ready',
       readiness: {
         state: 'activation_pending',
