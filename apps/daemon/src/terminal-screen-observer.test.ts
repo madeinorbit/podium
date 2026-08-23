@@ -29,14 +29,16 @@ function providerFor(): AgentStateProvider {
     instrumentation: () => ({ args: [] }),
     translate: async () => [],
     screen: (lines) => ({
-      events: lines.includes('prompt')
+      events: lines.includes('gap')
         ? [
             withStateChannelEvent(
-              { kind: 'needs_user', need: 'question' },
+              { kind: 'observation_gap', reason: 'transcript_disabled' },
               'classifier',
             ),
           ]
-        : [],
+        : lines.includes('prompt')
+          ? [withStateChannelEvent({ kind: 'needs_user', need: 'question' }, 'classifier')]
+          : [],
       interactionVisible: lines.includes('prompt'),
       ...(lines.some((line) => line.includes('Login successful'))
         ? { auth: 'logged-in' as const }
@@ -106,6 +108,43 @@ describe('event-driven terminal screen observer', () => {
       await vi.advanceTimersByTimeAsync(TERMINAL_SCREEN_COALESCE_MS)
       expect(stateEvents.at(-1)).toEqual([
         { kind: 'session_started', source: 'classifier', confidence: 0.3 },
+
+        it('does not replace an explicit observation gap when a modal disappears', async () => {
+          vi.useFakeTimers()
+          try {
+            const screen = fakeScreen()
+            const stateEvents: ProviderAgentStateEvent[][] = []
+            const observer = createTerminalScreenObserver(
+              providerFor(),
+              { cols: 80, rows: 24 },
+              {
+                onStateEvents: (events) => stateEvents.push(events),
+                onLoginSignal: () => {},
+              },
+              screen,
+            )
+            if (!observer) throw new Error('screen classifier should create an observer')
+
+            screen.setLines(['prompt'])
+            observer.onData(new Uint8Array([1]))
+            await vi.advanceTimersByTimeAsync(TERMINAL_SCREEN_COALESCE_MS)
+            screen.setLines(['gap'])
+            observer.onData(new Uint8Array([2]))
+            await vi.advanceTimersByTimeAsync(TERMINAL_SCREEN_COALESCE_MS)
+
+            expect(stateEvents.at(-1)).toEqual([
+              {
+                kind: 'observation_gap',
+                reason: 'transcript_disabled',
+                source: 'classifier',
+                confidence: 0.3,
+              },
+            ])
+            observer.dispose()
+          } finally {
+            vi.useRealTimers()
+          }
+        }),
       ])
       observer.dispose()
     } finally {

@@ -66,7 +66,7 @@ export function createTerminalScreenObserver(
 
       const events = [...observation.events]
       if (observation.interactionVisible !== undefined) {
-        if (interactionVisible && !observation.interactionVisible) {
+        if (interactionVisible && !observation.interactionVisible && events.length === 0) {
           // The modal is gone and no hook exists for this onboarding flow. The
           // established state reducer treats SessionStart as an idle boundary;
           // it clears the synthetic needs_user payload without inventing an

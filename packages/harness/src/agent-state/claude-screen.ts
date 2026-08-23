@@ -1,12 +1,10 @@
 import type { AgentInterview } from '@podium/model'
-import {
-  type AgentScreenObservation,
-  type AgentStateEvent,
-  withStateChannel,
-} from './types.js'
+import { type AgentScreenObservation, type AgentStateEvent, withStateChannel } from './types.js'
 
 /** Stable copy emitted by Claude Code's environment onboarding modal. */
 export const CLAUDE_AUTO_MODE_PROMPT = 'Set up auto mode for your environment?'
+/** Stable warning emitted when inherited child-session controls disable history. */
+export const CLAUDE_TRANSCRIPT_DISABLED = 'Transcript saving is off'
 const CLAUDE_LOGIN_SUCCESS_SIGNALS = ['Login successful', 'Authentication successful'] as const
 
 const AUTO_MODE_OPTIONS = ['Set it up', "Don't show again"] as const
@@ -58,6 +56,7 @@ export function classifyClaudeScreen(lines: readonly string[]): AgentScreenObser
   const text = plainScreen(lines)
   const visibleLines = screenLines(lines)
   const interactionVisible = autoModeVisible(text)
+  const transcriptDisabled = visibleLines.some((line) => line.includes(CLAUDE_TRANSCRIPT_DISABLED))
   const events: AgentStateEvent[] = interactionVisible
     ? [
         {
@@ -67,7 +66,9 @@ export function classifyClaudeScreen(lines: readonly string[]): AgentScreenObser
           interview: AUTO_MODE_INTERVIEW,
         },
       ]
-    : []
+    : transcriptDisabled
+      ? [{ kind: 'observation_gap', reason: 'transcript_disabled' }]
+      : []
 
   return {
     events: withStateChannel(events, 'classifier'),

@@ -346,6 +346,14 @@ describe('agentBadge', () => {
     expect(agentBadge(sessionWithState(stateAt('unknown')))).toBeNull()
   })
 
+  it('names an observed state gap instead of presenting idle', () => {
+    expect(
+      agentBadge(
+        sessionWithState(stateAt('unknown', { observationGap: { reason: 'transcript_disabled' } })),
+      ),
+    ).toEqual({ label: 'state unavailable', tone: 'muted', showContinue: false })
+  })
+
   it('working / compacting are calm working tones', () => {
     expect(agentBadge(sessionWithState(stateAt('working')))).toEqual({
       label: 'working',

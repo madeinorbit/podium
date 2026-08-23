@@ -1174,6 +1174,7 @@ function updateObservedWork(current: boolean, event: AgentStateEvent): boolean {
     case 'needs_user':
     case 'session_ended':
     case 'session_started':
+    case 'observation_gap':
       return false
     case 'task_delta':
       return current

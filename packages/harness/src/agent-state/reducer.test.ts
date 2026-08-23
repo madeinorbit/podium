@@ -3,6 +3,7 @@ import { carryAcrossRebuild, initialAgentState, reduceAgentState, withEventTime 
 
 const T0 = '2026-06-12T10:00:00.000Z'
 const T1 = '2026-06-12T10:00:01.000Z'
+const T2 = '2026-06-12T10:00:02.000Z'
 const EVENT_TIME = '2026-06-12T09:30:00.000Z'
 
 describe('reduceAgentState', () => {
@@ -11,6 +12,26 @@ describe('reduceAgentState', () => {
     expect(s0.phase).toBe('unknown')
     const s1 = reduceAgentState(s0, { kind: 'session_started' }, T1)
     expect(s1).toMatchObject({ phase: 'idle', since: T1, nativeSubagentCount: 0 })
+  })
+
+  it('keeps an observed transcript gap unknown instead of fabricating idle', () => {
+    const seeded = reduceAgentState(initialAgentState(T1), { kind: 'session_started' }, T1)
+    const gap = reduceAgentState(
+      seeded,
+      {
+        kind: 'observation_gap',
+        reason: 'transcript_disabled',
+        source: 'classifier',
+        confidence: 0.3,
+      },
+      T2,
+    )
+
+    expect(gap).toMatchObject({
+      phase: 'unknown',
+      observationGap: { reason: 'transcript_disabled' },
+      stateSource: 'classifier',
+    })
   })
 
   it('prompt_submitted → working, clearing idle/need/error detail', () => {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { CLAUDE_AUTO_MODE_PROMPT, classifyClaudeScreen } from './claude-screen.js'
+import {
+  CLAUDE_AUTO_MODE_PROMPT,
+  CLAUDE_TRANSCRIPT_DISABLED,
+  classifyClaudeScreen,
+} from './claude-screen.js'
 
 describe('Claude terminal screen classifier', () => {
   it('materializes the auto-mode onboarding prompt as an answerable question', () => {
@@ -45,5 +49,21 @@ describe('Claude terminal screen classifier', () => {
     }
 
     expect(classifyClaudeScreen(['Claude said: Login successful']).auth).toBeUndefined()
+  })
+
+  it('declares an observation gap when Claude disables transcript saving', () => {
+    const observation = classifyClaudeScreen([
+      'WARNING ' + CLAUDE_TRANSCRIPT_DISABLED + ' - inherited CLAUDE_CODE_CHILD_SESSION marker',
+      'Cerebrating…',
+    ])
+
+    expect(observation.events).toEqual([
+      {
+        kind: 'observation_gap',
+        reason: 'transcript_disabled',
+        source: 'classifier',
+        confidence: 0.3,
+      },
+    ])
   })
 })

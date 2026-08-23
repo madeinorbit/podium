@@ -158,7 +158,12 @@ export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | n
     return { label: 'waiting on decision', tone: 'attention', showContinue: false }
   }
   const s = meta.agentState
-  if (!s || s.phase === 'unknown') return null
+  if (!s) return null
+  if (s.phase === 'unknown') {
+    return s.observationGap
+      ? { label: 'state unavailable', tone: 'muted', showContinue: false }
+      : null
+  }
   switch (s.phase) {
     case 'working':
       return { label: 'working', tone: 'working', showContinue: false }

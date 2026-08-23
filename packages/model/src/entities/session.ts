@@ -264,6 +264,9 @@ export const AgentRuntimeState = z.object({
   idle: IdleVerdict.optional(), // present when phase === 'idle'
   need: AgentNeed.optional(), // present when phase === 'needs_user'
   error: AgentError.optional(), // present when phase === 'errored'
+  /** A harness explicitly reported that its normal state channel is unavailable.
+   *  Present only with phase=unknown; this is observed uncertainty, not idle. */
+  observationGap: z.object({ reason: z.enum(['transcript_disabled']) }).optional(),
   /** Winning daemon observation provenance; never a user or provider-account identity. */
   stateSource: z.enum(['hook', 'poll', 'classifier']).optional(),
   stateConfidence: z.number().min(0).max(1).optional(),

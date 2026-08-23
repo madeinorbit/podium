@@ -17,6 +17,11 @@ export interface AgentStateEventProvenance {
  */
 export type AgentStateEvent = (
   | { kind: 'session_started' }
+  /** The harness explicitly disabled a channel Podium normally observes. */
+  | {
+      kind: 'observation_gap'
+      reason: 'transcript_disabled'
+    }
   | { kind: 'prompt_submitted' }
   /** Liveness heartbeat (tool use etc.) — anything that proves the agent is computing. */
   | { kind: 'activity' }

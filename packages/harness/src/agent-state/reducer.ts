@@ -211,6 +211,13 @@ export function reduceAgentState(
   switch (event.kind) {
     case 'session_started':
       return { phase: 'idle', ...base }
+    case 'observation_gap':
+      // A weaker channel must not erase state another channel genuinely
+      // observed. It does replace classifier-seeded idle: that idle was only a
+      // boot assumption and the gap is direct evidence that Podium cannot know.
+      if (prev.stateConfidence !== undefined && prev.stateConfidence > (event.confidence ?? -1))
+        return prev
+      return { phase: 'unknown', ...base, observationGap: { reason: event.reason } }
     case 'prompt_submitted':
       return { phase: 'working', ...base }
     case 'activity':

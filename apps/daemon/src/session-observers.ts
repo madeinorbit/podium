@@ -1173,9 +1173,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       ) {
         void deps
           .onExactCodexBinding(sessionId, value)
-          .catch((err) =>
-            log.warn('codex identity receipt failed', { err, sessionId }),
-          )
+          .catch((err) => log.warn('codex identity receipt failed', { err, sessionId }))
         return
       }
       send({
@@ -1258,7 +1256,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const tracker = trackers.get(sessionId)
     if (!tracker) return
     for (const event of events) {
-      if (tracker.state.phase !== 'unknown') return
+      // Unknown with provenance can be an observed gap; a delayed boot
+      // assumption must not turn that uncertainty into fabricated idle.
+      if (tracker.state.phase !== 'unknown' || tracker.state.stateSource !== undefined) return
       const next = reduceAgentState(tracker.state, event, new Date().toISOString())
       if (next === tracker.state) continue
       tracker.state = next
@@ -1499,9 +1499,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           nativeKind: bound.adapter.resumeKind,
           observedAt: new Date().toISOString(),
         })
-        .catch((error) =>
-          log.warn('hook repin transition failed', { err: error, sessionId }),
-        )
+        .catch((error) => log.warn('hook repin transition failed', { err: error, sessionId }))
     }
     const changedCausalBinding = Boolean(
       harnessSessionId &&
