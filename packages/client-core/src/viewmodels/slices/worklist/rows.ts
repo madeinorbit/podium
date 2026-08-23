@@ -170,6 +170,14 @@ function buildUnifiedRows(
     const guests = worktree.sessions.filter((session) => {
       if (issueSessionIds.has(session.sessionId)) return false
       const issue = session.issueId ? issueByIdForSession.get(session.issueId) : undefined
+      if (
+        issue &&
+        (issue.archived ||
+          issue.deletedAt ||
+          issue.stage === 'proposed' ||
+          isSystemOwnedIssueStage(issue.stage))
+      )
+        return false
       return sessionVisibleInSidebar(session, now, issue)
     })
     if (guests.length === 0) continue

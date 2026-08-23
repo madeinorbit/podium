@@ -81,12 +81,32 @@ function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
 }
 
 const sections: SidebarSections = { pinnedWorktrees: [], pinnedRepos: [], repos: [] }
+const sectionsWithMain: SidebarSections = {
+  pinnedWorktrees: [],
+  pinnedRepos: [],
+  repos: [
+    {
+      path: '/r/a',
+      name: 'a',
+      worktrees: [
+        {
+          path: '/r/a',
+          repoPath: '/r/a',
+          repoName: 'a',
+          isMain: true,
+          sessions: [session()],
+          issues: [],
+        },
+      ],
+    },
+  ],
+}
 
 /** Every session id anywhere in the row tree — nested rows included, because a
  *  session that survives one level down is still a session on screen. */
 function sessionIdsIn(rows: UnifiedWorkRow[]): string[] {
   return rows.flatMap((row) => {
-    if (row.kind !== 'issue') return []
+    if (row.kind === 'worktree') return row.worktree.sessions.map((s) => s.sessionId as string)
     return [
       ...row.sessions.map((s) => s.sessionId as string),
       ...sessionIdsIn(row.startedByChildren ?? []),
@@ -107,7 +127,7 @@ describe('POD-781 — an optimistically deleted issue takes its sessions with it
     // Exactly what `overlayForOutboxEntry('issueDelete')` folds over the replica
     // row: one field, on the issue, and nothing on the sessions.
     const deleted = issue({ deletedAt: '2026-08-12T12:00:00.000Z' })
-    const rows = unifiedWorkList(sections, [deleted], live, ['/r/a'], NOW)
+    const rows = unifiedWorkList(sectionsWithMain, [deleted], live, ['/r/a'], NOW)
 
     expect(rows).toEqual([])
     // The load-bearing half: the session is not re-homed onto some other row,
@@ -117,7 +137,14 @@ describe('POD-781 — an optimistically deleted issue takes its sessions with it
 
   it('does the same for archive, which is the other row-removing patch', () => {
     const archived = issue({ archived: true })
-    const rows = unifiedWorkList(sections, [archived], live, ['/r/a'], NOW)
+    const rows = unifiedWorkList(sectionsWithMain, [archived], live, ['/r/a'], NOW)
+    expect(rows).toEqual([])
+    expect(sessionIdsIn(rows)).toEqual([])
+  })
+
+  it('does not re-home a session when its issue becomes proposed', () => {
+    const proposed = issue({ stage: 'proposed' })
+    const rows = unifiedWorkList(sectionsWithMain, [proposed], live, ['/r/a'], NOW)
     expect(rows).toEqual([])
     expect(sessionIdsIn(rows)).toEqual([])
   })
