@@ -376,10 +376,15 @@ export class IssueGitWorkflowModule {
       if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, startRepoPath)
       const branch = this.store.slug(row.seq, row.title)
       path = this.worktreePathFor(startRepoPath, branch)
-      // A worktree is machine-local even when its placement was implicit. Persist the
-      // host's real machine id instead of encoding "the hub" as NULL; the same id is
-      // also a safe explicit route because the host daemon attaches under it at boot.
-      const worktreeMachineId = row.machineId ?? this.store.d.store.hostMachineId
+      // A worktree is machine-local even when its placement was implicit, so persist a
+      // real machine id rather than encoding the choice as NULL. It must be the machine
+      // repoOp would have picked for this path, NOT the host: passing an explicit id
+      // short-circuits that pick, so assuming the host both mis-records the row and
+      // retargets the op away from the repository's own machine (POD-2651).
+      const worktreeMachineId =
+        row.machineId ??
+        this.store.d.machineHoldingRepo?.(startRepoPath) ??
+        this.store.d.store.hostMachineId
       const res = await this.store.d.repoOp(
         'worktreeAdd',
         startRepoPath,
@@ -737,10 +742,15 @@ export class IssueGitWorkflowModule {
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot create an issue worktree')
     }
-    // An implicit placement is still the host machine, not an absence of placement.
-    // Passing the real id also exercises the same daemon route every later operation
-    // will use once the row is stamped.
-    const machineId = requestedMachineId ?? row.machineId ?? this.store.d.store.hostMachineId
+    // An implicit placement is still a real machine, not an absence of placement — but
+    // it is the one this repository resolves to, not the host. See POD-2651: the host
+    // assumption sent worktree ops for another machine's repositories to a path that
+    // does not exist here.
+    const machineId =
+      requestedMachineId ??
+      row.machineId ??
+      this.store.d.machineHoldingRepo?.(row.repoPath) ??
+      this.store.d.store.hostMachineId
     const repoPath = this.repoPathOnMachine(row.repoPath, machineId)
     // A worktree path is machine-local. It is reusable only when the issue is
     // already homed on the requested machine AND its repository resolves to the
