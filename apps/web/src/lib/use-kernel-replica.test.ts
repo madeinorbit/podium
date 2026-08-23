@@ -18,18 +18,31 @@ describe('offline replica principal resolution', () => {
     ).resolves.toBe('alice')
   })
 
+  it('keeps a recovered account switch isolated from a retained namespace', async () => {
+    const inspectNamespaces = vi.fn(() => ['alice'])
+    await expect(
+      resolveReplicaPrincipal({
+        fetchStatus: async () => response({ userId: 'bob' }),
+        inspectNamespaces,
+      }),
+    ).resolves.toBe('bob')
+    expect(inspectNamespaces).not.toHaveBeenCalled()
+  })
+
   it('resolves the status route against the server origin, not the page origin', async () => {
     // The desktop all-in-one webview runs on tauri://localhost, where a relative
     // /auth/status is answered by the bundled SPA, not the server.
-    const fetched: unknown[] = []
-    vi.stubGlobal('fetch', async (input: unknown) => {
-      fetched.push(input)
+    const fetched: unknown[][] = []
+    vi.stubGlobal('fetch', async (...args: unknown[]) => {
+      fetched.push(args)
       return response({ userId: 'alice' })
     })
     await expect(resolveReplicaPrincipal({ httpOrigin: 'http://backend.test:1234' })).resolves.toBe(
       'alice',
     )
-    expect(fetched).toEqual(['http://backend.test:1234/auth/status'])
+    expect(fetched).toEqual([
+      ['http://backend.test:1234/auth/status', { credentials: 'include' }],
+    ])
   })
 
   it('treats an HTML 200 answer as an unavailable account, not a parse crash', async () => {
@@ -57,13 +70,19 @@ describe('offline replica principal resolution', () => {
     ).resolves.toBe('alice')
   })
 
-  it('fails closed when no namespace or multiple namespaces could own the slice', async () => {
+  it('fails closed on a fresh offline browser with no retained account', async () => {
     const offline = async (): Promise<Response> => {
       throw new TypeError('offline')
     }
     await expect(
       resolveReplicaPrincipal({ fetchStatus: offline, inspectNamespaces: () => [] }),
     ).rejects.toThrow('no authenticated principal namespace')
+  })
+
+  it('fails closed when multiple retained accounts could own the offline slice', async () => {
+    const offline = async (): Promise<Response> => {
+      throw new TypeError('offline')
+    }
     await expect(
       resolveReplicaPrincipal({
         fetchStatus: offline,
@@ -151,6 +170,35 @@ describe('private replica boot failure', () => {
     await waitFor(() => expect(result.current.status).toBe('kernel'))
     expect(resolvePrincipal).not.toHaveBeenCalled()
     expect(openAssembly).toHaveBeenCalledOnce()
+    expect(openAssembly).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: 'alice', trpc: expect.anything() }),
+    )
+    unmount()
+    expect(dispose).toHaveBeenCalledOnce()
+  })
+
+  it('recovers a failed first auth request before opening the replica', async () => {
+    const resolvePrincipal = vi.fn(async () => 'alice')
+    const dispose = vi.fn(async () => {})
+    const assembly = {
+      principal: 'alice',
+      dispose,
+    } as unknown as Awaited<ReturnType<typeof openKernelAssembly>>
+    const openAssembly = vi.fn(async () => assembly)
+
+    const { result, unmount } = renderHook(() =>
+      useKernelReplica({
+        trpc: {} as Trpc,
+        auth: { kind: 'unreachable' },
+        httpOrigin: 'http://backend.test:1234',
+        resolvePrincipal,
+        openAssembly,
+      }),
+    )
+
+    await waitFor(() => expect(result.current.status).toBe('kernel'))
+    expect(resolvePrincipal).toHaveBeenCalledOnce()
+    expect(resolvePrincipal).toHaveBeenCalledWith({ httpOrigin: 'http://backend.test:1234' })
     expect(openAssembly).toHaveBeenCalledWith(
       expect.objectContaining({ principal: 'alice', trpc: expect.anything() }),
     )

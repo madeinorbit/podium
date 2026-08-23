@@ -66,10 +66,12 @@ export interface ResolveReplicaPrincipalOptions {
   readonly inspectNamespaces?: () => readonly string[]
 }
 
-/** The single auth probe's durable handoff to the private-replica gate. */
+/** LoginGate's auth probe handoff to the private-replica gate. */
 export type AuthBootstrap =
   | { readonly kind: 'principal'; readonly principal: string }
-  | { readonly kind: 'offline' }
+  /** The first status request failed without an authoritative answer. The
+   * replica gate must re-probe before retained device data can choose an owner. */
+  | { readonly kind: 'unreachable' }
   | {
       readonly kind: 'failure'
       readonly message: string
@@ -97,9 +99,10 @@ function offlineReplicaPrincipal(inspectNamespaces?: () => readonly string[]): s
       })
 }
 
-function principalFromAuthBootstrap(auth: AuthBootstrap): string {
+function principalFromAuthBootstrap(
+  auth: Exclude<AuthBootstrap, { readonly kind: 'unreachable' }>,
+): string {
   if (auth.kind === 'principal') return auth.principal
-  if (auth.kind === 'offline') return offlineReplicaPrincipal()
   throw new ReplicaGateError(auth.message, auth.failure)
 }
 
@@ -116,7 +119,8 @@ export async function resolveReplicaPrincipal(
   options: ResolveReplicaPrincipalOptions = {},
 ): Promise<string> {
   const fetchStatus =
-    options.fetchStatus ?? (() => fetch(`${options.httpOrigin ?? ''}/auth/status`))
+    options.fetchStatus ??
+    (() => fetch(`${options.httpOrigin ?? ''}/auth/status`, { credentials: 'include' }))
   let response: Response
   try {
     response = await fetchStatus()
@@ -197,9 +201,13 @@ export function useKernelReplica(args: {
     void (async () => {
       if (!alive) return
       try {
-        const principal = auth
-          ? principalFromAuthBootstrap(auth)
-          : await resolvePrincipal({ httpOrigin })
+        // A successful LoginGate answer remains the one-request fast path. A
+        // rejected first request is only provisional: retry with the cookie
+        // before a network failure may authorize retained offline data.
+        const principal =
+          auth === undefined || auth.kind === 'unreachable'
+            ? await resolvePrincipal({ httpOrigin })
+            : principalFromAuthBootstrap(auth)
         // Captured DURING the open: the migration runs inside `openKernelAssembly`
         // and reports through `onDegraded`, which is the only channel that exists
         // before the store (and its toasts) are mounted.

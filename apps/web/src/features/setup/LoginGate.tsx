@@ -54,7 +54,9 @@ async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
   try {
     res = await fetch(`${httpOrigin}/auth/status`, { credentials: 'include' })
   } catch {
-    return { kind: 'ready', auth: { kind: 'offline' } }
+    // This request alone cannot distinguish a dead server from a transient
+    // failure. Let the replica gate re-probe before it considers retained data.
+    return { kind: 'ready', auth: { kind: 'unreachable' } }
   }
   if (!res.ok) {
     return {

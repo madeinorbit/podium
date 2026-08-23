@@ -52,10 +52,14 @@ describe('LoginGate', () => {
     expect(await screen.findByText('APP-READY')).toBeTruthy()
   })
 
-  it('does not block when the status probe is unreachable (SetupGate owns that error)', async () => {
+  it('hands an unreachable status probe to the recovery path', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network')))
-    render(<LoginGate>{child}</LoginGate>)
-    expect(await screen.findByText('APP-READY')).toBeTruthy()
+    render(
+      <LoginGate>
+        {(auth) => <div>{auth.kind === 'unreachable' ? 'APP-RETRYING' : 'APP-WRONG'}</div>}
+      </LoginGate>,
+    )
+    expect(await screen.findByText('APP-RETRYING')).toBeTruthy()
   })
 
   it('sends credentials on the status probe so the session cookie rides', async () => {

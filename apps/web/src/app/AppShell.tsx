@@ -274,7 +274,8 @@ export function AppShell({ auth }: { auth: AuthBootstrap }): JSX.Element {
 
   // Setup/version and the private replica both depend on auth, but not on each
   // other. Mount the setup gate beside the replica effect and keep the shell
-  // itself behind the setup decision.
+  // itself behind the setup decision. An unreachable auth bootstrap is also
+  // recovered inside the replica effect, so that check stays parallel too.
   return <SetupGate>{shell}</SetupGate>
 }
 
