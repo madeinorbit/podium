@@ -327,10 +327,12 @@ describe('AgentPanel mount gating', () => {
   })
 
   it('tears the terminal down, and offers no mode switch, once the session is in transit', async () => {
-    // `useHandoverView` publishes `transit` from an EFFECT, so the first paint
-    // is still live; what the arbitration owes is that the PTY is gone by the
-    // time the veil is up — the attach that runs next must be the one against
-    // the new daemon.
+    // Establish a real mounted terminal before the handoff. The renderer now
+    // loads asynchronously, so beginning the test in transit can correctly
+    // cancel the pending mount without ever creating an instance to dispose.
+    await render({ active: true })
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+
     storeSessions = [meta({ handoffTarget: 'other-machine' })]
     await render({ active: true })
     expect(dispose).toHaveBeenCalled()
