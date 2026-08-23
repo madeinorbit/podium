@@ -130,7 +130,7 @@ const issue = {
   dependencyNote: null,
 } as unknown as IssueWire
 
-describe('ScreeningCard reduced motion', () => {
+describe('ScreeningCard motion', () => {
   beforeEach(() => {
     motion.reduceMotion = false
     motion.gesture = undefined
@@ -173,6 +173,7 @@ describe('ScreeningCard reduced motion', () => {
       { target: 0, suppressed: true },
       { target: 0, suppressed: true },
     ])
+    expect(motion.springs.mock.calls.map(([, config]) => config.velocity)).toEqual([20, 1])
     expect(onDecide).not.toHaveBeenCalled()
 
     motion.springs.mockClear()
@@ -193,4 +194,37 @@ describe('ScreeningCard reduced motion', () => {
     expect(onDecide).toHaveBeenCalledOnce()
     expect(onDecide).toHaveBeenCalledWith('accepted')
   })
+
+  it.each([
+    { distance: 120, releaseVelocity: -1_200, verdict: 'accepted' },
+    { distance: -120, releaseVelocity: 1_200, verdict: 'declined' },
+  ] as const)(
+    'clamps opposing exit velocity for a $verdict distance commit',
+    ({ distance, releaseVelocity, verdict }) => {
+      const onDecide = vi.fn()
+      render(
+        <ScreeningCard
+          issue={issue}
+          repoName="podium"
+          onDecide={onDecide}
+          onOpen={vi.fn()}
+        />,
+      )
+
+      act(() => {
+        motion.gesture?.onActivate()
+        motion.gesture?.onUpdate({ translationX: distance, translationY: 0 })
+        motion.gesture?.onDeactivate({
+          canceled: false,
+          velocityX: releaseVelocity,
+          velocityY: 0,
+        })
+      })
+
+      expect(motion.springs).toHaveBeenCalledTimes(2)
+      const [, config] = motion.springs.mock.calls[1] ?? []
+      expect(config).toMatchObject({ velocity: 0 })
+      expect(onDecide).toHaveBeenCalledWith(verdict)
+    },
+  )
 })

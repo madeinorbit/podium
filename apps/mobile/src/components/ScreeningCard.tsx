@@ -148,6 +148,7 @@ export function ScreeningCard({
       }
 
       const direction = distanceCommits ? Math.sign(x) : Math.sign(event.velocityX)
+      const exitVelocityX = direction * event.velocityX > 0 ? event.velocityX : 0
       const gesture: ScreeningGesture = direction > 0 ? 'accepted' : 'declined'
       decided.set(true)
       scheduleOnRN(decisionHaptic)
@@ -180,7 +181,7 @@ export function ScreeningCard({
           {
             duration: 300,
             dampingRatio: 1,
-            velocity: event.velocityX,
+            velocity: exitVelocityX,
             overshootClamping: true,
             reduceMotion: ReduceMotion.System,
           },
