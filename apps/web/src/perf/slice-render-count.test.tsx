@@ -247,6 +247,10 @@ vi.mock('@/app/store', async () => {
   }
 })
 vi.mock('@/features/machines/HostIndicators', () => ({ HostIndicators: () => null }))
+// The 2.2 baseline predates the independently lazy mobile-promo QR. Keep this
+// probe on the worklist publication path instead of charging another surface's
+// Suspense readiness to every synchronous fixture publish.
+vi.mock('@/features/mobile-handoff/MobilePromoCard', () => ({ MobilePromoCard: () => null }))
 vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
@@ -259,6 +263,18 @@ const PUBLISHES = 5
 
 let container: HTMLDivElement
 let root: Root
+
+/**
+ * LazyMotion resolves the bundle, commits its provider update, then mounts the
+ * layout features, whose setup is deferred through Motion's frame scheduler.
+ * Both frames are startup readiness; neither was caused by a store publish.
+ */
+async function waitForWorklistMotion(): Promise<void> {
+  await vi.dynamicImportSettled()
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  })
+}
 
 beforeEach(() => {
   publishNonce = 0
@@ -273,7 +289,7 @@ afterEach(() => {
 })
 
 describe('POD-330 render-count probe — worklist', () => {
-  it('records commits and derivation executions per store publish', () => {
+  it('records commits and derivation executions per store publish', async () => {
     let commits = 0
     // A FRESH element every time: re-rendering the same element object makes
     // React bail out before the component runs at all, which would make this
@@ -289,8 +305,15 @@ describe('POD-330 render-count probe — worklist', () => {
       </Profiler>
     )
 
-    act(() => root.render(tree()))
-    const atMount = { ...derivations, worklist: worklistDerivations() }
+    await act(async () => {
+      root.render(tree())
+      // WorklistMotion loads its Motion feature bundle after mount. Settling
+      // its provider and frame work inside act flushes the one-time readiness
+      // renders, so the publication budget does not charge them to publish #1.
+      await waitForWorklistMotion()
+    })
+    commits = 0
+    const atReady = { ...derivations, worklist: worklistDerivations() }
 
     for (let i = 0; i < PUBLISHES; i++) {
       publishNonce++
@@ -302,11 +325,11 @@ describe('POD-330 render-count probe — worklist', () => {
     // This now guards the PUBLISHED slice: the old barrel counter goes to zero
     // once a surface is ported (see `derivations` above), and zero is exactly
     // the reading that would sail past every ceiling.
-    expect(worklistDerivations()).toBeGreaterThan(atMount.worklist)
+    expect(worklistDerivations()).toBeGreaterThan(atReady.worklist)
 
     const perPublishCommits = commits / PUBLISHES
-    const perPublishWorklist = (worklistDerivations() - atMount.worklist) / PUBLISHES
-    const perPublishDirect = (derivations.sidebarSections - atMount.sidebarSections) / PUBLISHES
+    const perPublishWorklist = (worklistDerivations() - atReady.worklist) / PUBLISHES
+    const perPublishDirect = (derivations.sidebarSections - atReady.sidebarSections) / PUBLISHES
 
     // Printed on every run so the numbers are readable, not merely asserted.
     console.log(
@@ -345,7 +368,7 @@ describe('POD-330 render-count probe — worklist', () => {
 // remembered one.
 // ---------------------------------------------------------------------------
 describe('POD-331 render-count probe — worklist with a second consumer', () => {
-  it('records derivation executions per publish across two independent consumers', () => {
+  it('records derivation executions per publish across two independent consumers', async () => {
     let commits = 0
     const tree = (): JSX.Element => (
       <Profiler
@@ -359,8 +382,12 @@ describe('POD-331 render-count probe — worklist with a second consumer', () =>
       </Profiler>
     )
 
-    act(() => root.render(tree()))
-    const atMount = { ...derivations, worklist: worklistDerivations() }
+    await act(async () => {
+      root.render(tree())
+      await waitForWorklistMotion()
+    })
+    commits = 0
+    const atReady = { ...derivations, worklist: worklistDerivations() }
 
     for (let i = 0; i < PUBLISHES; i++) {
       publishNonce++
@@ -369,11 +396,11 @@ describe('POD-331 render-count probe — worklist with a second consumer', () =>
 
     // Same can-say-NO guard as above: numbers from a derivation that never ran
     // are not a measurement, and zero passes every ceiling.
-    expect(worklistDerivations()).toBeGreaterThan(atMount.worklist)
+    expect(worklistDerivations()).toBeGreaterThan(atReady.worklist)
 
     const perPublishCommits = commits / PUBLISHES
-    const perPublishWorklist = (worklistDerivations() - atMount.worklist) / PUBLISHES
-    const perPublishDirect = (derivations.sidebarSections - atMount.sidebarSections) / PUBLISHES
+    const perPublishWorklist = (worklistDerivations() - atReady.worklist) / PUBLISHES
+    const perPublishDirect = (derivations.sidebarSections - atReady.sidebarSections) / PUBLISHES
 
     console.log(
       `[POD-331 two-consumer] per publish: commits=${perPublishCommits} ` +
