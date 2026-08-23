@@ -400,17 +400,33 @@ export function Workspace({
       if (dragRuntimeRequested.current) dragRuntimeDeferredUntilIntent.current = true
       const pointerId = event.pointerId
       const ownerDocument = fixedTarget.element.ownerDocument
-      const finishAfterClick = (end: PointerEvent): void => {
-        if (end.pointerId !== pointerId || fixedStripPressTimer.current !== null) return
+      const ownerWindow = ownerDocument.defaultView
+      const finishAfterLostBoundary = (): void => {
+        if (fixedStripPressTimer.current !== null) return
         clearFixedStripPressListeners.current?.()
         clearFixedStripPressListeners.current = null
         fixedStripPressTimer.current = window.setTimeout(finishFixedStripPress, 0)
       }
+      const finishAfterClick = (end: PointerEvent): void => {
+        if (end.pointerId === pointerId) finishAfterLostBoundary()
+      }
+      const finishAfterLostCapture = (end: PointerEvent): void => {
+        if (end.pointerId === pointerId) finishAfterLostBoundary()
+      }
+      const finishWhenHidden = (): void => {
+        if (ownerDocument.visibilityState === 'hidden') finishAfterLostBoundary()
+      }
       ownerDocument.addEventListener('pointerup', finishAfterClick, true)
       ownerDocument.addEventListener('pointercancel', finishAfterClick, true)
+      ownerDocument.addEventListener('visibilitychange', finishWhenHidden, true)
+      ownerWindow?.addEventListener('blur', finishAfterLostBoundary, true)
+      fixedTarget.element.addEventListener('lostpointercapture', finishAfterLostCapture)
       clearFixedStripPressListeners.current = () => {
         ownerDocument.removeEventListener('pointerup', finishAfterClick, true)
         ownerDocument.removeEventListener('pointercancel', finishAfterClick, true)
+        ownerDocument.removeEventListener('visibilitychange', finishWhenHidden, true)
+        ownerWindow?.removeEventListener('blur', finishAfterLostBoundary, true)
+        fixedTarget.element.removeEventListener('lostpointercapture', finishAfterLostCapture)
       }
       return true
     },
@@ -429,15 +445,27 @@ export function Workspace({
       dragRuntimeDeferredUntilIntent.current = true
       const code = event.code
       const ownerDocument = fixedTarget.element.ownerDocument
-      const finishAfterClick = (end: KeyboardEvent): void => {
-        if (end.code !== code || fixedStripPressTimer.current !== null) return
+      const ownerWindow = ownerDocument.defaultView
+      const finishAfterLostBoundary = (): void => {
+        if (fixedStripPressTimer.current !== null) return
         clearFixedStripPressListeners.current?.()
         clearFixedStripPressListeners.current = null
         fixedStripPressTimer.current = window.setTimeout(finishFixedStripPress, 0)
       }
+      const finishAfterClick = (end: KeyboardEvent): void => {
+        if (end.code === code) finishAfterLostBoundary()
+      }
+      const finishWhenHidden = (): void => {
+        if (ownerDocument.visibilityState === 'hidden') finishAfterLostBoundary()
+      }
       ownerDocument.addEventListener('keyup', finishAfterClick, true)
-      clearFixedStripPressListeners.current = () =>
+      ownerDocument.addEventListener('visibilitychange', finishWhenHidden, true)
+      ownerWindow?.addEventListener('blur', finishAfterLostBoundary, true)
+      clearFixedStripPressListeners.current = () => {
         ownerDocument.removeEventListener('keyup', finishAfterClick, true)
+        ownerDocument.removeEventListener('visibilitychange', finishWhenHidden, true)
+        ownerWindow?.removeEventListener('blur', finishAfterLostBoundary, true)
+      }
       return true
     },
     [finishFixedStripPress],
@@ -445,6 +473,14 @@ export function Workspace({
 
   const preloadDragRuntime = useCallback(
     (intentTarget: EventTarget | null, restoreFocus = false): void => {
+      if (restoreFocus && !DragRuntime) {
+        const fixedTarget = fixedStripControlTarget(intentTarget)
+        if (fixedTarget) {
+          dragFocusToRestore.current = null
+          fixedStripFocusToRestore.current = fixedTarget.locator
+          return
+        }
+      }
       const target = tabDomTarget(intentTarget)
       if (!target) return
       if (restoreFocus && !DragRuntime) dragFocusToRestore.current = target
@@ -552,8 +588,8 @@ export function Workspace({
   // when a cold keyboard pickup was cancelled before the import resolved.
   useLayoutEffect(() => {
     if (!DragRuntime) return
-    restoreDragFocus()
     restoreFixedStripFocus()
+    restoreDragFocus()
   }, [DragRuntime, restoreDragFocus, restoreFixedStripFocus])
 
   const captureColdPointerActivation = useCallback(

@@ -896,6 +896,80 @@ describe('Workspace splitting', () => {
     expect(document.activeElement).toBe(replacement)
   })
 
+  it('keeps fixed-control focus when the runtime resolves before keydown', async () => {
+    featureEnabled['tab-splitting'] = true
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    intentTab.focus()
+    expect(runtime.load).toHaveBeenCalledTimes(1)
+
+    const original = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    original.focus()
+    await runtime.release()
+
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+    const replacement = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    expect(original.isConnected).toBe(false)
+    expect(document.activeElement).toBe(replacement)
+  })
+
+  it('releases a fixed pointer hold when pointer capture is lost', async () => {
+    featureEnabled['tab-splitting'] = true
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    fireEvent.pointerEnter(intentTab)
+
+    const control = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    fireEvent.pointerDown(control, {
+      pointerId: 14,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+    })
+    await runtime.release()
+    control.dispatchEvent(
+      new PointerEvent('lostpointercapture', { bubbles: true, pointerId: 14, pointerType: 'mouse' }),
+    )
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+    fireEvent.pointerEnter(intentTab)
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+  })
+
+  it('releases a fixed keyboard hold when the window loses focus', async () => {
+    featureEnabled['tab-splitting'] = true
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    fireEvent.pointerEnter(intentTab)
+
+    const control = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    control.focus()
+    fireEvent.keyDown(control, { key: ' ', code: 'Space' })
+    await runtime.release()
+    window.dispatchEvent(new Event('blur'))
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+    fireEvent.pointerEnter(intentTab)
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+  })
+
   it.each(['label', 'close'] as const)(
     'finishes a cold drag without dispatching its browser click to the source %s control',
     async (control) => {
