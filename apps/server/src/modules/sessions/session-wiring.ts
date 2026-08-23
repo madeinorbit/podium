@@ -279,6 +279,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     soleOwnerForCwd: (cwd) => bag.deps.issueAccess.soleOwnerForCwd(cwd) ?? undefined,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
     sessionOwner: (sessionId) => bag.sessionOwner(sessionId),
+    setSessionDraft: (input) => bag.state.setDraft(input),
     queueInitialPrompt: (i) => bag.inbox.queueInitialPrompt(i),
     emitSessionCreated: (payload) => bag.bus.emit('session.created', payload),
   })
@@ -360,13 +361,28 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           payload: { sessionId, ownerUserId, attribution },
         })
       },
-      promptFailed: ({ ownerUserId, sessionId, reason }) =>
-        bag.bus.emit('attention.raised', {
-          ownerUserId,
-          sessionId,
-          title: 'Initial prompt not delivered',
-          body: `${reason}. Send it again after checking the session.`,
-        }),
+      promptFailed: ({ ownerUserId, sessionId, text, reason, initialPrompt }) => {
+        const title = initialPrompt ? 'Initial prompt not delivered' : 'Input not delivered'
+        const body = `${reason}. The queued text is still recoverable; check the session and send it again.`
+        // Persist first. The bus attention event is intentionally only a live
+        // notification; the event and queue are the recovery record even when
+        // there is no owner or no connected client.
+        bag.store.events.appendEvent({
+          ts: new Date(bag.now()).toISOString(),
+          kind: initialPrompt ? 'session.initial_prompt_failed' : 'session.input_unconfirmed',
+          subject: sessionId,
+          payload: {
+            sessionId,
+            ownerUserId: ownerUserId ?? null,
+            text,
+            reason,
+            recoverable: true,
+          },
+        })
+        if (ownerUserId) {
+          bag.bus.emit('attention.raised', { sessionId, ownerUserId, title, body })
+        }
+      },
     },
     now: () => bag.now(),
     persist: (session, options) =>
@@ -384,6 +400,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     prepareSend: (sessionId, attribution, kind, origin) =>
       bag.prepareInboxSend(sessionId, attribution, kind, origin),
     ownerOf: (sessionId) => bag.sessionOwner(sessionId)?.owner,
+    setSessionDraft: (input) => bag.state.setDraft(input),
+    draftText: (sessionId) => bag.state.draftText(sessionId),
     resurrect: (sessionId, principal) => {
       bag.bus.emit('session.wakeRequested', { sessionId, principal })
     },

@@ -479,6 +479,12 @@ export class SessionStateService {
     return this.draftDocs.get(sessionId)?.rev
   }
 
+  /** The current server-side composer text, used only to avoid clobbering a
+   * human edit while automatic prompt recovery restores or clears its seed. */
+  draftText(sessionId: SessionId): string | undefined {
+    return this.draftDocs.get(sessionId)?.text
+  }
+
   /**
    * An UNVERSIONED write — a legacy `setSessionDraft` frame, or the server
    * seeding a draft itself (a spawn's initial prompt).

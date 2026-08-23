@@ -58,15 +58,11 @@ const READY_POLL_MS = 200
 const QUEUE_DRAIN_DEADLINE_MS = 25_000
 const QUEUE_MESSAGE_SPACING_MS = 400
 /**
- * A WOKEN session's readiness budget (POD-1100). The quiet heuristic above reads
- * "the PTY stopped painting" as "the CLI is reading" — true for a process that
- * has been up for a while, false for one that is still rehydrating a transcript
- * and connecting MCP servers, which is silent for exactly the same reason. On a
- * wake we wait for the HARNESS to speak for this process instead, and fall back
- * to the quiet heuristic only after this grace, so a harness that reports no
- * runtime state at all still delivers.
+ * A WOKEN session's readiness budget (POD-1100). A state report is not a
+ * readiness witness: the PTY can report a fresh runtime state while the CLI is
+ * still painting its composer. Keep the conservative quiet/ceiling heuristic;
+ * never shorten it because a harness state stamp changed.
  */
-const READY_STATE_GRACE_MS = 10_000
 /** Liveness budget for a wake. A cold resume of a large session routinely
  *  outran the 25s a live session gets, and gave up before the PTY had bound. */
 const WOKEN_DRAIN_DEADLINE_MS = 60_000
@@ -225,8 +221,14 @@ export interface InboxAttentionPort {
     observation?: AgentObservation
   }): void
   answered(input: { ownerUserId: UserId; sessionId: SessionId; attribution: Attribution }): void
-  /** The creation prompt was not witnessed before its bounded confirmation window. */
-  promptFailed(input: { ownerUserId: UserId; sessionId: SessionId; reason: string }): void
+  /** A queued input was not witnessed before its bounded confirmation window. */
+  promptFailed(input: {
+    ownerUserId?: UserId
+    sessionId: SessionId
+    text: string
+    reason: string
+    initialPrompt: boolean
+  }): void
 }
 
 export interface SessionInboxDeps {
@@ -252,6 +254,10 @@ export interface SessionInboxDeps {
     origin: ObservationInputOrigin,
   ): void
   ownerOf(sessionId: SessionId): UserId | null | undefined
+  /** Seed/restore the server-persisted composer draft without a client echo. */
+  setSessionDraft?(input: { sessionId: SessionId; text: string }): void
+  /** Read the current draft so automatic recovery never overwrites a human edit. */
+  draftText?(sessionId: SessionId): string | undefined
   /**
    * REQUEST a wake for a parked target; it does not perform one.
    *
@@ -429,16 +435,6 @@ const tailUserTurnMatches = (session: Session, needle: string, exact = false): b
   return false
 }
 
-/** When the harness last spoke about this session, in ms. `stateObservedAt` is
- *  the observation clock; `since` is the phase's event-time and the fallback for
- *  a daemon that reports no observation stamp. */
-const stateStampMs = (session: Session): number | undefined => {
-  const state = session.agentState
-  if (!state) return undefined
-  const stamp = Date.parse(state.stateObservedAt ?? state.since)
-  return Number.isNaN(stamp) ? undefined : stamp
-}
-
 export function blockedSessionSendReason(session: Pick<Session, 'agentState'>): string | undefined {
   const state = session.agentState
   if (state?.phase !== 'errored' || !state.error || state.error.retryable) return undefined
@@ -454,6 +450,8 @@ export class SessionInbox {
    * this marker on the session object rather than retaining session ids here.
    */
   private readonly inputReadySessions = new WeakSet<Session>()
+  /** One durable attention event per queued row and failure episode. */
+  private readonly reportedPromptFailures = new Set<string>()
 
   constructor(private readonly deps: SessionInboxDeps) {}
 
@@ -660,11 +658,10 @@ export class SessionInbox {
    * message was gone from a queue that had never delivered it.
    *
    * So: type, then watch the transcript for the turn. Confirmed → remove.
-   * Unconfirmed → the row stays durable and queued, and we retry with backoff.
-   * When the transcript cannot witness the send at all (no transcript for this
-   * session, or a prompt too short to recognise) we keep the old remove-on-write
-   * behaviour rather than retry blind — an unwitnessable duplicate is worse than
-   * the loss it would be guarding against.
+   * Unconfirmed → the row stays durable and queued, and ordinary rows retry with
+   * backoff. When the transcript cannot witness a send at all, leave the row and
+   * surface a recoverable failure; never settle it or arm later sends from a
+   * harness state report.
    */
   drain(sessionId: SessionId, opts?: { justBound?: boolean }): void {
     if (this.activeDrains.has(sessionId)) return
@@ -686,10 +683,14 @@ export class SessionInbox {
     // Give this process the full attempt budget rather than the exhausted one the
     // dead process left behind (POD-1242).
     if (woken && this.deps.queue.resetAttempts) {
-      for (const row of this.deps.queue.list(sessionId)) this.deps.queue.resetAttempts(row.id)
+      for (const row of this.deps.queue.list(sessionId)) {
+        // A creation prompt may already have been typed by the old process. Its
+        // durable attempt count is the duplicate-prevention fence; resetting it
+        // on bind would put the concatenation bug back after a restart.
+        if (!isInitialPromptRow(sessionId, row)) this.deps.queue.resetAttempts(row.id)
+      }
     }
     const deadline = this.deps.now() + (woken ? WOKEN_DRAIN_DEADLINE_MS : QUEUE_DRAIN_DEADLINE_MS)
-    const baseStateAt = stateStampMs(session)
     let liveAtMs = 0
     let baseOutputMs = 0
     const stop = () => this.activeDrains.delete(sessionId)
@@ -701,6 +702,13 @@ export class SessionInbox {
       this.deps.broadcast()
     }
     /** The head is done with — settle its ledger receipt and move on. */
+    const clearQueuedDraft = (head: QueuedInboxMessage): void => {
+      if (!this.deps.setSessionDraft) return
+      const draft = this.deps.draftText?.(sessionId)
+      if (draft === head.text) {
+        this.deps.setSessionDraft({ sessionId, text: '' })
+      }
+    }
     const settleHead = (
       current: Session,
       head: QueuedInboxMessage,
@@ -709,6 +717,8 @@ export class SessionInbox {
       if (transcriptConfirmed && this.needsInputReadiness(current)) {
         this.inputReadySessions.add(current)
       }
+      if (transcriptConfirmed) clearQueuedDraft(head)
+      if (transcriptConfirmed) this.reportedPromptFailures.delete(head.id)
       if (head.sourceMessageId) {
         this.deps.authorization.applied({ sourceMessageId: head.sourceMessageId, sessionId })
       }
@@ -720,20 +730,36 @@ export class SessionInbox {
         setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
       } else stop()
     }
-    const failInitialPrompt = (
-      current: Session,
+    const reportPromptFailure = (
+      current: Session | undefined,
       head: QueuedInboxMessage,
       reason: string,
     ): void => {
-      const ownerUserId = this.deps.ownerOf(sessionId)
-      if (ownerUserId) {
-        this.deps.attention.promptFailed({ ownerUserId, sessionId, reason })
+      if (!this.reportedPromptFailures.has(head.id)) {
+        this.reportedPromptFailures.add(head.id)
+        const initialPrompt = isInitialPromptRow(sessionId, head)
+        if (this.deps.setSessionDraft) {
+          const draft = this.deps.draftText?.(sessionId)
+          // A missing/blank draft is recoverable state to restore. A
+          // non-matching draft belongs to a human and must never be overwritten.
+          if (draft === undefined || draft === '' || draft === head.text) {
+            this.deps.setSessionDraft({ sessionId, text: head.text })
+          }
+        }
+        const ownerUserId = this.deps.ownerOf(sessionId)
+        this.deps.attention.promptFailed({
+          ...(ownerUserId ? { ownerUserId } : {}),
+          sessionId,
+          text: head.text,
+          reason,
+          initialPrompt,
+        })
       }
-      // The row is retired only after the failure notification has been
-      // emitted. Later queued rows stay untouched: typing another prompt into
-      // the same unverified native composer is the concatenation bug this row
-      // exists to prevent.
-      removeHead(current, head.id)
+      // Keep the durable row. It is the retry/cancel handle and the queue badge
+      // is the visible proof that no agent turn was confirmed. Later queued rows
+      // stay behind it so another prompt cannot glue onto an unsubmitted native
+      // composer buffer.
+      if (current) this.deps.persist(current)
       stop()
     }
     /**
@@ -763,12 +789,37 @@ export class SessionInbox {
       const poll = (): void => {
         const current = this.deps.getSession(sessionId)
         if (!current || (current.status !== 'live' && current.status !== 'starting')) {
+          reportPromptFailure(
+            current,
+            head,
+            initialPrompt
+              ? 'the session stopped before the creation prompt was confirmed'
+              : 'the session stopped before this input was confirmed',
+          )
           stop()
           return
         }
         const blockedReason = blockedSessionSendReason(current)
         if (blockedReason && !this.recoveryDrains.has(sessionId)) {
+          reportPromptFailure(current, head, blockedReason)
           stop()
+          return
+        }
+        // A fresh session may create its first transcript record only after this
+        // write. While the transcript is unavailable, hold the confirmation
+        // poll rather than settling, retrying, or treating state as evidence.
+        // The outer drain deadline makes the wait visible and bounded.
+        if (!current.transcriptAvailable && this.needsInputReadiness(current)) {
+          const now = this.deps.now()
+          if (now >= deadline) {
+            reportPromptFailure(
+              current,
+              head,
+              'the agent transcript is not available to confirm this Claude input',
+            )
+            return
+          }
+          setTimeout(poll, HELD_POLL_MS).unref?.()
           return
         }
         if (tailUserTurnMatches(current, needle, isInitialPromptRow(sessionId, head))) {
@@ -780,14 +831,13 @@ export class SessionInbox {
           // Held, not lost. Give up only at the ceiling, and leave the row
           // exactly where a later re-arm finds it — with its attempts intact.
           if (now >= heldUntil) {
-            if (initialPrompt) {
-              failInitialPrompt(
-                current,
-                head,
-                'the agent stayed busy without confirming the creation prompt',
-              )
-            }
-            stop()
+            reportPromptFailure(
+              current,
+              head,
+              initialPrompt
+                ? 'the agent stayed busy without confirming the creation prompt'
+                : 'the agent stayed busy without confirming this input',
+            )
             return
           }
           until = now + CONFIRM_TIMEOUT_MS
@@ -799,12 +849,11 @@ export class SessionInbox {
           return
         }
         // Unconfirmed. The row is still queued and still durable; the operator
-        // keeps seeing it, and an ordinary row gets a later retry. The creation
-        // prompt is different: retyping it can append another copy to the native
-        // composer, so its bounded timeout is a visible terminal failure rather
-        // than an indefinite queue or a second blind write.
+        // keeps seeing it, and an ordinary row gets a later retry. A creation
+        // prompt is never retyped after an unconfirmed attempt: the original
+        // bytes may still be sitting in the native composer.
         if (initialPrompt) {
-          failInitialPrompt(
+          reportPromptFailure(
             current,
             head,
             'the agent transcript did not confirm the creation prompt before the deadline',
@@ -812,7 +861,11 @@ export class SessionInbox {
           return
         }
         if (attempt >= MAX_DELIVERY_ATTEMPTS) {
-          stop()
+          reportPromptFailure(
+            current,
+            head,
+            'the agent transcript did not confirm this input after the retry budget was exhausted',
+          )
           return
         }
         setTimeout(() => attemptDelivery(head, attempt + 1), RETRY_BACKOFF_MS * attempt).unref?.()
@@ -820,17 +873,25 @@ export class SessionInbox {
       setTimeout(poll, CONFIRM_POLL_MS).unref?.()
     }
     const attemptDelivery = (head: QueuedInboxMessage, attempt: number): void => {
+      const firstPromptNeedsProof = isInitialPromptRow(sessionId, head)
       const current = this.deps.getSession(sessionId)
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
+        reportPromptFailure(
+          current,
+          head,
+          firstPromptNeedsProof
+            ? 'the session stopped before the creation prompt was confirmed'
+            : 'the session stopped before this input was confirmed',
+        )
         stop()
         return
       }
       const blockedReason = blockedSessionSendReason(current)
       if (blockedReason && !this.recoveryDrains.has(sessionId)) {
+        reportPromptFailure(current, head, blockedReason)
         stop()
         return
       }
-      const firstPromptNeedsProof = isInitialPromptRow(sessionId, head)
       const needle = confirmationNeedle(head.text, firstPromptNeedsProof)
       // A retry exists ONLY because the last attempt went unwitnessed. If the
       // turn has appeared since, it landed late — settle it rather than send the
@@ -843,6 +904,17 @@ export class SessionInbox {
         settleHead(current, head, true)
         return
       }
+      // The creation row is at-most-once across process restarts. Its attempt
+      // count is durable because the old native composer may still hold the
+      // bytes even when the server never saw a transcript turn.
+      if (firstPromptNeedsProof && head.attempts > 0) {
+        reportPromptFailure(
+          current,
+          head,
+          'the creation prompt was already typed but has not appeared in the transcript',
+        )
+        return
+      }
       // A RE-ARMED PASS OVER AN ALREADY-TYPED ROW (POD-1242). This row has been
       // typed before and the harness is computing; the copy it is holding IS the
       // delivery. Rejoin the wait rather than type a second one — `attempt - 1`
@@ -853,10 +925,29 @@ export class SessionInbox {
           return
         }
       }
+      const needsReadinessProof = this.needsInputReadiness(current)
+      if (needsReadinessProof && needle === null) {
+        reportPromptFailure(
+          current,
+          head,
+          'this Claude input is too short to witness in the transcript',
+        )
+        return
+      }
+      // An ordinary Claude send cannot safely be typed while there is no
+      // transcript to witness it. A creation row is the exception: its first
+      // prompt may be the write that creates the transcript in the first place.
+      if (needsReadinessProof && !current.transcriptAvailable && !firstPromptNeedsProof) {
+        reportPromptFailure(
+          current,
+          head,
+          'the agent transcript is not available to confirm this Claude input',
+        )
+        return
+      }
       this.deps.queue.bumpAttempts(head.id)
       // Baseline: if OUR text is already the last user turn we cannot tell a
       // fresh arrival from the one that is there, so there is nothing to witness.
-      const needsReadinessProof = this.needsInputReadiness(current)
       const witnessable =
         needle !== null &&
         current.transcriptAvailable &&
@@ -872,7 +963,15 @@ export class SessionInbox {
       })
       if (!sent.ok) {
         // A live menu is holding the CLI (`needs_user`). Typing a prompt into it
-        // would answer the wrong question; leave the row for the next re-arm.
+        // would answer the wrong question. Keep the row and report the blocked
+        // delivery so the operator has a visible recovery handle.
+        reportPromptFailure(
+          current,
+          head,
+          current.agentState?.phase === 'needs_user'
+            ? 'the agent is waiting for an answer before this input can be sent'
+            : 'the queued input could not be sent to the session',
+        )
         stop()
         return
       }
@@ -883,25 +982,40 @@ export class SessionInbox {
       if (head.sourceMessageId) {
         this.deps.authorization.injected?.({ sourceMessageId: head.sourceMessageId, sessionId })
       }
-      if (needle !== null && (witnessable || firstPromptNeedsProof)) confirm(head, needle, attempt)
+      if (needle !== null && (witnessable || firstPromptNeedsProof || needsReadinessProof)) {
+        confirm(head, needle, attempt)
+      }
       else if (needsReadinessProof) {
-        this.inputReadySessions.add(current)
-        settleHead(current, head)
+        reportPromptFailure(
+          current,
+          head,
+          'the agent transcript did not confirm this Claude input',
+        )
       }
       else settleHead(current, head)
     }
     const deliverNext = (): void => {
       const current = this.deps.getSession(sessionId)
+      const head = this.deps.queue.list(sessionId)[0]
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
+        if (head) {
+          reportPromptFailure(
+            current,
+            head,
+            isInitialPromptRow(sessionId, head)
+              ? 'the session stopped before the creation prompt was confirmed'
+              : 'the session stopped before this input was confirmed',
+          )
+        }
         stop()
         return
       }
       const blockedReason = blockedSessionSendReason(current)
       if (blockedReason && !this.recoveryDrains.has(sessionId)) {
+        if (head) reportPromptFailure(current, head, blockedReason)
         stop()
         return
       }
-      const head = this.deps.queue.list(sessionId)[0]
       if (!head) {
         stop()
         return
@@ -1034,24 +1148,24 @@ export class SessionInbox {
       // Contract delivery above has its own typed receipts; this budget applies
       // only to the terminal path.
       if (head.attempts >= MAX_DELIVERY_ATTEMPTS) {
-        stop()
+        reportPromptFailure(
+          current,
+          head,
+          isInitialPromptRow(sessionId, head)
+            ? 'the creation prompt was already typed but has not appeared in the transcript'
+            : 'the agent transcript did not confirm this input after the retry budget was exhausted',
+        )
         return
       }
       attemptDelivery(head, head.attempts + 1)
     }
     /**
-     * Ready to be typed into. On a wake that means the harness has reported
-     * runtime state for the RESUMED process — its own word that it is up, where
-     * terminal silence is equally consistent with a CLI that is still loading.
+     * Ready to be typed into. A harness state report is deliberately absent from
+     * this predicate: a PTY bind and a runtime-state stamp are lifecycle facts,
+     * not proof that the composer can receive a turn.
      */
     const readyForInput = (current: Session, now: number): boolean => {
       if (now - liveAtMs < READY_FLOOR_MS) return false
-      if (woken) {
-        const stamp = stateStampMs(current)
-        if (stamp !== undefined && (baseStateAt === undefined || stamp > baseStateAt)) return true
-        // A harness that reports no runtime state at all still has to be served.
-        if (now - liveAtMs < READY_STATE_GRACE_MS) return false
-      }
       const settled =
         current.terminal.lastOutputAtMs > baseOutputMs &&
         now - current.terminal.lastOutputAtMs >= READY_QUIET_MS
@@ -1059,13 +1173,30 @@ export class SessionInbox {
     }
     const tick = (): void => {
       const current = this.deps.getSession(sessionId)
+      const head = this.deps.queue.list(sessionId)[0]
       if (!current || current.status === 'exited' || current.status === 'hibernated') {
+        if (head) {
+          reportPromptFailure(
+            current,
+            head,
+            isInitialPromptRow(sessionId, head)
+              ? 'the session stopped before the creation prompt was confirmed'
+              : 'the session stopped before this input was confirmed',
+          )
+        }
         stop()
         return
       }
       const now = this.deps.now()
+      const blockedReason = blockedSessionSendReason(current)
+      if (blockedReason && !this.recoveryDrains.has(sessionId)) {
+        if (head) reportPromptFailure(current, head, blockedReason)
+        else stop()
+        return
+      }
+      const serverDriven = this.deps.serverDriven?.(current) === true
       if (current.status === 'live') {
-        if (this.deps.serverDriven?.(current) === true) {
+        if (serverDriven) {
           /**
            * A server-family session has no terminal output to watch settle and
            * no composer to protect — the DRIVER owns readiness, and `when-ready`
@@ -1092,7 +1223,16 @@ export class SessionInbox {
           return
         }
       } else if (now >= deadline) {
-        stop()
+        if (head) {
+          reportPromptFailure(
+            current,
+            head,
+            isInitialPromptRow(sessionId, head)
+              ? 'the session did not become live before the creation prompt deadline'
+              : 'the session did not become live before this input deadline',
+          )
+        }
+        else stop()
         return
       }
       setTimeout(tick, READY_POLL_MS).unref?.()

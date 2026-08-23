@@ -56,6 +56,10 @@ function harness(
   const rejected: unknown[] = []
   const answered: unknown[] = []
   const promptFailed = vi.fn()
+  let draft: string | undefined
+  const setSessionDraft = vi.fn(({ text }: { sessionId: SessionId; text: string }) => {
+    draft = text || undefined
+  })
   let authorized = true
   const applied = vi.fn()
   const injected = vi.fn()
@@ -139,6 +143,8 @@ function harness(
     harnessName: harnessDisplayName,
     prepareSend: vi.fn(),
     ownerOf: () => (options.owner === undefined ? ALICE : options.owner),
+    setSessionDraft,
+    draftText: () => draft,
     resurrect: async () => ({ ok: true }),
     ...(options.serverDriven !== undefined
       ? { serverDriven: () => options.serverDriven === true }
@@ -170,6 +176,8 @@ function harness(
     rejected,
     answered,
     promptFailed,
+    setSessionDraft,
+    getDraft: () => draft,
     applied,
     injected,
     handleInput,
@@ -263,6 +271,14 @@ describe('SessionInbox terminal provider failures', () => {
     expect(typedTexts(h.sent)).toEqual([])
     expect(h.rows).toHaveLength(1)
     expect(h.session.queuedMessageCount).toBe(1)
+    expect(h.promptFailed).toHaveBeenCalledWith({
+      ownerUserId: ALICE,
+      sessionId: SID,
+      text: 'already accepted',
+      reason:
+        'Usage limit reached: API quota exhausted. Fix the provider issue, then choose Resume the session.',
+      initialPrompt: false,
+    })
   })
 
   it('drains a recovery answer and its held message through the errored-session gate', async () => {
@@ -742,7 +758,7 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     expect(h.rows).toHaveLength(2)
 
     h.landTurn(first)
-    vi.advanceTimersByTime(1_000)
+    vi.advanceTimersByTime(2_000)
     expect(typedTexts(h.sent)).toEqual([first, second])
     expect(h.rows).toHaveLength(1)
 
@@ -789,13 +805,131 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
 
     vi.advanceTimersByTime(30_000)
 
-    expect(h.rows).toEqual([])
-    expect(h.session.queuedMessageCount).toBe(0)
+    expect(h.rows).toHaveLength(1)
+    expect(h.session.queuedMessageCount).toBe(1)
     expect(h.applied).not.toHaveBeenCalled()
     expect(h.promptFailed).toHaveBeenCalledWith({
       ownerUserId: ALICE,
       sessionId: SID,
+      text: 'hello',
       reason: 'the agent transcript did not confirm the creation prompt before the deadline',
+      initialPrompt: true,
+    })
+    expect(h.getDraft()).toBe('hello')
+  })
+
+  it('does not settle a creation prompt without a transcript and fails recoverably', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'opencode', transcriptAvailable: false })
+
+    expect(h.inbox.queueInitialPrompt({ sessionId: SID, text: 'hello' })).toEqual({
+      ok: true,
+      queued: true,
+    })
+    vi.advanceTimersByTime(60_500)
+
+    expect(typedTexts(h.sent)).toEqual(['hello'])
+    expect(h.rows).toHaveLength(1)
+    expect(h.session.queuedMessageCount).toBe(1)
+    expect(h.applied).not.toHaveBeenCalled()
+    expect(h.getDraft()).toBe('hello')
+    expect(h.promptFailed).toHaveBeenCalledWith({
+      ownerUserId: ALICE,
+      sessionId: SID,
+      text: 'hello',
+      reason: 'the agent transcript did not confirm the creation prompt before the deadline',
+      initialPrompt: true,
+    })
+  })
+
+  it('keeps a creation row and reports it when the session leaves before confirmation', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'opencode', transcriptAvailable: true })
+
+    h.inbox.queueInitialPrompt({ sessionId: SID, text: 'hello' })
+    vi.advanceTimersByTime(10_400)
+    expect(typedTexts(h.sent)).toEqual(['hello'])
+
+    h.setStatus('exited')
+    vi.advanceTimersByTime(500)
+
+    expect(h.rows).toHaveLength(1)
+    expect(h.session.queuedMessageCount).toBe(1)
+    expect(h.getDraft()).toBe('hello')
+    expect(h.promptFailed).toHaveBeenCalledWith({
+      ownerUserId: ALICE,
+      sessionId: SID,
+      text: 'hello',
+      reason: 'the session stopped before the creation prompt was confirmed',
+      initialPrompt: true,
+    })
+  })
+
+  it('reports a creation failure even when the session has no owner', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'opencode', transcriptAvailable: true, owner: null })
+
+    h.inbox.queueInitialPrompt({ sessionId: SID, text: 'hello' })
+    vi.advanceTimersByTime(10_400)
+    h.setStatus('exited')
+    vi.advanceTimersByTime(500)
+
+    expect(h.rows).toHaveLength(1)
+    expect(h.promptFailed).toHaveBeenCalledWith({
+      sessionId: SID,
+      text: 'hello',
+      reason: 'the session stopped before the creation prompt was confirmed',
+      initialPrompt: true,
+    })
+  })
+
+  it('does not settle a short Claude input or arm later sends without a witness', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'claude-code', transcriptAvailable: true })
+
+    expect(
+      h.inbox.sendText({
+        sessionId: SID,
+        text: 'hi',
+        sourceMessageId: 'msg_short_claude',
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({ ok: true, queued: true })
+    vi.advanceTimersByTime(20_000)
+
+    expect(typedTexts(h.sent)).toEqual([])
+    expect(h.rows).toHaveLength(1)
+    expect(h.applied).not.toHaveBeenCalled()
+    expect(h.promptFailed).toHaveBeenCalledWith({
+      ownerUserId: ALICE,
+      sessionId: SID,
+      text: 'hi',
+      reason: 'this Claude input is too short to witness in the transcript',
+      initialPrompt: false,
+    })
+  })
+
+  it('does not settle a Claude input while the transcript is unavailable', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'claude-code', transcriptAvailable: false })
+
+    h.inbox.sendText({ sessionId: SID, text: PROMPT, principal: agentPrincipal() })
+    vi.advanceTimersByTime(60_500)
+
+    expect(typedTexts(h.sent)).toEqual([])
+    expect(h.rows).toHaveLength(1)
+    expect(h.applied).not.toHaveBeenCalled()
+    expect(h.promptFailed).toHaveBeenCalledWith({
+      ownerUserId: ALICE,
+      sessionId: SID,
+      text: PROMPT,
+      reason: 'the agent transcript is not available to confirm this Claude input',
+      initialPrompt: false,
     })
   })
 
@@ -926,13 +1060,17 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     // told what it cannot see: this CLI has proven nothing yet.
     h.setStatus('live')
     h.inbox.drain(SID, { justBound: true })
-    vi.advanceTimersByTime(9_000)
+    vi.advanceTimersByTime(5_000)
 
     // Terminal silence here is a CLI still rehydrating, not one waiting to read.
     expect(typedTexts(h.sent)).toEqual([])
 
     h.observeState('2026-08-15T00:01:00.000Z')
     vi.advanceTimersByTime(400)
+
+    // A fresh state stamp is not a composer witness.
+    expect(typedTexts(h.sent)).toEqual([])
+    vi.advanceTimersByTime(800)
 
     expect(typedTexts(h.sent)).toEqual([PROMPT])
   })
@@ -1101,12 +1239,10 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     expect(typedTexts(h.sent)).toHaveLength(10)
   })
 
-  it('removes on write when the transcript cannot witness the send', () => {
+  it('keeps a Claude row when the transcript cannot witness the send', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
-    // No transcript for this session: a blind retry could only duplicate, so the
-    // old remove-on-write behaviour is the honest one.
-    const h = harness({ transcriptAvailable: false })
+    const h = harness({ agentKind: 'claude-code', transcriptAvailable: false })
 
     h.inbox.queueText({
       sessionId: SID,
@@ -1117,9 +1253,9 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     })
     vi.advanceTimersByTime(7_000)
 
-    expect(typedTexts(h.sent)).toEqual([PROMPT])
-    expect(h.rows).toEqual([])
-    expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_blind', sessionId: SID })
+    expect(typedTexts(h.sent)).toEqual([])
+    expect(h.rows).toHaveLength(1)
+    expect(h.applied).not.toHaveBeenCalled()
   })
 })
 

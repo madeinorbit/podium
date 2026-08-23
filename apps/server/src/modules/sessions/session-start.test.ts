@@ -71,7 +71,7 @@ describe('SessionStart: issue owner precedence', () => {
 })
 
 describe('SessionStart: creation-owned first prompt', () => {
-  it('queues a non-argv OpenCode prompt instead of seeding an unsent draft', () => {
+  it('queues a non-argv OpenCode prompt and seeds a recoverable draft', async () => {
     const { reg, daemon } = makeRegistry()
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'opencode',
@@ -82,7 +82,11 @@ describe('SessionStart: creation-owned first prompt', () => {
     const queued = reg.sessionStore.sync.listQueuedMessages(sessionId)
     expect(queued.map((row) => row.text)).toEqual(['hello'])
     const session = reg.modules.sessions.listSessions().find((item) => item.sessionId === sessionId)
-    expect(session?.draftUpdatedAt).toBeUndefined()
+    expect(session?.draftUpdatedAt).toBeDefined()
+    // Non-empty draft writes are intentionally debounced; wait for the durable
+    // composer record rather than coupling this launch test to that interval.
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    expect(reg.sessionStore.sessions.loadDrafts()[sessionId]).toBe('hello')
     expect(spawns(daemon).at(-1)).not.toHaveProperty('initialPrompt')
   })
 })

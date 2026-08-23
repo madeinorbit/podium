@@ -150,6 +150,8 @@ export interface SessionStartPorts {
     workflowRevisionId?: string
   }): { instructions: AgentInstruction[]; commit(): void }
   sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined
+  /** Seed the non-argv creation prompt into the recoverable composer draft. */
+  setSessionDraft?(input: { sessionId: SessionId; text: string }): void
   queueInitialPrompt(input: { sessionId: SessionId; text: string }): {
     ok: boolean
     queued?: boolean
@@ -312,6 +314,7 @@ export class SessionStart {
     })
     preparedInstructions.commit()
     if (taskPrompt !== undefined && !useArgv) {
+      this.ports.setSessionDraft?.({ sessionId: spawned.sessionId, text: taskPrompt })
       const queued = this.ports.queueInitialPrompt({ sessionId: spawned.sessionId, text: taskPrompt })
       if (!queued.ok) {
         throw new Error(queued.reason ?? 'initial prompt could not be queued')

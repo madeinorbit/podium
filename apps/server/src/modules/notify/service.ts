@@ -127,14 +127,9 @@ export class NotifyService {
     bus.on('attention.raised', ({ sessionId, ownerUserId, title, body }) => {
       const info = this.deps.sessionInfo(sessionId)
       if (!info) return
-      try {
-        this.deps.appendEvent({
-          ts: new Date(this.deps.now()).toISOString(),
-          kind: 'session.initial_prompt_failed',
-          subject: sessionId,
-          payload: { title, body, agentKind: info.agentKind, cwd: info.cwd },
-        })
-      } catch {}
+      // The session wiring persists the failure before raising this live-only
+      // attention event. Keeping persistence out of this listener means an
+      // ownerless or disconnected session still has the same durable record.
       this.notifyNotice(ownerUserId, info, { title, body })
     })
     bus.on('settings.changed', ({ previous, next }) => {
