@@ -1,7 +1,7 @@
-import { asArtifactId, asIssueId } from '@podium/model'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asArtifactId, asIssueId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   ARTIFACT_FILE_CAP_BYTES,
@@ -55,6 +55,13 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
     const r = await store.read(asIssueId('iss_1'), snap.artifactId, 'a.png')
     expect(r?.bytes.toString()).toBe('PNG')
     expect(r?.contentType).toBe('image/png')
+    expect(r?.size).toBe(3)
+    const slice = await store.read(asIssueId('iss_1'), snap.artifactId, 'a.png', {
+      offset: 1,
+      length: 1,
+    })
+    expect(slice?.bytes.toString()).toBe('N')
+    expect(slice?.size).toBe(3)
   })
 
   it('stores browser bytes directly without a daemon source file', async () => {

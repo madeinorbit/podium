@@ -9,8 +9,13 @@ afterEach(() => {
 
 const listDir = vi.fn()
 const openFileInWorktree = vi.fn()
+const searchFiles = vi.fn()
 vi.mock('@/app/store', () => {
-  const useStore = () => ({ listDir, openFileInWorktree })
+  const useStore = () => ({
+    listDir,
+    openFileInWorktree,
+    trpc: { files: { search: { query: searchFiles } } },
+  })
   return {
     useStore,
     useReplicaIssues: () => [],
@@ -27,6 +32,8 @@ describe('WorktreeFileTree', () => {
   beforeEach(() => {
     listDir.mockReset()
     openFileInWorktree.mockReset()
+    searchFiles.mockReset()
+    searchFiles.mockResolvedValue({ paths: [] })
     listDir.mockResolvedValue({
       ok: true,
       path: '/w',
@@ -103,5 +110,75 @@ describe('WorktreeFileTree', () => {
 
     await waitFor(() => expect(screen.getByText('x.ts')).toBeTruthy())
     expect(openFileInWorktree).not.toHaveBeenCalled()
+  })
+
+  it('sorts numbered names naturally', async () => {
+    listDir.mockResolvedValue({
+      ok: true,
+      path: '/w',
+      entries: [
+        { name: '10.ts', isDir: false },
+        { name: '2.ts', isDir: false },
+      ],
+    })
+    render(<WorktreeFileTree root="/w" />)
+
+    await screen.findByText('2.ts')
+    const names = screen
+      .getAllByRole('button')
+      .map((button) => button.textContent)
+      .filter((text) => text?.endsWith('.ts'))
+    expect(names).toEqual(['2.ts', '10.ts'])
+  })
+
+  it('searches tracked paths and opens the first result permanently with Enter', async () => {
+    searchFiles.mockResolvedValue({ paths: ['src/deep/file.ts'] })
+    render(<WorktreeFileTree root="/w" machineId={'machine-1' as never} />)
+    await screen.findByText('a.ts')
+    vi.useFakeTimers()
+
+    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'deep' } })
+    await act(async () => void vi.advanceTimersByTime(150))
+    await act(async () => void (await Promise.resolve()))
+
+    expect(searchFiles).toHaveBeenCalledWith({
+      root: '/w',
+      query: 'deep',
+      limit: 50,
+      machineId: 'machine-1',
+    })
+    expect(screen.getByText('src/deep')).toBeTruthy()
+    fireEvent.keyDown(screen.getByLabelText('Search files'), { key: 'Enter' })
+    expect(openFileInWorktree).toHaveBeenCalledWith({
+      machineId: 'machine-1',
+      root: '/w',
+      path: '/w/src/deep/file.ts',
+      permanent: true,
+    })
+  })
+
+  it('moves through search results with arrow keys before opening one', async () => {
+    searchFiles.mockResolvedValue({ paths: ['src/first.ts', 'src/second.ts'] })
+    render(<WorktreeFileTree root="/w" />)
+    await screen.findByText('a.ts')
+    vi.useFakeTimers()
+
+    const search = screen.getByLabelText('Search files')
+    fireEvent.change(search, { target: { value: 'src' } })
+    await act(async () => void vi.advanceTimersByTime(150))
+    await act(async () => void (await Promise.resolve()))
+    fireEvent.keyDown(search, { key: 'ArrowDown' })
+
+    expect(search.getAttribute('aria-activedescendant')).toContain('-1')
+    expect(screen.getByRole('option', { name: /second\.ts/ }).getAttribute('aria-selected')).toBe(
+      'true',
+    )
+    fireEvent.keyDown(search, { key: 'Enter' })
+    expect(openFileInWorktree).toHaveBeenCalledWith({
+      machineId: undefined,
+      root: '/w',
+      path: '/w/src/second.ts',
+      permanent: true,
+    })
   })
 })

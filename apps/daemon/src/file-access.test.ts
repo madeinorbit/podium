@@ -140,6 +140,17 @@ describe('readAssetSandboxed', () => {
     expect(r.ok).toBe(true)
     expect(r.contentType).toBe('text/css; charset=utf-8')
   })
+  it.each([
+    ['document.pdf', 'application/pdf'],
+    ['clip.mov', 'video/quicktime'],
+    ['voice.m4a', 'audio/mp4'],
+    ['rows.tsv', 'text/tab-separated-values; charset=utf-8'],
+  ])('serves %s with its browser viewer content type', async (name, contentType) => {
+    const dir = await mkdtemp(join(tmpdir(), 'asset-'))
+    await writeFileFs(join(dir, name), 'viewer bytes')
+    const r = await readAssetSandboxed({ cwd: dir, path: join(dir, name), knownPath: false })
+    expect(r.contentType).toBe(contentType)
+  })
   it('serves an unlisted text extension as plain text, not a download', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'asset-'))
     await writeFileFs(join(dir, 'notes.md'), '# hi')

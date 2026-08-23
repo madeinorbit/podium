@@ -18,7 +18,6 @@ import { asSessionId, type IssueId, type SessionId, type SessionMeta } from '@po
 import {
   Columns2,
   Crosshair,
-  FileText,
   PanelRightClose,
   Plus,
   SquareSplitHorizontal,
@@ -40,6 +39,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
+import { FileTypeIcon } from '@/features/files/file-icon'
 import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { throughRestarts } from '@/lib/chunk-recovery'
@@ -1529,7 +1529,7 @@ function TabGhost({ tab }: { tab: WTab }): JSX.Element {
         <WorkerLabel session={tab.session} />
       ) : (
         <>
-          <FileText size={12} aria-hidden="true" className="flex-none text-text-dim" />
+          <FileTypeIcon name={tab.file.path} size={12} />
           <span className="truncate">{tabName(tab)}</span>
         </>
       )}
@@ -1697,11 +1697,7 @@ function SortableTab({
             </>
           ) : (
             <>
-              <FileText
-                size={12}
-                aria-hidden="true"
-                className="flex-none text-(--issue-muted-bright)"
-              />
+              <FileTypeIcon name={tab.file.path} size={12} />
               <span className="truncate">{tabName(tab)}</span>
             </>
           )}

@@ -15,7 +15,7 @@ import {
   resolveTargetMachineForAgent,
   type SessionId,
 } from '@podium/model/browser'
-import { Circle, FileText, SquarePlus } from 'lucide-react'
+import { Circle, SquarePlus } from 'lucide-react'
 import type React from 'react'
 import { type JSX, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { FileTypeIcon } from '@/features/files/file-icon'
 import {
   agentLabel,
   CapabilityAgentItem,
@@ -386,7 +387,7 @@ function RecentFilesSection({
           key={`${f.worktreePath} ${f.path} ${f.artifact?.artifactId ?? ''}`}
           onClick={() => reopen(f)}
         >
-          <FileText className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />
+          <FileTypeIcon name={f.path} size={14} />
           <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
             {f.path.split('/').pop() || f.path}
           </span>

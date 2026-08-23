@@ -73,14 +73,24 @@ const ASSET_CONTENT_TYPES: Record<string, string> = {
   txt: 'text/plain; charset=utf-8',
   html: 'text/html; charset=utf-8',
   htm: 'text/html; charset=utf-8',
+  csv: 'text/csv; charset=utf-8',
+  tsv: 'text/tab-separated-values; charset=utf-8',
+  pdf: 'application/pdf',
   woff: 'font/woff',
   woff2: 'font/woff2',
   ttf: 'font/ttf',
   otf: 'font/otf',
   mp4: 'video/mp4',
   webm: 'video/webm',
+  mov: 'video/quicktime',
+  m4v: 'video/x-m4v',
+  ogv: 'video/ogg',
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
 }
 
 type AssetResult = Omit<FileAssetResultMessage, 'type' | 'requestId'>
@@ -117,7 +127,8 @@ export async function readAssetSandboxed(opts: {
       buf = Buffer.alloc(len)
       const fh = await open(real, 'r')
       try {
-        await fh.read(buf, 0, len, offset)
+        const { bytesRead } = await fh.read(buf, 0, len, offset)
+        buf = buf.subarray(0, bytesRead)
       } finally {
         await fh.close()
       }

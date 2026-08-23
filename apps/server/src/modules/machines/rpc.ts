@@ -47,6 +47,7 @@ import type {
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
 } from '@podium/protocol'
+import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import type {
   ControlMessage,
   DaemonMessage,
@@ -55,7 +56,6 @@ import type {
   ShippingJobResult,
   ShippingRepairApplyResultMessage,
 } from '@podium/protocol/daemon'
-import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'
 import {
@@ -1161,7 +1161,7 @@ export class DaemonRpcService {
 
   readAsset(
     input:
-      | { sessionId: SessionId; path: string }
+      | { sessionId: SessionId; path: string; offset?: number; length?: number }
       | {
           machineId?: MachineId
           root: string
@@ -1185,6 +1185,8 @@ export class DaemonRpcService {
           cwd: session.cwd,
           path: input.path,
           knownPath,
+          ...(input.offset !== undefined ? { offset: input.offset } : {}),
+          ...(input.length !== undefined ? { length: input.length } : {}),
         }),
         session.machineId, // the asset lives in the session's cwd on its machine
       )

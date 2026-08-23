@@ -114,12 +114,12 @@ describe('repoOpCommand', () => {
     expect(repoOpCommand('commitFiles', {})).toEqual({ error: 'missing args' })
     expect(repoOpCommand('commitDiffFile', { sha: 'abc1234' })).toEqual({ error: 'missing args' })
   })
-  it('lists tracked paths NUL-separated for the composer @-menu [POD-412]', () => {
+  it('lists tracked and untracked non-ignored paths NUL-separated for file search', () => {
     // The server's `files.search` parses this output by splitting on NUL and
     // runs the identical argv in its own seam test — the two must not drift.
     expect(repoOpCommand('lsFiles')).toEqual({
       bin: 'git',
-      argv: ['--no-optional-locks', 'ls-files', '-z'],
+      argv: ['--no-optional-locks', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
     })
   })
   it('builds clone with an absolute destination and literal origin', () => {

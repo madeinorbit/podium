@@ -65,8 +65,8 @@ export const FILE_QUERIES = {
     },
   ),
   /**
-   * TRACKED PATHS UNDER `root`, RANKED FOR `query` (POD-412) — what the chat
-   * composer's `@` menu completes files against.
+   * VISIBLE PATHS UNDER `root`, RANKED FOR `query` (POD-412) — what file
+   * quick-open and the chat composer's `@` menu complete against.
    *
    * Same root allowlist as `read` and `list`, and the same daemon seam: the
    * checkout may be on another machine, so the index is read by a fixed repo op

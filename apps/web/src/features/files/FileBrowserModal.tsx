@@ -1,6 +1,6 @@
-import type { MachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
-import { ChevronUp, File as FileIcon, Folder, RefreshCw } from 'lucide-react'
+import type { MachineId } from '@podium/model'
+import { ChevronUp, Folder, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
@@ -8,6 +8,7 @@ import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { FileTypeIcon } from './file-icon'
 
 type Entry = { name: string; isDir: boolean }
 
@@ -55,7 +56,15 @@ export function FileBrowserModal({
           setResolvedRoot(r.path)
         }
         setPath(r.path)
-        setEntries(r.entries)
+        setEntries(
+          [...r.entries].sort((a, b) =>
+            a.isDir !== b.isDir
+              ? a.isDir
+                ? -1
+                : 1
+              : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }),
+          ),
+        )
       } catch (e) {
         setError(formatAppError(e, 'Could not open directory'))
       } finally {
@@ -140,7 +149,11 @@ export function FileBrowserModal({
                     }
                   }}
                 >
-                  {entry.isDir ? <Folder size={16} /> : <FileIcon size={16} />}
+                  {entry.isDir ? (
+                    <Folder size={16} className="text-amber-300/80" aria-hidden="true" />
+                  ) : (
+                    <FileTypeIcon name={entry.name} size={16} />
+                  )}
                   <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
                     {entry.name}
                   </span>

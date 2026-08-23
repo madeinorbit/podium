@@ -153,12 +153,21 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       }
     }
     case 'lsFiles':
-      // Composer @-file autocomplete [POD-412]: every tracked path in the
-      // checkout, relative to its root, NUL-separated (-z also suppresses the
-      // quoting git would otherwise apply to unusual bytes). No pathspec — the
-      // caller ranks; this op only reads the index, which is why it can afford
-      // --no-optional-locks and never contends with a concurrent commit.
-      return { bin: 'git', argv: ['--no-optional-locks', 'ls-files', '-z'] }
+      // File quick-open and composer autocomplete: every tracked OR untracked,
+      // non-ignored path in the checkout. New files from a running agent must be
+      // findable before the agent stages them. The server caches this walk for a
+      // typing burst; -z preserves unusual names without quoting.
+      return {
+        bin: 'git',
+        argv: [
+          '--no-optional-locks',
+          'ls-files',
+          '--cached',
+          '--others',
+          '--exclude-standard',
+          '-z',
+        ],
+      }
     case 'log':
       return { bin: 'git', argv: ['log', '--oneline', '-20'] }
     case 'branches':

@@ -1,7 +1,7 @@
-import { asArtifactId, type ArtifactId, type IssueId, type MachineId } from '@podium/model'
 import { randomBytes } from 'node:crypto'
 import { mkdir, open, readFile, rm, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { type ArtifactId, asArtifactId, type IssueId, type MachineId } from '@podium/model'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 
 /**
@@ -40,6 +40,8 @@ const CONTENT_TYPES: Record<string, string> = {
   md: 'text/markdown; charset=utf-8',
   html: 'text/html; charset=utf-8',
   htm: 'text/html; charset=utf-8',
+  csv: 'text/csv; charset=utf-8',
+  tsv: 'text/tab-separated-values; charset=utf-8',
   woff: 'font/woff',
   woff2: 'font/woff2',
   ttf: 'font/ttf',
@@ -47,8 +49,14 @@ const CONTENT_TYPES: Record<string, string> = {
   mp4: 'video/mp4',
   webm: 'video/webm',
   mov: 'video/quicktime',
+  m4v: 'video/x-m4v',
+  ogv: 'video/ogg',
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
   pdf: 'application/pdf',
 }
 
@@ -313,7 +321,8 @@ export class IssueArtifactStore {
     issueId: IssueId,
     artifactId: ArtifactId,
     relPath: string,
-  ): Promise<{ bytes: Buffer; contentType: string } | null> {
+    range?: { offset: number; length: number },
+  ): Promise<{ bytes: Buffer; contentType: string; size: number } | null> {
     let dir: string
     try {
       dir = this.artifactDir(issueId, artifactId)
@@ -325,7 +334,27 @@ export class IssueArtifactStore {
     try {
       const st = await stat(target)
       if (!st.isFile()) return null
-      return { bytes: await readFile(target), contentType: artifactContentType(target) }
+      if (!range) {
+        return {
+          bytes: await readFile(target),
+          contentType: artifactContentType(target),
+          size: st.size,
+        }
+      }
+      const length = Math.min(range.length, Math.max(0, st.size - range.offset))
+      const buffer = Buffer.alloc(length)
+      const fh = await open(target, 'r')
+      let bytesRead = 0
+      try {
+        ;({ bytesRead } = await fh.read(buffer, 0, length, range.offset))
+      } finally {
+        await fh.close()
+      }
+      return {
+        bytes: buffer.subarray(0, bytesRead),
+        contentType: artifactContentType(target),
+        size: st.size,
+      }
     } catch {
       return null
     }
