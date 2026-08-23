@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { buildReport } from './build-report'
 import { createDaemonHostRuntime } from './host-runtime'
 import type { DaemonMachineRuntime } from './runtime/machine-runtime'
+import { isServerDriver } from './runtime/registry'
 import type { ServerReapIo } from './runtime/server-reap'
 
 const SESSION = 'full-reap-session' as SessionId
@@ -122,7 +123,8 @@ describe('full-reap daemon close', () => {
     } as unknown as AgentSessionHandle
     const runtime = {
       registeredBindings: () => [handle.binding],
-      serverHandleFor: (sessionId: SessionId) => (sessionId === SESSION ? handle : undefined),
+      serverHandleFor: (sessionId: SessionId) =>
+        sessionId === SESSION && isServerDriver(harness, driver) ? handle : undefined,
       journalledServerProcess: () => undefined,
       dispose: disposed,
     } as unknown as Pick<
@@ -152,6 +154,26 @@ describe('full-reap daemon close', () => {
       releaseKill()
       await closing?.catch(() => undefined)
       await host?.close().catch(() => undefined)
+      cleanup()
+    }
+  })
+
+  it('continues host teardown when the server binding snapshot rejects', async () => {
+    const disposed = vi.fn()
+    const runtime = {
+      registeredBindings: () => {
+        throw new Error('binding snapshot unavailable')
+      },
+      serverHandleFor: () => undefined,
+      journalledServerProcess: () => undefined,
+      dispose: disposed,
+    } as unknown as TestAgentRuntime
+    const { host, cleanup } = await createCloseHost(runtime, reapIo({ alive: true }))
+    try {
+      await expect(host.close({ reapSessions: true })).resolves.toBeUndefined()
+      expect(disposed).toHaveBeenCalledOnce()
+    } finally {
+      await host.close().catch(() => undefined)
       cleanup()
     }
   })

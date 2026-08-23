@@ -147,8 +147,14 @@ export async function reapServerSessionsBeforeDispose(
   dispose: () => void,
   io?: ServerReapIo,
 ): Promise<void> {
-  if (reapSessions) await reapServerSessionsOnClose(ctx, agentRuntime, io)
-  dispose()
+  try {
+    if (reapSessions) await reapServerSessionsOnClose(ctx, agentRuntime, io)
+  } finally {
+    // Disposal is not optional when a binding snapshot or one child reap
+    // rejects. The host close path must still release the runtime maps before
+    // it moves on to observers, composer state, and durable PTY reaps.
+    dispose()
+  }
 }
 /** Keep the synchronous spawn gate on the exact home inventory uses. */
 function daemonHarnessLoginContext(
@@ -928,16 +934,23 @@ export async function createDaemonHostRuntime(args: {
       else turn.dispose?.()
     }
     ctx.runningHeadlessTurns.clear()
-    await reapServerSessionsBeforeDispose(
-      ctx,
-      closeAgentRuntime,
-      reapSessions,
-      () => {
-        closeAgentRuntime?.dispose()
-        if (closeAgentRuntime !== agentRuntime) agentRuntime?.dispose()
-      },
-      args.testServerReapIo,
-    )
+    try {
+      await reapServerSessionsBeforeDispose(
+        ctx,
+        closeAgentRuntime,
+        reapSessions,
+        () => {
+          closeAgentRuntime?.dispose()
+          if (closeAgentRuntime !== agentRuntime) agentRuntime?.dispose()
+        },
+        args.testServerReapIo,
+      )
+    } catch (err) {
+      // A failed binding snapshot or child reap must not abort the rest of
+      // host teardown. The helper finally disposed runtimes; continue through
+      // observer/composer disposal and awaited PTY reaps.
+      log.warn('could not reap server sessions before host disposal', { err })
+    }
     observers.disposeObservers()
     composerEngine.disposeAll()
     await Promise.all(durableReaps)

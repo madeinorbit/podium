@@ -232,14 +232,16 @@ describe('teardown through a live handle — once per driver registry', () => {
   it('ESCALATES with the raw SIGKILL FIRST — the last resort must not sit behind a verb that can throw', async () => {
     // The driver's verbs run but the process ignores SIGTERM: only the raw
     // SIGKILL (the unscoped-opencode arm, whose child left the host map on the
-    // first verb) actually lands — and it lands even though `kill()` rejects.
+    // first verb) actually lands — and it lands even though `stop()` rejects.
     const state: FakeProcessState = { alive: true, diesOn: 'SIGKILL' }
     const { ctx, sent } = fakeCtx('opencodeRuntime', {
       handle: {
         binding: { process: { key: 'podium-x-sess-1', pid: 4321 } },
-        async stop() {},
-        async kill() {
+        async stop() {
           throw new Error('endpoint unreachable')
+        },
+        async kill() {
+          throw new Error('retire kill called for park')
         },
       } as unknown as AgentSessionHandle,
     })
@@ -249,21 +251,28 @@ describe('teardown through a live handle — once per driver registry', () => {
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
     expect(io.signals).toContainEqual({ pid: 4321, signal: 'SIGKILL' })
-    // The raw SIGKILL landed before `kill()` threw, so the catch's measured
+    // The raw SIGKILL landed before `stop()` threw, so the catch's measured
     // answer is still "dead" — with the verb's failure named.
     expect(killResult(sent)).toMatchObject({ killed: true, reason: 'endpoint unreachable' })
   })
 
   it('reports killed:false — never an assumed receipt — for a process nothing could end', async () => {
     const state: FakeProcessState = { alive: true, diesOn: 'never' }
-    const { handle, calls } = fakeHandle({ pid: 4321 })
+    let journalCleared = false
+    const { handle, calls } = fakeHandle({
+      pid: 4321,
+      onKill: () => {
+        journalCleared = true
+      },
+    })
     const { ctx, sent } = fakeCtx('opencodeRuntime', { handle })
     const io = fakeIo(state)
 
     await beginServerDriverReap(ctx, SESSION, { retire: false }, io)
     await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
 
-    expect(calls).toEqual(['stop', 'kill'])
+    expect(calls).toEqual(['stop', 'stop'])
+    expect(journalCleared).toBe(false)
     expect(io.signals).toContainEqual({ pid: 4321, signal: 'SIGKILL' })
     expect(killResult(sent)).toMatchObject({ killed: false })
     expect(killResult(sent)?.reason).toMatch(/still running/)
@@ -478,6 +487,55 @@ describe('startup reattach of a retired server session', () => {
     expect(journalCleared).toEqual([SESSION])
     expect(killResult(sent)).toMatchObject({ killed: true })
   })
+
+  it.each(DRIVERS)(
+    'a denied non-not-found refusal leaves its journaled child alone',
+    async ({ driver, slot }) => {
+      const state: FakeProcessState = { alive: true, diesOn: 'SIGKILL' }
+      const { ctx, sent, journalCleared } = fakeCtx(slot, {
+        journalEntry: journalEntryFor(driver),
+      })
+      const io = fakeIo(state, corroborationFor(driver))
+      const transition = vi.fn(async () => ({
+        status: 'denied' as const,
+        event: 'reattach' as const,
+        reason: 'not-claimant' as const,
+        terminal: true as const,
+      }))
+      Object.assign(ctx, {
+        machineId: 'machine-1',
+        sessionBinding: { transition },
+        serverReapIo: io,
+      })
+
+      sessionHandlers.reattach(ctx, {
+        type: 'reattach',
+        sessionId: SESSION,
+        durableLabel: `podium-x-${SESSION}`,
+        agentKind: 'codex',
+        cwd: '/tmp',
+        geometry: { cols: 80, rows: 24 },
+        binding: {
+          transitionId: `reattach:${SESSION}`,
+          machineAccess: 'allowed',
+          sessionAccess: 'allowed',
+          principal: { kind: 'user', userId: 'user-1' },
+        },
+      } as never)
+
+      await vi.waitFor(() =>
+        expect(sent).toContainEqual({
+          type: 'reattachFailed',
+          sessionId: SESSION,
+          reason: 'session reattach claimed by another principal',
+        }),
+      )
+      expect(io.signals).toHaveLength(0)
+      expect(state.alive).toBe(true)
+      expect(journalCleared).toHaveLength(0)
+      expect(sent.some((message) => message.type === 'sessionKillResult')).toBe(false)
+    },
+  )
 })
 
 describe('startup adoption failure', () => {
@@ -545,6 +603,62 @@ describe('startup adoption failure', () => {
 })
 
 describe('startup adoption error boundaries', () => {
+  it.each(DRIVERS)(
+    'a throwing adoption reaps the journaled child',
+    async ({ driver, slot }) => {
+      const state: FakeProcessState = { alive: true, diesOn: 'SIGKILL' }
+      const { ctx, sent, journalCleared } = fakeCtx(slot, {
+        journalEntry: journalEntryFor(driver),
+      })
+      const io = fakeIo(state, corroborationFor(driver))
+      const transition = vi.fn(async () => ({
+        status: 'applied' as const,
+        event: 'reattach' as const,
+        binding: { transitionHistory: [] } as never,
+      }))
+      ctx.agentRuntime = {
+        ...ctx.agentRuntime,
+        adoptJournalled: async () => {
+          throw new Error('adoption unavailable')
+        },
+      } as never
+      Object.assign(ctx, {
+        machineId: 'machine-1',
+        sessionBinding: { transition },
+        serverReapIo: io,
+      })
+
+      sessionHandlers.reattach(ctx, {
+        type: 'reattach',
+        sessionId: SESSION,
+        durableLabel: `podium-x-${SESSION}`,
+        agentKind: 'codex',
+        cwd: '/tmp',
+        geometry: { cols: 80, rows: 24 },
+        binding: {
+          transitionId: `reattach:${SESSION}`,
+          machineAccess: 'allowed',
+          sessionAccess: 'allowed',
+          principal: { kind: 'user', userId: 'user-1' },
+        },
+      } as never)
+
+      await vi.waitFor(() =>
+        expect(sent).toContainEqual({
+          type: 'reattachFailed',
+          sessionId: SESSION,
+          reason: 'adoption unavailable',
+        }),
+      )
+      await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
+      expect(transition).toHaveBeenCalledOnce()
+      expect(io.signals.map((signal) => signal.signal)).toEqual(['SIGTERM', 'SIGKILL'])
+      expect(state.alive).toBe(false)
+      expect(journalCleared).toEqual([SESSION])
+      expect(killResult(sent)).toMatchObject({ killed: true })
+    },
+  )
+
   it('does not reap a child after adoption succeeded but state reporting failed', async () => {
     const state: FakeProcessState = { alive: true, diesOn: 'SIGKILL' }
     const { handle, calls } = fakeHandle({ pid: 4321 })

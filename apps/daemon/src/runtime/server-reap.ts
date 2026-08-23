@@ -336,15 +336,20 @@ async function reapViaHandle(
       io.signal(identity.pid, 'SIGKILL')
     }
     await reclaimScope(identity, io)
-    // `kill()` re-runs the scope stop, clears the journal, and closes the
-    // client terminal — the parts a raw signal cannot do. It is bounded too.
+    // A RETIRE may run `kill()` again to finish the driver cleanup. A PARK
+    // must repeat `stop()` instead: `kill()` clears the binding journal, which
+    // is the address the next daemon uses to resume this parked session.
     try {
-      await runBoundedHandleVerb('kill', () => handle.kill())
+      await runBoundedHandleVerb(
+        opts.retire ? 'kill' : 'stop',
+        opts.retire ? () => handle.kill() : () => handle.stop(),
+      )
     } catch (err) {
       if (verbError === undefined) verbError = err
-      log.warn('could not complete the server-driver kill escalation', {
+      log.warn('could not complete the server-driver escalation verb', {
         err,
         sessionId,
+        verb: opts.retire ? 'kill' : 'stop',
       })
     }
     dead = await pollDead(identity, KILL_GRACE_MS, io)
