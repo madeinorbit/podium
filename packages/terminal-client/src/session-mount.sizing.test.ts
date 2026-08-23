@@ -141,6 +141,7 @@ function fakeHub() {
     cols: 80,
     rows: 24,
     requestedGeometry: null as { cols: number; rows: number } | null,
+    geometryRevision: 0,
     epoch: 0,
     connected: true,
   }
@@ -191,8 +192,9 @@ function fakeHub() {
       rows: number,
       role: 'controller' | 'spectator' = 'controller',
       requestedGeometry: { cols: number; rows: number } | null = null,
+      geometryRevision: number = current.geometryRevision,
     ) => {
-      current = { ...current, cols, rows, role, requestedGeometry }
+      current = { ...current, cols, rows, role, requestedGeometry, geometryRevision }
       cbs.onState?.(current as never)
     },
     role: (role: 'controller' | 'spectator') => {
@@ -644,7 +646,15 @@ describe('mountSession eligibility-gated sizing', () => {
     })
 
     // No pending local claim: this authoritative server resize must win.
-    state(100, 30)
+    state(100, 30, 'controller', null, 2)
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 100,
+      rows: 30,
+    })
+
+    // A later logical state can still be an older server revision. It must not
+    // overwrite the legitimate superseding resize after the local claim is gone.
+    state(80, 24, 'controller', null, 1)
     expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
       cols: 100,
       rows: 30,

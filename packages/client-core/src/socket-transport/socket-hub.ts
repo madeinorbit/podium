@@ -114,6 +114,9 @@ export interface ConnectionState {
   role: 'controller' | 'spectator'
   cols: number
   rows: number
+  /** Server-issued monotonic revision for the authoritative geometry timeline.
+   * Optional for older servers/embedders; current server messages populate it. */
+  geometryRevision?: number
   /**
    * Geometry this connection most recently asked the server to make
    * authoritative. Non-null means the controller/geometry acknowledgment has
@@ -2226,6 +2229,7 @@ export class SessionConnection {
   private cols: number
   private rows: number
   private requestedGeometry: Geometry | null = null
+  private geometryRevision = 0
   private epoch = 0
   private lastSeq = -1
   /** What the last attach said about the session's durable output counter. An
@@ -2332,6 +2336,7 @@ export class SessionConnection {
       role: clientId !== '' && clientId === this.controllerId ? 'controller' : 'spectator',
       cols: this.cols,
       rows: this.rows,
+      geometryRevision: this.geometryRevision,
       requestedGeometry: this.requestedGeometry ? { ...this.requestedGeometry } : null,
       epoch: this.epoch,
       lastSeq: this.lastSeq,
@@ -2353,13 +2358,16 @@ export class SessionConnection {
       this.controllerIdentity = msg.controllerIdentity ?? null
       this.cols = msg.geometry.cols
       this.rows = msg.geometry.rows
+      const previousGeometryRevision = this.geometryRevision
+      this.geometryRevision = msg.geometryRevision ?? 0
+      const geometryTimelineReset = this.geometryRevision < previousGeometryRevision
       this.epoch = msg.epoch
       if (msg.controllerId === this.hub.clientId) this.settleRequestedGeometry()
       this.attachOutputSeen = msg.outputSeen !== false
       // A full replay (not a `resumed` catch-up) is about to re-send the whole
       // buffer: clear the screen first so it rebuilds cleanly. A resume keeps the
       // screen and appends the missed frames.
-      if (msg.resumed !== true) this.cb.onReset?.()
+      if (msg.resumed !== true || geometryTimelineReset) this.cb.onReset?.()
       this.emit()
       this.cb.onAttached?.()
     },
@@ -2376,6 +2384,7 @@ export class SessionConnection {
       this.cb.onFrame?.(text)
     },
     controllerChanged: (msg) => {
+      if (!this.acceptGeometryRevision(msg.geometryRevision)) return
       this.controllerId = msg.controllerId
       this.controllerIdentity = msg.controllerIdentity ?? null
       this.cols = msg.geometry.cols
@@ -2385,6 +2394,7 @@ export class SessionConnection {
       this.emit()
     },
     geometry: (msg) => {
+      if (!this.acceptGeometryRevision(msg.geometryRevision)) return
       this.cols = msg.cols
       this.rows = msg.rows
       this.settleRequestedGeometry()
@@ -2410,6 +2420,15 @@ export class SessionConnection {
 
   private emit(): void {
     this.cb.onState?.(this.state())
+  }
+
+  /** Reject a delayed logical geometry state from the same server timeline.
+   * Missing revisions are accepted for compatibility with older peers. */
+  private acceptGeometryRevision(revision: number | undefined): boolean {
+    if (revision === undefined) return true
+    if (revision < this.geometryRevision) return false
+    this.geometryRevision = revision
+    return true
   }
 
   private settleRequestedGeometry(): void {

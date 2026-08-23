@@ -772,6 +772,32 @@ describe('SessionConnection (hub-backed)', () => {
     expect(conn.state()).toMatchObject({ cols: 111, rows: 41 })
   })
 
+  it('ignores an older geometry revision after a newer resize', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    const conn = hub.attach(asSessionId('s1'))
+    sock.recv({
+      type: 'geometry',
+      sessionId: asSessionId('s1'),
+      cols: 100,
+      rows: 30,
+      geometryRevision: 2,
+    })
+    sock.recv({
+      type: 'geometry',
+      sessionId: asSessionId('s1'),
+      cols: 80,
+      rows: 24,
+      geometryRevision: 1,
+    })
+    expect(conn.state()).toMatchObject({
+      cols: 100,
+      rows: 30,
+      geometryRevision: 2,
+    })
+  })
+
   it('handles agentExit without throwing and still emits state', () => {
     const { sock, hub } = setup()
     hub.connect()

@@ -544,6 +544,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   }
 
   let lastEpoch = -1
+  let lastGeometryRevision: number | undefined
   let firstFrameSeen = false
   // Tracks whether we've seen an attach before, so onAttached can tell a fresh mount
   // (sizing already driven by the mount/setActive path) from a RECONNECT (where we must
@@ -596,6 +597,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     onReset: () => {
       trace('connection:reset', { connection: connection.state() })
       lastEpoch = connection.state().epoch
+      lastGeometryRevision = undefined
       view.clear()
     },
     onState: (state) => {
@@ -606,6 +608,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         state.rows,
         state.epoch,
         state.controllerId,
+        state.geometryRevision ?? null,
         state.requestedGeometry?.cols ?? null,
         state.requestedGeometry?.rows ?? null,
         state.outputSeen,
@@ -614,6 +617,19 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         lastTracedState = signature
         trace('connection:state', { state })
       }
+      const geometryRevision = state.geometryRevision
+      if (
+        geometryRevision !== undefined &&
+        lastGeometryRevision !== undefined &&
+        geometryRevision < lastGeometryRevision
+      ) {
+        trace('connection:stale-geometry-state', {
+          state,
+          acceptedRevision: lastGeometryRevision,
+        })
+        return
+      }
+      if (geometryRevision !== undefined) lastGeometryRevision = geometryRevision
       if (hasOtherController(state)) {
         clearControlAssertion()
         clearRevealMouseInput('other-controller')

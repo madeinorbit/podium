@@ -104,6 +104,7 @@ describe('Session', () => {
       controllerId: 'a',
       controllerIdentity: { kind: 'user', user: a.principal.user },
       geometry: geo,
+      geometryRevision: 0,
       epoch: 0,
       resumed: false,
       outputSeen: false,
@@ -169,6 +170,7 @@ describe('Session', () => {
       controllerId: null,
       controllerIdentity: null,
       geometry: geo,
+      geometryRevision: 0,
     })
   })
 
@@ -277,6 +279,7 @@ describe('Session', () => {
         sessionId: asSessionId('s1'),
         cols: 200,
         rows: 50,
+        geometryRevision: 1,
       })
     }
   })
@@ -295,6 +298,7 @@ describe('Session', () => {
       sessionId: asSessionId('s1'),
       cols: 200,
       rows: 50,
+      geometryRevision: 1,
     })
   })
 
@@ -325,12 +329,14 @@ describe('Session', () => {
         controllerId: 'b',
         controllerIdentity: { kind: 'user', user: b.principal.user },
         geometry: { cols: 50, rows: 60 },
+        geometryRevision: 1,
       })
       expect(c.sent).toContainEqual({
         type: 'geometry',
         sessionId: asSessionId('s1'),
         cols: 50,
         rows: 60,
+        geometryRevision: 1,
       })
     }
   })
@@ -379,6 +385,7 @@ describe('Session', () => {
       sessionId: asSessionId('s1'),
       cols: 62,
       rows: 36,
+      geometryRevision: 1,
     })
   })
 

@@ -243,6 +243,9 @@ export const AttachedMessage = z.object({
   controllerId: z.string().nullable(),
   controllerIdentity: PresenceIdentity.nullable().optional(),
   geometry: Geometry,
+  /** Monotonic per-session revision for authoritative geometry. Optional so
+   * older peers remain wire-compatible during the additive rollout. */
+  geometryRevision: z.number().int().nonnegative().optional(),
   epoch: z.number().int().nonnegative(),
   // True when the following frames are an incremental catch-up from the client's
   // `sinceSeq` cursor: the client keeps its screen and appends. Absent/false = a
@@ -278,12 +281,16 @@ export const ControllerChangedMessage = z.object({
   controllerId: z.string().nullable(),
   controllerIdentity: PresenceIdentity.nullable().optional(),
   geometry: Geometry,
+  /** Monotonic per-session revision for authoritative geometry. */
+  geometryRevision: z.number().int().nonnegative().optional(),
 })
 // Server's authoritative PTY size, per session — lets spectators letterbox.
 export const GeometryMessage = z.object({
   type: z.literal('geometry'),
   sessionId: SessionIdField,
   ...Geometry.shape,
+  /** Monotonic per-session revision for authoritative geometry. */
+  geometryRevision: z.number().int().nonnegative().optional(),
 })
 // Shared in both directions: daemon -> server AND server -> client (identical shape).
 export const AgentExitMessage = z.object({

@@ -83,6 +83,9 @@ export interface SessionTerminalInit {
 export class SessionTerminal {
   geometry: Geometry
   epoch = 0
+  /** Monotonic revision for the authoritative geometry timeline. A client can
+   * reject a delayed logical state without guessing from the dimensions. */
+  geometryRevision = 0
   /** Websocket connection id of the current controller (device, not person). */
   controllerId: string | null = null
   /**
@@ -212,6 +215,7 @@ export class SessionTerminal {
       controllerId: this.controllerId,
       controllerIdentity: this.controllerIdentity,
       geometry: { ...this.geometry },
+      geometryRevision: this.geometryRevision,
       epoch: this.epoch,
       resumed,
       // The client cannot tell a PTY that has printed nothing since spawn from
@@ -339,6 +343,7 @@ export class SessionTerminal {
         controllerId: this.controllerId,
         controllerIdentity: this.controllerIdentity,
         geometry: { ...this.geometry },
+        geometryRevision: this.geometryRevision,
       })
     } else {
       this.clearController()
@@ -393,6 +398,7 @@ export class SessionTerminal {
       controllerId: null,
       controllerIdentity: null,
       geometry: { ...this.geometry },
+      geometryRevision: this.geometryRevision,
     })
   }
 
@@ -417,7 +423,13 @@ export class SessionTerminal {
     if (clientId !== this.controllerId || !client?.viewVisible.has(this.init.sessionId)) return
     this.setGeometry(cols, rows)
     this.init.toDaemon({ type: 'resize', sessionId: this.init.sessionId, cols, rows })
-    this.broadcast({ type: 'geometry', sessionId: this.init.sessionId, cols, rows })
+    this.broadcast({
+      type: 'geometry',
+      sessionId: this.init.sessionId,
+      cols,
+      rows,
+      geometryRevision: this.geometryRevision,
+    })
   }
 
   reconcileGeometry(clientId: string): void {
@@ -440,6 +452,7 @@ export class SessionTerminal {
       sessionId: this.init.sessionId,
       cols: this.geometry.cols,
       rows: this.geometry.rows,
+      geometryRevision: this.geometryRevision,
     })
   }
 
@@ -490,6 +503,7 @@ export class SessionTerminal {
         controllerId: clientId,
         controllerIdentity: this.controllerIdentity,
         geometry: { ...this.geometry },
+        geometryRevision: this.geometryRevision,
       })
     }
     if (transferred || geometryChanged) {
@@ -498,6 +512,7 @@ export class SessionTerminal {
         sessionId: this.init.sessionId,
         cols: this.geometry.cols,
         rows: this.geometry.rows,
+        geometryRevision: this.geometryRevision,
       })
     }
   }
@@ -628,6 +643,7 @@ export class SessionTerminal {
   private setGeometry(cols: number, rows: number): void {
     if (this.geometry.cols === cols && this.geometry.rows === rows) return
     this.geometry = { cols, rows }
+    this.geometryRevision += 1
     this.activityDirty_ = true
   }
 
