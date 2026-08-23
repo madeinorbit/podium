@@ -27,7 +27,7 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .podium-mobile-working-mark circle {
-    animation: podium-mobile-mark-wave 1.5s linear infinite;
+    animation: podium-mobile-mark-wave 1.5s linear infinite backwards;
   }
 
   .podium-mobile-working-mark circle:nth-child(2) {

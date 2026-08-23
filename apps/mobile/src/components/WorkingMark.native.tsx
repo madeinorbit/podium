@@ -74,14 +74,13 @@ function WorkingDot({
     const amplitude = interpolate(progress.get(), inputRange, outputRange)
     return {
       opacity: 0.2 + 0.8 * amplitude,
-      r: radius * (0.8 + 0.36 * amplitude),
     }
   })
 
   return <AnimatedCircle cx={cx} cy={cy} r={radius} fill={tint} animatedProps={animatedProps} />
 }
 
-/** Native status mark. Reanimated updates SVG props on the UI runtime. */
+/** Native status mark. Reanimated updates only opacity on the UI runtime. */
 export function WorkingMark({
   size = 12,
   tint = color.working,
