@@ -1830,6 +1830,7 @@ function ProposalRow({
   selected,
   onSelect,
   onMenu,
+  onStatusPick,
 }: {
   issue: IssueNavigationModel
   /** The display ref of the session that filed it, when the deck can resolve it. */
@@ -1838,6 +1839,8 @@ function ProposalRow({
   onSelect: (permanent: boolean) => void
   /** A proposal is still a task: same right-click menu as a strip. */
   onMenu: (event: ReactMouseEvent) => void
+  /** Match every other issue row in the deck: its status mark opens the picker. */
+  onStatusPick: (value: string) => void
 }): JSX.Element {
   const intent = useClickIntent()
   return (
@@ -1865,7 +1868,7 @@ function ProposalRow({
           intent.commit(() => onSelect(true))
         }}
       >
-        <StageGlyph stage="proposed" size={12} />
+        <IssueStatusPicker issue={issue} onPick={onStatusPick} />
         <span className="shell-type-secondary min-w-0 flex-1 truncate text-muted-foreground">
           <span className="shell-type-micro mr-1.5 font-mono text-fuchsia-500">
             {issueDisplayRef(issue)}
@@ -3729,6 +3732,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                       selected={focused === row.issue.id}
                       onSelect={(permanent) => selectIssue(row, permanent)}
                       onMenu={(event) => openIssueMenu(row.issue.id, event)}
+                      onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
                     />
                   ))}
                 </div>

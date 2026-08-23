@@ -39,6 +39,7 @@ const harness = vi.hoisted(() => ({
   setPanelMode: vi.fn(),
   setSelectedIssueId: vi.fn(),
   setIssueTucked: vi.fn(async () => undefined),
+  updateIssue: vi.fn(async (_id: string, _patch: unknown) => undefined),
   closeIssue: vi.fn(async (_id: string, _reason?: string) => undefined),
   ui: new Map<string, string>(),
   listeners: new Set<() => void>(),
@@ -90,7 +91,7 @@ vi.mock('./store', () => ({
       setView: vi.fn(),
       markIssueRead: vi.fn(async () => undefined),
       markIssueUnread: vi.fn(async () => undefined),
-      updateIssue: vi.fn(async () => undefined),
+      updateIssue: harness.updateIssue,
       deleteIssue: vi.fn(async () => undefined),
       closeIssue: harness.closeIssue,
       deferIssue: vi.fn(async () => undefined),
@@ -185,6 +186,7 @@ beforeEach(() => {
   harness.setPanelMode.mockClear()
   harness.setSelectedIssueId.mockClear()
   harness.setIssueTucked.mockClear()
+  harness.updateIssue.mockClear()
   harness.closeIssue.mockClear()
   harness.startIssue.mockClear()
   harness.addSession.mockClear()
@@ -633,6 +635,17 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     settle()
     expect(chevron('Task t2').getAttribute('aria-expanded')).toBe('true')
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: true }]])
+  })
+
+  it('changes a proposed issue from its status icon without opening the row', async () => {
+    deck()
+
+    fireEvent.click(screen.getByLabelText('Status: Proposed'))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Backlog' }))
+    settle()
+
+    expect(harness.updateIssue).toHaveBeenCalledWith('p1', { stage: 'backlog' })
+    expect(harness.setSelectedIssueId).not.toHaveBeenCalled()
   })
 })
 
