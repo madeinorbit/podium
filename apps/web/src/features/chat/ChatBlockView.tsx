@@ -12,6 +12,7 @@ import { Clock, FileText, Image as ImageIcon, MessageCircleQuestion } from 'luci
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useCallback, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
+import { resolveAgainstCwd } from '@/lib/file-path'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
