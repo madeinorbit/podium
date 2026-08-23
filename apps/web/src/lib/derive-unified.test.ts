@@ -307,6 +307,43 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     ).toEqual(['s'])
   })
 
+  it('promotes an unowned session from the repository main checkout', () => {
+    const path = '/r/a'
+    const wt = navWt(path, { isMain: true, sessions: [idle('main', path)] })
+    const rows = unifiedWorkList(emptySections([wt]), [], [], [], NOW)
+    expect(rows.map((row) => (row.kind === 'worktree' ? row.worktree.path : 'issue'))).toEqual([path])
+  })
+
+  it('hides an unowned session after its finished decay window', () => {
+    const path = '/r/a/.worktrees/old'
+    const old = idle('old', path, {
+      stoppedAt: new Date(NOW - 2 * 24 * HOUR).toISOString(),
+      readAt: new Date(NOW - 2 * 24 * HOUR).toISOString(),
+      lastActiveAt: new Date(NOW - 2 * 24 * HOUR).toISOString(),
+    })
+    const wt = navWt(path, { isMain: false, sessions: [old] })
+    expect(unifiedWorkList(emptySections([wt]), [], [], [], NOW)).toEqual([])
+  })
+
+  it('does not re-home a nested started-by child session into a worktree row', () => {
+    const path = '/r/a/.worktrees/nested'
+    const parent = issue({ id: 'parent', audience: 'human' })
+    const child = issue({ id: 'child', audience: 'agent' as IssueNavigationModel['audience'], parentId: 'parent' })
+    const own = { ...idle('own', path), issueId: 'parent' } as SessionMeta
+    const nested = { ...working('nested', path), issueId: 'child' } as SessionMeta
+    const wt = navWt(path, { isMain: false, sessions: [own, nested] })
+    const rows = unifiedWorkList(emptySections([wt]), [parent, child], [own, nested], [], NOW)
+    expect(rows.map((row) => row.kind)).toEqual(['issue'])
+  })
+
+  it('promotes an unowned session from a pinned worktree', () => {
+    const path = '/r/a/.worktrees/pinned'
+    const wt = navWt(path, { isMain: false, sessions: [idle('pinned', path)] })
+    const sections: SidebarSections = { pinnedWorktrees: [wt], pinnedRepos: [], repos: [] }
+    const rows = unifiedWorkList(sections, [], [], [], NOW)
+    expect(rows.map((row) => (row.kind === 'worktree' ? row.worktree.path : 'issue'))).toEqual([path])
+  })
+
   it('suppresses a worktree row whose sessions are ALL attached to live issues', () => {
     // Agent self-created worktree; the issue never stamped worktreePath. The
     // session already renders under the issue row — no duplicate worktree row.
