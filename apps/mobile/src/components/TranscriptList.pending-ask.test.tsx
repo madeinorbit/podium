@@ -9,9 +9,15 @@
  */
 import type { TranscriptItem } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { Suspense, act, startTransition, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-afterEach(cleanup)
+const markdownRenders = vi.hoisted(() => new Map<string, number>())
+
+afterEach(() => {
+  cleanup()
+  markdownRenders.clear()
+})
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -20,6 +26,12 @@ vi.mock('expo-haptics', () => ({
   notificationAsync: vi.fn(async () => {}),
 }))
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => {}) }))
+vi.mock('./RichMarkdown', () => ({
+  RichMarkdown: ({ text }: { text: string }) => {
+    markdownRenders.set(text, (markdownRenders.get(text) ?? 0) + 1)
+    return <span>{text}</span>
+  },
+}))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
 vi.mock('../client/hooks', () => ({
   useUiState: () => ({ get: () => null, set: () => {}, subscribe: () => () => {} }),
@@ -109,5 +121,88 @@ describe('TranscriptList pendingAsk', () => {
     render(<TranscriptList items={[]} live pendingAsk={null} onAnswer={async () => {}} />)
 
     expect(screen.queryByText('Which database?')).toBeNull()
+  })
+
+  it('keeps settled markdown rows out of live-text rerenders', () => {
+    const settled = { id: 'settled', role: 'assistant' as const, text: 'Settled answer' }
+    const { rerender } = render(
+      <TranscriptList
+        items={[settled, { id: 'super:live', role: 'assistant', text: 'Live one' }]}
+        live
+        streaming
+        onAnswer={async () => {}}
+      />,
+    )
+
+    rerender(
+      <TranscriptList
+        items={[settled, { id: 'super:live', role: 'assistant', text: 'Live two' }]}
+        live
+        streaming
+        onAnswer={async () => {}}
+      />,
+    )
+
+    expect(markdownRenders.get('Settled answer')).toBe(1)
+    expect(markdownRenders.get('Live one')).toBe(1)
+    expect(markdownRenders.get('Live two')).toBe(1)
+  })
+
+  it('routes a memoized question row to the latest committed answer handler', async () => {
+    const ask = fromState()
+    const first = vi.fn(async () => {})
+    const latest = vi.fn(async () => {})
+    const { rerender } = render(
+      <TranscriptList items={[]} live pendingAsk={ask} onAnswer={first} />,
+    )
+
+    rerender(<TranscriptList items={[]} live pendingAsk={ask} onAnswer={latest} />)
+    fireEvent.click(screen.getByLabelText('SQLite'))
+
+    await waitFor(() => expect(latest).toHaveBeenCalledTimes(1))
+    expect(first).not.toHaveBeenCalled()
+  })
+
+  it('does not leak a handler from a suspended concurrent render', async () => {
+    const ask = fromState()
+    const committed = vi.fn(async () => {})
+    const abandoned = vi.fn(async () => {})
+    const suspended = new Promise<never>(() => {})
+    let attempted = false
+    let beginAbandonedRender: (() => void) | undefined
+
+    function SuspendAfterTranscript({ blocked }: { blocked: boolean }) {
+      if (blocked) {
+        attempted = true
+        throw suspended
+      }
+      return null
+    }
+
+    function ConcurrentHarness() {
+      const [answer, setAnswer] = useState(() => committed)
+      const [blocked, setBlocked] = useState(false)
+      beginAbandonedRender = () => {
+        startTransition(() => {
+          setAnswer(() => abandoned)
+          setBlocked(true)
+        })
+      }
+      return (
+        <Suspense fallback={null}>
+          <TranscriptList items={[]} live pendingAsk={ask} onAnswer={answer} />
+          <SuspendAfterTranscript blocked={blocked} />
+        </Suspense>
+      )
+    }
+
+    render(<ConcurrentHarness />)
+    act(() => beginAbandonedRender?.())
+    expect(attempted).toBe(true)
+
+    fireEvent.click(screen.getByLabelText('Postgres'))
+
+    await waitFor(() => expect(committed).toHaveBeenCalledTimes(1))
+    expect(abandoned).not.toHaveBeenCalled()
   })
 })

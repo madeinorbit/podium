@@ -121,13 +121,13 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   replica.applySnapshot('sessions', fixture.sessions ?? [])
   replica.applySnapshot('issues', fixture.issues ?? [])
   const api = stubApi(fixture)
-  let hub: { emit(event: string, payload: unknown): void } | null = null
+  let hub: { emit(event: string, ...payload: unknown[]): void } | null = null
 
   function Capture({ inner }: { inner: ReactNode }) {
     // Reaching the hub through the store snapshot, not through a module import:
     // the hub under test must be the one the provider built.
     const store = useStore<MobileTrpc>()
-    hub = store.hub as unknown as { emit(event: string, payload: unknown): void }
+    hub = store.hub as unknown as { emit(event: string, ...payload: unknown[]): void }
     return <>{inner}</>
   }
 
@@ -169,6 +169,6 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     ...result,
     replica,
     api,
-    emit: (event: string, payload: unknown) => hub?.emit(event, payload),
+    emit: (event: string, ...payload: unknown[]) => hub?.emit(event, ...payload),
   }
 }

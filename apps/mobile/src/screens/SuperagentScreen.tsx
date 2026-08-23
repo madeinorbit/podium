@@ -75,6 +75,11 @@ export function SuperagentScreen() {
   const [transcriptLoaded, setTranscriptLoaded] = useState(false)
   const [threadsLoaded, setThreadsLoaded] = useState(false)
   const [liveText, setLiveText] = useState('')
+  const pendingLiveText = useRef('')
+  const pendingLiveTextActivity = useRef(0)
+  const liveTextFrame = useRef<number | null>(null)
+  const liveTextCommit = useRef(0)
+  const activityVersion = useRef(0)
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   // The hand-off is already visible work. Keep it separate from the server's
@@ -114,6 +119,41 @@ export function SuperagentScreen() {
     loading: false,
   })
 
+  const cancelLiveTextFrame = useCallback(() => {
+    // A callback can already be dequeued when cancellation runs. Invalidate its
+    // commit token as well as asking the host to cancel it.
+    liveTextCommit.current += 1
+    if (liveTextFrame.current === null) return
+    cancelAnimationFrame(liveTextFrame.current)
+    liveTextFrame.current = null
+  }, [])
+
+  const clearLiveText = useCallback(() => {
+    activityVersion.current += 1
+    cancelLiveTextFrame()
+    pendingLiveText.current = ''
+    setLiveText('')
+  }, [cancelLiveTextFrame])
+
+  // Headless partial-text frames are cumulative and can arrive much faster than
+  // the display. Keep only the newest frame and let React parse/paint it once in
+  // the next animation frame instead of doing that work for every socket event.
+  const queueLiveText = useCallback((text: string, eventVersion: number) => {
+    pendingLiveText.current = text
+    pendingLiveTextActivity.current = eventVersion
+    if (liveTextFrame.current !== null) return
+    const commit = ++liveTextCommit.current
+    liveTextFrame.current = requestAnimationFrame(() => {
+      if (commit !== liveTextCommit.current) return
+      liveTextFrame.current = null
+      const next = pendingLiveText.current
+      setLiveText((current) => (current === next ? current : next))
+      // A status event received after this partial owns the label. The delayed
+      // text paint may update prose, but it must not erase newer activity.
+      if (pendingLiveTextActivity.current === activityVersion.current) setStatusLabel(null)
+    })
+  }, [])
+
   // The store owns the thread list; this completion bit only distinguishes an
   // unresolved first read from a genuinely empty global thread. The engine's
   // boot refresh may already have won, in which case this is a cheap refresh.
@@ -145,10 +185,10 @@ export function SuperagentScreen() {
     if (superagent.active?.turnRunning === false && querySawRunning.current) {
       querySawRunning.current = false
       setRunning(false)
-      setLiveText('')
+      clearLiveText()
       setStatusLabel(null)
     }
-  }, [superagent.active?.turnRunning])
+  }, [clearLiveText, superagent.active?.turnRunning])
 
   // The conversation itself, read and streamed from the thread's headless
   // session exactly as SessionScreen does for a normal chat.
@@ -214,17 +254,18 @@ export function SuperagentScreen() {
   // put the chrome back.
   useEffect(() => {
     if (!podiumSid) return
-    return hub.subscribeHeadless(podiumSid, (event) => {
+    const unsubscribe = hub.subscribeHeadless(podiumSid, (event) => {
+      const eventVersion = ++activityVersion.current
       if (event.kind === 'turn-start') {
         setRunning(true)
         setJustSent(false)
-        setLiveText('')
+        clearLiveText()
         setStatusLabel('starting')
       } else if (event.kind === 'turn-end') {
         setRunning(false)
         setJustSent(false)
         querySawRunning.current = false
-        setLiveText('')
+        clearLiveText()
         setStatusLabel(null)
         if (event.error) {
           const reason = event.error
@@ -242,11 +283,14 @@ export function SuperagentScreen() {
       } else if (event.kind === 'status') {
         setStatusLabel(event.status === 'tool' ? (event.label ?? 'tool') : event.status)
       } else if ('text' in event && typeof event.text === 'string') {
-        setLiveText(event.text)
-        setStatusLabel(null)
+        queueLiveText(event.text, eventVersion)
       }
     })
-  }, [hub, podiumSid])
+    return () => {
+      unsubscribe()
+      cancelLiveTextFrame()
+    }
+  }, [cancelLiveTextFrame, clearLiveText, hub, podiumSid, queueLiveText])
 
   // headlessActivity frames are ephemeral, and the FIRST turn only learns its
   // session from the ack — so the subscription can attach after that turn's
@@ -349,14 +393,14 @@ export function SuperagentScreen() {
       setAckedSid(undefined)
       void store.refreshSuperThreads().catch(() => {})
       setPendingTurns([])
-      setLiveText('')
+      clearLiveText()
       setRunning(false)
       setJustSent(false)
       querySawRunning.current = false
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
-  }, [trpc, store.refreshSuperThreads])
+  }, [clearLiveText, trpc, store.refreshSuperThreads])
 
   // The streaming answer rides the transcript as a live assistant item, so the
   // in-progress turn wears the same prose voice as the settled one.
