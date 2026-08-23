@@ -39,6 +39,7 @@ export function ActionSheet({
   subtitle,
   actions,
   onClose,
+  testID,
 }: {
   visible: boolean
   title?: string
@@ -46,11 +47,13 @@ export function ActionSheet({
   subtitle?: string
   actions: SheetAction[]
   onClose: () => void
+  testID?: string
 }) {
   return (
     <BottomSheet
       visible={visible}
       onClose={onClose}
+      testID={testID}
       mode="fit"
       scrollable={actions.length > 7}
       contentStyle={styles.content}

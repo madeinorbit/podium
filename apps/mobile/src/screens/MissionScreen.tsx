@@ -27,9 +27,19 @@ import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { ChevronDown, MoreVertical, SquareTerminal } from 'lucide-react-native'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Animated, Dimensions, StyleSheet, Text, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Dimensions, StyleSheet, Text, View } from 'react-native'
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
+import Animated, {
+  cancelAnimation,
+  Extrapolation,
+  interpolate,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated'
+import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets'
 import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
@@ -86,6 +96,15 @@ const PANEL_FRACTION = 0.62
 /** Past this velocity the flick decides, not the position. */
 const FLICK_VELOCITY = 450
 
+const DECK_SPRING = {
+  ...spring.snappy,
+  reduceMotion: ReduceMotion.System,
+}
+
+function impactLight() {
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+}
+
 export function MissionScreen() {
   const params = useLocalSearchParams<{ missionId: string | string[] }>()
   const raw = Array.isArray(params.missionId) ? params.missionId[0] : (params.missionId ?? '')
@@ -99,8 +118,6 @@ export function MissionScreen() {
   // deriving it a second time here is exactly the per-consumer cost the
   // published slice exists to remove.
   const { allWorktreePaths } = useSlice(worklistSlice)
-  const reduceMotion = useReduceMotion()
-
   // The mission is the whole subtree above and below the selected task, exactly
   // as the desktop resolves it — open a child from a notification and you land
   // on the same deck the sidebar would have given you.
@@ -307,7 +324,6 @@ export function MissionScreen() {
             working={working}
             attention={attention}
             accent={accent ?? FLOW_HEX}
-            reduceMotion={reduceMotion}
             findRequest={findRequest}
             onOpenSession={openSession}
             onOpenTask={setPeek}
@@ -336,6 +352,7 @@ export function MissionScreen() {
       />
       <ActionSheet
         visible={menuOpen}
+        testID="mission-actions-sheet"
         title={root ? `${issueDisplayRef(root)} ${root.title}` : ''}
         actions={menuActions}
         onClose={() => setMenuOpen(false)}
@@ -391,7 +408,6 @@ function MissionBody({
   working,
   attention,
   accent,
-  reduceMotion,
   findRequest,
   onOpenSession,
   onOpenTask,
@@ -411,7 +427,6 @@ function MissionBody({
   working: number
   attention: number
   accent: string
-  reduceMotion: boolean
   findRequest: number
   onOpenSession: (session: SessionMeta) => void
   onOpenTask: (issue: IssueWire) => void
@@ -421,65 +436,122 @@ function MissionBody({
   onOpenDeparture: (issueId: IssueId) => void
 }) {
   const panelHeight = Math.round(Dimensions.get('window').height * PANEL_FRACTION)
-  const y = useRef(new Animated.Value(-panelHeight)).current
-  const yValue = useRef(-panelHeight)
-  const dragStart = useRef(-panelHeight)
+  const y = useSharedValue(-panelHeight)
+  const dragStart = useSharedValue(-panelHeight)
+  const openTarget = useSharedValue(false)
   const [open, setOpen] = useState(false)
 
-  useEffect(() => {
-    const id = y.addListener(({ value }) => {
-      yValue.current = value
-    })
-    return () => y.removeListener(id)
-  }, [y])
+  const commitOpen = useCallback((next: boolean) => setOpen(next), [])
 
-  const settle = useCallback(
-    (next: boolean) => {
-      setOpen(next)
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-      Animated.spring(y, {
-        toValue: next ? 0 : -panelHeight,
-        // JS driver on purpose: the drag below feeds this same node through
-        // Animated.Value.setValue, which a native-driven node rejects.
-        useNativeDriver: false,
-        ...(reduceMotion ? spring.smooth : spring.snappy),
-      }).start()
+  const settleOnUI = useCallback(
+    (next: boolean, velocity = 0) => {
+      'worklet'
+      openTarget.set(next)
+      scheduleOnRN(commitOpen, next)
+      scheduleOnRN(impactLight)
+      y.set(withSpring(next ? 0 : -panelHeight, { ...DECK_SPRING, velocity }))
     },
-    [panelHeight, reduceMotion, y],
+    [commitOpen, openTarget, panelHeight, y],
   )
 
-  const pan = usePanGesture({
-    activeOffsetY: [-4, 4],
-    failOffsetX: [-8, 8],
-    runOnJS: true,
-    onActivate: () => {
-      y.stopAnimation()
-      dragStart.current = yValue.current
+  const settle = useCallback(
+    (next: boolean, velocity = 0) => {
+      scheduleOnUI(settleOnUI, next, velocity)
     },
-    onUpdate: ({ translationY }) => {
-      const raw = dragStart.current + translationY
+    [settleOnUI],
+  )
+
+  const toggle = useCallback(() => {
+    scheduleOnUI(() => {
+      'worklet'
+      settleOnUI(!openTarget.get())
+    })
+  }, [openTarget, settleOnUI])
+
+  const beginDrag = useCallback(() => {
+    'worklet'
+    cancelAnimation(y)
+    dragStart.set(y.get())
+  }, [dragStart, y])
+
+  const moveDrag = useCallback(
+    (translationY: number) => {
+      'worklet'
+      const raw = dragStart.get() + translationY
       // Rubber-band past fully open: the panel can be pulled further, but at a
       // fraction of the finger, so the stop is felt rather than merely obeyed.
-      y.setValue(raw > 0 ? raw * 0.3 : Math.max(raw, -panelHeight))
+      y.set(raw > 0 ? raw * 0.3 : Math.max(raw, -panelHeight))
     },
-    onDeactivate: ({ canceled, translationX, translationY, velocityY }) => {
-      if (canceled) return settle(open)
-      if (Math.abs(translationY) < 6 && Math.abs(translationX) < 6) return settle(!open)
-      if (velocityY > FLICK_VELOCITY) return settle(true)
-      if (velocityY < -FLICK_VELOCITY) return settle(false)
-      settle(dragStart.current + translationY > -panelHeight / 2)
+    [dragStart, panelHeight, y],
+  )
+
+  const endDrag = useCallback(
+    (event: {
+      canceled: boolean
+      translationX: number
+      translationY: number
+      velocityY: number
+    }) => {
+      'worklet'
+      const { canceled, translationX, translationY, velocityY } = event
+      if (canceled) return settleOnUI(openTarget.get())
+      if (Math.abs(translationY) < 6 && Math.abs(translationX) < 6) {
+        return settleOnUI(!openTarget.get())
+      }
+      if (velocityY > FLICK_VELOCITY) return settleOnUI(true, velocityY)
+      if (velocityY < -FLICK_VELOCITY) return settleOnUI(false, velocityY)
+      settleOnUI(dragStart.get() + translationY > -panelHeight / 2, velocityY)
+    },
+    [dragStart, openTarget, panelHeight, settleOnUI],
+  )
+
+  // A gesture instance owns one native handler tag. The bar and panel edge need
+  // distinct instances even though their worklet callbacks and physics match.
+  const barPan = usePanGesture({
+    activeOffsetY: [-4, 4],
+    failOffsetX: [-8, 8],
+    onActivate: () => {
+      'worklet'
+      beginDrag()
+    },
+    onUpdate: ({ translationY }) => {
+      'worklet'
+      moveDrag(translationY)
+    },
+    onDeactivate: (event) => {
+      'worklet'
+      endDrag(event)
     },
   })
 
-  const scrim = y.interpolate({
-    inputRange: [-panelHeight, 0],
-    outputRange: [0, 0.55],
-    extrapolate: 'clamp',
+  const panelPan = usePanGesture({
+    activeOffsetY: [-4, 4],
+    failOffsetX: [-8, 8],
+    onActivate: () => {
+      'worklet'
+      beginDrag()
+    },
+    onUpdate: ({ translationY }) => {
+      'worklet'
+      moveDrag(translationY)
+    },
+    onDeactivate: (event) => {
+      'worklet'
+      endDrag(event)
+    },
   })
+
+  const scrimStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(y.get(), [-panelHeight, 0], [0, 0.55], Extrapolation.CLAMP),
+  }))
+
+  const panelStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: y.get() }],
+  }))
 
   return (
     <View style={styles.body}>
-      <GestureDetector gesture={pan} touchAction="none" userSelect="none">
+      <GestureDetector gesture={barPan} touchAction="none" userSelect="none">
         <View>
           <MissionBar
             progress={progress}
@@ -487,7 +559,7 @@ function MissionBody({
             working={working}
             attention={attention}
             open={open}
-            onToggle={() => settle(!open)}
+            onToggle={toggle}
           />
         </View>
       </GestureDetector>
@@ -512,13 +584,15 @@ function MissionBody({
             with the pull, and it is only interactive once the panel is actually
             open, so a shut deck never eats a tap meant for the transcript. */}
         <Animated.View
-          style={[styles.scrim, { opacity: scrim }]}
+          testID="mission-deck-backdrop"
+          style={[styles.scrim, scrimStyle]}
           pointerEvents={open ? 'auto' : 'none'}
           onTouchEnd={() => settle(false)}
         />
 
         <Animated.View
-          style={[styles.panel, { height: panelHeight, transform: [{ translateY: y }] }]}
+          testID="mission-deck-panel"
+          style={[styles.panel, { height: panelHeight }, panelStyle]}
           pointerEvents={open ? 'auto' : 'none'}
           accessibilityViewIsModal={open}
         >
@@ -556,7 +630,7 @@ function MissionBody({
           />
           {/* The panel's own grab edge, so closing it is the same gesture as
               opening it rather than a hunt for the bar underneath. */}
-          <GestureDetector gesture={pan} touchAction="none" userSelect="none">
+          <GestureDetector gesture={panelPan} touchAction="none" userSelect="none">
             <View style={styles.panelGrab}>
               <View style={styles.panelGrabber} />
             </View>
