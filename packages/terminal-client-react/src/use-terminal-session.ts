@@ -9,6 +9,10 @@ type TerminalRuntime = typeof import('@podium/terminal-client/session-mount')
 
 let terminalRuntimePromise: Promise<TerminalRuntime> | undefined
 
+// Chunk fetches can fail while a deploy replaces assets or a connection drops.
+// Keep the initial shell deferred, but give the live mount two chances to recover.
+const TERMINAL_RUNTIME_RETRY_DELAYS_MS = [250, 1_000] as const
+
 function loadTerminalRuntime(): Promise<TerminalRuntime> {
   terminalRuntimePromise ??= import('@podium/terminal-client/session-mount').catch((cause) => {
     terminalRuntimePromise = undefined
@@ -171,43 +175,63 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
     let mounted: MountedSession | null = null
     let offScroll: (() => void) | undefined
     let cleanupMounted: (() => void) | undefined
-    void loadTerminalRuntime()
-      .then(({ mountSession }) => {
-        if (cancelled) return
-        const nextMounted = mountSession(el, {
-          hub,
-          sessionId,
-          active: activeRef.current,
-          ...(appearanceRef.current ? { appearance: appearanceRef.current } : {}),
-          ...(gridModeRef.current ? { gridMode: gridModeRef.current } : {}),
-          ...(viewportRef.current ? { viewportEl: viewportRef.current } : {}),
-          ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
-          ...(testRef.current ? { test: true } : {}),
-          ...(echoLatencyEnabledRef.current ? { echoLatencyEnabled: true } : {}),
-          ...(focusOnMountRef.current !== undefined
-            ? { focusOnMount: focusOnMountRef.current }
-            : {}),
-          ...(readyTimeoutMsRef.current !== undefined
-            ? { readyTimeoutMs: readyTimeoutMsRef.current }
-            : {}),
-          onReady: () => setReady(true),
-          onFrame: () => onFrameRef.current?.(),
-          onState: (state) => {
-            setOutputSeen(state.outputSeen)
-            onStateRef.current?.(state)
-          },
-        })
-        mounted = nextMounted
-        mountedRef.current = nextMounted
-        offScroll = nextMounted.view.onScroll(() => setAtBottom(nextMounted.view.atBottom()))
-        const cleanup = onMountedRef.current?.(nextMounted)
-        cleanupMounted = typeof cleanup === 'function' ? cleanup : undefined
-      })
-      .catch((cause) => {
-        if (!cancelled) console.error('Could not mount the terminal renderer', cause)
-      })
+    let runtimeRetryTimer: ReturnType<typeof setTimeout> | undefined
+    let runtimeRetryCount = 0
+
+    const mount = (): void => {
+      void loadTerminalRuntime().then(
+        ({ mountSession }) => {
+          if (cancelled) return
+          try {
+            const nextMounted = mountSession(el, {
+              hub,
+              sessionId,
+              active: activeRef.current,
+              ...(appearanceRef.current ? { appearance: appearanceRef.current } : {}),
+              ...(gridModeRef.current ? { gridMode: gridModeRef.current } : {}),
+              ...(viewportRef.current ? { viewportEl: viewportRef.current } : {}),
+              ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
+              ...(testRef.current ? { test: true } : {}),
+              ...(echoLatencyEnabledRef.current ? { echoLatencyEnabled: true } : {}),
+              ...(focusOnMountRef.current !== undefined
+                ? { focusOnMount: focusOnMountRef.current }
+                : {}),
+              ...(readyTimeoutMsRef.current !== undefined
+                ? { readyTimeoutMs: readyTimeoutMsRef.current }
+                : {}),
+              onReady: () => setReady(true),
+              onFrame: () => onFrameRef.current?.(),
+              onState: (state) => {
+                setOutputSeen(state.outputSeen)
+                onStateRef.current?.(state)
+              },
+            })
+            mounted = nextMounted
+            mountedRef.current = nextMounted
+            offScroll = nextMounted.view.onScroll(() => setAtBottom(nextMounted.view.atBottom()))
+            const cleanup = onMountedRef.current?.(nextMounted)
+            cleanupMounted = typeof cleanup === 'function' ? cleanup : undefined
+          } catch (cause) {
+            console.error('Could not mount the terminal renderer', cause)
+          }
+        },
+        (cause) => {
+          if (cancelled) return
+          const retryDelay = TERMINAL_RUNTIME_RETRY_DELAYS_MS[runtimeRetryCount]
+          if (retryDelay === undefined) {
+            console.error('Could not load the terminal renderer after 3 attempts', cause)
+            return
+          }
+          runtimeRetryCount += 1
+          runtimeRetryTimer = setTimeout(mount, retryDelay)
+        },
+      )
+    }
+
+    mount()
     return () => {
       cancelled = true
+      if (runtimeRetryTimer !== undefined) clearTimeout(runtimeRetryTimer)
       cleanupMounted?.()
       offScroll?.()
       mounted?.dispose()

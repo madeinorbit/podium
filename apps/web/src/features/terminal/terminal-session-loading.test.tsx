@@ -18,11 +18,13 @@ const runtime = vi.hoisted(() => {
     setEchoLatencyEnabled: vi.fn(),
     dispose,
   }))
-  return { loaded: vi.fn(), mountSession, setActive, dispose }
+  return { importAttempts: 0, loaded: vi.fn(), mountSession, setActive, dispose }
 })
 
 vi.mock('@podium/terminal-client/session-mount', () => {
   runtime.loaded()
+  runtime.importAttempts += 1
+  if (runtime.importAttempts === 1) throw new Error('transient chunk failure')
   return { mountSession: runtime.mountSession }
 })
 
@@ -57,21 +59,27 @@ describe('useTerminalSession lazy runtime', () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+    vi.useRealTimers()
   })
 
-  it('preloads without mounting, then reuses one mount across active changes', async () => {
-    await act(async () => root.render(<Probe enabled={false} active={false} />))
-    await flush()
+  it('recovers a rejected deferred import and reuses the recovered mount', async () => {
     expect(runtime.loaded).not.toHaveBeenCalled()
     expect(runtime.mountSession).not.toHaveBeenCalled()
 
-    preloadTerminalRuntime()
+    vi.useFakeTimers()
+    await act(async () => root.render(<Probe enabled active />))
     await flush()
     expect(runtime.loaded).toHaveBeenCalledTimes(1)
     expect(runtime.mountSession).not.toHaveBeenCalled()
 
-    await act(async () => root.render(<Probe enabled active />))
+    await act(async () => vi.advanceTimersByTimeAsync(250))
     await flush()
+    expect(runtime.loaded).toHaveBeenCalledTimes(2)
+    expect(runtime.mountSession).toHaveBeenCalledTimes(1)
+
+    preloadTerminalRuntime()
+    await flush()
+    expect(runtime.loaded).toHaveBeenCalledTimes(2)
     expect(runtime.mountSession).toHaveBeenCalledTimes(1)
 
     await act(async () => root.render(<Probe enabled active={false} />))
