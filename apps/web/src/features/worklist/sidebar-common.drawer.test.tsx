@@ -8,7 +8,7 @@ vi.mock('@/app/store', () => ({
     select({ uiState: { get: () => null, set: vi.fn() } }),
 }))
 
-vi.mock('motion/react', () => ({
+vi.mock('@/lib/use-reduced-motion', () => ({
   useReducedMotion: () => true,
 }))
 
@@ -51,22 +51,22 @@ describe('ResizableColumn drawer anchoring', () => {
   })
 
   it('fits the fixed drawer surface to the width the shell actually grants', () => {
-    const rects = vi
-      .spyOn(Element.prototype, 'getBoundingClientRect')
-      .mockImplementation(function (this: Element): DOMRect {
-        const width = this.hasAttribute('data-resizable-column') ? 240 : 0
-        return {
-          x: 0,
-          y: 0,
-          top: 0,
-          right: width,
-          bottom: 600,
-          left: 0,
-          width,
-          height: 600,
-          toJSON: () => ({}),
-        }
-      })
+    const rects = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element,
+    ): DOMRect {
+      const width = this.hasAttribute('data-resizable-column') ? 240 : 0
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        right: width,
+        bottom: 600,
+        left: 0,
+        width,
+        height: 600,
+        toJSON: () => ({}),
+      }
+    })
 
     try {
       const surface = renderDrawer('left')

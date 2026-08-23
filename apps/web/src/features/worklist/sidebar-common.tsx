@@ -15,7 +15,6 @@ import {
 import type { SessionMeta } from '@podium/model/browser'
 import { idleVerdictFinishedTurn, isSnoozed, returnedFromSnooze } from '@podium/model/browser'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
-import { useReducedMotion } from 'motion/react'
 import type {
   JSX,
   KeyboardEvent as ReactKeyboardEvent,
@@ -41,6 +40,7 @@ import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 

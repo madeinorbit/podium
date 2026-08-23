@@ -1,6 +1,6 @@
 import type { MotionPhase } from '@podium/client-core/viewmodels'
 import { ArrowDownToLine } from 'lucide-react'
-import { motion, useReducedMotion } from 'motion/react'
+import * as m from 'motion/react-m'
 import type {
   CSSProperties,
   JSX,
@@ -11,6 +11,7 @@ import type {
 import { UnreadDot, unreadTitleClass } from '@/components/UnreadMark'
 import { FLOW_CSS } from '@/lib/issueColors'
 import { usePhaseMorph } from '@/lib/motion'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import { RowShortcutBadge } from './RowShortcutBadge'
 
@@ -358,7 +359,7 @@ export function WorkRowShell({
             hover the glyph nudges DOWN, an honest cue that it folds the row into
             Closed, where it stays reachable. */}
         {onTuck && (
-          <motion.button
+          <m.button
             data-pressable
             type="button"
             data-testid="tuck-away"
@@ -387,7 +388,7 @@ export function WorkRowShell({
               className="text-text-faint transition-[transform,color] duration-150 group-hover/tuck:translate-y-px group-hover/tuck:text-muted-foreground"
             />
             <span>Tuck</span>
-          </motion.button>
+          </m.button>
         )}
       </div>
     </div>

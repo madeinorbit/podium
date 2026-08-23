@@ -16,14 +16,17 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FoldPanel } from './work-folds'
+import { WorklistMotion } from './worklist-motion'
 
 afterEach(cleanup)
 
 function Panel({ open }: { open: boolean }): JSX.Element {
   return (
-    <FoldPanel open={open} testId="panel">
-      <div>the rows</div>
-    </FoldPanel>
+    <WorklistMotion layoutGroupId="fold-panel-test">
+      <FoldPanel open={open} testId="panel">
+        <div>the rows</div>
+      </FoldPanel>
+    </WorklistMotion>
   )
 }
 

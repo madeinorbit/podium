@@ -10,7 +10,7 @@ import {
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, type IssueId, isIssueDeferred } from '@podium/model/browser'
-import { LayoutGroup, MotionConfig, motion, useReducedMotion } from 'motion/react'
+import * as m from 'motion/react-m'
 import type {
   CSSProperties,
   JSX,
@@ -21,6 +21,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { type SidebarDerivation, useSidebarDerivation } from './derivation'
@@ -34,6 +35,7 @@ import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import { useUnifiedWork } from './use-unified-work'
 import { useRowDrag } from './useRowDrag'
 import { WorkListEmpty } from './WorkListEmpty'
+import { WorklistMotion } from './worklist-motion'
 import { matchesWorkQuery, normalizeWorkQuery } from './work-filter'
 import {
   ClosedIssueFold,
@@ -603,7 +605,7 @@ export function WorkSections({
         />
       )
     return (
-      <motion.div
+      <m.div
         key={`${item.key}:${item.placement}`}
         layout="position"
         layoutDependency={layoutRevision}
@@ -634,7 +636,7 @@ export function WorkSections({
         }
         data-transition-phase={item.phase}
       >
-        <motion.div
+        <m.div
           initial={arriving && !shouldReduceMotion ? { opacity: 0, y: -8 } : false}
           animate={exiting ? { opacity: 0, y: -6 } : { opacity: 1, y: 0 }}
           // ARMED ONLY WHILE THE ROW IS ACTUALLY EXITING. `quickArchiveExit`
@@ -674,8 +676,8 @@ export function WorkSections({
           }
         >
           {inner}
-        </motion.div>
-      </motion.div>
+        </m.div>
+      </m.div>
     )
   }
 
@@ -734,118 +736,116 @@ export function WorkSections({
   // Pinned issues MOVE above all project groups (POD-166, R3) — they leave
   // their group entirely; unpinning returns them to its banded order.
   return (
-    <MotionConfig reducedMotion="user">
-      <LayoutGroup id={layoutGroupId}>
-        {filteredPinned.length > 0 && (
-          <motion.div
+    <WorklistMotion layoutGroupId={layoutGroupId}>
+      {filteredPinned.length > 0 && (
+        <m.div
+          layout="position"
+          layoutDependency={layoutRevision}
+          transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
+          className="flex min-w-0 flex-col"
+          data-testid="pinned-section"
+          data-drag-section
+        >
+          <PinnedSectionLabel
+            count={filteredPinned.length}
+            collapsed={pinnedCollapsed}
+            onToggle={() => toggleBand(PINNED_FOLD_KEY)}
+          />
+          <FoldPanel open={!pinnedCollapsed} testId="pinned-section-rows" dragScope="pinned">
+            {filteredPinned.map((item) => renderWorkRow(item))}
+          </FoldPanel>
+        </m.div>
+      )}
+      {renderedGroups.map((group, index) => {
+        // A shut band takes the WHOLE group with it — its live rows and both
+        // of its tail folds. Half a collapsed project (a band with a Closed
+        // fold still hanging under it) would be the worst of both readings.
+        const collapsed = groupCollapsed(group.key)
+        return (
+          <m.div
             layout="position"
             layoutDependency={layoutRevision}
             transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
-            className="flex min-w-0 flex-col"
-            data-testid="pinned-section"
+            key={group.key}
+            // Every section but the FIRST one on screen takes the 14px gap:
+            // pinned opens the column when it is there, this group when it is
+            // not, and the opening band sits flush under the search field.
+            className={cn(
+              'flex min-w-0 flex-col',
+              (index > 0 || filteredPinned.length > 0) && SECTION_GAP_CLASS,
+            )}
+            data-testid="project-group"
+            data-collapsed={collapsed ? 'true' : 'false'}
             data-drag-section
           >
-            <PinnedSectionLabel
-              count={filteredPinned.length}
-              collapsed={pinnedCollapsed}
-              onToggle={() => toggleBand(PINNED_FOLD_KEY)}
+            <ProjectGroupLabel
+              label={group.label}
+              count={group.rows.length}
+              collapsed={collapsed}
+              onToggle={() => toggleBand(projectFoldKey(group.key))}
             />
-            <FoldPanel open={!pinnedCollapsed} testId="pinned-section-rows" dragScope="pinned">
-              {filteredPinned.map((item) => renderWorkRow(item))}
-            </FoldPanel>
-          </motion.div>
-        )}
-        {renderedGroups.map((group, index) => {
-          // A shut band takes the WHOLE group with it — its live rows and both
-          // of its tail folds. Half a collapsed project (a band with a Closed
-          // fold still hanging under it) would be the worst of both readings.
-          const collapsed = groupCollapsed(group.key)
-          return (
-            <motion.div
-              layout="position"
-              layoutDependency={layoutRevision}
-              transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
-              key={group.key}
-              // Every section but the FIRST one on screen takes the 14px gap:
-              // pinned opens the column when it is there, this group when it is
-              // not, and the opening band sits flush under the search field.
-              className={cn(
-                'flex min-w-0 flex-col',
-                (index > 0 || filteredPinned.length > 0) && SECTION_GAP_CLASS,
-              )}
-              data-testid="project-group"
-              data-collapsed={collapsed ? 'true' : 'false'}
-              data-drag-section
-            >
-              <ProjectGroupLabel
-                label={group.label}
-                count={group.rows.length}
-                collapsed={collapsed}
-                onToggle={() => toggleBand(projectFoldKey(group.key))}
-              />
-              {/* ONE PANEL FOR THE WHOLE GROUP (POD-1253). A shut band takes its
+            {/* ONE PANEL FOR THE WHOLE GROUP (POD-1253). A shut band takes its
                   live rows and both tail folds with it — see `collapsed` above —
                   so the three of them fold as one surface rather than as three
                   clips racing each other down the column. */}
-              <FoldPanel
-                open={!collapsed}
-                testId="project-group-rows"
-                dragScope={`group:${group.key}`}
-              >
-                {group.rows.map((item) => renderWorkRow(item))}
-                {group.snoozedRows.length > 0 && (
-                  <motion.div
-                    layout="position"
-                    layoutDependency={layoutRevision}
-                    transition={
-                      shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
-                    }
-                  >
-                    <SnoozedIssueFold
-                      groupKey={group.key}
-                      rows={group.snoozedRows}
-                      renderRow={renderWorkRow}
-                      settleTransition={settle}
-                    />
-                  </motion.div>
-                )}
-                {/* The column's one tail fold. Suspended work folds above it. */}
-                {group.closedRows.length > 0 && (
-                  <motion.div
-                    layout="position"
-                    layoutDependency={layoutRevision}
-                    transition={
-                      shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
-                    }
-                  >
-                    <ClosedIssueFold
-                      groupKey={group.key}
-                      rows={group.closedRows}
-                      renderRow={renderWorkRow}
-                      issueForRow={(item) => item.value.row as UnifiedIssueRowView}
-                      onArchive={archiveClosedIssue}
-                    />
-                  </motion.div>
-                )}
-              </FoldPanel>
-            </motion.div>
-          )
-        })}
-        {/* How big the haystack was, under the last hit — the answer to the
+            <FoldPanel
+              open={!collapsed}
+              testId="project-group-rows"
+              dragScope={`group:${group.key}`}
+            >
+              {group.rows.map((item) => renderWorkRow(item))}
+              {group.snoozedRows.length > 0 && (
+                <m.div
+                  layout="position"
+                  layoutDependency={layoutRevision}
+                  transition={
+                    shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                  }
+                >
+                  <SnoozedIssueFold
+                    groupKey={group.key}
+                    rows={group.snoozedRows}
+                    renderRow={renderWorkRow}
+                    settleTransition={settle}
+                  />
+                </m.div>
+              )}
+              {/* The column's one tail fold. Suspended work folds above it. */}
+              {group.closedRows.length > 0 && (
+                <m.div
+                  layout="position"
+                  layoutDependency={layoutRevision}
+                  transition={
+                    shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                  }
+                >
+                  <ClosedIssueFold
+                    groupKey={group.key}
+                    rows={group.closedRows}
+                    renderRow={renderWorkRow}
+                    issueForRow={(item) => item.value.row as UnifiedIssueRowView}
+                    onArchive={archiveClosedIssue}
+                  />
+                </m.div>
+              )}
+            </FoldPanel>
+          </m.div>
+        )
+      })}
+      {/* How big the haystack was, under the last hit — the answer to the
             question a suddenly-short column raises. */}
-        {filtering && <WorkFilterFootnote total={filterTotal} />}
-        {/* One menu for the whole column, portalled to the cursor — see the
+      {filtering && <WorkFilterFootnote total={filterTotal} />}
+      {/* One menu for the whole column, portalled to the cursor — see the
             `foldedMenu` state for why it is not per row. */}
-        {foldedMenu && foldedMenuRow?.kind === 'issue' && (
-          <FoldedRowMenu
-            issue={foldedMenuRow.issue}
-            canBringBack={rowCanBringBack(foldedMenuRow, now)}
-            anchor={foldedMenu.anchor}
-            onClose={closeFoldedMenu}
-            onBringBack={() => bringBack(foldedMenuRow.issue.id)}
-          />
-        )}
-      </LayoutGroup>
-    </MotionConfig>
+      {foldedMenu && foldedMenuRow?.kind === 'issue' && (
+        <FoldedRowMenu
+          issue={foldedMenuRow.issue}
+          canBringBack={rowCanBringBack(foldedMenuRow, now)}
+          anchor={foldedMenu.anchor}
+          onClose={closeFoldedMenu}
+          onBringBack={() => bringBack(foldedMenuRow.issue.id)}
+        />
+      )}
+    </WorklistMotion>
   )
 }
