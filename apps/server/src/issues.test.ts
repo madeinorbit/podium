@@ -1314,6 +1314,28 @@ describe('new agent after worktree free (POD-580)', () => {
       ),
     ).toBe(true)
   })
+
+  /**
+   * POD-2651. An unpinned start must still land on the machine that HOLDS the
+   * repository. Handing repoOp an explicit id skips its own resolution, so the id
+   * we record is also the id we route to — assuming the host silently retargets
+   * every issue whose repo lives on another machine, at a path that is not there.
+   */
+  it('start routes a fresh worktree to the repo-holding machine, not the host', async () => {
+    const { svc, deps, store } = harness()
+    const holder = asMachineId('m-holds-repo')
+    deps.machineHoldingRepo = () => holder
+    const w = svc.create({ repoPath: '/r', title: 'Lives elsewhere', startNow: false })
+    await svc.start(w.id)
+    expect(store.hostMachineId).not.toBe(holder)
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/r',
+      expect.objectContaining({ branch: expect.stringContaining('lives-elsewhere') }),
+      holder,
+    )
+    expect(svc.get(w.id)!.machineId).toBe(holder)
+  })
 })
 
 describe('IssueService next-message defer (#430)', () => {

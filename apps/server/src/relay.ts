@@ -1167,6 +1167,7 @@ export class SessionRegistry {
       repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
       requireMachineForRepo: (machineId, repoPath) =>
         machines.requireMachineForRepo(machineId, repoPath),
+      machineHoldingRepo: (cwd) => machines.machineHoldingRepo(cwd),
       // Machine-pinned start (POD-1386/POD-1405/POD-1424): resolve the repository on the
       // target by IDENTITY — the repoId-keyed resolver handoff already uses, so a pin
       // finds the repo instead of demanding the source's path — then materialise the

@@ -205,6 +205,24 @@ export interface IssueDeps {
    *  existing test deps literals stay valid. */
   requireMachineForRepo?(machineId: MachineId, repoPath: string): void
   /**
+   * The online machine that HOLDS this repository path, or undefined.
+   *
+   * A worktree's recorded machine and the machine its git op runs on have to agree,
+   * and the only way to guarantee that is to decide once and use the answer for
+   * both. Neither of the two obvious shortcuts does it: an absent machineId is
+   * re-resolved against the fleet at call time, so the answer moves; and assuming
+   * the host retargets every issue whose repository lives elsewhere, which is how
+   * POD-2651 broke starts for repositories registered to another machine.
+   *
+   * Deliberately NOT `pickMachineForRepo`, whose fallback is the first online
+   * daemon: for a path no machine has registered that is an arbitrary machine, and
+   * a worktree needs the repository, not merely somewhere to run. Undefined here
+   * means "nobody holds it" and the caller falls back to the host on purpose.
+   *
+   * Optional so existing test deps literals stay valid; absent = host behaviour.
+   */
+  machineHoldingRepo?(cwd: string): MachineId | undefined
+  /**
    * Prepare a machine-pinned start (POD-1424): put the right REPOSITORY on the target
    * (resolved by repo IDENTITY, cloned on absence — POD-1386) and the right COMMITS in
    * it (bundled directly, because a local-only base is on no shared remote — POD-1405).
