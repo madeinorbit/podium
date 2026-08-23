@@ -413,6 +413,66 @@ describe('ParentProcess', () => {
   })
 
   /**
+   * A packaged all-in-one successor can die before it ever binds its server.
+   * Waiting for the full 90s health budget leaves the old parent serving while
+   * the update operation's terminal wait expires; the observed child exit is
+   * already a decisive failed handover and must enter the same rollback path.
+   */
+  it('all-in-one rollback starts when the successor exits before the health gate', async () => {
+    const { install, state } = installDirs('2.0.0')
+    const clock = fakeClock()
+    const kids: FakeChild[] = []
+    let successor: FakeChild | undefined
+    let nextPid = 600
+    let sleeps = 0
+    const spawnImpl: SpawnChildFn = (_cmd, args) => {
+      const child = new FakeChild(nextPid++)
+      if (args[0] === 'parent') successor = child
+      else kids.push(child)
+      return child as unknown as ReturnType<SpawnChildFn>
+    }
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: install,
+        stateDir: state,
+        installBinary: join(install, 'podium'),
+        children: ['server', 'daemon'],
+        env: { PODIUM_APP_VERSION: '2.0.0', NOTIFY_SOCKET: '/dev/null' },
+        releaseHadMigrations: false,
+        spawn: spawnImpl,
+        // The old parent remains healthy, but the successor can never provide
+        // the requested target after its own packaged executable exits.
+        probeHealth: async () => healthy('2.0.0'),
+        notify: () => {},
+        sleep: async () => {
+          clock.advance(250)
+          if (++sleeps === 1) successor?.die(97)
+        },
+        now: clock.now,
+        handoverTimeoutMs: 90_000,
+        exit: () => {},
+      }),
+    )
+
+    await parent.start()
+    // The swap retains the previous bundle only after the healthy old parent booted.
+    retainBackup(install, '1.0.0')
+    // The successor's takeover reclaimed the old children before it crashed.
+    for (const kid of kids.splice(0)) kid.die(0, 'SIGTERM')
+
+    await expect(parent.handover('9.9.9')).rejects.toThrow(
+      /successor exited before becoming healthy/,
+    )
+
+    expect(clock.now(), 'rollback must not wait out the 90s health budget').toBeLessThan(91_000)
+    expect(versionAt(install)).toBe('1.0.0')
+    expect(existsSync(`${install}.old`)).toBe(false)
+    expect(outcomeIn(state)?.outcome).toBe('rolled-back')
+    expect(outcomeIn(state)?.why).toMatch(/successor exited before becoming healthy/)
+  })
+
+  /**
    * RE-REVIEW R1 — a SUCCESSOR is the only process that can see a post-update
    * crash loop (the parent that ran the swap has exited), and it used to have no
    * way of knowing whether the release carried migrations. It read `undefined`,

@@ -828,7 +828,10 @@ export class ParentProcess {
 
   /**
    * Self-handover: spawn a new parent from the install path, wait until it is
-   * healthy on the expected version, re-declare MAINPID, then exit.
+   * healthy on the expected version, re-declare MAINPID, then exit. An observed
+   * successor exit is an immediate failed handover; it takes the same rollback
+   * decision as a health timeout rather than leaving the old parent waiting for
+   * a process that cannot become healthy.
    *
    * The successor is spawned DETACHED (its own process group) so a signal aimed
    * at this parent's group cannot hit it, and it is NOT given the `parent` role
@@ -878,42 +881,64 @@ export class ParentProcess {
     }
     this.deps.reportSuccessorPid?.(successorPid)
 
-    const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? 90_000)
-    const wantsServer = this.childOrder.includes('server')
-    while (this.deps.now() < deadline) {
-      if (this.terminating) return
-      const healthy = wantsServer
-        ? isHandoverHealthy(await this.deps.probeHealth(this.deps.port), expectedVersion)
-        : isDaemonHandoverHealthy(await this.deps.probeDaemonHealth(), expectedVersion)
-      if (healthy) {
-        // The gate has passed: NOW tell systemd where its main process moved.
-        // nginx-reload pattern, but strictly after health, never before.
-        this.deps.notify(`MAINPID=${successorPid}`)
-        this.mainPidDeclared = true
-        pruneOldBundle(this.installDir)
-        clearParentRequest()
-        this.stopping = true
-        if (this.tickTimer) clearInterval(this.tickTimer)
-        // Successor owns children; do not SIGTERM them — just exit.
-        this.childProcs.clear()
-        this.successor = undefined
-        log.info('handover complete; old parent exiting', { successorPid, expectedVersion })
-        await this.deps.onExit?.(0)
-        if (this.deps.exit) this.deps.exit(0)
-        else process.exit(0)
-        return
-      }
-      await this.deps.sleep(250)
+    let successorExited = successor.exitCode !== null
+    const onSuccessorExit = (): void => {
+      successorExited = true
     }
-    await this.abortHandover(successor, expectedVersion, priorPhase)
-    throw new Error(
-      `handover timed out waiting for healthy successor (expected version ${expectedVersion})`,
-    )
+    successor.once('exit', onSuccessorExit)
+    const abortAfterSuccessorExit = async (): Promise<never> => {
+      const because = `the successor exited before becoming healthy on ${expectedVersion}`
+      await this.abortHandover(successor, expectedVersion, priorPhase, because)
+      throw new Error(`handover failed: ${because}`)
+    }
+
+    try {
+      const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? 90_000)
+      const wantsServer = this.childOrder.includes('server')
+      while (this.deps.now() < deadline) {
+        if (this.terminating) return
+        if (successorExited || successor.exitCode !== null) {
+          return await abortAfterSuccessorExit()
+        }
+        const healthy = wantsServer
+          ? isHandoverHealthy(await this.deps.probeHealth(this.deps.port), expectedVersion)
+          : isDaemonHandoverHealthy(await this.deps.probeDaemonHealth(), expectedVersion)
+        if (successorExited || successor.exitCode !== null) {
+          return await abortAfterSuccessorExit()
+        }
+        if (healthy) {
+          // The gate has passed: NOW tell systemd where its main process moved.
+          // nginx-reload pattern, but strictly after health, never before.
+          this.deps.notify(`MAINPID=${successorPid}`)
+          this.mainPidDeclared = true
+          pruneOldBundle(this.installDir)
+          clearParentRequest()
+          this.stopping = true
+          if (this.tickTimer) clearInterval(this.tickTimer)
+          // Successor owns children; do not SIGTERM them — just exit.
+          this.childProcs.clear()
+          this.successor = undefined
+          log.info('handover complete; old parent exiting', { successorPid, expectedVersion })
+          await this.deps.onExit?.(0)
+          if (this.deps.exit) this.deps.exit(0)
+          else process.exit(0)
+          return
+        }
+        await this.deps.sleep(250)
+      }
+      await this.abortHandover(successor, expectedVersion, priorPhase)
+      throw new Error(
+        `handover timed out waiting for healthy successor (expected version ${expectedVersion})`,
+      )
+    } finally {
+      successor.removeListener('exit', onSuccessorExit)
+    }
   }
 
   /**
-   * The successor never got healthy. Kill it, take supervision back, and put the
-   * machine on a version that works.
+   * The successor never got healthy (or exited before it could). Kill it when
+   * necessary, take supervision back, and put the machine on a version that
+   * works.
    *
    * "THE VERSION THAT WORKS" IS NOT THE ONE ON DISK. The swap ran before the
    * handover was asked for, so the install path already holds the release the
@@ -936,21 +961,23 @@ export class ParentProcess {
    * right: drop the arming and take the children back.
    *
    * Rolling back on a failed handover is deliberately eager: a handover fails
-   * because the successor could not serve for 90 seconds, and the cost of being
-   * wrong is one re-download on the next attempt, against a machine left on a
-   * release that has already failed to boot once.
+   * because the successor could not serve before its deadline or exited before
+   * becoming healthy, and the cost of being wrong is one re-download on the
+   * next attempt, against a machine left on a release that has already failed
+   * to boot once.
    */
   private async abortHandover(
     successor: ChildProcess,
     expectedVersion: string,
     priorPhase: ParentSnapshot['phase'],
+    because = `the successor parent never became healthy on ${expectedVersion}`,
   ): Promise<void> {
     log.error('handover failed — reclaiming supervision on the previous version', {
       successorPid: successor.pid,
       expectedVersion,
     })
     try {
-      successor.kill('SIGTERM')
+      if (successor.exitCode === null) successor.kill('SIGTERM')
       const deadline = this.deps.now() + 5_000
       while (this.deps.now() < deadline && successor.exitCode === null) {
         await this.deps.sleep(100)
@@ -964,7 +991,6 @@ export class ParentProcess {
       this.deps.notify(`MAINPID=${process.pid}`)
       this.mainPidDeclared = false
     }
-    const because = `the successor parent never became healthy on ${expectedVersion}`
     const decision = oldBundlePresent(this.installDir)
       ? rollbackDecision({
           crashLoop: true,
