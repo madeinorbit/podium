@@ -493,6 +493,13 @@ fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Resu
 }
 
 fn main() {
+    // Claim the selected instance's state root before logging, plugins, or setup can write to it.
+    // Otherwise the desktop shell itself makes an empty named root non-empty, and the bundled
+    // runtime correctly refuses to adopt it, leaving the shell in an endless respawn loop.
+    if let Err(error) = bootstrap::ensure_instance_state_identity() {
+        eprintln!("[podium] ERROR desktop:shell {error}");
+        std::process::exit(1);
+    }
     // FIRST STATEMENT IN THE PROCESS, and that placement is the point: the panic
     // hook installed here is what turns a panic during plugin registration or
     // window setup — the failures that leave a user with a shell that never

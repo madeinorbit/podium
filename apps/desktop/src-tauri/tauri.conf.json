@@ -30,6 +30,11 @@
       "bundleName": "Podium ADE",
       "minimumSystemVersion": "11.0"
     },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    },
     "createUpdaterArtifacts": true
   },
   "plugins": {

@@ -1,9 +1,150 @@
+use std::io::Write;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use tauri::webview::cookie::{Cookie, SameSite};
 use tauri::{Url, WebviewUrl};
 
 const SERVER_TRANSFER_JOURNAL: &str = ".server-transfer/journal.json";
+const DEFAULT_INSTANCE_ID: &str = "default";
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InstanceStateIdentity {
+    version: u8,
+    instance_id: String,
+}
+
+fn validate_instance_id(value: &str) -> Result<&str, String> {
+    let id = value.trim();
+    let mut chars = id.chars();
+    let starts_with_letter = chars.next().is_some_and(|c| c.is_ascii_lowercase());
+    let valid_tail = chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if id.len() > 32 || !starts_with_letter || !valid_tail {
+        return Err(format!(
+            "invalid Podium instance id '{value}': use 1-32 lowercase letters, digits, or hyphens, starting with a letter"
+        ));
+    }
+    Ok(id)
+}
+
+fn read_instance_state_identity(dir: &Path) -> Result<Option<InstanceStateIdentity>, String> {
+    let path = dir.join("instance.json");
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "invalid Podium instance marker at {}: {error}",
+                path.display()
+            ))
+        }
+    };
+    let marker: InstanceStateIdentity = serde_json::from_str(&raw).map_err(|error| {
+        format!(
+            "invalid Podium instance marker at {}: {error}",
+            path.display()
+        )
+    })?;
+    if marker.version != 1 || validate_instance_id(&marker.instance_id).is_err() {
+        return Err(format!(
+            "invalid Podium instance marker at {}",
+            path.display()
+        ));
+    }
+    Ok(Some(marker))
+}
+
+fn assert_instance_state_identity(
+    instance_id: &str,
+    dir: &Path,
+    marker: &InstanceStateIdentity,
+) -> Result<(), String> {
+    if marker.instance_id != instance_id {
+        return Err(format!(
+            "Podium instance '{instance_id}' cannot use {}: it belongs to instance '{}'",
+            dir.display(),
+            marker.instance_id
+        ));
+    }
+    Ok(())
+}
+
+fn create_state_dir(dir: &Path) -> Result<(), String> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder
+        .create(dir)
+        .map_err(|error| format!("cannot create {}: {error}", dir.display()))
+}
+
+fn ensure_instance_state_identity_at(
+    instance_id: &str,
+    dir: &Path,
+    adopt_state: bool,
+) -> Result<(), String> {
+    let instance_id = validate_instance_id(instance_id)?;
+    if let Some(marker) = read_instance_state_identity(dir)? {
+        return assert_instance_state_identity(instance_id, dir, &marker);
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            create_state_dir(dir)?;
+            std::fs::read_dir(dir)
+                .map_err(|error| format!("cannot read {}: {error}", dir.display()))?
+        }
+        Err(error) => return Err(format!("cannot read {}: {error}", dir.display())),
+    };
+    if entries.count() > 0 && instance_id != DEFAULT_INSTANCE_ID && !adopt_state {
+        return Err(format!(
+            "refusing to adopt non-empty state directory {} for instance '{instance_id}'; choose an empty root or set PODIUM_ADOPT_STATE=1 for an intentional migration",
+            dir.display()
+        ));
+    }
+    create_state_dir(dir)?;
+    let path = dir.join("instance.json");
+    let marker = InstanceStateIdentity {
+        version: 1,
+        instance_id: instance_id.to_string(),
+    };
+    let raw = serde_json::to_string_pretty(&marker).map_err(|error| error.to_string())? + "\n";
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    match options.open(&path) {
+        Ok(mut file) => file
+            .write_all(raw.as_bytes())
+            .map_err(|error| format!("cannot write {}: {error}", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let marker = read_instance_state_identity(dir)?.ok_or_else(|| {
+                format!(
+                    "cannot read raced Podium instance marker at {}",
+                    path.display()
+                )
+            })?;
+            assert_instance_state_identity(instance_id, dir, &marker)
+        }
+        Err(error) => Err(format!("cannot write {}: {error}", path.display())),
+    }
+}
+
+/// Claim the desktop shell's state root before any logger, updater, or sidecar write.
+/// The bundled TypeScript runtime enforces the same marker contract when it starts.
+pub fn ensure_instance_state_identity() -> Result<(), String> {
+    let instance_id =
+        std::env::var("PODIUM_INSTANCE").unwrap_or_else(|_| DEFAULT_INSTANCE_ID.to_string());
+    let adopt_state = std::env::var("PODIUM_ADOPT_STATE").is_ok_and(|value| !value.is_empty());
+    ensure_instance_state_identity_at(&instance_id, &state_dir(), adopt_state)
+}
 
 /// Bind an ephemeral loopback port and return it (best-effort; falls back to 18787).
 ///
@@ -730,6 +871,64 @@ mod tests {
     #[test]
     fn pick_free_port_is_nonzero() {
         assert!(pick_free_port() > 0);
+    }
+
+    #[test]
+    fn desktop_claims_empty_named_instance_state_before_writing() {
+        let dir = std::env::temp_dir().join(format!(
+            "podium-desktop-instance-empty-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        ensure_instance_state_identity_at("blue", &dir, false).expect("claim named state");
+        let marker = read_instance_state_identity(&dir)
+            .expect("read marker")
+            .expect("marker exists");
+        assert_eq!(marker.version, 1);
+        assert_eq!(marker.instance_id, "blue");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&dir)
+                    .expect("state metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn desktop_refuses_unmarked_populated_named_instance_state() {
+        let dir = std::env::temp_dir().join(format!(
+            "podium-desktop-instance-populated-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create state");
+        std::fs::write(dir.join("config.json"), "{}\n").expect("seed state");
+        let error = ensure_instance_state_identity_at("blue", &dir, false)
+            .expect_err("unmarked populated named state must fail");
+        assert!(error.contains("refusing to adopt non-empty state directory"));
+        ensure_instance_state_identity_at("blue", &dir, true).expect("explicit adoption");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn desktop_rejects_state_owned_by_another_instance() {
+        let dir = std::env::temp_dir().join(format!(
+            "podium-desktop-instance-mismatch-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        ensure_instance_state_identity_at("blue", &dir, false).expect("claim state");
+        let error = ensure_instance_state_identity_at("green", &dir, false)
+            .expect_err("mismatched instance must fail");
+        assert!(error.contains("belongs to instance 'blue'"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

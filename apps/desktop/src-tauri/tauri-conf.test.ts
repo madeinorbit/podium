@@ -36,6 +36,12 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain('"PODIUM_MOBILE_WEB_DIR"')
     expect(mainSource).toContain('.resolve("resources/mobile", BaseDirectory::Resource)')
   })
+  it('bundles the GStreamer plugins WebKit needs inside the Linux AppImage', () => {
+    // AppRun points GST_PLUGIN_SYSTEM_PATH at the bundle even when that directory is empty,
+    // hiding system plugins. Without the media framework, navigating from setup into the main
+    // workspace leaves a blank WebKit surface when appsink/appsrc cannot be constructed.
+    expect(conf.bundle.linux.appimage.bundleMediaFramework).toBe(true)
+  })
   it('ships the entitlements notarization requires', () => {
     // Without an entitlements file the hardened runtime kills the JIT the bundled Bun sidecar
     // needs, and without the hardened runtime Apple refuses to notarize at all.
