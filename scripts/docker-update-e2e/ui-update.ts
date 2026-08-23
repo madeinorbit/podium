@@ -54,7 +54,9 @@ try {
           const next = document
             .querySelector('[data-testid="update-indicator"]')
             ?.getAttribute('aria-label')
-          return next === `Podium ${version} is available` || next === `Podium ${version} is required`
+          return (
+            next === `Podium ${version} is available` || next === `Podium ${version} is required`
+          )
         },
         { version: target },
       )
@@ -129,10 +131,10 @@ try {
           text.some((candidate) => candidate.includes(machine) && candidate.includes(version)),
         )
       },
-      { machines: ['fleet-a', 'fleet-b'], version: shownTarget },
+      { machines: ['source', 'fleet-a', 'fleet-b'], version: shownTarget },
     )
     const texts = await rows.allInnerTexts()
-    for (const machine of ['fleet-a', 'fleet-b']) {
+    for (const machine of ['source', 'fleet-a', 'fleet-b']) {
       const text = texts.find((candidate) => candidate.includes(machine))
       if (!text || !text.includes(shownTarget)) {
         throw new Error(`${machine} display does not report ${shownTarget}`)
@@ -177,7 +179,7 @@ try {
         }
       }
     }
-    for (const machine of ['fleet-a', 'fleet-b']) {
+    for (const machine of ['source', 'fleet-a', 'fleet-b']) {
       const apiMachine = fleetBody.machines.find(
         (candidate: { name?: string }) => candidate.name === machine,
       )
@@ -195,7 +197,7 @@ try {
       JSON.stringify({
         serverVersion,
         target,
-        machines: ['fleet-a', 'fleet-b'],
+        machines: ['source', 'fleet-a', 'fleet-b'],
       }),
     )
   } else {
@@ -205,7 +207,7 @@ try {
   if (page) {
     console.error(`url=${page.url()}`)
     try {
-      console.error(`body=${(await page.locator("body").innerText()).slice(0, 4_000)}`)
+      console.error(`body=${(await page.locator('body').innerText()).slice(0, 4_000)}`)
     } catch (bodyError) {
       console.error(`body-capture-failed=${String(bodyError)}`)
     }

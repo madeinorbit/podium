@@ -100,6 +100,8 @@ PODIUM_UPDATE_E2E_ONLY=legacy         run the packaged legacy migration row
 PODIUM_UPDATE_E2E_ONLY=server         update a packaged all-in-one server from
                                       a run-local production-shaped edge feed
 PODIUM_UPDATE_E2E_PROVE_FAILURE=server-*  arm one server assertion (see docs)
+PODIUM_UPDATE_E2E_PROVE_FAILURE=coordinator-participant
+                                      restore the old server-only no-participant shape
 PODIUM_UPDATE_E2E_ONLY=positive       run the offer, rollout, survival, and
                                       rollback path without refusal controls
 PODIUM_UPDATE_E2E_HOLD=proposal       leave a release proposal pending for a
@@ -344,6 +346,16 @@ packaged_components_healthy() {
       .components.daemon.state=="connected"' >/dev/null
 }
 
+all_in_one_participant_ready() {
+  local container=$1 expected=$2
+  container_exec "$container" curl -fsS \
+    http://127.0.0.1:18787/trpc/updates.fleet |
+    jq -e --arg expected "$expected" '
+      (.result.data.json // .result.data) as $fleet |
+      [$fleet.allMachines[] | select(.online == true and
+        .installKind == "installed" and .version == $expected)] | length == 1' >/dev/null
+}
+
 fresh_install() {
   local container=${1:-$FLEET_A}
   install_podium "$container"
@@ -366,6 +378,8 @@ fresh_install() {
   wait_for 60 "single packaged parent" container_exec "$container" \
     systemctl --user is-active --quiet "$unit"
   wait_for 60 "packaged daemon and janitor worker" packaged_components_healthy "$container"
+  wait_for 60 "one all-in-one update participant" \
+    all_in_one_participant_ready "$container" "$BOOTSTRAP_VERSION"
   main_pid="$(container_exec "$container" systemctl --user show "$unit" -p MainPID --value)"
   children="$(docker exec "$container" pgrep -P "$main_pid" || true)"
   children="${children//$'\n'/ }"
@@ -496,6 +510,19 @@ coordinator_is_installed_build() {
         (.appVersion|startswith("dev+")|not)' >/dev/null
 }
 
+coordinator_participant_ready() {
+  local expected=$1
+  rpc GET updates.fleet |
+    jq -e --arg expected "$expected" '
+      [.allMachines[] | select(.name == "source" and .online == true and
+        .installKind == "installed" and .version == $expected)] | length == 1' >/dev/null
+}
+
+coordinator_version_is() {
+  curl -fsS "http://127.0.0.1:$SOURCE_PORT/version" |
+    jq -e --arg expected "$1" '.appVersion == $expected' >/dev/null
+}
+
 launch_coordinator_setup() {
   docker exec -d --user podium --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env "PODIUM_INSTANCE=$INSTANCE" \
@@ -508,6 +535,10 @@ launch_coordinator_setup() {
 }
 
 launch_coordinator_parent() {
+  local participant_env=()
+  if [[ "$PROVE_FAILURE" == coordinator-participant ]]; then
+    participant_env=(--env PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT=1)
+  fi
   docker exec -d --user podium --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env "PODIUM_INSTANCE=$INSTANCE" \
     --env PODIUM_PORT=18787 --env PODIUM_HOST=0.0.0.0 \
@@ -517,6 +548,7 @@ launch_coordinator_parent() {
     --env BUN_BIN=/home/podium/.local/bin/bun --env BUN_INSTALL_CACHE_DIR=/bun-cache-cow/merged \
     --env PODIUM_ZIG=/opt/host-tools/zig-root/zig \
     --env PODIUM_RCODESIGN=/opt/host-tools/rcodesign \
+    "${participant_env[@]}" \
     "$SOURCE" bash -lc \
     "cd /work/source && exec '$(command_path)' parent --takeover >>/tmp/podium-source.log 2>&1"
 }
@@ -933,8 +965,8 @@ abduco_sessions_survived() {
 reported_versions_are() {
   rpc GET updates.fleet |
     jq -e --arg v "$1" \
-      '[.machines[]|select(.name=="fleet-a" or .name=="fleet-b")|
-        select(.online and .version==$v)]|length==2' >/dev/null
+      '[.machines[]|select(.name=="source" or .name=="fleet-a" or .name=="fleet-b")|
+        select(.online and .version==$v)]|length==3' >/dev/null
 }
 
 rollout() {
@@ -943,17 +975,17 @@ rollout() {
   while (( SECONDS < deadline )); do
     snapshot="$(rpc GET updates.fleet)" || { sleep 0.1; continue; }
     printf '%s\n' "$snapshot" >"$WORK/logs/rollout-last-fleet.json"
-    summary="$(jq -c '[.machines[] | select(.name=="fleet-a" or .name=="fleet-b") | {name,version,state,online}]' <<<"$snapshot")"
+    summary="$(jq -c '[.machines[] | select(.name=="source" or .name=="fleet-a" or .name=="fleet-b") | {name,version,state,online}]' <<<"$snapshot")"
     if [[ "$summary" != "$last_summary" ]]; then
       printf '%s\n' "$summary" >>"$WORK/logs/rollout-transitions.ndjson"
       last_summary="$summary"
     fi
     staged="$(jq -r --arg old "$old" --arg target "$target" '
-      ([.machines[] | select((.name=="fleet-a" or .name=="fleet-b") and
+      ([.machines[] | select((.name=="source" or .name=="fleet-a" or .name=="fleet-b") and
         (.state=="granted" or .state=="downloading" or .state=="restarting"))] | length) == 1 and
-      ([.machines[] | select((.name=="fleet-a" or .name=="fleet-b") and
-        .state=="current" and .version==$old)] | length) == 1 and
-      ([.machines[] | select((.name=="fleet-a" or .name=="fleet-b") and
+      ([.machines[] | select((.name=="source" or .name=="fleet-a" or .name=="fleet-b") and
+        .state=="current" and .version==$old)] | length) == 2 and
+      ([.machines[] | select((.name=="source" or .name=="fleet-a" or .name=="fleet-b") and
         .version==$target)] | length) == 0' <<<"$snapshot")"
     [[ "$staged" == true ]] && saw_canary=1
     terminal_operation "$id" && break
@@ -964,6 +996,8 @@ rollout() {
   jq -e '.state=="done"' <<<"$value" >/dev/null
   (( saw_canary == 1 ))
   wait_for 120 "both on-disk versions" installed_versions_are "$target"
+  wait_for 120 "coordinator on-disk version" installed_version_is "$SOURCE" "$target"
+  wait_for 120 "coordinator served version" coordinator_version_is "$target"
   wait_for 120 "both reported versions" reported_versions_are "$target"
   wait_for 120 "two self-handovers without systemd restart" self_handovers_complete
 }
@@ -1195,6 +1229,7 @@ main() {
   fi
   [[ -z "$PROVE_FAILURE" || "$PROVE_FAILURE" == schema ||
     "$PROVE_FAILURE" == tampered || "$PROVE_FAILURE" == server-assets ||
+    "$PROVE_FAILURE" == coordinator-participant ||
     "$PROVE_FAILURE" == server-migration || "$PROVE_FAILURE" == server-client ||
     "$PROVE_FAILURE" == server-handover || "$PROVE_FAILURE" == server-agent ||
     "$PROVE_FAILURE" == server-rollback ]] || die "unknown deliberate failure control"
@@ -1383,9 +1418,10 @@ main() {
   wait_for 120 "installed coordinator" coordinator_healthy
   curl -fsS "http://127.0.0.1:$SOURCE_PORT/version" \
     >"$WORK/logs/coordinator-version.json"
+  wait_for 120 "server-only coordinator participant" coordinator_participant_ready "$BOOTSTRAP_VERSION"
   if coordinator_is_installed_build; then
     pass coordinator-install \
-      "coordinator runs the installed $BOOTSTRAP_VERSION build with /work/source enabled only as its development publisher"
+      "coordinator runs the installed $BOOTSTRAP_VERSION build and its one parent-backed participant reports source online, installed, and versioned"
   else
     fail coordinator-install \
       "coordinator did not report the installed $BOOTSTRAP_VERSION build; raw response: logs/coordinator-version.json"

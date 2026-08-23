@@ -741,6 +741,8 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   // machine report. Process ownership is the authoritative fact; a supervised
   // daemon row remains the backward-compatible corroborating signal.
   const desktopHosted = input.desktopSupervised === true || host?.supervised === true
+  const hostUpdatesThroughFleet =
+    host?.online === true && isPackagedRolloutTarget(host) && host.version !== target.version
   const steps: OperationPlan['steps'] = []
   const deferred: DeferredPlace[] = []
   const awaiting: AwaitingAsk[] = []
@@ -812,6 +814,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
 
   if (
     !desktopHosted &&
+    !hostUpdatesThroughFleet &&
     input.serverInstallKind !== 'source' &&
     serverDiffers &&
     input.canRestartServer

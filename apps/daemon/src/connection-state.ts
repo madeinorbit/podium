@@ -70,6 +70,8 @@ interface SocketLike {
 export interface DaemonConnectionDeps {
   readonly options: DaemonOptions
   readonly build: PeerBuild
+  /** False when the sibling server hosts this parent's one update participant. */
+  readonly reportUpdateIdentity?: boolean
   readonly machineId: MachineId
   readonly identity: { token?: string; updatePubkey?: string }
   readonly receiveApplicationFrame: (raw: RawData) => void
@@ -365,11 +367,14 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   const makeDialer = () => {
     const selected = credential()
     if (!selected) throw new Error('daemon has no machine credential; pair it first')
+    const reportUpdateIdentity = deps.reportUpdateIdentity !== false
     return createHandshakeDialer({
       peerRole: 'machine',
       credential: selected,
-      caps: deliveryCaps(deps.build),
-      build: deps.build,
+      caps: deliveryCaps(deps.build).filter(
+        (cap) => reportUpdateIdentity || cap !== 'update.delivery.feed',
+      ),
+      ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {
         machineId: deps.machineId,
         hostname: hostname(),

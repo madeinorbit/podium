@@ -17,7 +17,13 @@ import {
   type UpdateChannel,
   type UserId,
 } from '@podium/model'
-import type { DaemonHandshake, LiveServerMessage, MachineVerb, PeerBuild, ServerMessage } from '@podium/protocol'
+import type {
+  DaemonHandshake,
+  LiveServerMessage,
+  MachineVerb,
+  PeerBuild,
+  ServerMessage,
+} from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
 import { type EnrollmentLedger, newLedgerTxnId } from '../../enrollment-ledger'
@@ -176,6 +182,11 @@ export class MachinesService {
   // socket: each connected machine has its own send, so a session's control
   // messages route to the daemon that actually runs it.
   private readonly daemons = new Map<string, Send<ControlMessage>>()
+  /** One local parent-backed update participant; separate from agent daemon routing. */
+  private readonly updateParticipants = new Map<
+    string,
+    Send<Extract<ControlMessage, { type: 'updateGrant' }>>
+  >()
   // Per-machine queue for control messages produced while that daemon is briefly
   // offline (e.g. the local daemon during boot, or a survivor session's reattach
   // before its machine re-attaches). Flushed in order on attach (flushQueued).
@@ -247,6 +258,30 @@ export class MachinesService {
     this.invalidateMachineCache()
   }
 
+  /** Register the parent-backed update participant for this host. A daemon socket may
+   * coexist for sessions, but update grants always take this one local path. */
+  attachUpdateParticipant(
+    machineId: MachineId,
+    send: Send<Extract<ControlMessage, { type: 'updateGrant' }>>,
+  ): void {
+    const existing = this.updateParticipants.get(machineId)
+    if (existing && existing !== send) {
+      throw new Error("machine '" + machineId + "' already has an update participant")
+    }
+    this.updateParticipants.set(machineId, send)
+    this.invalidateMachineCache()
+  }
+
+  detachUpdateParticipant(
+    machineId: MachineId,
+    send?: Send<Extract<ControlMessage, { type: 'updateGrant' }>>,
+  ): boolean {
+    if (send !== undefined && this.updateParticipants.get(machineId) !== send) return false
+    const removed = this.updateParticipants.delete(machineId)
+    if (removed) this.invalidateMachineCache()
+    return removed
+  }
+
   /** Flush control messages buffered while this machine was offline (e.g. a boot
    *  session's spawn produced before the host daemon's ws connected). Every queue is
    *  keyed by a real machine id, so there is nothing to carry over on attach. */
@@ -286,6 +321,13 @@ export class MachinesService {
   /** Route a control message to the daemon that owns `machineId`; queue it if that
    *  machine is briefly offline (flushed in order on its next attach). */
   readonly toMachine = (machineId: MachineId, msg: ControlMessage): void => {
+    if (msg.type === 'updateGrant') {
+      const participant = this.updateParticipants.get(machineId)
+      if (participant) {
+        participant(msg)
+        return
+      }
+    }
     const send = this.daemons.get(machineId)
     if (send) {
       send(msg)
@@ -599,7 +641,7 @@ export class MachinesService {
         id: m.id,
         name: m.name,
         hostname: m.hostname,
-        online: this.daemons.has(m.id),
+        online: this.daemons.has(m.id) || this.updateParticipants.has(m.id),
         lastSeenAt: m.lastSeenAt,
         updateChannel: resolveMachineChannel(m.updateChannelOverride, this.fleetChannel()),
         updateChannelOverride: m.updateChannelOverride,
@@ -794,6 +836,7 @@ export class MachinesService {
     this.deps.store.machines.deleteMachine(id)
     this.invalidateMachineCache()
     this.daemons.delete(id)
+    this.updateParticipants.delete(id)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
     this.broadcastMachines()

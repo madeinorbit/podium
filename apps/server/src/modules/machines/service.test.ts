@@ -76,6 +76,39 @@ describe('MachinesService daemon socket identity', () => {
     expect(svc.detach(MACHINE)).toBe(true)
     expect(svc.hasDaemon(MACHINE)).toBe(false)
   })
+
+  test('one local participant owns update grants while the daemon keeps session traffic', () => {
+    const svc = makeService()
+    const daemon = recorder()
+    const local: ControlMessage[] = []
+    const participant = (message: Extract<ControlMessage, { type: 'updateGrant' }>) =>
+      local.push(message)
+    const grant = {
+      type: 'updateGrant',
+      grantId: 'g1',
+      target: {
+        version: '0.4.2',
+        critical: false,
+        artifacts: {
+          headless: {
+            delivery: 'feed',
+            platforms: {
+              'linux-x86_64': { url: 'https://x.test/a', digest: 'd', signature: 's' },
+            },
+          },
+        },
+      },
+    } as ControlMessage
+
+    svc.attach(MACHINE, daemon.send)
+    svc.attachUpdateParticipant(MACHINE, participant)
+    svc.toMachine(MACHINE, keystroke)
+    svc.toMachine(MACHINE, grant)
+
+    expect(daemon.got).toEqual([keystroke])
+    expect(local).toEqual([grant])
+    expect(() => svc.attachUpdateParticipant(MACHINE, () => {})).toThrow(/already has/i)
+  })
 })
 
 describe('MachinesService.requireAgent refuses rather than falling through (POD-303)', () => {

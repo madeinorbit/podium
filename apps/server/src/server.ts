@@ -85,6 +85,7 @@ import {
   createInstalledCoordinatorRestart,
   createInstalledCoordinatorUpdate,
 } from './modules/updates/installed-restart'
+import { startLocalUpdateParticipant } from './modules/updates/local-participant'
 import type { ChannelFeed } from './modules/updates/release-target'
 import {
   readOrCreateDevArtifactToken,
@@ -672,6 +673,23 @@ export async function startServer(
   // no publisher return nothing here and simply have no dev feed to pull.
   devChannelFeed = devPublisher.channelFeed
 
+  /** One real host participant when an installed parent can apply its grants. */
+  const localUpdateParticipant =
+    process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT !== '1' &&
+    !developmentRuntime.runningFromSource &&
+    prepareCoordinatorUpdate &&
+    requestCoordinatorRestart
+      ? startLocalUpdateParticipant({
+          machineId: hostMachineId,
+          appVersion,
+          runtimeDir: join(stateDir(), 'runtime'),
+          pinnedPubkey: updateSigningKey.publicKey,
+          machines: registry.modules.machines,
+          updates: registry.modules.updates,
+          connected: (machineId) => registry.modules.bus.emit('machine.connected', { machineId }),
+        })
+      : undefined
+
   /**
    * ADOPT WHATEVER THE PREVIOUS PROCESS WAS DOING (POD-2097/POD-2098, spec §3.4).
    *
@@ -707,7 +725,7 @@ export async function startServer(
       channel: registry.modules.updates.operationChannel(hostMachineId),
       appVersion: () => appVersion,
       sourceDigest: serverBuildSourceDigest,
-      serverInstallKind: developmentSourceRoot ? 'source' : 'installed',
+      serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
       hostMachineId,
       ...(desktopSupervised ? { desktopSupervised: true } : {}),
       createDatabaseSnapshot: (from, target) =>
@@ -773,7 +791,7 @@ export async function startServer(
     instanceId,
     appVersion: () => appVersion,
     sourceDigest: serverBuildSourceDigest,
-    installKind: () => (developmentSourceRoot ? 'source' : 'installed'),
+    installKind: () => (developmentRuntime.runningFromSource ? 'source' : 'installed'),
     // Straight through to the Authority, which delegates to the policy object it
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
@@ -992,7 +1010,7 @@ export async function startServer(
           ...(desktopSupervised ? { desktopSupervised: true } : {}),
           ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
           ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
-          serverInstallKind: developmentSourceRoot ? 'source' : 'installed',
+          serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
           // The web build is the server's own step now, not a systemd unit to
           // restart (POD-1985) — but the context shape is unchanged, so the
           // Update panel's "the website is behind" path still just calls this.
@@ -1342,6 +1360,7 @@ export async function startServer(
               // An armed refresh timer that outlives the server would resolve a
               // target against a service whose store is already closed.
               ['updates.stopTargetRefresh', () => targetRefresh.stop()],
+              ['updates.localParticipant.close', () => localUpdateParticipant?.close()],
               // Same hazard, same window (POD-2097): an armed operation deadline
               // that outlives the server would wake into a closed store and try
               // to persist a stall against it. Operations are durable, so losing

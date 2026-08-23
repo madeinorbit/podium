@@ -23,7 +23,7 @@ import {
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
-import { requestParentHandover } from '@podium/runtime/parent-control'
+import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
 import { PARENT_HAS_SERVER_ENV } from '@podium/runtime/parent-process'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
 import type { RawData } from 'ws'
@@ -359,6 +359,7 @@ export async function createDaemonHostRuntime(args: {
     process.env.PODIUM_UNDER_PARENT === '1' && process.env[PARENT_HAS_SERVER_ENV] === '1'
 
   const reconcilePendingUpdate = (): string | undefined => {
+    if (parentHasServer) return
     const pending = readPendingGrant(instance.runtimeDir)
     if (!pending) return
 
@@ -443,6 +444,16 @@ export async function createDaemonHostRuntime(args: {
   const grantRunner = createGrantRunner({
     currentVersion: () => build.appVersion ?? 'dev',
     caps: deliveryCaps(build),
+    ...(process.env.PODIUM_UNDER_PARENT === '1'
+      ? {
+          installTarget: (target: import('@podium/protocol').UpdateTarget) =>
+            requestParentSwap({
+              expectedVersion: target.version,
+              target: target as unknown as Record<string, unknown>,
+              ...(identity.updatePubkey ? { pinnedPubkey: identity.updatePubkey } : {}),
+            }),
+        }
+      : {}),
     fetchArtifact: (asset, trust, signal, onProgress) =>
       fetchArtifact(asset, {
         fetch: globalThis.fetch,
@@ -483,8 +494,20 @@ export async function createDaemonHostRuntime(args: {
     report: (status) => send(status),
     now: Date.now,
   })
-  const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) =>
-    grantRunner.apply(grant)
+  const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) => {
+    if (!parentHasServer) return grantRunner.apply(grant)
+    send({
+      type: 'updateStatus',
+      grantId: grant.grantId,
+      targetVersion: grant.target.version,
+      state: 'rejected',
+      version: build.appVersion ?? 'dev',
+      detail:
+        'duplicate update route: this all-in-one daemon is session-only; ' +
+        'the parent-backed local participant owns this machine',
+    })
+    return Promise.resolve()
+  }
 
   const ctx: DaemonContext = {
     send,

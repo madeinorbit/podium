@@ -346,7 +346,12 @@ export type UpdateStartability = { startable: true } | { startable: false; reaso
 export function updateStartability(input: UpdatePlanInput): UpdateStartability {
   const plan = planUpdateOperation(input)
   if (plan.steps.length === 0 && (plan.awaiting ?? []).length === 0) {
-    if ((plan.deferred ?? []).length > 0) return { startable: true }
+    if ((plan.deferred ?? []).length > 0) {
+      return {
+        startable: false,
+        reason: 'No online machine can apply this update right now.',
+      }
+    }
     return {
       startable: false,
       reason: 'Podium is already at this version everywhere.',

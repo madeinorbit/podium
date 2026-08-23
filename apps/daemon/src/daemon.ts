@@ -1,6 +1,7 @@
 import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
+import { PARENT_HAS_SERVER_ENV } from '@podium/runtime/parent-process'
 import { captureDaemonBootBuild } from './build-report'
 import { createDaemonConnection, type DaemonConnection } from './connection-state'
 import { disarmExitSeam } from './convergence'
@@ -99,6 +100,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     socketPath: opts.hooks?.socketPath,
     receiptDir: opts.hooks?.receiptDir,
   })
+  const parentHostsUpdateParticipant =
+    process.env.PODIUM_UNDER_PARENT === '1' && process.env[PARENT_HAS_SERVER_ENV] === '1'
   let connection: DaemonConnection | undefined
   const host = await createDaemonHostRuntime({
     options,
@@ -110,6 +113,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   connection = createDaemonConnection({
     options,
     build,
+    reportUpdateIdentity: !parentHostsUpdateParticipant,
     machineId: asMachineId(host.machineId),
     identity: host.identity,
     receiveApplicationFrame: host.receive,

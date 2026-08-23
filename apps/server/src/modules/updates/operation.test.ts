@@ -49,6 +49,7 @@ import {
   updateOperationKind,
 } from './operation'
 import { UpdatesService } from './service'
+import { updateStartability } from './trpc'
 import { offeredDeliveries, type WaveMachine } from './wave'
 
 /**
@@ -155,6 +156,15 @@ describe('planUpdateOperation', () => {
       name: 'an already-packed target needs no preparation',
       input: { target: packedTarget(), fleet: [machine({ id: 'vmi' })] },
       steps: [UPDATE_STEP_MACHINES, UPDATE_STEP_SERVER, UPDATE_STEP_WEB],
+    },
+    {
+      name: 'a parent-backed host participates once in the fleet instead of a server step',
+      input: {
+        target: packedTarget(),
+        hostMachineId: 'host',
+        fleet: [machine({ id: 'host', installKind: 'installed', online: true })],
+      },
+      steps: [UPDATE_STEP_MACHINES, UPDATE_STEP_WEB],
     },
     {
       name: 'a server already on the target keeps its machines and its website',
@@ -357,6 +367,21 @@ describe('planUpdateOperation', () => {
     const machines = plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)
     expect(machines?.places?.map((place) => place.id)).toEqual(['vmi'])
     expect(plan.deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+  })
+
+  it('refuses to start when every changed place is deferred offline', () => {
+    const target = packedTarget()
+    const input = planInput({
+      target,
+      appVersion: target.version,
+      servedWebDigest: target.artifacts.web?.digest,
+      fleet: [machine({ id: 'offline', online: false })],
+    })
+
+    expect(updateStartability(input)).toEqual({
+      startable: false,
+      reason: 'No online machine can apply this update right now.',
+    })
   })
 
   it('plans no machines step at all when every behind machine is asleep', () => {
@@ -983,7 +1008,7 @@ function harness(options: HarnessOptions = {}) {
     seed?: UpdateTarget,
     seedProvided = false,
   ) => {
-    const initialTarget = seedProvided ? seed : options.target ?? devTarget()
+    const initialTarget = seedProvided ? seed : (options.target ?? devTarget())
     const service = new UpdatesService({
       machines: () => fleet,
       send: (machineId, message) => sent.push({ machineId, message }),
@@ -1550,9 +1575,10 @@ describe('the step runners', () => {
   })
 
   /**
-   * A packaged all-in-one rollback can report from the daemon before the
-   * reconnecting machine is back in the directory and before the successor
-   * resolves its feed target. The terminal report must survive both gaps.
+   * A packaged all-in-one rollback reports through its one parent-backed
+   * participant before the reconnecting machine is back in the directory and
+   * before the successor resolves its feed target. The terminal report must
+   * survive both gaps without a duplicate server step.
    */
   it('server: settles a packaged all-in-one rollback before target resolution', async () => {
     const target = packedTarget()
@@ -1568,7 +1594,7 @@ describe('the step runners', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
-    expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBe('pending')
+    expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBeUndefined()
     h.engine.stop()
 
     fleet.length = 0
@@ -1586,7 +1612,7 @@ describe('the step runners', () => {
     expect(boot.updates.target('dev')).toBeUndefined()
     expect(h.read().state).toBe('running')
     expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
-    expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBe('pending')
+    expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBeUndefined()
 
     const bridge = createUpdateFleetBridge({
       engine: boot.engine,
@@ -1601,8 +1627,7 @@ describe('the step runners', () => {
       targetVersion: target.version,
       state: 'stuck',
       version: '0.4.1',
-      detail:
-        `did not reach ${target.version} after 2 attempt(s); running 0.4.1, pinned to last-known-good`,
+      detail: `did not reach ${target.version} after 2 attempt(s); running 0.4.1, pinned to last-known-good`,
     })
     bridge.onFleetChanged()
     expect(h.read().state).toBe('running')
@@ -1614,7 +1639,7 @@ describe('the step runners', () => {
     const operation = h.read()
     expect(operation.state).toBe('failed')
     expect(stepState(operation, UPDATE_STEP_MACHINES)).toBe('failed')
-    expect(stepState(operation, UPDATE_STEP_SERVER)).toBe('pending')
+    expect(stepState(operation, UPDATE_STEP_SERVER)).toBeUndefined()
     expect(operation.error?.code).toBe('machine-update-not-confirmed')
     expect(
       h.store.history(UPDATE_OPERATION_KIND).some((entry) => entry.operation?.id === operation.id),

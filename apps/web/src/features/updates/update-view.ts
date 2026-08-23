@@ -549,7 +549,7 @@ export function describeUpdate(input: UpdateInput): UpdateView {
   const places = placesFor(input)
   if (!required && places.length === 0) return { state: 'none' }
   if (input.fleet.startability?.startable === false && input.desktopUpdate === undefined) {
-    return { state: 'local-stale', version }
+    return required && input.touched.app ? { state: 'local-stale', version } : { state: 'none' }
   }
 
   const result: Extract<UpdateView, { state: 'available' | 'required' }> = {

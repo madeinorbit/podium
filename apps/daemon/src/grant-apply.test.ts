@@ -90,6 +90,18 @@ describe('applyGrant', () => {
     expect(order).toEqual(['write', 'restart'])
   })
 
+  it('delegates a supervised install to the parent without fetching or swapping twice', async () => {
+    const installTarget = vi.fn(async () => ({ releaseHadMigrations: true }))
+    const d = deps({ installTarget })
+
+    await applyGrant({ type: 'updateGrant', grantId: 'g-parent', target }, d)
+
+    expect(installTarget).toHaveBeenCalledWith(target)
+    expect(d.fetchArtifact).not.toHaveBeenCalled()
+    expect(d.swap).not.toHaveBeenCalled()
+    expect(d.restart).toHaveBeenCalledWith('0.4.2', { releaseHadMigrations: true })
+  })
+
   /**
    * THE ROLLBACK FACT TRAVELS WITH THE PACKAGED HANDOVER.
    *

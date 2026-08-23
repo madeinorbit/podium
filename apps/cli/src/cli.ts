@@ -1547,11 +1547,9 @@ export async function main(
       const parent = new ParentProcess({
         port: plan.port,
         children,
-        finalizePendingGrant:
-          children.includes('server') && children.includes('daemon')
-            ? (expectedVersion) =>
-                finalizePendingGrant(join(stateDir(), 'runtime'), expectedVersion)
-            : undefined,
+        finalizePendingGrant: children.includes('server')
+          ? (expectedVersion) => finalizePendingGrant(join(stateDir(), 'runtime'), expectedVersion)
+          : undefined,
         env: {
           ...process.env,
           ...(compiled

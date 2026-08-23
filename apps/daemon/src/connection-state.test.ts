@@ -109,6 +109,32 @@ describe('daemon connection credential state machine', () => {
     await state.close()
   })
 
+  it('is session-only when the sibling server owns the parent update participant', async () => {
+    let hello: PeerHello | undefined
+    const build = {
+      ...buildReport(process.env, undefined),
+      installKind: 'installed' as const,
+    }
+    const state = createDaemonConnection({
+      options: localOptions((value) => (hello = value), { bootstrapToken: 'local-secret' }),
+      build,
+      reportUpdateIdentity: false,
+      machineId: MACHINE_ID,
+      identity: {},
+      receiveApplicationFrame: vi.fn(),
+      sendApplicationFrame: vi.fn(),
+      onConnected: vi.fn(),
+      onTerminal: vi.fn(),
+    })
+
+    await state.start()
+
+    expect(hello?.build).toBeUndefined()
+    expect(hello?.caps).not.toContain('update.delivery.feed')
+    expect(hello?.caps).toContain('shipping.train.v2')
+    await state.close()
+  })
+
   it('persists the live process and boot convergence proof after authentication', async () => {
     const options = localOptions(() => {})
     const build = { ...buildReport(process.env, undefined), appVersion: '2.0.0' }

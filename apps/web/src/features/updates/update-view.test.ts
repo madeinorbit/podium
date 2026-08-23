@@ -51,6 +51,26 @@ describe('describeUpdate', () => {
     expect(v).toEqual({ state: 'local-stale', version: '0.4.2' })
   })
 
+  it('offers no control when every affected machine is offline', () => {
+    const v = describeUpdate({
+      ...base,
+      localVersion: '0.4.2',
+      server: { appVersion: '0.4.2', target: base.server.target },
+      fleet: {
+        ...base.fleet,
+        total: 1,
+        behind: 1,
+        startability: {
+          startable: false,
+          reason: 'No online machine can apply this update right now.',
+        },
+      },
+      touched: { app: false, server: false, machines: true },
+    } as never)
+
+    expect(v).toEqual({ state: 'none' })
+  })
+
   it('names places, never components', () => {
     const v = describeUpdate(base as never)
     const text = JSON.stringify(v)
