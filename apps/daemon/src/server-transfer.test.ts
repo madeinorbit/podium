@@ -88,6 +88,18 @@ async function candidateFiles(machineId = targetMachineId): Promise<Record<strin
   return { 'enrollment.ledger': enrollmentLedger, 'podium.db': podiumDb }
 }
 
+function ledgerEvent(kind: 'enroll' | 'revoke', serial: number, id: string): string {
+  return JSON.stringify({
+    v: 1,
+    kind,
+    id,
+    machineId: targetMachineId,
+    serial,
+    ...(kind === 'enroll' ? { ownerUserId: 'owner-1' } : { by: 'owner-1' }),
+    at: 'now',
+  })
+}
+
 async function invoke(
   type:
     | 'serverTransferPrepareRequest'
@@ -658,6 +670,58 @@ describe('server transfer target daemon', () => {
       manifestDigest: 'f'.repeat(64),
     })
     expect(conflictingStatus).toMatchObject({ ok: false, errorCode: 'conflicting-digest' })
+  })
+
+  it.each([
+    ['revoked', `${ledgerEvent('revoke', 1, 'revoke-1')}\n`, false],
+    [
+      're-enrolled',
+      `${ledgerEvent('revoke', 1, 'revoke-1')}\n${ledgerEvent('enroll', 2, 'enroll-2')}\n`,
+      true,
+    ],
+  ] as const)('requires an active target enrollment in a %s candidate', async (_, suffix, ok) => {
+    const files = await candidateFiles()
+    files['enrollment.ledger'] = Buffer.concat([
+      files['enrollment.ledger']!,
+      Buffer.from(suffix),
+    ])
+    const manifest = Object.entries(files)
+      .map(([path, content]) => fileEntry(path, content))
+      .sort((a, b) => a.path.localeCompare(b.path))
+    const transferId = randomUUID()
+    const manifestDigest = digest(transferManifest(transferId, manifest))
+
+    await invoke('serverTransferPrepareRequest', {
+      type: 'serverTransferPrepareRequest',
+      requestId: `prepare-active-enrollment-${transferId}`,
+      transferId,
+      manifest: transferManifest(transferId, manifest),
+      manifestDigest,
+    })
+    for (const [path, content] of Object.entries(files)) {
+      expect(
+        await invoke('serverTransferChunkRequest', {
+          type: 'serverTransferChunkRequest',
+          requestId: `chunk-active-enrollment-${path}`,
+          transferId,
+          manifestDigest,
+          path,
+          offset: 0,
+          data: content.toString('base64'),
+          expectedLength: content.length,
+        }),
+      ).toMatchObject({ ok: true })
+    }
+
+    const validate = await invoke('serverTransferValidateRequest', {
+      type: 'serverTransferValidateRequest',
+      requestId: `validate-active-enrollment-${transferId}`,
+      transferId,
+      manifestDigest,
+    })
+    expect(validate).toMatchObject(
+      ok ? { ok: true, state: 'validated' } : { ok: false, errorCode: 'identity-mismatch' },
+    )
   })
   for (const point of [
     'before-backup',

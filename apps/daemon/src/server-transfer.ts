@@ -358,10 +358,26 @@ async function candidateProof(meta: StageMeta): Promise<ServerTransferProof> {
     !/^[a-f0-9]{64,}$/i.test(header.pairingRoot)
   )
     fail('candidate-invalid', 'enrollment ledger has no valid pairing root')
-  if (
-    !ledgerLines.some((line) => line.kind === 'enroll' && line.machineId === meta.targetMachineId)
-  )
-    fail('identity-mismatch', 'target machine is absent from the enrollment ledger')
+  const seenIds = new Set<string>()
+  let enrolledAt = 0
+  let revokedAt = 0
+  for (const line of ledgerLines) {
+    if (
+      line.v !== 1 ||
+      (line.kind !== 'enroll' && line.kind !== 'revoke' && line.kind !== 'owner') ||
+      typeof line.id !== 'string' ||
+      typeof line.machineId !== 'string' ||
+      seenIds.has(line.id)
+    ) {
+      continue
+    }
+    seenIds.add(line.id)
+    if (line.machineId !== meta.targetMachineId || typeof line.serial !== 'number') continue
+    if (line.kind === 'enroll' && line.serial > enrolledAt) enrolledAt = line.serial
+    if (line.kind === 'revoke' && line.serial > revokedAt) revokedAt = line.serial
+  }
+  if (enrolledAt === 0 || revokedAt >= enrolledAt)
+    fail('identity-mismatch', 'target machine has no active enrollment in the candidate ledger')
 
   let db: ReturnType<typeof openDatabase> | undefined
   try {
