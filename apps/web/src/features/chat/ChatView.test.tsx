@@ -552,6 +552,17 @@ describe('ChatView composer', () => {
         createdAt: '2026-06-03T00:00:03.000Z',
         status: 'delivered',
       },
+      {
+        id: 'msg_delivered_then_failed',
+        from: 'operator',
+        to: 'session:s1',
+        body: 'delivery later failed',
+        createdAt: '2026-06-03T00:00:04.000Z',
+        status: 'dead_letter',
+        deliveredAt: '2026-06-03T00:00:04.500Z',
+        deliveredTo: 'session:s1',
+        deliveryDeferredReason: 'delivery-failed',
+      },
     ])
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
@@ -563,6 +574,8 @@ describe('ChatView composer', () => {
     expect(failed?.textContent).toContain('not delivered · session never became ready')
     expect(container.textContent).not.toContain('do not show this here')
     expect(container.textContent).not.toContain('already delivered')
+    expect(container.textContent).toContain('delivery later failed')
+    expect(container.textContent).toContain('not delivered · delivery failed')
 
     await act(async () => {
       failed?.querySelector<HTMLButtonElement>('[aria-label="Retry failed message"]')?.click()
