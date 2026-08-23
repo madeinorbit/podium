@@ -278,6 +278,35 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     ])
   })
 
+  it('keeps a displayed live session when its issue projection disappears on the coarse-clock tick', () => {
+    const path = '/r/a/.worktrees/x'
+    const session = idle('s', path, { issueId: 'draft' })
+    const wt = navWt(path, { isMain: false, sessions: [session] })
+
+    const before = unifiedWorkList(
+      emptySections([wt]),
+      [issue({ id: 'draft', draft: true })],
+      [session],
+      [],
+      NOW,
+    )
+    const after = unifiedWorkList(emptySections([wt]), [], [session], [], NOW + 60_000)
+
+    expect(
+      before.map((row) => (row.kind === 'issue' ? 'issue:' + row.issue.id : 'worktree')),
+    ).toEqual(['issue:draft'])
+    expect(
+      after.map((row) =>
+        row.kind === 'worktree' ? 'worktree:' + row.worktree.path : 'issue',
+      ),
+    ).toEqual(['worktree:' + path])
+    expect(
+      (after[0]?.kind === 'worktree' ? after[0].worktree.sessions : []).map(
+        (s) => s.sessionId,
+      ),
+    ).toEqual(['s'])
+  })
+
   it('suppresses a worktree row whose sessions are ALL attached to live issues', () => {
     // Agent self-created worktree; the issue never stamped worktreePath. The
     // session already renders under the issue row — no duplicate worktree row.
