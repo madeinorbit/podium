@@ -27,7 +27,7 @@ import {
   issueAgentKind,
   issueAgentLabel,
 } from '@/lib/issue-agents'
-import { setKnownRefPrefixes } from '@/lib/markdown'
+import { setKnownRefPrefixes } from '@/lib/markdown-references'
 import {
   closeMiniview,
   getMiniviewState,

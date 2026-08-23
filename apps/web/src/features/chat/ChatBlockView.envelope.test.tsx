@@ -3,7 +3,7 @@ import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setKnownRefPrefixes } from '@/lib/markdown'
+import { setKnownRefPrefixes } from '@/lib/markdown-references'
 import { ChatBlockView } from './ChatBlockView'
 
 // The envelope block renders standalone — no hub/tRPC — so this suite mounts

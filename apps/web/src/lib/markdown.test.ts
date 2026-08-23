@@ -7,8 +7,8 @@ import {
   linkifyRefs,
   renderMarkdown,
   sanitizeRenderedMarkdown,
-  setKnownRefPrefixes,
 } from './markdown'
+import { setKnownRefPrefixes } from './markdown-references'
 
 const stylesPath = ['src/styles.css', 'apps/web/src/styles.css']
   .map((path) => resolve(process.cwd(), path))

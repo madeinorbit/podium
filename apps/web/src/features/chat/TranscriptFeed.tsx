@@ -17,6 +17,7 @@ import { ArrowUp, Image as ImageIcon } from 'lucide-react'
 import type { JSX, RefCallback, UIEventHandler } from 'react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
+import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type TurnPosition } from './ChatBlockView'
 import type { ProjectedPendingItem, QueuedChatMessage } from './chat'
@@ -42,12 +43,12 @@ function StreamingMarkdown({ text }: { text: string }): JSX.Element {
     // superseded partials do not fill the shared worker queue ahead of settled
     // transcript indexing and search requests.
     const timer = window.setTimeout(() => {
-      void client.computeMarkdown(text).then(
+      void client.computeMarkdown(text, renderMarkdownUnsafe).then(
         (unsafeHtml) => {
           if (!cancelled) setComputed({ text, unsafeHtml })
         },
         () => {
-          if (!cancelled) setComputed({ text, unsafeHtml: client.computeMarkdownOnMain(text) })
+          if (!cancelled) setComputed({ text, unsafeHtml: renderMarkdownUnsafe(text) })
         },
       )
     }, 80)

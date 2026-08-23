@@ -9,7 +9,6 @@ import type {
   TranscriptComputeWorkerRequest,
   TranscriptWorkerResponse,
 } from './transcript-compute.worker'
-import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
 
 export interface WebTranscriptComputeResult extends TranscriptComputeResult {
   /** Unsafe worker HTML keyed by source Markdown. Sanitize before DOM use. */
@@ -140,10 +139,6 @@ export class TranscriptComputeClient {
     return this.stabilize(input, computeTranscript(input))
   }
 
-  computeMarkdownOnMain(text: string): string {
-    return renderMarkdownUnsafe(text)
-  }
-
   private cacheMarkdown(text: string, html: string): void {
     // Mirror the worker's insertion-ordered cache. Cache hits do not move either
     // side, keeping eviction deterministic even when streaming and transcript
@@ -216,9 +211,9 @@ export class TranscriptComputeClient {
     })
   }
 
-  computeMarkdown(text: string): Promise<string> {
+  computeMarkdown(text: string, renderOnMain: (text: string) => string): Promise<string> {
     const worker = this.ensureWorker()
-    if (!worker) return Promise.resolve(this.computeMarkdownOnMain(text))
+    if (!worker) return Promise.resolve(renderOnMain(text))
     const id = ++this.nextId
     return new Promise<string>((resolve, reject) => {
       this.pending.set(id, { kind: 'markdown', text, resolve, reject })

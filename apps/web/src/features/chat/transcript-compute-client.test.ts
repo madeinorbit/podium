@@ -1,6 +1,8 @@
 import type { TranscriptItem } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TranscriptComputeClient } from './transcript-compute-client'
+
+afterEach(() => vi.unstubAllGlobals())
 
 const item = (
   overrides: Partial<TranscriptItem> & Pick<TranscriptItem, 'id' | 'role'>,
@@ -24,5 +26,16 @@ describe('TranscriptComputeClient', () => {
     expect(second.rows).toBe(first.rows)
     expect(second.markdownHtml).toBe(first.markdownHtml)
     expect(second.search.matches).toEqual([1])
+  })
+
+  it('uses the deferred renderer supplied by the feed when no Worker is available', async () => {
+    vi.stubGlobal('Worker', undefined)
+    const client = new TranscriptComputeClient()
+    const renderOnMain = vi.fn((text: string) => `<p>${text}</p>`)
+
+    await expect(client.computeMarkdown('streaming', renderOnMain)).resolves.toBe(
+      '<p>streaming</p>',
+    )
+    expect(renderOnMain).toHaveBeenCalledOnce()
   })
 })
