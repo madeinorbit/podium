@@ -1265,6 +1265,14 @@ export class MessageDeliveryService {
     // recoverable path — a parked 'no resume ref' — is intercepted upstream and
     // routed to trySpawn, so it never surfaces this mixed signal to a sender.
     if (!r.ok) return { ...r, disposition: 'queued' }
+    // A live session can still be inside the harness's startup window. The
+    // legacy inbox redirects that `now` send into its durable FIFO; preserve
+    // that queued state instead of marking the message delivered on enqueue.
+    if (via !== 'queue' && r.queued === true) {
+      this.markInjected(message, sessionId)
+      recorded = true
+      return { ...r, disposition: 'queued' }
+    }
     // A boot/busy queue acceptance is not delivery. Keep the ledger row queued
     // until SessionInbox drains this exact sourceMessageId; otherwise the
     // transcript hides a still-pending human message as soon as revival starts,

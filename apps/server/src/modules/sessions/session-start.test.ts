@@ -70,6 +70,23 @@ describe('SessionStart: issue owner precedence', () => {
   })
 })
 
+describe('SessionStart: creation-owned first prompt', () => {
+  it('queues a non-argv OpenCode prompt instead of seeding an unsent draft', () => {
+    const { reg, daemon } = makeRegistry()
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'opencode',
+      cwd: '/proj',
+      initialPrompt: 'hello',
+    })
+
+    const queued = reg.sessionStore.sync.listQueuedMessages(sessionId)
+    expect(queued.map((row) => row.text)).toEqual(['hello'])
+    const session = reg.modules.sessions.listSessions().find((item) => item.sessionId === sessionId)
+    expect(session?.draftUpdatedAt).toBeUndefined()
+    expect(spawns(daemon).at(-1)).not.toHaveProperty('initialPrompt')
+  })
+})
+
 describe('resolved runtime driver projection', () => {
   it('publishes the actual driver, echoes degradation on reattach, and clears a stale request', () => {
     const { reg, daemon } = makeRegistry()

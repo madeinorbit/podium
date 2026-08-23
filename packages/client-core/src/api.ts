@@ -140,7 +140,7 @@ export interface PodiumClientApi {
         issueId?: IssueId
         draftIssue?: { repoPath: string; issueId?: IssueId }
         machineId?: MachineId
-        /** First prompt; argv harnesses get it on launch (POD-549). */
+        /** First prompt; SessionStart launches argv prompts and queues other harnesses durably. */
         initialPrompt?: string
         /** Per-spawn model/effort overrides. `'auto'` is omitted by callers. */
         model?: string

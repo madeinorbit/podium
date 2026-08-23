@@ -27,6 +27,7 @@ import {
   actorSystem,
   actorUser,
   asAgentIdentityId,
+  asMutationId,
   asSessionId,
   asUserId,
   isAgentComputing,
@@ -95,6 +96,9 @@ const RETRY_BACKOFF_MS = 2_000
 const CONFIRM_NEEDLE_CHARS = 80
 /** Below this, a needle matches too much of the transcript to be evidence. */
 const CONFIRM_NEEDLE_MIN_CHARS = 12
+
+/** Stable queue key for the prompt supplied in the session creation request. */
+const INITIAL_PROMPT_QUEUE_ID_PREFIX = 'session-initial-prompt:'
 
 /**
  * Stable authorization identity stored with a queued input.
@@ -391,23 +395,31 @@ const normalizeForMatch = (text: string): string => text.replace(/\s+/g, ' ').tr
 /**
  * The fragment of a queued prompt we look for in the transcript to know the CLI
  * accepted it. A prefix, because a harness may elide or decorate the tail of a
- * long paste; null when the prompt is too short to be evidence of anything.
+ * long paste; the complete normalized prompt when its identity must be exact;
+ * null when the prompt is too short to be evidence of anything.
  */
-const confirmationNeedle = (text: string): string | null => {
+const confirmationNeedle = (text: string, allowShort = false): string | null => {
   const normalized = normalizeForMatch(text)
-  if (normalized.length < CONFIRM_NEEDLE_MIN_CHARS) return null
-  return normalized.slice(0, CONFIRM_NEEDLE_CHARS)
+  if (normalized.length < CONFIRM_NEEDLE_MIN_CHARS && !allowShort) return null
+  return allowShort ? normalized : normalized.slice(0, CONFIRM_NEEDLE_CHARS)
 }
+
+const initialPromptQueueId = (sessionId: SessionId): string =>
+  `${INITIAL_PROMPT_QUEUE_ID_PREFIX}${sessionId}`
+
+const isInitialPromptRow = (sessionId: SessionId, row: QueuedInboxMessage): boolean =>
+  row.id === initialPromptQueueId(sessionId)
 
 /** The LAST user turn, and whether it is ours. Deliberately the tail rather than
  *  a count: the daemon re-reads a resumed transcript as a `reset` delta, which
  *  moves every count but leaves the tail meaning what it means. */
-const tailUserTurnMatches = (session: Session, needle: string): boolean => {
+const tailUserTurnMatches = (session: Session, needle: string, exact = false): boolean => {
   const items = session.terminal.transcriptItems()
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i]
     if (item?.role !== 'user') continue
-    return normalizeForMatch(item.text).includes(needle)
+    const normalized = normalizeForMatch(item.text)
+    return exact ? normalized === needle : normalized.includes(needle)
   }
   return false
 }
@@ -432,6 +444,11 @@ export class SessionInbox {
   private readonly activeDrains = new Set<SessionId>()
   /** Recovery answers may queue while a failed session is being woken. */
   private readonly recoveryDrains = new Set<SessionId>()
+  /**
+   * A PTY bind makes a session live before its harness composer is ready. Keep
+   * this marker on the session object rather than retaining session ids here.
+   */
+  private readonly inputReadySessions = new WeakSet<Session>()
 
   constructor(private readonly deps: SessionInboxDeps) {}
 
@@ -439,11 +456,47 @@ export class SessionInbox {
     return this.activeDrains.has(sessionId)
   }
 
+  /** A new bind starts a fresh harness-readiness window. */
+  markSessionBound(sessionId: SessionId): void {
+    const session = this.deps.getSession(sessionId)
+    if (session) this.inputReadySessions.delete(session)
+  }
+
+  /**
+   * Queue the prompt that arrived with session creation. Its deterministic id
+   * keeps the proof requirement recognizable if the server restarts before the
+   * first turn is observed.
+   */
+  queueInitialPrompt(input: InboxSendInput): {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  } {
+    return this.queueText({
+      ...input,
+      mutationId: asMutationId(initialPromptQueueId(input.sessionId)),
+    })
+  }
+
+  private needsInputReadiness(session: Session): boolean {
+    return (
+      session.agentKind === 'claude-code' &&
+      this.deps.needsSubmitVerification(session.agentKind) &&
+      !this.isRawFirstTurn(session) &&
+      !this.inputReadySessions.has(session)
+    )
+  }
+
   sendText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
     const session = this.deps.getSession(input.sessionId)
     const blockedReason = session ? blockedSessionSendReason(session) : undefined
     if (blockedReason && !input.allowErrored) return { ok: false, reason: blockedReason }
-    if (session && (session.queuedMessageCount > 0 || this.isDraining(input.sessionId))) {
+    if (
+      session &&
+      (session.queuedMessageCount > 0 ||
+        this.isDraining(input.sessionId) ||
+        this.needsInputReadiness(session))
+    ) {
       return this.queueText(input)
     }
     // A grok process that has bound but not finished its TUI still reports
@@ -618,7 +671,12 @@ export class SessionInbox {
     // and it is the only case whose readiness the quiet heuristic gets wrong.
     // The status alone cannot see it: the bind that wakes this pass has already
     // flipped the session to 'live' by the time we are called.
-    const woken = session.status !== 'live' || opts?.justBound === true
+    const firstQueuedRow = this.deps.queue.list(sessionId)[0]
+    const woken =
+      session.status !== 'live' ||
+      opts?.justBound === true ||
+      this.needsInputReadiness(session) ||
+      (firstQueuedRow !== undefined && isInitialPromptRow(sessionId, firstQueuedRow))
     // The CLI that was typed into is gone; whatever it was holding went with it.
     // Give this process the full attempt budget rather than the exhausted one the
     // dead process left behind (POD-1242).
@@ -638,7 +696,14 @@ export class SessionInbox {
       this.deps.broadcast()
     }
     /** The head is done with — settle its ledger receipt and move on. */
-    const settleHead = (current: Session, head: QueuedInboxMessage): void => {
+    const settleHead = (
+      current: Session,
+      head: QueuedInboxMessage,
+      transcriptConfirmed = false,
+    ): void => {
+      if (transcriptConfirmed && this.needsInputReadiness(current)) {
+        this.inputReadySessions.add(current)
+      }
       if (head.sourceMessageId) {
         this.deps.authorization.applied({ sourceMessageId: head.sourceMessageId, sessionId })
       }
@@ -682,8 +747,8 @@ export class SessionInbox {
           stop()
           return
         }
-        if (tailUserTurnMatches(current, needle)) {
-          settleHead(current, head)
+        if (tailUserTurnMatches(current, needle, isInitialPromptRow(sessionId, head))) {
+          settleHead(current, head, true)
           return
         }
         const now = this.deps.now()
@@ -704,7 +769,11 @@ export class SessionInbox {
         }
         // Unconfirmed. The row is still queued and still durable; the operator
         // keeps seeing it, and a later bind or daemon attach re-arms this pass.
-        if (attempt >= MAX_DELIVERY_ATTEMPTS) {
+        // The creation prompt is different from an ordinary unobservable send:
+        // retyping it can append another copy to the native composer. Keep the
+        // durable row for a later readiness/reconnect event instead of silently
+        // turning one uncertain prompt into several.
+        if (isInitialPromptRow(sessionId, head) || attempt >= MAX_DELIVERY_ATTEMPTS) {
           stop()
           return
         }
@@ -723,12 +792,17 @@ export class SessionInbox {
         stop()
         return
       }
-      const needle = confirmationNeedle(head.text)
+      const firstPromptNeedsProof = isInitialPromptRow(sessionId, head)
+      const needle = confirmationNeedle(head.text, firstPromptNeedsProof)
       // A retry exists ONLY because the last attempt went unwitnessed. If the
       // turn has appeared since, it landed late — settle it rather than send the
       // same prompt twice. This check is what makes retrying safe at all.
-      if (attempt > 1 && needle !== null && tailUserTurnMatches(current, needle)) {
-        settleHead(current, head)
+      if (
+        needle !== null &&
+        tailUserTurnMatches(current, needle, firstPromptNeedsProof) &&
+        (attempt > 1 || firstPromptNeedsProof)
+      ) {
+        settleHead(current, head, true)
         return
       }
       // A RE-ARMED PASS OVER AN ALREADY-TYPED ROW (POD-1242). This row has been
@@ -744,8 +818,11 @@ export class SessionInbox {
       this.deps.queue.bumpAttempts(head.id)
       // Baseline: if OUR text is already the last user turn we cannot tell a
       // fresh arrival from the one that is there, so there is nothing to witness.
+      const needsReadinessProof = this.needsInputReadiness(current)
       const witnessable =
-        needle !== null && current.transcriptAvailable && !tailUserTurnMatches(current, needle)
+        needle !== null &&
+        current.transcriptAvailable &&
+        !tailUserTurnMatches(current, needle, firstPromptNeedsProof)
       const sent = this.typeText({
         sessionId,
         text: head.text,
@@ -768,7 +845,11 @@ export class SessionInbox {
       if (head.sourceMessageId) {
         this.deps.authorization.injected?.({ sourceMessageId: head.sourceMessageId, sessionId })
       }
-      if (witnessable && needle !== null) confirm(head, needle, attempt)
+      if (needle !== null && (witnessable || firstPromptNeedsProof)) confirm(head, needle, attempt)
+      else if (needsReadinessProof) {
+        this.inputReadySessions.add(current)
+        settleHead(current, head)
+      }
       else settleHead(current, head)
     }
     const deliverNext = (): void => {

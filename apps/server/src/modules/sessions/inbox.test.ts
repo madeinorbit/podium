@@ -722,6 +722,55 @@ describe('SessionInbox authorization and identity', () => {
 describe('SessionInbox queued delivery is confirmed, not assumed', () => {
   const PROMPT = 'merge the branch and close the issue'
 
+  it('queues the first Claude prompt until its transcript turn is confirmed', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'claude-code', transcriptAvailable: true })
+    const first = 'Reply with exactly one word: PONG-A'
+    const second = 'Reply with exactly one word: RESUMED-A'
+
+    expect(h.inbox.sendText({ sessionId: SID, text: first })).toEqual({ ok: true, queued: true })
+    expect(h.inbox.sendText({ sessionId: SID, text: second })).toEqual({ ok: true, queued: true })
+    expect(typedTexts(h.sent)).toEqual([])
+
+    // `live` is the PTY bind, not proof that Claude has painted a composer.
+    vi.advanceTimersByTime(12_000)
+    expect(typedTexts(h.sent)).toEqual([first])
+    expect(h.rows).toHaveLength(2)
+
+    h.landTurn(first)
+    vi.advanceTimersByTime(1_000)
+    expect(typedTexts(h.sent)).toEqual([first, second])
+    expect(h.rows).toHaveLength(1)
+
+    h.landTurn(second)
+    vi.advanceTimersByTime(1_000)
+    expect(h.rows).toEqual([])
+    expect(h.session.queuedMessageCount).toBe(0)
+  })
+
+  it('keeps the short OpenCode creation prompt queued until its turn is witnessed', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'opencode', transcriptAvailable: true })
+
+    expect(h.inbox.queueInitialPrompt({ sessionId: SID, text: 'hello' })).toEqual({ ok: true, queued: true })
+    vi.advanceTimersByTime(10_400)
+
+    expect(typedTexts(h.sent)).toEqual(['hello'])
+    expect(h.rows).toHaveLength(1)
+
+    h.landTurn('hellohello-next')
+    vi.advanceTimersByTime(500)
+
+    expect(h.rows).toHaveLength(1)
+    h.landTurn('hello')
+    vi.advanceTimersByTime(500)
+
+    expect(h.rows).toEqual([])
+    expect(h.session.queuedMessageCount).toBe(0)
+  })
+
   it('keeps the row queued when the typed prompt never becomes a turn', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)

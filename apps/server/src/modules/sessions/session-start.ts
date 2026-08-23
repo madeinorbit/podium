@@ -150,7 +150,11 @@ export interface SessionStartPorts {
     workflowRevisionId?: string
   }): { instructions: AgentInstruction[]; commit(): void }
   sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined
-  setSessionDraft(input: { sessionId: SessionId; text: string }, fromClientId?: string): void
+  queueInitialPrompt(input: { sessionId: SessionId; text: string }): {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  }
   emitSessionCreated(payload: { sessionId: SessionId; agentKind: AgentKind }): void
 }
 
@@ -308,7 +312,10 @@ export class SessionStart {
     })
     preparedInstructions.commit()
     if (taskPrompt !== undefined && !useArgv) {
-      this.ports.setSessionDraft({ sessionId: spawned.sessionId, text: taskPrompt })
+      const queued = this.ports.queueInitialPrompt({ sessionId: spawned.sessionId, text: taskPrompt })
+      if (!queued.ok) {
+        throw new Error(queued.reason ?? 'initial prompt could not be queued')
+      }
     }
     // Fire-and-forget notification (post-spawn, so subscribers observe the new
     // world). Its one consumer today is the opt-in telemetry usage counter

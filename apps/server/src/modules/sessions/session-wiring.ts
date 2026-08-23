@@ -279,7 +279,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     soleOwnerForCwd: (cwd) => bag.deps.issueAccess.soleOwnerForCwd(cwd) ?? undefined,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
     sessionOwner: (sessionId) => bag.sessionOwner(sessionId),
-    setSessionDraft: (i, fromClientId) => bag.setSessionDraft(i, fromClientId),
+    queueInitialPrompt: (i) => bag.inbox.queueInitialPrompt(i),
     emitSessionCreated: (payload) => bag.bus.emit('session.created', payload),
   })
   bag.headless = new HeadlessService({

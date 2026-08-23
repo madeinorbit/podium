@@ -248,6 +248,7 @@ export class SessionDaemonLifecycle {
       }
       case 'bind': {
         this.sessions.get(msg.sessionId)?.markLive(msg.cmd, msg.geometry)
+        this.inbox.markSessionBound(msg.sessionId)
         const s = this.sessions.get(msg.sessionId)
         if (s) {
           // Whether the daemon runs the composer engine for this session (POD-859)

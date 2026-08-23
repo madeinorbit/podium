@@ -1,9 +1,6 @@
-import { createLogger } from '@podium/logger'
 import type { AgentKind, IssueId, RepoId, SessionId, MachineId } from '@podium/model'
 import type { RuntimeContractRequest } from '@podium/protocol'
 import type { PodiumClientApi } from './api'
-
-const log = createLogger('client-core:spawn')
 
 /** Where a new agent lands: a worktree path + its owning repo (+ machine). */
 export interface SpawnTarget {
@@ -27,10 +24,9 @@ export interface SpawnTarget {
  * (instant row + rollback-on-failure). Rejects if the create fails, so the wrapper
  * can roll back.
  *
- * `firstPrompt` rides `sessions.create.initialPrompt` so argv-capable harnesses
- * (claude/codex/grok) get it on the launch command — race-free. resumeAndSend is
- * only the fallback for harnesses that cannot take a launch argv: typing into a
- * fresh Grok PTY does not start a turn (POD-549).
+ * `firstPrompt` rides `sessions.create.initialPrompt`. SessionStart launches it
+ * on argv-capable harnesses (claude/codex/grok), and sends every other harness
+ * through its durable outbox once the session can accept input.
  */
 export class SpawnPlacementError extends Error {
   constructor(readonly reason: 'unauthorized' | 'unreachable') {
@@ -90,32 +86,4 @@ export async function createDraftAgent(args: {
     ...(args.effort ? { effort: args.effort } : {}),
     ...(args.runtimeContract !== undefined ? { runtimeContract: args.runtimeContract } : {}),
   })
-  // Non-argv harnesses only get a composer draft seed from create; still deliver
-  // via resumeAndSend. Argv agents already received the prompt on launch —
-  // re-typing it would double-fire.
-  if (text && !agentAcceptsArgvPrompt(args.agentKind)) {
-    // Best-effort: the session exists either way; a failed first-prompt delivery
-    // must not fail the spawn (the user lands in the session and can retype).
-    // Still honour ok:false — a swallowed dead-letter looks like a delivered
-    // first turn while the agent stays idle (POD-546).
-    try {
-      const result = await args.trpc.sessions.resumeAndSend.mutate({
-        sessionId: args.sessionId,
-        text,
-      })
-      if (
-        result !== null &&
-        typeof result === 'object' &&
-        'ok' in result &&
-        (result as { ok: unknown }).ok === false
-      ) {
-        log.debug('first prompt refused after spawn', {
-          sessionId: args.sessionId,
-          reason: (result as { reason?: string }).reason,
-        })
-      }
-    } catch {
-      // transport blip — session is up; retype from the composer
-    }
-  }
 }
