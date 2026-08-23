@@ -21,6 +21,7 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Scan a one-time code to connect this phone to your Podium server.",
+        "NSMicrophoneUsageDescription": "Dictate prompts privately using Apple's on-device speech model.",
         "NSLocalNetworkUsageDescription": "Connect to a Podium server you run on your local network.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
