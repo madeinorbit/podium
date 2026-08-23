@@ -573,3 +573,33 @@ Watch `free -m` alongside `uptime` every sweep, and treat **available memory und
 as the stop-starting line regardless of what load says. Reclaim by stopping sessions whose
 work is genuinely finished — but check first whether a reviewer is living in the worktree
 you are about to free, because `session stop` frees it.
+
+### When the box goes down you lose the ability to fix it
+
+2026-08-23, load 107 on the six-core host. The failure is not that the box got slow — it is
+that **every instrument for fixing it stopped working at the same time**. `podium session
+stop` timed out. `podium mail send` timed out. So the coordinator's prescribed remedy —
+"order the runaway sessions to kill their own processes" — was not available, because
+ordering requires the control plane and the control plane is the first casualty.
+
+Killing the child processes directly does not work either: turbo respawns them, and each
+kill has to reach the ROOT (`scripts/typecheck.ts` → `turbo run typecheck`), not the
+`@typescript/native` workers. Several of my own shell calls were terminated mid-run under
+the pressure, so even direct process control was unreliable.
+
+What actually recovered it, in order of effect:
+1. **Orphaned agent servers, not the gates.** Six `opencode serve` processes under the
+   operator instance's agent-home, 7-8 hours old, 1.75 GB between them — left behind by
+   drive sessions that had long since ended. That is the leak POD-2251/POD-2633 exist to
+   fix, and it had been quietly eating a seventh of the machine all day. Reclaiming it was
+   the single biggest win and it cost nothing.
+2. `kill -9` on the largest typecheck roots, which bought enough memory for the control
+   plane to answer again.
+3. Only then, `podium session stop` on the seven sessions whose work was already landed and
+   under review.
+
+Two rules follow. **Sweep for orphaned agent servers every sweep, not just when something
+looks wrong** — they accumulate silently and they are pure loss. And **the ceiling is not
+your fleet, it is the box**: this host was running 55 agent processes, of which this epic
+owned about 16. Reasoning about "my sessions" as though they were the whole load is how you
+arrive at 107 while believing you are inside your budget.
