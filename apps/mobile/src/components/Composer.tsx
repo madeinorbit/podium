@@ -62,9 +62,9 @@ export function composerVoiceStatus(
  * It used to be a full-width slab welded to the bottom edge, holding an
  * outlined field with a terminal `>` glyph and a fixed 45px editable area. It
  * is now a frosted capsule in the same material as the floating tab bar: it
- * measures its own content and springs from one line through six before
- * scrolling inside itself, with the send control pinned to the bottom of the
- * row so it never travels while the text grows above it.
+ * measures its own content and snaps from one line through six before scrolling
+ * inside itself, with the send control pinned to the bottom of the row so it
+ * never travels while the text grows above it.
  *
  * Two deliberate quietings. THE FIELD IS SANS, not the old mono: a prompt is
  * prose, it renders as sans the moment it lands in the transcript, and every
@@ -122,8 +122,8 @@ export function Composer({
    * The composer's total height whenever the field is at rest, so a list
    * underneath can end its content above it. Deliberately not reported while
    * the field is grown: the reference composers do not reflow the conversation
-   * under you as you type, and doing so would relayout the feed on every frame
-   * of the growth spring.
+   * under you as you type, and doing so would relayout the feed on every
+   * content-size update.
    */
   onRestingHeight?: (height: number) => void
 }) {
@@ -161,7 +161,6 @@ export function Composer({
   const scrolls = composerScrolls(measured, line)
   const maxHeight = composerMaxHeight(line)
   const atRest = height === COMPOSER_MIN_HEIGHT
-  const animatedHeight = useRef(new Animated.Value(COMPOSER_MIN_HEIGHT)).current
 
   // Web has to be asked for the content height; native volunteers it through
   // onContentSizeChange below. `fontScale` is a dependency so raising Dynamic
@@ -174,23 +173,6 @@ export function Composer({
   useEffect(() => {
     if (composedText === '' && measured && measured > 0) setLine(measured)
   }, [composedText, measured])
-
-  // Height is a layout property, so this animation cannot run on the native
-  // driver. Reduce Motion takes the same geometry without the transition —
-  // the composer still ends up exactly as tall, it just gets there at once.
-  useEffect(() => {
-    if (reduceMotion) {
-      animatedHeight.setValue(height)
-      return
-    }
-    const settle = Animated.spring(animatedHeight, {
-      toValue: height,
-      useNativeDriver: false,
-      ...spring.smooth,
-    })
-    settle.start()
-    return () => settle.stop()
-  }, [animatedHeight, height, reduceMotion])
 
   /**
    * PASTE AND DROP, ON THE FIELD ITSELF.
@@ -329,7 +311,7 @@ export function Composer({
               onStop={voice.stop}
             />
           ) : null}
-          <Animated.View style={[styles.fieldWrap, { height: animatedHeight }]}>
+          <View style={[styles.fieldWrap, { height }]}>
             <TextInput
               ref={inputRef}
               accessibilityLabel={placeholder}
@@ -353,7 +335,7 @@ export function Composer({
               // handled in `onKeyPress` instead, where the modifiers are legible.
               submitBehavior="newline"
             />
-          </Animated.View>
+          </View>
           <SendButton ready={canSend} onPress={send} reduceMotion={reduceMotion} />
         </View>
       </BlurView>
@@ -584,10 +566,11 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   /**
-   * Height is animated, so it is set on the wrapper rather than the input —
-   * the input's own node stays free for the web measurement to collapse.
-   * The bottom margin centres a single line against the taller send control
-   * and then simply rides up with the text.
+   * Height is set on the wrapper rather than the input, leaving the input's own
+   * node free for web measurement to collapse. It snaps to each measurement:
+   * typing and paste are too frequent to drive layout frames under the blur.
+   * The bottom margin centres a single line against the taller send control and
+   * then simply rides up with the text.
    */
   fieldWrap: {
     flex: 1,

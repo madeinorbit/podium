@@ -12,7 +12,7 @@ import type { TextInput } from 'react-native'
  * content height and nothing else.
  *
  * `height: 0` ALONE DOES NOT COLLAPSE IT. The field is a flex item filling a
- * height-animated wrapper, and on a flex item `flex-basis` is the main size —
+ * height-controlled wrapper, and on a flex item `flex-basis` is the main size —
  * `height` is ignored. Left like that the measurement still tracks growth
  * (content exceeds the box) and silently stops shrinking, which is the exact
  * defect this module exists to fix. So the item opts out of flex for the

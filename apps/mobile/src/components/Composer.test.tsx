@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentProps, ReactNode } from 'react'
 import type { View } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { COMPOSER_LINE, COMPOSER_MAX_LINES } from './composer-height'
 
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
@@ -128,6 +129,30 @@ describe('Composer floating dock', () => {
   it('drops no glyph in front of the text field', () => {
     const { container } = render(<Composer placeholder="Message the agent…" onSend={vi.fn()} />)
     expect(container.textContent).not.toContain('>')
+  })
+
+  it('snaps to measured multiline typing and paste heights without layout frames', () => {
+    const { container } = render(<Composer placeholder="Message the agent…" onSend={vi.fn()} />)
+    const input = container.querySelector('textarea') as HTMLTextAreaElement
+    const field = input.parentElement as HTMLElement
+    let contentHeight = COMPOSER_LINE * 3
+    Object.defineProperty(input, 'scrollHeight', {
+      configurable: true,
+      get: () => contentHeight,
+    })
+
+    fireEvent.change(input, { target: { value: 'one\ntwo\nthree' } })
+    expect(field.style.height).toBe(`${contentHeight}px`)
+
+    contentHeight = COMPOSER_LINE * (COMPOSER_MAX_LINES + 4)
+    fireEvent.change(input, {
+      target: { value: 'one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten' },
+    })
+    expect(field.style.height).toBe(`${COMPOSER_LINE * COMPOSER_MAX_LINES}px`)
+
+    contentHeight = COMPOSER_LINE * 2
+    fireEvent.change(input, { target: { value: 'pasted\nlines' } })
+    expect(field.style.height).toBe(`${contentHeight}px`)
   })
 })
 
