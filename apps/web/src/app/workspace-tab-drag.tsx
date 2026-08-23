@@ -21,6 +21,44 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { type CSSProperties, type JSX, type ReactNode, useEffect } from 'react'
 
+export interface TabDragPointerEventSnapshot {
+  pointerId: number
+  pointerType: string
+  isPrimary: boolean
+  button: number
+  buttons: number
+  clientX: number
+  clientY: number
+  ctrlKey: boolean
+  shiftKey: boolean
+  altKey: boolean
+  metaKey: boolean
+}
+
+export interface TabDragKeyboardEventSnapshot {
+  key: string
+  code: string
+  ctrlKey: boolean
+  shiftKey: boolean
+  altKey: boolean
+  metaKey: boolean
+  repeat: boolean
+}
+
+export type PendingTabDragActivation =
+  | {
+      kind: 'pointer'
+      target: HTMLElement
+      start: TabDragPointerEventSnapshot
+      latestMove: TabDragPointerEventSnapshot | null
+      end: TabDragPointerEventSnapshot | null
+    }
+  | {
+      kind: 'keyboard'
+      target: HTMLElement
+      events: TabDragKeyboardEventSnapshot[]
+    }
+
 export interface TabDragItemBindings {
   attributes: DraggableAttributes
   listeners: DraggableSyntheticListeners
@@ -105,6 +143,34 @@ function DropZone({ id, children }: TabDropZoneProps): JSX.Element {
 
 const components: TabDragComponents = { Strip, List, Item, DropZone }
 
+export interface WorkspaceTabDragRuntimeProps {
+  children: (components: TabDragComponents) => ReactNode
+  overlay: ReactNode
+  onDragStart: (tabId: string) => void
+  onDragEnd: (activeId: string, overId: string | null) => void
+  onDragCancel: () => void
+  onReady: () => PendingTabDragActivation | null
+}
+
+const pointerEvent = (
+  type: 'pointerdown' | 'pointermove' | 'pointerup',
+  snapshot: TabDragPointerEventSnapshot,
+): PointerEvent =>
+  new PointerEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    ...snapshot,
+  })
+
+const keyboardEvent = (snapshot: TabDragKeyboardEventSnapshot): KeyboardEvent =>
+  new KeyboardEvent('keydown', {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    ...snapshot,
+  })
+
 export function WorkspaceTabDragRuntime({
   children,
   overlay,
@@ -112,14 +178,7 @@ export function WorkspaceTabDragRuntime({
   onDragEnd,
   onDragCancel,
   onReady,
-}: {
-  children: (components: TabDragComponents) => ReactNode
-  overlay: ReactNode
-  onDragStart: (tabId: string) => void
-  onDragEnd: (activeId: string, overId: string | null) => void
-  onDragCancel: () => void
-  onReady: () => void
-}): JSX.Element {
+}: WorkspaceTabDragRuntimeProps): JSX.Element {
   // Keep the five-pixel pointer threshold that separates a click from a drag.
   // The keyboard sensor uses dnd-kit's sortable coordinates so the same items
   // can be picked up with Space, moved with arrows, and cancelled with Escape.
@@ -127,7 +186,61 @@ export function WorkspaceTabDragRuntime({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
-  useEffect(onReady, [onReady])
+  useEffect(() => {
+    const pending = onReady()
+    if (!pending) return
+
+    if (pending.kind === 'pointer') {
+      pending.target.dispatchEvent(pointerEvent('pointerdown', pending.start))
+      if (!pending.latestMove) return
+      const move = pending.latestMove
+      let cancelled = false
+      let releaseFrame: number | null = null
+      let collisionFrame: number | null = null
+      // PointerSensor installs its document listeners synchronously. Cross its
+      // threshold now so a physical release in the next browser task is owned
+      // by dnd-kit, then restore the buffered position after React commits start.
+      pending.target.ownerDocument.dispatchEvent(pointerEvent('pointermove', move))
+      queueMicrotask(() => {
+        if (cancelled) return
+        pending.target.ownerDocument.dispatchEvent(pointerEvent('pointermove', move))
+        const end = pending.end
+        if (!end) return
+        // A completed cold gesture needs the collision effect to publish `over`
+        // before pointerup asks the sensor to resolve the drop.
+        collisionFrame = window.requestAnimationFrame(() => {
+          releaseFrame = window.requestAnimationFrame(() => {
+            pending.target.ownerDocument.dispatchEvent(pointerEvent('pointerup', end))
+          })
+        })
+      })
+      return () => {
+        cancelled = true
+        if (collisionFrame !== null) window.cancelAnimationFrame(collisionFrame)
+        if (releaseFrame !== null) window.cancelAnimationFrame(releaseFrame)
+      }
+    }
+
+    pending.target.dispatchEvent(keyboardEvent(pending.events[0]!))
+    if (pending.events.length === 1) return
+    // KeyboardSensor attaches its document listener in the next task. Replay
+    // navigation and completion keys only after that listener exists.
+    const timers: number[] = []
+    const replay = (index: number): void => {
+      const event = pending.events[index]
+      if (!event) return
+      timers.push(
+        window.setTimeout(() => {
+          pending.target.ownerDocument.dispatchEvent(keyboardEvent(event))
+          replay(index + 1)
+        }, 0),
+      )
+    }
+    replay(1)
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer)
+    }
+  }, [onReady])
 
   return (
     <DndContext

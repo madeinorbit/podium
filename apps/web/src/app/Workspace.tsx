@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react'
 import {
+  type ComponentType,
   type JSX,
   lazy,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -66,7 +67,14 @@ import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { REVEAL_IN_DECK_EVENT } from './shell-state'
 import { type FileTab, useReplicaIssues, useStoreSelector } from './store'
 import { closeActiveWorkspaceTab } from './workspace-close'
-import type { TabDragComponents, TabDragItemBindings } from './workspace-tab-drag'
+import type {
+  PendingTabDragActivation,
+  TabDragComponents,
+  TabDragItemBindings,
+  TabDragKeyboardEventSnapshot,
+  TabDragPointerEventSnapshot,
+  WorkspaceTabDragRuntimeProps,
+} from './workspace-tab-drag'
 
 // The cold-start composer only renders in the empty pane (no issue selected),
 // and it fronts the whole first-run setup graph — loading it on demand keeps
@@ -79,12 +87,35 @@ const ColdStartComposer = lazy(() =>
 
 // dnd-kit is interaction infrastructure, not first-paint UI. A post-paint load
 // makes the provider ready for the first drag, while pointer or keyboard intent
-// can start the same import sooner. The live panel deck stays outside the lazy
+// can start the same import sooner. The live panel deck stays outside the async
 // provider and never remounts when it arrives.
 const loadWorkspaceTabDrag = () => import('./workspace-tab-drag')
-const WorkspaceTabDragRuntime = lazy(() =>
-  loadWorkspaceTabDrag().then((module) => ({ default: module.WorkspaceTabDragRuntime })),
-)
+type WorkspaceTabDragModule = Awaited<ReturnType<typeof loadWorkspaceTabDrag>>
+type LoadWorkspaceTabDrag = () => Promise<WorkspaceTabDragModule>
+
+const pointerSnapshot = (event: PointerEvent): TabDragPointerEventSnapshot => ({
+  pointerId: event.pointerId,
+  pointerType: event.pointerType,
+  isPrimary: event.isPrimary,
+  button: event.button,
+  buttons: event.buttons,
+  clientX: event.clientX,
+  clientY: event.clientY,
+  ctrlKey: event.ctrlKey,
+  shiftKey: event.shiftKey,
+  altKey: event.altKey,
+  metaKey: event.metaKey,
+})
+
+const keyboardSnapshot = (event: KeyboardEvent): TabDragKeyboardEventSnapshot => ({
+  key: event.key,
+  code: event.code,
+  ctrlKey: event.ctrlKey,
+  shiftKey: event.shiftKey,
+  altKey: event.altKey,
+  metaKey: event.metaKey,
+  repeat: event.repeat,
+})
 
 // A tab in the strip is either an agent/shell session or an open file editor. Both
 // are first-class VIEWS (POD-710): the strip renders the current workspace's
@@ -104,7 +135,11 @@ const RESIZE_STEP = 0.02
 /** Keyboard resize floor when there is no measured box to convert px against. */
 const MIN_PANE_FRACTION = 0.12
 
-export function Workspace(): JSX.Element {
+export function Workspace({
+  loadDragRuntime = loadWorkspaceTabDrag,
+}: {
+  loadDragRuntime?: LoadWorkspaceTabDrag
+} = {}): JSX.Element {
   const {
     sessions,
     selectedWorktree,
@@ -157,21 +192,47 @@ export function Workspace(): JSX.Element {
   // The tab being dragged, for the overlay and for mounting the drop zones only
   // while a drag is in flight.
   const [dragTabId, setDragTabId] = useState<string | null>(null)
-  const [dragRuntimeReady, setDragRuntimeReady] = useState(false)
+  const [DragRuntime, setDragRuntime] =
+    useState<ComponentType<WorkspaceTabDragRuntimeProps> | null>(null)
   const dragRuntimeRequested = useRef(false)
   const dragFocusToRestore = useRef<string | null>(null)
+  const pendingDragActivation = useRef<
+    | {
+        kind: 'pointer'
+        tabId: string
+        start: TabDragPointerEventSnapshot
+        latestMove: TabDragPointerEventSnapshot | null
+        end: TabDragPointerEventSnapshot | null
+      }
+    | { kind: 'keyboard'; tabId: string; events: TabDragKeyboardEventSnapshot[] }
+    | null
+  >(null)
+  const clearPendingDragListeners = useRef<(() => void) | null>(null)
   const workspaceRef = useRef<HTMLElement | null>(null)
   // Sizes being dragged on a pane divider, held locally until the pointer is
   // released — the same shape as the shell's ResizableColumn, which tracks the
   // width in React and persists once on pointerup rather than writing storage
   // on every frame.
   const [dragSizes, setDragSizes] = useState<{ path: number[]; sizes: number[] } | null>(null)
-  const preloadDragRuntime = useCallback((focusedTabId?: string): void => {
-    if (focusedTabId) dragFocusToRestore.current = focusedTabId
-    if (dragRuntimeRequested.current) return
-    dragRuntimeRequested.current = true
-    void loadWorkspaceTabDrag().then(() => setDragRuntimeReady(true))
+  const preloadDragRuntime = useCallback(
+    (focusedTabId?: string): void => {
+      if (focusedTabId) dragFocusToRestore.current = focusedTabId
+      if (dragRuntimeRequested.current) return
+      dragRuntimeRequested.current = true
+      void loadDragRuntime().then((module) => {
+        setDragRuntime(() => module.WorkspaceTabDragRuntime)
+      })
+    },
+    [loadDragRuntime],
+  )
+
+  const clearPendingDragActivation = useCallback((): void => {
+    clearPendingDragListeners.current?.()
+    clearPendingDragListeners.current = null
+    pendingDragActivation.current = null
   }, [])
+
+  useEffect(() => clearPendingDragActivation, [clearPendingDragActivation])
 
   // The plain strip is keyboard-focusable while its runtime is loading. If the
   // provider's arrival replaces that focused node, put focus back on the same
@@ -183,14 +244,139 @@ export function Workspace(): JSX.Element {
     dragFocusToRestore.current = null
     const current = document.activeElement
     if (current instanceof HTMLElement) {
-      if (current.dataset.session === tabId && current.isConnected) return
+      if (current.dataset.tabDragId === tabId && current.isConnected) return
       if (current !== document.body && current.isConnected) return
     }
     const replacement = [
-      ...(workspaceRef.current?.querySelectorAll<HTMLElement>('[data-session]') ?? []),
-    ].find((candidate) => candidate.dataset.session === tabId)
+      ...(workspaceRef.current?.querySelectorAll<HTMLElement>('[data-tab-drag-id]') ?? []),
+    ].find((candidate) => candidate.dataset.tabDragId === tabId)
     replacement?.focus()
   }, [])
+
+  const captureColdPointerActivation = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>): void => {
+      if (DragRuntime || !event.isPrimary || event.button !== 0) return
+      const target = event.target
+      const tabNode =
+        target instanceof Element ? target.closest<HTMLElement>('[data-tab-drag-id]') : null
+      const tabId = tabNode?.dataset.tabDragId
+      if (!tabId) return
+
+      clearPendingDragActivation()
+      const pending: {
+        kind: 'pointer'
+        tabId: string
+        start: TabDragPointerEventSnapshot
+        latestMove: TabDragPointerEventSnapshot | null
+        end: TabDragPointerEventSnapshot | null
+      } = {
+        kind: 'pointer' as const,
+        tabId,
+        start: pointerSnapshot(event.nativeEvent),
+        latestMove: null,
+        end: null,
+      }
+      pendingDragActivation.current = pending
+      const onMove = (move: PointerEvent): void => {
+        if (move.pointerId === pending.start.pointerId) pending.latestMove = pointerSnapshot(move)
+      }
+      const stopListening = (): void => {
+        clearPendingDragListeners.current?.()
+        clearPendingDragListeners.current = null
+      }
+      const onUp = (end: PointerEvent): void => {
+        if (end.pointerId !== pending.start.pointerId) return
+        const finish = pointerSnapshot(end)
+        const latest = pending.latestMove ?? finish
+        const moved = Math.hypot(
+          latest.clientX - pending.start.clientX,
+          latest.clientY - pending.start.clientY,
+        )
+        if (moved < 5) {
+          clearPendingDragActivation()
+          return
+        }
+        pending.latestMove = latest
+        pending.end = finish
+        stopListening()
+      }
+      const onCancel = (cancel: PointerEvent): void => {
+        if (cancel.pointerId === pending.start.pointerId) clearPendingDragActivation()
+      }
+      document.addEventListener('pointermove', onMove, true)
+      document.addEventListener('pointerup', onUp, true)
+      document.addEventListener('pointercancel', onCancel, true)
+      clearPendingDragListeners.current = () => {
+        document.removeEventListener('pointermove', onMove, true)
+        document.removeEventListener('pointerup', onUp, true)
+        document.removeEventListener('pointercancel', onCancel, true)
+      }
+      preloadDragRuntime()
+    },
+    [DragRuntime, clearPendingDragActivation, preloadDragRuntime],
+  )
+
+  const captureColdKeyboardActivation = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+      if (DragRuntime || (event.code !== 'Space' && event.code !== 'Enter')) return
+      const target = event.target
+      if (!(target instanceof HTMLElement) || !target.matches('[data-tab-drag-id]')) return
+      const tabId = target.dataset.tabDragId
+      if (!tabId) return
+
+      event.preventDefault()
+      clearPendingDragActivation()
+      dragFocusToRestore.current = tabId
+      const pending = {
+        kind: 'keyboard' as const,
+        tabId,
+        events: [keyboardSnapshot(event.nativeEvent)],
+      }
+      pendingDragActivation.current = pending
+      const onKeyDown = (followup: KeyboardEvent): void => {
+        if (followup.code === 'Escape') {
+          followup.preventDefault()
+          clearPendingDragActivation()
+          return
+        }
+        if (
+          !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'Enter', 'Tab'].includes(
+            followup.code,
+          )
+        )
+          return
+        followup.preventDefault()
+        pending.events.push(keyboardSnapshot(followup))
+      }
+      document.addEventListener('keydown', onKeyDown, true)
+      clearPendingDragListeners.current = () =>
+        document.removeEventListener('keydown', onKeyDown, true)
+      preloadDragRuntime(tabId)
+    },
+    [DragRuntime, clearPendingDragActivation, preloadDragRuntime],
+  )
+
+  const preparePendingDragActivation = useCallback((): PendingTabDragActivation | null => {
+    restoreDragFocus()
+    const pending = pendingDragActivation.current
+    if (!pending) return null
+    const target = [
+      ...(workspaceRef.current?.querySelectorAll<HTMLElement>('[data-tab-drag-id]') ?? []),
+    ].find((candidate) => candidate.dataset.tabDragId === pending.tabId)
+    clearPendingDragListeners.current?.()
+    clearPendingDragListeners.current = null
+    pendingDragActivation.current = null
+    if (!target) return null
+    return pending.kind === 'pointer'
+      ? {
+          kind: 'pointer',
+          target,
+          start: pending.start,
+          latestMove: pending.latestMove,
+          end: pending.end,
+        }
+      : { kind: 'keyboard', target, events: pending.events }
+  }, [restoreDragFocus])
 
   const allWorktrees = reposToViews(repos).flatMap((r) => r.worktrees)
   const worktree: WorktreeView | undefined = allWorktrees.find((w) => w.path === selectedWorktree)
@@ -480,6 +666,8 @@ export function Workspace(): JSX.Element {
             coordinatorIds={coordinatorIds}
             drag={drag}
             onDragIntent={preloadDragRuntime}
+            onColdPointerDown={captureColdPointerActivation}
+            onColdKeyDown={captureColdKeyboardActivation}
             // biome-ignore lint/style/noNonNullAssertion: the early return above guarantees worktree or issue (which makes panelTarget defined)
             panelTarget={panelTarget!}
             issueId={issue?.id}
@@ -537,18 +725,16 @@ export function Workspace(): JSX.Element {
             onFocusPane={focusPane}
             focusedTabId={activeTabId}
           />
-          {dragRuntimeReady ? (
-            <Suspense fallback={renderChrome()}>
-              <WorkspaceTabDragRuntime
-                overlay={dragTab ? <TabGhost tab={dragTab} /> : null}
-                onDragStart={setDragTabId}
-                onDragEnd={onDragEnd}
-                onDragCancel={() => setDragTabId(null)}
-                onReady={restoreDragFocus}
-              >
-                {renderChrome}
-              </WorkspaceTabDragRuntime>
-            </Suspense>
+          {DragRuntime ? (
+            <DragRuntime
+              overlay={dragTab ? <TabGhost tab={dragTab} /> : null}
+              onDragStart={setDragTabId}
+              onDragEnd={onDragEnd}
+              onDragCancel={() => setDragTabId(null)}
+              onReady={preparePendingDragActivation}
+            >
+              {renderChrome}
+            </DragRuntime>
           ) : (
             renderChrome()
           )}
@@ -581,6 +767,8 @@ function PaneChrome({
   coordinatorIds,
   drag,
   onDragIntent,
+  onColdPointerDown,
+  onColdKeyDown,
   panelTarget,
   issueId,
   onFocus,
@@ -605,6 +793,8 @@ function PaneChrome({
   coordinatorIds: ReadonlySet<string>
   drag?: TabDragComponents
   onDragIntent: (focusedTabId?: string) => void
+  onColdPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
+  onColdKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   panelTarget: WorktreeView
   issueId?: IssueId
   onFocus: () => void
@@ -687,8 +877,9 @@ function PaneChrome({
         data-focused={focused ? 'true' : undefined}
         data-drag-runtime={drag ? 'ready' : undefined}
         onPointerEnter={() => onDragIntent()}
-        onPointerDownCapture={() => {
+        onPointerDownCapture={(event) => {
           onFocus()
+          onColdPointerDown(event)
           onDragIntent()
         }}
         onPointerMoveCapture={() => onDragIntent()}
@@ -700,6 +891,7 @@ function PaneChrome({
               : undefined,
           )
         }}
+        onKeyDownCapture={onColdKeyDown}
         className={cn(
           'pointer-events-auto relative flex h-[38px] flex-none items-center gap-[4px] border-b border-hairline-soft issue-base-tabstrip px-[10px]',
           isOver
@@ -1023,6 +1215,7 @@ function SortableTab({
         node.current = el
         drag?.setNodeRef(el)
       }}
+      data-tab-drag-id={tab.id}
       // A PILL, NOT A BROWSER TAB (POD-725). Tabs used to share the strip evenly
       // and shrink as more opened, which is the file-editor idiom — but an editor
       // tab is a filename and ours is a running agent with a state dot, a name

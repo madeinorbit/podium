@@ -113,6 +113,21 @@ const { Workspace } = await import('./Workspace')
 const { DesktopCloseTab } = await import('./use-desktop-close-tab')
 const { getHoveredSession, setHoveredSession } = await import('./session-hover')
 
+const delayedDragRuntime = () => {
+  type DragRuntimeModule = typeof import('./workspace-tab-drag')
+  let resolve!: (module: DragRuntimeModule) => void
+  const load = vi.fn(
+    () =>
+      new Promise<DragRuntimeModule>((done) => {
+        resolve = done
+      }),
+  )
+  return {
+    load,
+    release: async (): Promise<void> => resolve(await import('./workspace-tab-drag')),
+  }
+}
+
 beforeEach(() => {
   replicaIssues = [task]
   state = {
@@ -173,11 +188,13 @@ describe('Workspace tab strip', () => {
   it.each([
     'mouse',
     'touch',
-  ])('observes the first %s pointerdown once ready', async (pointerType) => {
-    render(<Workspace />)
-    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+  ])('replays the first cold %s drag after a delayed runtime import', async (pointerType) => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const source = document.querySelector<HTMLElement>('[data-tab-drag-id="s1"]')
+    if (!source) throw new Error('no source tab')
 
-    fireEvent.pointerDown(tab('s1'), {
+    fireEvent.pointerDown(source, {
       pointerId: 1,
       pointerType,
       isPrimary: true,
@@ -195,30 +212,74 @@ describe('Workspace tab strip', () => {
       clientY: 10,
     })
 
+    expect(runtime.load).toHaveBeenCalledTimes(1)
+    expect(strip().getAttribute('data-drag-runtime')).toBeNull()
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
+
+    await runtime.release()
     await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeTruthy())
     fireEvent.pointerCancel(document, { pointerId: 1, pointerType, isPrimary: true })
     await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeNull())
   })
 
-  it('restores the focused sortable tab when keyboard intent loads drag support', async () => {
-    render(<Workspace />)
-    tab('s1').focus()
+  it('drops a pointer activation cancelled before readiness', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+
+    fireEvent.pointerDown(tab('s1'), {
+      pointerId: 7,
+      pointerType: 'touch',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: 10,
+      clientY: 10,
+    })
+    fireEvent.pointerMove(document, {
+      pointerId: 7,
+      pointerType: 'touch',
+      isPrimary: true,
+      buttons: 1,
+      clientX: 30,
+      clientY: 10,
+    })
+    fireEvent.pointerCancel(document, { pointerId: 7, pointerType: 'touch', isPrimary: true })
+    await runtime.release()
 
     await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
-    expect(document.activeElement?.getAttribute('data-session')).toBe('s1')
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
   })
 
-  it('observes the first keyboard pickup once ready and cancels it with Escape', async () => {
-    render(<Workspace />)
-    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+  it('replays the first cold Space pickup, restores focus, and cancels with Escape', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
     const sortable = tab('s1')
     sortable.focus()
 
     fireEvent.keyDown(sortable, { key: ' ', code: 'Space' })
+    expect(strip().getAttribute('data-drag-runtime')).toBeNull()
+    await runtime.release()
     await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeTruthy())
+    expect(document.activeElement?.getAttribute('data-tab-drag-id')).toBe('s1')
 
     fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' })
     await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeNull())
+    expect(document.activeElement?.getAttribute('data-tab-drag-id')).toBe('s1')
+  })
+
+  it('drops a cold Space pickup cancelled before readiness and restores focus', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const sortable = tab('s1')
+    sortable.focus()
+
+    fireEvent.keyDown(sortable, { key: ' ', code: 'Space' })
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' })
+    await runtime.release()
+
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
+    expect(document.activeElement?.getAttribute('data-tab-drag-id')).toBe('s1')
   })
 
   // The decoupling: membership comes from the workspace layout, not from "every
@@ -475,6 +536,64 @@ describe('Workspace splitting', () => {
 
   beforeEach(() => {
     state.workspaces = { 'mission:task-1': makeSplitLayout() }
+  })
+
+  it('finishes a cold drag into another pane after the pointer is already up', async () => {
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        const tabId = this.dataset.tabDragId
+        if (tabId === 's1') return new DOMRect(10, 5, 80, 28)
+        if (tabId === 's2') return new DOMRect(270, 5, 80, 28)
+        if (tabId === 's3') return new DOMRect(355, 5, 80, 28)
+        if (this.dataset.testid === 'native-tab-strip') {
+          return this.dataset.pane === 'p1'
+            ? new DOMRect(0, 0, 250, 38)
+            : new DOMRect(250, 0, 250, 38)
+        }
+        return new DOMRect()
+      })
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const source = document.querySelector<HTMLElement>('[data-tab-drag-id="s1"]')
+    if (!source) throw new Error('no source tab')
+
+    fireEvent.pointerDown(source, {
+      pointerId: 9,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: 20,
+      clientY: 15,
+    })
+    fireEvent.pointerMove(document, {
+      pointerId: 9,
+      pointerType: 'mouse',
+      isPrimary: true,
+      buttons: 1,
+      clientX: 480,
+      clientY: 15,
+    })
+    fireEvent.pointerUp(document, {
+      pointerId: 9,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 0,
+      clientX: 480,
+      clientY: 15,
+    })
+    expect(actions.moveWorkspaceTab).not.toHaveBeenCalled()
+
+    await runtime.release()
+    await waitFor(() => expect(actions.moveWorkspaceTab).toHaveBeenCalledWith('s1', 'p2', 2))
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
+    // PointerSensor keeps its click blocker for 50ms after a completed drag so
+    // the release cannot select the tab underneath. Let that documented guard
+    // detach before the next test clicks a pane control.
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 60))
+    rect.mockRestore()
   })
 
   it('renders every pane with its own strip', () => {
