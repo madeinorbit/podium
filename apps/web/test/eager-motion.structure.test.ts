@@ -2,12 +2,17 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { build } from 'vite'
 import { describe, expect, it } from 'vitest'
 import worklistMotionFeatures from '../src/features/worklist/worklist-motion-features'
 
+const WEB_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SRC = fileURLToPath(new URL('../src', import.meta.url))
 const APP_SHELL = resolve(SRC, 'app/AppShell.tsx')
+const WORKLIST_MOTION_ENTRY = resolve(SRC, 'features/worklist/worklist-motion-features.ts')
 const STATIC_IMPORT_RE = /(?<![-'"])\bfrom\s*['"]([^'"\n]+)['"]|\bimport\s+['"]([^'"\n]+)['"]/g
+const FORBIDDEN_MOTION_IMPLEMENTATION =
+  /\/(?:framer-motion|motion-dom)\/dist\/es\/(?:gestures\/(?:drag|pan|hover|focus|press)|motion\/features\/(?:drag|gestures|viewport))(?:\/|\.mjs)/
 
 function sourcePath(importer: string, specifier: string): string | null {
   const base = specifier.startsWith('@/')
@@ -56,6 +61,41 @@ function eagerShellGraph(): { files: Set<string>; packageImports: Map<string, Se
   return { files, packageImports }
 }
 
+async function emittedWorklistMotionGraph(): Promise<{
+  bytes: number
+  modules: string[]
+  forbidden: string[]
+}> {
+  const result = await build({
+    configFile: false,
+    root: WEB_ROOT,
+    logLevel: 'silent',
+    build: {
+      minify: true,
+      write: false,
+      rollupOptions: {
+        input: WORKLIST_MOTION_ENTRY,
+        // Vite's app build discards an entry's unused exports. Preserve the
+        // bundle so the module list describes what LazyMotion will consume.
+        preserveEntrySignatures: 'strict',
+      },
+    },
+  })
+  const outputs = (Array.isArray(result) ? result : [result]).flatMap((item) => item.output)
+  const entryChunk = outputs.find(
+    (item) => item.type === 'chunk' && WORKLIST_MOTION_ENTRY in item.modules,
+  )
+  if (!entryChunk || entryChunk.type !== 'chunk')
+    throw new Error('Worklist Motion chunk was not emitted')
+
+  const modules = Object.keys(entryChunk.modules)
+  return {
+    bytes: Buffer.byteLength(entryChunk.code),
+    modules,
+    forbidden: modules.filter((moduleId) => FORBIDDEN_MOTION_IMPLEMENTATION.test(moduleId)),
+  }
+}
+
 describe('eager shell Motion boundary', () => {
   const graph = eagerShellGraph()
 
@@ -77,10 +117,12 @@ describe('eager shell Motion boundary', () => {
     expect(boundary).toMatch(/<LazyMotion\s+features=\{loadWorklistMotionFeatures\}\s+strict>/)
   })
 
-  it('loads animation and layout without drag or gesture features', () => {
+  it('emits animation and layout without drag or gesture implementations', async () => {
     expect(Object.keys(worklistMotionFeatures).sort()).toEqual(['animation', 'layout', 'renderer'])
-    for (const forbidden of ['drag', 'pan', 'inView', 'hover', 'tap', 'focus']) {
-      expect(worklistMotionFeatures).not.toHaveProperty(forbidden)
-    }
+    const emitted = await emittedWorklistMotionGraph()
+    console.info(
+      `worklist Motion boundary: ${emitted.bytes} bytes, ${emitted.modules.length} modules, ${emitted.forbidden.length} forbidden`,
+    )
+    expect(emitted.forbidden.map((moduleId) => relative(WEB_ROOT, moduleId))).toEqual([])
   })
 })
