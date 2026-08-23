@@ -207,33 +207,51 @@ describe('the one-time boot upgrade (migrateLegacyMachineIdentity)', () => {
 })
 
 describe('the legacy issue worktree machine backfill', () => {
-  it('attributes only NULL-pinned worktrees to the host and is idempotent', () => {
+  it('uses unambiguous repo placement with session evidence as a veto, and is idempotent', () => {
     const path = tmpDb()
     new SessionStore(path, HOST).close()
 
     const other = asMachineId('11112222-3333-4444-5555-666677778888')
     const db = openDatabase(path)
     db.exec(`
+      INSERT INTO repos (machine_id, path, repo_name, added_at)
+      VALUES
+        ('${HOST}', '/repos/host', 'host', 't'),
+        ('${other}', '/repos/remote', 'remote', 't'),
+        ('${HOST}', '/repos/shared', 'shared-host', 't'),
+        ('${other}', '/repos/shared', 'shared-remote', 't');
+
       INSERT INTO issues
         (id, repo_path, seq, title, stage, worktree_path, parent_branch, default_agent,
          created_at, updated_at, machine_id)
       VALUES
-        ('iss_unplaced-worktree', '/r', 101, 'unplaced worktree', 'done', '/w/legacy',
+        ('iss_host-repo', '/r', 101, 'host repo', 'done', '/repos/host/.worktrees/legacy',
          'main', 'claude-code', 't', 't', NULL),
-        ('iss_remote-worktree', '/r', 102, 'remote worktree', 'done', '/w/remote',
+        ('iss_remote-repo', '/r', 102, 'remote repo', 'done', '/repos/remote',
+         'main', 'claude-code', 't', 't', NULL),
+        ('iss_host-fallback', '/r', 103, 'host fallback', 'done', '/tmp/podium-legacy',
+         'main', 'claude-code', 't', 't', NULL),
+        ('iss_ambiguous-repo', '/r', 104, 'ambiguous repo', 'done', '/repos/shared/worktree',
+         'main', 'claude-code', 't', 't', NULL),
+        ('iss_remote-evidence', '/r', 105, 'remote evidence', 'done', '/unknown/adopted',
+         'main', 'claude-code', 't', 't', NULL),
+        ('iss_repo-conflict', '/r', 106, 'repo conflict', 'done', '/repos/host/conflict',
+         'main', 'claude-code', 't', 't', NULL),
+        ('iss_remote-worktree', '/r', 107, 'remote worktree', 'done', '/repos/host/pinned',
          'main', 'claude-code', 't', 't', '${other}'),
-        ('iss_remote-evidence', '/r', 103, 'remote evidence', 'done', '/w/adopted',
-         'main', 'claude-code', 't', 't', NULL),
-        ('iss_no-worktree', '/r', 104, 'no worktree', 'done', NULL,
+        ('iss_no-worktree', '/r', 108, 'no worktree', 'done', NULL,
          'main', 'claude-code', 't', 't', NULL);
 
       INSERT INTO sessions
         (id, owner_user_id, agent_kind, cwd, title, origin_kind, status, durable_label,
          created_at, last_active_at, machine_id, issue_id, ref_issue_id)
       VALUES
-        ('s_remote-adopter', 'user:sole', 'shell', '/w/adopted', 'remote adopter',
+        ('s_remote-adopter', 'user:sole', 'shell', '/unknown/adopted', 'remote adopter',
          'spawn', 'exited', 'podium-s_remote-adopter', 't', 't', '${other}',
-         'iss_remote-evidence', 'iss_remote-evidence');
+         'iss_remote-evidence', 'iss_remote-evidence'),
+        ('s_repo-conflict', 'user:sole', 'shell', '/repos/host/conflict', 'repo conflict',
+         'spawn', 'exited', 'podium-s_repo-conflict', 't', 't', '${other}',
+         'iss_repo-conflict', 'iss_repo-conflict');
     `)
     db.close()
 
@@ -241,32 +259,38 @@ describe('the legacy issue worktree machine backfill', () => {
     try {
       const store = new SessionStore(path, HOST)
 
-      expect(store.issues.getIssue('iss_unplaced-worktree')?.machineId).toBe(HOST)
+      expect(store.issues.getIssue('iss_host-repo')?.machineId).toBe(HOST)
+      expect(store.issues.getIssue('iss_remote-repo')?.machineId).toBe(other)
+      expect(store.issues.getIssue('iss_host-fallback')?.machineId).toBe(HOST)
+      expect(store.issues.getIssue('iss_ambiguous-repo')?.machineId).toBeNull()
       expect(store.issues.getIssue('iss_remote-worktree')?.machineId).toBe(other)
       expect(store.issues.getIssue('iss_remote-evidence')?.machineId).toBeNull()
+      expect(store.issues.getIssue('iss_repo-conflict')?.machineId).toBeNull()
       expect(store.issues.getIssue('iss_no-worktree')?.machineId).toBeNull()
       expect(logs.at('info')).toContainEqual(
         expect.objectContaining({
           ns: 'server:store',
           msg:
-            `backfilled 1 worktree rows to ${HOST}; ` +
-            'skipped 1 rows with sessions on other machines',
+            `backfilled worktree rows by machine: ${other}=1, ${HOST}=2; ` +
+            'left 3 unresolved',
         }),
       )
 
       expect(store.migrateLegacyIssueWorktreeMachineIdentity(HOST)).toEqual({
-        backfilled: 0,
-        skipped: 1,
+        backfilledByMachine: {},
+        unresolved: 3,
       })
       const raw = openDatabase(path)
       raw.prepare('UPDATE sessions SET issue_id = NULL WHERE id = ?').run('s_remote-adopter')
       raw.close()
       expect(store.migrateLegacyIssueWorktreeMachineIdentity(HOST)).toEqual({
-        backfilled: 0,
-        skipped: 1,
+        backfilledByMachine: {},
+        unresolved: 3,
       })
       expect(store.issues.getIssue('iss_remote-worktree')?.machineId).toBe(other)
       expect(store.issues.getIssue('iss_remote-evidence')?.machineId).toBeNull()
+      expect(store.issues.getIssue('iss_repo-conflict')?.machineId).toBeNull()
+      expect(store.issues.getIssue('iss_ambiguous-repo')?.machineId).toBeNull()
       expect(store.issues.getIssue('iss_no-worktree')?.machineId).toBeNull()
       store.close()
     } finally {

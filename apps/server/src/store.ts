@@ -261,7 +261,6 @@ export class SessionStore {
     // "no reader ever sees a legacy machine id" true by construction instead of by
     // call-order discipline.
     this.migrateLegacyMachineIdentity(this.hostMachineId)
-    this.migrateLegacyIssueWorktreeMachineIdentity(this.hostMachineId)
     this.conversations.ensureFts()
     this.superagent.seedGlobalThread()
     // The legacy repos.json import is the ONE writer left that can still hand the
@@ -270,6 +269,11 @@ export class SessionStore {
     // the import first forever (POD-1360).
     const importedRepos = this.repos.importReposJson(this.path, this.hostMachineId)
     this.upgradeLegacyRepoIdentityOnce(importedRepos > 0)
+    // Worktree attribution consumes the complete local repo registry. In
+    // particular, a legacy repos.json import must exist before NULL pins are
+    // classified, while the machine-identity rewrite above must normalize its
+    // machine ids first.
+    this.migrateLegacyIssueWorktreeMachineIdentity(this.hostMachineId)
     // #140 defense in depth (ported from main's boot migrate): renumber any
     // (repo_id, seq) collisions left by a pre-UNIQUE-index database. Idempotent --
     // no-ops once the DB is clean; runs AFTER the backfill so rows have repo_ids.
@@ -552,61 +556,96 @@ export class SessionStore {
 
   /**
    * ONE-TIME BOOT BACKFILL for worktrees created before ordinary issue starts
-   * recorded their machine. Most NULL pins are historical hub work, but the
-   * old session-CWD adoption path could copy a remote session's worktree onto an
-   * issue without copying its machine.
+   * recorded their machine. A worktree path may name either the hub's disk or a
+   * remote machine's: old placement and session-CWD adoption could both leave the
+   * pin NULL.
    *
-   * Session rows are the durable contradiction: the adopting session was
+   * The repos table is the durable placement map: an exact or path-prefix match
+   * to exactly one distinct machine attributes the worktree to that machine. No
+   * repo match falls back to the host, preserving known host-local temporary
+   * worktrees, while matches to multiple machines remain unresolved.
+   *
+   * Session rows are a veto on either attribution. The adopting session was
    * already linked to the issue and authenticated as its real machine. Both its
    * current issue_id and its sticky birth ref_issue_id count, so rehoming cannot
-   * erase the evidence. A row with ANY linked non-host session therefore stays
-   * NULL for manual recovery rather than being routed to the wrong disk. The
-   * legacy-machine rewrite runs immediately before this method, so old local
-   * sentinels have already become hostMachineId and do not look remote here.
+   * erase the evidence. Any linked session on a different machine leaves the row
+   * NULL rather than routing a reclaim to the wrong disk. The legacy-machine
+   * rewrite runs earlier in this boot, so old local sentinels have already
+   * become hostMachineId and do not look remote here.
    *
    * Existing pins always win, worktree-less issues remain genuinely unplaced,
-   * and reruns update nothing. Contradictory rows remain countable on every boot
-   * so the operator can see that the migration deliberately left work behind.
+   * and reruns update nothing. Ambiguous and contradictory rows remain countable
+   * on every boot so the operator can see that the migration left work behind.
    */
   migrateLegacyIssueWorktreeMachineIdentity(
     hostMachineId: MachineId,
-  ): { backfilled: number; skipped: number } {
+  ): { backfilledByMachine: Record<string, number>; unresolved: number } {
     const result = this.transact(() => {
-      const contradictorySession = `EXISTS (
-        SELECT 1
-          FROM sessions
-         WHERE (sessions.issue_id = issues.id OR sessions.ref_issue_id = issues.id)
-           AND sessions.machine_id <> ?
-      )`
-      const skipped = Number(
-        (
-          this.db
-            .prepare(
-              `SELECT COUNT(*) AS count
-                 FROM issues
-                WHERE worktree_path IS NOT NULL
-                  AND machine_id IS NULL
-                  AND ${contradictorySession}`,
-            )
-            .get(hostMachineId) as { count: number | bigint }
-        ).count,
+      const candidates = this.db
+        .prepare(
+          `WITH repo_matches AS (
+             SELECT issues.id,
+                    COUNT(DISTINCT repos.machine_id) AS repo_machine_count,
+                    MIN(repos.machine_id) AS repo_machine_id
+               FROM issues
+               LEFT JOIN repos
+                 ON issues.worktree_path = repos.path
+                 OR issues.worktree_path LIKE repos.path || '/%'
+              WHERE issues.worktree_path IS NOT NULL
+                AND issues.machine_id IS NULL
+              GROUP BY issues.id
+           ), attributed AS (
+             SELECT id,
+                    CASE
+                      WHEN repo_machine_count = 0 THEN ?
+                      WHEN repo_machine_count = 1 THEN repo_machine_id
+                      ELSE NULL
+                    END AS target_machine_id
+               FROM repo_matches
+           )
+           SELECT attributed.id,
+                  attributed.target_machine_id,
+                  EXISTS (
+                    SELECT 1
+                      FROM sessions
+                     WHERE (sessions.issue_id = attributed.id
+                            OR sessions.ref_issue_id = attributed.id)
+                       AND sessions.machine_id <> attributed.target_machine_id
+                  ) AS contradictory_session
+             FROM attributed
+            ORDER BY attributed.id`,
+        )
+        .all(hostMachineId) as {
+          id: string
+          target_machine_id: string | null
+          contradictory_session: number
+        }[]
+
+      const update = this.db.prepare(
+        'UPDATE issues SET machine_id = ? WHERE id = ? AND machine_id IS NULL',
       )
-      const backfilled = Number(
-        this.db
-          .prepare(
-            `UPDATE issues
-                SET machine_id = ?
-              WHERE worktree_path IS NOT NULL
-                AND machine_id IS NULL
-                AND NOT ${contradictorySession}`,
-          )
-          .run(hostMachineId, hostMachineId).changes,
-      )
-      return { backfilled, skipped }
+      const backfilledByMachine: Record<string, number> = {}
+      let unresolved = 0
+      for (const candidate of candidates) {
+        if (candidate.target_machine_id === null || candidate.contradictory_session !== 0) {
+          unresolved += 1
+          continue
+        }
+        const changed = Number(update.run(candidate.target_machine_id, candidate.id).changes)
+        if (changed > 0) {
+          backfilledByMachine[candidate.target_machine_id] =
+            (backfilledByMachine[candidate.target_machine_id] ?? 0) + changed
+        }
+      }
+      return { backfilledByMachine, unresolved }
     })
+    const counts =
+      Object.entries(result.backfilledByMachine)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([machineId, count]) => `${machineId}=${count}`)
+        .join(', ') || 'none'
     log.info(
-      `backfilled ${result.backfilled} worktree rows to ${hostMachineId}; ` +
-        `skipped ${result.skipped} rows with sessions on other machines`,
+      `backfilled worktree rows by machine: ${counts}; left ${result.unresolved} unresolved`,
     )
     return result
   }
