@@ -911,7 +911,14 @@ describe('Workspace splitting', () => {
       name: 'Split Right',
     })
     action.focus()
-    fireEvent.keyDown(action, { key: ' ', code: 'Space' })
+    const fixedKeyDown = new KeyboardEvent('keydown', {
+      key: ' ',
+      code: 'Space',
+      bubbles: true,
+      cancelable: true,
+    })
+    action.dispatchEvent(fixedKeyDown)
+    expect(fixedKeyDown.defaultPrevented).toBe(false)
     await runtime.release()
 
     expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()

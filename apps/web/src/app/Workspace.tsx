@@ -478,6 +478,7 @@ export function Workspace({
       if (restoreFocus && !DragRuntime) {
         const fixedTarget = fixedStripControlTarget(intentTarget)
         if (fixedTarget) {
+          clearPendingDragActivation()
           dragFocusToRestore.current = null
           fixedStripFocusToRestore.current = fixedTarget.locator
           return
