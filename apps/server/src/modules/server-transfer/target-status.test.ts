@@ -22,6 +22,13 @@ const promoted = () => ({
   publicUrl: 'https://podium.example.com',
   port: 443,
   state: 'promoted',
+  promotion: {
+    idempotencyKey: transferId,
+    publicUrl: 'https://podium.example.com',
+    bindHost: '0.0.0.0',
+    port: 443,
+    targetMode: 'server',
+  },
   servingProof: {
     operationId: 'operation-1',
     transferId,
@@ -32,6 +39,7 @@ const promoted = () => ({
     schemaVersion: 'schema-1',
     buildVersion: 'test',
     publicUrl: 'https://podium.example.com',
+    bindHost: '0.0.0.0',
     port: 443,
     health: 'serving',
   },
@@ -50,6 +58,7 @@ const promoting = () => ({
   promotion: {
     idempotencyKey: transferId,
     publicUrl: 'https://podium.example.com',
+    bindHost: '0.0.0.0',
     port: 443,
     targetMode: 'server',
   },
@@ -89,6 +98,7 @@ describe('promoted target metadata', () => {
       sourceMachineId: 'source-1',
       targetMachineId: 'target-1',
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0',
       port: 443,
       proof: {
         operationId: 'operation-1',
@@ -103,6 +113,7 @@ describe('promoted target metadata', () => {
     ['operationId', 'operation-other'],
     ['transferId', '00000000-0000-4000-8000-000000000002'],
     ['manifestDigest', 'b'.repeat(64)],
+    ['bindHost', '127.0.0.1'],
   ] as const)('rejects serving proof whose %s differs from promotion metadata', async (field, value) => {
     const valueWithMismatch = promoted()
     valueWithMismatch.servingProof = { ...valueWithMismatch.servingProof, [field]: value }
@@ -120,6 +131,7 @@ describe('newest target promotion metadata', () => {
     const newer = promoted()
     newer.transferId = newerTransferId
     newer.manifestDigest = newerDigest
+    newer.promotion = { ...newer.promotion, idempotencyKey: newerTransferId }
     newer.servingProof = {
       ...newer.servingProof,
       transferId: newerTransferId,
@@ -152,6 +164,7 @@ describe('promoting target metadata', () => {
       sourceMachineId: 'source-1',
       targetMachineId: 'target-1',
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0',
       port: 443,
       proof: { operationId: 'operation-1', transferId, manifestDigest },
     })

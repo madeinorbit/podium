@@ -99,6 +99,7 @@ export async function startServerMove(
   input: {
     targetMachineId: MachineId
     publicUrl: string
+    bindHost: '127.0.0.1' | '0.0.0.0'
     port?: number
     confirmation: typeof SERVER_MOVE_CONFIRMATION
   },

@@ -892,12 +892,14 @@ export async function startServer(
         if (!details || typeof details !== 'object') return undefined
         const targetMachineId = details.targetMachineId
         const publicUrl = details.publicUrl
+        const bindHost = details.bindHost
         const port = details.port
         const transferId = details.transferId
         const authorizedBy = details.authorizedBy
         if (
           typeof targetMachineId !== 'string' ||
           typeof publicUrl !== 'string' ||
+          (bindHost !== '127.0.0.1' && bindHost !== '0.0.0.0') ||
           typeof port !== 'number' ||
           typeof transferId !== 'string' ||
           typeof authorizedBy !== 'string'
@@ -909,6 +911,7 @@ export async function startServer(
           input: {
             targetMachineId: asMachineId(targetMachineId),
             publicUrl,
+            bindHost,
             port,
             confirmation: 'TRANSFER SERVER' as const,
           },
@@ -922,6 +925,7 @@ export async function startServer(
           transferId,
           sourceMachineId: registry.modules.serverTransfer.sourceMachineId(),
           publicUrl,
+          bindHost,
           port,
           ...(serverMoveCrash ? { crash: serverMoveCrash } : {}),
         }

@@ -237,6 +237,7 @@ export const machineMoveServerHandler = async ({
       transferId: randomUUID(),
       sourceMachineId: modules.serverTransfer.sourceMachineId(),
       publicUrl,
+      bindHost: input.bindHost,
       port,
       ...(retryOf ? { retryOf } : {}),
       ...(crash ? { crash } : {}),

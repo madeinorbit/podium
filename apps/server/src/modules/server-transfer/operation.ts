@@ -1,6 +1,6 @@
 import { existsSync, writeFileSync } from 'node:fs'
 import type { MachineId } from '@podium/model'
-import type { Operation as ProtocolOperation } from '@podium/protocol'
+import type { Operation as ProtocolOperation, ServerBindHost } from '@podium/protocol'
 import type { ServerTransferOutcome, TransferJournalEntry, TransferRecord } from './types'
 import type { OperationEngine } from '../operations/engine'
 import { ADOPTION_DEFERRED, type OperationKindDefinition } from '../operations/kinds'
@@ -28,6 +28,7 @@ export interface ServerMoveContext {
   transferId: string
   sourceMachineId: MachineId
   publicUrl: string
+  bindHost: ServerBindHost
   port: number
   retryOf?: string
   crash?: (point: ServerTransferCrashPoint) => void | Promise<void>
@@ -42,6 +43,7 @@ export interface ServerMoveReality {
     targetMachineId: string
     manifestDigest: string
     publicUrl: string
+    bindHost: ServerBindHost
     port: number
   } | null
   promoting?: {
@@ -51,6 +53,7 @@ export interface ServerMoveReality {
     targetMachineId: string
     manifestDigest: string
     publicUrl: string
+    bindHost: ServerBindHost
     port: number
   } | null
   machineId?: string
@@ -119,12 +122,14 @@ type MoveDetails = {
   sourceMachineId: string
   targetMachineId: string
   publicUrl: string
+  bindHost: ServerBindHost
   port: number
   manifestDigest?: string
   authorizedBy: string
   intent: {
     targetMachineId: string
     publicUrl: string
+    bindHost: ServerBindHost
     port: number
     confirmation: 'satisfied'
   }
@@ -140,12 +145,14 @@ function detailsOf(operation: ProtocolOperation): MoveDetails | undefined {
     typeof details.sourceMachineId !== 'string' ||
     typeof details.targetMachineId !== 'string' ||
     typeof details.publicUrl !== 'string' ||
+    (details.bindHost !== '127.0.0.1' && details.bindHost !== '0.0.0.0') ||
     typeof details.port !== 'number' ||
     typeof details.authorizedBy !== 'string' ||
     !details.intent ||
     typeof details.intent !== 'object' ||
     details.intent.targetMachineId !== details.targetMachineId ||
     details.intent.publicUrl !== details.publicUrl ||
+    details.intent.bindHost !== details.bindHost ||
     details.intent.port !== details.port ||
     details.intent.confirmation !== 'satisfied'
   ) {
@@ -226,6 +233,7 @@ export function reconcileServerMoveOperation(
     journal.record.sourceMachineId === details.sourceMachineId &&
     journal.record.targetMachineId === details.targetMachineId &&
     journal.record.publicUrl === details.publicUrl &&
+    journal.record.bindHost === details.bindHost &&
     journal.record.port === details.port &&
     journalDigest === details.manifestDigest &&
     reality.machineId === details.sourceMachineId
@@ -250,6 +258,7 @@ export function reconcileServerMoveOperation(
     promoted.targetMachineId === details.targetMachineId &&
     (reality.machineId === undefined || reality.machineId === details.targetMachineId) &&
     promoted.publicUrl === details.publicUrl &&
+    promoted.bindHost === details.bindHost &&
     promoted.port === details.port
   ) {
     let reconciled = patchStep(operation, 'fence', {
@@ -286,6 +295,7 @@ export function reconcileServerMoveOperation(
     promoting.sourceMachineId === details.sourceMachineId &&
     promoting.targetMachineId === details.targetMachineId &&
     promoting.publicUrl === details.publicUrl &&
+    promoting.bindHost === details.bindHost &&
     promoting.port === details.port &&
     reality.machineId === details.targetMachineId
   ) {
@@ -412,6 +422,7 @@ export function serverMoveOperationKind(
         sourceMachineId: context.sourceMachineId,
         targetMachineId: context.input.targetMachineId,
         publicUrl: context.publicUrl,
+        bindHost: context.bindHost,
         port: context.port,
         bytesCopied: 0,
         totalBytes: 0,
@@ -419,6 +430,7 @@ export function serverMoveOperationKind(
         intent: {
           targetMachineId: context.input.targetMachineId,
           publicUrl: context.publicUrl,
+          bindHost: context.bindHost,
           port: context.port,
           confirmation: 'satisfied',
         },
@@ -470,6 +482,7 @@ export function serverMoveOperationKind(
                 transferId: record.transferId,
                 targetMachineId: record.targetMachineId,
                 publicUrl: record.publicUrl,
+                bindHost: record.bindHost,
                 port: record.port,
                 sealedAt: Date.now(),
               },

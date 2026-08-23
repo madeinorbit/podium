@@ -1405,6 +1405,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
       wireSchemaDigest: 'wire-v1',
       space: { availableBytes: 20, requiredBytes: 10, sufficient: true },
       proof: {
+        operationId: 'operation-1',
         transferId: '00000000-0000-4000-8000-000000000001',
         manifestDigest: 'b'.repeat(64),
         targetMachineId: 'target-machine',
@@ -1414,6 +1415,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
         buildVersion: '2026.8.10',
       },
       servingProof: {
+        operationId: 'operation-1',
         transferId: '00000000-0000-4000-8000-000000000001',
         manifestDigest: 'b'.repeat(64),
         targetMachineId: 'target-machine',

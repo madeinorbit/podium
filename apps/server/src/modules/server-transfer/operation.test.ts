@@ -19,12 +19,14 @@ const details = {
   sourceMachineId: 'source-1',
   targetMachineId: 'target-1',
   publicUrl: 'https://podium.example.com',
+  bindHost: '0.0.0.0' as const,
   port: 443,
   manifestDigest: 'a'.repeat(64),
   authorizedBy: 'user:sole',
   intent: {
     targetMachineId: 'target-1',
     publicUrl: 'https://podium.example.com',
+    bindHost: '0.0.0.0' as const,
     port: 443,
     confirmation: 'satisfied' as const,
   },
@@ -61,6 +63,7 @@ function journal(state: TransferJournalEntry['state']): TransferJournalEntry {
     transferId: 'transfer-1',
     targetMachineId: asMachineId('target-1'),
     publicUrl: 'https://podium.example.com',
+    bindHost: '0.0.0.0' as const,
     port: 443,
     sourceMachineId: asMachineId('source-1'),
     sourceInstanceId: 'instance-1',
@@ -124,10 +127,12 @@ describe('server-move operation', () => {
       input: {
         targetMachineId: asMachineId('target-1'),
         publicUrl: 'https://podium.example.com',
+        bindHost: '0.0.0.0' as const,
         port: 443,
         confirmation: 'TRANSFER SERVER',
       },
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0' as const,
       port: 443,
       authorizedBy: 'user:sole',
     } as never)
@@ -177,6 +182,7 @@ describe('server-move operation', () => {
       targetMachineId: 'target-1',
       manifestDigest: 'b'.repeat(64),
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0' as const,
       port: 443,
     }
     expect(
@@ -221,6 +227,7 @@ describe('server-move operation', () => {
       targetMachineId: 'target-1',
       manifestDigest: 'a'.repeat(64),
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0' as const,
       port: 443,
     }
     const done = reconcileServerMoveOperation(operation(), {
@@ -246,6 +253,7 @@ describe('server-move operation', () => {
       { ...promoted, sourceMachineId: 'source-other' },
       { ...promoted, targetMachineId: 'target-other' },
       { ...promoted, publicUrl: 'https://other.example.com' },
+      { ...promoted, bindHost: '127.0.0.1' as const },
       { ...promoted, port: 8443 },
     ]) {
       expect(
@@ -292,6 +300,7 @@ describe('server-move operation', () => {
     for (const mismatched of [
       { ...exact, record: { ...exact.record, operationId: 'operation-other' } },
       { ...exact, record: { ...exact.record, sourceMachineId: asMachineId('source-other') } },
+      { ...exact, record: { ...exact.record, bindHost: '127.0.0.1' as const } },
       { ...exact, record: { ...exact.record, port: 8443 } },
     ]) {
       expect(

@@ -35,12 +35,14 @@ const operation = {
     sourceMachineId: 'source-1',
     targetMachineId: 'target-1',
     publicUrl: 'https://podium.example.com',
+    bindHost: '0.0.0.0' as const,
     port: 443,
     manifestDigest: 'a'.repeat(64),
     authorizedBy: 'user:sole',
     intent: {
       targetMachineId: 'target-1',
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0' as const,
       port: 443,
       confirmation: 'satisfied' as const,
     },
@@ -71,11 +73,13 @@ function promotingMetadata() {
     sourceMachineId: 'source-1',
     targetMachineId: 'target-1',
     publicUrl: 'https://podium.example.com',
+    bindHost: '0.0.0.0' as const,
     port: 443,
     state: 'promoting',
     promotion: {
       idempotencyKey: finalTransferId,
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0' as const,
       port: 443,
       targetMode: 'server',
     },
@@ -90,6 +94,7 @@ function promotedMetadata() {
     servingProof: {
       ...candidateProof,
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0' as const,
       port: 443,
       health: 'serving',
     },
@@ -121,6 +126,7 @@ describe('target server deferred move adoption', () => {
         mode: 'server',
         persistence: 'detached',
         publicUrl: 'https://podium.example.com',
+        bindHost: '0.0.0.0',
       }),
     )
     writeFileSync(join(root, 'machine.id'), 'target-1')
@@ -197,6 +203,7 @@ describe('source server deferred move adoption', () => {
           mode: 'server',
           persistence: 'detached',
           publicUrl: 'https://podium.example.com',
+          bindHost: '0.0.0.0',
         }),
       )
       writeFileSync(join(root, 'machine.id'), 'source-1')
@@ -235,6 +242,7 @@ describe('source server deferred move adoption', () => {
         transferId: sourceDetails.transferId,
         targetMachineId: asMachineId(sourceDetails.targetMachineId),
         publicUrl: sourceDetails.publicUrl,
+        bindHost: sourceDetails.bindHost,
         port: sourceDetails.port,
         sourceMachineId: asMachineId(sourceDetails.sourceMachineId),
         sourceInstanceId: 'source-instance',

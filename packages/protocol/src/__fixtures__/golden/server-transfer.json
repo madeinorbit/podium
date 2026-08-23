@@ -3,6 +3,24 @@
   "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
+      "schema": "ServerBindHost",
+      "variant": "minimal",
+      "wire": "127.0.0.1",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"127.0.0.1\""
+    },
+    {
+      "schema": "ServerBindHost",
+      "variant": "full",
+      "wire": "127.0.0.1",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"127.0.0.1\""
+    },
+    {
       "schema": "ServerTransferAbortRequestMessage",
       "variant": "minimal",
       "wire": {
@@ -312,6 +330,7 @@
         "transferId": "00000000-0000-4000-8000-000000000000",
         "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "publicUrl": "publicUrl",
+        "bindHost": "127.0.0.1",
         "port": 1,
         "targetMode": "server",
         "idempotencyKey": "idempotencyKey"
@@ -319,7 +338,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"serverTransferPromoteRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"publicUrl\":\"publicUrl\",\"port\":1,\"targetMode\":\"server\",\"idempotencyKey\":\"idempotencyKey\"}"
+      "encoded": "{\"type\":\"serverTransferPromoteRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"publicUrl\":\"publicUrl\",\"bindHost\":\"127.0.0.1\",\"port\":1,\"targetMode\":\"server\",\"idempotencyKey\":\"idempotencyKey\"}"
     },
     {
       "schema": "ServerTransferPromoteRequestMessage",
@@ -330,6 +349,7 @@
         "transferId": "00000000-0000-4000-8000-000000000000",
         "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "publicUrl": "publicUrl",
+        "bindHost": "127.0.0.1",
         "port": 1,
         "targetMode": "server",
         "idempotencyKey": "idempotencyKey"
@@ -337,7 +357,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"serverTransferPromoteRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"publicUrl\":\"publicUrl\",\"port\":1,\"targetMode\":\"server\",\"idempotencyKey\":\"idempotencyKey\"}"
+      "encoded": "{\"type\":\"serverTransferPromoteRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"publicUrl\":\"publicUrl\",\"bindHost\":\"127.0.0.1\",\"port\":1,\"targetMode\":\"server\",\"idempotencyKey\":\"idempotencyKey\"}"
     },
     {
       "schema": "ServerTransferProof",
@@ -438,6 +458,7 @@
           "schemaVersion": "servingProof.schemaVersion",
           "buildVersion": "servingProof.buildVersion",
           "publicUrl": "servingProof.publicUrl",
+          "bindHost": "127.0.0.1",
           "port": 1,
           "health": "serving"
         },
@@ -447,7 +468,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"serverTransferResult\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"operation\":\"prepare\",\"ok\":true,\"state\":\"prepared\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceMachineId\":\"sourceMachineId\",\"publicUrl\":\"publicUrl\",\"port\":1,\"path\":\"path\",\"offset\":1,\"receivedBytes\":1,\"idempotent\":true,\"cleaned\":true,\"acknowledged\":true,\"targetCapability\":\"server-only\",\"buildVersion\":\"buildVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"space\":{\"availableBytes\":1,\"requiredBytes\":1,\"sufficient\":true},\"proof\":{\"operationId\":\"proof.operationId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"proof.targetMachineId\",\"feedId\":\"proof.feedId\",\"feedEpoch\":\"proof.feedEpoch\",\"schemaVersion\":\"proof.schemaVersion\",\"buildVersion\":\"proof.buildVersion\"},\"servingProof\":{\"operationId\":\"servingProof.operationId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"servingProof.targetMachineId\",\"feedId\":\"servingProof.feedId\",\"feedEpoch\":\"servingProof.feedEpoch\",\"schemaVersion\":\"servingProof.schemaVersion\",\"buildVersion\":\"servingProof.buildVersion\",\"publicUrl\":\"servingProof.publicUrl\",\"port\":1,\"health\":\"serving\"},\"errorCode\":\"unknown-transfer\",\"error\":\"error\"}"
+      "encoded": "{\"type\":\"serverTransferResult\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"operation\":\"prepare\",\"ok\":true,\"state\":\"prepared\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceMachineId\":\"sourceMachineId\",\"publicUrl\":\"publicUrl\",\"port\":1,\"path\":\"path\",\"offset\":1,\"receivedBytes\":1,\"idempotent\":true,\"cleaned\":true,\"acknowledged\":true,\"targetCapability\":\"server-only\",\"buildVersion\":\"buildVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"space\":{\"availableBytes\":1,\"requiredBytes\":1,\"sufficient\":true},\"proof\":{\"operationId\":\"proof.operationId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"proof.targetMachineId\",\"feedId\":\"proof.feedId\",\"feedEpoch\":\"proof.feedEpoch\",\"schemaVersion\":\"proof.schemaVersion\",\"buildVersion\":\"proof.buildVersion\"},\"servingProof\":{\"operationId\":\"servingProof.operationId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"servingProof.targetMachineId\",\"feedId\":\"servingProof.feedId\",\"feedEpoch\":\"servingProof.feedEpoch\",\"schemaVersion\":\"servingProof.schemaVersion\",\"buildVersion\":\"servingProof.buildVersion\",\"publicUrl\":\"servingProof.publicUrl\",\"bindHost\":\"127.0.0.1\",\"port\":1,\"health\":\"serving\"},\"errorCode\":\"unknown-transfer\",\"error\":\"error\"}"
     },
     {
       "schema": "ServerTransferServingProof",
@@ -462,13 +483,14 @@
         "schemaVersion": "schemaVersion",
         "buildVersion": "buildVersion",
         "publicUrl": "publicUrl",
+        "bindHost": "127.0.0.1",
         "port": 1,
         "health": "serving"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"operationId\":\"operationId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"targetMachineId\",\"feedId\":\"feedId\",\"feedEpoch\":\"feedEpoch\",\"schemaVersion\":\"schemaVersion\",\"buildVersion\":\"buildVersion\",\"publicUrl\":\"publicUrl\",\"port\":1,\"health\":\"serving\"}"
+      "encoded": "{\"operationId\":\"operationId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"targetMachineId\",\"feedId\":\"feedId\",\"feedEpoch\":\"feedEpoch\",\"schemaVersion\":\"schemaVersion\",\"buildVersion\":\"buildVersion\",\"publicUrl\":\"publicUrl\",\"bindHost\":\"127.0.0.1\",\"port\":1,\"health\":\"serving\"}"
     },
     {
       "schema": "ServerTransferServingProof",
@@ -483,13 +505,14 @@
         "schemaVersion": "schemaVersion",
         "buildVersion": "buildVersion",
         "publicUrl": "publicUrl",
+        "bindHost": "127.0.0.1",
         "port": 1,
         "health": "serving"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"operationId\":\"operationId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"targetMachineId\",\"feedId\":\"feedId\",\"feedEpoch\":\"feedEpoch\",\"schemaVersion\":\"schemaVersion\",\"buildVersion\":\"buildVersion\",\"publicUrl\":\"publicUrl\",\"port\":1,\"health\":\"serving\"}"
+      "encoded": "{\"operationId\":\"operationId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"targetMachineId\",\"feedId\":\"feedId\",\"feedEpoch\":\"feedEpoch\",\"schemaVersion\":\"schemaVersion\",\"buildVersion\":\"buildVersion\",\"publicUrl\":\"publicUrl\",\"bindHost\":\"127.0.0.1\",\"port\":1,\"health\":\"serving\"}"
     },
     {
       "schema": "ServerTransferSpaceProof",
