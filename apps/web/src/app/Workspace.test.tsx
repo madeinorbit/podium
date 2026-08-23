@@ -996,6 +996,47 @@ describe('Workspace splitting', () => {
     await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
   })
 
+  it('publishes a runtime requested during an existing fixed pointer hold', async () => {
+    featureEnabled['tab-splitting'] = true
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+
+    const control = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    fireEvent.pointerDown(control, {
+      pointerId: 16,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+    })
+    expect(runtime.load).not.toHaveBeenCalled()
+
+    fireEvent.pointerMove(intentTab, {
+      pointerId: 16,
+      pointerType: 'mouse',
+      isPrimary: true,
+      buttons: 1,
+    })
+    expect(runtime.load).toHaveBeenCalledTimes(1)
+    await runtime.release()
+    fireEvent.pointerUp(intentTab, {
+      pointerId: 16,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 0,
+    })
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+    fireEvent.pointerEnter(intentTab)
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+  })
+
   it.each(['label', 'close'] as const)(
     'finishes a cold drag without dispatching its browser click to the source %s control',
     async (control) => {

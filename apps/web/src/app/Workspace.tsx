@@ -497,6 +497,7 @@ export function Workspace({
         }
       }
       if (dragRuntimeRequested.current) return
+      if (fixedStripPress.current) dragRuntimeDeferredUntilIntent.current = true
       dragRuntimeRequested.current = true
       void loadDragRuntime().then(
         (module) => {
