@@ -603,3 +603,29 @@ looks wrong** — they accumulate silently and they are pure loss. And **the cei
 your fleet, it is the box**: this host was running 55 agent processes, of which this epic
 owned about 16. Reasoning about "my sessions" as though they were the whole load is how you
 arrive at 107 while believing you are inside your budget.
+
+### "Run the cached typecheck" is not an instruction a session can follow
+
+Third load event of 2026-08-23, and the reason the first two lessons did not prevent it.
+I had told the whole fleet, twice, that the cached typecheck is the gate and whole-graph runs
+are not wanted. Sessions kept starting whole-graph runs anyway. They were not ignoring me.
+
+**`bun run typecheck` is the same command whether it hits the cache or not.** Whether it is
+cached is a property of the WORKTREE, not of the caller's intent. A session working in a
+fresh checkout — which every reviewer and every newly started issue has — cannot run a
+cached typecheck. It types the instruction it was given, gets a cache miss, and pulls the
+whole graph. Cached 818ms and uncached 1h19m are the same keystrokes.
+
+So the directive was unactionable, and phrasing it more firmly each time was never going to
+work. What a session can actually act on:
+
+- **Run `tsgo` on the packages you changed**, not the repo gate. That is a different command,
+  and it is a choice the session can make.
+- **`bun run typecheck` only when you hold `test:heavy`** — and expect it to be a cache miss
+  in a fresh worktree, which is exactly why the lease matters there and nowhere else.
+- Reviewers in fresh detached checkouts are the highest-risk callers, because their cache is
+  always cold and their instinct is to establish a clean baseline before mutating.
+
+The general lesson is worth more than the specific fix: when a rule keeps being broken by
+people who are trying to follow it, the rule is describing an outcome the actor does not
+control. Find the thing they do control and name that instead.
