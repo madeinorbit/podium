@@ -570,6 +570,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         state.rows,
         state.epoch,
         state.controllerId,
+        state.requestedGeometry?.cols ?? null,
+        state.requestedGeometry?.rows ?? null,
         state.outputSeen,
       ])
       if (signature !== lastTracedState) {
@@ -577,9 +579,19 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         trace('connection:state', { state })
       }
       if (hasOtherController(state)) clearControlAssertion()
-      const asserted = assertedControlGrid
       const applied = { cols: view.cols(), rows: view.rows() }
       const stateGrid = { cols: state.cols, rows: state.rows }
+      // requestControl/sendResize publish requestedGeometry before the stale
+      // state echo. Prefer that newer local intent when xterm already applied it.
+      // The existing assertion remains the fallback after the request settles.
+      const requested = state.requestedGeometry
+      const pendingRequestedGrid =
+        requested !== null &&
+        sameGrid(applied, requested) &&
+        !sameGrid(stateGrid, requested)
+          ? { ...requested }
+          : null
+      const asserted = pendingRequestedGrid ?? assertedControlGrid
       const holdClaimedGrid =
         gridMode === 'control' &&
         state.connected &&
@@ -606,6 +618,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         view.forceRepaint()
       }
       if (holdClaimedGrid) {
+        if (asserted !== null) {
+          assertedControlGrid = { ...asserted }
+        }
         trace('connection:hold-claimed-grid', { state, asserted })
         scheduleControlRepair(state)
       }

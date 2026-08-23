@@ -140,6 +140,7 @@ function fakeHub() {
     role: 'controller' as 'controller' | 'spectator',
     cols: 80,
     rows: 24,
+    requestedGeometry: null as { cols: number; rows: number } | null,
     epoch: 0,
     connected: true,
   }
@@ -185,8 +186,13 @@ function fakeHub() {
   return {
     hub,
     calls,
-    state: (cols: number, rows: number, role: 'controller' | 'spectator' = 'controller') => {
-      current = { ...current, cols, rows, role }
+    state: (
+      cols: number,
+      rows: number,
+      role: 'controller' | 'spectator' = 'controller',
+      requestedGeometry: { cols: number; rows: number } | null = null,
+    ) => {
+      current = { ...current, cols, rows, role, requestedGeometry }
       cbs.onState?.(current as never)
     },
     role: (role: 'controller' | 'spectator') => {
@@ -509,6 +515,62 @@ describe('mountSession eligibility-gated sizing', () => {
       { cols: 150, rows: 50 },
       { cols: 150, rows: 50 },
     ])
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('applies a server grid when the local view no longer matches the assertion', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: false,
+    })
+    state(80, 24)
+    mounted.setActive(true)
+    vi.advanceTimersByTime(16 * 3)
+    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+
+    mounted.view.resize(80, 24)
+    state(70, 20)
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 70,
+      rows: 20,
+    })
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+
+  it('honors a pending requested grid before applying a stale server state', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+    })
+
+    // The ordinary fit has applied the local 150×50 grid, but this path has not
+    // made a reveal assertion. The transport's pending request is the only fence
+    // available when the stale 80×24 state arrives.
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
+    state(80, 24, 'controller', { cols: 150, rows: 50 })
+
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
+    vi.advanceTimersByTime(16)
+    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
     mounted.dispose()
     vi.advanceTimersByTime(1)
   })
