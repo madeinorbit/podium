@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { HarnessAgent } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
@@ -67,11 +68,14 @@ function NativeAccountRow({
   account: AccountView
   onChanged: () => void
 }): JSX.Element {
-  const { trpc, navigateToSession, sessions } = useStoreSelector((s) => ({
-    trpc: s.trpc,
-    navigateToSession: s.navigateToSession,
-    sessions: s.sessions,
-  }))
+  const { trpc, navigateToSession, sessions } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      navigateToSession: s.navigateToSession,
+      sessions: s.sessions,
+    }),
+    shallowEqual,
+  )
   const [machineId, setMachineId] = useState(account.loginMachines?.[0]?.id ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

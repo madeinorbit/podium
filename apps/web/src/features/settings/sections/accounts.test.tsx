@@ -1,5 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { asMachineId } from '@podium/model'
+import { Profiler, useRef, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AccountView } from './shared'
 
@@ -12,13 +13,55 @@ const trpc = {
   },
 }
 const navigateToSession = vi.fn()
+let publication = 0
+const storeListeners = new Set<() => void>()
+let storeSnapshot = {
+  trpc,
+  navigateToSession,
+  sessions: [{ sessionId: 'login-session' }],
+  publication,
+}
+
+function useTestStoreSelector<T>(
+  selector: (store: typeof storeSnapshot) => T,
+  isEqual: (left: T, right: T) => boolean = Object.is,
+): T {
+  const selectorRef = useRef(selector)
+  selectorRef.current = selector
+  const equalityRef = useRef(isEqual)
+  equalityRef.current = isEqual
+  const cache = useRef<{ snapshot: typeof storeSnapshot; selected: T } | null>(null)
+
+  return useSyncExternalStore(
+    (listener) => {
+      storeListeners.add(listener)
+      return () => storeListeners.delete(listener)
+    },
+    () => {
+      if (cache.current?.snapshot === storeSnapshot) return cache.current.selected
+      const next = selectorRef.current(storeSnapshot)
+      const selected =
+        cache.current && equalityRef.current(cache.current.selected, next)
+          ? cache.current.selected
+          : next
+      cache.current = { snapshot: storeSnapshot, selected }
+      return selected
+    },
+  )
+}
+
+function publishUnchangedSelection(): void {
+  publication++
+  storeSnapshot = { ...storeSnapshot, publication }
+  for (const listener of storeListeners) listener()
+}
 
 vi.mock('@/app/store', () => {
-  const useStore = () => ({ trpc, navigateToSession, sessions: [{ sessionId: 'login-session' }] })
+  const useStore = () => storeSnapshot
   return {
     useStore,
     useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
-    useStoreSelector: (selector: (store: unknown) => unknown) => selector(useStore()),
+    useStoreSelector: useTestStoreSelector,
   }
 })
 
@@ -55,9 +98,38 @@ function serveList(first: AccountView[], then: AccountView[] = first): void {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  publication = 0
+  storeSnapshot = {
+    trpc,
+    navigateToSession,
+    sessions: [{ sessionId: 'login-session' }],
+    publication,
+  }
 })
 
 describe('AccountsSection', () => {
+  it('does not rerender native rows when a store publication leaves their fields unchanged', async () => {
+    serveList([NATIVE])
+    let updates = 0
+    render(
+      <Profiler
+        id="accounts"
+        onRender={(_id, phase) => {
+          if (phase === 'update') updates++
+        }}
+      >
+        <AccountsSection />
+      </Profiler>,
+    )
+    expect(await screen.findByText('Not connected')).toBeTruthy()
+    const updatesBeforePublication = updates
+
+    act(() => publishUnchangedSelection())
+
+    expect(updates).toBe(updatesBeforePublication)
+    expect(trpc.accounts.list.query).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps a long connected identity readable without arbitrary character breaks', async () => {
     const identity = 'Tillmann Felippi · tillmann.felippi+podium@example.com'
     serveList([{ ...NATIVE, status: 'connected', identity }])
