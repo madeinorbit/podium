@@ -7,7 +7,9 @@ import { SetupUnreachable } from './SetupUnreachable'
 import { restartPodiumShell } from './restart-shell'
 import { checkServerVersion } from './version-guard'
 
-const SetupView = lazy(() => import('./SetupView').then((module) => ({ default: module.SetupView })))
+const SetupView = lazy(() =>
+  import('./SetupView').then((module) => ({ default: module.SetupView })),
+)
 
 type Phase =
   | 'loading'
@@ -142,6 +144,10 @@ async function probeRemoteReadiness(
 export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   const [phase, setPhase] = useState<Phase>('loading')
   const [attempt, setAttempt] = useState(0)
+  // Snapshot this before any effects run. The parallel replica open can create a namespace
+  // marker during this boot, but only a replica retained from an earlier boot makes offline
+  // fall-through safe. Keep the evidence stable across manual retries too.
+  const [hadSyncedReplica] = useState(() => hasSyncedReplica())
   const httpOrigin = serverConfig(window.location).httpOrigin
 
   // `attempt` is a manual retry trigger: bumping it re-runs the probe from scratch after the
@@ -164,12 +170,19 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
 
     let alive = true
     let timer: ReturnType<typeof setTimeout> | undefined
+    let versionReady = false
+    let pendingPhase: Exclude<Phase, 'loading'> | undefined
     setPhase('loading')
+
+    const publish = (next: Exclude<Phase, 'loading' | 'unreachable'>): void => {
+      pendingPhase = next
+      if (alive && versionReady) setPhase(next)
+    }
 
     const run = (tries: number): void => {
       probeSetup(httpOrigin)
         .then((next) => {
-          if (alive) setPhase(next)
+          if (alive) publish(next)
         })
         .catch(() => {
           if (!alive) return
@@ -186,24 +199,28 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
             // holds: fall through to the app and let it render from its replica
             // (POD-2057). Without that local slice there is nothing to fall through
             // TO, and the recovery console is the honest screen.
-            setPhase(hasSyncedReplica() ? 'degraded' : 'unreachable')
+            const next = hadSyncedReplica ? 'degraded' : 'unreachable'
+            pendingPhase = next
+            if (versionReady) setPhase(next)
           }
         })
     }
 
-    // Wire-version handshake first: a stale cached PWA shell talking to a bumped server must
-    // hard-reload (evicting the SW cache) before we render anything. On a match / flaky
-    // /version it resolves 'ok'; on a mismatch it triggers a reload and we stay on 'loading'
-    // (the page is already reloading). 'blocked' (loop guard tripped) falls through to render.
-    checkServerVersion(httpOrigin).then((result) => {
-      if (alive && result !== 'reloaded') run(0)
+    // Start setup beside the version handshake, but do not publish its answer until the
+    // handshake permits this build to render. A mismatch still hard-reloads immediately.
+    const versionCheck = checkServerVersion(httpOrigin)
+    run(0)
+    void versionCheck.then((result) => {
+      if (!alive || result === 'reloaded') return
+      versionReady = true
+      if (pendingPhase !== undefined) setPhase(pendingPhase)
     })
 
     return () => {
       alive = false
       if (timer) clearTimeout(timer)
     }
-  }, [httpOrigin, attempt])
+  }, [httpOrigin, attempt, hadSyncedReplica])
 
   // AUTO-RECOVERY, for both ways the probe can end badly. Neither phase is a
   // resting place: 'degraded' still owes the user the answer it could not get,
@@ -261,11 +278,7 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   if (phase === 'restart-required') {
     return (
       <Suspense fallback={null}>
-        <SetupView
-          httpOrigin={httpOrigin}
-          onSaved={onSetupSaved}
-          blockedState="restart-required"
-        />
+        <SetupView httpOrigin={httpOrigin} onSaved={onSetupSaved} blockedState="restart-required" />
       </Suspense>
     )
   }

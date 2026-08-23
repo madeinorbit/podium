@@ -29,9 +29,18 @@ describe('LoginGate', () => {
   })
 
   it('renders the app when already authed', async () => {
-    vi.stubGlobal('fetch', statusFetch({ needsAuth: true, authed: true }))
-    render(<LoginGate>{child}</LoginGate>)
-    expect(await screen.findByText('APP-READY')).toBeTruthy()
+    const fetchMock = statusFetch({ needsAuth: true, authed: true, userId: 'alice' })
+    vi.stubGlobal('fetch', fetchMock)
+    render(
+      <LoginGate>
+        {(auth) => <div>{auth.kind === 'principal' ? `APP-${auth.principal}` : 'APP-FAILED'}</div>}
+      </LoginGate>,
+    )
+    expect(await screen.findByText('APP-alice')).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      expect.stringMatching(/\/auth\/status$/),
+    ])
   })
 
   it('does not block on a backend without the auth route (non-OK status)', async () => {
@@ -68,14 +77,16 @@ describe('LoginView', () => {
   }
 
   it('logs in with the entered password (credentials included) and calls onLoggedIn', async () => {
-    const login = vi
-      .fn()
-      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) })
+    const login = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, userId: 'alice' }),
+    })
     vi.stubGlobal('fetch', login)
     const onLoggedIn = vi.fn()
     render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
     typePasswordAndSubmit('hunter2')
-    await waitFor(() => expect(onLoggedIn).toHaveBeenCalled())
+    await waitFor(() => expect(onLoggedIn).toHaveBeenCalledWith('alice'))
     expect(login).toHaveBeenCalledWith(
       'http://x/auth/login',
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
@@ -137,7 +148,7 @@ describe('LoginView', () => {
     expect(status.textContent).toContain('press ⏎ to sign in')
     fireEvent.click(screen.getByRole('button', { name: /log in/i }))
     expect(status.textContent).toContain('verifying')
-    release({ ok: true, status: 200, json: async () => ({ ok: true }) })
+    release({ ok: true, status: 200, json: async () => ({ ok: true, userId: 'alice' }) })
     await waitFor(() => expect(status.textContent).toContain('signed in'))
   })
 
@@ -177,7 +188,11 @@ describe('LoginGate success reveal', () => {
           json: async () => ({ needsAuth: true, authed: false }),
         })
         // auth/login → success
-        .mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) })
+        .mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, userId: 'alice' }),
+        })
       vi.stubGlobal('fetch', fetchMock)
       render(<LoginGate>{child}</LoginGate>)
       const input = await vi.waitFor(() => {
@@ -193,6 +208,10 @@ describe('LoginGate success reveal', () => {
       await vi.waitFor(() => {
         if (!screen.queryByText('APP-READY')) throw new Error('app not mounted')
       })
+      expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+        expect.stringMatching(/\/auth\/status$/),
+        expect.stringMatching(/\/auth\/login$/),
+      ])
       expect(screen.getByLabelText(/password/i)).toBeTruthy()
       // …and the layer unmounts after the reveal completes.
       await vi.advanceTimersByTimeAsync(2000)

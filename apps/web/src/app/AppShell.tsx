@@ -16,6 +16,7 @@ import {
   shouldStartRemoteClientAtHandoff,
 } from '@/features/setup/activation-route'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
+import { SetupGate } from '@/features/setup/SetupGate'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
 import { recoverFromWireSkew } from '@/features/setup/version-guard'
@@ -42,7 +43,7 @@ import type { KernelAssembly } from '@/lib/kernelReplica'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
-import { useKernelReplica } from '@/lib/use-kernel-replica'
+import { type AuthBootstrap, useKernelReplica } from '@/lib/use-kernel-replica'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { AppErrorPage } from './AppErrorPage'
 import { AppSheet } from './AppSheet'
@@ -165,13 +166,17 @@ function KernelHubAttach({
   return null
 }
 
-export function AppShell(): JSX.Element {
+export function AppShell({ auth }: { auth: AuthBootstrap }): JSX.Element {
   const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
   // One tRPC client for the gate, memoized on the origin so the gate's effect
   // does not re-run (and re-open IndexedDB) on every render.
   const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
-  const kernel = useKernelReplica({ trpc: gateTrpc, httpOrigin: config.httpOrigin })
+  const kernel = useKernelReplica({
+    trpc: gateTrpc,
+    auth,
+    httpOrigin: config.httpOrigin,
+  })
 
   // Queued offline writes the boot migration could not simply carry across
   // (POD-1232). Shown once, as a toast rather than a console line, because the
@@ -184,19 +189,18 @@ export function AppShell(): JSX.Element {
 
   // The store must not mount until its private replica is open. The engine reads
   // rows synchronously at construction, so there is no usable fallback assembly.
+  let shell: JSX.Element
   if (kernel.status === 'resolving') {
-    return (
+    shell = (
       <TooltipProvider>
         <LoadingScreen />
       </TooltipProvider>
     )
-  }
-
-  // Not one screen: the gate's failure is a category, and a browser with no
-  // session gets the sign-in screen rather than an error about a replica it was
-  // never going to be allowed to open (POD-1304).
-  if (kernel.status === 'failed') {
-    return (
+  } else if (kernel.status === 'failed') {
+    // Not one screen: the gate's failure is a category, and a browser with no
+    // session gets the sign-in screen rather than an error about a replica it was
+    // never going to be allowed to open (POD-1304).
+    shell = (
       <TooltipProvider>
         <ReplicaFailureScreen
           cause={kernel.cause}
@@ -205,68 +209,73 @@ export function AppShell(): JSX.Element {
         />
       </TooltipProvider>
     )
-  }
-
-  return (
-    <TooltipProvider>
-      {/* The update surface wraps the whole shell (POD-2102): its panel renders
+  } else {
+    shell = (
+      <TooltipProvider>
+        {/* The update surface wraps the whole shell (POD-2102): its panel renders
           here in the corner, and its indicator renders far below in the status
           strip. One provider so the two are the same state, never two pictures
           of one update. */}
-      <UpdatesProvider httpOrigin={config.httpOrigin}>
-        {appError ? (
-          <AppErrorPage
-            title={'Podium lost its\nline to the server.'}
-            eyebrow="Connection / dropped"
-            message="Your board is open on the host and your agents are still running there; this window just cannot reach it. The exact fault is below."
-            detail={appError}
-            trace={{ from: 'this browser', to: 'server' }}
-            fields={[{ label: 'Server', value: config.httpOrigin }]}
-            retryLabel="Reconnect"
-            onRetry={() => setAppError(null)}
-          />
-        ) : (
-          <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
-            <StoreProvider
-              // The principal the boot gate resolved from the authenticated
-              // transport — the runtime, its socket, its replica and its outbox
-              // are all bound to it, and a change to it rebuilds all three
-              // (POD-404). Never read from the URL or a raw storage key.
-              principal={kernel.principal}
-              config={config}
-              onFatalError={setAppError}
-              createReplicaFn={kernel.assembly.createReplicaFn}
-              feed={kernel.assembly.feed}
-              createOutboxFn={kernel.assembly.createOutboxFn}
-            >
-              <KernelHubAttach assembly={kernel.assembly} httpOrigin={config.httpOrigin} />
-              <RoutedDensityProvider>
-                <ThemeUiStateMirror />
-                <BrowserOpenOverlay />
-                <ConfirmProvider>
-                  {/* Above both TopBar and the view outlet: the command bar's centre
+        <UpdatesProvider httpOrigin={config.httpOrigin}>
+          {appError ? (
+            <AppErrorPage
+              title={'Podium lost its\nline to the server.'}
+              eyebrow="Connection / dropped"
+              message="Your board is open on the host and your agents are still running there; this window just cannot reach it. The exact fault is below."
+              detail={appError}
+              trace={{ from: 'this browser', to: 'server' }}
+              fields={[{ label: 'Server', value: config.httpOrigin }]}
+              retryLabel="Reconnect"
+              onRetry={() => setAppError(null)}
+            />
+          ) : (
+            <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
+              <StoreProvider
+                // The principal the boot gate resolved from the authenticated
+                // transport — the runtime, its socket, its replica and its outbox
+                // are all bound to it, and a change to it rebuilds all three
+                // (POD-404). Never read from the URL or a raw storage key.
+                principal={kernel.principal}
+                config={config}
+                onFatalError={setAppError}
+                createReplicaFn={kernel.assembly.createReplicaFn}
+                feed={kernel.assembly.feed}
+                createOutboxFn={kernel.assembly.createOutboxFn}
+              >
+                <KernelHubAttach assembly={kernel.assembly} httpOrigin={config.httpOrigin} />
+                <RoutedDensityProvider>
+                  <ThemeUiStateMirror />
+                  <BrowserOpenOverlay />
+                  <ConfirmProvider>
+                    {/* Above both TopBar and the view outlet: the command bar's centre
                     is a portal target the active mode fills (POD-365). */}
-                  <ToolbarSlotProvider>
-                    <AppBody syncProgress={kernel.assembly.progress} />
-                  </ToolbarSlotProvider>
-                </ConfirmProvider>
-              </RoutedDensityProvider>
-            </StoreProvider>
-          </ErrorBoundary>
-        )}
-      </UpdatesProvider>
-      {/* Clear of the command bar, not through it: 24px put a two-line toast
+                    <ToolbarSlotProvider>
+                      <AppBody syncProgress={kernel.assembly.progress} />
+                    </ToolbarSlotProvider>
+                  </ConfirmProvider>
+                </RoutedDensityProvider>
+              </StoreProvider>
+            </ErrorBoundary>
+          )}
+        </UpdatesProvider>
+        {/* Clear of the command bar, not through it: 24px put a two-line toast
           straight across the bar's controls, which is where the operator is
           working. --topbar-h plus the bar's own 10px rhythm gap (POD-1159).
           The safe-area term stays — it is what makes the toast tappable in
           standalone PWA mode on a notched phone. */}
-      <Toaster
-        position="top-center"
-        offset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 10px)' }}
-        mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 8px)' }}
-      />
-    </TooltipProvider>
-  )
+        <Toaster
+          position="top-center"
+          offset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 10px)' }}
+          mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 8px)' }}
+        />
+      </TooltipProvider>
+    )
+  }
+
+  // Setup/version and the private replica both depend on auth, but not on each
+  // other. Mount the setup gate beside the replica effect and keep the shell
+  // itself behind the setup decision.
+  return <SetupGate>{shell}</SetupGate>
 }
 
 function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {

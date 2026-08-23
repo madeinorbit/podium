@@ -9,6 +9,8 @@ import {
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
+import { classifyAuthStatus } from '@/lib/replica-failure'
+import type { AuthBootstrap } from '@/lib/use-kernel-replica'
 import { AsciiWordmark, prefersReducedMotion } from './podium-wordmark'
 
 type GatePhase = 'loading' | 'login' | 'success' | 'reveal' | 'ready'
@@ -42,20 +44,61 @@ const MONO = "'Geist Mono Variable', ui-monospace, Menlo, monospace"
 
 /**
  * Ask the server whether a login is needed. Returns 'login' only when a password is set AND
- * this client isn't authed yet. A non-OK response or an unreachable/garbled backend resolves
- * to 'ready' so we never block the app on auth — a backend without the route can't need it,
- * and SetupGate owns the genuine "unreachable" UX (this gate sits outside it).
+ * this client isn't authed yet. Every other answer is handed to the replica gate so it can
+ * preserve authoritative refusals and offline namespace selection without another request.
  */
-async function probeAuth(httpOrigin: string): Promise<'login' | 'ready'> {
-  const res = await fetch(`${httpOrigin}/auth/status`, { credentials: 'include' })
-  if (!res.ok) return 'ready'
-  let data: { needsAuth?: unknown; authed?: unknown }
+type AuthDecision = { readonly kind: 'login' } | { readonly kind: 'ready'; auth: AuthBootstrap }
+
+async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
+  let res: Response
   try {
-    data = (await res.json()) as { needsAuth?: unknown; authed?: unknown }
+    res = await fetch(`${httpOrigin}/auth/status`, { credentials: 'include' })
   } catch {
-    return 'ready'
+    return { kind: 'ready', auth: { kind: 'offline' } }
   }
-  return data.needsAuth === true && data.authed !== true ? 'login' : 'ready'
+  if (!res.ok) {
+    return {
+      kind: 'ready',
+      auth: {
+        kind: 'failure',
+        message: 'authenticated account is unavailable',
+        failure:
+          res.status === 400
+            ? { kind: 'auth-insecure' }
+            : { kind: 'auth-refused', status: res.status },
+      },
+    }
+  }
+  let data: { userId?: unknown; needsAuth?: unknown; authed?: unknown; readiness?: unknown }
+  try {
+    data = (await res.json()) as {
+      userId?: unknown
+      needsAuth?: unknown
+      authed?: unknown
+      readiness?: unknown
+    }
+  } catch {
+    return {
+      kind: 'ready',
+      auth: {
+        kind: 'failure',
+        message: 'authenticated account is unavailable',
+        failure: { kind: 'auth-intercepted' },
+      },
+    }
+  }
+  if (data.needsAuth === true && data.authed !== true) return { kind: 'login' }
+  const outcome = classifyAuthStatus(data)
+  return 'principal' in outcome
+    ? { kind: 'ready', auth: { kind: 'principal', principal: outcome.principal } }
+    : {
+        kind: 'ready',
+        auth: {
+          kind: 'failure',
+          message: 'authenticated account is unavailable',
+          failure: outcome,
+        },
+      }
 }
 
 /** The host you're signing in to, shown for reassurance on a self-hosted install. */
@@ -81,7 +124,7 @@ export function LoginView({
   leaving = false,
 }: {
   httpOrigin: string
-  onLoggedIn: () => void
+  onLoggedIn: (principal: string) => void
   leaving?: boolean
 }): ReactNode {
   const [password, setPassword] = useState('')
@@ -109,9 +152,22 @@ export function LoginView({
         body: JSON.stringify({ password }),
       })
       if (res.ok) {
+        let body: { userId?: unknown }
+        try {
+          body = (await res.json()) as { userId?: unknown }
+        } catch {
+          setError("✗ couldn't verify the signed-in account")
+          setShaking(true)
+          return
+        }
+        if (typeof body.userId !== 'string' || body.userId.length === 0) {
+          setError("✗ couldn't verify the signed-in account")
+          setShaking(true)
+          return
+        }
         setBusy(false)
         setOk(true)
-        onLoggedIn()
+        onLoggedIn(body.userId)
         return
       }
       setError(
@@ -365,19 +421,26 @@ export function LoginView({
  * session cookie, so no reload is needed. t=0 success beat → t=900ms the login layer fades
  * while the shell un-blurs → t=1500ms the login layer unmounts.
  */
-export function LoginGate({ children }: { children: ReactNode }): ReactNode {
+export function LoginGate({
+  children,
+}: {
+  children: ReactNode | ((auth: AuthBootstrap) => ReactNode)
+}): ReactNode {
   const [phase, setPhase] = useState<GatePhase>('loading')
+  const [auth, setAuth] = useState<AuthBootstrap>()
   const httpOrigin = serverConfig(window.location).httpOrigin
 
   useEffect(() => {
     let alive = true
-    probeAuth(httpOrigin)
-      .then((p) => {
-        if (alive) setPhase(p)
-      })
-      .catch(() => {
-        if (alive) setPhase('ready')
-      })
+    probeAuth(httpOrigin).then((decision) => {
+      if (!alive) return
+      if (decision.kind === 'login') {
+        setPhase('login')
+        return
+      }
+      setAuth(decision.auth)
+      setPhase('ready')
+    })
     return () => {
       alive = false
     }
@@ -396,8 +459,9 @@ export function LoginGate({ children }: { children: ReactNode }): ReactNode {
 
   // The splash, not nothing: this used to `return null` for a whole network
   // round-trip — the first slice of the boot's black screen (POD-1249).
-  if (phase === 'loading') return <LoadingScreen />
-  if (phase === 'ready') return <>{children}</>
+  if (phase === 'loading' || (phase === 'ready' && auth === undefined)) return <LoadingScreen />
+  const app = auth === undefined ? null : typeof children === 'function' ? children(auth) : children
+  if (phase === 'ready') return <>{app}</>
 
   const reduced = prefersReducedMotion()
   const appMounted = phase === 'success' || phase === 'reveal'
@@ -413,13 +477,16 @@ export function LoginGate({ children }: { children: ReactNode }): ReactNode {
             transition: reduced ? 'none' : 'filter .6s ease, transform .6s ease',
           }}
         >
-          {children}
+          {app}
         </div>
       )}
       <LoginView
         httpOrigin={httpOrigin}
         leaving={phase === 'reveal'}
-        onLoggedIn={() => setPhase('success')}
+        onLoggedIn={(principal) => {
+          setAuth({ kind: 'principal', principal })
+          setPhase('success')
+        }}
       />
     </>
   )

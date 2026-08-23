@@ -66,6 +66,43 @@ export interface ResolveReplicaPrincipalOptions {
   readonly inspectNamespaces?: () => readonly string[]
 }
 
+/** The single auth probe's durable handoff to the private-replica gate. */
+export type AuthBootstrap =
+  | { readonly kind: 'principal'; readonly principal: string }
+  | { readonly kind: 'offline' }
+  | {
+      readonly kind: 'failure'
+      readonly message: string
+      readonly failure: ReplicaFailure
+    }
+
+function offlineReplicaPrincipal(inspectNamespaces?: () => readonly string[]): string {
+  const inspect =
+    inspectNamespaces ??
+    (() =>
+      inspectPrincipalNamespaces({
+        storage: globalThis.localStorage,
+        enumerateKeys: () => Object.keys(globalThis.localStorage),
+        basePrefix: KERNEL_SIDE_CACHE_PREFIX,
+      }))
+  const identities = [...new Set(inspect())]
+  if (identities.length === 1 && identities[0] !== undefined) return identities[0]
+  throw identities.length === 0
+    ? new ReplicaGateError('offline replica has no authenticated principal namespace', {
+        kind: 'offline-unknown',
+      })
+    : new ReplicaGateError('offline replica principal is ambiguous on this shared device', {
+        kind: 'offline-ambiguous',
+        count: identities.length,
+      })
+}
+
+function principalFromAuthBootstrap(auth: AuthBootstrap): string {
+  if (auth.kind === 'principal') return auth.principal
+  if (auth.kind === 'offline') return offlineReplicaPrincipal()
+  throw new ReplicaGateError(auth.message, auth.failure)
+}
+
 /**
  * Resolve the slice owner without creating a raw "last user" key.
  *
@@ -84,24 +121,7 @@ export async function resolveReplicaPrincipal(
   try {
     response = await fetchStatus()
   } catch {
-    const inspect =
-      options.inspectNamespaces ??
-      (() =>
-        inspectPrincipalNamespaces({
-          storage: globalThis.localStorage,
-          enumerateKeys: () => Object.keys(globalThis.localStorage),
-          basePrefix: KERNEL_SIDE_CACHE_PREFIX,
-        }))
-    const identities = [...new Set(inspect())]
-    if (identities.length === 1 && identities[0] !== undefined) return identities[0]
-    throw identities.length === 0
-      ? new ReplicaGateError('offline replica has no authenticated principal namespace', {
-          kind: 'offline-unknown',
-        })
-      : new ReplicaGateError('offline replica principal is ambiguous on this shared device', {
-          kind: 'offline-ambiguous',
-          count: identities.length,
-        })
+    return offlineReplicaPrincipal(options.inspectNamespaces)
   }
 
   // A refusal is authoritative, and its SHAPE is information the operator needs:
@@ -155,6 +175,8 @@ declare global {
 
 export function useKernelReplica(args: {
   trpc: Trpc
+  /** Result of LoginGate's auth-first probe. Supplying it removes the second auth request. */
+  auth?: AuthBootstrap
   /** The server origin every gate request targets — see ResolveReplicaPrincipalOptions. */
   httpOrigin: string
   resolvePrincipal?: typeof resolveReplicaPrincipal
@@ -162,6 +184,7 @@ export function useKernelReplica(args: {
 }): KernelReplicaGate {
   const {
     trpc,
+    auth,
     httpOrigin,
     resolvePrincipal = resolveReplicaPrincipal,
     openAssembly = openKernelAssembly,
@@ -174,7 +197,9 @@ export function useKernelReplica(args: {
     void (async () => {
       if (!alive) return
       try {
-        const principal = await resolvePrincipal({ httpOrigin })
+        const principal = auth
+          ? principalFromAuthBootstrap(auth)
+          : await resolvePrincipal({ httpOrigin })
         // Captured DURING the open: the migration runs inside `openKernelAssembly`
         // and reports through `onDegraded`, which is the only channel that exists
         // before the store (and its toasts) are mounted.
@@ -228,7 +253,7 @@ export function useKernelReplica(args: {
       alive = false
       if (opened) void opened.dispose()
     }
-  }, [httpOrigin, openAssembly, resolvePrincipal, trpc])
+  }, [auth, httpOrigin, openAssembly, resolvePrincipal, trpc])
 
   return gate
 }

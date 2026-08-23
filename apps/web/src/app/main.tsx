@@ -1,7 +1,6 @@
 import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
-import { SetupGate } from '@/features/setup/SetupGate'
 import { startWebLogging } from '@/lib/logging'
 import { AppStarted } from './AppStarted'
 import { AppShell } from './AppShell'
@@ -42,11 +41,7 @@ if (!redirectPhoneToMobileApp()) {
             <MotionDemo />
           </Suspense>
         ) : (
-          <LoginGate>
-            <SetupGate>
-              <AppShell />
-            </SetupGate>
-          </LoginGate>
+          <LoginGate>{(auth) => <AppShell auth={auth} />}</LoginGate>
         )}
       </ThemeProvider>
     </StrictMode>,

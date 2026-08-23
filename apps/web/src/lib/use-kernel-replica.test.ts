@@ -26,9 +26,9 @@ describe('offline replica principal resolution', () => {
       fetched.push(input)
       return response({ userId: 'alice' })
     })
-    await expect(
-      resolveReplicaPrincipal({ httpOrigin: 'http://backend.test:1234' }),
-    ).resolves.toBe('alice')
+    await expect(resolveReplicaPrincipal({ httpOrigin: 'http://backend.test:1234' })).resolves.toBe(
+      'alice',
+    )
     expect(fetched).toEqual(['http://backend.test:1234/auth/status'])
   })
 
@@ -127,6 +127,35 @@ describe('private replica boot failure', () => {
     await waitFor(() => expect(result.current.status).toBe('failed'))
     expect(resolvePrincipal).toHaveBeenCalledWith({ httpOrigin: 'http://backend.test:1234' })
     unmount()
+  })
+
+  it('opens from the auth bootstrap without resolving the principal again', async () => {
+    const resolvePrincipal = vi.fn(async () => 'wrong-principal')
+    const dispose = vi.fn(async () => {})
+    const assembly = {
+      principal: 'alice',
+      dispose,
+    } as unknown as Awaited<ReturnType<typeof openKernelAssembly>>
+    const openAssembly = vi.fn(async () => assembly)
+
+    const { result, unmount } = renderHook(() =>
+      useKernelReplica({
+        trpc: {} as Trpc,
+        auth: { kind: 'principal', principal: 'alice' },
+        httpOrigin: 'http://backend.test:1234',
+        resolvePrincipal,
+        openAssembly,
+      }),
+    )
+
+    await waitFor(() => expect(result.current.status).toBe('kernel'))
+    expect(resolvePrincipal).not.toHaveBeenCalled()
+    expect(openAssembly).toHaveBeenCalledOnce()
+    expect(openAssembly).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: 'alice', trpc: expect.anything() }),
+    )
+    unmount()
+    expect(dispose).toHaveBeenCalledOnce()
   })
 
   it('stays fatal when the supported private replica cannot open', async () => {

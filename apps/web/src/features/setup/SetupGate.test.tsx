@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const connect = vi.hoisted(() => vi.fn().mockResolvedValue({ mode: 'all-in-one' }))
@@ -47,6 +47,49 @@ async function exhaustRetries(): Promise<void> {
 }
 
 describe('SetupGate', () => {
+  it('starts version and setup together, but waits for version before revealing the app', async () => {
+    let resolveVersion: (response: Response) => void = () => {}
+    let resolveSetup: (response: Response) => void = () => {}
+    const order: string[] = []
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = new URL(String(input), 'http://podium.test').pathname
+      order.push(path)
+      if (path === '/version') {
+        return new Promise<Response>((resolve) => {
+          resolveVersion = resolve
+        })
+      }
+      if (path === '/setup/config') {
+        return new Promise<Response>((resolve) => {
+          resolveSetup = resolve
+        })
+      }
+      throw new Error(`unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<SetupGate>{child}</SetupGate>)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(order).toEqual(['/version', '/setup/config'])
+
+    resolveSetup(
+      new Response(JSON.stringify({ needsSetup: false }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    await Promise.resolve()
+    expect(screen.queryByText('APP-READY')).toBeNull()
+
+    resolveVersion(
+      new Response('<!doctype html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    )
+    expect(await screen.findByText('APP-READY')).toBeTruthy()
+  })
+
   it('trusts only loopback and bundled desktop origins for automatic local setup', () => {
     expect(isTrustedLocalSetupOrigin({ protocol: 'http:', hostname: 'localhost' })).toBe(true)
     expect(isTrustedLocalSetupOrigin({ protocol: 'http:', hostname: '127.0.0.1' })).toBe(true)
@@ -270,6 +313,27 @@ describe('SetupGate', () => {
 
     expect(screen.getByText('APP-READY')).toBeTruthy()
     expect(screen.queryByRole('heading', { name: /the backend went quiet/i })).toBeNull()
+  })
+
+  it('does not treat a namespace created during this boot as an offline replica', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    render(<SetupGate>{child}</SetupGate>)
+
+    // The replica open now runs beside this gate and creates its namespace early.
+    // That marker cannot prove the device completed an earlier sync.
+    seedSyncedReplica('user-1')
+    await exhaustRetries()
+
+    expect(screen.getByRole('heading', { name: /the backend went quiet/i })).toBeTruthy()
+    expect(screen.queryByText('APP-READY')).toBeNull()
+
+    // Retrying must keep the mount-time evidence. The new namespace still belongs to this boot.
+    screen.getByRole('button', { name: /retry connection/i }).click()
+    await exhaustRetries()
+
+    expect(screen.getByRole('heading', { name: /the backend went quiet/i })).toBeTruthy()
+    expect(screen.queryByText('APP-READY')).toBeNull()
   })
 
   it('keeps the recovery console when the device holds more than one principal', async () => {
