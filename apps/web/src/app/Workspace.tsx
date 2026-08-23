@@ -279,24 +279,6 @@ export function Workspace({
   // width in React and persists once on pointerup rather than writing storage
   // on every frame.
   const [dragSizes, setDragSizes] = useState<{ path: number[]; sizes: number[] } | null>(null)
-  const preloadDragRuntime = useCallback(
-    (intentTarget: EventTarget | null, restoreFocus = false): void => {
-      const target = tabDomTarget(intentTarget)
-      if (!target) return
-      if (restoreFocus && !DragRuntime) dragFocusToRestore.current = target
-      if (dragRuntimeRequested.current) return
-      dragRuntimeRequested.current = true
-      void loadDragRuntime().then(
-        (module) => {
-          setDragRuntime(() => module.WorkspaceTabDragRuntime)
-        },
-        () => {
-          dragRuntimeRequested.current = false
-        },
-      )
-    },
-    [DragRuntime, loadDragRuntime],
-  )
 
   const cancelColdPressFallback = useCallback((): void => {
     clearColdPressFallback.current?.()
@@ -347,6 +329,27 @@ export function Workspace({
     clearColdDragClickSuppression()
     cancelColdPressFallback()
   }, [cancelColdPressFallback, clearColdDragClickSuppression])
+
+  const preloadDragRuntime = useCallback(
+    (intentTarget: EventTarget | null, restoreFocus = false): void => {
+      const target = tabDomTarget(intentTarget)
+      if (!target) return
+      if (restoreFocus && !DragRuntime) dragFocusToRestore.current = target
+      if (dragRuntimeRequested.current) return
+      dragRuntimeRequested.current = true
+      void loadDragRuntime().then(
+        (module) => {
+          setDragRuntime(() => module.WorkspaceTabDragRuntime)
+        },
+        () => {
+          clearPendingDragActivation()
+          dragFocusToRestore.current = null
+          dragRuntimeRequested.current = false
+        },
+      )
+    },
+    [DragRuntime, clearPendingDragActivation, loadDragRuntime],
+  )
 
   useEffect(() => clearPendingDragActivation, [clearPendingDragActivation])
 

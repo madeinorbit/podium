@@ -116,15 +116,21 @@ const { getHoveredSession, setHoveredSession } = await import('./session-hover')
 const delayedDragRuntime = () => {
   type DragRuntimeModule = typeof import('./workspace-tab-drag')
   let resolve!: (module: DragRuntimeModule) => void
+  let reject!: (reason: Error) => void
   const load = vi.fn(
     () =>
-      new Promise<DragRuntimeModule>((done) => {
+      new Promise<DragRuntimeModule>((done, fail) => {
         resolve = done
+        reject = fail
       }),
   )
   return {
     load,
     release: async (): Promise<void> => resolve(await import('./workspace-tab-drag')),
+    reject: async (reason = new Error('chunk request failed')): Promise<void> => {
+      reject(reason)
+      await Promise.resolve()
+    },
   }
 }
 
@@ -211,6 +217,66 @@ describe('Workspace tab strip', () => {
     expect(load).toHaveBeenCalledTimes(2)
     await runtime.release()
     await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+  })
+
+  it('cancels a threshold-crossed cold pointer drag when the runtime request rejects', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const source = document.querySelector<HTMLElement>('[data-tab-drag-id="s1"]')
+    if (!source) throw new Error('no source tab')
+
+    fireEvent.pointerDown(source, {
+      pointerId: 2,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: 10,
+      clientY: 10,
+    })
+    fireEvent.pointerMove(document, {
+      pointerId: 2,
+      pointerType: 'mouse',
+      isPrimary: true,
+      buttons: 1,
+      clientX: 16,
+      clientY: 10,
+    })
+    await runtime.reject()
+
+    fireEvent.click(label('s1'))
+    expect(actions.activateWorkspaceTab).toHaveBeenCalledWith('s1')
+
+    fireEvent.pointerEnter(tab('s1'))
+    expect(runtime.load).toHaveBeenCalledTimes(2)
+    await runtime.release()
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
+  })
+
+  it('cancels a cold keyboard pickup when the runtime request rejects', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const sortable = tab('s1')
+    sortable.focus()
+
+    fireEvent.keyDown(sortable, { key: ' ', code: 'Space' })
+    await runtime.reject()
+
+    const arrow = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      code: 'ArrowRight',
+      bubbles: true,
+      cancelable: true,
+    })
+    document.dispatchEvent(arrow)
+    expect(arrow.defaultPrevented).toBe(false)
+
+    fireEvent.pointerEnter(tab('s1'))
+    expect(runtime.load).toHaveBeenCalledTimes(2)
+    await runtime.release()
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
   })
 
   it.each([
