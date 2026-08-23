@@ -2458,12 +2458,10 @@ function GhostTaskRow({
  * NO BUTTON, AND NO HEADER TITLE. The work list and the composer own both ways
  * in; a third one here would be a third thing to explain.
  *
- * ALSO THE DECK BEHIND A SESSION ON NO TASK (POD-1139). "Pick a task on the
- * left or start a new one" is not first-run advice — it is the whole answer for
- * a panel-menu agent or a resumed conversation, neither of which gets a draft
- * vessel. That case used to have a screen of its own (`IntakeCanvas`) that said
- * a softer version of the same thing over a duplicate of the right dock's
- * Task/Plan/Team rows; two surfaces for one sentence is one surface too many.
+ * This is the true zero state: no mission is selected and no unassigned agent
+ * is present. Unassigned agents have their own roster below, because replacing
+ * a live, billable session with first-run advice makes the deck contradict the
+ * rest of the shell.
  */
 function EmptyDeck(): JSX.Element {
   return (
@@ -2506,6 +2504,61 @@ function EmptyDeck(): JSX.Element {
         </div>
         <GhostTaskRow tier={4} dashed />
       </GhostPreview>
+    </div>
+  )
+}
+
+/**
+ * LIVE AGENTS THAT HAVE NO TASK YET (POD-2118).
+ *
+ * `sessions.create` is a valid public entry point and does not require an issue
+ * binding. Those sessions used to fall through to `EmptyDeck`, even while their
+ * output and cost were live elsewhere in the same window. They are still real
+ * session rows: same state, unread mark, native-child reveal, click grammar and
+ * lifecycle menu as an agent hanging from a task. The only thing absent is the
+ * task rail, so the rows render flat under an honest heading.
+ *
+ * The list is fleet-scoped on purpose. Before the operator has opened a tab
+ * there is no focused cwd from which to infer a narrower roster; showing every
+ * visible unassigned agent is what gives that operator a route into each one.
+ */
+function UnassignedDeck({
+  sessions,
+  activeSessionId,
+  onSelectSession,
+  onSelectNative,
+}: {
+  sessions: SessionMeta[]
+  activeSessionId: SessionId | null
+  onSelectSession: (session: SessionMeta, permanent: boolean) => void
+  onSelectNative: (session: SessionMeta) => void
+}): JSX.Element {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="flight-unassigned">
+      <div className="flex-none px-[26px] pt-6 pr-11">
+        <h2 className="shell-type-column-title font-semibold tracking-[-.02em] text-text-strong">
+          Agents without tasks
+        </h2>
+        <p className="mt-2 text-[13px] leading-[1.55] text-muted-foreground text-pretty">
+          These agents are live in the repository but are not attached to a task yet.
+        </p>
+      </div>
+      <div
+        className="deck-rows mt-4 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4 pb-2"
+        data-testid="flight-unassigned-rows"
+      >
+        {sessions.map((session, index) => (
+          <SessionRow
+            key={session.sessionId}
+            session={session}
+            active={activeSessionId === session.sessionId}
+            last={index === sessions.length - 1}
+            flat
+            onOpen={(permanent) => onSelectSession(session, permanent)}
+            onOpenNative={() => onSelectNative(session)}
+          />
+        ))}
+      </div>
     </div>
   )
 }
@@ -2628,6 +2681,26 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     return find(paneA) ?? (split ? find(paneB) : undefined)
   }, [paneA, paneB, split, sessions])
   const activeSessionId = focusedSession?.sessionId ?? null
+  /**
+   * Sessions created directly against a repository have no issue vessel to
+   * place in the mission tree. They nevertheless belong in the deck: they are
+   * interactive agents, unlike shells and embedded headless children, and an
+   * exited or archived row belongs to history rather than this live fallback.
+   */
+  const unassignedSessions = useMemo(
+    () =>
+      sessions
+        .filter(
+          (session) =>
+            !session.issueId &&
+            !session.archived &&
+            session.status !== 'exited' &&
+            session.agentKind !== 'shell' &&
+            session.headless !== true,
+        )
+        .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt)),
+    [sessions],
+  )
   // Resolved against the UNFILTERED mission membership, exactly as RightDock
   // does: resolving against the mode-filtered rows let a switch to "Needs you"
   // silently move the highlight — and the Task dock with it — to the root.
@@ -3665,11 +3738,20 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
         // The session already knows its task; only the selection is behind. A
         // load, so a ghost — never a sentence the resolve then contradicts.
         <SettlingDeck />
+      ) : unassignedSessions.length > 0 ? (
+        <UnassignedDeck
+          sessions={unassignedSessions}
+          activeSessionId={activeSessionId}
+          onSelectSession={(session, permanent) =>
+            selectSession(null, session, { permanent })
+          }
+          onSelectNative={(session) =>
+            selectSession(null, session, { permanent: false, native: true })
+          }
+        />
       ) : (
-        // NO SESSION, or a session on no task at all ("New Shell"'s agent
-        // siblings in the panel menu, and every resume, create one with no
-        // vessel). Both want the same words — pick a task or start one — which
-        // is what `EmptyDeck` already says, so it says them for both.
+        // No mission and no live unassigned agent: this is the actual first-run
+        // state, so the deck may truthfully teach what will fill it.
         <EmptyDeck />
       )}
       {issueMenu && menuIssue && (

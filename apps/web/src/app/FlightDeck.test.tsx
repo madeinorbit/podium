@@ -1311,15 +1311,35 @@ describe('flight deck without a mission', () => {
     expect(screen.getByText('Every agent, in one tree')).toBeTruthy()
   })
 
-  // A panel-menu agent and a resumed conversation both arrive with no vessel,
-  // and "pick a task or start one" is the whole answer for them — the same
-  // answer the unfocused column gives, so it is the same column.
-  it('gives a session on no task the empty deck, not a screen of its own', () => {
+  it('shows a focused session with no task as a real deck row', () => {
     harness.sessions = [session('loose', { issueId: null })]
     harness.paneA = 'loose'
     deck()
-    expect(screen.getByTestId('flight-empty')).toBeTruthy()
+    expect(screen.getByTestId('flight-unassigned')).toBeTruthy()
+    expect(screen.getByText('Agents without tasks')).toBeTruthy()
+    expect(document.querySelector('[data-flight-session="loose"]')).toBeTruthy()
+    expect(screen.queryByTestId('flight-empty')).toBeNull()
     expect(screen.queryByTestId('flight-settling')).toBeNull()
+  })
+
+  it('shows every live unassigned session before any tab is open', () => {
+    harness.sessions = [
+      session('plain', { issueId: null, displayRef: 'POD-DRAFT-1' }),
+      session('contract', {
+        issueId: null,
+        displayRef: 'POD-DRAFT-2',
+        lastActiveAt: '2026-01-01T00:05:00.000Z',
+      }),
+      session('retired', { issueId: null, archived: true }),
+      session('embedded', { issueId: null, headless: true }),
+    ]
+    deck()
+    expect(screen.getByTestId('flight-unassigned')).toBeTruthy()
+    expect(screen.getByText('POD-DRAFT-1')).toBeTruthy()
+    expect(screen.getByText('POD-DRAFT-2')).toBeTruthy()
+    expect(document.querySelector('[data-flight-session="retired"]')).toBeNull()
+    expect(document.querySelector('[data-flight-session="embedded"]')).toBeNull()
+    expect(screen.queryByText('Every agent, in one tree')).toBeNull()
   })
 
   // The composer's spawn paints the vessel and the session together, so the
