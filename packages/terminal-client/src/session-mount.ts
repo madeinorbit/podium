@@ -544,6 +544,12 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   }
 
   let lastEpoch = -1
+  // Geometry invariant: within one server timeline, a terminal state may only
+  // move to the same or a newer geometry revision. requestedGeometry and
+  // assertedControlGrid fence an in-flight local claim; this fence survives
+  // release so a delayed older echo cannot overwrite a legitimate resize.
+  // onReset clears it for a new timeline; SessionConnection treats a lower
+  // revision on attach as that reset. Revisions are not modulo-wrapped.
   let lastGeometryRevision: number | undefined
   let firstFrameSeen = false
   // Tracks whether we've seen an attach before, so onAttached can tell a fresh mount
