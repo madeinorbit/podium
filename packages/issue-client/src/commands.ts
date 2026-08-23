@@ -195,6 +195,11 @@ async function readArtifact(c: IssueTrpc, a: Record<string, unknown>): Promise<I
   return { text: text + siblings, data: { ...meta, text } }
 }
 
+function terminalEvidenceInput(a: Record<string, unknown>): Record<string, unknown> {
+  if (a.terminalEvidence !== true) return {}
+  return { terminalEvidence: true, sourceRoot: process.cwd() }
+}
+
 // One-line summary of an issue for list/ready/blocked output.
 function line(i: { seq: number; title: string; priority?: number; stage?: string }): string {
   const p = i.priority != null ? `P${i.priority} ` : ''
@@ -1748,12 +1753,13 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'artifact',
     summary:
-      'Artifacts the USER should look at (images/videos/html/md — UX shots, concept docs), shown in the issue sidebar: artifact <id> [--add <path>] [--title "…"] [--remove n] [--get <n|path> [--file <rel>] [--out <path>]]. Adding COPIES the bytes to the server, so the artifact survives even if the file is never committed and the worktree is later deleted — do NOT commit screenshots or scratch docs just to attach them. The path must live inside the owning issue worktree (that is the only requirement), and it only has to exist AT ADD TIME — delete the file afterwards if it does not belong in the repo. --get reads a stored artifact BACK (any agent, any machine, even after the worktree is gone): text prints, anything else needs --out. No flags = print the list.',
+      'Artifacts the USER should look at (images/videos/html/md — UX shots, concept docs), shown in the issue sidebar: artifact <id> [--add <path>] [--title "…"] [--terminal-evidence] [--remove n] [--get <n|path> [--file <rel>] [--out <path>]]. Adding COPIES the bytes to the server, so the artifact survives even if the file is never committed and the worktree is later deleted — do NOT commit screenshots or scratch docs just to attach them. Normal paths must live inside the owning issue worktree. For a screenshot captured in the current issue session checkout, use --terminal-evidence; it requires an explicit acknowledgement and accepts raster images only, never raw scrollback text. --get reads a stored artifact BACK (any agent, any machine, even after the worktree is gone): text prints, anything else needs --out. No flags = print the list.',
     args: z.strictObject({
       id: idArg,
       add: z.string().optional(),
       title: z.string().optional(),
       remove: z.coerce.number().int().min(1).optional(),
+      terminalEvidence: z.boolean().optional(),
       /** Which artifact to read back: the printed 1-based index, or its path. */
       get: z.union([z.string(), z.number()]).transform(String).optional(),
       /** One member of a bundle artifact; default is the bundle's entry file. */
@@ -1768,9 +1774,17 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       if (a.file != null || a.out != null) {
         throw new Error('--file and --out only apply to --get')
       }
+      if (a.terminalEvidence === true && a.add == null) {
+        throw new Error('--terminal-evidence only applies to --add')
+      }
       const op =
         a.add != null
-          ? { op: 'artifact-add', path: a.add, ...(a.title ? { title: a.title as string } : {}) }
+          ? {
+              op: 'artifact-add',
+              path: a.add,
+              ...(a.title ? { title: a.title as string } : {}),
+              ...terminalEvidenceInput(a),
+            }
           : a.remove != null
             ? { op: 'artifact-remove', index: a.remove }
             : null

@@ -93,6 +93,17 @@ The artifact renders in the issue's sidebar and survives across sessions. Three 
   `git add`ed and even after the worktree is deleted. Do **not** commit screenshots, scratch docs,
   or one-off explainers just to attach them — that pollutes the repo for no gain. Track a file only
   when it belongs in the codebase on its own merits.
+- **Terminal screenshots have a deliberate escape hatch.** If the proof was captured in the
+  current checkout of the session working on the issue, run the command from that checkout with
+  `--terminal-evidence`, for example:
+
+  ```
+  podium issue artifact 2602 --add artifacts/POD-2602/resume-before.png --terminal-evidence
+  ```
+
+  This is an explicit acknowledgement that the image may contain terminal output. It only accepts
+  raster image files and only the calling session's own issue can use it; raw scrollback/text is
+  refused. Redact text into the owning issue worktree and attach it through the ordinary path.
 - **Delete the file once it is attached** (unless it belongs in the repo). The sidebar keeps
   rendering it from the server's copy — the source file is never read again. Leaving it behind is
   not harmless: an untracked file is a dirty worktree, and `podium issue cleanup` refuses one

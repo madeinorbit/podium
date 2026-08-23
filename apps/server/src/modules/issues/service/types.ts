@@ -100,6 +100,8 @@ export type IssuePanelOp =
       entry?: string
       files?: { path: string; size: number }[]
       sourcePaths?: string[]
+      /** Set only by the explicit same-issue terminal-evidence path. */
+      sourceKind?: 'terminal-evidence'
     }
   | { op: 'artifact-remove'; index: number }
   | { op: 'deferred-add'; text: string }

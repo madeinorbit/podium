@@ -157,10 +157,14 @@ export type IssueComment = z.infer<typeof IssueComment>
 export const IssuePanelTodo = z.object({ text: z.string(), done: z.boolean() })
 export type IssuePanelTodo = z.infer<typeof IssuePanelTodo>
 export const IssuePanelArtifact = z.object({
-  /** Path to the artifact file, normalized relative to the owning issue worktree. */
+  /** Path to the artifact file, normalized relative to its captured source root. */
   path: z.string(),
   title: z.string().optional(),
   addedAt: z.string(),
+  /** The bytes came from the calling issue session's checkout rather than the
+   * issue's pinned worktree. Present only for the explicit terminal-evidence
+   * path; ordinary artifacts omit it and retain the owning-worktree rule. */
+  sourceKind: z.literal('terminal-evidence').optional(),
   /** Permanent-store snapshot id ([spec:SP-0fc9] #441). Present ⇒ the bytes are
    *  served from `<state-dir>/artifacts/<issueId>/<artifactId>/` via the
    *  server-local /files/artifact route; absent (pre-existing entries) ⇒ legacy
