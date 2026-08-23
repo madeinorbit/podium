@@ -384,7 +384,7 @@ function mockAnimationFrames() {
     return id
   })
   const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
-    callbacks.delete(id)
+    if (typeof id === 'number') callbacks.delete(id)
   })
 
   return {
