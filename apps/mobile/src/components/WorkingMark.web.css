@@ -1,0 +1,54 @@
+.podium-mobile-working-mark {
+  display: inline-block;
+  flex: none;
+  vertical-align: middle;
+}
+
+.podium-mobile-working-mark circle {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes podium-mobile-mark-wave {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.8);
+  }
+  16% {
+    opacity: 1;
+    transform: scale(1.16);
+  }
+  44% {
+    opacity: 0.2;
+    transform: scale(0.8);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .podium-mobile-working-mark circle {
+    animation: podium-mobile-mark-wave 1.5s linear infinite;
+  }
+
+  .podium-mobile-working-mark circle:nth-child(2) {
+    animation-delay: 0.12s;
+  }
+  .podium-mobile-working-mark circle:nth-child(3) {
+    animation-delay: 0.21s;
+  }
+  .podium-mobile-working-mark circle:nth-child(4) {
+    animation-delay: 0.33s;
+  }
+  .podium-mobile-working-mark circle:nth-child(5) {
+    animation-delay: 0.42s;
+  }
+  .podium-mobile-working-mark circle:nth-child(6) {
+    animation-delay: 0.54s;
+  }
+  .podium-mobile-working-mark circle:nth-child(7) {
+    animation-delay: 0.63s;
+  }
+  .podium-mobile-working-mark circle:nth-child(8) {
+    animation-delay: 0.75s;
+  }
+}
