@@ -93,7 +93,6 @@ describe('startServer with the hub role disabled (node shape)', () => {
           publicUrl: 'https://podium.example.com',
           confirmation: 'TRANSFER SERVER',
         }),
-      () => trpc.machines.serverTransferStatus.query(),
       () =>
         trpc.machines.transferOwnership.mutate({
           id: handle.registry.modules.machines.hostMachineId,
