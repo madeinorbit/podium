@@ -273,9 +273,18 @@ export default defineConfig(({ mode }) => {
         '@podium/harness/browser': fileURLToPath(
           new URL('../../packages/harness/src/browser.ts', import.meta.url),
         ),
-        // Subpath alias must precede the bare-package one — the bare alias also
-        // prefix-matches subpath imports and would resolve them to a path INSIDE
-        // index.ts (`.../index.ts/terminal-view`), which fails at build time.
+        // Subpath aliases must precede the bare-package one — the bare alias also
+        // prefix-matches subpath imports and would resolve them to paths INSIDE
+        // index.ts (`.../index.ts/keys`), which fails at build time.
+        '@podium/terminal-client/appearance': fileURLToPath(
+          new URL('../../packages/terminal-client/src/appearance.ts', import.meta.url),
+        ),
+        '@podium/terminal-client/keys': fileURLToPath(
+          new URL('../../packages/terminal-client/src/keys.ts', import.meta.url),
+        ),
+        '@podium/terminal-client/session-mount': fileURLToPath(
+          new URL('../../packages/terminal-client/src/session-mount.ts', import.meta.url),
+        ),
         '@podium/terminal-client/terminal-view': fileURLToPath(
           new URL('../../packages/terminal-client/src/terminal-view.ts', import.meta.url),
         ),
