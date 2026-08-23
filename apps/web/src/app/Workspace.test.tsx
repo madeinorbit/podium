@@ -174,15 +174,43 @@ const label = (id: string): HTMLElement => {
 }
 
 describe('Workspace tab strip', () => {
-  it('keeps dnd-kit out of the initial render and mounts it just after paint', async () => {
-    render(<Workspace />)
+  it('keeps dnd-kit cold through startup and loads it on the first tab-strip intent', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
 
     expect(strip().getAttribute('data-drag-runtime')).toBeNull()
-    // The first Vitest transform evaluates this dynamic module cold; production
-    // fetches the already-built chunk, but the assertion should cover both.
-    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'), {
-      timeout: 5_000,
-    })
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+    expect(runtime.load).not.toHaveBeenCalled()
+
+    fireEvent.pointerEnter(strip())
+    expect(runtime.load).toHaveBeenCalledTimes(1)
+    await runtime.release()
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+  })
+
+  it('retries the drag runtime on the next intent after a rejected request', async () => {
+    const runtime = delayedDragRuntime()
+    let rejectFirstRequest!: (reason: Error) => void
+    const load = vi
+      .fn<() => ReturnType<typeof runtime.load>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectFirstRequest = reject
+          }),
+      )
+      .mockImplementation(runtime.load)
+    render(<Workspace loadDragRuntime={load} />)
+
+    fireEvent.pointerEnter(strip())
+    expect(load).toHaveBeenCalledTimes(1)
+    rejectFirstRequest(new Error('chunk request failed'))
+    await Promise.resolve()
+
+    fireEvent.pointerEnter(strip())
+    expect(load).toHaveBeenCalledTimes(2)
+    await runtime.release()
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
   })
 
   it.each([

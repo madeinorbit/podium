@@ -286,9 +286,14 @@ export function Workspace({
       }
       if (dragRuntimeRequested.current) return
       dragRuntimeRequested.current = true
-      void loadDragRuntime().then((module) => {
-        setDragRuntime(() => module.WorkspaceTabDragRuntime)
-      })
+      void loadDragRuntime().then(
+        (module) => {
+          setDragRuntime(() => module.WorkspaceTabDragRuntime)
+        },
+        () => {
+          dragRuntimeRequested.current = false
+        },
+      )
     },
     [DragRuntime, loadDragRuntime],
   )
@@ -643,15 +648,6 @@ export function Workspace({
   const byId = new Map(deckTabs.map((t) => [t.id, t]))
   const activeTabId = activePane?.activeTabId ?? null
 
-  // Start fetching after the workspace has painted, but before an operator can
-  // reasonably press, touch, or keyboard-pick up its first tab. Pointer and
-  // focus intent remain as the faster path when they reach the strip first.
-  // Empty panes stay cold because there is nothing in them to drag.
-  useEffect(() => {
-    if (deckTabs.length === 0 || dragRuntimeRequested.current) return
-    const timer = window.setTimeout(preloadDragRuntime, 0)
-    return () => window.clearTimeout(timer)
-  }, [deckTabs.length, preloadDragRuntime])
   // M6: the issue's designated coordinator sessions, resolved once for every
   // pane's strip rather than per tab.
   const coordinatorIds = new Set(
