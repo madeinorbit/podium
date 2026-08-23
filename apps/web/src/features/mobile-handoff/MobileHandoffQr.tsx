@@ -32,8 +32,11 @@ export function MobileHandoffQr({
     <Tooltip>
       <TooltipTrigger
         render={
+          // This is a focusable tooltip anchor, not a press action. Keeping it
+          // outside the pressable motion contract avoids promising a click.
           <button
             type="button"
+            data-pressable-exempt
             className={cn(
               'flex flex-none cursor-help items-center justify-center rounded-md border-0 bg-white p-1 ring-1 ring-black/10',
               className,

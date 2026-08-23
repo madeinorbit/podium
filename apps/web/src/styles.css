@@ -1536,7 +1536,7 @@ html[data-density="balanced"] .header-quota-pools {
 .mobile-handoff-sheet-title {
   flex: 1;
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -3113,7 +3113,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   gap: 8px;
   margin-top: 20px;
   font-family: var(--font-mono, ui-monospace, Menlo, monospace);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   line-height: 1.5;
   letter-spacing: 0.04em;
   color: var(--muted-foreground);
