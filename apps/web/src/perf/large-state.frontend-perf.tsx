@@ -15,8 +15,10 @@ import {
   type SessionMeta,
 } from '@podium/model/browser'
 import type { ClientSwitchTrace } from '@podium/protocol'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { flushSync } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ToolbarSlotProvider, ToolbarSlotTarget } from '@/app/ToolbarSlot'
 import { IssuesView } from '@/features/issues/IssuesView'
 import {
   ISSUE_VIRTUAL_MAX_ITEMS,
@@ -151,6 +153,13 @@ function metric(name: string, values: Record<string, number>): void {
   console.info(`[large-state] ${JSON.stringify({ name, ...values })}`)
 }
 
+function setNativeInputValue(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  if (!setter) throw new Error('HTMLInputElement.value setter is unavailable')
+  setter.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 afterEach(() => {
   cleanup()
   setSwitchTraceReporter(null)
@@ -160,7 +169,7 @@ afterEach(() => {
 })
 
 describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP-d562]', () => {
-  it('bounds Tasks DOM while preserving full-order navigation', () => {
+  it('bounds Tasks DOM, defers text filtering, and preserves full-order navigation', async () => {
     const issueReads: Counter = { gets: 0, ownKeys: 0 }
     const issues = Array.from({ length: SCALE.issues }, (_, index) =>
       counted(issueAt(index), issueReads),
@@ -187,7 +196,12 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
         originalConsoleError(...args)
       }
     })
-    const { container } = render(<IssuesView />)
+    const { container } = render(
+      <ToolbarSlotProvider>
+        <ToolbarSlotTarget />
+        <IssuesView />
+      </ToolbarSlotProvider>,
+    )
     const renderMs = performance.now() - started
     const initialElements = container.querySelectorAll('*').length
     const initialButtons = container.querySelectorAll('button').length
@@ -205,6 +219,30 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
     expect(initialButtons).toBeLessThanOrEqual(BUDGET.tasksInitialButtons)
     expect(initialIssueReads).toBeLessThanOrEqual(BUDGET.tasksInitialIssueReads)
     const windowedCards = initialCards
+
+    // The Tasks toolbar lives in ToolbarSlot's portal, outside this render's
+    // container but inside the same document.
+    const search = document.querySelector<HTMLInputElement>('[aria-label="Search tasks"]')
+    expect(search).not.toBeNull()
+    const initialCardIds = [...container.querySelectorAll<HTMLElement>('[data-issue-id]')].map(
+      (card) => card.dataset.issueId,
+    )
+    flushSync(() => setNativeInputValue(search as HTMLInputElement, 'Generated benchmark task 673'))
+    expect(search?.value).toBe('Generated benchmark task 673')
+    expect(
+      [...container.querySelectorAll<HTMLElement>('[data-issue-id]')].map(
+        (card) => card.dataset.issueId,
+      ),
+    ).toEqual(initialCardIds)
+    await act(async () => {})
+    expect(
+      [...container.querySelectorAll<HTMLElement>('[data-issue-id]')].map(
+        (card) => card.dataset.issueId,
+      ),
+    ).toEqual(['issue-0673'])
+
+    flushSync(() => setNativeInputValue(search as HTMLInputElement, ''))
+    await act(async () => {})
 
     // Shift-click the last initially visible card, then move to the first hidden position in
     // the next stage. Full-order navigation must mount that hidden target.

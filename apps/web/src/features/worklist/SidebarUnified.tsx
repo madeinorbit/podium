@@ -17,7 +17,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
@@ -36,7 +36,7 @@ import { useUnifiedWork } from './use-unified-work'
 import { useRowDrag } from './useRowDrag'
 import { WorkListEmpty } from './WorkListEmpty'
 import { WorklistMotion } from './worklist-motion'
-import { matchesWorkQuery, normalizeWorkQuery } from './work-filter'
+import { indexWorkRows, matchesIndexedWorkQuery, normalizeWorkQuery } from './work-filter'
 import {
   ClosedIssueFold,
   FoldedWorkRow,
@@ -101,7 +101,7 @@ export function SidebarUnified(): JSX.Element {
         data-testid="work-scroll"
         className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5"
       >
-        <WorkSections derivation={derivation} query={filter.query} />
+        <ResponsiveWorkSections derivation={derivation} query={filter.deferredQuery} />
       </div>
       {/* The phone pitch stands on the column's FLOOR, outside the scroller and
           directly over the tools row — the last thing you pass on the way out,
@@ -519,7 +519,8 @@ export function WorkSections({
   // exiting machinery — thirty rows flying out on `w`, back in on backspace.
   // Read HERE, above the row renderer, because the grip consults it too — see
   // `draggable`.
-  const filtering = normalizeWorkQuery(query).length > 0
+  const normalizedQuery = useMemo(() => normalizeWorkQuery(query), [query])
+  const filtering = normalizedQuery.length > 0
 
   const renderWorkRow = (item: TransitionWorkRow, animate = true) => {
     const { row, lane } = item.value
@@ -681,43 +682,67 @@ export function WorkSections({
     )
   }
 
-  const survives = (item: TransitionWorkRow): boolean =>
-    !filtering || matchesWorkQuery(item.value.row, query, now)
-  // The haystack the footnote names: the same live pool the field counts over.
-  const filterTotal = transitionRows.filter(
-    (item) => item.value.lane === 'pinned' || item.value.lane === 'open',
-  ).length
-  const renderedPinned = transitionRows.filter((item) => item.value.lane === 'pinned')
-  const renderedGroupKeys = targetGroups.map((group) => group.key)
-  for (const item of transitionRows) {
-    if (item.value.lane !== 'pinned' && !renderedGroupKeys.includes(item.value.groupKey))
-      renderedGroupKeys.push(item.value.groupKey)
-  }
-  const renderedGroups = renderedGroupKeys
-    .map((groupKey) => {
-      const target = targetGroups.find((group) => group.key === groupKey)
-      const fallback = transitionRows.find((item) => item.value.groupKey === groupKey)
-      const inGroup = (lane: WorkPlacement['lane']) =>
-        transitionRows.filter(
-          (item) => item.value.groupKey === groupKey && item.value.lane === lane,
-        )
-      return {
-        key: groupKey,
-        label: target?.label ?? fallback?.value.groupLabel ?? groupKey,
-        rows: inGroup('open').filter(survives),
-        // THE TAIL FOLDS CLOSE FOR THE DURATION OF A QUERY. They are archives
-        // with their own counts, shut by default, and a `12 closed` line under
-        // two matching rows says nothing about the query — the count is of the
-        // fold, not of the hits, and opening it would answer a question the
-        // filter was not asked. The band's count stays the hit count.
-        snoozedRows: filtering ? [] : inGroup('snoozed'),
-        closedRows: filtering ? [] : inGroup('closed'),
+  const searchIndex = useMemo(
+    () =>
+      indexWorkRows(
+        transitionRows.map((item) => item.value.row),
+        now,
+      ),
+    [transitionRows, now],
+  )
+  const { filterTotal, filteredPinned, renderedGroups } = useMemo(() => {
+    type RenderedGroup = {
+      key: string
+      label: string
+      rows: TransitionWorkRow[]
+      snoozedRows: TransitionWorkRow[]
+      closedRows: TransitionWorkRow[]
+    }
+    const groups = new Map<string, RenderedGroup>()
+    for (const group of targetGroups) {
+      groups.set(group.key, {
+        key: group.key,
+        label: group.label,
+        rows: [],
+        snoozedRows: [],
+        closedRows: [],
+      })
+    }
+    const filteredPinned: TransitionWorkRow[] = []
+    let filterTotal = 0
+    for (const item of transitionRows) {
+      const { lane, groupKey, groupLabel, row } = item.value
+      if (lane === 'pinned' || lane === 'open') filterTotal++
+      const survives = matchesIndexedWorkQuery(searchIndex, row, normalizedQuery)
+      if (lane === 'pinned') {
+        if (survives) filteredPinned.push(item)
+        continue
       }
-    })
-    // A project with no hit leaves entirely, band and all: an empty band under a
-    // filter is a row of chrome claiming a group that has nothing to show.
-    .filter((group) => !filtering || group.rows.length > 0)
-  const filteredPinned = renderedPinned.filter(survives)
+      let group = groups.get(groupKey)
+      if (!group) {
+        group = {
+          key: groupKey,
+          label: groupLabel,
+          rows: [],
+          snoozedRows: [],
+          closedRows: [],
+        }
+        groups.set(groupKey, group)
+      }
+      if (lane === 'open' && survives) group.rows.push(item)
+      // THE TAIL FOLDS CLOSE FOR THE DURATION OF A QUERY. They are archives
+      // with their own counts, shut by default, and a `12 closed` line under
+      // two matching rows says nothing about the query.
+      if (!filtering && lane === 'snoozed') group.snoozedRows.push(item)
+      if (!filtering && lane === 'closed') group.closedRows.push(item)
+    }
+    return {
+      filterTotal,
+      filteredPinned,
+      // A project with no hit leaves entirely, band and all.
+      renderedGroups: [...groups.values()].filter((group) => !filtering || group.rows.length > 0),
+    }
+  }, [filtering, normalizedQuery, searchIndex, targetGroups, transitionRows])
   // The folded menu's subject, looked up rather than carried in the state above.
   const foldedMenuRow = foldedMenu
     ? work.find((row) => row.kind === 'issue' && row.issue.id === foldedMenu.issueId)
@@ -849,3 +874,10 @@ export function WorkSections({
     </WorklistMotion>
   )
 }
+
+/**
+ * The urgent field update keeps passing the previous deferred query. This memo
+ * boundary lets React commit that input without rebuilding hundreds of row
+ * elements; the list renders again only when the deferred query advances.
+ */
+const ResponsiveWorkSections = memo(WorkSections)

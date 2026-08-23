@@ -41,6 +41,27 @@ export function normalizeWorkQuery(query: string): string {
   return query.trim().toLowerCase()
 }
 
+/**
+ * Search text is the expensive half of matching: issue rows derive their live
+ * status line from the row and the shared clock. Build it once for a published
+ * row set, then reuse it for every query until either the rows or clock change.
+ */
+export function indexWorkRows(
+  rows: readonly UnifiedWorkRow[],
+  now: number,
+): ReadonlyMap<UnifiedWorkRow, string> {
+  return new Map(rows.map((row) => [row, rowHaystack(row, now)]))
+}
+
+/** Match a query that the caller already normalized against a memoized index. */
+export function matchesIndexedWorkQuery(
+  index: ReadonlyMap<UnifiedWorkRow, string>,
+  row: UnifiedWorkRow,
+  normalizedQuery: string,
+): boolean {
+  return !normalizedQuery || (index.get(row) ?? '').includes(normalizedQuery)
+}
+
 /** Does this row survive `query`? An empty query keeps every row, so callers can
  *  run the predicate unconditionally rather than branching at each call site. */
 export function matchesWorkQuery(row: UnifiedWorkRow, query: string, now: number): boolean {

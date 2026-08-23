@@ -18,13 +18,15 @@
 import type { UnifiedWorkRow } from '@podium/client-core/viewmodels'
 import { Search, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { matchesWorkQuery, normalizeWorkQuery } from './work-filter'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { indexWorkRows, matchesIndexedWorkQuery, normalizeWorkQuery } from './work-filter'
 
 export type WorkFilter = {
   /** The raw field value — what the input shows, untrimmed. */
   query: string
   setQuery: (query: string) => void
+  /** The query used by counts and the row tree after React yields to it. */
+  deferredQuery: string
   /** True once the query is more than whitespace: the list is being narrowed. */
   filtering: boolean
   /** Live rows in the column (pinned + every project group's open rows). */
@@ -57,6 +59,7 @@ export type WorkFilter = {
  */
 export function useWorkFilter(rows: readonly UnifiedWorkRow[], now: number): WorkFilter {
   const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -74,12 +77,17 @@ export function useWorkFilter(rows: readonly UnifiedWorkRow[], now: number): Wor
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   const filtering = normalizeWorkQuery(query).length > 0
+  const normalizedDeferredQuery = useMemo(() => normalizeWorkQuery(deferredQuery), [deferredQuery])
+  const searchIndex = useMemo(() => indexWorkRows(rows, now), [rows, now])
   const hits = useMemo(
     () =>
-      filtering ? rows.filter((row) => matchesWorkQuery(row, query, now)).length : rows.length,
-    [filtering, rows, query, now],
+      normalizedDeferredQuery
+        ? rows.filter((row) => matchesIndexedWorkQuery(searchIndex, row, normalizedDeferredQuery))
+            .length
+        : rows.length,
+    [normalizedDeferredQuery, rows, searchIndex],
   )
-  return { query, setQuery, filtering, total: rows.length, hits, inputRef }
+  return { query, setQuery, deferredQuery, filtering, total: rows.length, hits, inputRef }
 }
 
 /** The field itself. `flex-none`, above the scroller: filtering the list must
