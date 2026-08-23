@@ -11,21 +11,21 @@ vi.mock('node:fs', () => ({
 
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
-import { isOpencodeCliAvailable, resolveOpencodeBin } from './cli.js'
+import { isCursorCliAvailable, resolveCursorBin } from './cli.js'
 
 const fixtureHome = '/fixture/home'
 const fixtureEnv = Object.freeze({ HOME: fixtureHome, PATH: '/fixture/bin', PODIUM_NO_RELAY: '1' })
 
-describe('opencode CLI environment', () => {
+describe('cursor CLI environment', () => {
   beforeEach(() => {
     vi.mocked(spawnSync).mockReset()
     vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: '', stderr: '' } as never)
   })
 
   it('probes the fixture executable with the explicit environment', () => {
-    const binary = join(fixtureHome, '.opencode', 'bin', 'opencode')
-    expect(resolveOpencodeBin(fixtureHome, fixtureEnv)).toBe(binary)
-    expect(isOpencodeCliAvailable(fixtureHome, fixtureEnv)).toBe(true)
+    const binary = join(fixtureHome, '.local', 'bin', 'agent')
+    expect(resolveCursorBin(fixtureHome, fixtureEnv)).toBe(binary)
+    expect(isCursorCliAvailable(fixtureHome, fixtureEnv)).toBe(true)
     expect(spawnSync).toHaveBeenCalledWith(binary, ['--version'], {
       stdio: 'ignore',
       env: expect.objectContaining(fixtureEnv),
@@ -34,7 +34,7 @@ describe('opencode CLI environment', () => {
 
   it('passes the explicit environment to every availability probe', () => {
     vi.mocked(spawnSync).mockReturnValue({ status: 1, stdout: '', stderr: '' } as never)
-    expect(isOpencodeCliAvailable(fixtureHome, fixtureEnv)).toBe(false)
+    expect(isCursorCliAvailable(fixtureHome, fixtureEnv)).toBe(false)
     for (const [, , options] of vi.mocked(spawnSync).mock.calls) {
       expect(options).toEqual(
         expect.objectContaining({

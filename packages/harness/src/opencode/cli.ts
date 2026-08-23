@@ -11,7 +11,9 @@ function childEnvironment(env?: ResolverEnvironment): NodeJS.ProcessEnv {
 
 function opencodeRuns(bin: string, env?: ResolverEnvironment): boolean {
   try {
-    return spawnSync(bin, ['--version'], { stdio: 'ignore', env: childEnvironment(env) }).status === 0
+    return (
+      spawnSync(bin, ['--version'], { stdio: 'ignore', env: childEnvironment(env) }).status === 0
+    )
   } catch {
     return false
   }
@@ -20,7 +22,7 @@ function opencodeRuns(bin: string, env?: ResolverEnvironment): boolean {
 /** Candidate install locations, in priority order. The daemon's systemd PATH often
  *  omits ~/.opencode/bin even though interactive shells include it. */
 export function opencodeBinCandidates(homeDir?: string, env?: ResolverEnvironment): string[] {
-  const home = homeDir ?? (env ? env.HOME ?? homedir() : process.env.HOME ?? homedir())
+  const home = homeDir ?? (env ? (env.HOME ?? homedir()) : (process.env.HOME ?? homedir()))
   // Known install paths before bare `opencode`: the daemon's systemd PATH often
   // omits ~/.opencode/bin, and abduco execvp does not run through a login shell.
   return [

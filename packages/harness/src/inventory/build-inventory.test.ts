@@ -451,6 +451,42 @@ describe('buildInventory', () => {
     expect(byKind['claude-code']!.installed).toBe(false)
   })
 
+  it('passes the command environment to Codex login detection and identity', async () => {
+    const codexHome = join(home, 'configured-codex')
+    mkdirSync(codexHome, { recursive: true })
+    writeFileSync(
+      join(codexHome, 'auth.json'),
+      JSON.stringify({
+        tokens: {
+          access_token: 'a',
+          refresh_token: 'r',
+          account_id: 'acct-env',
+          id_token: jwt({ name: 'Configured User', email: 'configured@example.com' }),
+        },
+      }),
+    )
+    const env = Object.freeze({
+      PATH: '/verified/bin',
+      HOME: home,
+      CODEX_HOME: codexHome,
+    })
+    const inv = await buildInventoryWithEnv({
+      homeDir: home,
+      credentialHome: home,
+      commandEnvironment: commandEnvironment(env),
+      exec: fakeExec({}),
+    })
+    expect(inv.agents.find((agent) => agent.kind === 'codex')!.login).toMatchObject({
+      state: 'in',
+      account: 'Configured User · configured@example.com',
+      identity: {
+        email: 'configured@example.com',
+        providerAccountId: 'acct-env',
+        fingerprint: expect.any(String),
+      },
+    })
+  })
+
   it('reports logged-out when the credential files are missing', async () => {
     const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
     const byKind = Object.fromEntries(inv.agents.map((a) => [a.kind, a]))

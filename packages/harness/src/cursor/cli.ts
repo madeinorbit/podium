@@ -11,7 +11,9 @@ function childEnvironment(env?: ResolverEnvironment): NodeJS.ProcessEnv {
 
 function agentRuns(bin: string, env?: ResolverEnvironment): boolean {
   try {
-    return spawnSync(bin, ['--version'], { stdio: 'ignore', env: childEnvironment(env) }).status === 0
+    return (
+      spawnSync(bin, ['--version'], { stdio: 'ignore', env: childEnvironment(env) }).status === 0
+    )
   } catch {
     return false
   }
@@ -19,7 +21,7 @@ function agentRuns(bin: string, env?: ResolverEnvironment): boolean {
 
 /** Candidate install locations for the Cursor Agent CLI (`agent`), in priority order. */
 export function cursorBinCandidates(homeDir?: string, env?: ResolverEnvironment): string[] {
-  const home = homeDir ?? (env ? env.HOME ?? homedir() : process.env.HOME ?? homedir())
+  const home = homeDir ?? (env ? (env.HOME ?? homedir()) : (process.env.HOME ?? homedir()))
   return [join(home, '.local', 'bin', 'agent'), 'agent']
 }
 

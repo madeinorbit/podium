@@ -160,7 +160,11 @@ describe('createRepo', () => {
   })
 
   it('leaves a repository that can already take a worktree', async () => {
-    const result = await runDirOp('createRepo', { parentPath: home, name: 'planner' }, options(gitEnv))
+    const result = await runDirOp(
+      'createRepo',
+      { parentPath: home, name: 'planner' },
+      options(gitEnv),
+    )
     expect(result.error).toBeUndefined()
     const repo = result.path as string
 
@@ -172,6 +176,25 @@ describe('createRepo', () => {
     expect(git(repo, gitEnv, 'rev-list', '--count', 'HEAD')).toBe('1')
     git(repo, gitEnv, 'worktree', 'add', '-b', 'issue/1-x', join(home, 'wt'))
     expect(existsSync(join(home, 'wt', 'README.md'))).toBe(true)
+  })
+
+  it('uses the supplied environment for git config', async () => {
+    const gitConfig = join(home, 'gitconfig')
+    writeFileSync(gitConfig, '[user]\n  name = Configured User\n  email = configured@example.com\n')
+    const env = hermeticChildEnv({
+      ...gitEnv,
+      GIT_CONFIG_GLOBAL: gitConfig,
+      GIT_CONFIG_SYSTEM: '/dev/null',
+    })
+    const result = await runDirOp(
+      'createRepo',
+      { parentPath: home, name: 'configured' },
+      options(env),
+    )
+    expect(result.error).toBeUndefined()
+    expect(git(result.path as string, env, 'log', '-1', '--format=%an <%ae>')).toBe(
+      'Configured User <configured@example.com>',
+    )
   })
 
   it('names the README after the folder', async () => {

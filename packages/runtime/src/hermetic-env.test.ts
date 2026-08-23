@@ -34,16 +34,18 @@ describe('hermetic test env', () => {
     const liveStateDir = resolve(join(homedir(), '.podium'))
     const pathEntries = (process.env.PATH ?? '').split(delimiter).map((entry) => resolve(entry))
     expect(
-      pathEntries.some((entry) => entry === liveStateDir || entry.startsWith(`${liveStateDir}${sep}`)),
+      pathEntries.some(
+        (entry) => entry === liveStateDir || entry.startsWith(`${liveStateDir}${sep}`),
+      ),
     ).toBe(false)
   })
 
   it('refuses an unset or live state root', () => {
     const liveStateDir = resolve(join(homedir(), '.podium'))
     expect(() => assertHermeticStateDir({}, liveStateDir)).toThrow(/PODIUM_STATE_DIR is required/)
-    expect(() =>
-      assertHermeticStateDir({ PODIUM_STATE_DIR: liveStateDir }, liveStateDir),
-    ).toThrow(/must not use the live state tree/)
+    expect(() => assertHermeticStateDir({ PODIUM_STATE_DIR: liveStateDir }, liveStateDir)).toThrow(
+      /must not use the live state tree/,
+    )
     expect(() =>
       assertHermeticStateDir({ PODIUM_STATE_DIR: join(liveStateDir, 'child') }, liveStateDir),
     ).toThrow(/must not use the live state tree/)
@@ -86,26 +88,29 @@ describe('hermetic child env', () => {
   })
   it('writes file-backed evidence for new, overwritten, and deleted values', () => {
     const configuredOutput = process.env.PODIUM_HERMETIC_PROBE_OUTPUT
-    const outputDir = configuredOutput ? undefined : mkdtempSync(join(tmpdir(), 'podium-env-probe-'))
+    const outputDir = configuredOutput
+      ? undefined
+      : mkdtempSync(join(tmpdir(), 'podium-env-probe-'))
     const outputFile = configuredOutput ?? join(outputDir!, 'child-env.json')
     const newKey = 'PODIUM_HERMETIC_NEW'
-    const existingKey = 'PODIUM_HERMETIC_EXISTING'
+    const existingKey = 'TMPDIR'
+    const deletedKey = 'PATH'
     try {
       vi.stubEnv(newKey, 'from-parent')
       vi.stubEnv(existingKey, 'overwritten-parent')
-      vi.stubEnv('LANG', undefined)
+      vi.stubEnv(deletedKey, undefined)
       const env = hermeticChildEnv()
       const parent = {
         newValue: env[newKey] ?? '',
         existingValue: env[existingKey] ?? '',
-        deletedValue: env.LANG ?? '',
+        deletedValue: env[deletedKey] ?? '',
       }
       const probe = [
         "const { writeFileSync } = require('node:fs')",
         `writeFileSync(${JSON.stringify(outputFile)}, JSON.stringify({`,
         `  newValue: process.env.${newKey} ?? '',`,
         `  existingValue: process.env.${existingKey} ?? '',`,
-        "  deletedValue: process.env.LANG ?? '',",
+        `  deletedValue: process.env.${deletedKey} ?? '',`,
         '}))',
       ].join('\n')
       execFileSync(process.execPath, ['-e', probe], { stdio: 'ignore', env })

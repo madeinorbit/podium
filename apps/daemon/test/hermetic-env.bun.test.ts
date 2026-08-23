@@ -31,7 +31,9 @@ describe('hermetic bun test env', () => {
     const liveStateDir = resolve(join(homedir(), '.podium'))
     const pathEntries = (process.env.PATH ?? '').split(delimiter).map((entry) => resolve(entry))
     expect(
-      pathEntries.some((entry) => entry === liveStateDir || entry.startsWith(`${liveStateDir}${sep}`)),
+      pathEntries.some(
+        (entry) => entry === liveStateDir || entry.startsWith(`${liveStateDir}${sep}`),
+      ),
     ).toBe(false)
     expect(() => assertHermeticStateDir({}, liveStateDir)).toThrow(/PODIUM_STATE_DIR is required/)
   })

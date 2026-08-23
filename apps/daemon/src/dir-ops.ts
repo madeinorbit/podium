@@ -241,19 +241,16 @@ async function initRepository(
 
   const identity: string[] = []
   if (!(await configured(path, 'user.name', env))) identity.push('-c', 'user.name=Podium')
-  if (!(await configured(path, 'user.email', env))) identity.push('-c', `user.email=podium@${machine}`)
+  if (!(await configured(path, 'user.email', env)))
+    identity.push('-c', `user.email=podium@${machine}`)
 
   try {
     await git(path, ['add', '-A'], env)
-    await git(path, [
-      ...identity,
-      '-c',
-      'commit.gpgsign=false',
-      'commit',
-      '--no-verify',
-      '-m',
-      'Initial commit',
-    ], env)
+    await git(
+      path,
+      [...identity, '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '-m', 'Initial commit'],
+      env,
+    )
   } catch (err) {
     throw new DirOpError(`Could not create the first commit: ${reason(err)}`)
   }

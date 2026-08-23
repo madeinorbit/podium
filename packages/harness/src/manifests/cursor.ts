@@ -1,3 +1,4 @@
+import { resolveCursorBin } from '../cursor/cli.js'
 import { join } from 'node:path'
 import { cursorRecordToItems } from '@podium/transcript'
 import { cursorStateProvider, observeCursorState } from '../agent-state/cursor.js'
@@ -82,7 +83,7 @@ export const cursorManifest: AgentManifest = {
       ...(isSet(opts.model) ? ['--model', opts.model] : []),
     ]
     const instructions = composeAgentInstructions(opts.instructions)
-    if (!instructions) return { cmd: 'agent', args, cwd: opts.cwd }
+    if (!instructions) return { cmd: resolveCursorBin(undefined, opts.env), args, cwd: opts.cwd }
     if (!opts.runtimeDir) throw new Error('cursor launch requires an instruction runtime directory')
     const manifestPath = join(opts.runtimeDir, '.cursor-plugin', 'plugin.json')
     const rulePath = join(opts.runtimeDir, 'rules', 'podium-session-context.mdc')
@@ -101,7 +102,7 @@ export const cursorManifest: AgentManifest = {
     const rule = `---\ndescription: Podium session context\nalwaysApply: true\n---\n\n${instructions}\n`
     // No effort flag (capabilities.effortFlag 'none') and no argv prompt.
     return {
-      cmd: 'agent',
+      cmd: resolveCursorBin(undefined, opts.env),
       args: [...args, '--plugin-dir', opts.runtimeDir],
       cwd: opts.cwd,
       files: [

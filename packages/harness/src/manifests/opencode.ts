@@ -1,3 +1,4 @@
+import { resolveOpencodeBin } from '../opencode/cli.js'
 import { join } from 'node:path'
 import {
   type OpencodeMessagePartRow,
@@ -117,7 +118,7 @@ export const opencodeManifest: AgentManifest = {
 
   launch(opts) {
     const base = {
-      cmd: 'opencode',
+      cmd: resolveOpencodeBin(undefined, opts.env),
       args: [
         ...(opts.resume ? ['--session', opts.resume.value] : []),
         ...(isSet(opts.model) ? ['-m', opts.model] : []),
