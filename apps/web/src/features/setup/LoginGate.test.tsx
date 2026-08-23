@@ -43,23 +43,59 @@ describe('LoginGate', () => {
     ])
   })
 
-  it('does not block on a backend without the auth route (non-OK status)', async () => {
+  it('keeps an authoritative authentication refusal fail-closed', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({}) }),
+      vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) }),
     )
-    render(<LoginGate>{child}</LoginGate>)
-    expect(await screen.findByText('APP-READY')).toBeTruthy()
+    render(
+      <LoginGate>
+        {(auth) => (
+          <div>
+            {auth.kind === 'failure' &&
+            auth.failure.kind === 'auth-refused' &&
+            auth.failure.status === 401
+              ? 'APP-REFUSED'
+              : 'APP-WRONG'}
+          </div>
+        )}
+      </LoginGate>,
+    )
+    expect(await screen.findByText('APP-REFUSED')).toBeTruthy()
   })
 
-  it('hands an unreachable status probe to the recovery path', async () => {
+  it('hands a rejected status probe to the recovery path', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network')))
     render(
       <LoginGate>
-        {(auth) => <div>{auth.kind === 'unreachable' ? 'APP-RETRYING' : 'APP-WRONG'}</div>}
+        {(auth) => <div>{auth.kind === 'provisional-failure' ? 'APP-RETRYING' : 'APP-WRONG'}</div>}
       </LoginGate>,
     )
     expect(await screen.findByText('APP-RETRYING')).toBeTruthy()
+  })
+
+  it.each([
+    ['a server error', { ok: false, status: 502, json: async () => ({}) }],
+    [
+      'a non-JSON success response',
+      {
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError('unexpected token')
+        },
+      },
+    ],
+  ])('hands %s to the recovery path', async (_case, response) => {
+    const fetchMock = vi.fn().mockResolvedValue(response)
+    vi.stubGlobal('fetch', fetchMock)
+    render(
+      <LoginGate>
+        {(auth) => <div>{auth.kind === 'provisional-failure' ? 'APP-RETRYING' : 'APP-WRONG'}</div>}
+      </LoginGate>,
+    )
+    expect(await screen.findByText('APP-RETRYING')).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledOnce()
   })
 
   it('sends credentials on the status probe so the session cookie rides', async () => {

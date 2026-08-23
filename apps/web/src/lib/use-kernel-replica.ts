@@ -69,9 +69,9 @@ export interface ResolveReplicaPrincipalOptions {
 /** LoginGate's auth probe handoff to the private-replica gate. */
 export type AuthBootstrap =
   | { readonly kind: 'principal'; readonly principal: string }
-  /** The first status request failed without an authoritative answer. The
-   * replica gate must re-probe before retained device data can choose an owner. */
-  | { readonly kind: 'unreachable' }
+  /** The first status request failed without an authoritative auth answer. The
+   * replica gate must re-probe before it fails or retained data chooses an owner. */
+  | { readonly kind: 'provisional-failure' }
   | {
       readonly kind: 'failure'
       readonly message: string
@@ -100,7 +100,7 @@ function offlineReplicaPrincipal(inspectNamespaces?: () => readonly string[]): s
 }
 
 function principalFromAuthBootstrap(
-  auth: Exclude<AuthBootstrap, { readonly kind: 'unreachable' }>,
+  auth: Exclude<AuthBootstrap, { readonly kind: 'provisional-failure' }>,
 ): string {
   if (auth.kind === 'principal') return auth.principal
   throw new ReplicaGateError(auth.message, auth.failure)
@@ -132,7 +132,7 @@ function replicaFailureSemantics(failure: ReplicaFailure): readonly (string | nu
 
 /** The primitive meaning of the LoginGate handoff, independent of object identity. */
 function authBootstrapSemantics(auth: AuthBootstrap | undefined): string {
-  if (auth === undefined || auth.kind === 'unreachable') return '["resolve"]'
+  if (auth === undefined || auth.kind === 'provisional-failure') return '["resolve"]'
   if (auth.kind === 'principal') return JSON.stringify(['principal', auth.principal])
   return JSON.stringify(['failure', auth.message, ...replicaFailureSemantics(auth.failure)])
 }
@@ -235,10 +235,10 @@ export function useKernelReplica(args: {
       if (!alive) return
       try {
         // A successful LoginGate answer remains the one-request fast path. A
-        // rejected first request is only provisional: retry with the cookie
-        // before a network failure may authorize retained offline data.
+        // provisional first answer gets one retry with the cookie before a
+        // network failure may authorize retained offline data.
         const principal =
-          auth === undefined || auth.kind === 'unreachable'
+          auth === undefined || auth.kind === 'provisional-failure'
             ? await resolvePrincipal({ httpOrigin })
             : principalFromAuthBootstrap(auth)
         // Captured DURING the open: the migration runs inside `openKernelAssembly`

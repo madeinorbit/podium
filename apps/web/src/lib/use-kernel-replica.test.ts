@@ -52,9 +52,7 @@ describe('offline replica principal resolution', () => {
     await expect(resolveReplicaPrincipal({ httpOrigin: 'http://backend.test:1234' })).resolves.toBe(
       'alice',
     )
-    expect(fetched).toEqual([
-      ['http://backend.test:1234/auth/status', { credentials: 'include' }],
-    ])
+    expect(fetched).toEqual([['http://backend.test:1234/auth/status', { credentials: 'include' }]])
   })
 
   it('treats an HTML 200 answer as an unavailable account, not a parse crash', async () => {
@@ -236,7 +234,7 @@ describe('private replica boot failure', () => {
     expect(bobDispose).toHaveBeenCalledOnce()
   })
 
-  it('recovers a failed first auth request before opening the replica', async () => {
+  it('recovers a provisional first auth failure before opening the replica', async () => {
     const trpc = {} as Trpc
     const resolvePrincipal = vi.fn(async () => 'alice')
     const dispose = vi.fn(async () => {})
@@ -249,7 +247,7 @@ describe('private replica boot failure', () => {
     const { result, rerender, unmount } = renderHook(() =>
       useKernelReplica({
         trpc,
-        auth: { kind: 'unreachable' },
+        auth: { kind: 'provisional-failure' },
         httpOrigin: 'http://backend.test:1234',
         resolvePrincipal,
         openAssembly,
@@ -268,6 +266,37 @@ describe('private replica boot failure', () => {
     expect(dispose).not.toHaveBeenCalled()
     unmount()
     expect(dispose).toHaveBeenCalledOnce()
+  })
+
+  it('does not re-probe or open after an authoritative auth refusal', async () => {
+    const trpc = {} as Trpc
+    const resolvePrincipal = vi.fn(async () => 'alice')
+    const openAssembly = vi.fn()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const { result, unmount } = renderHook(() =>
+      useKernelReplica({
+        trpc,
+        auth: {
+          kind: 'failure',
+          message: 'authenticated account is unavailable',
+          failure: { kind: 'auth-refused', status: 401 },
+        },
+        httpOrigin: 'http://backend.test:1234',
+        resolvePrincipal,
+        openAssembly,
+      }),
+    )
+
+    await waitFor(() => expect(result.current.status).toBe('failed'))
+    expect(result.current).toEqual({
+      status: 'failed',
+      failure: 'authenticated account is unavailable',
+      cause: { kind: 'auth-refused', status: 401 },
+    })
+    expect(resolvePrincipal).not.toHaveBeenCalled()
+    expect(openAssembly).not.toHaveBeenCalled()
+    unmount()
   })
 
   it('stays fatal when the supported private replica cannot open', async () => {

@@ -56,9 +56,14 @@ async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
   } catch {
     // This request alone cannot distinguish a dead server from a transient
     // failure. Let the replica gate re-probe before it considers retained data.
-    return { kind: 'ready', auth: { kind: 'unreachable' } }
+    return { kind: 'ready', auth: { kind: 'provisional-failure' } }
   }
   if (!res.ok) {
+    // A 4xx answer is the auth endpoint's decision. A server or proxy failure is
+    // provisional, so give startup one recovery probe before failing closed.
+    if (res.status < 400 || res.status >= 500) {
+      return { kind: 'ready', auth: { kind: 'provisional-failure' } }
+    }
     return {
       kind: 'ready',
       auth: {
@@ -80,14 +85,7 @@ async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
       readiness?: unknown
     }
   } catch {
-    return {
-      kind: 'ready',
-      auth: {
-        kind: 'failure',
-        message: 'authenticated account is unavailable',
-        failure: { kind: 'auth-intercepted' },
-      },
-    }
+    return { kind: 'ready', auth: { kind: 'provisional-failure' } }
   }
   if (data.needsAuth === true && data.authed !== true) return { kind: 'login' }
   const outcome = classifyAuthStatus(data)
