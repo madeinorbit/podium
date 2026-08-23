@@ -5,8 +5,9 @@ import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
 import type { JSX, MutableRefObject } from 'react'
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useSessionDraft } from '@/app/store'
+import { TranscriptFeedBoundary } from '@/features/chat/TranscriptFeedBoundary'
 import { cn } from '@/lib/utils'
 import { handleChatMdClick } from './chat-md-click'
 import { ChatComposer } from './ChatComposer'
@@ -16,10 +17,6 @@ import { ImageLightbox } from './ImageLightbox'
 import { PinnedBrief } from './PinnedBrief'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatSurface } from './use-chat-surface'
-
-const TranscriptFeed = lazy(() =>
-  import('./TranscriptFeed').then((module) => ({ default: module.TranscriptFeed })),
-)
 
 /**
  * CHAT (POD-405) — the SHELL, and nothing else.
@@ -301,7 +298,7 @@ export function ChatView({
           box, so nothing here re-renders or loses its scroll (POD-1068). */}
       <div className="offer-lift-region relative flex min-h-0 flex-1">
         <Suspense fallback={null}>
-          <TranscriptFeed
+          <TranscriptFeedBoundary
             setScrollerRef={chat.scroll.setScrollerRef}
             setContentRef={chat.scroll.setContentRef}
             onScroll={chat.scroll.onScroll}

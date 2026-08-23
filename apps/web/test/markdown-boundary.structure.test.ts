@@ -151,9 +151,12 @@ describe('Markdown loading boundary', () => {
   })
 
   it('uses a literal dynamic import for the transcript renderer', () => {
-    const chatView = readFileSync(join(sourceRoot, 'features/chat/ChatView.tsx'), 'utf8')
+    const boundary = readFileSync(
+      join(sourceRoot, 'features/chat/TranscriptFeedBoundary.tsx'),
+      'utf8',
+    )
 
-    expect(chatView).toMatch(
+    expect(boundary).toMatch(
       /lazy\(\(\) =>\s*import\(['"]\.\/TranscriptFeed['"]\)\.then\(\(module\) =>/,
     )
   })
