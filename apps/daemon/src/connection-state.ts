@@ -64,6 +64,7 @@ interface SocketLike {
   readonly readyState: number
   send(data: string): void
   close(): void
+  terminate(): void
   once(event: 'open' | 'close', listener: () => void): this
   on(event: 'message', listener: (raw: RawData) => void): this
   on(event: 'close', listener: () => void): this
@@ -475,7 +476,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         openDeadline = undefined
         if (!isCurrent() || state !== 'connecting') return
         lastSocketError = `WebSocket open timed out after ${SOCKET_OPEN_DEADLINE_MS}ms`
-        active.close()
+        active.terminate()
       }, SOCKET_OPEN_DEADLINE_MS),
     }
     active.once('open', () => {
@@ -492,7 +493,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
             acknowledgementDeadline = undefined
             if (!isCurrent() || state !== 'awaiting-ack') return
             lastSocketError = `peerHello acknowledgement timed out after ${PEER_HELLO_ACK_DEADLINE_MS}ms`
-            active.close()
+            active.terminate()
           }, PEER_HELLO_ACK_DEADLINE_MS),
         }
         active.send(JSON.stringify(dialer.hello()))

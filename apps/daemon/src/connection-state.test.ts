@@ -355,11 +355,22 @@ class FakeSocket extends EventEmitter {
   readyState = 1
   sent: string[] = []
   closeCalls = 0
+  terminateCalls = 0
+  constructor(private readonly closeEmitsClose = true) {
+    super()
+  }
   send(data: string): void {
     this.sent.push(data)
   }
   close(): void {
     this.closeCalls += 1
+    this.readyState = 2
+    if (!this.closeEmitsClose) return
+    this.readyState = 3
+    this.emit('close')
+  }
+  terminate(): void {
+    this.terminateCalls += 1
     this.readyState = 3
     this.emit('close')
   }
@@ -441,7 +452,8 @@ it('closes an open-stalled socket and enters reconnect backoff', async () => {
 
   harness.runNext(10_000)
 
-  expect(socket.closeCalls).toBe(1)
+  expect(socket.terminateCalls).toBe(1)
+  expect(socket.closeCalls).toBe(0)
   expect(state.state).toBe('backoff')
   expect(readConnectivity(identityDir)).toMatchObject({
     state: 'disconnected',
@@ -451,8 +463,8 @@ it('closes an open-stalled socket and enters reconnect backoff', async () => {
   await state.close()
 })
 
-it('closes a socket whose peerHello acknowledgement stalls', async () => {
-  const socket = new FakeSocket()
+it('forcefully terminates an acknowledgement stall when graceful close emits nothing', async () => {
+  const socket = new FakeSocket(false)
   const harness = timerHarness()
   const identityDir = temp()
   const { state } = remoteConnection([socket], harness.timers, identityDir)
@@ -465,9 +477,13 @@ it('closes a socket whose peerHello acknowledgement stalls', async () => {
   expect(readConnectivity(identityDir)).toMatchObject({ state: 'awaiting-ack' })
   expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
 
+  socket.close()
+  expect(socket.closeCalls).toBe(1)
+  expect(state.state).toBe('awaiting-ack')
+
   harness.runNext(10_000)
 
-  expect(socket.closeCalls).toBe(1)
+  expect(socket.terminateCalls).toBe(1)
   expect(state.state).toBe('backoff')
   expect(readConnectivity(identityDir)?.lastError).toBe(
     'peerHello acknowledgement timed out after 10000ms',
