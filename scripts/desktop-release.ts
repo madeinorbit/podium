@@ -17,7 +17,11 @@ import { basename, join } from 'node:path'
 import { extractRelease } from './changelog'
 
 export type DesktopReleaseChannel = 'stable' | 'edge'
-export type DesktopReleaseTarget = 'linux-x86_64' | 'darwin-aarch64' | 'darwin-x86_64'
+export type DesktopReleaseTarget =
+  | 'linux-x86_64'
+  | 'windows-x86_64'
+  | 'darwin-aarch64'
+  | 'darwin-x86_64'
 
 export type DesktopReleaseArtifact = {
   target: DesktopReleaseTarget
@@ -46,6 +50,12 @@ const macIntelMarker = /x86_64|_x64/
 
 const targetBundles: TargetBundle[] = [
   { target: 'linux-x86_64', updaterSuffix: '.AppImage', requiredDownloadSuffixes: [] },
+  {
+    target: 'windows-x86_64',
+    updaterSuffix: '-setup.exe',
+    requiredDownloadSuffixes: [],
+    matches: (path) => /[\\/]nsis[\\/]/.test(path),
+  },
   {
     target: 'darwin-aarch64',
     updaterSuffix: '.app.tar.gz',

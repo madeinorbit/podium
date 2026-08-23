@@ -32,6 +32,14 @@ const PODIUM_CLI_PATH_ENV: &str = "PODIUM_CLI_PATH";
 /// can put in an exit handler covers "the exit handler never ran", so the backend polls
 /// for our death instead (packages/runtime/src/supervisor.ts).
 const SUPERVISOR_PID_ENV: &str = "PODIUM_SUPERVISOR_PID";
+
+fn bundled_sidecar_resource(windows: bool) -> &'static str {
+    if windows {
+        "resources/podium.exe"
+    } else {
+        "resources/podium"
+    }
+}
 const NATIVE_WINDOW_PERMISSIONS: &[&str] = &[
     "core:window:allow-start-dragging",
     "core:window:allow-internal-toggle-maximize",
@@ -626,7 +634,10 @@ fn main() {
                     // Resolve the bundled podium binary (plain resource, never patchelf'd).
                     let podium_res = app
                         .path()
-                        .resolve("resources/podium", BaseDirectory::Resource)?;
+                        .resolve(
+                            bundled_sidecar_resource(cfg!(target_os = "windows")),
+                            BaseDirectory::Resource,
+                        )?;
                     // Bundled web resource dir for the backend to serve external clients.
                     let web_dir = app
                         .path()
@@ -707,7 +718,10 @@ fn main() {
                     // not wait for a local /health — the web client connects to the remote.
                     let podium_res = app
                         .path()
-                        .resolve("resources/podium", BaseDirectory::Resource)?;
+                        .resolve(
+                            bundled_sidecar_resource(cfg!(target_os = "windows")),
+                            BaseDirectory::Resource,
+                        )?;
                     let runnable = bootstrap::ensure_executable(&podium_res).map_err(|e| {
                         log::error!("ensure_executable failed: {e}");
                         e
@@ -1190,6 +1204,12 @@ mod tests {
             .find(|(name, _)| *name == key)
             .and_then(|(_, value)| value)
             .map(|value| value.to_string_lossy().into_owned())
+    }
+
+    #[test]
+    fn bundled_sidecar_resource_matches_the_platform_binary_name() {
+        assert_eq!(bundled_sidecar_resource(false), "resources/podium");
+        assert_eq!(bundled_sidecar_resource(true), "resources/podium.exe");
     }
 
     /// ⌘Q. Supervision must leave the child slot lockable while the backend is alive, because

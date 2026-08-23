@@ -30,11 +30,13 @@ describe('tauri desktop config', () => {
     expect(conf.bundle.resources).toEqual([
       'resources/web',
       'resources/mobile',
-      'resources/podium',
+      'resources/podium*',
       'resources/licenses',
     ])
     expect(mainSource).toContain('"PODIUM_MOBILE_WEB_DIR"')
     expect(mainSource).toContain('.resolve("resources/mobile", BaseDirectory::Resource)')
+    expect(mainSource).toContain('"resources/podium.exe"')
+    expect(mainSource).toContain('bundled_sidecar_resource(cfg!(target_os = "windows"))')
   })
   it('ships the entitlements notarization requires', () => {
     // Without an entitlements file the hardened runtime kills the JIT the bundled Bun sidecar

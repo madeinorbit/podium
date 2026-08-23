@@ -18,7 +18,7 @@
 
 [![Download Podium ADE for Mac](https://img.shields.io/badge/%E2%AC%87%20Download%20for%20Mac-Apple%20Silicon%20%C2%B7%200.1.0-d97706?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/madeinorbit/podium/releases/download/v0.1.0/Podium_0.1.0_aarch64.dmg)
 
-Other platforms (Linux desktop, Intel Mac) on the [releases page](https://github.com/madeinorbit/podium/releases/latest).
+Other platforms (Windows, Linux desktop, Intel Mac) are on the [releases page](https://github.com/madeinorbit/podium/releases/latest).
 
 **Headless server**
 

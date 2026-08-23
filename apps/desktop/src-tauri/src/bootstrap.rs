@@ -142,11 +142,7 @@ fn is_local_host(action: &LaunchAction) -> bool {
 /// `serverUrl`, and `updateChannel`. A missing or corrupt file yields an empty config; the updater
 /// resolves the missing channel against the build stamp rather than inventing a persisted choice.
 pub fn read_config() -> DesktopConfig {
-    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.podium")
-    });
-    let path = std::path::Path::new(&base).join("config.json");
+    let path = state_dir().join("config.json");
     let text = match std::fs::read_to_string(&path) {
         Ok(t) => t,
         Err(_) => return DesktopConfig::default(),
@@ -176,11 +172,52 @@ pub fn read_config() -> DesktopConfig {
 /// `pub` because the native log sink writes under the SAME state dir the server
 /// family logs to — one resolution rule, not two that can drift apart.
 pub fn state_dir() -> PathBuf {
-    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.podium")
-    });
-    PathBuf::from(base)
+    state_dir_from_parts(
+        std::env::var_os("PODIUM_STATE_DIR").map(PathBuf::from),
+        std::env::var_os("HOME").map(PathBuf::from),
+        std::env::var_os("USERPROFILE").map(PathBuf::from),
+        std::env::var_os("HOMEDRIVE"),
+        std::env::var_os("HOMEPATH"),
+        std::env::temp_dir(),
+        cfg!(target_os = "windows"),
+    )
+}
+
+fn state_dir_from_parts(
+    configured: Option<PathBuf>,
+    home: Option<PathBuf>,
+    user_profile: Option<PathBuf>,
+    home_drive: Option<std::ffi::OsString>,
+    home_path: Option<std::ffi::OsString>,
+    temp_dir: PathBuf,
+    windows: bool,
+) -> PathBuf {
+    let nonempty = |path: PathBuf| (!path.as_os_str().is_empty()).then_some(path);
+    if let Some(configured) = configured.and_then(nonempty) {
+        return configured;
+    }
+
+    let windows_home = || {
+        user_profile.and_then(nonempty).or_else(|| {
+            let mut combined = home_drive?;
+            if combined.is_empty() {
+                return None;
+            }
+            let suffix = home_path?;
+            if suffix.is_empty() {
+                return None;
+            }
+            combined.push(suffix);
+            nonempty(PathBuf::from(combined))
+        })
+    };
+    let base = if windows {
+        windows_home().or_else(|| home.and_then(nonempty))
+    } else {
+        home.and_then(nonempty)
+    }
+    .unwrap_or(temp_dir);
+    base.join(".podium")
 }
 
 fn remote_http_url(server_url: &str) -> Result<Url, String> {
@@ -645,12 +682,12 @@ pub fn wait_for_port(port: u16, attempts: u32, delay_ms: u64) -> bool {
     false
 }
 
-/// Copy `src` to `<cache_dir>/podium-sidecar` (chmod 0o755 on unix), re-copying when
-/// missing/size-differs/source-newer; return the runnable path.
+/// Copy `src` to `<cache_dir>/podium-sidecar[.exe]` (chmod 0o755 on unix), re-copying
+/// when missing, size-different, or source-newer; return the runnable path.
 fn ensure_executable_into(src: &Path, cache_dir: &Path) -> std::io::Result<PathBuf> {
     use std::fs;
 
-    let dst = cache_dir.join("podium-sidecar");
+    let dst = cache_dir.join(cached_sidecar_name(cfg!(target_os = "windows")));
 
     // Re-copy if: cache missing, OR sizes differ, OR source is newer than cache.
     let src_meta = fs::metadata(src)?;
@@ -693,8 +730,8 @@ fn ensure_executable_into(src: &Path, cache_dir: &Path) -> std::io::Result<PathB
 /// copy the binary to a writable cache dir and chmod it there.  We re-copy when
 /// the cache is missing, the source size differs, or the source is newer than the cache.
 ///
-/// Cache location: `$PODIUM_STATE_DIR/bin/podium-sidecar` if set,
-/// otherwise `~/.podium/bin/podium-sidecar`.
+/// Cache location: `$PODIUM_STATE_DIR/bin/podium-sidecar[.exe]` if set,
+/// otherwise `~/.podium/bin/podium-sidecar[.exe]`.
 ///
 /// macOS is exempt: the sidecar runs from inside the .app, never a copy. Copying it out is what
 /// produced `"podium-sidecar" is damaged and can't be opened` on the first notarized build, for
@@ -711,11 +748,15 @@ pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
     if cfg!(target_os = "macos") {
         return Ok(path.to_path_buf());
     }
-    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.podium")
-    });
-    ensure_executable_into(path, &std::path::Path::new(&base).join("bin"))
+    ensure_executable_into(path, &state_dir().join("bin"))
+}
+
+fn cached_sidecar_name(windows: bool) -> &'static str {
+    if windows {
+        "podium-sidecar.exe"
+    } else {
+        "podium-sidecar"
+    }
 }
 
 #[cfg(test)]
@@ -730,6 +771,40 @@ mod tests {
     #[test]
     fn pick_free_port_is_nonzero() {
         assert!(pick_free_port() > 0);
+    }
+
+    #[test]
+    fn windows_state_dir_uses_the_native_profile_without_home() {
+        let resolved = state_dir_from_parts(
+            None,
+            None,
+            Some(PathBuf::from(r"C:\Users\Ada")),
+            None,
+            None,
+            PathBuf::from(r"C:\Temp"),
+            true,
+        );
+        assert_eq!(resolved, PathBuf::from(r"C:\Users\Ada").join(".podium"));
+    }
+
+    #[test]
+    fn windows_state_dir_prefers_userprofile_to_a_posix_shell_home() {
+        let resolved = state_dir_from_parts(
+            None,
+            Some(PathBuf::from("/c/Users/wrong")),
+            Some(PathBuf::from(r"C:\Users\Ada")),
+            None,
+            None,
+            PathBuf::from(r"C:\Temp"),
+            true,
+        );
+        assert_eq!(resolved, PathBuf::from(r"C:\Users\Ada").join(".podium"));
+    }
+
+    #[test]
+    fn windows_cached_sidecar_keeps_its_executable_suffix() {
+        assert_eq!(cached_sidecar_name(true), "podium-sidecar.exe");
+        assert_eq!(cached_sidecar_name(false), "podium-sidecar");
     }
 
     #[test]

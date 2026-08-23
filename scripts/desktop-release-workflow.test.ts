@@ -94,6 +94,14 @@ describe('desktop release workflow', () => {
     )
   })
 
+  it('builds and publishes the updater-signed Windows NSIS installer', () => {
+    expect(desktopWorkflow).toContain('target: windows-x86_64')
+    expect(desktopWorkflow).toContain('runner: windows-latest')
+    expect(desktopWorkflow).toContain('--bundles nsis')
+    expect(desktopWorkflow).toContain('bundle/nsis/*-setup.exe')
+    expect(desktopWorkflow).toContain('bundle/nsis/*-setup.exe.sig')
+  })
+
   it('builds Linux and Apple Silicon macOS with signing before an atomic upload', () => {
     expect(desktopWorkflow).toContain('release_notes:')
     expect(desktopWorkflow).toContain('TAURI_SIGNING_PRIVATE_KEY:')

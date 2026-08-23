@@ -52,6 +52,11 @@ const podiumSrc = `${repoRoot}/dist-bun/${bundleNames().compiled}`
 if (!existsSync(podiumSrc))
   throw new Error(`missing ${podiumSrc} — package:headless did not produce it`)
 const podiumDst = `${resourcesDir}/${bundleNames().compiled}`
+// A checkout used on more than one OS must not let the resource glob package a stale
+// binary for the other platform beside the current one.
+for (const name of [bundleNames('linux').compiled, bundleNames('win32').compiled]) {
+  rmSync(`${resourcesDir}/${name}`, { force: true })
+}
 cpSync(podiumSrc, podiumDst)
 chmodSync(podiumDst, 0o755)
 
@@ -113,5 +118,5 @@ for (const f of ['LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md']) {
 }
 
 console.log(
-  `[stage-sidecar] resources/podium + resources/web + resources/mobile + resources/licenses staged`,
+  `[stage-sidecar] resources/${bundleNames().compiled} + resources/web + resources/mobile + resources/licenses staged`,
 )
