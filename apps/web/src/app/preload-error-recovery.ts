@@ -1,14 +1,19 @@
 const PRELOAD_RELOAD_GUARD_KEY = 'podium.vite-preload-reloads'
+const MAX_RELOADS_PER_BUILD = 2
+const RELOAD_GUARD_TTL_MS = 5 * 60_000
 
 interface PreloadReloadGuard {
   build: string
   failures: string[]
+  reloads: number
+  expiresAt: number
 }
 
 interface PreloadErrorRecoveryOptions {
   build: string
   storage: Pick<Storage, 'getItem' | 'setItem'>
   reload: () => void
+  now?: number
 }
 
 function readGuard(storage: PreloadErrorRecoveryOptions['storage']): PreloadReloadGuard | null {
@@ -17,14 +22,28 @@ function readGuard(storage: PreloadErrorRecoveryOptions['storage']): PreloadRelo
 
   const parsed: unknown = JSON.parse(raw)
   if (typeof parsed !== 'object' || parsed === null) return null
-  const { build, failures } = parsed as { build?: unknown; failures?: unknown }
+  const { build, failures, reloads, expiresAt } = parsed as {
+    build?: unknown
+    failures?: unknown
+    reloads?: unknown
+    expiresAt?: unknown
+  }
   if (typeof build !== 'string' || !Array.isArray(failures)) return null
   if (!failures.every((failure) => typeof failure === 'string')) return null
-  return { build, failures }
+  if (typeof reloads !== 'number' || !Number.isInteger(reloads) || reloads < 0) return null
+  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null
+  return { build, failures, reloads, expiresAt }
 }
 
-function failureKey(error: Error): string {
-  return `${error.name}: ${error.message}`
+function moduleUrlFrom(error: Error, build: string): string | null {
+  const candidate = error.message.match(/(?:https?:\/\/|\/|\.\.?\/)[^\s'"<>]+/)?.[0]
+  if (!candidate) return null
+
+  try {
+    return new URL(candidate.replace(/[),.;]+$/, ''), build).href
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -33,23 +52,36 @@ function failureKey(error: Error): string {
  * chunk. A reload creates a new browser module map, unlike retrying import() in
  * the current page.
  *
- * The stored build and failure pair prevents a missing asset from reloading the
- * tab forever. Returning without preventDefault is deliberate: the rejected
- * import still reaches the terminal or injected loader's in-page retry path.
+ * Stable module URLs are tried once. URL-less browser errors may represent
+ * different chunks, so they share only a short per-build reload budget. The
+ * budget stops a persistent failure even when browser wording changes, then
+ * expires so a later transient failure can recover. Returning without
+ * preventDefault is deliberate: the rejected import still reaches the terminal
+ * or injected loader's in-page retry path.
  */
 export function recoverFromVitePreloadError(
   event: VitePreloadErrorEvent,
-  { build, storage, reload }: PreloadErrorRecoveryOptions,
+  { build, storage, reload, now = Date.now() }: PreloadErrorRecoveryOptions,
 ): boolean {
-  const failure = failureKey(event.payload)
+  const failure = moduleUrlFrom(event.payload, build)
   let guard: PreloadReloadGuard | null
 
   try {
     guard = readGuard(storage)
-    if (guard?.build === build && guard.failures.includes(failure)) return false
+    const active = guard?.build === build && guard.expiresAt > now ? guard : null
+    if (active && active.reloads >= MAX_RELOADS_PER_BUILD) return false
+    if (failure && active?.failures.includes(failure)) return false
 
-    const failures = guard?.build === build ? [...guard.failures, failure] : [failure]
-    storage.setItem(PRELOAD_RELOAD_GUARD_KEY, JSON.stringify({ build, failures }))
+    const failures = failure ? [...(active?.failures ?? []), failure] : (active?.failures ?? [])
+    storage.setItem(
+      PRELOAD_RELOAD_GUARD_KEY,
+      JSON.stringify({
+        build,
+        failures,
+        reloads: (active?.reloads ?? 0) + 1,
+        expiresAt: active?.expiresAt ?? now + RELOAD_GUARD_TTL_MS,
+      } satisfies PreloadReloadGuard),
+    )
   } catch {
     // Without a persistent guard, reloading could loop. Leave the event alone
     // so the dynamic import rejects into its ordinary in-page recovery path.
@@ -73,6 +105,7 @@ export function installVitePreloadErrorRecovery(): void {
         setItem: (key, value) => window.sessionStorage.setItem(key, value),
       },
       reload: () => window.location.reload(),
+      now: Date.now(),
     })
   })
 }

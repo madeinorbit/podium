@@ -16,43 +16,109 @@ function memoryStorage(): Pick<Storage, 'getItem' | 'setItem'> {
 }
 
 describe('Vite preload-error recovery', () => {
-  it('reloads once for the same failed chunk in one build', () => {
+  it('reloads once for the same module URL across browser error wording', () => {
     const storage = memoryStorage()
     const reload = vi.fn()
-    const first = preloadError('Failed to fetch dynamically imported module: /assets/terminal.js')
+    const first = preloadError(
+      'Failed to fetch dynamically imported module: https://podium.test/assets/terminal.js',
+    )
     const repeated = preloadError(
-      'Failed to fetch dynamically imported module: /assets/terminal.js',
+      'error loading dynamically imported module: /assets/terminal.js',
     )
 
-    expect(recoverFromVitePreloadError(first, { build: '/assets/app-a.js', storage, reload })).toBe(
-      true,
-    )
+    expect(
+      recoverFromVitePreloadError(first, {
+        build: 'https://podium.test/assets/app-a.js',
+        storage,
+        reload,
+      }),
+    ).toBe(true)
     expect(first.defaultPrevented).toBe(true)
     expect(reload).toHaveBeenCalledTimes(1)
 
     expect(
-      recoverFromVitePreloadError(repeated, { build: '/assets/app-a.js', storage, reload }),
+      recoverFromVitePreloadError(repeated, {
+        build: 'https://podium.test/assets/app-a.js',
+        storage,
+        reload,
+      }),
     ).toBe(false)
     expect(repeated.defaultPrevented).toBe(false)
     expect(reload).toHaveBeenCalledTimes(1)
   })
 
-  it('gives another failed chunk and a new app build their own reload', () => {
+  it('gives distinct module URLs their own reload', () => {
     const storage = memoryStorage()
     const reload = vi.fn()
-    const terminal = () => preloadError('Failed to fetch /assets/terminal.js')
-    const drag = preloadError('Failed to fetch /assets/workspace-tab-drag.js')
+    const terminal = preloadError('Failed to fetch dynamically imported module: /terminal.js')
+    const drag = preloadError('Failed to fetch dynamically imported module: /workspace-drag.js')
+    const options = {
+      build: 'https://podium.test/assets/app-a.js',
+      storage,
+      reload,
+    }
+
+    expect(recoverFromVitePreloadError(terminal, options)).toBe(true)
+    expect(recoverFromVitePreloadError(drag, options)).toBe(true)
+    expect(reload).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not let generic WebKit wording suppress a distinct chunk', () => {
+    const storage = memoryStorage()
+    const reload = vi.fn()
+    const terminal = preloadError('Importing a module script failed.')
+    const drag = preloadError('Importing a module script failed.')
 
     expect(
-      recoverFromVitePreloadError(terminal(), { build: '/assets/app-a.js', storage, reload }),
+      recoverFromVitePreloadError(terminal, { build: '/assets/app-a.js', storage, reload }),
     ).toBe(true)
     expect(
       recoverFromVitePreloadError(drag, { build: '/assets/app-a.js', storage, reload }),
     ).toBe(true)
+    expect(terminal.defaultPrevented).toBe(true)
+    expect(drag.defaultPrevented).toBe(true)
+    expect(reload).toHaveBeenCalledTimes(2)
+  })
+
+  it('bounds a persistent URL-less failure despite changing browser wording', () => {
+    const storage = memoryStorage()
+    const reload = vi.fn()
+    const errors = [
+      preloadError('Importing a module script failed.'),
+      preloadError('Load failed'),
+      preloadError('Failed to fetch dynamically imported module'),
+    ]
+
     expect(
-      recoverFromVitePreloadError(terminal(), { build: '/assets/app-b.js', storage, reload }),
+      recoverFromVitePreloadError(errors[0]!, { build: '/assets/app-a.js', storage, reload }),
     ).toBe(true)
-    expect(reload).toHaveBeenCalledTimes(3)
+    expect(
+      recoverFromVitePreloadError(errors[1]!, { build: '/assets/app-a.js', storage, reload }),
+    ).toBe(true)
+    expect(
+      recoverFromVitePreloadError(errors[2]!, { build: '/assets/app-a.js', storage, reload }),
+    ).toBe(false)
+    expect(errors[2]!.defaultPrevented).toBe(false)
+    expect(reload).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives an expired guard and a new app build a fresh budget', () => {
+    const storage = memoryStorage()
+    const reload = vi.fn()
+    const recover = (build: string, now: number) =>
+      recoverFromVitePreloadError(preloadError('Importing a module script failed.'), {
+        build,
+        storage,
+        reload,
+        now,
+      })
+
+    expect(recover('/assets/app-a.js', 1_000)).toBe(true)
+    expect(recover('/assets/app-a.js', 1_001)).toBe(true)
+    expect(recover('/assets/app-a.js', 1_002)).toBe(false)
+    expect(recover('/assets/app-b.js', 1_003)).toBe(true)
+    expect(recover('/assets/app-b.js', 5 * 60_000 + 1_003)).toBe(true)
+    expect(reload).toHaveBeenCalledTimes(4)
   })
 
   it('does not reload or cancel the import rejection when storage is unavailable', () => {
