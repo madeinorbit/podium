@@ -18,9 +18,20 @@ vi.mock('@/features/terminal/use-warm-set', () => ({
   useWarmSet: (all: string[]) => new Set(all),
 }))
 
-vi.mock('./NewPanelMenu', () => ({
-  NewPanelMenu: ({ trigger }: { trigger: JSX.Element }): JSX.Element => trigger,
-}))
+vi.mock('./NewPanelMenu', async () => {
+  const { cloneElement, useState } = await import('react')
+  return {
+    NewPanelMenu: ({ trigger }: { trigger: JSX.Element }): JSX.Element => {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          {cloneElement(trigger, { onClick: () => setOpen(true) })}
+          {open ? <div role="menu" aria-label="New panel menu" /> : null}
+        </>
+      )
+    },
+  }
+})
 
 vi.mock('./operator-focus', () => ({
   useOperatorFocus: () => ({ focusedIssueId: null, setFocusedIssueId: vi.fn() }),
@@ -793,6 +804,12 @@ describe('Workspace splitting', () => {
         expect(actions.closeWorkspacePane).toHaveBeenCalledWith('p2')
       }
 
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+      expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+      expect(original.isConnected).toBe(true)
+      expect(document.activeElement).toBe(original)
+
+      fireEvent.pointerEnter(intentTab)
       await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
       const replacement = within(strips()[pane] as HTMLElement).getByRole('button', { name })
       expect(original.isConnected).toBe(false)
@@ -800,7 +817,7 @@ describe('Workspace splitting', () => {
     },
   )
 
-  it('restores a fixed action focused before the pending runtime resolves', async () => {
+  it('keeps New panel open when the pending runtime resolves after its click', async () => {
     featureEnabled['tab-splitting'] = true
     const runtime = delayedDragRuntime()
     render(<Workspace loadDragRuntime={runtime.load} />)
@@ -808,9 +825,7 @@ describe('Workspace splitting', () => {
     if (!intentTab) throw new Error('no source tab')
     fireEvent.pointerEnter(intentTab)
 
-    const original = within(strips()[0] as HTMLElement).getByRole('button', {
-      name: 'Split Right',
-    })
+    const original = within(strips()[0] as HTMLElement).getByRole('button', { name: 'New panel' })
     original.focus()
     fireEvent.pointerDown(original, {
       pointerId: 13,
@@ -829,17 +844,20 @@ describe('Workspace splitting', () => {
     fireEvent.click(original)
     await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
 
-    expect(actions.splitWorkspacePane).toHaveBeenCalledWith('p1', 'row', { tabId: undefined })
+    expect(screen.getByRole('menu', { name: 'New panel menu' })).toBeTruthy()
     expect(original.isConnected).toBe(true)
     expect(document.activeElement).toBe(original)
 
     await runtime.release()
+    await Promise.resolve()
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+    expect(screen.getByRole('menu', { name: 'New panel menu' })).toBeTruthy()
+    expect(original.isConnected).toBe(true)
+
+    fireEvent.pointerEnter(intentTab)
     await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
-    const replacement = within(strips()[0] as HTMLElement).getByRole('button', {
-      name: 'Split Right',
-    })
     expect(original.isConnected).toBe(false)
-    expect(document.activeElement).toBe(replacement)
+    expect(screen.queryByRole('menu', { name: 'New panel menu' })).toBeNull()
   })
 
   it('holds an in-flight drag runtime through a fixed action keyboard activation', async () => {
@@ -865,6 +883,11 @@ describe('Workspace splitting', () => {
     fireEvent.click(original)
     expect(actions.splitWorkspacePane).toHaveBeenCalledWith('p1', 'row', { tabId: undefined })
 
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+    expect(original.isConnected).toBe(true)
+
+    fireEvent.pointerEnter(intentTab)
     await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
     const replacement = within(strips()[0] as HTMLElement).getByRole('button', {
       name: 'Split Right',

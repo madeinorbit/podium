@@ -286,14 +286,12 @@ export function Workspace({
     useState<ComponentType<WorkspaceTabDragRuntimeProps> | null>(null)
   const dragRuntimeRequested = useRef(false)
   const dragFocusToRestore = useRef<TabDomTarget | null>(null)
-  // A tab can start the import before the pointer reaches a fixed strip action.
-  // Hold a resolved runtime through that press so wrapping the chrome in
-  // DndContext cannot replace the button before its click arrives.
+  // A tab can start the import before focus reaches a fixed strip action. Keep
+  // the resolved module unpublished until the next tab intent so wrapping the
+  // chrome in DndContext cannot drop its click, focus, or newly opened menu.
   const fixedStripFocusToRestore = useRef<FixedStripControlTarget | null>(null)
-  const fixedStripPress = useRef<{
-    target: HTMLElement
-    locator: FixedStripControlTarget
-  } | null>(null)
+  const fixedStripPress = useRef(false)
+  const dragRuntimeDeferredUntilIntent = useRef(false)
   const deferredDragRuntime = useRef<ComponentType<WorkspaceTabDragRuntimeProps> | null>(null)
   const clearFixedStripPressListeners = useRef<(() => void) | null>(null)
   const fixedStripPressTimer = useRef<number | null>(null)
@@ -379,7 +377,8 @@ export function Workspace({
     }
     clearFixedStripPressListeners.current?.()
     clearFixedStripPressListeners.current = null
-    fixedStripPress.current = null
+    fixedStripPress.current = false
+    dragRuntimeDeferredUntilIntent.current = false
     deferredDragRuntime.current = null
   }, [])
 
@@ -387,15 +386,7 @@ export function Workspace({
     fixedStripPressTimer.current = null
     clearFixedStripPressListeners.current?.()
     clearFixedStripPressListeners.current = null
-    const press = fixedStripPress.current
-    const runtime = deferredDragRuntime.current
-    fixedStripPress.current = null
-    deferredDragRuntime.current = null
-    if (press && document.activeElement === press.target) {
-      fixedStripFocusToRestore.current = press.locator
-    }
-    if (!runtime) return
-    setDragRuntime(() => runtime)
+    fixedStripPress.current = false
   }, [])
 
   const captureColdFixedStripPress = useCallback(
@@ -405,11 +396,8 @@ export function Workspace({
       if (fixedStripPress.current) return true
 
       dragFocusToRestore.current = null
-      const press = {
-        target: fixedTarget.element,
-        locator: fixedTarget.locator,
-      }
-      fixedStripPress.current = press
+      fixedStripPress.current = true
+      if (dragRuntimeRequested.current) dragRuntimeDeferredUntilIntent.current = true
       const pointerId = event.pointerId
       const ownerDocument = fixedTarget.element.ownerDocument
       const finishAfterClick = (end: PointerEvent): void => {
@@ -437,10 +425,8 @@ export function Workspace({
       if (fixedStripPress.current) return true
 
       dragFocusToRestore.current = null
-      fixedStripPress.current = {
-        target: fixedTarget.element,
-        locator: fixedTarget.locator,
-      }
+      fixedStripPress.current = true
+      dragRuntimeDeferredUntilIntent.current = true
       const code = event.code
       const ownerDocument = fixedTarget.element.ownerDocument
       const finishAfterClick = (end: KeyboardEvent): void => {
@@ -462,11 +448,23 @@ export function Workspace({
       const target = tabDomTarget(intentTarget)
       if (!target) return
       if (restoreFocus && !DragRuntime) dragFocusToRestore.current = target
+      if (dragRuntimeDeferredUntilIntent.current && !fixedStripPress.current) {
+        dragRuntimeDeferredUntilIntent.current = false
+        const deferred = deferredDragRuntime.current
+        if (deferred) {
+          deferredDragRuntime.current = null
+          fixedStripFocusToRestore.current =
+            fixedStripControlTarget(workspaceRef.current?.ownerDocument.activeElement ?? null)
+              ?.locator ?? null
+          setDragRuntime(() => deferred)
+          return
+        }
+      }
       if (dragRuntimeRequested.current) return
       dragRuntimeRequested.current = true
       void loadDragRuntime().then(
         (module) => {
-          if (fixedStripPress.current) {
+          if (fixedStripPress.current || dragRuntimeDeferredUntilIntent.current) {
             deferredDragRuntime.current = module.WorkspaceTabDragRuntime
             return
           }
@@ -479,6 +477,8 @@ export function Workspace({
           clearPendingDragActivation()
           dragFocusToRestore.current = null
           fixedStripFocusToRestore.current = null
+          dragRuntimeDeferredUntilIntent.current = false
+          deferredDragRuntime.current = null
           dragRuntimeRequested.current = false
         },
       )
