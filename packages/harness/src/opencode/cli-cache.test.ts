@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // Mock the process-spawning layer so the resolver’s child environment is observable.
 // These tests use a fixture home and never inspect the host installation.
 vi.mock('node:child_process', () => ({
-  spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
+  spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' } as never)),
 }))
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(() => true),
@@ -19,7 +19,7 @@ const fixtureEnv = Object.freeze({ HOME: fixtureHome, PATH: '/fixture/bin', PODI
 describe('opencode CLI environment', () => {
   beforeEach(() => {
     vi.mocked(spawnSync).mockReset()
-    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: '', stderr: '' })
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: '', stderr: '' } as never)
   })
 
   it('probes the fixture executable with the explicit environment', () => {

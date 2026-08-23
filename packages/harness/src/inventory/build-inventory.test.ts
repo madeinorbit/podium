@@ -8,7 +8,6 @@ import {
   type LoginProbeExec,
   type ProbeExec,
 } from './build-inventory.js'
-import { hermeticChildEnv } from '../../../../test-hermetic-env'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
 import {
   fingerprintForLoginIdentity,
@@ -19,9 +18,24 @@ import {
 let home: string
 let childEnv: NodeJS.ProcessEnv
 
+function hermeticTestEnv(
+  overrides: Readonly<Record<string, string | undefined>>,
+): NodeJS.ProcessEnv {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  )
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete env[key]
+    else env[key] = value
+  }
+  return env
+}
+
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'inv-home-'))
-  childEnv = hermeticChildEnv({
+  childEnv = hermeticTestEnv({
     CODEX_HOME: join(home, '.codex'),
     GROK_HOME: join(home, '.grok'),
     CLAUDE_CONFIG_DIR: undefined,
