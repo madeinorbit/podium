@@ -174,7 +174,7 @@ const label = (id: string): HTMLElement => {
 }
 
 describe('Workspace tab strip', () => {
-  it('keeps dnd-kit cold through startup and loads it on the first tab-strip intent', async () => {
+  it('keeps dnd-kit cold through startup and loads it on the first draggable-tab intent', async () => {
     const runtime = delayedDragRuntime()
     render(<Workspace loadDragRuntime={runtime.load} />)
 
@@ -182,7 +182,7 @@ describe('Workspace tab strip', () => {
     await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
     expect(runtime.load).not.toHaveBeenCalled()
 
-    fireEvent.pointerEnter(strip())
+    fireEvent.pointerEnter(tab('s1'))
     expect(runtime.load).toHaveBeenCalledTimes(1)
     await runtime.release()
     await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
@@ -202,12 +202,12 @@ describe('Workspace tab strip', () => {
       .mockImplementation(runtime.load)
     render(<Workspace loadDragRuntime={load} />)
 
-    fireEvent.pointerEnter(strip())
+    fireEvent.pointerEnter(tab('s1'))
     expect(load).toHaveBeenCalledTimes(1)
     rejectFirstRequest(new Error('chunk request failed'))
     await Promise.resolve()
 
-    fireEvent.pointerEnter(strip())
+    fireEvent.pointerEnter(tab('s1'))
     expect(load).toHaveBeenCalledTimes(2)
     await runtime.release()
     await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
@@ -630,6 +630,53 @@ describe('Workspace splitting', () => {
   beforeEach(() => {
     state.workspaces = { 'mission:task-1': makeSplitLayout() }
   })
+
+  it.each([
+    { name: 'New panel', pane: 0, action: 'new' },
+    { name: 'Split Right', pane: 0, action: 'split' },
+    { name: 'Close pane', pane: 1, action: 'close' },
+  ] as const)(
+    'keeps the cold $name action connected through focus and click',
+    ({ name, pane, action }) => {
+      featureEnabled['tab-splitting'] = true
+      const runtime = delayedDragRuntime()
+      render(<Workspace loadDragRuntime={runtime.load} />)
+      const control = within(strips()[pane] as HTMLElement).getByRole('button', { name })
+      const clicked = vi.fn()
+      control.addEventListener('click', clicked)
+
+      control.focus()
+      fireEvent.pointerEnter(control, { pointerType: 'mouse' })
+      fireEvent.pointerMove(control, { pointerType: 'mouse' })
+      fireEvent.pointerDown(control, {
+        pointerId: 11,
+        pointerType: 'mouse',
+        isPrimary: true,
+        button: 0,
+        buttons: 1,
+      })
+
+      expect(runtime.load).not.toHaveBeenCalled()
+      expect(control.isConnected).toBe(true)
+      expect(document.activeElement).toBe(control)
+
+      fireEvent.pointerUp(control, {
+        pointerId: 11,
+        pointerType: 'mouse',
+        isPrimary: true,
+        button: 0,
+        buttons: 0,
+      })
+      fireEvent.click(control)
+
+      expect(clicked).toHaveBeenCalledTimes(1)
+      if (action === 'split') {
+        expect(actions.splitWorkspacePane).toHaveBeenCalledWith('p1', 'row', { tabId: undefined })
+      } else if (action === 'close') {
+        expect(actions.closeWorkspacePane).toHaveBeenCalledWith('p2')
+      }
+    },
+  )
 
   it.each(['label', 'close'] as const)(
     'finishes a cold drag without dispatching its browser click to the source %s control',

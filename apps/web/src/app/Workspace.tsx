@@ -280,10 +280,10 @@ export function Workspace({
   // on every frame.
   const [dragSizes, setDragSizes] = useState<{ path: number[]; sizes: number[] } | null>(null)
   const preloadDragRuntime = useCallback(
-    (focusedTarget?: EventTarget | null): void => {
-      if (focusedTarget && !DragRuntime) {
-        dragFocusToRestore.current = tabDomTarget(focusedTarget)
-      }
+    (intentTarget: EventTarget | null, restoreFocus = false): void => {
+      const target = tabDomTarget(intentTarget)
+      if (!target) return
+      if (restoreFocus && !DragRuntime) dragFocusToRestore.current = target
       if (dragRuntimeRequested.current) return
       dragRuntimeRequested.current = true
       void loadDragRuntime().then(
@@ -485,7 +485,7 @@ export function Workspace({
         document.removeEventListener('pointerup', onUp, true)
         document.removeEventListener('pointercancel', onCancel, true)
       }
-      preloadDragRuntime()
+      preloadDragRuntime(target)
     },
     [
       DragRuntime,
@@ -533,7 +533,7 @@ export function Workspace({
       document.addEventListener('keydown', onKeyDown, true)
       clearPendingDragListeners.current = () =>
         document.removeEventListener('keydown', onKeyDown, true)
-      preloadDragRuntime(target)
+      preloadDragRuntime(target, true)
     },
     [DragRuntime, clearPendingDragActivation, preloadDragRuntime],
   )
@@ -971,7 +971,7 @@ function PaneChrome({
   previewTabId: string | null
   coordinatorIds: ReadonlySet<string>
   drag?: TabDragComponents
-  onDragIntent: (focusedTarget?: EventTarget | null) => void
+  onDragIntent: (target: EventTarget | null, restoreFocus?: boolean) => void
   onColdPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
   onColdKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   panelTarget: WorktreeView
@@ -1055,15 +1055,14 @@ function PaneChrome({
         data-pane={pane.id}
         data-focused={focused ? 'true' : undefined}
         data-drag-runtime={drag ? 'ready' : undefined}
-        onPointerEnter={() => onDragIntent()}
+        onPointerEnter={(event) => onDragIntent(event.target)}
         onPointerDownCapture={(event) => {
           onFocus()
           onColdPointerDown(event)
-          onDragIntent()
         }}
-        onPointerMoveCapture={() => onDragIntent()}
+        onPointerMoveCapture={(event) => onDragIntent(event.target)}
         onFocusCapture={(event) => {
-          onDragIntent(event.target)
+          onDragIntent(event.target, true)
         }}
         onKeyDownCapture={onColdKeyDown}
         className={cn(
