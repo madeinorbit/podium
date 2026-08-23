@@ -94,6 +94,59 @@ const loadWorkspaceTabDrag = () => import('./workspace-tab-drag')
 type WorkspaceTabDragModule = Awaited<ReturnType<typeof loadWorkspaceTabDrag>>
 type LoadWorkspaceTabDrag = () => Promise<WorkspaceTabDragModule>
 
+interface TabDomTarget {
+  tabId: string
+  path: number[]
+}
+
+const tabDomTarget = (target: EventTarget | null, pressable = false): TabDomTarget | null => {
+  if (!(target instanceof Element)) return null
+  const tab = target.closest<HTMLElement>('[data-tab-drag-id]')
+  const tabId = tab?.dataset.tabDragId
+  if (!tab || !tabId) return null
+  const element = pressable
+    ? (target.closest<HTMLElement>('[data-pressable]') ?? tab)
+    : target instanceof HTMLElement
+      ? target
+      : (target.parentElement ?? tab)
+  if (!tab.contains(element)) return null
+
+  const path: number[] = []
+  let current: Element = element
+  while (current !== tab) {
+    const parent = current.parentElement
+    if (!parent) return null
+    const index = [...parent.children].indexOf(current)
+    if (index < 0) return null
+    path.push(index)
+    current = parent
+  }
+  path.reverse()
+  return { tabId, path }
+}
+
+const resolveTabDomTarget = (
+  workspace: HTMLElement | null,
+  target: TabDomTarget,
+): HTMLElement | null => {
+  const tab = [...(workspace?.querySelectorAll<HTMLElement>('[data-tab-drag-id]') ?? [])].find(
+    (candidate) => candidate.dataset.tabDragId === target.tabId,
+  )
+  if (!tab) return null
+  let current: Element = tab
+  for (const index of target.path) {
+    const child = current.children.item(index)
+    if (!child) return null
+    current = child
+  }
+  return current instanceof HTMLElement ? current : null
+}
+
+const sameTabDomTarget = (left: TabDomTarget, right: TabDomTarget): boolean =>
+  left.tabId === right.tabId &&
+  left.path.length === right.path.length &&
+  left.path.every((part, index) => part === right.path[index])
+
 const pointerSnapshot = (event: PointerEvent): TabDragPointerEventSnapshot => ({
   pointerId: event.pointerId,
   pointerType: event.pointerType,
@@ -111,7 +164,7 @@ const pointerSnapshot = (event: PointerEvent): TabDragPointerEventSnapshot => ({
 const passedTabDragThreshold = (
   start: TabDragPointerEventSnapshot,
   current: TabDragPointerEventSnapshot,
-): boolean => Math.hypot(current.clientX - start.clientX, current.clientY - start.clientY) >= 5
+): boolean => Math.hypot(current.clientX - start.clientX, current.clientY - start.clientY) > 5
 
 const keyboardSnapshot = (event: KeyboardEvent): TabDragKeyboardEventSnapshot => ({
   key: event.key,
@@ -201,11 +254,13 @@ export function Workspace({
   const [DragRuntime, setDragRuntime] =
     useState<ComponentType<WorkspaceTabDragRuntimeProps> | null>(null)
   const dragRuntimeRequested = useRef(false)
-  const dragFocusToRestore = useRef<string | null>(null)
+  const dragFocusToRestore = useRef<TabDomTarget | null>(null)
   const pendingDragActivation = useRef<
     | {
         kind: 'pointer'
         tabId: string
+        pressTarget: HTMLElement
+        pressTargetLocator: TabDomTarget
         start: TabDragPointerEventSnapshot
         latestMove: TabDragPointerEventSnapshot | null
         end: TabDragPointerEventSnapshot | null
@@ -217,6 +272,7 @@ export function Workspace({
   const clearPendingDragListeners = useRef<(() => void) | null>(null)
   const clearColdDragClickListener = useRef<(() => void) | null>(null)
   const coldDragClickTimer = useRef<number | null>(null)
+  const clearColdPressFallback = useRef<(() => void) | null>(null)
   const workspaceRef = useRef<HTMLElement | null>(null)
   // Sizes being dragged on a pane divider, held locally until the pointer is
   // released — the same shape as the shell's ResizableColumn, which tracks the
@@ -224,16 +280,23 @@ export function Workspace({
   // on every frame.
   const [dragSizes, setDragSizes] = useState<{ path: number[]; sizes: number[] } | null>(null)
   const preloadDragRuntime = useCallback(
-    (focusedTabId?: string): void => {
-      if (focusedTabId) dragFocusToRestore.current = focusedTabId
+    (focusedTarget?: EventTarget | null): void => {
+      if (focusedTarget && !DragRuntime) {
+        dragFocusToRestore.current = tabDomTarget(focusedTarget)
+      }
       if (dragRuntimeRequested.current) return
       dragRuntimeRequested.current = true
       void loadDragRuntime().then((module) => {
         setDragRuntime(() => module.WorkspaceTabDragRuntime)
       })
     },
-    [loadDragRuntime],
+    [DragRuntime, loadDragRuntime],
   )
+
+  const cancelColdPressFallback = useCallback((): void => {
+    clearColdPressFallback.current?.()
+    clearColdPressFallback.current = null
+  }, [])
 
   const clearColdDragClickSuppression = useCallback((): void => {
     if (coldDragClickTimer.current !== null) {
@@ -277,7 +340,8 @@ export function Workspace({
     clearPendingDragListeners.current = null
     pendingDragActivation.current = null
     clearColdDragClickSuppression()
-  }, [clearColdDragClickSuppression])
+    cancelColdPressFallback()
+  }, [cancelColdPressFallback, clearColdDragClickSuppression])
 
   useEffect(() => clearPendingDragActivation, [clearPendingDragActivation])
 
@@ -286,19 +350,47 @@ export function Workspace({
   // tab so Space and the arrow keys work without another trip through the tab
   // order.
   const restoreDragFocus = useCallback((): void => {
-    const tabId = dragFocusToRestore.current
-    if (!tabId) return
+    const target = dragFocusToRestore.current
+    if (!target) return
     dragFocusToRestore.current = null
     const current = document.activeElement
-    if (current instanceof HTMLElement) {
-      if (current.dataset.tabDragId === tabId && current.isConnected) return
-      if (current !== document.body && current.isConnected) return
-    }
-    const replacement = [
-      ...(workspaceRef.current?.querySelectorAll<HTMLElement>('[data-tab-drag-id]') ?? []),
-    ].find((candidate) => candidate.dataset.tabDragId === tabId)
+    const replacement = resolveTabDomTarget(workspaceRef.current, target)
+    if (current === replacement && current.isConnected) return
+    if (current instanceof HTMLElement && current !== document.body && current.isConnected) return
     replacement?.focus()
   }, [])
+
+  const replayColdPressIfLost = useCallback(
+    (original: HTMLElement, target: TabDomTarget): void => {
+      cancelColdPressFallback()
+      const ownerDocument = workspaceRef.current?.ownerDocument
+      if (!ownerDocument) return
+      if (!original.isConnected) {
+        resolveTabDomTarget(workspaceRef.current, target)?.click()
+        return
+      }
+
+      let clickArrived = false
+      const onClick = (event: MouseEvent): void => {
+        const clicked = tabDomTarget(event.target, true)
+        if (!clicked || !sameTabDomTarget(clicked, target)) return
+        clickArrived = true
+      }
+      ownerDocument.addEventListener('click', onClick, true)
+      const timer = window.setTimeout(() => {
+        ownerDocument.removeEventListener('click', onClick, true)
+        clearColdPressFallback.current = null
+        if (!clickArrived && !original.isConnected) {
+          resolveTabDomTarget(workspaceRef.current, target)?.click()
+        }
+      }, 0)
+      clearColdPressFallback.current = () => {
+        window.clearTimeout(timer)
+        ownerDocument.removeEventListener('click', onClick, true)
+      }
+    },
+    [cancelColdPressFallback],
+  )
 
   // Restore focus in the commit that replaces the plain tabs. Waiting for the
   // runtime's passive replay effect leaves a painted, observable frame on body
@@ -315,11 +407,18 @@ export function Workspace({
         target instanceof Element ? target.closest<HTMLElement>('[data-tab-drag-id]') : null
       const tabId = tabNode?.dataset.tabDragId
       if (!tabId) return
+      const pressTargetLocator = tabDomTarget(target, true)
+      const pressTarget = pressTargetLocator
+        ? resolveTabDomTarget(workspaceRef.current, pressTargetLocator)
+        : null
+      if (!pressTargetLocator || !pressTarget) return
 
       clearPendingDragActivation()
       const pending: {
         kind: 'pointer'
         tabId: string
+        pressTarget: HTMLElement
+        pressTargetLocator: TabDomTarget
         start: TabDragPointerEventSnapshot
         latestMove: TabDragPointerEventSnapshot | null
         end: TabDragPointerEventSnapshot | null
@@ -327,6 +426,8 @@ export function Workspace({
       } = {
         kind: 'pointer' as const,
         tabId,
+        pressTarget,
+        pressTargetLocator,
         start: pointerSnapshot(event.nativeEvent),
         latestMove: null,
         end: null,
@@ -357,7 +458,10 @@ export function Workspace({
           suppressNextColdDragClick(tabId)
         }
         if (!pending.dragThresholdCrossed) {
-          clearPendingDragActivation()
+          stopListening()
+          pendingDragActivation.current = null
+          clearColdDragClickSuppression()
+          replayColdPressIfLost(pending.pressTarget, pending.pressTargetLocator)
           return
         }
         pending.latestMove = latest
@@ -381,8 +485,10 @@ export function Workspace({
     [
       DragRuntime,
       clearPendingDragActivation,
+      clearColdDragClickSuppression,
       deferColdDragClickCleanup,
       preloadDragRuntime,
+      replayColdPressIfLost,
       suppressNextColdDragClick,
     ],
   )
@@ -397,7 +503,7 @@ export function Workspace({
 
       event.preventDefault()
       clearPendingDragActivation()
-      dragFocusToRestore.current = tabId
+      dragFocusToRestore.current = tabDomTarget(target)
       const pending = {
         kind: 'keyboard' as const,
         tabId,
@@ -422,7 +528,7 @@ export function Workspace({
       document.addEventListener('keydown', onKeyDown, true)
       clearPendingDragListeners.current = () =>
         document.removeEventListener('keydown', onKeyDown, true)
-      preloadDragRuntime(tabId)
+      preloadDragRuntime(target)
     },
     [DragRuntime, clearPendingDragActivation, preloadDragRuntime],
   )
@@ -434,8 +540,10 @@ export function Workspace({
     const target = [
       ...(workspaceRef.current?.querySelectorAll<HTMLElement>('[data-tab-drag-id]') ?? []),
     ].find((candidate) => candidate.dataset.tabDragId === pending.tabId)
-    clearPendingDragListeners.current?.()
-    clearPendingDragListeners.current = null
+    if (pending.kind === 'keyboard') {
+      clearPendingDragListeners.current?.()
+      clearPendingDragListeners.current = null
+    }
     pendingDragActivation.current = null
     if (!target) return null
     return pending.kind === 'pointer'
@@ -867,7 +975,7 @@ function PaneChrome({
   previewTabId: string | null
   coordinatorIds: ReadonlySet<string>
   drag?: TabDragComponents
-  onDragIntent: (focusedTabId?: string) => void
+  onDragIntent: (focusedTarget?: EventTarget | null) => void
   onColdPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
   onColdKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   panelTarget: WorktreeView
@@ -959,12 +1067,7 @@ function PaneChrome({
         }}
         onPointerMoveCapture={() => onDragIntent()}
         onFocusCapture={(event) => {
-          const target = event.target
-          onDragIntent(
-            target instanceof HTMLElement && target.matches('[data-session]')
-              ? target.dataset.session
-              : undefined,
-          )
+          onDragIntent(event.target)
         }}
         onKeyDownCapture={onColdKeyDown}
         className={cn(

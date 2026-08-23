@@ -222,6 +222,70 @@ describe('Workspace tab strip', () => {
     await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeNull())
   })
 
+  it.each([
+    { pointerType: 'mouse', control: 'label' },
+    { pointerType: 'mouse', control: 'close' },
+    { pointerType: 'touch', control: 'label' },
+    { pointerType: 'touch', control: 'close' },
+  ] as const)(
+    'keeps a cold $pointerType $control press at five pixels when the runtime arrives before release',
+    async ({ pointerType, control }) => {
+      const runtime = delayedDragRuntime()
+      render(<Workspace loadDragRuntime={runtime.load} />)
+      const original =
+        control === 'label'
+          ? label('s1')
+          : within(tab('s1')).getByRole('button', { name: 'Close tab' })
+      original.focus()
+
+      fireEvent.pointerDown(original, {
+        pointerId: 3,
+        pointerType,
+        isPrimary: true,
+        button: 0,
+        buttons: 1,
+        clientX: 10,
+        clientY: 10,
+      })
+      fireEvent.pointerMove(document, {
+        pointerId: 3,
+        pointerType,
+        isPrimary: true,
+        buttons: 1,
+        clientX: 15,
+        clientY: 10,
+      })
+
+      await runtime.release()
+      await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+      const replacement =
+        control === 'label'
+          ? label('s1')
+          : within(tab('s1')).getByRole('button', { name: 'Close tab' })
+      expect(original.isConnected).toBe(false)
+      expect(document.activeElement).toBe(replacement)
+
+      fireEvent.pointerUp(document, {
+        pointerId: 3,
+        pointerType,
+        isPrimary: true,
+        button: 0,
+        buttons: 0,
+        clientX: 15,
+        clientY: 10,
+      })
+
+      if (control === 'label') {
+        await waitFor(() => expect(actions.activateWorkspaceTab).toHaveBeenCalledWith('s1'))
+        expect(actions.closeWorkspaceTab).not.toHaveBeenCalled()
+      } else {
+        await waitFor(() => expect(actions.closeWorkspaceTab).toHaveBeenCalledWith('s1'))
+        expect(actions.activateWorkspaceTab).not.toHaveBeenCalled()
+      }
+      expect(document.querySelector('[data-dropzone]')).toBeNull()
+    },
+  )
+
   it('drops a pointer activation cancelled before readiness', async () => {
     const runtime = delayedDragRuntime()
     render(<Workspace loadDragRuntime={runtime.load} />)
