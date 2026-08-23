@@ -847,6 +847,7 @@ export class SessionRegistry {
       broker: requestBroker,
       memory,
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      hostMachineId: machines.hostMachineId,
       defaultMachine: () => machines.defaultMachine(),
       resolveMachine: (requested, cwd) => machines.resolveMachine(requested, cwd),
       hasDaemon: (machineId) => machines.hasDaemon(machineId),

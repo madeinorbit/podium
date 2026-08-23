@@ -139,6 +139,8 @@ interface DaemonRpcDeps {
     'canReadSession' | 'transcriptPathHint' | 'readTranscriptFromLake' | 'transcriptHasPredecessors'
   >
   toMachine(machineId: MachineId, msg: ControlMessage): void
+  /** Durable identity of the machine hosting this server process. */
+  hostMachineId: MachineId
   defaultMachine(): MachineId
   resolveMachine(requested: string | undefined, cwd: string): string
   hasDaemon(machineId: MachineId): boolean
@@ -1243,7 +1245,7 @@ export class DaemonRpcService {
         errorCode: 'invalid-request',
       })
     const manifest = input.manifest as ServerTransferManifest
-    const sourceMachineId = this.deps.defaultMachine()
+    const sourceMachineId = this.deps.hostMachineId
     if (
       manifest.transferId !== input.transferId ||
       manifest.sourceMachineId !== sourceMachineId ||

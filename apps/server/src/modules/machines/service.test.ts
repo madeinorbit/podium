@@ -117,6 +117,41 @@ describe('MachinesService daemon socket identity', () => {
   })
 })
 
+describe('promoted server host identity', () => {
+  test('a server-only promoted host reuses its target row without minting another machine', () => {
+    const source = asMachineId('former-host')
+    const target = asMachineId('promoted-host')
+    const store = new SessionStore(':memory:', target)
+    for (const id of [source, target]) {
+      store.machines.upsertMachine({
+        id,
+        name: id,
+        hostname: id,
+        tokenHash: sha256(`${id}-secret`),
+        ownerUserId: asUserId('user:sole'),
+      })
+    }
+    const svc = new MachinesService({
+      instanceId: 'default',
+      store,
+      hostMachineId: target,
+      sessionsChangedForMachine: () => {},
+      clients: () => [],
+      machinesForPrincipal: () => [],
+    } satisfies MachinesDeps)
+    const before = store.machines.listMachines().map(({ id }) => id)
+
+    expect(svc.onlineMachineIds()).toEqual([])
+    expect(svc.ensureHostMachine('promoted-hostname', 'promoted-secret')).toBe(target)
+    expect(store.machines.listMachines().map(({ id }) => id)).toEqual(before)
+    expect(store.machines.getMachine(target)).toMatchObject({
+      id: target,
+      hostname: 'promoted-hostname',
+    })
+    store.close()
+  })
+})
+
 describe('MachinesService.requireAgent refuses rather than falling through (POD-303)', () => {
   /** A service whose machine list is stubbed, so the gate can be driven with a
    *  `use` decision Phase 4 (POD-1079) will eventually put on the projection. */

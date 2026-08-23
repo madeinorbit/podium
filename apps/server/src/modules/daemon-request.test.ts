@@ -236,6 +236,7 @@ describe('server transfer RPC', () => {
           }),
         )
       },
+      hostMachineId: asMachineId('source-machine'),
       defaultMachine: () => 'source-machine',
     } as never)
 
@@ -309,5 +310,95 @@ describe('server transfer RPC', () => {
       manifestDigest: 'a'.repeat(64),
     })
     expect(sent.every(({ machineId }) => machineId === 'target-machine')).toBe(true)
+  })
+
+  it('prepares a second move from the durable promoted host when liveness orders another daemon first', async () => {
+    const sent: { machineId: string; msg: ControlMessage }[] = []
+    const defaultMachine = vi.fn(() => asMachineId('unrelated-online-daemon'))
+    let rpc!: DaemonRpcService
+    rpc = new DaemonRpcService({
+      toMachine: (machineId: string, msg: ControlMessage) => {
+        sent.push({ machineId, msg })
+        queueMicrotask(() =>
+          rpc.settleDaemonReply(asMachineId(machineId), {
+            type: 'serverTransferResult',
+            requestId: 'requestId' in msg ? msg.requestId : 'missing',
+            transferId: 'transfer-2',
+            operation: 'prepare',
+            ok: true,
+            state: 'staging',
+            manifestDigest: 'b'.repeat(64),
+          }),
+        )
+      },
+      hostMachineId: asMachineId('promoted-host'),
+      defaultMachine,
+      onlineMachineIds: () => [
+        asMachineId('unrelated-online-daemon'),
+        asMachineId('promoted-host'),
+        asMachineId('next-target'),
+      ],
+    } as never)
+
+    await expect(
+      rpc.serverTransferPrepare(
+        {
+          transferId: 'transfer-2',
+          manifest: {
+            formatVersion: 1,
+            transferId: 'transfer-2',
+            sourceInstanceId: 'source-instance',
+            sourceMachineId: asMachineId('promoted-host'),
+            targetMachineId: asMachineId('next-target'),
+            sourceFeedId: 'feed-1',
+            sourceFeedEpoch: 'epoch-1',
+            appVersion: 'test',
+            schemaVersion: 'schema-1',
+            packageBytes: 0,
+            files: [],
+          },
+          manifestDigest: 'b'.repeat(64),
+        },
+        asMachineId('next-target'),
+      ),
+    ).resolves.toMatchObject({ ok: true })
+
+    expect(defaultMachine).not.toHaveBeenCalled()
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({
+      machineId: 'next-target',
+      msg: {
+        type: 'serverTransferPrepareRequest',
+        manifest: {
+          sourceMachineId: 'promoted-host',
+          targetMachineId: 'next-target',
+        },
+      },
+    })
+
+    await expect(
+      rpc.serverTransferPrepare(
+        {
+          transferId: 'transfer-wrong-source',
+          manifest: {
+            formatVersion: 1,
+            transferId: 'transfer-wrong-source',
+            sourceInstanceId: 'source-instance',
+            sourceMachineId: asMachineId('unrelated-online-daemon'),
+            targetMachineId: asMachineId('next-target'),
+            sourceFeedId: 'feed-1',
+            sourceFeedEpoch: 'epoch-1',
+            appVersion: 'test',
+            schemaVersion: 'schema-1',
+            packageBytes: 0,
+            files: [],
+          },
+          manifestDigest: 'c'.repeat(64),
+        },
+        asMachineId('next-target'),
+      ),
+    ).resolves.toMatchObject({ ok: false, errorCode: 'identity-mismatch' })
+    expect(sent).toHaveLength(1)
+    expect(defaultMachine).not.toHaveBeenCalled()
   })
 })
