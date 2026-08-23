@@ -2,10 +2,9 @@ import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import { BottomTabBarHeightCallbackContext } from 'expo-router/build/react-navigation/bottom-tabs'
 import { Activity, KanbanSquare, MessagesSquare, Rows3 } from 'lucide-react-native'
-import { useContext, useEffect, useRef, useState } from 'react'
-import { Animated, type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useContext, useEffect, useState } from 'react'
+import { type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useReduceMotion } from '../hooks/useReduceMotion'
 import {
   getTabBarMinimized,
   setTabBarMinimized,
@@ -25,14 +24,7 @@ const ICONS: Record<string, typeof Rows3> = {
 
 /** Gap between the capsule and the screen edges it floats over. */
 const INSET = 12
-/**
- * Height the label row gives up when the bar folds to icons — the label plus
- * the gap above it, which lives inside the row so folding reclaims both.
- *
- * How far the bar can actually shrink is set by the 44pt touch target below,
- * not by this: a minimized tab is still a tab. Expanded ~66pt, minimized ~54pt,
- * against iOS 26's own 68 → 49.
- */
+/** Fixed label row: scroll state never changes the capsule's layout height. */
 const LABEL_ROW = 20
 
 /**
@@ -82,10 +74,9 @@ interface TabBarProps {
  *    `useBottomTabBarHeight()`. Screens pad their scrollers by it (see
  *    ../hooks/useTabBarInset) so the last row still clears the bar.
  *
- * Minimize-on-scroll [POD-420]: scrolling down folds the labels away and leaves
- * the icons, scrolling back up restores them — iOS 26's `tabBarMinimizeBehavior`,
- * which is opt-in there rather than the default. Screens drive it through
- * ../lib/tab-bar-minimize; see ../hooks/useMinimizeTabBarOnScroll.
+ * Scrolling may hide the labels, but the capsule keeps one fixed height and the
+ * state change does no timed animation work. Navigation can therefore retarget
+ * immediately without restarting a transition inside the BlurView.
  *
  * The active tab is a bisque chip. Attention stays on the Work rows that own it
  * instead of being duplicated onto navigation chrome.
@@ -93,7 +84,6 @@ interface TabBarProps {
 export function TabBar({ state, descriptors, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets()
   const onHeightChange = useContext(BottomTabBarHeightCallbackContext)
-  const reduceMotion = useReduceMotion()
 
   const [minimized, setMinimized] = useState(getTabBarMinimized)
   useEffect(() => subscribeTabBarMinimized(setMinimized), [])
@@ -106,21 +96,10 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
     if (focusedRoute) setTabBarMinimized(false)
   }, [focusedRoute])
 
-  const fold = useRef(new Animated.Value(0)).current
-  useEffect(() => {
-    Animated.timing(fold, {
-      toValue: minimized ? 1 : 0,
-      duration: reduceMotion ? 0 : 200,
-      // Height is not a transform, so this cannot leave the JS thread.
-      useNativeDriver: false,
-    }).start()
-  }, [minimized, reduceMotion, fold])
-
-  // Report the EXPANDED height only. The inset it feeds is what keeps the last
-  // row reachable, and re-reporting a shorter bar mid-scroll would reflow the
-  // very list being scrolled — the content would creep upward under the thumb.
+  // The bar has one height in both states, so this never reflows the scroller
+  // under the user's pointer.
   const handleLayout = (e: LayoutChangeEvent) => {
-    if (!minimized) onHeightChange?.(e.nativeEvent.layout.height)
+    onHeightChange?.(e.nativeEvent.layout.height)
   }
 
   return (
@@ -164,22 +143,11 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
             >
               <View style={[styles.chip, focused && styles.chipActive]}>
                 <Icon as={IconCmp} size={20} color={focused ? color.accentTint : color.textDim} />
-                <Animated.View
-                  style={[
-                    styles.labelRow,
-                    {
-                      height: fold.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [LABEL_ROW, 0],
-                      }),
-                      opacity: fold.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-                    },
-                  ]}
-                >
+                <View style={[styles.labelRow, minimized && styles.labelRowMinimized]}>
                   <Text style={[styles.label, focused && styles.labelActive]} numberOfLines={1}>
                     {label}
                   </Text>
-                </Animated.View>
+                </View>
               </View>
             </Pressable>
           )
@@ -240,12 +208,12 @@ const styles = StyleSheet.create({
     backgroundColor: color.accentSoft,
   },
   labelRow: {
-    // The fold animates this box's height, so the text has to be clipped by it
-    // rather than pushing it open. The icon/label gap lives in here rather than
-    // as the chip's `gap`, so folding reclaims it instead of leaving a 3px
-    // ghost of a row that is no longer there.
+    height: LABEL_ROW,
     overflow: 'hidden',
     justifyContent: 'flex-end',
+  },
+  labelRowMinimized: {
+    opacity: 0,
   },
   label: {
     ...sans(600),
