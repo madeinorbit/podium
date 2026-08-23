@@ -81,7 +81,10 @@ async function emittedWorklistMotionGraph(): Promise<{
       },
     },
   })
-  const outputs = (Array.isArray(result) ? result : [result]).flatMap((item) => item.output)
+  const outputs = (Array.isArray(result) ? result : [result]).flatMap((item) => {
+    if (!('output' in item)) throw new Error('Worklist Motion build unexpectedly started a watcher')
+    return item.output
+  })
   const entryChunk = outputs.find(
     (item) => item.type === 'chunk' && WORKLIST_MOTION_ENTRY in item.modules,
   )

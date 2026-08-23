@@ -16,6 +16,8 @@ import { WorklistMeasureLayout } from './worklist-motion-layout'
  * lazy chunk; selecting the same keys from domMax would still import them.
  */
 class WorklistAnimationFeature extends Feature {
+  private unmountControls?: VoidFunction
+
   constructor(node: VisualElement) {
     super(node)
     node.animationState ||= createAnimationState(node)
@@ -28,21 +30,25 @@ class WorklistAnimationFeature extends Feature {
     }
   }
 
-  mount(): void {
+  override mount(): void {
     this.updateAnimationControlsSubscription()
   }
 
-  update(): void {
+  override update(): void {
     const { animate } = this.node.getProps()
     const { animate: previousAnimate } = this.node.prevProps ?? {}
     if (animate !== previousAnimate) this.updateAnimationControlsSubscription()
   }
 
-  unmount(): void {
+  override unmount(): void {
     this.node.animationState?.reset()
     this.unmountControls?.()
   }
 }
+
+type AnimationFeatureClass = NonNullable<
+  NonNullable<FeatureBundle['animation']>['Feature']
+>
 
 const createWorklistVisualElement: CreateVisualElement = (Component, options) =>
   new HTMLVisualElement(options, {
@@ -50,7 +56,11 @@ const createWorklistVisualElement: CreateVisualElement = (Component, options) =>
   })
 
 const worklistMotionFeatures = {
-  animation: { Feature: WorklistAnimationFeature },
+  animation: {
+    // Motion types the public Feature constructor with unknown, while its base
+    // class constructor requires the VisualElement passed here at runtime.
+    Feature: WorklistAnimationFeature as AnimationFeatureClass,
+  },
   layout: {
     ProjectionNode: HTMLProjectionNode,
     MeasureLayout: WorklistMeasureLayout,

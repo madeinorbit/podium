@@ -25,7 +25,7 @@ type MeasureLayoutProps = MotionProps & {
 let hasTakenSnapshot = false
 
 class WorklistMeasureLayoutWithContext extends Component<MeasureLayoutProps> {
-  componentDidMount(): void {
+  override componentDidMount(): void {
     const { visualElement, layoutGroup, switchLayoutGroup, layoutId } = this.props
     const { projection } = visualElement
     if (projection) {
@@ -42,7 +42,7 @@ class WorklistMeasureLayoutWithContext extends Component<MeasureLayoutProps> {
     globalProjectionState.hasEverUpdated = true
   }
 
-  getSnapshotBeforeUpdate(previous: MeasureLayoutProps): null {
+  override getSnapshotBeforeUpdate(previous: MeasureLayoutProps): null {
     const { layoutDependency, visualElement, drag, isPresent } = this.props
     const { projection } = visualElement
     if (!projection) return null
@@ -76,7 +76,7 @@ class WorklistMeasureLayoutWithContext extends Component<MeasureLayoutProps> {
     return null
   }
 
-  componentDidUpdate(): void {
+  override componentDidUpdate(): void {
     const { visualElement, layoutAnchor } = this.props
     const { projection } = visualElement
     if (!projection) return
@@ -88,7 +88,7 @@ class WorklistMeasureLayoutWithContext extends Component<MeasureLayoutProps> {
     })
   }
 
-  componentWillUnmount(): void {
+  override componentWillUnmount(): void {
     const { visualElement, layoutGroup, switchLayoutGroup } = this.props
     const { projection } = visualElement
     hasTakenSnapshot = true
@@ -103,7 +103,7 @@ class WorklistMeasureLayoutWithContext extends Component<MeasureLayoutProps> {
     this.props.safeToRemove?.()
   }
 
-  render(): null {
+  override render(): null {
     return null
   }
 }
