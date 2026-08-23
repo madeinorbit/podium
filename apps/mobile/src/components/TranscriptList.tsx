@@ -46,6 +46,7 @@ import {
   envelopePrincipal,
   isChosenOption,
   type MobileTranscriptRow,
+  liveAssistantRow,
   machineContextLabel,
   parseAskQuestions,
   quoteTranscriptText,
@@ -773,6 +774,7 @@ function JumpToNewest({
 
 export function TranscriptList({
   items,
+  liveItem,
   live,
   onAnswer,
   onLoadOlder,
@@ -794,6 +796,8 @@ export function TranscriptList({
   findRequest = 0,
 }: {
   items: TranscriptItem[]
+  /** In-progress assistant prose, kept outside the stable settled item array. */
+  liveItem?: TranscriptItem
   live: boolean
   onAnswer: (answer: AskQuestionAnswer) => Promise<void>
   /** Called when the user scrolls back to the oldest loaded item (paging). */
@@ -866,6 +870,10 @@ export function TranscriptList({
     () => buildMobileTranscript(items, { collapseContext }),
     [collapseContext, items],
   )
+  const liveRow = useMemo(
+    () => liveAssistantRow(liveItem, model.blocks.length),
+    [liveItem, model.blocks.length],
+  )
   const pending = useMemo(() => latestPendingQuestion(items), [items])
   const pendingKey = pending ? transcriptItemKey(pending) : null
   const statePendingKey = pendingAsk ? transcriptItemKey(pendingAsk) : null
@@ -879,8 +887,11 @@ export function TranscriptList({
         : model,
     [hidePendingQuestion, model, pendingKey],
   )
-  const rows = useMemo(() => {
-    const built: Row[] = [...visibleModel.rows]
+  // The settled rows remain FlatList's stable data while transport text changes.
+  // Tail-only rows are a bounded suffix rendered in the footer, in the same
+  // order they had when all rows shared one array.
+  const suffixRows = useMemo(() => {
+    const built: Row[] = liveRow ? [liveRow] : []
     for (const turn of pendingTurns ?? []) {
       built.push({
         key: `pending:${turn.id}`,
@@ -912,7 +923,8 @@ export function TranscriptList({
       })
     }
     return built
-  }, [hidePendingQuestion, pendingAsk, pendingTurns, visibleModel.rows])
+  }, [hidePendingQuestion, liveRow, pendingAsk, pendingTurns])
+  const rows = visibleModel.rows
   const search = useMemo(
     () => searchMobileTranscript(visibleModel, findOpen ? query : '', cursor),
     [cursor, findOpen, query, visibleModel],
@@ -920,6 +932,8 @@ export function TranscriptList({
   const listRef = useRef<FlatList<Row>>(null)
   const seenKeys = useRef<Set<string> | null>(null)
   const previousKeys = useRef<string[]>([])
+  const seenSuffixKeys = useRef(new Set<string>())
+  const suffixCommitted = useRef(false)
   const lastFindRequest = useRef(findRequest)
 
   useEffect(() => {
@@ -946,6 +960,16 @@ export function TranscriptList({
     previousKeys.current = ordered
     return arrived
   }, [rows])
+  const suffixArrivedKeys = useMemo(() => {
+    const keys = suffixRows.map((row) => row.key)
+    return suffixCommitted.current
+      ? new Set(keys.filter((key) => !seenSuffixKeys.current.has(key)))
+      : new Set<string>()
+  }, [suffixRows])
+  useLayoutEffect(() => {
+    suffixCommitted.current = true
+    for (const row of suffixRows) seenSuffixKeys.current.add(row.key)
+  }, [suffixRows])
   const latestAssistantKey = useMemo(
     () => [...rows].reverse().find((row) => row.kind === 'prose' || row.kind === 'answer')?.key,
     [rows],
@@ -993,8 +1017,9 @@ export function TranscriptList({
       setUnread(0)
       return
     }
-    if (arrivedKeys.size > 0) setUnread((count) => count + arrivedKeys.size)
-  }, [arrivedKeys, atTail])
+    const arrivals = arrivedKeys.size + suffixArrivedKeys.size
+    if (arrivals > 0) setUnread((count) => count + arrivals)
+  }, [arrivedKeys, atTail, suffixArrivedKeys])
 
   useEffect(() => {
     if (search.activeRow === undefined) return
@@ -1064,7 +1089,7 @@ export function TranscriptList({
         contentContainerStyle={[styles.content, { paddingBottom: space.md + bottomInset }]}
         refreshControl={refreshControl}
         {...refreshAccessibilityProps}
-        ListEmptyComponent={emptyComponent}
+        ListEmptyComponent={suffixRows.length === 0 ? emptyComponent : undefined}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onScroll={onScroll}
         // Four ways to learn that the OPERATOR moved, because no single one
@@ -1109,6 +1134,26 @@ export function TranscriptList({
         }}
         ListFooterComponent={
           <>
+            {suffixRows.map((row) => (
+              <TranscriptFeedRow
+                key={row.key}
+                row={row}
+                arrived={suffixArrivedKeys.has(row.key)}
+                highlighted={false}
+                dimmed={query.trim().length > 0}
+                reduceMotion={reduceMotion}
+                liveQuestion={
+                  statePendingKey === row.key ||
+                  (live && pendingKey !== null && pendingKey === row.key)
+                }
+                streaming={streaming && row.key === liveRow?.key}
+                assetContext={assetContext}
+                onAnswer={answerRow}
+                onRefPress={onRefPress ? pressRowRef : undefined}
+                onRetryPending={onRetryPending ? retryPendingRow : undefined}
+                onHold={setActionText}
+              />
+            ))}
             <TranscriptTail state={tail} />
             {footer ? <View style={styles.footer}>{footer}</View> : null}
           </>
@@ -1123,7 +1168,7 @@ export function TranscriptList({
             liveQuestion={
               statePendingKey === row.key || (live && pendingKey !== null && pendingKey === row.key)
             }
-            streaming={streaming && row.key === latestAssistantKey}
+            streaming={streaming && liveRow === undefined && row.key === latestAssistantKey}
             assetContext={assetContext}
             onAnswer={answerRow}
             onRefPress={onRefPress ? pressRowRef : undefined}

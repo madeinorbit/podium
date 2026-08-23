@@ -8,9 +8,14 @@ import { act } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 
+const transcriptProps = vi.hoisted(
+  () => [] as { items: { text: string }[]; liveItem?: { text: string } }[],
+)
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  transcriptProps.length = 0
 })
 
 vi.mock('expo-haptics', () => ({
@@ -58,19 +63,24 @@ vi.mock('../components/BottomSheet', () => ({
 vi.mock('../components/TranscriptList', () => ({
   TranscriptList: ({
     items = [],
+    liveItem,
     tail,
   }: {
     items?: { text: string }[]
+    liveItem?: { text: string }
     tail?: { label: string; tone: string }
-  }) => (
-    <div>
-      transcript
-      <span data-testid="superagent-live-text">{items.at(-1)?.text ?? ''}</span>
-      {tail?.tone === 'working' ? (
-        <span data-testid="superagent-working-indicator">{tail.label}</span>
-      ) : null}
-    </div>
-  ),
+  }) => {
+    transcriptProps.push({ items, ...(liveItem ? { liveItem } : {}) })
+    return (
+      <div>
+        transcript
+        <span data-testid="superagent-live-text">{liveItem?.text ?? items.at(-1)?.text ?? ''}</span>
+        {tail?.tone === 'working' ? (
+          <span data-testid="superagent-working-indicator">{tail.label}</span>
+        ) : null}
+      </div>
+    )
+  },
 }))
 vi.mock('../components/Composer', () => ({
   Composer: ({ below, onSend }: { below?: ReactNode; onSend: (text: string) => void }) => (
@@ -197,6 +207,7 @@ describe('SuperagentScreen chrome', () => {
         return frames.length
       })
     const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    const settledBeforeStreaming = transcriptProps.at(-1)?.items
 
     act(() => {
       view.emit('headlessActivity', 'session:superagent', {
@@ -225,6 +236,7 @@ describe('SuperagentScreen chrome', () => {
 
     expect(screen.getByTestId('superagent-live-text').textContent).toBe('one two three')
     expect(screen.getByTestId('superagent-working-indicator').textContent).toBe('Bash')
+    expect(transcriptProps.at(-1)?.items).toBe(settledBeforeStreaming)
 
     act(() => {
       view.emit('headlessActivity', 'session:superagent', {
@@ -237,6 +249,7 @@ describe('SuperagentScreen chrome', () => {
     expect(requestFrame).toHaveBeenCalledTimes(2)
     expect(screen.getByTestId('superagent-live-text').textContent).toBe('newer than the status')
     expect(screen.getByTestId('superagent-working-indicator').textContent).toBe('Working')
+    expect(transcriptProps.at(-1)?.items).toBe(settledBeforeStreaming)
 
     act(() => {
       view.emit('headlessActivity', 'session:superagent', {

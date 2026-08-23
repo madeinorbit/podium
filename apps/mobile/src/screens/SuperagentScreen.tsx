@@ -28,7 +28,7 @@ import {
   type SuperagentBackendPick,
   superagentTurnChoice,
 } from '../lib/superagent-backend'
-import { dropEchoedTurns, markTurnsFailed, renderedTranscript } from '../lib/superagent-transcript'
+import { dropEchoedTurns, liveTranscriptItem, markTurnsFailed } from '../lib/superagent-transcript'
 import { color, font, sans, space } from '../theme/theme'
 
 /**
@@ -402,17 +402,17 @@ export function SuperagentScreen() {
     }
   }, [clearLiveText, trpc, store.refreshSuperThreads])
 
-  // The streaming answer rides the transcript as a live assistant item, so the
-  // in-progress turn wears the same prose voice as the settled one.
-  const rendered = useMemo(
-    () => renderedTranscript(settled, liveText, running),
-    [settled, liveText, running],
-  )
+  // Keep the high-frequency live row outside the settled transcript. This
+  // preserves the settled array's identity and its cached paired/row model.
+  const liveItem = useMemo(() => liveTranscriptItem(liveText, running), [liveText, running])
   // POD-332 retired `MobileClientValue` (and with it `client.sessionById`): every
   // screen reads the same store and the same published slices as the web.
-  const transcriptResolved = podiumSid ? transcriptLoaded || rendered.length > 0 : threadsLoaded
+  const transcriptResolved = podiumSid
+    ? transcriptLoaded || settled.length > 0 || liveItem !== undefined
+    : threadsLoaded
   const resolved = !booting && transcriptResolved
-  const empty = resolved && rendered.length === 0 && pendingTurns.length === 0 && !working
+  const empty =
+    resolved && settled.length === 0 && liveItem === undefined && pendingTurns.length === 0 && !working
 
   return (
     <Screen
@@ -449,7 +449,8 @@ export function SuperagentScreen() {
               onRefresh={onRefresh}
             >
               <TranscriptList
-                items={rendered}
+                items={settled}
+                liveItem={liveItem}
                 live={working}
                 collapseContext
                 assetContext={
@@ -464,7 +465,7 @@ export function SuperagentScreen() {
                 pendingTurns={pendingTurns}
                 onRetryPending={retry}
                 onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
-                streaming={running && liveText.trim().length > 0}
+                streaming={liveItem !== undefined}
                 tail={{
                   label: working
                     ? justSent && !running

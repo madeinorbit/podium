@@ -9,14 +9,18 @@
  */
 import type { TranscriptItem } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { Suspense, act, startTransition, useState } from 'react'
+import { type ComponentType, Suspense, act, startTransition, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const markdownRenders = vi.hoisted(() => new Map<string, number>())
+const transcriptBuilds = vi.hoisted(() => vi.fn())
+const flatListData = vi.hoisted(() => [] as unknown[])
 
 afterEach(() => {
   cleanup()
   markdownRenders.clear()
+  transcriptBuilds.mockClear()
+  flatListData.length = 0
 })
 
 vi.mock('expo-haptics', () => ({
@@ -26,12 +30,34 @@ vi.mock('expo-haptics', () => ({
   notificationAsync: vi.fn(async () => {}),
 }))
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => {}) }))
+vi.mock('react-native', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-native')>()
+  const { createElement, forwardRef } = await import('react')
+  const CapturingFlatList = forwardRef<unknown, Record<string, unknown>>((props) => {
+    flatListData.push(props.data)
+    return createElement(
+      actual.FlatList as unknown as ComponentType<Record<string, unknown>>,
+      props,
+    )
+  })
+  return { ...actual, FlatList: CapturingFlatList }
+})
 vi.mock('./RichMarkdown', () => ({
   RichMarkdown: ({ text }: { text: string }) => {
     markdownRenders.set(text, (markdownRenders.get(text) ?? 0) + 1)
     return <span>{text}</span>
   },
 }))
+vi.mock('../lib/transcript-feed', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/transcript-feed')>()
+  return {
+    ...actual,
+    buildMobileTranscript: (...args: Parameters<typeof actual.buildMobileTranscript>) => {
+      transcriptBuilds(args[0])
+      return actual.buildMobileTranscript(...args)
+    },
+  }
+})
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
 vi.mock('../client/hooks', () => ({
   useUiState: () => ({ get: () => null, set: () => {}, subscribe: () => () => {} }),
@@ -123,27 +149,39 @@ describe('TranscriptList pendingAsk', () => {
     expect(screen.queryByText('Which database?')).toBeNull()
   })
 
-  it('keeps settled markdown rows out of live-text rerenders', () => {
-    const settled = { id: 'settled', role: 'assistant' as const, text: 'Settled answer' }
+  it('shapes settled history once while live text changes', () => {
+    const settled = Array.from({ length: 64 }, (_, index) => ({
+      id: `settled:${index}`,
+      role: 'assistant' as const,
+      text: `Settled answer ${index}`,
+    }))
+    const onAnswer = async () => {}
     const { rerender } = render(
       <TranscriptList
-        items={[settled, { id: 'super:live', role: 'assistant', text: 'Live one' }]}
+        items={settled}
+        liveItem={{ id: 'super:live', role: 'assistant', text: 'Live one' }}
         live
         streaming
-        onAnswer={async () => {}}
+        onAnswer={onAnswer}
       />,
     )
+    const initialFlatListData = flatListData.at(-1)
 
     rerender(
       <TranscriptList
-        items={[settled, { id: 'super:live', role: 'assistant', text: 'Live two' }]}
+        items={settled}
+        liveItem={{ id: 'super:live', role: 'assistant', text: 'Live two' }}
         live
         streaming
-        onAnswer={async () => {}}
+        onAnswer={onAnswer}
       />,
     )
 
-    expect(markdownRenders.get('Settled answer')).toBe(1)
+    expect(transcriptBuilds).toHaveBeenCalledTimes(1)
+    expect(transcriptBuilds).toHaveBeenCalledWith(settled)
+    expect(initialFlatListData).toBeDefined()
+    expect(flatListData.at(-1)).toBe(initialFlatListData)
+    expect(markdownRenders.get('Settled answer 0')).toBe(1)
     expect(markdownRenders.get('Live one')).toBe(1)
     expect(markdownRenders.get('Live two')).toBe(1)
   })

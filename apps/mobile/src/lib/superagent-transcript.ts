@@ -34,20 +34,17 @@ interface FailableTurn extends EchoableTurn {
 }
 
 /**
- * The settled conversation plus the in-progress assistant text, which rides the
- * transcript as a live item so a streaming turn wears the same prose voice as a
- * settled one. Blank live text adds nothing (the spinner covers that beat).
+ * The in-progress assistant text as a separate feed item. Keeping it separate
+ * from the settled item array preserves the settled transcript's identity, so
+ * each streaming paint shapes only this row instead of the complete history.
+ * Blank live text adds nothing (the spinner covers that beat).
  */
-export function renderedTranscript(
-  settled: readonly TranscriptItem[],
+export function liveTranscriptItem(
   liveText: string,
   running: boolean,
-): TranscriptItem[] {
-  const base = [...settled]
-  if (running && liveText.trim()) {
-    base.push({ id: 'super:live', role: 'assistant', text: liveText.trim() })
-  }
-  return base
+): TranscriptItem | undefined {
+  const text = liveText.trim()
+  return running && text ? { id: 'super:live', role: 'assistant', text } : undefined
 }
 
 /**
