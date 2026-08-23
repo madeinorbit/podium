@@ -212,6 +212,16 @@ function fittableHost(): HTMLDivElement {
   return el
 }
 
+/** Feed the same xterm input seam used by DOM mouse reports into mountSession. */
+function emitTerminalInput(mounted: ReturnType<typeof mountSession>, data: string): void {
+  const term = (
+    mounted.view as unknown as {
+      term: { input(data: string): void }
+    }
+  ).term
+  term.input(data)
+}
+
 describe('mountSession eligibility-gated sizing', () => {
   it('does not resize or claim control when mounted inactive (hidden tab)', () => {
     withResizeObserver()
@@ -251,6 +261,49 @@ describe('mountSession eligibility-gated sizing', () => {
     expect(calls.resize, 'the reveal claim carries geometry atomically').toEqual([])
     mounted.setActive(false)
     expect(calls.leaseRelease).toBe(1)
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('holds reveal-time mouse motion until geometry settles without killing connected mouse input', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+    })
+    const motion = '\x1b[<35;87;24M'
+    const release = '\x1b[<0;87;24m'
+
+    // The ordinary connected path must remain live. This assertion kills the
+    // tempting mutation that fixes the flash by making every mouse report dead.
+    emitTerminalInput(mounted, motion)
+    expect(calls.input).toEqual([motion])
+
+    mounted.setActive(false)
+    calls.input.length = 0
+    mounted.setActive(true)
+    emitTerminalInput(mounted, motion)
+    expect(calls.input, 'stale motion is withheld while the reveal claim settles').toEqual([])
+    emitTerminalInput(mounted, motion + motion)
+    expect(calls.input, 'a coalesced burst is withheld as one reveal-time input').toEqual([])
+
+    // Never strand a release or swallow a coalesced keystroke: only standalone
+    // SGR motion reports belong to the reveal fence.
+    emitTerminalInput(mounted, release)
+    emitTerminalInput(mounted, 'q')
+    const mixed = motion + 'z'
+    emitTerminalInput(mounted, mixed)
+    expect(calls.input).toEqual([release, 'q', mixed])
+
+    vi.advanceTimersByTime(16 * 3)
+    state(150, 50) // authoritative geometry acknowledgment ends the reveal fence
+    emitTerminalInput(mounted, motion)
+    expect(calls.input).toEqual([release, 'q', mixed, motion])
+
     mounted.dispose()
     vi.advanceTimersByTime(1)
   })

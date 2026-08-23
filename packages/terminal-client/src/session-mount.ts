@@ -120,6 +120,19 @@ export interface MountedSession {
  *  attach handshake stalls, so the "Starting…" overlay can never hang permanently. */
 export const READY_TIMEOUT_MS = 2000
 
+const SGR_MOUSE_REPORT = /\x1b\[<(\d+);\d+;\d+([Mm])/gu
+
+/** True only when every byte is one or more SGR mouse-motion reports. */
+function isOnlySgrMouseMotion(data: string): boolean {
+  let offset = 0
+  for (const match of data.matchAll(SGR_MOUSE_REPORT)) {
+    const button = Number(match[1])
+    if (match.index !== offset || match[2] !== 'M' || (button & 32) === 0) return false
+    offset += match[0].length
+  }
+  return offset > 0 && offset === data.length
+}
+
 /**
  * Codex can paint a composer before startup work (notably MCP initialization)
  * redraws it. Its safe synthetic-input boundary is stricter than "some output":
@@ -177,6 +190,11 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   let assertedControlGrid: Grid | null = null
   let controlRepairRaf: number | undefined
   let repairingControlGrid = false
+  // xterm derives mouse mode from replayed bytes. While a hidden live pane is
+  // becoming visible, hold motion until POD-2602's geometry claim establishes
+  // that the PTY has caught up with this renderer. Releases and keys never wait.
+  let revealMouseInputHeld = false
+  let revealMouseTarget: Grid | null = null
 
   const sameGrid = (left: Grid, right: Grid): boolean =>
     left.cols === right.cols && left.rows === right.rows
@@ -197,6 +215,19 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   function clearControlAssertion(): void {
     assertedControlGrid = null
     cancelControlRepair()
+  }
+
+  function holdRevealMouseInput(): void {
+    revealMouseInputHeld = true
+    revealMouseTarget = null
+    trace('reveal:mouse-input-held')
+  }
+
+  function clearRevealMouseInput(source: string): void {
+    if (!revealMouseInputHeld) return
+    revealMouseInputHeld = false
+    revealMouseTarget = null
+    trace('reveal:mouse-input-released', { source })
   }
 
   function scheduleControlRepair(state: ConnectionState): void {
@@ -447,6 +478,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         return
       }
       trace('anomaly:reveal-fit-retries-exhausted', { attempts: attempt + 1 })
+      clearRevealMouseInput('fit-retries-exhausted')
     }
     tryFit(0)
   }
@@ -479,6 +511,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       view.repaintRecover()
       return
     }
+    holdRevealMouseInput()
     whenMeasurable((grid, gridChanged) => {
       if (!eligible()) {
         trace('reveal:cancelled', { phase: 'measured-callback' })
@@ -496,6 +529,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         trace('reveal:control-claim', { grid, gridChanged })
         assertedControlGrid = { ...grid }
         connection.requestControl({ cols: grid.cols, rows: grid.rows })
+        // Set after requestControl: its local pending-state emit is synchronous.
+        // Only a later server acknowledgment may release this reveal fence.
+        if (revealMouseInputHeld) revealMouseTarget = { ...grid }
       } else if (grid.cols !== serverGrid.cols || grid.rows !== serverGrid.rows) {
         trace('reveal:resize-send', { grid, gridChanged })
         connection.sendResize(grid.cols, grid.rows)
@@ -578,13 +614,25 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         lastTracedState = signature
         trace('connection:state', { state })
       }
-      if (hasOtherController(state)) clearControlAssertion()
+      if (hasOtherController(state)) {
+        clearControlAssertion()
+        clearRevealMouseInput('other-controller')
+      }
       const applied = { cols: view.cols(), rows: view.rows() }
       const stateGrid = { cols: state.cols, rows: state.rows }
+      const requested = state.requestedGeometry ?? null
+      if (
+        revealMouseTarget !== null &&
+        state.connected &&
+        state.role === 'controller' &&
+        requested === null &&
+        sameGrid(stateGrid, revealMouseTarget)
+      ) {
+        clearRevealMouseInput('geometry-acknowledged')
+      }
       // requestControl/sendResize publish requestedGeometry before the stale
       // state echo. Prefer that newer local intent when xterm already applied it.
       // The existing assertion remains the fallback after the request settles.
-      const requested = state.requestedGeometry
       const pendingRequestedGrid =
         requested !== null &&
         sameGrid(applied, requested) &&
@@ -737,6 +785,10 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   // Paste + arrows now live in the panel's React action row / D-pad above the key
   // bar, so the bar itself no longer renders a Paste key.
   const sendInput = (data: string, inputEventAt?: number): void => {
+    if (revealMouseInputHeld && isOnlySgrMouseMotion(data)) {
+      trace('input:reveal-mouse-motion-withheld', { bytes: data.length })
+      return
+    }
     // A spectator that starts typing means it: take control first so the first
     // byte lands as controller, on this client's own grid.
     if (gridMode === 'server-grid' && connection.state().role === 'spectator') takeControl()
@@ -867,6 +919,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         reveal()
       } else {
         clearControlAssertion()
+        clearRevealMouseInput('panel-hidden')
       }
       // going inactive: do nothing — never resize a hidden panel
     },
