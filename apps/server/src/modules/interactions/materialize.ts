@@ -51,8 +51,8 @@
  *    down), and this module has no arm for them for that reason.
  */
 
-import type { InteractionAskSpec, RecoveryChoice } from '@podium/protocol'
 import { isAgentAuthenticationError } from '@podium/model'
+import type { InteractionAskSpec, RecoveryChoice } from '@podium/protocol'
 import type { FailureDisposition, TurnFailureReason } from '@podium/protocol/daemon'
 
 /**

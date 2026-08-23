@@ -49,9 +49,11 @@ import type {
   InteractionKind,
   InteractionSource,
   PendingInteractionWire,
+  QuestionPrompt,
+  QuestionSelection,
   RecoveryAskReason,
 } from '@podium/protocol'
-import { isResumeTimeRecovery } from '@podium/protocol'
+import { hasTranscriptCard, isResumeTimeRecovery } from '@podium/protocol'
 import type { TurnEvent } from '@podium/protocol/daemon'
 import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
 import type { InboxPrincipalReference } from '../sessions/inbox'
@@ -199,6 +201,24 @@ export interface InteractionServiceDeps {
     interactionId: string
     answer: InteractionAnswer
   }): Promise<InteractionAnswerOutcome>
+  /**
+   * THE MENU THE ASK ITSELF READ — see {@link deliverToNativeMenu}.
+   *
+   * {@link deliver} answers a question by re-deriving its options from the
+   * transcript, which a screen-classified dialog has never been in. Bound at
+   * the composition root to the same keystroke path the transcript route ends
+   * in, differing only in where the options come from.
+   *
+   * OPTIONAL for the same reason {@link deliverStructured} is: a build that has
+   * not wired it falls through to the transcript route and refuses exactly as
+   * it did before, rather than accepting an answer it cannot type.
+   */
+  deliverNativeMenu?(input: {
+    sessionId: SessionId
+    questions: readonly QuestionPrompt[]
+    selections: readonly QuestionSelection[]
+    principal: InboxPrincipalReference
+  }): { ok: boolean; reason?: string }
 }
 
 /** Everything a caller needs to answer, without knowing the payload union. */
@@ -758,23 +778,36 @@ export class InteractionService {
       answeredBy: 'policy',
       principal: this.deps.policyPrincipal(),
     })
-    if (!outcome.ok) {
-      // A REFUSED default never claimed the row, so it is still open. Nothing to
-      // undo; the human sees it, which is the escalation.
+    // ACCEPTED BUT UNDELIVERED IS THE CASE THAT SWALLOWS THE ASK (POD-2414).
+    //
+    // `answer()` claims the row BEFORE delivering, so a delivery that fails
+    // afterwards leaves it `answered` with `deliveredVia: 'unverified'`. For a
+    // human that is the honest report — your answer was recorded and could not
+    // be proven to land. For the POLICY it is wrong: the row leaves `listOpen`
+    // and the feed, so a session that stalled at a prompt the default could not
+    // deliver becomes a session stalled with nothing on any surface. §4's order
+    // is policy, then triage, then a human — so a policy that could not act
+    // hands it back.
+    //
+    // THE ROW'S OWN STATE DECIDES THAT, NOT THE OUTCOME BOOLEAN, and reading
+    // the boolean instead was a real hole. Before the delivery-failure report
+    // was corrected, an undeliverable default came back `ok: true` and fell
+    // through to the escalation below. Once it started reporting `ok: false` —
+    // correctly — an early return on `!outcome.ok` caught it and returned,
+    // leaving exactly the answered-and-hidden row this block exists to rescue.
+    // The two failures are told apart by what happened to the ROW: a refusal
+    // that never claimed it (or that reopened it) leaves it open, which IS the
+    // escalation and needs nothing; a claimed row with an unproven delivery is
+    // the one to hand back.
+    const settled = this.deps.store.get(row.id)
+    if (settled?.status !== 'answered' || settled.deliveredVia !== 'unverified') {
+      // Every terminal path drops the marker, including the successful one —
+      // it is the lifetime of ONE delivery, and a marker left behind for a
+      // delivered answer is a leak that outlives the ask it described.
       this.policyDeliveryInFlight.delete(row.id)
-      log.debug('default answer declined', { id: row.id, reason: outcome.reason })
+      if (!outcome.ok) log.debug('default answer declined', { id: row.id, reason: outcome.reason })
       return
     }
-    // ACCEPTED BUT UNDELIVERED IS THE CASE THAT USED TO SWALLOW THE ASK
-    // (POD-2414). `answer()` claims the row before delivering, and reports a
-    // failed delivery as `ok: true` with a detail — correct for a human, who is
-    // told their answer was recorded and could not be proven to land. For the
-    // POLICY it is wrong: the row leaves `listOpen` and the feed, so a session
-    // that stalled at a recovery prompt the default could not deliver becomes a
-    // session stalled with nothing on any surface. §4's order is policy, then
-    // triage, then a human — so a policy that could not act hands it back.
-    const settled = this.deps.store.get(row.id)
-    if (settled?.deliveredVia !== 'unverified') return
     // OVERTAKEN WHILE DELIVERING — see {@link policyDeliveryInFlight}. A turn
     // boundary, a state change or the driver's own resolution passed while this
     // answer was in flight, so the session is not blocked on it any more and
@@ -999,6 +1032,60 @@ export class InteractionService {
           via: 'unverified',
           detail: err instanceof Error ? err.message : String(err),
         }
+      }
+    }
+    // The stored payload is opaque by design — see {@link InteractionRow} — and
+    // the cast is the same one {@link unsupportedAnswerReason} makes for the
+    // one field it reads. An ask with no readable options falls THROUGH to the
+    // established route, which refuses it exactly as it did before: the
+    // optionless "go look" card is unchanged.
+    const readOptions =
+      row.kind === 'question'
+        ? ((row.payload as { questions?: readonly QuestionPrompt[] } | null | undefined)
+            ?.questions ?? [])
+        : []
+
+    /**
+     * THE MENU THIS ASK READ ITSELF (POD-2414).
+     *
+     * The route below answers a question by handing the delivery gate PROSE,
+     * which it matches back against the transcript's last AskUserQuestion to
+     * recover the digits. A screen-classified dialog has no such tool call —
+     * Claude's onboarding and trust prompts are drawn by the CLI — so that
+     * route refuses it with "no pending AskUserQuestion found in the transcript
+     * tail", and the session stays blocked on a menu the app can see and cannot
+     * press. {@link hasTranscriptCard} is the contract's own predicate for
+     * "does a transcript item exist behind this", and it is what both shells
+     * use to decide the same question about rendering.
+     *
+     * The options are taken from the ROW, which is the only place they exist
+     * and also the safer place: matching against the transcript here could
+     * resolve an answer against a stale AskUserQuestion whose menu has already
+     * been replaced by this dialog.
+     */
+    if (
+      answer.kind === 'question' &&
+      readOptions.length > 0 &&
+      readOptions.some((question) => question.options.length > 0) &&
+      !hasTranscriptCard(row) &&
+      this.deps.deliverNativeMenu
+    ) {
+      const typed = this.deps.deliverNativeMenu({
+        sessionId: row.sessionId,
+        questions: readOptions,
+        selections: answer.selections,
+        principal,
+      })
+      if (typed.ok) return { ok: true, via: 'menu' }
+      // PRE-SEND, ALL OF IT: the menu gate, the mapping, and the keystroke
+      // path's own deliverability check all refuse before a byte moves, and
+      // the keystroke path types nothing until every choice is expressible. So
+      // this is a refusal the ask can be reopened on, not an unprovable send.
+      return {
+        ok: false,
+        via: 'unverified',
+        detail: typed.reason ?? 'the session would not take the answer',
+        refusal: 'delivery-failed',
       }
     }
     const text = deliverableText(answer)

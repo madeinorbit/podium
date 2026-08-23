@@ -24,6 +24,72 @@ const state = (partial: Partial<AgentRuntimeState>): AgentRuntimeState => ({
 })
 
 describe('synthesizeAsk', () => {
+  /**
+   * The operator's complaint, at the synthesis seam: Claude's onboarding dialog
+   * blocks every turn they send, and it is drawn by the CLI rather than by an
+   * AskUserQuestion tool call — so the transcript read that supplies options
+   * returns nothing for it. Before this, that produced the optionless "open the
+   * terminal" card on a session they were trying to answer FROM the app.
+   */
+  it('answers a screen-drawn dialog from the options the classifier read', () => {
+    const ask = synthesizeAsk(
+      S,
+      state({
+        phase: 'needs_user',
+        stateSource: 'classifier',
+        need: {
+          kind: 'question',
+          summary: 'Set up auto mode for your environment?',
+          interview: {
+            questions: [
+              {
+                question: 'Set up auto mode for your environment?',
+                header: 'Auto mode',
+                options: [
+                  { label: 'Set it up', description: 'Propose auto-mode guardrails.' },
+                  { label: "Don't show again", description: 'Dismiss this setup prompt.' },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+      // The transcript has nothing to say: there is no tool call behind this
+      // dialog, which is the whole reason the classifier read the screen.
+      {},
+    )
+    expect(ask?.source).toBe('screen-classifier')
+    expect(ask?.spec.kind).toBe('question')
+    const questions = (ask?.spec as Extract<InteractionAskSpec, { kind: 'question' }>).payload
+      .questions
+    expect(questions).toHaveLength(1)
+    expect(questions[0]?.question).toBe('Set up auto mode for your environment?')
+    expect(questions[0]?.header).toBe('Auto mode')
+    // PRESSABLE is the point: two real options, and the native Other row one
+    // past them, so a surface can offer buttons and the digit path can type.
+    expect(questions[0]?.options.map((o) => o.label)).toEqual(['Set it up', "Don't show again"])
+    expect(questions[0]?.otherIndex).toBe(3)
+  })
+
+  it('still prefers the transcript, which is the richer record', () => {
+    const ask = synthesizeAsk(
+      S,
+      state({
+        phase: 'needs_user',
+        stateSource: 'hook',
+        need: {
+          kind: 'question',
+          summary: 'Which?',
+          interview: { questions: [{ question: 'Which?', options: [{ label: 'from-screen' }] }] },
+        },
+      }),
+      { questionOptions: [{ question: 'Which?', options: [{ label: 'from-transcript' }] }] },
+    )
+    const questions = (ask?.spec as Extract<InteractionAskSpec, { kind: 'question' }>).payload
+      .questions
+    expect(questions[0]?.options.map((o) => o.label)).toEqual(['from-transcript'])
+  })
+
   it('turns a hook-sourced permission prompt into a typed permission ask', () => {
     const ask = synthesizeAsk(
       S,

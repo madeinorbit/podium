@@ -8,6 +8,7 @@
  */
 
 import { type AgentRuntimeState, asSessionId, type SessionId } from '@podium/model'
+import type { QuestionPrompt, QuestionSelection } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type InteractionRow, InteractionsRepository } from '../../store/interactions'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
@@ -86,12 +87,19 @@ function harness(
     structured?: boolean
     /** Sessions the causal runtime-event stream owns failures for (P2/7). */
     causalSessions?: SessionId[]
+    /** Wire the screen-read menu route, and say what the keystroke path
+     *  answers. Absent means the build has no such route (POD-2414). */
+    nativeMenu?: (input: {
+      questions: readonly QuestionPrompt[]
+      selections: readonly QuestionSelection[]
+    }) => { ok: boolean; reason?: string }
   } = {},
 ) {
   const db = openMigratedTestDatabase()
   const store = new InteractionsRepository(db)
   const published: InteractionRow[] = []
   const delivered: string[] = []
+  const typedAtMenu: Array<readonly QuestionSelection[]> = []
   let clock = 0
   const svc = new InteractionService({
     store,
@@ -107,8 +115,20 @@ function harness(
     policyPrincipal: () => PRINCIPAL,
     causalFailuresOwned: (sessionId) => (options.causalSessions ?? []).includes(sessionId),
     ...(options.structured ? { deliverStructured: async () => ({ ok: true as const }) } : {}),
+    ...(options.nativeMenu
+      ? {
+          deliverNativeMenu: (input: {
+            questions: readonly QuestionPrompt[]
+            selections: readonly QuestionSelection[]
+          }) => {
+            typedAtMenu.push(input.selections)
+            // biome-ignore lint/style/noNonNullAssertion: guarded by the branch.
+            return options.nativeMenu!(input)
+          },
+        }
+      : {}),
   })
-  return { svc, store, published, delivered }
+  return { svc, store, published, delivered, typedAtMenu }
 }
 
 const answerAs = (svc: InteractionService, id: string, text: string) =>
@@ -896,7 +916,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     expect(svc.listOpen(S)).toEqual([])
   })
 
-  it("a TURN FAILURE cannot overtake a slow question synthesis", async () => {
+  it('a TURN FAILURE cannot overtake a slow question synthesis', async () => {
     // THE SAME INTERLEAVING FOR THE TURN INGRESS (POD-2414 fourth pass). A
     // question state owns a slow transcript read; a causal failure arriving
     // behind it must not publish its login ask first. The per-session chain is
@@ -914,9 +934,9 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     })
     const svc = new InteractionService({
       store,
-      now: () => "2026-08-14T00:00:00.000Z",
+      now: () => '2026-08-14T00:00:00.000Z',
       publish: (row) => published.push(row),
-      deliver: async () => ({ ok: true, via: "menu", choices: [] }),
+      deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
       readTranscript: async () => {
         startRead()
         await readGate
@@ -932,9 +952,9 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // B: a causal failure arrives WHILE A read is outstanding.
     const failed = svc.onTurnEvent({
       sessionId: S,
-      at: "2026-08-14T00:00:30.000Z",
-      provider: "claude",
-      ev: { ev: "failed", turnEpoch: 1, reason: "auth-expired", disposition: "needs-human" },
+      at: '2026-08-14T00:00:30.000Z',
+      provider: 'claude',
+      ev: { ev: 'failed', turnEpoch: 1, reason: 'auth-expired', disposition: 'needs-human' },
     })
     releaseRead()
     await Promise.all([asking, failed])
@@ -942,8 +962,8 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // A is the first ingress, so its question is announced before B failure.
     // Calling applyTurnEvent directly makes this assertion reverse.
     expect(published.map(({ kind, status }) => ({ kind, status }))).toEqual([
-      { kind: "question", status: "asked" },
-      { kind: "login", status: "asked" },
+      { kind: 'question', status: 'asked' },
+      { kind: 'login', status: 'asked' },
     ])
   })
 
@@ -1172,6 +1192,159 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
     expect(delivered).toEqual([])
     expect(svc.listOpen()).toHaveLength(1)
     expect(svc.listOpen()[0]).toMatchObject({ kind: 'recovery', status: 'asked' })
+  })
+})
+
+describe('InteractionService — answering a screen-drawn dialog (POD-2414)', () => {
+  /** Claude's onboarding dialog as the classifier reports it: a needs_user
+   *  question whose options ride on the STATE, because the CLI drew the dialog
+   *  itself and filed no AskUserQuestion in the transcript. */
+  const dialogState = (): AgentRuntimeState =>
+    state({
+      phase: 'needs_user',
+      stateSource: 'classifier',
+      need: {
+        kind: 'question',
+        summary: 'Set up auto mode for your environment?',
+        interview: {
+          questions: [
+            {
+              question: 'Set up auto mode for your environment?',
+              options: [{ label: 'Set it up' }, { label: "Don't show again" }],
+            },
+          ],
+        },
+      },
+    })
+
+  it('answers it at its own menu, never through the transcript', async () => {
+    // THE OPERATOR'S COMPLAINT, END TO END: a dialog that blocked every turn
+    // they sent, with no way to answer it from the app.
+    const { svc, delivered, typedAtMenu } = harness({ nativeMenu: () => ({ ok: true }) })
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: dialogState() })
+    const [row] = svc.listOpen(S)
+    expect(row).toMatchObject({ kind: 'question', source: 'screen-classifier' })
+
+    const outcome = await svc.answer({
+      // biome-ignore lint/style/noNonNullAssertion: asserted open above.
+      id: row!.id,
+      answer: { kind: 'question', selections: [{ optionIndices: [1] }] },
+      answeredBy: 'human',
+      principal: PRINCIPAL,
+    })
+    expect(outcome).toEqual({ ok: true })
+    // It went to the menu the ask read, carrying the human's actual choice...
+    expect(typedAtMenu).toEqual([[{ optionIndices: [1] }]])
+    // ...and NOT to the prose route, which would have matched the answer against
+    // a transcript that has nothing to do with this dialog.
+    expect(delivered).toEqual([])
+    // biome-ignore lint/style/noNonNullAssertion: asserted open above.
+    expect(svc.get(row!.id)).toMatchObject({ status: 'answered', deliveredVia: 'menu' })
+    expect(svc.listOpen(S)).toEqual([])
+  })
+
+  it('a REFUSED menu answer reopens the ask — nothing was typed', async () => {
+    const { svc } = harness({
+      nativeMenu: () => ({ ok: false, reason: 'no menu on screen (phase=working)' }),
+    })
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: dialogState() })
+    const [row] = svc.listOpen(S)
+    const outcome = await svc.answer({
+      // biome-ignore lint/style/noNonNullAssertion: asserted open above.
+      id: row!.id,
+      answer: { kind: 'question', selections: [{ optionIndices: [1] }] },
+      answeredBy: 'human',
+      principal: PRINCIPAL,
+    })
+    expect(outcome).toMatchObject({ ok: false, reason: 'delivery-failed' })
+    // The dialog is still on screen, so the card has to come back.
+    expect(svc.listOpen(S)).toHaveLength(1)
+    // biome-ignore lint/style/noNonNullAssertion: asserted open above.
+    expect(svc.get(row!.id)).toMatchObject({ status: 'asked' })
+  })
+
+  it('a build with NO menu route refuses rather than accepting what it cannot type', async () => {
+    // The honest fallback: without the route wired, the prose gate is asked and
+    // reports that it found no AskUserQuestion to match against — which is
+    // exactly what a screen-drawn dialog produces.
+    const { svc } = harness({
+      delivery: () => ({
+        ok: false,
+        message: 'no pending AskUserQuestion found in the transcript tail',
+      }),
+    })
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: dialogState() })
+    const [row] = svc.listOpen(S)
+    const outcome = await svc.answer({
+      // biome-ignore lint/style/noNonNullAssertion: asserted open above.
+      id: row!.id,
+      answer: { kind: 'question', selections: [{ optionIndices: [1] }] },
+      answeredBy: 'human',
+      principal: PRINCIPAL,
+    })
+    expect(outcome).toMatchObject({ ok: false, reason: 'delivery-failed' })
+    expect(svc.listOpen(S)).toHaveLength(1)
+  })
+
+  it('a TRANSCRIPT-backed question still goes the prose route', async () => {
+    // The route is chosen by provenance, and a hook-sourced AskUserQuestion has
+    // a real tool call behind it. Nothing about the established path changes.
+    const { svc, delivered, typedAtMenu } = harness({
+      transcript: [ASK_USER_QUESTION],
+      nativeMenu: () => ({ ok: true }),
+    })
+    await svc.onStateChanged({
+      sessionId: S,
+      prev: undefined,
+      next: state({ phase: 'needs_user', stateSource: 'hook', need: { kind: 'question' } }),
+    })
+    const [row] = svc.listOpen(S)
+    // biome-ignore lint/style/noNonNullAssertion: asserted open above.
+    await answerAs(svc, row!.id, 'Postgres')
+    expect(typedAtMenu).toEqual([])
+    expect(delivered).toEqual(['1'])
+  })
+})
+
+describe('InteractionService — a policy answer whose delivery THREW (POD-2414)', () => {
+  it('hands the ask back to a human instead of leaving it answered and hidden', async () => {
+    // THE HOLE THIS CLOSES. `answer()` claims the row before delivering, so a
+    // delivery that throws afterwards leaves it `answered`/`unverified` — off
+    // `listOpen` and off the feed. The escalation below used to be reached
+    // because a failed delivery reported `ok: true`; once that was corrected to
+    // `ok: false`, an early return on the boolean caught it first and the row
+    // stayed swallowed. What the row ACTUALLY is decides, not the boolean.
+    const db = openMigratedTestDatabase()
+    const store = new InteractionsRepository(db)
+    let clock = 0
+    const published: InteractionRow[] = []
+    const service = new InteractionService({
+      store,
+      now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
+      publish: (row) => published.push(row),
+      deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
+      readTranscript: async () => ({ items: [] }),
+      policyPrincipal: () => PRINCIPAL,
+      deliverStructured: async () => {
+        throw new Error('relay died mid-send')
+      },
+    })
+    await service.ask({
+      interaction: {
+        id: 'ixn_thrown',
+        sessionId: S,
+        kind: 'recovery',
+        payload: { v: 1, reason: 'cache-miss', prompt: 'Resume?', offered: ['full-resume'] },
+        source: 'protocol',
+        answerable: 'structured',
+      },
+    })
+    expect(service.get('ixn_thrown')).toMatchObject({
+      status: 'asked',
+      policyVerdict: 'escalated',
+    })
+    expect(service.listOpen()).toHaveLength(1)
+    expect(published.at(-1)).toMatchObject({ status: 'asked' })
   })
 })
 

@@ -249,9 +249,32 @@ function specFor(
       }
     }
     if (state.need?.kind === 'question') {
+      // THE SCREEN'S OWN OPTIONS, WHEN THE TRANSCRIPT HAS NONE (POD-2414).
+      //
+      // `questionOptions` is read out of the transcript's last AskUserQuestion,
+      // and a whole class of blocking prompt has no transcript item at all:
+      // Claude's onboarding and trust dialogs are drawn by the CLI itself, not
+      // by a tool call. The screen classifier reads them and puts what it saw on
+      // `need.interview` — the same question/options shape — so an ask that
+      // would otherwise be the optionless "go look" card carries real,
+      // pressable options instead. That is the operator's complaint: a dialog
+      // that blocked every turn they sent, with no way to answer it from the
+      // app.
+      //
+      // THE TRANSCRIPT STILL WINS WHERE IT HAS ANYTHING TO SAY. It is the
+      // richer record (descriptions, previews, multi-select) and it is what the
+      // digit path has always matched against; the interview is the fallback
+      // for the case that used to produce nothing, so no working path changes
+      // shape here.
       return {
         kind: 'question',
-        payload: { v: 1, questions: normalizeQuestions(questionOptions, state.need.summary) },
+        payload: {
+          v: 1,
+          questions: normalizeQuestions(
+            questionOptions ?? state.need.interview?.questions,
+            state.need.summary,
+          ),
+        },
       }
     }
     return null

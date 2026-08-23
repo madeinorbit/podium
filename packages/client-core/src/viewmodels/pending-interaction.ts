@@ -33,8 +33,8 @@
  * card that just shrugs.
  */
 
-import { isResumeTimeRecovery } from '@podium/protocol'
 import type { InteractionAnswer, PendingInteractionWire, QuestionPrompt } from '@podium/protocol'
+import { hasTranscriptCard, isResumeTimeRecovery } from '@podium/protocol'
 
 /** One button. `answer` is the typed value `interactions.answer` takes, so a
  *  shell submits it verbatim and never constructs one. */
@@ -143,13 +143,15 @@ export function pendingInteractionCard(row: PendingInteractionWire): PendingInte
       // WHO HAS THE RICHER CARD — not "is it readable" (POD-2414 review, P1/3).
       //
       // Deferring to the transcript is only correct where a transcript card
-      // EXISTS, and the one that does is Claude's AskUserQuestion — a
-      // terminal-family, keystroke-emulated ask. An opencode `question.asked`
-      // is a structured protocol interaction with no transcript item behind it,
-      // so deferring hid the only answerable row a server-family session has,
-      // and left at most an optionless "open the terminal" card for a session
-      // that HAS no terminal.
-      const transcriptOwnsIt = readable && row.answerable === 'keystroke-emulated'
+      // EXISTS, and the predicate for that is the contract's
+      // ({@link hasTranscriptCard}), shared with the server's delivery route so
+      // the two cannot drift. Two sources have no transcript item behind them:
+      // an opencode `question.asked`, which is a structured protocol
+      // interaction on a family that has no terminal to fall back to; and a
+      // screen-classified dialog, which is read off the screen precisely
+      // because the CLI drew it without a tool call. Deferring hid the only
+      // answerable row either one has.
+      const transcriptOwnsIt = readable && hasTranscriptCard(row)
       return {
         ...base,
         title: 'Question',

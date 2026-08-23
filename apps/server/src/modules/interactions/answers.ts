@@ -36,8 +36,8 @@
  * something because nobody configured otherwise.
  */
 
-import { isResumeTimeRecovery } from '@podium/protocol'
 import type { InteractionAnswer, InteractionKind } from '@podium/protocol'
+import { isResumeTimeRecovery } from '@podium/protocol'
 import { matchAnswerToOptions } from '../superagent/answer-delivery'
 import type { InteractionAskSpec } from './synthesis'
 

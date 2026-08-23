@@ -79,6 +79,7 @@ import { EventLogRetention } from './modules/events/retention'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
+import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
 import { InteractionService } from './modules/interactions/service'
 import { IssueEventFeedPublisher } from './modules/issue-events/feed'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
@@ -2421,6 +2422,24 @@ export class SessionRegistry {
       readTranscript: (input) =>
         rpc.readTranscript(input, { kind: 'system', id: 'interaction-synthesis' }),
       policyPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
+      /**
+       * THE SCREEN-READ MENU'S ANSWER ROUTE (POD-2414).
+       *
+       * Same keystroke path `deliver` ends in; what differs is where the
+       * options come from. A dialog the CLI draws itself — Claude's onboarding
+       * and trust prompts, which is the operator complaint this issue names —
+       * has no AskUserQuestion in the transcript, so the transcript route can
+       * neither read its options nor match an answer against them, and refused
+       * every answer to a session it could see was blocked.
+       */
+      deliverNativeMenu: (input) =>
+        deliverToNativeMenu(
+          {
+            getState: (id) => sessionsSvc.sessionById(id)?.agentState,
+            answer: (answerInput) => sessionsSvc.answerAskUserQuestion(answerInput),
+          },
+          input,
+        ),
       /**
        * STRUCTURED DELIVERY (POD-2023) — the route W2 declared and W5 shipped.
        *

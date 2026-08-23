@@ -52,6 +52,7 @@
  */
 
 import { z } from 'zod'
+import { Attribution } from '../fields/attribution'
 import {
   AccountIdField,
   ConversationIdField,
@@ -59,7 +60,6 @@ import {
   MachineIdField,
   SessionIdField,
 } from '../ids'
-import { Attribution } from '../fields/attribution'
 import { SESSION_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
 import { AgentKind } from './agent'
 
@@ -273,6 +273,26 @@ export const AgentRuntimeState = z.object({
   stateObservedAt: z.string().optional(),
 })
 export type AgentRuntimeState = z.infer<typeof AgentRuntimeState>
+
+/**
+ * IS A LIVE NATIVE MENU ON SCREEN, right now, for this session?
+ *
+ * The one predicate that decides whether typed digits may touch a PTY, stated
+ * once because two callers already ask it and a third was about to
+ * (POD-2414). `needs_user` + `need.kind === 'question'` is the ONLY shape a
+ * drawn menu produces: `idle` with an `idle.kind` of `question` is a textual
+ * question with no menu behind it, where digits would land as message text,
+ * and a `working` agent must never receive a stray digit from a menu that has
+ * already closed.
+ *
+ * Deliberately says nothing about session STATUS. A session can be `starting`
+ * with a menu up — Claude's onboarding and trust dialogs are exactly that —
+ * and refusing those is what left a startup-blocked session visible but
+ * unanswerable.
+ */
+export function isNativeMenuLive(state: AgentRuntimeState | null | undefined): boolean {
+  return state?.phase === 'needs_user' && state.need?.kind === 'question'
+}
 
 // ---------------------------------------------------------------------------
 // Session aggregate

@@ -82,6 +82,34 @@ describe('pendingInteractionCard', () => {
     })
   })
 
+  it('takes a SCREEN-CLASSIFIED question itself — there is no transcript card', () => {
+    // Claude's onboarding dialog is drawn by the CLI, not by an AskUserQuestion
+    // tool call, so nothing files it in the transcript and the rich chat card
+    // this would otherwise defer to does not exist. Deferring left the operator
+    // looking at a dialog with no way to answer it, which is the complaint that
+    // opened this issue.
+    const card = pendingInteractionCard(
+      row({
+        kind: 'question',
+        source: 'screen-classifier',
+        answerable: 'keystroke-emulated',
+        payload: {
+          v: 1,
+          questions: [
+            {
+              question: 'Set up auto mode for your environment?',
+              multiSelect: false,
+              previewLayout: false,
+              options: [{ label: 'Set it up' }, { label: "Don't show again" }],
+            },
+          ],
+        },
+      }),
+    )
+    expect(card.surface).toBe('aggregate')
+    expect(card.actions.map((a) => a.label)).toEqual(['Set it up', "Don't show again"])
+  })
+
   it('takes an UNREADABLE question itself, with no buttons and a reason', () => {
     // The prompt Podium could not classify — the whole point of materializing
     // it is that somebody sees it, and the honest action is "go look".

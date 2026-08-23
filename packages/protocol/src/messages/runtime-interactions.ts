@@ -46,6 +46,33 @@ export type InteractionSource = z.infer<typeof InteractionSource>
 export const InteractionAnswerability = z.enum(['structured', 'keystroke-emulated'])
 export type InteractionAnswerability = z.infer<typeof InteractionAnswerability>
 
+/**
+ * DOES A TRANSCRIPT CARD EXIST BEHIND THIS ASK?
+ *
+ * One predicate, in the contract, because the server's delivery route and both
+ * aggregate shells have to agree — and they did not (POD-2414 review, P1/3).
+ * "Keystroke-emulated" was read as "the transcript owns it", which is true of
+ * Claude's AskUserQuestion (a real tool call, rendered by the chat's own rich
+ * card) and false in two directions:
+ *
+ *  - a `protocol`/`structured` ask is a driver request with no transcript item,
+ *    on a session family that has no terminal to fall back to, so deferring hid
+ *    the only answerable row it had;
+ *  - a `screen-classifier` ask is a menu READ OFF THE SCREEN precisely because
+ *    nothing structured exists for it. Claude's onboarding and trust dialogs are
+ *    drawn by the CLI, not by a tool call — there is no transcript item to defer
+ *    to and none to match digits against either.
+ *
+ * So the question is about PROVENANCE, not about answerability: only a source
+ * that files something in the transcript can have a transcript card.
+ */
+export function hasTranscriptCard(row: {
+  readonly source: InteractionSource
+  readonly answerable: InteractionAnswerability
+}): boolean {
+  return row.answerable === 'keystroke-emulated' && row.source !== 'screen-classifier'
+}
+
 // ---------------------------------------------------------------------------
 // The per-kind ask and answer vocabulary (POD-2020 / W2)
 // ---------------------------------------------------------------------------
