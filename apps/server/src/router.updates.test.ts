@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { asMachineId, FIRST_ADMIN_USER_ID, type UpdateChannel } from '@podium/model'
 import type { MobileWebIdentity, UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -6,6 +9,7 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 
 /**
@@ -40,6 +44,7 @@ const priorAppVersion = process.env.PODIUM_APP_VERSION
 const priorChannel = process.env.PODIUM_UPDATE_CHANNEL
 
 interface HarnessOptions {
+  store?: SessionStore
   serverInstallKind?: 'installed' | 'source'
   requestCoordinatorRestart?: () => void
   requestWebRebuild?: () => void
@@ -53,12 +58,26 @@ interface HarnessOptions {
   }
 }
 
+const temporaryStores: Array<{ store: SessionStore; directory: string }> = []
+
+/**
+ * A coordinator restart is gated on a durable database snapshot. Memory stores
+ * intentionally cannot produce one, so restart-order tests use a disposable
+ * file-backed store and keep the production gate armed.
+ */
+function fileBackedStore(): SessionStore {
+  const directory = mkdtempSync(join(tmpdir(), 'podium-router-updates-'))
+  const store = new SessionStore(join(directory, 'podium.db'))
+  temporaryStores.push({ store, directory })
+  return store
+}
+
 function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
   const opts =
     typeof requestCoordinatorRestart === 'function'
       ? { requestCoordinatorRestart }
       : (requestCoordinatorRestart ?? {})
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'updates-test' })
+  const registry = new SessionRegistry(opts.store, undefined, { instanceId: 'updates-test' })
   const hostMachineId = registry.sessionStore.hostMachineId
   registry.gateway.attachDaemon(hostMachineId, () => {})
   registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
@@ -96,6 +115,13 @@ afterEach(() => {
   else process.env.PODIUM_APP_VERSION = priorAppVersion
   if (priorChannel === undefined) delete process.env.PODIUM_UPDATE_CHANNEL
   else process.env.PODIUM_UPDATE_CHANNEL = priorChannel
+  for (const { store, directory } of temporaryStores.splice(0)) {
+    try {
+      store.close()
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }
 })
 
 /**
@@ -295,7 +321,8 @@ describe('release target checks', () => {
         checkedAt: expect.any(Number),
         outcome: {
           status: 'unavailable',
-          reason: 'stable target unavailable: getaddrinfo ENOTFOUND',
+          // The resolver names the manifest boundary so feed failures stay actionable.
+          reason: 'stable target unavailable: release manifest getaddrinfo ENOTFOUND',
         },
       },
     ])
@@ -971,7 +998,9 @@ describe('updates tRPC', () => {
           finish = resolve
         }),
     )
+    const store = fileBackedStore()
     const { registry, caller } = harness({
+      store,
       requestCoordinatorRestart,
       requestDestBundle,
       servedWebDigest: '47a01e3',
@@ -1212,7 +1241,8 @@ describe('updates tRPC', () => {
   it('returns an in-progress wave after the human authorizes convergence', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
     const requestCoordinatorRestart = vi.fn()
-    const { registry, caller } = harness(requestCoordinatorRestart)
+    const store = fileBackedStore()
+    const { registry, caller } = harness({ store, requestCoordinatorRestart })
     registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
