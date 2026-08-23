@@ -538,7 +538,7 @@ export function Workspace({
     dragFocusToRestore.current = null
     const current = document.activeElement
     const replacement = resolveTabDomTarget(workspaceRef.current, target)
-    if (current === replacement && current.isConnected) return
+    if (current !== null && current === replacement && current.isConnected) return
     if (current instanceof HTMLElement && current !== document.body && current.isConnected) return
     replacement?.focus()
   }, [])
@@ -549,7 +549,7 @@ export function Workspace({
     fixedStripFocusToRestore.current = null
     const current = document.activeElement
     const replacement = resolveFixedStripControlTarget(workspaceRef.current, target)
-    if (current === replacement && current.isConnected) return
+    if (current !== null && current === replacement && current.isConnected) return
     if (current instanceof HTMLElement && current !== document.body && current.isConnected) return
     replacement?.focus()
   }, [])
