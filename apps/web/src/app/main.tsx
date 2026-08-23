@@ -7,6 +7,7 @@ import { AppShell } from './AppShell'
 import '@/index.css'
 import '@/styles.css'
 import { redirectPhoneToMobileApp } from './mobile-entry-redirect'
+import { installVitePreloadErrorRecovery } from './preload-error-recovery'
 import { ThemeProvider } from './theme'
 import { WireSkewBanner } from './WireSkewBanner'
 
@@ -17,6 +18,7 @@ const MotionDemo = lazy(() =>
 // FIRST, before anything can throw: the global handlers and the flight recorder
 // are what turn a crash during boot into a report on the user's own server
 // [spec: 2026-08-11-logging-strategy-design, "Crash capture (end-to-end)"].
+installVitePreloadErrorRecovery()
 startWebLogging()
 
 const root = document.getElementById('root')
