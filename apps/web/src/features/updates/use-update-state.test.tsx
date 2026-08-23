@@ -244,14 +244,19 @@ describe('useUpdateState — digest build identity', () => {
     artifacts: { web: { digest: 'a5f041c' } },
   }
 
+  const explicitDigestTarget: UpdateTarget = {
+    ...digestTarget,
+    version: '0.1.1-dev.1',
+  }
+
   it('does not call a dev-named server behind when its target digest matches', async () => {
     setPageVersion('0.1.1-edge.1')
     setPageDigest('a5f041c')
     setupTransport({
       appVersion: 'dev+a5f041c',
-      installKind: 'source',
+      installKind: 'installed',
       sourceDigest: 'a5f041c',
-      target: digestTarget,
+      target: explicitDigestTarget,
     })
     mocks.active.mockResolvedValue(null)
     const results: UpdateStateResult[] = []
@@ -320,6 +325,38 @@ describe('useUpdateState — digest build identity', () => {
 
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
     expect(results.at(-1)?.view.places).toMatchObject([{ kind: 'server' }])
+  })
+
+  it('finishes without reload when the loaded page matches its target by digest', async () => {
+    setPageVersion('0.1.1-edge.1')
+    setPageDigest('a5f041c')
+    setupTransport({
+      appVersion: 'dev+a5f041c',
+      installKind: 'source',
+      sourceDigest: 'a5f041c',
+      target: explicitDigestTarget,
+    })
+    globalThis.localStorage?.setItem(
+      'podium.update.watched-operation',
+      JSON.stringify({ id: 'op_digest', at: Date.now() }),
+    )
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      {
+        id: 'op_digest',
+        kind: 'update',
+        state: 'done',
+        details: { target: explicitDigestTarget },
+        finishedAt: Date.now() - 2_000,
+        steps: [],
+      },
+    ])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} withReload behind={0} />)
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('done'))
+    expect(results.at(-1)?.view.primary).toBeUndefined()
   })
 
   it('still asks a genuinely older loaded page to reload', async () => {
