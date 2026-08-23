@@ -99,6 +99,11 @@ interface TabDomTarget {
   path: number[]
 }
 
+interface FixedStripControlTarget {
+  paneId: string
+  label: string
+}
+
 const tabDomTarget = (target: EventTarget | null, pressable = false): TabDomTarget | null => {
   if (!(target instanceof Element)) return null
   const tab = target.closest<HTMLElement>('[data-tab-drag-id]')
@@ -146,6 +151,32 @@ const sameTabDomTarget = (left: TabDomTarget, right: TabDomTarget): boolean =>
   left.tabId === right.tabId &&
   left.path.length === right.path.length &&
   left.path.every((part, index) => part === right.path[index])
+
+const fixedStripControlTarget = (
+  target: EventTarget | null,
+): { element: HTMLElement; locator: FixedStripControlTarget } | null => {
+  if (!(target instanceof Element)) return null
+  const element = target.closest<HTMLElement>('[data-pressable]')
+  const strip = element?.closest<HTMLElement>('[data-testid="native-tab-strip"]')
+  const paneId = strip?.dataset.pane
+  const label = element?.getAttribute('aria-label')
+  if (!element || !paneId || !label || element.closest('[data-tab-drag-id]')) return null
+  return { element, locator: { paneId, label } }
+}
+
+const resolveFixedStripControlTarget = (
+  workspace: HTMLElement | null,
+  target: FixedStripControlTarget,
+): HTMLElement | null => {
+  const strips =
+    workspace?.querySelectorAll<HTMLElement>('[data-testid="native-tab-strip"]') ?? []
+  const strip = [...strips].find((candidate) => candidate.dataset.pane === target.paneId)
+  return (
+    [...(strip?.querySelectorAll<HTMLElement>('[data-pressable]') ?? [])].find(
+      (candidate) => candidate.getAttribute('aria-label') === target.label,
+    ) ?? null
+  )
+}
 
 const pointerSnapshot = (event: PointerEvent): TabDragPointerEventSnapshot => ({
   pointerId: event.pointerId,
@@ -255,6 +286,18 @@ export function Workspace({
     useState<ComponentType<WorkspaceTabDragRuntimeProps> | null>(null)
   const dragRuntimeRequested = useRef(false)
   const dragFocusToRestore = useRef<TabDomTarget | null>(null)
+  // A tab can start the import before the pointer reaches a fixed strip action.
+  // Hold a resolved runtime through that press so wrapping the chrome in
+  // DndContext cannot replace the button before its click arrives.
+  const fixedStripFocusToRestore = useRef<FixedStripControlTarget | null>(null)
+  const fixedStripPress = useRef<{
+    pointerId: number
+    target: HTMLElement
+    locator: FixedStripControlTarget
+  } | null>(null)
+  const deferredDragRuntime = useRef<ComponentType<WorkspaceTabDragRuntimeProps> | null>(null)
+  const clearFixedStripPressListeners = useRef<(() => void) | null>(null)
+  const fixedStripPressTimer = useRef<number | null>(null)
   const pendingDragActivation = useRef<
     | {
         kind: 'pointer'
@@ -330,6 +373,63 @@ export function Workspace({
     cancelColdPressFallback()
   }, [cancelColdPressFallback, clearColdDragClickSuppression])
 
+  const clearFixedStripPress = useCallback((): void => {
+    if (fixedStripPressTimer.current !== null) {
+      window.clearTimeout(fixedStripPressTimer.current)
+      fixedStripPressTimer.current = null
+    }
+    clearFixedStripPressListeners.current?.()
+    clearFixedStripPressListeners.current = null
+    fixedStripPress.current = null
+    deferredDragRuntime.current = null
+  }, [])
+
+  const finishFixedStripPress = useCallback((): void => {
+    fixedStripPressTimer.current = null
+    clearFixedStripPressListeners.current?.()
+    clearFixedStripPressListeners.current = null
+    const press = fixedStripPress.current
+    const runtime = deferredDragRuntime.current
+    fixedStripPress.current = null
+    deferredDragRuntime.current = null
+    if (!runtime) return
+    if (press && document.activeElement === press.target) {
+      fixedStripFocusToRestore.current = press.locator
+    }
+    setDragRuntime(() => runtime)
+  }, [])
+
+  const captureColdFixedStripPress = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>): boolean => {
+      const fixedTarget = fixedStripControlTarget(event.target)
+      if (!fixedTarget) return false
+      if (fixedStripPress.current) return true
+
+      dragFocusToRestore.current = null
+      const press = {
+        pointerId: event.pointerId,
+        target: fixedTarget.element,
+        locator: fixedTarget.locator,
+      }
+      fixedStripPress.current = press
+      const ownerDocument = fixedTarget.element.ownerDocument
+      const finishAfterClick = (end: PointerEvent): void => {
+        if (end.pointerId !== press.pointerId || fixedStripPressTimer.current !== null) return
+        clearFixedStripPressListeners.current?.()
+        clearFixedStripPressListeners.current = null
+        fixedStripPressTimer.current = window.setTimeout(finishFixedStripPress, 0)
+      }
+      ownerDocument.addEventListener('pointerup', finishAfterClick, true)
+      ownerDocument.addEventListener('pointercancel', finishAfterClick, true)
+      clearFixedStripPressListeners.current = () => {
+        ownerDocument.removeEventListener('pointerup', finishAfterClick, true)
+        ownerDocument.removeEventListener('pointercancel', finishAfterClick, true)
+      }
+      return true
+    },
+    [finishFixedStripPress],
+  )
+
   const preloadDragRuntime = useCallback(
     (intentTarget: EventTarget | null, restoreFocus = false): void => {
       const target = tabDomTarget(intentTarget)
@@ -339,6 +439,10 @@ export function Workspace({
       dragRuntimeRequested.current = true
       void loadDragRuntime().then(
         (module) => {
+          if (fixedStripPress.current) {
+            deferredDragRuntime.current = module.WorkspaceTabDragRuntime
+            return
+          }
           setDragRuntime(() => module.WorkspaceTabDragRuntime)
         },
         () => {
@@ -352,6 +456,7 @@ export function Workspace({
   )
 
   useEffect(() => clearPendingDragActivation, [clearPendingDragActivation])
+  useEffect(() => clearFixedStripPress, [clearFixedStripPress])
 
   // The plain strip is keyboard-focusable while its runtime is loading. If the
   // provider's arrival replaces that focused node, put focus back on the same
@@ -363,6 +468,17 @@ export function Workspace({
     dragFocusToRestore.current = null
     const current = document.activeElement
     const replacement = resolveTabDomTarget(workspaceRef.current, target)
+    if (current === replacement && current.isConnected) return
+    if (current instanceof HTMLElement && current !== document.body && current.isConnected) return
+    replacement?.focus()
+  }, [])
+
+  const restoreFixedStripFocus = useCallback((): void => {
+    const target = fixedStripFocusToRestore.current
+    if (!target) return
+    fixedStripFocusToRestore.current = null
+    const current = document.activeElement
+    const replacement = resolveFixedStripControlTarget(workspaceRef.current, target)
     if (current === replacement && current.isConnected) return
     if (current instanceof HTMLElement && current !== document.body && current.isConnected) return
     replacement?.focus()
@@ -404,12 +520,15 @@ export function Workspace({
   // runtime's passive replay effect leaves a painted, observable frame on body
   // when a cold keyboard pickup was cancelled before the import resolved.
   useLayoutEffect(() => {
-    if (DragRuntime) restoreDragFocus()
-  }, [DragRuntime, restoreDragFocus])
+    if (!DragRuntime) return
+    restoreDragFocus()
+    restoreFixedStripFocus()
+  }, [DragRuntime, restoreDragFocus, restoreFixedStripFocus])
 
   const captureColdPointerActivation = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>): void => {
       if (DragRuntime || !event.isPrimary || event.button !== 0) return
+      if (captureColdFixedStripPress(event)) return
       const target = event.target
       const tabNode =
         target instanceof Element ? target.closest<HTMLElement>('[data-tab-drag-id]') : null
@@ -492,6 +611,7 @@ export function Workspace({
     },
     [
       DragRuntime,
+      captureColdFixedStripPress,
       clearPendingDragActivation,
       clearColdDragClickSuppression,
       deferColdDragClickCleanup,

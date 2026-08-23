@@ -744,6 +744,62 @@ describe('Workspace splitting', () => {
     },
   )
 
+  it.each([
+    { name: 'New panel', pane: 0, action: 'new' },
+    { name: 'Split Right', pane: 0, action: 'split' },
+    { name: 'Close pane', pane: 1, action: 'close' },
+  ] as const)(
+    'holds an in-flight drag runtime through the $name press',
+    async ({ name, pane, action }) => {
+      featureEnabled['tab-splitting'] = true
+      const runtime = delayedDragRuntime()
+      render(<Workspace loadDragRuntime={runtime.load} />)
+
+      const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+      if (!intentTab) throw new Error('no source tab')
+      fireEvent.pointerEnter(intentTab)
+      expect(runtime.load).toHaveBeenCalledTimes(1)
+
+      const original = within(strips()[pane] as HTMLElement).getByRole('button', { name })
+      const clicked = vi.fn()
+      original.addEventListener('click', clicked)
+      original.focus()
+      fireEvent.pointerDown(original, {
+        pointerId: 12,
+        pointerType: 'mouse',
+        isPrimary: true,
+        button: 0,
+        buttons: 1,
+      })
+
+      await runtime.release()
+      expect(original.isConnected).toBe(true)
+      expect(document.activeElement).toBe(original)
+      expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+
+      fireEvent.pointerUp(original, {
+        pointerId: 12,
+        pointerType: 'mouse',
+        isPrimary: true,
+        button: 0,
+        buttons: 0,
+      })
+      fireEvent.click(original)
+
+      expect(clicked).toHaveBeenCalledTimes(1)
+      if (action === 'split') {
+        expect(actions.splitWorkspacePane).toHaveBeenCalledWith('p1', 'row', { tabId: undefined })
+      } else if (action === 'close') {
+        expect(actions.closeWorkspacePane).toHaveBeenCalledWith('p2')
+      }
+
+      await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+      const replacement = within(strips()[pane] as HTMLElement).getByRole('button', { name })
+      expect(original.isConnected).toBe(false)
+      expect(document.activeElement).toBe(replacement)
+    },
+  )
+
   it.each(['label', 'close'] as const)(
     'finishes a cold drag without dispatching its browser click to the source %s control',
     async (control) => {
