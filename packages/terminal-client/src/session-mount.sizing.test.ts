@@ -59,7 +59,7 @@ function withResizableAddon(): { set: (cols: number, rows: number) => void } {
   }
 }
 /** Return a valid-but-stale grid for a few measurements, then the settled grid. */
-function withSequencedAddon(grids: ReadonlyArray<{ cols: number; rows: number }>): void {
+function withSequencedAddon(grids: ReadonlyArray<{ cols: number; rows: number } | undefined>): void {
   const proto = FitAddon.prototype as unknown as { proposeDimensions: () => unknown }
   const original = proto.proposeDimensions
   let index = 0
@@ -235,6 +235,9 @@ describe('mountSession eligibility-gated sizing', () => {
       active: false,
     })
     mounted.setActive(true)
+    expect(calls.claims).toEqual([])
+    vi.advanceTimersByTime(16)
+    expect(calls.claims).toEqual([])
     vi.advanceTimersByTime(16 * 2)
     expect(calls.leaseAcquire).toBe(1)
     expect(calls.requestControl).toBe(1)
@@ -432,10 +435,85 @@ describe('mountSession eligibility-gated sizing', () => {
     vi.advanceTimersByTime(1)
   })
 
+  it('re-fits when pageshow returns without focus or visibilitychange', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    protoPatchRestorers.push(() => {
+      if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility)
+      else
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    })
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+    })
+    expect(calls.requestControl).toBe(0)
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    window.dispatchEvent(new Event('pageshow'))
+    vi.advanceTimersByTime(16 * 2)
+    expect(calls.requestControl).toBe(1)
+    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('cancels stale reveal callbacks when a newer page resume supersedes them', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: false,
+    })
+    mounted.setActive(true)
+    window.dispatchEvent(new Event('focus'))
+    vi.advanceTimersByTime(16 * 2)
+    expect(calls.requestControl).toBe(1)
+    expect(calls.claims).toEqual([{ cols: 150, rows: 50 }])
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('resets the reveal settle streak after an invalid measurement', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withSequencedAddon([
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+      undefined,
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+    ])
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: false,
+    })
+    mounted.setActive(true)
+    vi.advanceTimersByTime(16 * 4)
+    expect(calls.claims).toEqual([])
+    vi.advanceTimersByTime(16)
+    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
   it('settles a valid stale fit before claiming foreground geometry', () => {
     withResizeObserver()
     withFakeTimedRaf()
     withSequencedAddon([
+      { cols: 80, rows: 24 },
+      { cols: 80, rows: 24 },
       { cols: 80, rows: 24 },
       { cols: 80, rows: 24 },
       { cols: 80, rows: 24 },
@@ -450,7 +528,7 @@ describe('mountSession eligibility-gated sizing', () => {
     state(80, 24)
     mounted.setActive(true)
     expect(calls.claims).toEqual([])
-    vi.advanceTimersByTime(16 * 2)
+    vi.advanceTimersByTime(16 * 5)
     expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
     expect(calls.resize).toEqual([])
     mounted.dispose()

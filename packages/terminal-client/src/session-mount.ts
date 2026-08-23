@@ -351,13 +351,29 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
           const before = { cols: view.cols(), rows: view.rows() }
           const grid = view.fit()
           if (grid) {
-            const gridChanged = grid.cols !== before.cols || grid.rows !== before.rows
-            trace('reveal:measured', { attempt, before, grid, gridChanged })
-            onMeasured(grid, gridChanged)
-            return
+            // TerminalView.fit() measures more than once: FitAddon.fit() performs
+            // its own proposeDimensions call after TerminalView's readiness probe.
+            // A cached, valid proposal can therefore be applied even after the
+            // pre-fit samples have started reporting the real layout. Validate the
+            // grid that actually reached xterm and require the next proposal to
+            // agree before allowing it to drive the daemon.
+            const applied = { cols: view.cols(), rows: view.rows() }
+            const settled = view.proposeFit()
+            if (
+              grid.cols === applied.cols &&
+              grid.rows === applied.rows &&
+              settled?.cols === applied.cols &&
+              settled?.rows === applied.rows
+            ) {
+              const gridChanged = applied.cols !== before.cols || applied.rows !== before.rows
+              trace('reveal:measured', { attempt, before, proposed, applied, gridChanged })
+              onMeasured(applied, gridChanged)
+              return
+            }
+            trace('reveal:fit-mismatch', { attempt, before, proposed, grid, applied, settled })
           }
-          // The probe and the actual fit should agree, but keep the reveal
-          // retryable if a renderer changes between those two calls.
+          // The probe, the applied grid, and the post-fit measurement must agree;
+          // otherwise start a fresh consecutive-valid streak on the next frame.
           measurableFrames = 0
         }
       } else {
