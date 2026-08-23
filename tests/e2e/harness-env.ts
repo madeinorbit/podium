@@ -68,6 +68,10 @@ function compactRunId(value: string): string {
  * Host tmpdir is intentionally used instead of the per-file hermetic TMPDIR
  * container. This is a cross-process path contract: the webServer, browser
  * workers, and globalTeardown must all resolve the same short root.
+ * Keep production TMPDIR at /tmp: current socket paths have only single-digit
+ * headroom, and a TMPDIR roughly six characters longer can make session spawn
+ * fail and surface only as a silent e2e output timeout. The short run id, not a
+ * longer TMPDIR, provides per-run isolation.
  */
 function harnessTmpRoot(): string {
   return process.env.PODIUM_TEST_HOST_TMPDIR?.trim() || tmpdir()
@@ -305,9 +309,11 @@ export function applyRealAgentCodexEnv(
   return dirs
 }
 
-/** SIGTERM every abduco master and tmux server inside the harness dirs, then wipe. */
+/**
+ * SIGTERM every abduco master and tmux server inside the harness dirs, then wipe.
+ * Callers validate the ownership marker before reaching this private helper.
+ */
 function reapHarnessSessionsOwned(dirs: ReturnType<typeof harnessEnv>): void {
-  if (!ownsHarnessDir(dirs)) return
   const { base, stateDir, abducoSocketDir, tmuxTmpDir } = dirs
 
   // The harness's daemon installs its own abduco under <state>/bin when none is
@@ -484,6 +490,9 @@ export function applyHarnessEnv(
   port: number,
   requestedRunId?: string,
 ): ReturnType<typeof harnessEnv> & { env: Record<string, string> } {
+  // Every harness startup reaches this function. Sweep dead, explicitly owned
+  // sibling roots before claiming this run so hard-killed sessions self-heal.
+  reapStaleHarnessDirs()
   const dirs = harnessEnv(port, requestedRunId)
   claimHarnessDir(dirs)
   for (const d of [dirs.stateDir, dirs.abducoSocketDir, dirs.tmuxTmpDir]) {

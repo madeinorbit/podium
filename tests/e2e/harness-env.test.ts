@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   applyHarnessEnv,
   applyRealAgentCodexEnv,
+  ensureHarnessRunId,
   harnessEnv,
   harnessPidFile,
   reapHarnessSessions,
@@ -86,9 +87,10 @@ describe('applyRealAgentCodexEnv', () => {
  *
  * abduco builds the master's socket at `$ABDUCO_SOCKET_DIR/abduco/<user>/<label><@host>`
  * and refuses to create the session ("create-session: File name too long") once
- * that reaches sun_path's 108 bytes. Nothing in the harness enforced the budget,
- * so the SP-0be7 TMPDIR container silently spent 23 of the 17 bytes of headroom:
- * every daemon spawn failed and the only visible symptom was an e2e output timeout.
+ * that reaches sun_path's 108 bytes. Production leaves TMPDIR at /tmp because
+ * the current socket paths have only single-digit headroom: a TMPDIR roughly
+ * six characters longer can make every daemon spawn fail, with only an e2e
+ * output timeout visible. The short run id provides isolation instead.
  */
 describe('harness abduco socket budget', () => {
   const SUN_PATH_MAX = 108 // sizeof(struct sockaddr_un.sun_path)
@@ -122,6 +124,25 @@ describe('harness abduco socket budget', () => {
       `${second.abducoSocketDir}/abduco/${userInfo().username}/podium-${randomUUID()}@${hostname()}`
     expect(firstSocket.length).toBeLessThan(SUN_PATH_MAX)
     expect(secondSocket.length).toBeLessThan(SUN_PATH_MAX)
+  })
+
+  it('mints distinct default run ids for separate invocations', () => {
+    const original = process.env.PODIUM_E2E_RUN_ID
+    try {
+      delete process.env.PODIUM_E2E_RUN_ID
+      const first = ensureHarnessRunId()
+      delete process.env.PODIUM_E2E_RUN_ID
+      const second = ensureHarnessRunId()
+      expect(second).not.toBe(first)
+    } finally {
+      if (original === undefined) delete process.env.PODIUM_E2E_RUN_ID
+      else process.env.PODIUM_E2E_RUN_ID = original
+    }
+  })
+
+  it('caps an externally supplied run id before socket paths are built', () => {
+    const dirs = harnessEnv(9923, 'a'.repeat(200))
+    expect(dirs.runId).toHaveLength(8)
   })
 })
 
@@ -248,10 +269,19 @@ describe('reapStaleHarnessDirs', () => {
     expect(existsSync(dirs.base)).toBe(false)
   })
 
-  it('leaves a marked dir whose owner pid is alive', () => {
-    const dirs = seedDir(9932, process.pid)
-    expect(reapStaleHarnessDirs()).not.toContain(9932)
-    expect(existsSync(dirs.base)).toBe(true)
+  it('leaves a marked dir whose owner pid is alive in another process', async () => {
+    const owner = spawn('sleep', ['30'], { stdio: 'ignore' })
+    try {
+      const pid = owner.pid
+      if (pid === undefined) throw new Error('sleep did not expose a pid')
+      expect(pid).not.toBe(process.pid)
+      const dirs = seedDir(9932, pid)
+      expect(reapStaleHarnessDirs()).not.toContain(9932)
+      expect(existsSync(dirs.base)).toBe(true)
+    } finally {
+      if (owner.exitCode === null && owner.signalCode === null) owner.kill('SIGKILL')
+      await waitForExit(owner).catch(() => {})
+    }
   })
 
   it('does not turn a corrupt harness pid file into a reap', () => {
@@ -287,6 +317,13 @@ describe('reapStaleHarnessDirs', () => {
     }
   })
 
+  it('sweeps dead sibling roots before claiming a new run', () => {
+    const stale = seedDir(9939, 2 ** 30)
+    const fresh = applyHarnessEnv(9940, 'fresh')
+    expect(existsSync(stale.base)).toBe(false)
+    expect(existsSync(fresh.base)).toBe(true)
+  })
+
   it('reaps only the owned same-port run', () => {
     const first = applyHarnessEnv(9937, 'first')
     const second = applyHarnessEnv(9937, 'second')
@@ -298,6 +335,42 @@ describe('reapStaleHarnessDirs', () => {
 
     reapHarnessSessions(9937, second.runId)
     expect(existsSync(second.base)).toBe(false)
+  })
+
+  it('does not reap an unowned current run root', () => {
+    const original = process.env.PODIUM_E2E_RUN_ID
+    process.env.PODIUM_E2E_RUN_ID = 'caller'
+    try {
+      const dirs = harnessEnv(9941)
+      mkdirSync(dirs.stateDir, { recursive: true })
+      reapHarnessSessions(9941)
+      expect(existsSync(dirs.base)).toBe(true)
+    } finally {
+      if (original === undefined) delete process.env.PODIUM_E2E_RUN_ID
+      else process.env.PODIUM_E2E_RUN_ID = original
+    }
+  })
+
+  it('does not stop a pid from an unowned current run root', async () => {
+    const original = process.env.PODIUM_E2E_RUN_ID
+    process.env.PODIUM_E2E_RUN_ID = 'caller'
+    const sentinel = spawn('sleep', ['30'], { stdio: 'ignore' })
+    try {
+      const dirs = harnessEnv(9942)
+      const pid = sentinel.pid
+      if (pid === undefined) throw new Error('sleep did not expose a pid')
+      mkdirSync(dirs.stateDir, { recursive: true })
+      writeFileSync(harnessPidFile(9942, dirs.runId), String(pid))
+      await stopHarnessProcess(9942, { graceMs: 50, forceKillWaitMs: 50, pollMs: 5 })
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(sentinel.signalCode).toBeNull()
+      expect(existsSync(dirs.base)).toBe(true)
+    } finally {
+      if (original === undefined) delete process.env.PODIUM_E2E_RUN_ID
+      else process.env.PODIUM_E2E_RUN_ID = original
+      if (sentinel.exitCode === null && sentinel.signalCode === null) sentinel.kill('SIGKILL')
+      await waitForExit(sentinel).catch(() => {})
+    }
   })
 
   it('does not claim a non-empty unowned run root', () => {
