@@ -200,28 +200,18 @@ export interface IssueDeps {
     args?: Record<string, string>,
     machineId?: MachineId,
   ): Promise<{ ok: boolean; output: string }>
+  /**
+   * Resolve the target an unpinned machine operation would choose for cwd.
+   *
+   * Worktree writers call this before their first operation, persist the result,
+   * and pass that same id to the operation. Optional only for the existing unit
+   * fixtures; production injects the daemon router's exact resolver.
+   */
+  resolveMachine?(requested: string | undefined, cwd: string): MachineId
   /** Pre-flight for an explicit machine pin: throws (actionable message) when the
    *  machine is offline or lacks the repo. Injected by the relay; optional so
    *  existing test deps literals stay valid. */
   requireMachineForRepo?(machineId: MachineId, repoPath: string): void
-  /**
-   * The online machine that HOLDS this repository path, or undefined.
-   *
-   * A worktree's recorded machine and the machine its git op runs on have to agree,
-   * and the only way to guarantee that is to decide once and use the answer for
-   * both. Neither of the two obvious shortcuts does it: an absent machineId is
-   * re-resolved against the fleet at call time, so the answer moves; and assuming
-   * the host retargets every issue whose repository lives elsewhere, which is how
-   * POD-2651 broke starts for repositories registered to another machine.
-   *
-   * Deliberately NOT `pickMachineForRepo`, whose fallback is the first online
-   * daemon: for a path no machine has registered that is an arbitrary machine, and
-   * a worktree needs the repository, not merely somewhere to run. Undefined here
-   * means "nobody holds it" and the caller falls back to the host on purpose.
-   *
-   * Optional so existing test deps literals stay valid; absent = host behaviour.
-   */
-  machineHoldingRepo?(cwd: string): MachineId | undefined
   /**
    * Prepare a machine-pinned start (POD-1424): put the right REPOSITORY on the target
    * (resolved by repo IDENTITY, cloned on absence — POD-1386) and the right COMMITS in

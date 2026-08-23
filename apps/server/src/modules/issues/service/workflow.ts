@@ -376,15 +376,10 @@ export class IssueGitWorkflowModule {
       if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, startRepoPath)
       const branch = this.store.slug(row.seq, row.title)
       path = this.worktreePathFor(startRepoPath, branch)
-      // A worktree is machine-local even when its placement was implicit, so persist a
-      // real machine id rather than encoding the choice as NULL. It must be the machine
-      // repoOp would have picked for this path, NOT the host: passing an explicit id
-      // short-circuits that pick, so assuming the host both mis-records the row and
-      // retargets the op away from the repository's own machine (POD-2651).
-      const worktreeMachineId =
-        row.machineId ??
-        this.store.d.machineHoldingRepo?.(startRepoPath) ??
-        this.store.d.store.hostMachineId
+      // Freeze the SAME repo-affine/default choice repoOp used to make internally.
+      // Persisting and routing with one value records where the worktree was actually
+      // created without changing which daemon receives the operation.
+      const worktreeMachineId = this.store.resolveWorktreeMachine(row.machineId, startRepoPath)
       const res = await this.store.d.repoOp(
         'worktreeAdd',
         startRepoPath,
@@ -742,16 +737,11 @@ export class IssueGitWorkflowModule {
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot create an issue worktree')
     }
-    // An implicit placement is still a real machine, not an absence of placement — but
-    // it is the one this repository resolves to, not the host. See POD-2651: the host
-    // assumption sent worktree ops for another machine's repositories to a path that
-    // does not exist here.
-    const machineId =
-      requestedMachineId ??
-      row.machineId ??
-      this.store.d.machineHoldingRepo?.(row.repoPath) ??
-      this.store.d.store.hostMachineId
-    const repoPath = this.repoPathOnMachine(row.repoPath, machineId)
+    // Preserve an explicit request/pin as-is. An unpinned operation is resolved at
+    // its actual cwd immediately before the operation, then that exact id is reused
+    // for routing and persisted if the operation establishes a worktree.
+    const pinnedMachineId = requestedMachineId ?? row.machineId ?? undefined
+    const repoPath = this.repoPathOnMachine(row.repoPath, pinnedMachineId)
     // A worktree path is machine-local. It is reusable only when the issue is
     // already homed on the requested machine AND its repository resolves to the
     // same checkout there. Otherwise it is a stale source-machine path and the
@@ -769,12 +759,21 @@ export class IssueGitWorkflowModule {
         this.repoPathOnMachine(row.repoPath, row.machineId) === repoPath)
     const recordedWorktreePath = homeMatches ? row.worktreePath : null
     if (recordedWorktreePath) {
-      const st = await this.store.d.repoOp('status', recordedWorktreePath, undefined, machineId)
+      const statusMachineId = this.store.resolveWorktreeMachine(
+        pinnedMachineId,
+        recordedWorktreePath,
+      )
+      const st = await this.store.d.repoOp(
+        'status',
+        recordedWorktreePath,
+        undefined,
+        statusMachineId,
+      )
       if (st.ok) {
-        // Confirming a recorded checkout is also adoption: legacy NULL rows become
-        // explicit as soon as this path establishes where their worktree lives.
+        // Confirming a recorded checkout is adoption evidence: persist the exact
+        // machine that successfully inspected the path.
         if (row.machineId === null) {
-          row.machineId = machineId
+          row.machineId = statusMachineId
           this.store.persistRow(row)
         }
         return {
@@ -807,19 +806,23 @@ export class IssueGitWorkflowModule {
     // row.repoPath when the layouts differ (POD-1571). Resolve by identity first, then
     // guard — and run the recreate itself against the resolved path, since `git -C
     // <source path>` on the target names a directory that is not there.
+    const worktreeMachineId = this.store.resolveWorktreeMachine(pinnedMachineId, repoPath)
     const path = recordedWorktreePath ?? this.worktreePathFor(repoPath, row.branch)
-    if (machineId) this.store.d.requireMachineForRepo?.(machineId, repoPath)
+    // Keep the old implicit behavior: only explicit requests/pins use this pre-flight.
+    // A repo-affine/default selection used to flow straight through repoOp.
+    if (pinnedMachineId) this.store.d.requireMachineForRepo?.(pinnedMachineId, repoPath)
     const res = await this.store.d.repoOp(
       'worktreeAddExisting',
       repoPath,
       { path, branch: row.branch },
-      machineId,
+      worktreeMachineId,
     )
     // `already exists` is not a failure when what exists IS this issue's worktree on
     // this issue's branch (POD-1898): adopt it rather than refusing a resume over a
     // working copy that is right there. Anything else at that path still fails.
     const adopted =
-      !res.ok && (await this.worktreeAlreadyThere(res.output, path, row.branch, machineId))
+      !res.ok &&
+      (await this.worktreeAlreadyThere(res.output, path, row.branch, worktreeMachineId))
     if (!res.ok && !adopted) {
       return {
         ok: false,
@@ -829,7 +832,7 @@ export class IssueGitWorkflowModule {
       }
     }
     row.repoPath = repoPath
-    row.machineId = asMachineId(machineId)
+    row.machineId = asMachineId(worktreeMachineId)
     row.worktreePath = path
     this.store.persistRow(row)
     this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)

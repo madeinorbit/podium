@@ -540,26 +540,12 @@ export class MachinesService {
    * to attach and drain the queue.
    */
   pickMachineForRepo(_originUrl: string | undefined, cwd: string): MachineId {
-    return this.machineHoldingRepo(cwd) ?? this.defaultMachine()
-  }
-
-  /**
-   * The online machine that actually HAS this path registered, or undefined.
-   *
-   * Split out of `pickMachineForRepo` because its callers need the two answers
-   * separated. That method must always name a machine, so it ends in
-   * `defaultMachine()` — the first online daemon, which for an UNREGISTERED path is
-   * an arbitrary one. Choosing arbitrarily is right for spawning a session, which
-   * only needs somewhere to run, and wrong for creating a worktree, which needs the
-   * repository. Callers that must fall back to the host ask this instead and say so
-   * themselves (POD-2651).
-   */
-  machineHoldingRepo(cwd: string): MachineId | undefined {
-    return this.onlineMachineIds().find((id) =>
+    const byRepo = this.onlineMachineIds().find((id) =>
       this.deps.store.repos
         .listRepos(id)
         .some((r) => cwd === r.path || cwd.startsWith(`${r.path}/`)),
     )
+    return byRepo ?? this.defaultMachine()
   }
 
   /**
