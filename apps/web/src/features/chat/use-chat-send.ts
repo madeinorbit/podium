@@ -12,8 +12,13 @@ import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
-import type { PendingItem, QueuedChatMessage } from './chat'
-import { markPendingSendingFailed, queuedOperatorMessages, reconcilePending } from './chat'
+import type { DeadLetteredChatMessage, PendingItem, QueuedChatMessage } from './chat'
+import {
+  deadLetteredOperatorMessages,
+  markPendingSendingFailed,
+  queuedOperatorMessages,
+  reconcilePending,
+} from './chat'
 import type { UseHeadlessTurnResult } from './use-headless-turn'
 
 /**
@@ -87,6 +92,7 @@ export interface UseChatSendOptions {
 export interface UseChatSendResult {
   pending: PendingItem[]
   queuedMessages: QueuedChatMessage[]
+  failedMessages: DeadLetteredChatMessage[]
   /** True briefly after a send so the working indicator appears before the agent
    *  reports for itself. */
   justSent: boolean
@@ -147,6 +153,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   )
   const [pending, setPending] = useState<PendingItem[]>(initialPending)
   const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
+  const [failedMessages, setFailedMessages] = useState<DeadLetteredChatMessage[]>([])
   const [justSent, setJustSent] = useState(false)
   const [ctxSeq, setCtxSeq] = useState<number | null>(null)
   const [dismissedOfferAt, setDismissedOfferAt] = useState<string | null>(null)
@@ -161,11 +168,15 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   const refreshQueuedMessages = useCallback(() => {
     if (headless) {
       setQueuedMessages([])
+      setFailedMessages([])
       return
     }
     Promise.resolve()
       .then(() => trpc.messages.ledger.query({ sessionId, limit: 100 }))
-      .then((rows) => setQueuedMessages(queuedOperatorMessages(rows, sessionId)))
+      .then((rows) => {
+        setQueuedMessages(queuedOperatorMessages(rows, sessionId))
+        setFailedMessages(deadLetteredOperatorMessages(rows, sessionId))
+      })
       .catch(() => {
         // Transcript/chat remains usable if the optional delivery-ledger read is
         // temporarily unavailable. Keep the last confirmed queued snapshot.
@@ -196,6 +207,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   useEffect(() => {
     setPending(initialPending())
     setQueuedMessages([])
+    setFailedMessages([])
     setJustSent(false)
     seenUserIds.current = new Set()
     // The transcript window itself resets on the same trigger inside
@@ -503,6 +515,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   return {
     pending,
     queuedMessages,
+    failedMessages,
     justSent,
     ctxSeq,
     send,

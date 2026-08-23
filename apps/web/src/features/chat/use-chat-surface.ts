@@ -33,7 +33,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
-import type { ChatBlock, PendingItem, QueuedChatMessage } from './chat'
+import type { ChatBlock, DeadLetteredChatMessage, PendingItem, QueuedChatMessage } from './chat'
+import { withoutOptimisticFailedDuplicates } from './chat'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
@@ -152,12 +153,14 @@ export interface ChatSurface {
   submitDraft: (draft: string) => void
   pending: readonly PendingItem[]
   restoredQueued: readonly QueuedChatMessage[]
+  restoredFailed: readonly DeadLetteredChatMessage[]
   ctxSeq: number | null
   offer: SessionMeta['offer'] | null
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
   /** Decline the offer without answering it — see `useChatSend`. */
   dismissOffer: (offerAt: string) => Promise<void>
   retractQueuedMessage: (id: string) => Promise<void>
+  retryFailedMessage: (text: string) => void
   answerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   activity: ChatActivity | null
 
@@ -480,6 +483,10 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       }),
     [session, send.queuedMessages, send.pending],
   )
+  const restoredFailed = useMemo(
+    () => withoutOptimisticFailedDuplicates(send.failedMessages, send.pending),
+    [send.failedMessages, send.pending],
+  )
 
   const phase = useMemo(
     () =>
@@ -727,11 +734,13 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     submitDraft,
     pending: send.pending,
     restoredQueued: queued.restored,
+    restoredFailed,
     ctxSeq: send.ctxSeq,
     offer,
     sendOfferPrompt: send.sendOfferPrompt,
     dismissOffer: send.dismissOffer,
     retractQueuedMessage: send.retractQueuedMessage,
+    retryFailedMessage: (text) => void send.send(text),
     answerAsk,
     activity,
 

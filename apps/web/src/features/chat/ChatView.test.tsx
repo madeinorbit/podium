@@ -524,6 +524,55 @@ describe('ChatView composer', () => {
     expect(container.querySelector('[data-notice="queue"]')).toBeNull()
   })
 
+  it('restores a dead-lettered chat message with its reason and retries it', async () => {
+    fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
+      {
+        id: 'msg_failed',
+        from: 'operator',
+        to: 'session:s1',
+        body: 'please try this again',
+        createdAt: '2026-06-03T00:00:01.000Z',
+        status: 'dead_letter',
+        deliveryDeferredReason: 'never-live',
+      },
+      {
+        id: 'msg_other_session',
+        from: 'operator',
+        to: 'session:s2',
+        body: 'do not show this here',
+        createdAt: '2026-06-03T00:00:02.000Z',
+        status: 'dead_letter',
+        deliveryDeferredReason: 'teardown',
+      },
+      {
+        id: 'msg_delivered',
+        from: 'operator',
+        to: 'session:s1',
+        body: 'already delivered',
+        createdAt: '2026-06-03T00:00:03.000Z',
+        status: 'delivered',
+      },
+    ])
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const failed = container.querySelector('[data-testid="dead-lettered-chat-message"]')
+    expect(failed?.textContent).toContain('please try this again')
+    expect(failed?.textContent).toContain('not delivered · session never became ready')
+    expect(container.textContent).not.toContain('do not show this here')
+    expect(container.textContent).not.toContain('already delivered')
+
+    await act(async () => {
+      failed?.querySelector<HTMLButtonElement>('[aria-label="Retry failed message"]')?.click()
+      await Promise.resolve()
+    })
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 's1', text: 'please try this again' }),
+    )
+  })
+
   it('stops calling a queued message pending once the CLI has been handed it', async () => {
     fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
       {

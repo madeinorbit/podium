@@ -14,13 +14,13 @@ import {
 } from '@podium/client-core/viewmodels'
 import { agentErrorRecoveryInstruction, formatAgentError } from '@podium/model/browser'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
-import { ArrowUp, Image as ImageIcon } from 'lucide-react'
+import { ArrowUp, Image as ImageIcon, RotateCcw } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { type IssueReferenceLookup, renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type TurnPosition } from './ChatBlockView'
-import type { PendingItem, QueuedChatMessage } from './chat'
+import type { DeadLetteredChatMessage, PendingItem, QueuedChatMessage } from './chat'
 import { MetaGlyph } from './MetaGlyph'
 import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
@@ -336,7 +336,9 @@ export function TranscriptFeed({
   isOperatorPromptRow,
   pending,
   restoredQueued,
+  restoredFailed = [],
   onRetractQueued,
+  onRetryFailed = () => {},
   overlay,
   activity,
   attribution,
@@ -381,7 +383,9 @@ export function TranscriptFeed({
   isOperatorPromptRow: (row: RenderableRow['row']) => boolean
   pending: readonly PendingItem[]
   restoredQueued: readonly QueuedChatMessage[]
+  restoredFailed?: readonly DeadLetteredChatMessage[]
   onRetractQueued: (id: string) => Promise<void>
+  onRetryFailed?: (text: string) => void
   overlay: HeadlessOverlay | null
   activity: ChatActivity | null
   /** The session's three attribution pairs (doc §3.1.3 A3), derived once by the
@@ -798,9 +802,43 @@ export function TranscriptFeed({
       {/* Headless streaming overlay: the in-progress assistant text (or the
           driver's status label) below the last transcript row. Replaced by
           the real item when it lands via the transcript tail; cleared on
-          turn-end. Native sessions never emit these frames.
+          turn-end. Native sessions never emit these frames. */}
 
-          The text carries a caret while it is still being written (POD-423):
+      {/* A dead letter is terminal delivery history: the transcript provider
+          cannot echo it because the session never took the turn. Keep the
+          durable attempt visible and retry by making a fresh normal send. */}
+      {restoredFailed.map((message) => (
+        <div
+          key={message.id}
+          className="transcript-row transcript-turn-open transcript-pending transcript-pending--failed"
+          data-testid="dead-lettered-chat-message"
+        >
+          <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+          <div className="transcript-body transcript-you">
+            <div className="transcript-you-bubble">
+              <div className="transcript-you-body">
+                <div className="chat-md whitespace-pre-wrap">{message.text}</div>
+              </div>
+            </div>
+            <div className="msg-foot" data-side="right">
+              <span className="transcript-delivery transcript-delivery--error">
+                {message.failure}
+              </span>
+              <button
+                data-pressable
+                type="button"
+                className="msg-action"
+                aria-label="Retry failed message"
+                title="Retry failed message"
+                onClick={() => onRetryFailed(message.text)}
+              >
+                <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+      {/* The text carries a caret while it is still being written (POD-423):
           the overlay exists only mid-turn, so its presence IS the signal, and
           it goes away when the finished item takes over. */}
       {overlay && (

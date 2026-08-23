@@ -387,6 +387,8 @@ export function ChatView({
             stickyEnabled={chat.stickyEnabled}
             isOperatorPromptRow={chat.isOperatorPromptRow}
             pending={chat.pending}
+            restoredFailed={chat.restoredFailed}
+            onRetryFailed={chat.retryFailedMessage}
             restoredQueued={chat.restoredQueued}
             onRetractQueued={chat.retractQueuedMessage}
             overlay={chat.headless ? chat.headlessTurn.overlay : null}

@@ -59,6 +59,16 @@ export function clampSummary(m: LedgerMessage): ClampSummary | null {
 
 export type LedgerStatusTone = 'queued' | 'ok' | 'dead'
 
+/** Why a terminal chat delivery never reached its session. Kept separate from
+ * {@link deliveryLine} so the chat transcript can render the same explanation
+ * without manufacturing a complete ledger row. */
+export function deadLetterDeliveryLine(reason: string | null | undefined): string {
+  if (reason === 'never-live') return 'not delivered · session never became ready'
+  if (reason === 'teardown') return 'not delivered · session torn down'
+  if (reason === 'delivery-failed') return 'not delivered · delivery failed'
+  return 'dead-lettered · target gone'
+}
+
 /** Chip tone for a delivery status: queued = pending amber; delivered/read = ok
  *  (the agent has it, pushed or pulled [POD-834]); expired/cancelled/dead_letter
  *  = dead. */
@@ -82,12 +92,7 @@ export function deliveryLine(m: LedgerMessage): string {
   if (m.status === 'queued') return m.expiresAt ? `queued · expires ${m.expiresAt}` : 'queued'
   // A dead letter says WHY when the daemon told us why [POD-2132, POD-2202]: the
   // drain gave up, so this row is terminal rather than waiting on anything.
-  if (m.status === 'dead_letter') {
-    if (m.deliveryDeferredReason === 'never-live')
-      return 'not delivered · session never became ready'
-    if (m.deliveryDeferredReason === 'teardown') return 'not delivered · session torn down'
-    return 'dead-lettered · target gone'
-  }
+  if (m.status === 'dead_letter') return deadLetterDeliveryLine(m.deliveryDeferredReason)
   if (m.status === 'expired') return 'expired undelivered'
   return m.status
 }

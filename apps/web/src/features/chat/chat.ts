@@ -1,5 +1,6 @@
 import { type ChatRow, insertInCursorOrder } from '@podium/client-core/viewmodels'
 import type { SessionId, TranscriptItem, TranscriptTag } from '@podium/model/browser'
+import { deadLetterDeliveryLine } from '../messages/message-ledger'
 
 /**
  * Pure helpers for the chat view: transcript search and the birds-eye minimap
@@ -366,6 +367,16 @@ export interface QueuedChatMessage {
   injectedAt: number | null
 }
 
+/** A terminal operator send that never reached this session. Unlike an
+ * optimistic failure, this row survives navigation and reload in the message
+ * ledger, so the transcript must restore it explicitly. */
+export interface DeadLetteredChatMessage {
+  id: string
+  text: string
+  at: number
+  failure: string
+}
+
 export function queuedOperatorMessages(rows: unknown, sessionId: SessionId): QueuedChatMessage[] {
   if (!Array.isArray(rows)) return []
   return rows
@@ -386,6 +397,50 @@ export function queuedOperatorMessages(rows: unknown, sessionId: SessionId): Que
       injectedAt: typeof row.injectedAt === 'string' ? Date.parse(row.injectedAt) || null : null,
     }))
     .sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
+}
+
+export function deadLetteredOperatorMessages(
+  rows: unknown,
+  sessionId: SessionId,
+): DeadLetteredChatMessage[] {
+  if (!Array.isArray(rows)) return []
+  return rows
+    .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+    .filter(
+      (row) =>
+        row.from === 'operator' &&
+        row.to === `session:${sessionId}` &&
+        row.status === 'dead_letter' &&
+        typeof row.id === 'string' &&
+        typeof row.body === 'string' &&
+        typeof row.createdAt === 'string',
+    )
+    .map((row) => ({
+      id: row.id as string,
+      text: row.body as string,
+      at: Date.parse(row.createdAt as string) || 0,
+      failure: deadLetterDeliveryLine(
+        typeof row.deliveryDeferredReason === 'string' ? row.deliveryDeferredReason : null,
+      ),
+    }))
+    .sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
+}
+
+/** Hide a durable failure already represented by the local failed send that
+ * produced it. Duplicate prompt text is consumed FIFO, matching queue restore. */
+export function withoutOptimisticFailedDuplicates(
+  failed: DeadLetteredChatMessage[],
+  pending: PendingItem[],
+): DeadLetteredChatMessage[] {
+  const optimisticTexts = pending
+    .filter((item) => item.state === 'failed')
+    .map((item) => item.text.trim())
+  return failed.filter((item) => {
+    const index = optimisticTexts.indexOf(item.text.trim())
+    if (index === -1) return true
+    optimisticTexts.splice(index, 1)
+    return false
+  })
 }
 
 /** Hide server-restored rows already represented by an optimistic bubble.
