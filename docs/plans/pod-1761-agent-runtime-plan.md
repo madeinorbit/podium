@@ -629,3 +629,28 @@ work. What a session can actually act on:
 The general lesson is worth more than the specific fix: when a rule keeps being broken by
 people who are trying to follow it, the rule is describing an outcome the actor does not
 control. Find the thing they do control and name that instead.
+
+### A fresh worktree is a heavy event, whatever you tell it to run
+
+Fourth load event of 2026-08-23, and this one was mine. I had just corrected the typecheck
+instruction to "run tsgo on the packages you changed, not the repo gate", verified it was
+being followed, watched load settle at 12 — and then started two brand-new issues within
+minutes of each other. Load went to 76 and available memory to 989 MB.
+
+The corrected instruction was not being ignored. **A newly created worktree has to build its
+project graph from cold no matter which command it runs.** Per-package `tsgo` still has to
+resolve and check everything that package depends on, and the first `bun install` in a fresh
+checkout is itself expensive. There is no cheap first run.
+
+So "no whole-graph gates" solved the steady-state problem and left the *startup* problem
+untouched, and the coordinator is the only one in a position to see it: each session
+experiences one cold start and reasonably assumes it is alone.
+
+Rules that follow:
+
+- **Stagger new starts.** One at a time, and wait until its first heavy pass has finished
+  before starting the next. Two fresh sessions minutes apart is a self-inflicted load event.
+- **Count a fresh start as a heavy run** when deciding whether the box has room — check
+  `free -m` immediately before, not five minutes before.
+- Stopping a session that has barely begun costs almost nothing and is the cheapest lever
+  once you are already in trouble; the branch is kept and a restart resumes from it.
