@@ -511,15 +511,14 @@ export function Workspace({
         },
         () => {
           clearPendingDragActivation()
+          clearFixedStripPress()
           dragFocusToRestore.current = null
           fixedStripFocusToRestore.current = null
-          dragRuntimeDeferredUntilIntent.current = false
-          deferredDragRuntime.current = null
           dragRuntimeRequested.current = false
         },
       )
     },
-    [DragRuntime, clearPendingDragActivation, loadDragRuntime],
+    [DragRuntime, clearFixedStripPress, clearPendingDragActivation, loadDragRuntime],
   )
 
   useEffect(() => clearPendingDragActivation, [clearPendingDragActivation])
