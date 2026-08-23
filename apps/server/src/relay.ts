@@ -1249,6 +1249,7 @@ export class SessionRegistry {
           if (issueAccess.worktreePaths().includes(message.cwd)) break
           issues.update(issue.id, {
             worktreePath: message.cwd,
+            machineId: event.machineId,
             ...(message.branch ? { branch: message.branch } : {}),
           })
           break

@@ -111,6 +111,71 @@ describe('SessionRegistry', () => {
     ])
   })
 
+  it('routes an explicit host id to the host daemon when another daemon is the fleet default', async () => {
+    const store = new SessionStore(':memory:', asMachineId('host-under-test'))
+    store.machines.upsertMachine({
+      id: 'remote-first',
+      name: 'remote',
+      hostname: 'remote',
+      tokenHash: 'remote-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    store.machines.upsertMachine({
+      id: store.hostMachineId,
+      name: 'host',
+      hostname: 'host',
+      tokenHash: 'host-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    store.machines.setMachineInventory(
+      store.hostMachineId,
+      JSON.stringify({
+        os: 'linux',
+        arch: 'x64',
+        agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+        tools: [],
+      }),
+    )
+
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const remote: ControlMessage[] = []
+    const host: ControlMessage[] = []
+    const answerRepoOps =
+      (machineId: string, frames: ControlMessage[]) => (message: ControlMessage) => {
+        frames.push(message)
+        if (message.type === 'repoOpRequest') {
+          reg.gateway.routeDaemonFrame(machineId, {
+            type: 'repoOpResult',
+            requestId: message.requestId,
+            ok: true,
+            output: '',
+          })
+        }
+      }
+
+    try {
+      // Without the explicit host route, repo affinity falls through to the first
+      // online daemon. Attach the remote first so this test distinguishes the seams.
+      reg.gateway.attachDaemon('remote-first', answerRepoOps('remote-first', remote))
+      reg.gateway.attachDaemon(store.hostMachineId, answerRepoOps(store.hostMachineId, host))
+      const issue = reg.modules.issues.create({
+        repoPath: '/r',
+        title: 'Host routed',
+        startNow: false,
+      })
+
+      const started = await reg.modules.issues.start(issue.id)
+
+      expect(started.machineId).toBe(store.hostMachineId)
+      expect(
+        host.filter((message) => message.type === 'repoOpRequest' && message.op === 'worktreeAdd'),
+      ).toHaveLength(1)
+      expect(remote.filter((message) => message.type === 'repoOpRequest')).toHaveLength(0)
+    } finally {
+      reg.dispose()
+    }
+  })
+
   it('buffers control messages produced before a daemon attaches, then flushes them', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     // Boot race: a starter session is created before the daemon ws has connected.
@@ -289,9 +354,13 @@ describe('SessionRegistry', () => {
   }
 
   it('adopts a worktree the harness made for itself, stamping branch and path together', () => {
-    const { cwdMsg, read } = adopting()
+    const { reg, cwdMsg, read } = adopting()
     cwdMsg({})
-    expect(read()).toMatchObject({ worktreePath: '/repo/.claude/worktrees/x', branch: 'claude/x' })
+    expect(read()).toMatchObject({
+      worktreePath: '/repo/.claude/worktrees/x',
+      branch: 'claude/x',
+      machineId: reg.sessionStore.hostMachineId,
+    })
   })
 
   it('never adopts the repo MAIN checkout as an issue workspace', () => {

@@ -167,9 +167,10 @@ describe('IssueService CRUD', () => {
     // members) — what changed is that the issue payload no longer carries the
     // answer, so a session's `lastActiveAt` cannot dirty it.
     const sessions = [sess('/r/wt', 'working'), sess('/r/wt/pkg', 'idle'), sess('/elsewhere')]
-    const { svc } = harness(sessions)
+    const { svc, store } = harness(sessions)
     const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     const updated = svc.update(wire.id, { worktreePath: '/r/wt', stage: 'planning' })
+    expect(updated.machineId).toBe(store.hostMachineId)
     expect(updated).not.toHaveProperty('sessions')
     expect(updated).not.toHaveProperty('sessionSummary')
     // The rule the embed used to express, read from the session side instead.
@@ -1228,7 +1229,7 @@ describe('new agent after worktree free (POD-580)', () => {
   }
 
   it('addSession rebuilds via worktreeAddExisting then spawns into it', async () => {
-    const { svc, deps } = harness()
+    const { svc, deps, store } = harness()
     const w = freedWithBranch(svc)
     deps.repoOp = vi.fn(async (op: string) =>
       op === 'worktreeAddExisting'
@@ -1242,7 +1243,7 @@ describe('new agent after worktree free (POD-580)', () => {
       'worktreeAddExisting',
       '/r',
       { path: '/r/.worktrees/issue-x', branch: 'issue/x' },
-      undefined,
+      store.hostMachineId,
     )
     expect(svc.get(w.id)!.worktreePath).toBe('/r/.worktrees/issue-x')
     expect(deps.spawnSession).toHaveBeenCalledWith(
@@ -1266,7 +1267,7 @@ describe('new agent after worktree free (POD-580)', () => {
   })
 
   it('start attaches the preserved branch (worktreeAddExisting) and spawns a new agent', async () => {
-    const { svc, deps } = harness()
+    const { svc, deps, store } = harness()
     const w = freedWithBranch(svc, 'Restart me')
     deps.repoOp = vi.fn(async (op: string) =>
       op === 'worktreeAddExisting'
@@ -1282,7 +1283,7 @@ describe('new agent after worktree free (POD-580)', () => {
       'worktreeAddExisting',
       '/r',
       { path: '/r/.worktrees/issue-x', branch: 'issue/x' },
-      undefined,
+      store.hostMachineId,
     )
     expect(
       (deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(
@@ -1298,14 +1299,14 @@ describe('new agent after worktree free (POD-580)', () => {
   })
 
   it('start still creates a fresh branch with worktreeAdd when none is recorded', async () => {
-    const { svc, deps } = harness()
+    const { svc, deps, store } = harness()
     const w = svc.create({ repoPath: '/r', title: 'Brand new', startNow: false })
     await svc.start(w.id)
     expect(deps.repoOp).toHaveBeenCalledWith(
       'worktreeAdd',
       '/r',
       expect.objectContaining({ branch: 'issue/1-brand-new' }),
-      undefined,
+      store.hostMachineId,
     )
     expect(
       (deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(
@@ -1409,8 +1410,8 @@ describe('IssueService toWire needs_human (P4)', () => {
 })
 
 describe('IssueService.start', () => {
-  it('creates a worktree off parent, spawns the agent with the description as initialPrompt, moves to in_progress', async () => {
-    const { svc, deps } = harness()
+  it('starts on the host with an explicit machine id and routes work there', async () => {
+    const { svc, deps, store } = harness()
     const created = svc.create({
       repoPath: '/r',
       title: 'Fix login',
@@ -1421,11 +1422,12 @@ describe('IssueService.start', () => {
     expect(started.stage).toBe('in_progress')
     expect(started.branch).toBe('issue/1-fix-login')
     expect(started.worktreePath).toBe('/r/.worktrees/issue-1-fix-login')
+    expect(started.machineId).toBe(store.hostMachineId)
     expect(deps.repoOp).toHaveBeenCalledWith(
       'worktreeAdd',
       '/r',
       { path: '/r/.worktrees/issue-1-fix-login', branch: 'issue/1-fix-login', startPoint: 'main' },
-      undefined,
+      store.hostMachineId,
     )
     expect(deps.spawnSession).toHaveBeenCalledWith({
       cwd: '/r/.worktrees/issue-1-fix-login',
@@ -1436,14 +1438,15 @@ describe('IssueService.start', () => {
       initialPrompt: 'do the thing',
       ownerUserId: FIRST_ADMIN_USER_ID,
       spawnedBy: `issue:${created.id}`,
+      machineId: store.hostMachineId,
     })
   })
 
   it('fires onWorktreesChanged with the issue repoPath after a successful worktree add (POD-665)', async () => {
-    const { svc, onWorktreesChanged } = harness()
+    const { svc, onWorktreesChanged, store } = harness()
     const created = svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     await svc.start(created.id)
-    expect(onWorktreesChanged).toHaveBeenCalledWith('/r', undefined)
+    expect(onWorktreesChanged).toHaveBeenCalledWith('/r', store.hostMachineId)
   })
 
   it('does NOT fire onWorktreesChanged when worktreeAdd fails (POD-665)', async () => {
@@ -1504,7 +1507,8 @@ describe('IssueService.start', () => {
       machineId: asMachineId('mach-b'),
     })
     expect(created.machineId).toBe('mach-b')
-    await svc.start(created.id)
+    const started = await svc.start(created.id)
+    expect(started.machineId).toBe('mach-b')
     expect(deps.repoOp).toHaveBeenCalledWith(
       'worktreeAdd',
       '/r',
@@ -1865,7 +1869,7 @@ describe('IssueService.start', () => {
   })
 
   it('recreate adopts a directory git refuses as already existing when it is our branch', async () => {
-    const { svc, deps } = harness()
+    const { svc, deps, store } = harness()
     const created = svc.create({ repoPath: '/r', title: 'Present', startNow: false })
     svc.update(created.id, { branch: 'issue/1-present' })
     deps.repoOp = vi.fn(async (op: string) =>
@@ -1880,6 +1884,7 @@ describe('IssueService.start', () => {
     expect(result.output).toMatch(/already present/)
     expect(svc.get(created.id)).toMatchObject({
       worktreePath: '/r/.worktrees/issue-1-present',
+      machineId: store.hostMachineId,
     })
   })
 
@@ -1970,7 +1975,7 @@ describe('IssueService.start', () => {
   })
 
   it('uses an explicitly selected agent when starting an unstarted issue', async () => {
-    const { svc, deps } = harness()
+    const { svc, deps, store } = harness()
     deps.getSettings = () =>
       normalizeSettings({
         roles: {
@@ -1993,6 +1998,7 @@ describe('IssueService.start', () => {
       effort: 'auto',
       ownerUserId: FIRST_ADMIN_USER_ID,
       spawnedBy: `issue:${a.id}`,
+      machineId: store.hostMachineId,
     })
   })
 
@@ -2028,7 +2034,7 @@ describe('IssueService.start', () => {
   })
 
   it('captures a chosen model + effort on the issue and spawns with them', async () => {
-    const { svc, deps } = harness()
+    const { svc, deps, store } = harness()
     const a = svc.create({
       repoPath: '/r',
       title: 'A',
@@ -2048,6 +2054,7 @@ describe('IssueService.start', () => {
       effort: 'high',
       ownerUserId: FIRST_ADMIN_USER_ID,
       spawnedBy: `issue:${a.id}`,
+      machineId: store.hostMachineId,
     })
   })
 
@@ -2253,7 +2260,7 @@ describe('IssueService.start', () => {
   })
 
   it('addSession/addShell use issue provenance as the direct-service fallback', async () => {
-    const { svc, deps } = harness()
+    const { svc, deps, store } = harness()
     deps.getSettings = () =>
       normalizeSettings({
         roles: {
@@ -2275,6 +2282,7 @@ describe('IssueService.start', () => {
       effort: 'auto',
       ownerUserId: FIRST_ADMIN_USER_ID,
       spawnedBy: `issue:${a.id}`,
+      machineId: store.hostMachineId,
     })
     svc.addShell(a.id)
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
@@ -4631,7 +4639,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
   }
 
   it('add snapshots from the issue worktree and stores artifactId/entry/files', async () => {
-    const { svc, snapshot } = artifactHarness()
+    const { svc, snapshot, store } = artifactHarness()
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     svc.update(w.id, { worktreePath: '/wt/issue-1' })
     const wire = await svc.panelArtifactAdd(w.id, { path: 'shots/a.png', title: 'Shot' })
@@ -4639,6 +4647,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
       issueId: w.id,
       root: '/wt/issue-1',
       sourcePath: 'shots/a.png',
+      machineId: store.hostMachineId,
     })
     const a = wire.panel?.artifacts[0]
     expect(a).toMatchObject({

@@ -78,6 +78,40 @@ describe('multi-daemon routing', () => {
     expect(meta?.machineName).toBe('two')
   })
 
+  it('stamps the reporting machine when a remote session adopts its worktree', () => {
+    const { reg } = regWithTwoDaemons()
+    try {
+      const issue = reg.modules.issues.create({
+        repoPath: '/repo',
+        title: 'Remote adoption',
+        startNow: false,
+      })
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+        issueId: issue.id,
+        machineId: asMachineId('m2'),
+      })
+
+      reg.gateway.routeDaemonFrame('m2', {
+        type: 'sessionCwd',
+        sessionId,
+        cwd: '/repo/.worktrees/remote-adoption',
+        kind: 'worktree',
+        branch: 'issue/remote-adoption',
+        repoRoot: '/repo',
+      })
+
+      expect(reg.modules.issues.get(issue.id)).toMatchObject({
+        worktreePath: '/repo/.worktrees/remote-adoption',
+        branch: 'issue/remote-adoption',
+        machineId: 'm2',
+      })
+    } finally {
+      reg.dispose()
+    }
+  })
+
   it('acknowledges an exact native binding back to its owner after storing it', () => {
     const { reg, m1, m2 } = regWithTwoDaemons()
     const { sessionId } = reg.modules.sessions.createSession({

@@ -59,6 +59,7 @@ export interface EventMap {
     | {
         kind: 'adoptWorktree'
         issueId: IssueId
+        machineId: MachineId
         message: Extract<DaemonMessage, { type: 'sessionCwd' }>
       }
   /** A remote session asked its host to open a browser URL. [spec:SP-a43e] */
