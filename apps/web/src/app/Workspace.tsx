@@ -395,6 +395,7 @@ export function Workspace({
       if (!fixedTarget) return false
       if (fixedStripPress.current) return true
 
+      clearPendingDragActivation()
       dragFocusToRestore.current = null
       fixedStripPress.current = true
       if (dragRuntimeRequested.current) dragRuntimeDeferredUntilIntent.current = true
@@ -430,7 +431,7 @@ export function Workspace({
       }
       return true
     },
-    [finishFixedStripPress],
+    [clearPendingDragActivation, finishFixedStripPress],
   )
 
   const captureColdFixedStripKeyPress = useCallback(
@@ -440,6 +441,7 @@ export function Workspace({
       if (!fixedTarget) return false
       if (fixedStripPress.current) return true
 
+      clearPendingDragActivation()
       dragFocusToRestore.current = null
       fixedStripPress.current = true
       dragRuntimeDeferredUntilIntent.current = true
@@ -468,7 +470,7 @@ export function Workspace({
       }
       return true
     },
-    [finishFixedStripPress],
+    [clearPendingDragActivation, finishFixedStripPress],
   )
 
   const preloadDragRuntime = useCallback(

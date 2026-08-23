@@ -896,6 +896,35 @@ describe('Workspace splitting', () => {
     expect(document.activeElement).toBe(replacement)
   })
 
+  it('does not replay a cold Space pickup after a fixed action takes ownership', async () => {
+    featureEnabled['tab-splitting'] = true
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    intentTab.focus()
+
+    fireEvent.keyDown(intentTab, { key: ' ', code: 'Space' })
+    expect(runtime.load).toHaveBeenCalledTimes(1)
+
+    const action = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    action.focus()
+    fireEvent.keyDown(action, { key: ' ', code: 'Space' })
+    await runtime.release()
+
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+    fireEvent.keyUp(action, { key: ' ', code: 'Space' })
+    fireEvent.click(action)
+    expect(actions.splitWorkspacePane).toHaveBeenCalledWith('p1', 'row', { tabId: undefined })
+
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+    fireEvent.pointerEnter(intentTab)
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
+  })
+
   it('keeps fixed-control focus when the runtime resolves before keydown', async () => {
     featureEnabled['tab-splitting'] = true
     const runtime = delayedDragRuntime()
