@@ -118,10 +118,9 @@ const mountSessionMock = vi.fn((_el: unknown, opts: unknown) => {
   return mounted
 })
 
-vi.mock('@podium/terminal-client', async (orig) => {
-  const real = (await orig()) as Record<string, unknown>
-  return { ...real, mountSession: (el: unknown, opts: unknown) => mountSessionMock(el, opts) }
-})
+vi.mock('@podium/terminal-client/session-mount', () => ({
+  mountSession: (el: unknown, opts: unknown) => mountSessionMock(el, opts),
+}))
 
 // The mobile keyboard accessory reaches for real DOM measurement the pane's
 // mount would own; nothing here tests it and it renders on every pane.

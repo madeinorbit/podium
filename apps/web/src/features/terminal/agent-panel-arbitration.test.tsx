@@ -51,13 +51,9 @@ vi.mock('@podium/client-core/react', async () =>
   (await import('./test-support/presence-mock')).presenceSeamStub(),
 )
 
-vi.mock('@podium/terminal-client', async (orig) => {
-  const real = (await orig()) as Record<string, unknown>
-  return {
-    ...real,
-    mountSession: (el: unknown, opts: { active?: boolean }) => mountSessionMock(el, opts),
-  }
-})
+vi.mock('@podium/terminal-client/session-mount', () => ({
+  mountSession: (el: unknown, opts: { active?: boolean }) => mountSessionMock(el, opts),
+}))
 
 vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),

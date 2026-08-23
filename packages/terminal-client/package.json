@@ -19,6 +19,16 @@
       "types": "./src/session-mount.ts",
       "import": "./src/session-mount.ts"
     },
+    "./appearance": {
+      "@podium/source": "./src/appearance.ts",
+      "types": "./src/appearance.ts",
+      "import": "./src/appearance.ts"
+    },
+    "./keys": {
+      "@podium/source": "./src/keys.ts",
+      "types": "./src/keys.ts",
+      "import": "./src/keys.ts"
+    },
     "./terminal-view": {
       "@podium/source": "./src/terminal-view.ts",
       "types": "./src/terminal-view.ts",

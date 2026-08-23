@@ -16,8 +16,13 @@ import {
 import type { SessionId } from '@podium/model/browser'
 import { isSnoozed } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
-import { keySequence, type SpecialKey } from '@podium/terminal-client'
-import { ArrowSwipeKey, useTerminalSession, useVoiceInput } from '@podium/terminal-client-react'
+import { keySequence, type SpecialKey } from '@podium/terminal-client/keys'
+import {
+  ArrowSwipeKey,
+  preloadTerminalRuntime,
+  useTerminalSession,
+  useVoiceInput,
+} from '@podium/terminal-client-react'
 import {
   ArrowDownToLine,
   Ellipsis,
@@ -251,6 +256,7 @@ export function AgentPanel({
     surface,
     gates,
     mode: effectiveMode,
+    modeSettled,
     chatCapable,
     pickMode,
   } = usePanelSurface({
@@ -267,6 +273,15 @@ export function AgentPanel({
     }
     pickMode(mode)
   }
+  // Chat-first sessions do not need xterm. Native-first sessions begin loading
+  // after this paint, and the CLI tab starts the same cached import on intent.
+  // Once requested, keep the PTY mounted across later chat/native switches.
+  const terminalLikely = modeSettled && surface.kind === 'live' && effectiveMode === 'native'
+  const terminalRuntimeRequestedRef = useRef(terminalLikely)
+  if (terminalLikely) terminalRuntimeRequestedRef.current = true
+  useEffect(() => {
+    if (terminalLikely && !gates.terminalMounted) preloadTerminalRuntime()
+  }, [terminalLikely, gates.terminalMounted])
 
   // Switch-latency trace marks [POD-701] — both are no-ops (one null check in
   // markSwitch) unless a switch to THIS session is being traced.
@@ -496,7 +511,7 @@ export function AgentPanel({
     // against the new daemon). An optimistically-spawned session doesn't exist
     // server-side yet (#119) either — its one-shot attach would be dropped and
     // never retried, so `spawnConfirmed` holds the mount until the reconcile.
-    enabled: gates.terminalMounted,
+    enabled: gates.terminalMounted && terminalRuntimeRequestedRef.current,
     // The terminal stays mounted across a chat<->native toggle (Task 6): it's
     // kept alive (hidden under the chat overlay) with eligibility flipped here
     // instead of by a remount — see useTerminalSession's own setActive effect.
@@ -840,6 +855,8 @@ export function AgentPanel({
                         : 'text-text-dim hover:text-text-strong',
                     )}
                     onClick={() => pickModeWithTrace(m)}
+                    onPointerEnter={m === 'native' ? preloadTerminalRuntime : undefined}
+                    onFocus={m === 'native' ? preloadTerminalRuntime : undefined}
                   >
                     {m === 'chat' ? (
                       <MessageSquareText size={12} aria-hidden="true" />

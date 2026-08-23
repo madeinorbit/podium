@@ -1,4 +1,4 @@
-import type { TerminalAppearance } from '@podium/terminal-client'
+import type { TerminalAppearance } from '@podium/terminal-client/appearance'
 import { useMemo, useSyncExternalStore } from 'react'
 import { useStoreSelector } from '@/app/store'
 import {

@@ -1,4 +1,4 @@
-import type { SpecialKey } from '@podium/terminal-client'
+import type { SpecialKey } from '@podium/terminal-client/keys'
 import type { CSSProperties, JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'

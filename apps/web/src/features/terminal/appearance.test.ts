@@ -1,7 +1,7 @@
 // Defensive parsing of the persisted terminal-appearance blob: a malformed or
 // out-of-range stored value must never break the terminal — bad fields fall
 // back to "default" (absent), numeric fields clamp to their bounds.
-import { DEFAULT_THEME } from '@podium/terminal-client/terminal-view'
+import { DEFAULT_THEME } from '@podium/terminal-client/appearance'
 import { describe, expect, it, vi } from 'vitest'
 import {
   FONT_SIZE_MAX,
