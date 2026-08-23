@@ -49,10 +49,10 @@ SERVER_TARGET_VERSION=""
 SERVER_MIGRATION="20991231235959_update-e2e-packaged-server"
 
 if [[ "$ONLY" == server ]]; then
-  SCENARIOS=(environment resource-safety server-install server-assets server-migration
+  SCENARIOS=(environment resource-safety coordinator-install server-install server-assets server-migration
     server-client-reconnect server-handover server-agent-survival server-rollback cleanup host-disk)
 else
-  SCENARIOS=(environment resource-safety fresh-install diagnostic-version fleet-join
+  SCENARIOS=(environment resource-safety coordinator-install fresh-install diagnostic-version fleet-join
     fleet-join-refusal version-display dev-release update-offer schema-refusal tampered-refusal
     unsigned-refusal ui-acceptance agent-survival rollout legacy-migration legacy-sigkill rollback cleanup host-disk)
 fi
@@ -483,40 +483,50 @@ setup_source() {
   ! jq -e '.error' >/dev/null 2>&1 <<<"$response"
 }
 
-source_healthy() {
+coordinator_healthy() {
   curl -fsS "http://127.0.0.1:$SOURCE_PORT/version" |
     jq -e --arg id "$INSTANCE" '.instanceId==$id' >/dev/null
 }
-source_down() { ! curl -fsS "http://127.0.0.1:$SOURCE_PORT/health" >/dev/null 2>&1; }
+coordinator_down() { ! curl -fsS "http://127.0.0.1:$SOURCE_PORT/health" >/dev/null 2>&1; }
 
-launch_source_setup() {
+coordinator_is_installed_build() {
+  curl -fsS "http://127.0.0.1:$SOURCE_PORT/version" |
+    jq -e --arg id "$INSTANCE" --arg version "$BOOTSTRAP_VERSION" \
+      '.instanceId==$id and .appVersion==$version and
+        (.appVersion|startswith("dev+")|not)' >/dev/null
+}
+
+launch_coordinator_setup() {
   docker exec -d --user podium --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env "PODIUM_INSTANCE=$INSTANCE" \
     --env PODIUM_PORT=18787 --env PODIUM_HOST=0.0.0.0 \
+    --env PODIUM_DEV_SOURCE_ROOT=/work/source \
     --env PODIUM_NO_RELAY=1 --env PODIUM_NO_SCOPE=1 \
     --env BUN_INSTALL_CACHE_DIR=/bun-cache-cow/merged \
     "$SOURCE" bash -lc \
-    'cd /work/source && exec bun --conditions=@podium/source scripts/cli.ts setup >>/tmp/podium-source.log 2>&1'
+    "cd /work/source && exec '$(command_path)' setup >>/tmp/podium-source.log 2>&1"
 }
 
-launch_source_parent() {
+launch_coordinator_parent() {
   docker exec -d --user podium --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env "PODIUM_INSTANCE=$INSTANCE" \
     --env PODIUM_PORT=18787 --env PODIUM_HOST=0.0.0.0 \
+    --env PODIUM_DEV_SOURCE_ROOT=/work/source \
     --env PODIUM_DEV_ARTIFACT_BASE_URL=http://source:18787 \
     --env PODIUM_NO_RELAY=1 --env PODIUM_NO_SCOPE=1 \
     --env BUN_BIN=/home/podium/.local/bin/bun --env BUN_INSTALL_CACHE_DIR=/bun-cache-cow/merged \
     --env PODIUM_ZIG=/opt/host-tools/zig-root/zig \
     --env PODIUM_RCODESIGN=/opt/host-tools/rcodesign \
     "$SOURCE" bash -lc \
-    'cd /work/source && exec bun --conditions=@podium/source scripts/cli.ts parent --takeover >>/tmp/podium-source.log 2>&1'
+    "cd /work/source && exec '$(command_path)' parent --takeover >>/tmp/podium-source.log 2>&1"
 }
 
-restart_source() {
-  container_exec "$SOURCE" pkill -f '[s]cripts/cli.ts parent' >/dev/null 2>&1 || true
-  wait_for 30 "source coordinator to stop" source_down
-  launch_source_parent
-  wait_for 120 "source coordinator to restart" source_healthy
+restart_coordinator() {
+  container_exec "$SOURCE" pkill -f 'podium-cli parent --takeover' >/dev/null 2>&1 || true
+  wait_for 30 "coordinator to stop" coordinator_down
+  launch_coordinator_parent
+  wait_for 120 "coordinator to restart" coordinator_healthy
+  coordinator_is_installed_build
 }
 
 unsigned_unavailable() {
@@ -804,7 +814,7 @@ schema_refusal() {
   (( broken_count + 1 == original_count )) || return 1
   cp "$broken" "$WORK/logs/schema-refusal-manifest.json" || return 1
   copy_manifest_in "$broken" || return 1
-  restart_source || return 1
+  restart_coordinator || return 1
   if ! wait_for 60 "schema target or named resolver refusal" schema_target_or_refusal "$target"; then
     rpc GET updates.fleet >"$WORK/logs/schema-refusal-fleet.json" 2>&1 || true
     return 1
@@ -832,7 +842,7 @@ unsigned_refusal() {
     "$broken" >/dev/null || return 1
   cp "$broken" "$WORK/logs/unsigned-refusal-manifest.json" || return 1
   copy_manifest_in "$broken" || return 1
-  restart_source || return 1
+  restart_coordinator || return 1
   if ! wait_for 60 "unsigned feed refusal" unsigned_unavailable; then
     rpc GET updates.fleet >"$WORK/logs/unsigned-refusal-fleet.json" 2>&1 || true
     return 1
@@ -1024,7 +1034,7 @@ rollback() {
   artifact="$(artifact_for "$target")"
   crash_artifact "$manifest" "$artifact"
   copy_manifest_in "$manifest"
-  restart_source
+  restart_coordinator
   wait_for 30 "crashing target offer" target_is "$target"
   wait_for 60 "rollback fleet reconnect" reported_versions_are "$prior"
   verify_served_crash_artifact "$manifest" "$FLEET_A"
@@ -1359,16 +1369,28 @@ main() {
   fi
   docker exec -d "$SOURCE" busybox httpd -f -p 8080 -h /bootstrap
 
-  launch_source_setup
-  wait_for 120 "source setup server" source_healthy
+  CURRENT_SCENARIO=coordinator-install
+  install_podium "$SOURCE" >"$WORK/logs/coordinator-install.log" 2>&1
+  launch_coordinator_setup
+  wait_for 120 "coordinator setup server" coordinator_healthy
   setup_source
   container_exec "$SOURCE" bash -lc \
     "jq 'del(.persistence)' '$(state_path)/config.json' >'$(state_path)/config.json.new' &&
      mv '$(state_path)/config.json.new' '$(state_path)/config.json'"
-  container_exec "$SOURCE" pkill -f '[s]cripts/cli.ts setup' >/dev/null 2>&1 || true
-  wait_for 30 "source setup server to stop" source_down
-  launch_source_parent
-  wait_for 120 "source coordinator" source_healthy
+  container_exec "$SOURCE" pkill -f 'podium-cli setup' >/dev/null 2>&1 || true
+  wait_for 30 "coordinator setup server to stop" coordinator_down
+  launch_coordinator_parent
+  wait_for 120 "installed coordinator" coordinator_healthy
+  curl -fsS "http://127.0.0.1:$SOURCE_PORT/version" \
+    >"$WORK/logs/coordinator-version.json"
+  if coordinator_is_installed_build; then
+    pass coordinator-install \
+      "coordinator runs the installed $BOOTSTRAP_VERSION build with /work/source enabled only as its development publisher"
+  else
+    fail coordinator-install \
+      "coordinator did not report the installed $BOOTSTRAP_VERSION build; raw response: logs/coordinator-version.json"
+    exit 1
+  fi
   rpc POST setup.setChannel '{"channel":"dev"}' >/dev/null
   rpc POST repos.add '{"path":"/work/source"}' >"$WORK/logs/source-repo-add.json"
   rpc GET repos.list >"$WORK/logs/source-repos.json"
@@ -1416,7 +1438,7 @@ main() {
   done
   container_exec "$SOURCE" sh -lc \
     'test -n "$(find /work/source/apps/mobile/dist -type f -name "*.gz" -print -quit)"'
-  source_healthy
+  coordinator_healthy
   pass environment "setup is complete; built and packaged abduco execute, gzip is present, and mobile assets are precompressed"
 
   if [[ "$ONLY" == legacy ]]; then
@@ -1559,7 +1581,7 @@ main() {
       say "deliberate schema break remains; rollout must go red"
     else
       copy_manifest_in "$original"
-      restart_source
+      restart_coordinator
       wait_for 60 "restored signed target" target_is "$target"
     fi
 
@@ -1571,7 +1593,7 @@ main() {
         fail unsigned-refusal "unsigned manifest did not produce a named resolver refusal while both installs stayed old"
       fi
       copy_manifest_in "$original"
-      restart_source
+      restart_coordinator
       wait_for 60 "restored signed target" target_is "$target"
 
       CURRENT_SCENARIO=tampered-refusal
@@ -1589,7 +1611,7 @@ main() {
       else
         docker cp "$artifact_copy" "$SOURCE:$artifact"
         docker exec "$SOURCE" chown "$HOST_UID:$HOST_GID" "$artifact"
-        restart_source
+        restart_coordinator
         wait_for 60 "restored artifact target" target_is "$target"
       fi
     fi
