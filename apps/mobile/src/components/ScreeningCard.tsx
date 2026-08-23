@@ -9,13 +9,13 @@ import Animated, {
   interpolate,
   ReduceMotion,
   useAnimatedStyle,
-  useReducedMotion,
   useSharedValue,
   withSpring,
   withTiming,
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { useReduceMotion } from '../hooks/useReduceMotion'
 import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import {
@@ -71,7 +71,7 @@ export function ScreeningCard({
   onOpen: () => void
 }) {
   const { width } = useWindowDimensions()
-  const reduceMotion = useReducedMotion()
+  const reduceMotion = useReduceMotion()
   const translateX = useSharedValue(0)
   const translateY = useSharedValue(0)
   const dragStartX = useSharedValue(0)
@@ -104,10 +104,20 @@ export function ScreeningCard({
 
       if (event.canceled) {
         translateX.set(
-          withSpring(0, { duration: 400, dampingRatio: 0.8, velocity: event.velocityX }),
+          withSpring(0, {
+            duration: 400,
+            dampingRatio: 0.8,
+            velocity: event.velocityX,
+            reduceMotion: ReduceMotion.System,
+          }),
         )
         translateY.set(
-          withSpring(0, { duration: 400, dampingRatio: 0.8, velocity: event.velocityY * 0.25 }),
+          withSpring(0, {
+            duration: 400,
+            dampingRatio: 0.8,
+            velocity: event.velocityY * 0.25,
+            reduceMotion: ReduceMotion.System,
+          }),
         )
         return
       }
@@ -119,10 +129,20 @@ export function ScreeningCard({
       const commits = distanceCommits || velocityCommits
       if (!commits) {
         translateX.set(
-          withSpring(0, { duration: 400, dampingRatio: 0.8, velocity: event.velocityX }),
+          withSpring(0, {
+            duration: 400,
+            dampingRatio: 0.8,
+            velocity: event.velocityX,
+            reduceMotion: ReduceMotion.System,
+          }),
         )
         translateY.set(
-          withSpring(0, { duration: 400, dampingRatio: 0.8, velocity: event.velocityY * 0.25 }),
+          withSpring(0, {
+            duration: 400,
+            dampingRatio: 0.8,
+            velocity: event.velocityY * 0.25,
+            reduceMotion: ReduceMotion.System,
+          }),
         )
         return
       }
@@ -151,6 +171,7 @@ export function ScreeningCard({
           dampingRatio: 1,
           velocity: event.velocityY * 0.25,
           overshootClamping: true,
+          reduceMotion: ReduceMotion.System,
         }),
       )
       translateX.set(
@@ -161,6 +182,7 @@ export function ScreeningCard({
             dampingRatio: 1,
             velocity: event.velocityX,
             overshootClamping: true,
+            reduceMotion: ReduceMotion.System,
           },
           (finished) => {
             if (finished) scheduleOnRN(onDecide, gesture)

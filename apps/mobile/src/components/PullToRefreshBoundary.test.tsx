@@ -3,13 +3,45 @@ import { Profiler } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
 
+let reduceMotion = false
+vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => reduceMotion }))
+
 afterEach(() => {
   cleanup()
+  reduceMotion = false
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
 describe('PWA pull-to-refresh boundary', () => {
+  it('starts static and keeps release static after a live preference flip', () => {
+    const frames = mockAnimationFrames()
+    reduceMotion = true
+    const onRefresh = vi.fn()
+    const view = renderBoundary(onRefresh)
+    const indicator = screen.getByRole('status')
+    const boundary = pullBoundary(view.container)
+    const scroller = screen.getByTestId('scroller')
+
+    expect(indicator.style.transition).toBe('none')
+
+    reduceMotion = false
+    view.rerender(boundaryContents(onRefresh))
+    expect(indicator.style.transition).toBe('transform 180ms ease, opacity 160ms ease')
+
+    pointerDown(scroller, 11)
+    pointerMove(boundary, 11, 65)
+    frames.flush()
+    expect(indicator.style.transition).toBe('opacity 80ms linear')
+
+    reduceMotion = true
+    view.rerender(boundaryContents(onRefresh))
+    expect(indicator.style.transition).toBe('none')
+
+    fireEvent.pointerUp(boundary, { pointerId: 11, pointerType: 'touch', clientY: 65 })
+    expect(indicator.style.transition).toBe('none')
+  })
+
   it('arms from a top-edge pointer pull and refreshes on release', () => {
     const onRefresh = vi.fn()
     const { container } = render(
@@ -331,12 +363,16 @@ function pullBoundary(container: HTMLElement): HTMLElement {
 }
 
 function renderBoundary(onRefresh: () => void) {
-  return render(
+  return render(boundaryContents(onRefresh))
+}
+
+function boundaryContents(onRefresh: () => void) {
+  return (
     <PullToRefreshBoundary connected refreshing={false} onRefresh={onRefresh}>
       <div data-testid="scroller" style={{ overflowY: 'auto', height: 100 }}>
         list
       </div>
-    </PullToRefreshBoundary>,
+    </PullToRefreshBoundary>
   )
 }
 

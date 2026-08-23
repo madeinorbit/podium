@@ -45,7 +45,6 @@ vi.mock('react-native-reanimated', async () => {
     },
     ReduceMotion: { System: 'system' },
     useAnimatedProps: (updater: () => Record<string, unknown>) => updater(),
-    useReducedMotion: () => false,
     withRepeat: reanimated.withRepeat,
     withTiming: reanimated.withTiming,
   }

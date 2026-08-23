@@ -8,7 +8,6 @@ import Animated, {
   ReduceMotion,
   type SharedValue,
   useAnimatedProps,
-  useReducedMotion as useReducedMotionAtLaunch,
   withRepeat,
   withTiming,
 } from 'react-native-reanimated'
@@ -88,9 +87,7 @@ export function WorkingMark({
   tint = color.working,
   label = 'Working',
 }: WorkingMarkProps) {
-  const reduceMotionSetting = useReduceMotion()
-  const reducedMotionAtLaunch = useReducedMotionAtLaunch()
-  const reduceMotion = reduceMotionSetting || reducedMotionAtLaunch
+  const reduceMotion = useReduceMotion()
   const radius = workingMarkRadius(size)
 
   useEffect(() => {

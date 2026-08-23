@@ -9,6 +9,7 @@ import { Platform, StyleSheet } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { AgentOutcomeHaptics } from '../components/AgentOutcomeHaptics'
 import { VisualViewportRoot } from '../components/VisualViewportRoot'
+import { ReducedMotionProvider } from '../hooks/ReducedMotionProvider'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { installBlurOnNavigate } from '../lib/blur-on-navigate'
 import { startMobileLogging } from '../lib/logging'
@@ -44,7 +45,7 @@ function ConnectedApp({ children }: { children: ReactNode }) {
   )
 }
 
-export function RootLayoutShell({
+function RootLayoutContent({
   Navigation,
 }: {
   Navigation: ComponentType<RootNavigationProps>
@@ -78,6 +79,18 @@ export function RootLayoutShell({
         <StatusBar style="light" />
       </VisualViewportRoot>
     </LaunchBoundary>
+  )
+}
+
+export function RootLayoutShell({
+  Navigation,
+}: {
+  Navigation: ComponentType<RootNavigationProps>
+}) {
+  return (
+    <ReducedMotionProvider>
+      <RootLayoutContent Navigation={Navigation} />
+    </ReducedMotionProvider>
   )
 }
 

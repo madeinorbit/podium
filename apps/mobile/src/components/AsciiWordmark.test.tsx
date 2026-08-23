@@ -2,7 +2,6 @@ import { act, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 let reduceMotion = false
-vi.mock('react-native-reanimated', () => ({ useReducedMotion: () => reduceMotion }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => reduceMotion }))
 
 const { AsciiWordmark, REVEAL_DURATION_MS } = await import('./AsciiWordmark')

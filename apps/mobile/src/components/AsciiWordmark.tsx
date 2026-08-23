@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { Platform, StyleSheet, Text } from 'react-native'
-import { useReducedMotion as useReducedMotionAtLaunch } from 'react-native-reanimated'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { ASCII_COVERAGE } from './podium-ascii'
 
@@ -89,9 +88,7 @@ export function AsciiWordmark({
   fontSize?: number
   variant?: 'shimmer' | 'reveal'
 }) {
-  const reducedMotionAtLaunch = useReducedMotionAtLaunch()
-  const reduceMotionSetting = useReduceMotion()
-  const reduced = reducedMotionAtLaunch || reduceMotionSetting
+  const reduced = useReduceMotion()
   const revealAtRef = useRef<Float32Array | null>(null)
   if (!reduced && variant === 'reveal' && revealAtRef.current === null) {
     revealAtRef.current = makeRevealAt()

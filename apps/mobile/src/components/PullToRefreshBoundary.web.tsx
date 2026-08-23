@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useReduceMotion } from '../hooks/useReduceMotion'
 import {
   PULL_REFRESH_THRESHOLD,
   pullWillRefresh,
@@ -43,6 +44,7 @@ export function PullToRefreshBoundary({
   refreshing: boolean
   onRefresh: () => void
 }) {
+  const reduceMotion = useReduceMotion()
   const boundaryRef = useRef<HTMLDivElement>(null)
   const pointer = useRef<ActivePointer | null>(null)
   const touch = useRef<ActivePointer | null>(null)
@@ -58,14 +60,18 @@ export function PullToRefreshBoundary({
   const [armed, setArmed] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
 
-  const paintPullDistance = useCallback((distance: number) => {
-    if (pinnedRef.current) return
-    const indicator = indicatorRef.current
-    if (!indicator) return
-    indicator.style.transition = distance > 0 ? PULLING_TRANSITION : SETTLING_TRANSITION
-    indicator.style.opacity = distance > 0 ? '1' : '0'
-    indicator.style.transform = `translate(-50%, ${distance - 42}px)`
-  }, [])
+  const paintPullDistance = useCallback(
+    (distance: number) => {
+      if (pinnedRef.current) return
+      const indicator = indicatorRef.current
+      if (!indicator) return
+      indicator.style.transition =
+        distance > 0 ? PULLING_TRANSITION : reduceMotion ? 'none' : SETTLING_TRANSITION
+      indicator.style.opacity = distance > 0 ? '1' : '0'
+      indicator.style.transform = `translate(-50%, ${distance - 42}px)`
+    },
+    [reduceMotion],
+  )
 
   const cancelScheduledFrame = useCallback(() => {
     if (animationFrameRef.current === null) return
@@ -289,7 +295,7 @@ export function PullToRefreshBoundary({
           ...indicatorStyle,
           opacity: pinned ? 1 : 0,
           transform: `translate(-50%, ${indicatorDistance - 42}px)`,
-          transition: SETTLING_TRANSITION,
+          transition: reduceMotion ? 'none' : SETTLING_TRANSITION,
         }}
       >
         <span aria-hidden="true" style={glyphStyle}>
