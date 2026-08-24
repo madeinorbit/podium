@@ -706,7 +706,25 @@ export async function startServer(
           runtimeDir: join(stateDir(), 'runtime'),
           pinnedPubkey: updateSigningKey.publicKey,
           machines: registry.modules.machines,
-          updates: registry.modules.updates,
+          /**
+           * THE SAME SEAM THE DAEMON PATH USES (POD-2741).
+           *
+           * `onUpdateStatus` in relay.ts calls the service and then the fleet
+           * bridge, because the same frame is the running operation's progress
+           * event. Handing this participant the bare service left the second
+           * half undone for the one machine that reports without a socket: the
+           * coordinator refused a target in 264 ms, the service recorded
+           * `rejected`, and the operation's place sat at `granted` for the full
+           * 150 s a caller was willing to wait — because nothing told it to
+           * look. It settled only when some unrelated daemon reconnect happened
+           * to fire the bridge, which is why the gate row flipped run to run.
+           */
+          updates: {
+            onStatus: (machineId, status) => {
+              registry.modules.updates.onStatus(machineId, status)
+              registry.modules.updateFleetBridge?.onFleetChanged()
+            },
+          },
           connected: (machineId) => registry.modules.bus.emit('machine.connected', { machineId }),
         })
       : undefined

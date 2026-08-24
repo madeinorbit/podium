@@ -240,6 +240,23 @@ export interface RegistryModules {
    * server that simply does not converge stragglers, not a broken one.
    */
   updatesReconciler?: UpdateReconciler
+  /**
+   * TELLING A RUNNING OPERATION THAT THE FLEET MOVED (POD-2741).
+   *
+   * The daemon path already does this: `onUpdateStatus` in this file calls the
+   * service and then this, because "the same frame is the running operation's
+   * progress event". The COORDINATOR's own participant reports through
+   * `startLocalUpdateParticipant`, which is handed a bare `updates` service and
+   * therefore updated the service and told the operation nothing — so the
+   * coordinator could refuse a target in 264 ms while its place in the wave sat
+   * at `granted` until the step spent its whole silence budget. Exposed so the
+   * composition root can give the local participant the same seam.
+   *
+   * OPTIONAL for the same reason as the reconciler above: a hand-built module
+   * set without it is a server whose operations do not learn from local status,
+   * not a broken one.
+   */
+  updateFleetBridge?: { onFleetChanged(): void }
   rpc: DaemonRpcService
   serverTransfer: ServerTransferService
   loginPropagation: LoginPropagationService
@@ -2353,6 +2370,7 @@ export class SessionRegistry {
       updates: updatesService,
       operations: operationsModule,
       updatesReconciler: reconciler,
+      updateFleetBridge,
       rpc,
       serverTransfer,
       loginPropagation,
