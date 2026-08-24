@@ -147,6 +147,12 @@ export interface SessionCallbacks {
    */
   onReset?: () => void
   /**
+   * The attach belongs to a new in-memory server geometry timeline. Reset
+   * geometry ordering state without clearing the screen; an empty resumed
+   * attach has no replay frames to rebuild it.
+   */
+  onGeometryTimelineReset?: () => void
+  /**
    * The server confirmed the attach (the PTY is bound and ready for input). Fires
    * on every `attached` message — independent of whether any output follows, so a
    * session sitting idle at a prompt is still recognised as ready. Use this rather
@@ -2367,7 +2373,8 @@ export class SessionConnection {
       // A full replay (not a `resumed` catch-up) is about to re-send the whole
       // buffer: clear the screen first so it rebuilds cleanly. A resume keeps the
       // screen and appends the missed frames.
-      if (msg.resumed !== true || geometryTimelineReset) this.cb.onReset?.()
+      if (geometryTimelineReset) this.cb.onGeometryTimelineReset?.()
+      if (msg.resumed !== true) this.cb.onReset?.()
       this.emit()
       this.cb.onAttached?.()
     },
@@ -2422,8 +2429,14 @@ export class SessionConnection {
     this.cb.onState?.(this.state())
   }
 
-  /** Reject a delayed logical geometry state from the same server timeline.
-   * Missing revisions are accepted for compatibility with older peers. */
+  /**
+   * Production geometry fence: reject a delayed logical state from the same
+   * server timeline before it reaches subscribers. `geometryRevision` is an
+   * in-memory per-process counter, not durable session state; one server process
+   * owns a session, and a lower revision on attach starts a new timeline. The
+   * counter is monotonic and is not modulo-wrapped. Missing revisions remain
+   * accepted for older peers/embedders.
+   */
   private acceptGeometryRevision(revision: number | undefined): boolean {
     if (revision === undefined) return true
     if (revision < this.geometryRevision) return false

@@ -1175,12 +1175,17 @@ describe('resume + offline input queue', () => {
     hub.connect()
     sock.open()
     let resets = 0
-    hub.attach(asSessionId('s1'), { onReset: () => (resets += 1) })
+    let timelineResets = 0
+    hub.attach(asSessionId('s1'), {
+      onReset: () => (resets += 1),
+      onGeometryTimelineReset: () => (timelineResets += 1),
+    })
     sock.recv({
       type: 'attached',
       sessionId: asSessionId('s1'),
       controllerId: 'c0',
       geometry: { cols: 80, rows: 24 },
+      geometryRevision: 1,
       epoch: 0,
       resumed: false,
     })
@@ -1190,10 +1195,14 @@ describe('resume + offline input queue', () => {
       sessionId: asSessionId('s1'),
       controllerId: 'c0',
       geometry: { cols: 80, rows: 24 },
+      geometryRevision: 0,
       epoch: 0,
       resumed: true,
     })
     expect(resets).toBe(1) // a resume keeps the screen — no clear
+    // A restarted timeline resets the fence, not the screen.
+    expect(timelineResets).toBe(1)
+    expect(timelineResets).toBe(1) // a restarted timeline resets the fence, not the screen
   })
 })
 

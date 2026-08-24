@@ -242,6 +242,37 @@ describe('Session', () => {
     })
   })
 
+  it('rolls back geometry as a new authoritative revision', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const snapshot = s.terminal.captureState()
+
+    // An uncontrolled daemon bind can move the live geometry without a client
+    // broadcast; a later durable rollback must still be a new wire revision.
+    s.terminal.adoptGeometryIfUncontrolled({ cols: 203, rows: 51 })
+    const client = makeClient('a')
+    s.terminal.attachClient(client)
+    toDaemon.mockClear()
+
+    s.terminal.restoreState(snapshot, false)
+
+    expect(s.terminal.geometry).toEqual(geo)
+    expect(s.terminal.geometryRevision).toBe(2)
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 80,
+      rows: 24,
+    })
+    expect(client.sent).toContainEqual({
+      type: 'geometry',
+      sessionId: asSessionId('s1'),
+      cols: 80,
+      rows: 24,
+      geometryRevision: 2,
+    })
+  })
+
   it('applies a resize from a controller that is rendering the session', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)

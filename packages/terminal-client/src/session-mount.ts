@@ -544,13 +544,11 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   }
 
   let lastEpoch = -1
-  // Geometry invariant: within one server timeline, a terminal state may only
-  // move to the same or a newer geometry revision. requestedGeometry and
-  // assertedControlGrid fence an in-flight local claim; this fence survives
-  // release so a delayed older echo cannot overwrite a legitimate resize.
-  // onReset clears it for a new timeline; SessionConnection treats a lower
-  // revision on attach as that reset. Revisions are not modulo-wrapped.
+  // Defense in depth for embedders that deliver onState directly. Production
+  // geometry ordering is enforced before emission by
+  // SessionConnection.acceptGeometryRevision.
   let lastGeometryRevision: number | undefined
+  let geometryTimelineResetPending = false
   let firstFrameSeen = false
   // Tracks whether we've seen an attach before, so onAttached can tell a fresh mount
   // (sizing already driven by the mount/setActive path) from a RECONNECT (where we must
@@ -577,6 +575,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     onAttached: () => {
       trace('connection:attached', { reconnect: everAttached, connection: connection.state() })
       markReady('attach')
+      geometryTimelineResetPending = false
       // RECONNECT re-fit. A server reload rebuilds the session at the 80×24 default and
       // the 'attached' message carries that grid; _ingest emits onState (serverGrid →
       // 80×24, the view shrinks) BEFORE this callback, so re-fitting here sees the
@@ -604,7 +603,14 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       trace('connection:reset', { connection: connection.state() })
       lastEpoch = connection.state().epoch
       lastGeometryRevision = undefined
+      geometryTimelineResetPending = false
       view.clear()
+    },
+    onGeometryTimelineReset: () => {
+      // A restarted server may resume with no frames; reset ordering without
+      // clearing the screen. onReset owns the full-replay clear below.
+      lastGeometryRevision = undefined
+      geometryTimelineResetPending = true
     },
     onState: (state) => {
       const signature = JSON.stringify([
@@ -624,18 +630,19 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         trace('connection:state', { state })
       }
       const geometryRevision = state.geometryRevision
-      if (
+      const staleGeometry =
         geometryRevision !== undefined &&
         lastGeometryRevision !== undefined &&
         geometryRevision < lastGeometryRevision
-      ) {
+      if (staleGeometry) {
         trace('connection:stale-geometry-state', {
           state,
           acceptedRevision: lastGeometryRevision,
         })
-        return
+      } else if (geometryRevision !== undefined) {
+        lastGeometryRevision = geometryRevision
       }
-      if (geometryRevision !== undefined) lastGeometryRevision = geometryRevision
+      const geometrySuppressed = geometryTimelineResetPending || staleGeometry
       if (hasOtherController(state)) {
         clearControlAssertion()
         clearRevealMouseInput('other-controller')
@@ -644,6 +651,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       const stateGrid = { cols: state.cols, rows: state.rows }
       const requested = state.requestedGeometry ?? null
       if (
+        !geometrySuppressed &&
         revealMouseTarget !== null &&
         state.connected &&
         state.role === 'controller' &&
@@ -656,6 +664,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       // state echo. Prefer that newer local intent when xterm already applied it.
       // The existing assertion remains the fallback after the request settles.
       const pendingRequestedGrid =
+        !geometrySuppressed &&
         requested !== null &&
         sameGrid(applied, requested) &&
         !sameGrid(stateGrid, requested)
@@ -664,6 +673,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       // The assertion fences only an in-flight local claim. Once the transport
       // clears requestedGeometry, a different server grid supersedes that claim.
       if (
+        !geometrySuppressed &&
         assertedControlGrid !== null &&
         pendingRequestedGrid === null &&
         state.requestedGeometry === null &&
@@ -675,8 +685,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         })
         clearControlAssertion()
       }
-      const asserted = pendingRequestedGrid ?? assertedControlGrid
+      const asserted = geometrySuppressed ? null : pendingRequestedGrid ?? assertedControlGrid
       const holdClaimedGrid =
+        !geometrySuppressed &&
         gridMode === 'control' &&
         state.connected &&
         asserted !== null &&
@@ -685,7 +696,11 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         (state.role === 'controller' ||
           state.controllerId === null ||
           (state.requestedGeometry !== null && sameGrid(state.requestedGeometry, asserted)))
-      if (!holdClaimedGrid && (view.cols() !== state.cols || view.rows() !== state.rows)) {
+      if (
+        !geometrySuppressed &&
+        !holdClaimedGrid &&
+        (view.cols() !== state.cols || view.rows() !== state.rows)
+      ) {
         trace('connection:apply-server-grid', { state })
         view.resize(state.cols, state.rows)
         // xterm reflows the existing buffer into the new grid. For alt-screen
@@ -701,14 +716,14 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         // full repaint so the whole grid redraws at the new geometry.
         view.forceRepaint()
       }
-      if (holdClaimedGrid) {
+      if (!geometrySuppressed && holdClaimedGrid) {
         if (asserted !== null) {
           assertedControlGrid = { ...asserted }
         }
         trace('connection:hold-claimed-grid', { state, asserted })
         scheduleControlRepair(state)
       }
-      serverGrid = { cols: state.cols, rows: state.rows }
+      if (!geometrySuppressed) serverGrid = { cols: state.cols, rows: state.rows }
       const roleChanged = state.role !== lastRole
       // Update before an atomic claim emits its local pending state; otherwise
       // that nested notification would look like a second role transition and

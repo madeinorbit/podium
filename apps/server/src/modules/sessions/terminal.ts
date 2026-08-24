@@ -619,7 +619,28 @@ export class SessionTerminal {
   }
 
   restoreState(state: SessionTerminalState, preserveGeometry: boolean): void {
-    if (!preserveGeometry) this.geometry = { ...state.grid }
+    // A durable-write rollback is still a live geometry transition. Keep the
+    // revision timeline monotonic and announce the restored grid to the PTY and
+    // clients instead of copying state.grid behind an already-emitted revision.
+    if (
+      !preserveGeometry &&
+      (this.geometry.cols !== state.grid.cols || this.geometry.rows !== state.grid.rows)
+    ) {
+      this.setGeometry(state.grid.cols, state.grid.rows)
+      this.init.toDaemon({
+        type: 'resize',
+        sessionId: this.init.sessionId,
+        cols: this.geometry.cols,
+        rows: this.geometry.rows,
+      })
+      this.broadcast({
+        type: 'geometry',
+        sessionId: this.init.sessionId,
+        cols: this.geometry.cols,
+        rows: this.geometry.rows,
+        geometryRevision: this.geometryRevision,
+      })
+    }
     ;[this.outputAtMs_, this.inputAtMs_, this.resumedAtMs_] = state.times
     ;[this.inputCount_, this.outputCount_, this.activityCount_] = state.counts
     this.activityDirty_ = state.dirty
