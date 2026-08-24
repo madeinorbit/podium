@@ -833,7 +833,8 @@ installed_version_is() {
 }
 
 negative_refusal() {
-  local old=$1 pattern=$2 container=$3 started id value
+  local old=$1 pattern=$2 started id value container name expected='[]'
+  shift 2
   started="$(start_update)" || return 1
   id="$(jq -er .operationId <<<"$started")" || return 1
   wait_for 150 "refusal operation" terminal_operation "$id" || return 1
@@ -841,10 +842,21 @@ negative_refusal() {
   printf '%s\n' "$value" >"$WORK/logs/${CURRENT_SCENARIO}-operation.json" || return 1
   jq -e '.state=="failed"' <<<"$value" >/dev/null || return 1
   grep -Eiq "$pattern" <<<"$value" || return 1
-  jq -e --arg name "$(docker inspect -f '{{.Config.Hostname}}' "$container")" \
-    '([.steps[]?.places[]?.name] | unique) == [$name]' \
+  for container in "$@"; do
+    name="$(docker inspect -f '{{.Config.Hostname}}' "$container")" || return 1
+    expected="$(jq -c --arg name "$name" '. + [$name]' <<<"$expected")" || return 1
+  done
+  # POD-2668 made the installed coordinator a real member of the dev wave. The
+  # refusal controls therefore owe an exact two-place assertion: the local
+  # participant and the disposable control, with the ordinary fleet pinned
+  # away. Accepting merely "some named failure" here would let the security
+  # control pass without proving which installs consumed the hostile input.
+  jq -e --argjson expected "$expected" \
+    '([.steps[]?.places[]?.name] | unique) == ($expected | unique)' \
     <<<"$value" >/dev/null || return 1
-  installed_version_is "$container" "$old"
+  for container in "$@"; do
+    installed_version_is "$container" "$old" || return 1
+  done
 }
 
 schema_refusal() {
@@ -871,9 +883,10 @@ schema_refusal() {
   if jq -e --arg target "$target" '.targetVersion==$target' \
       "$WORK/logs/schema-refusal-fleet.json" >/dev/null; then
     [[ "$PROVE_FAILURE" == schema ]] && return 0
-    negative_refusal "$old" 'schema|migration|regression' "$container"
+    negative_refusal "$old" 'schema|migration|regression' "$SOURCE" "$container"
   else
-    installed_version_is "$container" "$old"
+    installed_version_is "$SOURCE" "$old" &&
+      installed_version_is "$container" "$old"
   fi
 }
 
@@ -892,7 +905,8 @@ unsigned_refusal() {
     return 1
   fi
   rpc GET updates.fleet >"$WORK/logs/unsigned-refusal-fleet.json" || return 1
-  installed_versions_are "$old"
+  installed_versions_are "$old" &&
+    installed_version_is "$SOURCE" "$old"
 }
 
 tampered_refusal() {
@@ -906,7 +920,7 @@ tampered_refusal() {
   installed_version_is "$container" "$old" || return 1
   set_machine_channel tamper-control dev || return 1
   [[ "$PROVE_FAILURE" == tampered ]] && return 0
-  negative_refusal "$old" 'digest|signature|tamper|corrupt' "$container"
+  negative_refusal "$old" 'digest|signature|tamper|corrupt' "$SOURCE" "$container"
 }
 
 create_shells() {
