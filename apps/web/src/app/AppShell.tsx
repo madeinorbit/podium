@@ -23,7 +23,18 @@ import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
-import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
+import {
+  COLLAPSE_EASE,
+  COLLAPSE_MS,
+  ResizableAside,
+  ResizableColumn,
+  SIDEBAR_RAIL_WIDTH,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_KEY,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+} from '@/features/worklist/sidebar-common'
+import { useColumnFold } from '@/features/worklist/use-column-fold'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
@@ -484,8 +495,8 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     }
     flightDeckAnimation.current?.cancel()
     const animation = shell.animate([{ width: `${from}px` }, { width: `${to}px` }], {
-      duration: 280,
-      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+      duration: COLLAPSE_MS,
+      easing: COLLAPSE_EASE,
       fill: 'both',
     })
     flightDeckAnimation.current = animation
@@ -532,6 +543,27 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     })
     animateFlightDeckWidth(44, target, () => setFlightDeckWidth(null))
   }
+
+  // THE LEFT FOLD (POD-1584). The work list and the identity rail are separate
+  // subtrees, so flipping `sidebarCollapsed` swapped one for the other in a
+  // single frame and ~250px of window arrived or vanished with no gesture
+  // attached to it. Every other column in this shell folds; the left one — the
+  // one an operator opens and shuts most — read as a glitch.
+  //
+  // The mechanics are the flight deck's above, lifted into a hook so the
+  // gesture has somewhere to be tested and the harness can drive the shipping
+  // code rather than a copy of it. See `use-column-fold.ts`.
+  const persistedSidebarWidth = (): number => {
+    const stored = Number(uiState.get(SIDEBAR_WIDTH_KEY))
+    return Number.isFinite(stored) && stored >= SIDEBAR_WIDTH_MIN && stored <= SIDEBAR_WIDTH_MAX
+      ? stored
+      : SIDEBAR_WIDTH_DEFAULT
+  }
+  const sidebarFold = useColumnFold({
+    foldedWidth: SIDEBAR_RAIL_WIDTH,
+    openWidth: persistedSidebarWidth,
+    onFold: setSidebarCollapsed,
+  })
   const setRightPanel = (panel: RightPanelTab | null): void => {
     if (!panelAllowed(panel)) return
     setRightPanelStored(panel)
@@ -539,7 +571,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   }
   const lastRightPanel = useRef<RightPanelTab>('issue')
   if (visibleRightPanel) lastRightPanel.current = visibleRightPanel
-  const toggleLeftSidebar = (): void => setSidebarCollapsed(!sidebarCollapsed)
+  const toggleLeftSidebar = (): void => sidebarFold.fold(!sidebarCollapsed)
   const toggleFlightDeck = (): void => {
     if (flightDeckCollapsed) expandFlightDeck()
     else collapseFlightDeck()
@@ -713,40 +745,56 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
               so switching modes swaps the CONTENT REGION rather than the window
               (POD-365). The engraved column, dock and rail are workspace
               instruments and stay with the workspace. */}
-            {sidebarCollapsed ? (
-              <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
-                <button
-                  data-pressable
-                  type="button"
-                  className="collapsed-sidebar-expand"
-                  aria-label="Expand sidebar"
-                  title="Expand sidebar"
-                  onClick={() => setSidebarCollapsed(false)}
-                >
-                  {/* 15px, not 13: the control is the column's whole header
-                      band now (POD-1178), and a 13px glyph read as a speck
-                      parked in the middle of it. */}
-                  <ChevronRight size={15} aria-hidden="true" />
-                </button>
-                <SidebarRail />
-              </aside>
-            ) : (
-              <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
-                <ResizableAside>
-                  <SidebarUnified />
-                </ResizableAside>
-                <button
-                  data-pressable
-                  type="button"
-                  className="sidebar-collapse-control"
-                  aria-label="Collapse sidebar"
-                  title="Collapse sidebar"
-                  onClick={() => setSidebarCollapsed(true)}
-                >
-                  <ChevronLeft size={12} aria-hidden="true" />
-                </button>
-              </div>
-            )}
+            {/* THE OPEN COLUMN STAYS MOUNTED FOR THE WHOLE FOLD, both ways
+                (POD-1584). Swapping the rail in on the press instead would
+                leave a 58px rail sitting in a wrapper still 300px wide, with a
+                quarter of the window's worth of empty ground closing beside it
+                — the fold has to CLIP a column, not slide a gap shut. Clipping
+                this one ends the collapse on its leftmost 58px, which is the
+                identity-tile gutter the rail already is, so the cut at the end
+                lands on matching pixels. */}
+            <div
+              ref={sidebarFold.ref}
+              className="sidebar-shell"
+              data-sidebar-shell={sidebarCollapsed ? 'folded' : 'open'}
+              data-sidebar-folding={sidebarFold.folding ? 'true' : undefined}
+              style={{ width: sidebarFold.width ?? undefined }}
+            >
+              {sidebarCollapsed && !sidebarFold.folding ? (
+                <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
+                  <button
+                    data-pressable
+                    type="button"
+                    className="collapsed-sidebar-expand"
+                    aria-label="Expand sidebar"
+                    title="Expand sidebar"
+                    onClick={() => sidebarFold.fold(false)}
+                  >
+                    {/* 15px, not 13: the control is the column's whole header
+                        band now (POD-1178), and a 13px glyph read as a speck
+                        parked in the middle of it. */}
+                    <ChevronRight size={15} aria-hidden="true" />
+                  </button>
+                  <SidebarRail />
+                </aside>
+              ) : (
+                <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
+                  <ResizableAside>
+                    <SidebarUnified />
+                  </ResizableAside>
+                  <button
+                    data-pressable
+                    type="button"
+                    className="sidebar-collapse-control"
+                    aria-label="Collapse sidebar"
+                    title="Collapse sidebar"
+                    onClick={() => sidebarFold.fold(true)}
+                  >
+                    <ChevronLeft size={12} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+            </div>
             {workspaceActive && (
               <div
                 ref={flightDeckShellRef}

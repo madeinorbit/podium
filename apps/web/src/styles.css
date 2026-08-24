@@ -2275,6 +2275,37 @@ html[data-density="balanced"] .header-quota-pools {
   flex: none;
 }
 
+/* THE LEFT COLUMN'S FOLD (POD-1584). The wrapper is the only part of this
+   column that survives the swap between the work list and the identity rail,
+   so it is what carries the width — AppShell drives it with WAAPI, exactly as
+   it drives the flight deck's.
+   At rest it is transparent to layout: `0 1 auto` + `min-width: 0` is what the
+   open column itself used to declare here, so a narrow window still squeezes
+   the sidebar the way it always did. */
+.sidebar-shell {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 0 1 auto;
+}
+/* Folded, the rail is rigid — it was a `0 0 58px` child of the row before this
+   wrapper existed, and a rail that can be squeezed to 40px is not a rail. */
+.sidebar-shell[data-sidebar-shell="folded"] {
+  flex: none;
+}
+/* CLIP, DON'T SQUEEZE. While the width is being driven, the column inside must
+   hold the width it has and let the wrapper's edge sweep across it. Left to
+   flex, a 300px sidebar would REFLOW through every width down to 58 — thirty
+   rows re-truncating their titles for 280ms, which reads as a resize, not a
+   fold. `styles.css` is unlayered, so this beats the `flex-[0_1_auto]` utility
+   on the column (same mechanism as `.shell-spawn-chip:hover` above). */
+.sidebar-shell[data-sidebar-folding="true"] {
+  overflow: hidden;
+  flex: none;
+}
+.sidebar-shell[data-sidebar-folding="true"] > * {
+  flex: none;
+}
 .sidebar-collapse-control {
   position: absolute;
   z-index: 20;
@@ -2290,6 +2321,13 @@ html[data-density="balanced"] .header-quota-pools {
   border-radius: 6px;
   background: var(--card);
   color: var(--text-dim);
+  /* It straddles the column's edge by half its width, so the clip above would
+     otherwise saw it in half for the length of the fold and pop the missing
+     half back at the end. It leaves with the column and returns with it. */
+  transition: opacity 120ms ease;
+}
+.sidebar-shell[data-sidebar-folding="true"] .sidebar-collapse-control {
+  opacity: 0;
 }
 .sidebar-collapse-control:hover,
 .collapsed-sidebar-expand:hover,

@@ -38,8 +38,8 @@ import { Button } from '@/components/ui/button'
 import { AttributionPair } from '@/features/issues/issue-page/AttributionPair'
 import { sessionDotClass } from '@/lib/derive'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
-import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SnoozeControl } from '@/lib/SnoozeControl'
+import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
@@ -51,7 +51,6 @@ const SessionContextMenu = lazy(() =>
     default: module.SessionContextMenu,
   })),
 )
-
 
 /** The one aside shell the sidebar renders into. The aside itself never scrolls —
  *  only the work list inside it — so the footer stays pinned. */
@@ -66,11 +65,20 @@ export const SIDEBAR_WIDTH_MIN = 200
 export const SIDEBAR_WIDTH_MAX = 520
 export const SIDEBAR_WIDTH_DEFAULT = 306
 
+/** The width the sidebar folds TO, not 0: this column's closed state is the
+ *  identity rail (`.collapsed-sidebar`, POD-1178), which is why the fold in
+ *  AppShell animates between this and the persisted width rather than using
+ *  {@link ResizableColumn}'s drawer. Must stay equal to that rule's `flex`
+ *  basis in `styles.css` — the animation ends on a pixel CSS then owns. */
+export const SIDEBAR_RAIL_WIDTH = 58
+
 /** The drawer's own motion (POD-769), matched to the Flight Deck's fold in
  *  AppShell: the same 280ms and the same decelerating curve, because these are
- *  the two columns of one shell opening and closing. */
-const COLLAPSE_MS = 280
-const COLLAPSE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+ *  the two columns of one shell opening and closing. Exported since POD-1584
+ *  put the LEFT column on the same gesture — three hand-copied spellings of one
+ *  curve is how a shell ends up with three slightly different folds. */
+export const COLLAPSE_MS = 280
+export const COLLAPSE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 
 /**
  * A fixed-width column with a drag-to-resize edge (`handleSide`, default right —

@@ -7,15 +7,26 @@
  * `harness/sidebar-store.ts` for why the live instance cannot answer that.
  *
  * Query string: `?rows=N` sizes the list, `?mode=…` picks light or dark,
- * and `?rail=1` renders the COLLAPSED column instead — the 58px aside with its
+ * `?rail=1` renders the COLLAPSED column instead — the 58px aside with its
  * ⟩ header band, exactly as `AppShell` builds it, because the rail's spacing is
- * only readable against the column's real width and its real chrome ends.
+ * only readable against the column's real width and its real chrome ends — and
+ * `?fold=1` puts the two of them either side of the REAL fold (POD-1584), so
+ * the gesture between them can be watched and sampled. That mode drives
+ * `useColumnFold`, the same hook the shell drives; the wrapper and its two
+ * branches are copied from `AppShell` because there is nothing else in them.
  */
-import { ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { JSX } from 'react'
+import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
+import {
+  ResizableAside,
+  SIDEBAR_RAIL_WIDTH,
+  SIDEBAR_WIDTH_DEFAULT,
+} from '@/features/worklist/sidebar-common'
+import { useColumnFold } from '@/features/worklist/use-column-fold'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import '@/index.css'
 import '@/styles.css'
@@ -67,9 +78,78 @@ function Harness(): JSX.Element {
   )
 }
 
+/** THE FOLD, end to end: the shell's persistent wrapper, its two branches and
+ *  the real hook between them. The stage beside it is a stand-in for the rest
+ *  of the window — the fold is only honest if something is there to be pushed. */
+function FoldHarness(): JSX.Element {
+  const [collapsed, setCollapsed] = useState(params.get('folded') === '1')
+  const fold = useColumnFold({
+    foldedWidth: SIDEBAR_RAIL_WIDTH,
+    openWidth: () => width || SIDEBAR_WIDTH_DEFAULT,
+    onFold: setCollapsed,
+  })
+  return (
+    <div className="desktop-shell-row" style={{ height: '100dvh' }}>
+      <div
+        data-testid="sidebar-shell"
+        ref={fold.ref}
+        className="sidebar-shell"
+        data-sidebar-shell={collapsed ? 'folded' : 'open'}
+        data-sidebar-folding={fold.folding ? 'true' : undefined}
+        style={{ width: fold.width ?? undefined }}
+      >
+        {collapsed && !fold.folding ? (
+          <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
+            <button
+              type="button"
+              className="collapsed-sidebar-expand"
+              aria-label="Expand sidebar"
+              onClick={() => fold.fold(false)}
+            >
+              <ChevronRight size={15} aria-hidden="true" />
+            </button>
+            <SidebarRail />
+          </aside>
+        ) : (
+          <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
+            <ResizableAside>
+              <SidebarUnified />
+            </ResizableAside>
+            <button
+              type="button"
+              className="sidebar-collapse-control"
+              aria-label="Collapse sidebar"
+              onClick={() => fold.fold(true)}
+            >
+              <ChevronLeft size={12} aria-hidden="true" />
+            </button>
+          </div>
+        )}
+      </div>
+      <div
+        data-testid="stage"
+        style={{
+          flex: 1,
+          minWidth: 0,
+          background: 'var(--card)',
+          borderLeft: '1px solid var(--border)',
+        }}
+      />
+    </div>
+  )
+}
+
+const surface = params.get('fold') ? (
+  <FoldHarness />
+) : params.get('rail') ? (
+  <RailHarness />
+) : (
+  <Harness />
+)
+
 // The row's right-click menu raises the app-wide confirm for Archive and
 // Delete (POD-1077) and throws without its provider, which `AppShell` supplies
 // in the real tree. The harness is only honest about the menu if it has one.
 createRoot(document.getElementById('root') as HTMLElement).render(
-  <ConfirmProvider>{params.get('rail') ? <RailHarness /> : <Harness />}</ConfirmProvider>,
+  <ConfirmProvider>{surface}</ConfirmProvider>,
 )
