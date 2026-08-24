@@ -979,6 +979,33 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
       }
     }
     // `pending` and still behind: nothing happened yet, the step stands.
+  } else if (server?.state === 'done' && reality.parentReport && reality.appVersion !== targetVersion) {
+    // A successor that boots mid-handover adopts this operation, observes
+    // itself on the target, and blesses the step — legitimately, on the happy
+    // path. When its health gate then fails and the parent rolls the machine
+    // back, the NEXT boot arrives here holding the parent's own rollback
+    // sentence while the step still says done. The blessing must not outrank
+    // that evidence: an update that was attempted and reverted settling as
+    // clean success is exactly the lie this operation exists to not tell.
+    const error = describeUpdateOperationFailure({
+      code: 'server-did-not-reach-target',
+      observedVersion: reality.appVersion,
+      targetVersion,
+      parentReport: reality.parentReport,
+    })
+    return {
+      ...patchStep(next, UPDATE_STEP_SERVER, (step) => ({
+        ...step,
+        state: 'failed',
+        finishedAt: reality.now,
+        lastProgressAt: reality.now,
+        error,
+      })),
+      state: 'failed',
+      finishedAt: reality.now,
+      updatedAt: reality.now,
+      error,
+    }
   }
 
   const web = stepOf(next, UPDATE_STEP_WEB)

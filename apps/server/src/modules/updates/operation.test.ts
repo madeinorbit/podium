@@ -576,6 +576,42 @@ describe('reconcileUpdateOperation', () => {
     expect(next.error?.detail, 'the version comparison is still there').toContain('0.4.2')
   })
 
+  /**
+   * POD-2732, the settle-as-done half. The sandbox sequence: the successor's
+   * server booted mid-handover, adopted this operation, observed itself on the
+   * target, and blessed the server step `done` — then failed its health gate
+   * and the parent rolled the machine back. The next boot adopts again holding
+   * the parent's own rollback sentence, and a finished step must not shield the
+   * operation from that evidence: an update that was attempted and reverted
+   * must never settle as clean success.
+   */
+  it('a rollback report reopens a server step a doomed successor blessed done', () => {
+    const next = reconcileUpdateOperation(
+      operation([{ id: UPDATE_STEP_SERVER, state: 'done', finishedAt: 500 }]),
+      reality({
+        appVersion: '0.4.1',
+        parentReport:
+          'the update was rolled back because the successor parent never became healthy on dev+abc1234; the machine is running 0.4.1 again',
+      }),
+    )
+    expect(next.state).toBe('failed')
+    expect(next.error?.code).toBe('server-did-not-reach-target')
+    expect(next.error?.message).toContain('rolled back')
+    expect(next.steps?.[0]?.state).toBe('failed')
+  })
+
+  /** The reopen needs BOTH facts: a machine actually on the target keeps its blessing. */
+  it('a stale parent report does not reopen a server genuinely on the target', () => {
+    const next = reconcileUpdateOperation(
+      operation([{ id: UPDATE_STEP_SERVER, state: 'done', finishedAt: 500 }]),
+      reality({
+        parentReport: 'the update was rolled back because of an earlier failed handover',
+      }),
+    )
+    expect(next.steps?.[0]?.state).toBe('done')
+    expect(next.state).toBe('running')
+  })
+
   it('leaves a server step that had not started yet alone', () => {
     const next = reconcileUpdateOperation(
       operation([{ id: UPDATE_STEP_SERVER, state: 'pending' }]),
