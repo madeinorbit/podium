@@ -1,4 +1,5 @@
 import { createHash, sign as cryptoSign, generateKeyPairSync } from 'node:crypto'
+import { UPDATE_ARTIFACT_INTEGRITY_REFUSAL, UPDATE_ARTIFACT_REFUSAL_HEADER } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   type DeliveryProgress,
@@ -252,6 +253,73 @@ describe('fetchArtifact trust root', () => {
         trust: 'instance',
       }),
     ).rejects.toThrow(/pinned at pairing/i)
+  })
+})
+
+/**
+ * WHAT A REFUSED DOWNLOAD IS ALLOWED TO SAY (POD-2739).
+ *
+ * A mutated artifact reaches this function in one of two shapes, and only one
+ * of them ever gets as far as the bytes:
+ *
+ *  - EQUAL SIZE. The origin cannot tell, streams it, and the digest and
+ *    signature checks below the download name it here.
+ *  - SIZE CHANGED. The origin's own cheap guard catches it first and answers a
+ *    fail-closed 404 carrying the integrity marker, because a non-enumerating
+ *    status is not a reason to lose the verdict.
+ *
+ * Both must land on a sentence that names digest or signature, because that is
+ * what `classifyUpdateFailureDetail` turns into `machine-artifact-rejected`
+ * rather than `download-failed`. The third case is the control: an ORDINARY
+ * 404 must stay the transport answer it is, or the marker means nothing.
+ */
+describe('fetchArtifact refusal naming', () => {
+  const body = [chunk(9, 32)]
+
+  const notFound = (headers?: Record<string, string>): typeof fetch =>
+    (async () =>
+      new Response('not found', {
+        status: 404,
+        ...(headers ? { headers } : {}),
+      })) as unknown as typeof fetch
+
+  it('names an integrity-marked 404 as a digest refusal', async () => {
+    await expect(
+      fetchArtifact(artifactOf(body), {
+        fetch: notFound({ [UPDATE_ARTIFACT_REFUSAL_HEADER]: UPDATE_ARTIFACT_INTEGRITY_REFUSAL }),
+        pubkey,
+      }),
+    ).rejects.toThrow(/digest verification FAILED/i)
+  })
+
+  it('leaves an ordinary 404 the transport answer it is', async () => {
+    await expect(fetchArtifact(artifactOf(body), { fetch: notFound(), pubkey })).rejects.toThrow(
+      /artifact download returned 404/i,
+    )
+  })
+
+  it('names an EQUAL-SIZE byte mutation by digest, over the bytes', async () => {
+    // The shape the origin cannot see. Same length, one byte different, and the
+    // manifest — digest, signature and all — untouched.
+    const artifact = artifactOf(body)
+    const mutated = [chunk(9, 31), chunk(8, 1)]
+    await expect(
+      fetchArtifact(artifact, { fetch: streamingFetch(mutated, true), pubkey }),
+    ).rejects.toThrow(/digest verification FAILED/i)
+  })
+
+  it('still names it when the digest check is the one that is skipped', async () => {
+    // Belt and braces: the signature is over the BYTES, not over the manifest,
+    // so a mutation cannot survive by leaving the signature file alone.
+    const artifact = artifactOf(body)
+    const mutated = [chunk(9, 31), chunk(8, 1)]
+    await expect(
+      fetchArtifact(artifact, {
+        fetch: streamingFetch(mutated, true),
+        pubkey,
+        verifyDigest: false,
+      }),
+    ).rejects.toThrow(/signature verification FAILED/i)
   })
 })
 

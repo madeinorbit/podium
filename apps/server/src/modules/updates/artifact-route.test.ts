@@ -2,11 +2,13 @@ import { generateKeyPairSync, sign, verify } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { UPDATE_ARTIFACT_INTEGRITY_REFUSAL, UPDATE_ARTIFACT_REFUSAL_HEADER } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterAll, describe, expect, it } from 'vitest'
 import { registerDevFeedRoutes } from './artifact-route'
 import {
   type BuiltDevBundle,
+  DevArtifactIntegrityError,
   type DevBundleArtifact,
   DevBundleUnavailableError,
 } from './dev-bundle'
@@ -510,5 +512,75 @@ describe('development artifact route', () => {
     const fresh = await app.request('/updates/feed/dev/artifact/dev%2Bnew1234')
     expect(stale.status).toBe(404)
     expect(fresh.status).toBe(200)
+  })
+
+  it('names the refusal when the stored bytes no longer match the publication', async () => {
+    // THE TAMPER CASE. A byte appended to a published artifact leaves the
+    // manifest, its digest and its signature untouched — the only local
+    // evidence is that the file is no longer the size publication recorded.
+    // Answering a bare `not found` there turns a security finding into
+    // `artifact download returned 404`, which the downloader classifies as a
+    // transport failure and an operator cannot tell from a flaky network.
+    const mutated = join(stage, 'podium-headless-dev+abc1234-linux-x86_64-mutated.tar.gz')
+    writeFileSync(mutated, new Uint8Array([...bytes, 0x78]))
+    const published: DevBundleArtifact = {
+      version: 'dev+abc1234',
+      platform: 'linux-x86_64',
+      path: mutated,
+      size: bytes.length,
+      digest: 'sha256-fixture',
+      signature: signature.toString('base64'),
+    }
+    const app = new Hono()
+    registerDevFeedRoutes(app, {
+      publishedArtifact: (version) => (version === published.version ? published : null),
+      manifestPath: () => manifestPath,
+      authenticate: () => true,
+    })
+
+    const response = await app.request('/updates/feed/dev/artifact/dev%2Babc1234')
+    expect(response.status).toBe(404)
+    expect(response.headers.get(UPDATE_ARTIFACT_REFUSAL_HEADER)).toBe(
+      UPDATE_ARTIFACT_INTEGRITY_REFUSAL,
+    )
+  })
+
+  it('keeps a missing file an ordinary not found, with no security marker', async () => {
+    // The other half of the same decision: retention removing the file is not
+    // evidence of tampering, and promoting it would make the marker meaningless.
+    const app = new Hono()
+    registerDevFeedRoutes(app, {
+      publishedArtifact: (version, platform) =>
+        resolveBuiltArtifact(
+          { ...built, path: join(stage, 'never-written.tar.gz') },
+          version,
+          platform,
+        ),
+      manifestPath: () => manifestPath,
+      authenticate: () => true,
+    })
+
+    const response = await app.request('/updates/feed/dev/artifact/dev%2Babc1234')
+    expect(response.status).toBe(404)
+    expect(response.headers.get(UPDATE_ARTIFACT_REFUSAL_HEADER)).toBeNull()
+  })
+
+  it('names the refusal the publisher itself raises over recovered bytes', async () => {
+    // The route's other integrity door — proved armed here rather than assumed,
+    // because nothing else in this suite fires it.
+    const app = new Hono()
+    registerDevFeedRoutes(app, {
+      publishedArtifact: () => {
+        throw new DevArtifactIntegrityError('published artifact bytes failed digest verification')
+      },
+      manifestPath: () => manifestPath,
+      authenticate: () => true,
+    })
+
+    const response = await app.request('/updates/feed/dev/artifact/dev%2Babc1234')
+    expect(response.status).toBe(404)
+    expect(response.headers.get(UPDATE_ARTIFACT_REFUSAL_HEADER)).toBe(
+      UPDATE_ARTIFACT_INTEGRITY_REFUSAL,
+    )
   })
 })

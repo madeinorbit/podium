@@ -1,10 +1,7 @@
 import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
-import {
-  UPDATE_ARTIFACT_INTEGRITY_REFUSAL,
-  UPDATE_ARTIFACT_REFUSAL_HEADER,
-} from '@podium/protocol'
+import { UPDATE_ARTIFACT_INTEGRITY_REFUSAL, UPDATE_ARTIFACT_REFUSAL_HEADER } from '@podium/protocol'
 import type { Context, Hono } from 'hono'
 import { DevArtifactIntegrityError, type DevBundleArtifact } from './dev-bundle'
 import { DEV_DESKTOP_MANIFEST, DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
@@ -135,7 +132,27 @@ export function registerDevFeedRoutes(app: Hono, deps: DevFeedRouteDeps): void {
     }
 
     const opened = await open(artifact.path)
-    if (!opened || opened.size !== artifact.size) return c.text('not found', 404)
+    // ABSENT AND ALTERED ARE DIFFERENT ANSWERS, and this route used to give
+    // them the same one. Retention reclaiming the file, or a cleaned checkout,
+    // is an ordinary `not found` the daemon can act on by asking again.
+    //
+    // A file that is STILL HERE but is no longer the size publication recorded
+    // is the other thing entirely: the stored bytes changed after they were
+    // published, which is the same verdict `publishedArtifact` raises above
+    // when it re-hashes recovered bytes. Answering that with a bare 404 flattened
+    // a security finding into `artifact download returned 404`, which the
+    // downloader classifies `download-failed` — indistinguishable, to whoever
+    // reads it, from a flaky network (POD-2739).
+    //
+    // The end-to-end control is unchanged and still lives with the downloader:
+    // an EQUAL-SIZE mutation streams from here and fails its digest and
+    // signature checks over the bytes. This branch exists so that the cheap
+    // early guard names what it found instead of speaking for the network.
+    if (!opened) return c.text('not found', 404)
+    if (opened.size !== artifact.size) {
+      c.header(UPDATE_ARTIFACT_REFUSAL_HEADER, UPDATE_ARTIFACT_INTEGRITY_REFUSAL)
+      return c.text('not found', 404)
+    }
 
     return c.body(opened.stream, 200, {
       'content-type': DEV_BUNDLE_CONTENT_TYPE,

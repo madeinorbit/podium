@@ -7,6 +7,8 @@ import {
   matchUpdateFailureToken,
   planConvergence,
   RETIRED_PRODUCER_TOKENS,
+  UPDATE_ARTIFACT_INTEGRITY_REFUSAL,
+  UPDATE_ARTIFACT_REFUSAL_HEADER,
   UPDATE_FAILURE_EXAMPLES,
   UPDATE_FAILURE_TOKENS,
   type UpdateFailureToken,
@@ -157,8 +159,7 @@ describe('every refusal a daemon can produce is classified by the shared table',
         },
         caps: ['update.delivery.feed'],
         // The pre-fix marker write: its parent directory does not exist.
-        writePending: () =>
-          writeFileSync(join(root, 'runtime', 'pending-update.json.tmp'), '{}'),
+        writePending: () => writeFileSync(join(root, 'runtime', 'pending-update.json.tmp'), '{}'),
       })
 
       expect(detail).toMatch(/ENOENT.*pending-update\.json\.tmp/i)
@@ -275,6 +276,44 @@ describe('every refusal a daemon can produce is classified by the shared table',
     }
     expect(matchUpdateFailureToken(detail)).toBe('artifact-unverified')
     expect(classifyUpdateFailureDetail(detail)).toBe('machine-artifact-rejected')
+  })
+
+  /**
+   * THE ORIGIN'S HALF OF THE SAME CONTROL (POD-2739).
+   *
+   * A tampered artifact whose SIZE changed never reaches the digest check
+   * above: the publishing server sees the mismatch first and answers a
+   * fail-closed 404 carrying {@link UPDATE_ARTIFACT_REFUSAL_HEADER}. Without
+   * that marker the sentence is `artifact download returned 404`, which is
+   * `download-failed` — a network problem, to whoever reads it. Both arms are
+   * driven through the real producer here, because the whole point is that the
+   * two 404s must not classify alike.
+   */
+  it('classifies an integrity-marked 404 as a rejected artifact, and a bare one as transport', async () => {
+    const download = async (headers: Record<string, string>): Promise<string> => {
+      try {
+        await fetchArtifact(
+          { url: 'https://example/a.tgz', digest: 'sha256-nope', signature: 'sig' } as never,
+          {
+            pubkey: 'k',
+            fetch: async () => new Response('not found', { status: 404, headers }),
+          } as never,
+        )
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+      throw new Error('a 404 must not resolve')
+    }
+
+    const marked = await download({
+      [UPDATE_ARTIFACT_REFUSAL_HEADER]: UPDATE_ARTIFACT_INTEGRITY_REFUSAL,
+    })
+    expect(matchUpdateFailureToken(marked), marked).toBe('artifact-unverified')
+    expect(classifyUpdateFailureDetail(marked), marked).toBe('machine-artifact-rejected')
+
+    const bare = await download({})
+    expect(matchUpdateFailureToken(bare), bare).toBe('download-http-status')
+    expect(classifyUpdateFailureDetail(bare), bare).toBe('download-failed')
   })
 
   it('classifies the delivery misconfigurations as unavailable rather than unreachable', async () => {
