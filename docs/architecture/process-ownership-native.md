@@ -175,10 +175,14 @@ WorkloadSupervisor
 the job named from `(instanceUuid, workloadId)` with metadata (session id,
 family, role, generation) and the manager launches the payload inside it. The
 returned handle carries the native job identity and activation identity — not
-merely a pid. Every payload also receives environment stamps inherited by its
-descendants (`PODIUM_INSTANCE`, `PODIUM_SESSION_ID`, `PODIUM_STATE_DIR`,
-`PODIUM_WORKLOAD`): these are diagnostics and stray-attribution aids, never
-the authority.
+merely a pid. Where the platform mints no invocation identity, the **exact
+identity triple** (pid, process start time, boot identity) is the hard rule,
+not a fallback aside: stamped into the job/workload metadata at admission and
+**revalidated immediately before every kill that is not the manager's own
+unit stop** — never a pid alone. Every payload also receives environment
+stamps inherited by its descendants (`PODIUM_INSTANCE`, `PODIUM_SESSION_ID`,
+`PODIUM_STATE_DIR`, `PODIUM_WORKLOAD`): these are diagnostics and
+stray-attribution aids, never the authority.
 
 **Linux backend: systemd transient *services*.** A transient service — not a
 scope — because the distinction is exactly this problem: a service is created
@@ -203,6 +207,20 @@ as its registry: enumerable, reattachable, honestly reported as having no
 containment and no `verified-empty`. Other families degrade to non-durable
 daemon children there (decision 1).
 
+**Fallback-lane witnesses.** Every backend that is *not* a native manager
+(the abduco socket registry, and any family a platform spike leaves
+boundary-less) additionally wires two disciplines at the spawn seam. First,
+a **held-lock liveness witness**: the payload inherits a locked descriptor
+on its registry entry, so tree-liveness decays in the kernel and is answered
+by one non-blocking lock attempt — with the full discipline attached: a free
+lock is evidence, never a verdict; whether an incarnation retains the
+descriptor is probed, not assumed; a closed descriptor reduces confidence
+(`unwitnessed`) and never authorizes a kill or redefines ownership. Second,
+a **reap claim**: where no manager arbitrates concurrent sweepers, cleanup
+of one entry is guarded by an exclusive claim record with owner, phase, and
+deadline, and the census reports `reap-in-progress` for a claimed entry
+rather than guessing alive-or-dead in either direction.
+
 **macOS backend: launchd jobs**, one per incarnation, uniquely labelled from
 `(instanceUuid, workloadId)`, launching foreground payloads in the user
 domain (the native app hosting server+daemon uses its sanctioned service
@@ -213,7 +231,14 @@ promised** (§7); the backend's `capabilities()` reports what the spike
 proved. A family for which no defensible boundary exists on macOS is
 declared *resumable but not process-durable* there: the process dies with
 the daemon and the conversation resumes from harness state. Honesty about
-the boundary beats heuristic process discovery after the fact.
+the boundary beats heuristic process discovery after the fact. The macOS
+census and stray scan are built from named sources, not aspiration: boot
+identity from `kern.boottime`; process start time from
+`proc_pidinfo`/`PROC_PIDTBSDINFO`; same-user environment via
+`KERN_PROCARGS2`; enumeration via `libproc`; with a defined refusal state
+when an API is denied. The terminal family is the weakest corner and says
+so: the master's pid is obtained from the abduco socket protocol,
+triple-captured, and revalidated immediately before every signal.
 
 **Windows (later):** Job Objects — kill-on-close, real memory limits,
 `verified-empty` restored.
@@ -234,21 +259,28 @@ tables, and stamps. Its surface:
 **Census** (on demand): the manager's job list for every Podium instance
 UUID present on the machine, joined with this instance's product bindings,
 plus any stray process carrying Podium stamps but belonging to no job. Each
-record: owner UUID (and whether that is *this* instance), workload id,
-session binding state (`bound` | `unwanted` | `unknown`), activation
-identity, memory (per-boundary where the platform has one, per-process walk
-where not), age, probe result, and a **coverage statement** naming which
-discovery sources ran on this platform and what each cannot see. The
+record: owner UUID (and whether that is *this* instance) with attribution
+confidence, workload id, session binding state (`bound` | `unwanted` |
+`unknown` | `ambiguous`), activation identity, lifecycle observation
+(including `reap-in-progress` for a claimed fallback entry, and the lock
+observation `held` | `free` | `unwitnessed` where a fallback lane carries
+the held-lock witness), memory (per-boundary where the platform has one,
+per-process walk where not), age, probe result, and a **coverage statement**
+naming which discovery sources ran on this platform and what each cannot
+see. The
 completeness promise is scoped to that statement; blind spots are reported
 as degraded coverage, not silently omitted.
 
 **Verdicts** (executed with proof): `spawn`, `hibernate`, `reap`, `adopt` —
 outcomes typed per decision 7, refusals carrying reasons, silent partial
-execution banned. Invariants no caller can override: never touch a job
-owned by another instance's UUID (a foreign reap request is routed to the
-live owner; break-glass is a separate, explicitly named, audited operator
-command with its own result type); identity matches exactly or not at all;
-a reap requires positive evidence; every kill reports what it verified.
+execution banned. An `incomplete` outcome **retains the record as a residue
+fact** — the trail is never deleted ahead of the evidence. Invariants no
+caller can override: never touch a job owned by another instance's UUID (a
+foreign reap request is routed to the live owner; break-glass is a
+separate, explicitly named, audited operator command with its own result
+type, requiring exact identity and generation proof and **warning when the
+owning instance is live**); identity matches exactly or not at all; a reap
+requires positive evidence; every kill reports what it verified.
 
 **Events** (pushed): job exited, stop verified, OOM kill (cgroup counters on
 Linux; census-only elsewhere), pressure crossed, orphan discovered, foreign
@@ -264,7 +296,7 @@ a kill (decision 6 does).
 | Driver | Durable? | Workload root | Probe | Stop / resume |
 | --- | --- | --- | --- | --- |
 | opencode | yes — re-addressable HTTP | `opencode serve` | credentialed health endpoint | manager stop; adopt = rebind after exact identity + probe |
-| codex | no — socket transport, but lifetime was daemon-coupled by design | app-server as daemon child | socket accepts | dies with daemon; resume = fresh child from rollout file |
+| codex | no — daemon-coupled by driver declaration (its unix socket makes later promotion to durable *possible* if rebind semantics ever justify it) | app-server as daemon child | socket accepts | dies with daemon; resume = fresh child from rollout file |
 | grok | no — pipe transport | stdio child of daemon | child alive | dies with daemon; resume = fresh child loads named session |
 | terminal families | yes — re-attachable master | abduco master (foreground) | abduco socket index | manager stop (or socket-registry teardown); adopt = reattach |
 | viewer TUIs | yes (warm-park) | client's abduco master | watched signal | closed per warm-park rule |
@@ -283,22 +315,35 @@ days.
 **The hygiene list — the only unprompted stops, all restricted to jobs
 owned by this instance's UUID, each requiring positive evidence:**
 
-1. **Recorded intent:** a durable stop intent names this workload id —
-   execute it (graceful per driver, escalate, verify to the platform's
-   outcome type), retrying across daemon crashes until verified, then
-   retire the intent.
+1. **Recorded intent:** a durable stop intent names this workload id.
+   Intents are a state machine — `pending` (fsynced before the first
+   signal) → `executing` → `verified`, retained afterwards as tombstones —
+   so a kill survives a daemon crash mid-execution and retries from
+   recorded state until verified to the platform's outcome type, graceful
+   per driver first, then escalating.
 2. **Provably unwanted:** a job owned by this UUID whose product store —
-   this instance's own, at a complete snapshot — shows no active binding,
-   past a grace period persisted with the job's metadata. The parked
-   session is *bound* (its row exists and intends revival) and is never
-   touched by this rule; the terminated-and-pruned session left a stop
-   intent (rule 1). What remains here is the true orphan: admitted, then
-   forgotten by everything.
-3. **Viewer TUIs** per the warm-park rule: kept while parked, reclaimed
+   this instance's own, at a **complete snapshot epoch with a completion
+   watermark** (a partial or delta exchange does not arm this rule) — shows
+   no active binding, past a grace period that runs on a **first-observed
+   timestamp persisted with the job's metadata**, so a restarting daemon
+   neither resets nor skips it. The parked session is *bound* (its row
+   exists and intends revival) and is never touched by this rule; the
+   terminated-and-pruned session left a stop intent (rule 1). What remains
+   here is the true orphan: admitted, then forgotten by everything.
+3. **Crash residue of non-durable children:** on Linux, a non-durable
+   daemon child lives in the daemon's own service cgroup and dies with it
+   by construction. On platforms without that boundary, a daemon crash can
+   leave them behind — so a stamped stray carrying **this instance's UUID**
+   whose workload id maps to a family *declared* non-durable, matching no
+   live job, is certain reap-work: its own declaration is the positive
+   evidence that nothing can ever want it again. Identity is
+   triple-verified before the signal.
+4. **Viewer TUIs** per the warm-park rule: kept while parked, reclaimed
    under memory pressure or age backstop, unwatched first, newest last.
 
-Foreign-UUID jobs, stray-stamped processes, and anything `unknown` are
-census facts for the server (decisions 6 and 9).
+Foreign-UUID jobs, stray-stamped processes not covered by rule 3, and
+anything `unknown` or `ambiguous` are census facts for the server
+(decisions 6 and 9).
 
 ## §6 Platforms and trust
 
@@ -356,8 +401,12 @@ Obligations the implementation plan must pin, in writing, before code:
   pass — never automated; behavior while old and new daemons coexist;
   instance rename leaves UUIDs (and therefore ownership) untouched by
   construction.
+- **Fallback-lane wiring:** the held-lock witness (explicit stdio-slot
+  descriptor, non-CLOEXEC, parent-close point, per-incarnation retention
+  probe) and the reap-claim protocol for every non-manager backend.
 - **Acceptance tests** for the named races (admission vs crash, stop-intent
-  retry vs resume, copied-root rekey, manager restart) on both platforms.
+  retry vs resume, copied-root rekey, manager restart, fallback-registry
+  publication vs sweep, claim expiry, kill vs resume) on both platforms.
 
 *Deleted by this design:* the unrecorded-orphan class (the job precedes the
 process); pid-recycling kills (exact ids + activation identity);
