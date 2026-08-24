@@ -11,8 +11,8 @@ import { describe, expect, it } from 'vitest'
 import type { MachineComponent } from '../entities/machine'
 import {
   HOST_REPOS,
-  machineChoices,
   machineChoiceSummary,
+  machineChoices,
   machineEmptyState,
   machineExclusionNote,
   machineRejection,

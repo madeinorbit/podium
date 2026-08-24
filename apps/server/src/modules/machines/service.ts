@@ -1,26 +1,25 @@
-import { type Principal } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import {
-  type AgentKind,
   type AccountId,
+  type AgentKind,
   agentCapabilityRejection,
-  asAccountId,
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
+  asAccountId,
   asMachineId,
+  asUserId,
   HOST_REPOS,
+  type Inventory,
   type MachineComponent,
+  type MachineId,
   type MachineRejection,
   type MachineRequirement,
-  machineRejection,
-  machineRejectionMessage,
-  structuralEligibility,
-  asUserId,
-  type Inventory,
-  type MachineId,
   type MachineUseDecision,
   type MachineWire,
+  machineRejection,
+  machineRejectionMessage,
   resolveMachineChannel,
+  structuralEligibility,
   type UpdateChannel,
   type UserId,
 } from '@podium/model'
@@ -29,6 +28,7 @@ import type {
   LiveServerMessage,
   MachineVerb,
   PeerBuild,
+  Principal,
   ServerMessage,
 } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'

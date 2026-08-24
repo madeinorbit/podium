@@ -18,17 +18,17 @@
  * footnote, because there is nothing to wait for.
  */
 import {
+  type HandoffMachine,
   type MachineActionCopy,
   type MachineChoice,
   type MachineChoiceSummary,
-  machineChoices,
-  type HandoffMachine,
-  machineChoiceSummary,
   type MachineEmptyState,
-  machineEmptyState,
-  machineExclusionNote,
   type MachineRejection,
   type MachineRequirement,
+  machineChoiceSummary,
+  machineChoices,
+  machineEmptyState,
+  machineExclusionNote,
 } from '@podium/model'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
@@ -84,9 +84,12 @@ export function useMachineChoices<M extends ChoosableMachine>(
       emptyState: machineEmptyState(summary, copy),
       autoPick: (preferred ?? selectable[0])?.id,
     }
-    // `copy` is a literal at every call site; keying the memo on its fields
-    // rather than its identity keeps a fresh object from busting it every render.
-  }, [machines, requirement, copy.action, copy.capability, copy.remedy, preferredId])
+    // PASS A STABLE `copy` AND `requirement` — a module-level constant at every
+    // call site today. Both are keyed by identity, so a fresh object literal
+    // busts the memo each render. That is a recompute of a pure fold over a
+    // handful of machines, not a correctness problem, which is why this is a
+    // note rather than a defensive deep-compare.
+  }, [machines, requirement, copy, preferredId])
 }
 
 /** The label a row carries in a dropdown: the name plus, when refused, why. */

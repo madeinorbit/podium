@@ -109,9 +109,7 @@ export function LoadPanel({
   // name. An empty panel is a smaller lie than a confident wrong number. The
   // first-host fallback survives only where no machine was asked for.
   const metric =
-    machineId === undefined
-      ? hostMetrics[0]
-      : hostMetrics.find((h) => h.machineId === machineId)
+    machineId === undefined ? hostMetrics[0] : hostMetrics.find((h) => h.machineId === machineId)
   const mem = data
     ? hostMemoryView({ hostname: data.hostname, sampledAt: data.sampledAt, memory: data.memory })
     : metric

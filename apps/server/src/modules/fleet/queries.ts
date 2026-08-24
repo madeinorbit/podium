@@ -55,11 +55,7 @@ export const REPO_QUERIES = {
         // a queue and comes back "directory browse failed", which names neither
         // the machine nor the reason.
         try {
-          s.modules.machines.requireCapability(
-            input.machineId,
-            HOST_REPOS,
-            'browse directories',
-          )
+          s.modules.machines.requireCapability(input.machineId, HOST_REPOS, 'browse directories')
         } catch (e) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',

@@ -2,20 +2,20 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   type DeliveryReceipt,
+  HOST_REPOS,
   IssueColor,
+  type IssueId,
   type IssueShowWire,
   type IssueTreeNode,
   type IssueTreeSession,
   type IssueWire,
-  HOST_REPOS,
   machineByRef,
   machineRejectionMessage,
   machinesFor,
   type NameableMachine,
   type SelectableMachine,
-  structuralEligibility,
-  type IssueId,
   type SessionId,
+  structuralEligibility,
 } from '@podium/model'
 import {
   bareSelfRefCount,

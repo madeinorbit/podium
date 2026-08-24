@@ -22,14 +22,14 @@
  */
 import {
   asMachineId,
-  machinesWithRepo,
-  type MachineWire,
-  resolveTargetMachine,
-  type RecentSession,
-  structuralRejection,
-  type RepoMachines,
-  type SelectableMachine,
   type MachineId,
+  type MachineWire,
+  machinesWithRepo,
+  type RecentSession,
+  type RepoMachines,
+  resolveTargetMachine,
+  type SelectableMachine,
+  structuralRejection,
 } from '@podium/model'
 
 // ---------------------------------------------------------------------------

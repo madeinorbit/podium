@@ -35,8 +35,8 @@ import { randomUUID } from 'node:crypto'
 import {
   asMachineId,
   HandoffManifestV1,
-  machineRejectionMessage,
   type MachineId,
+  machineRejectionMessage,
   type RepoId,
   structuralRejection,
 } from '@podium/model'

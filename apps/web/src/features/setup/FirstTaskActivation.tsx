@@ -1,7 +1,7 @@
-import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { shallowEqual } from '@podium/client-core/store'
-import { HOST_REPOS, machinesFor } from '@podium/model'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { HarnessAgent, SessionId } from '@podium/model'
+import { HOST_REPOS, machinesFor } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import { EXAMPLE_USAGE_REPORT_DISPLAY as TELEMETRY_EXAMPLE } from '@podium/telemetry/example'
 import {
@@ -19,23 +19,23 @@ import { SetupLoginTerminalDialog } from '@/app/SetupLoginTerminalDialog'
 import { useStoreSelector } from '@/app/store'
 import {
   ISSUE_AGENT_KINDS,
+  type IssueAgentKind,
   issueAgentIcon,
   issueAgentKind,
   issueAgentLabel,
-  type IssueAgentKind,
 } from '@/lib/issue-agents'
 import { cn } from '@/lib/utils'
+import { ActivationShell } from './ActivationShell'
+import type { ActivationRoute } from './activation-route'
 import {
+  type ActivationAgentReadiness,
   activationAgentIsInstalled,
   activationAgentIsReady,
   activationAgentReadiness,
   activationReadinessCopy,
-  type ActivationAgentReadiness,
 } from './agent-readiness'
-import type { ActivationRoute } from './activation-route'
 import { persistFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
 import { SetupError } from './SetupFeedback'
-import { ActivationShell } from './ActivationShell'
 
 function setupHint(agent: IssueAgentKind, readiness: ActivationAgentReadiness): string {
   if (agent === 'opencode' && readiness.state === 'logged-out') {

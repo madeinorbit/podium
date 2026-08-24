@@ -216,11 +216,7 @@ export interface HandoffMachine extends SelectableMachine {
  *    harness is simply absent from the machine's inventory, which degrades to
  *    "cannot run it here" rather than throwing or guessing another CLI.
  */
-export type AgentCapabilityRejection =
-  | 'unauthorized'
-  | 'no-daemon'
-  | 'offline'
-  | 'harness-missing'
+export type AgentCapabilityRejection = 'unauthorized' | 'no-daemon' | 'offline' | 'harness-missing'
 
 /** A condition that can be reported for a session after it starts. */
 export type AgentLoginCondition = 'logged-out'

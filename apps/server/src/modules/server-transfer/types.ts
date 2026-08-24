@@ -1,11 +1,11 @@
 import type { MachineId } from '@podium/model'
-import { SERVER_TRANSFER_FORMAT_VERSION } from '@podium/protocol'
 import type {
   ServerTransferManifest as ProtocolServerTransferManifest,
   ServerTransferManifestEntry as ProtocolServerTransferManifestEntry,
   ServerTransferProof,
   ServerTransferServingProof,
 } from '@podium/protocol'
+import { SERVER_TRANSFER_FORMAT_VERSION } from '@podium/protocol'
 
 export { SERVER_TRANSFER_FORMAT_VERSION }
 export const SERVER_TRANSFER_CONFIRMATION = 'TRANSFER SERVER' as const

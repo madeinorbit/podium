@@ -239,7 +239,6 @@ export const machinePairingCodeHandler = ({
   return { code, joinCommand: ports.joinCommand(code, input?.podiumManaged ?? true) }
 }
 
-
 /**
  * REFUSE BEFORE ROUNDTRIPPING (POD-2700 §2.5).
  *

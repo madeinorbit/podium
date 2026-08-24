@@ -3,8 +3,8 @@ import {
   harnessSupportsCredentialPropagation,
 } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
-import { HOST_REPOS } from '@podium/model'
 import type { AgentKind, HarnessAgent, MachineId, UserId } from '@podium/model'
+import { HOST_REPOS } from '@podium/model'
 import type { PortableCredentialBundle } from '@podium/protocol'
 import { buildLoginCatalog, catalogEntriesForHarness } from '../../login-catalog'
 import type { SessionStore } from '../../store'

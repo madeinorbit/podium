@@ -1,14 +1,14 @@
 import type {
+  AccountId,
   ArtifactId,
   IssueId,
   IssueTree,
   IssueTreeNode,
   IssueTreeSession,
   IssueWire,
+  MachineId,
   SessionId,
   SessionMeta,
-  MachineId,
-  AccountId,
 } from '@podium/model'
 import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'

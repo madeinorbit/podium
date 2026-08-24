@@ -197,9 +197,7 @@ function MemoryPanel({
   // that runs no daemon reports no metrics, and borrowing another host's sample
   // put a confident, wrong "12.3/32 GB used" under its name.
   const headlineHost =
-    machineId === undefined
-      ? hostMetrics[0]
-      : hostMetrics.find((h) => h.machineId === machineId)
+    machineId === undefined ? hostMetrics[0] : hostMetrics.find((h) => h.machineId === machineId)
   const headline = !data && headlineHost ? hostMemoryView(headlineHost) : null
 
   // Current memory pressure for the hibernation explainer — prefer the

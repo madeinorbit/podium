@@ -59,11 +59,8 @@ import type {
   WorkflowScope,
   WorkflowWire,
 } from '@podium/protocol'
-import {
-  type MachineAvailability,
-  type MachineView,
-} from './machines/authority'
-import { resolveReferent, type ReferentExit, type ReferentState } from '../session-ownership'
+import { type ReferentExit, type ReferentState, resolveReferent } from '../session-ownership'
+import type { MachineAvailability, MachineView } from './machines/authority'
 
 // ---------------------------------------------------------------------------
 // The library list.

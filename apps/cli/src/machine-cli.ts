@@ -20,7 +20,7 @@
  */
 
 import { makeRelayIssueClient } from '@podium/issue-client'
-import { type AgentInventory, type MachineWire, machineByRef, type MachineId } from '@podium/model'
+import { type AgentInventory, type MachineId, type MachineWire, machineByRef } from '@podium/model'
 import { resolveAgentRelay } from '@podium/runtime/config'
 
 type Proc = { query(input?: unknown): Promise<unknown> }

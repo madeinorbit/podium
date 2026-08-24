@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { AttachmentStrip } from '@/features/chat/AttachmentStrip'
 import { useAttachments } from '@/features/chat/use-attachments'
+import { machineOptionLabel, useMachineChoices } from '@/features/machines/machine-choices'
 import { AUTO } from '@/lib/agent-models'
 import {
   ISSUE_AGENT_KINDS,
@@ -31,7 +32,6 @@ import {
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu } from '@/lib/PropertyMenu'
-import { machineOptionLabel, useMachineChoices } from '@/features/machines/machine-choices'
 
 /** What the cold-start composer is choosing a machine FOR. */
 const COLD_START_COPY: MachineActionCopy = {
@@ -39,6 +39,7 @@ const COLD_START_COPY: MachineActionCopy = {
   capability: 'run agents',
   remedy: 'Pair a machine that runs the Podium daemon.',
 }
+
 import { activationAgentIsReady, activationAgentReadiness } from './agent-readiness'
 import { clearFirstTaskDraft, persistFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
 import { SetupError } from './SetupFeedback'
@@ -106,18 +107,15 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     }),
     shallowEqual,
   )
-  const repoChoices = useMemo(
-    () => {
-      const sections = sidebarSections(repos, sessions, EMPTY_PINS)
-      const { byRepo } = lastUsedMaps(sections, sessions)
-      return sections.repos.sort(
-        (a, b) =>
-          (byRepo.get(b.path) ?? 0) - (byRepo.get(a.path) ?? 0) ||
-          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-      )
-    },
-    [repos, sessions],
-  )
+  const repoChoices = useMemo(() => {
+    const sections = sidebarSections(repos, sessions, EMPTY_PINS)
+    const { byRepo } = lastUsedMaps(sections, sessions)
+    return sections.repos.sort(
+      (a, b) =>
+        (byRepo.get(b.path) ?? 0) - (byRepo.get(a.path) ?? 0) ||
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    )
+  }, [repos, sessions])
   const [draft, setDraftState] = useState(() =>
     readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)),
   )

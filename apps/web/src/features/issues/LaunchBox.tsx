@@ -42,15 +42,12 @@ import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
+import { machineOptionLabel, useMachineChoices } from '@/features/machines/machine-choices'
 import { CapabilityAgentMenu } from '@/lib/agent-capability'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
 import { issueAgentLabel, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu } from '@/lib/PropertyMenu'
-import {
-  machineOptionLabel,
-  useMachineChoices,
-} from '@/features/machines/machine-choices'
 
 /** What this pin is for — see `MachineActionCopy`. */
 const ISSUE_HOME_COPY: MachineActionCopy = {
@@ -58,6 +55,7 @@ const ISSUE_HOME_COPY: MachineActionCopy = {
   capability: 'hold worktrees',
   remedy: 'Pair a machine that runs the Podium daemon.',
 }
+
 import { cn } from '@/lib/utils'
 import { useAgentFleetOptions } from './use-agent-fleet-options'
 

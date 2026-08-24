@@ -179,7 +179,9 @@ describe('SessionRegistry', () => {
         host.filter((message) => message.type === 'repoOpRequest' && message.op === 'worktreeAdd'),
       ).toHaveLength(1)
       expect(
-        remote.filter((message) => message.type === 'repoOpRequest' && message.op === 'worktreeAdd'),
+        remote.filter(
+          (message) => message.type === 'repoOpRequest' && message.op === 'worktreeAdd',
+        ),
       ).toHaveLength(1)
     } finally {
       reg.dispose()
@@ -1375,11 +1377,11 @@ describe('SessionRegistry', () => {
     expect(hostRow?.components).toEqual(['server'])
     expect(agentCapabilityRejection(hostRow!, 'shell')).toBe('no-daemon')
     // A machine that HAS a daemon and is merely disconnected still answers
-    // `offline` — that is the distinction, stated as a comparison rather than
-    // asserted about one row.
+    // `offline` — the distinction, stated as a comparison against the SAME row
+    // rather than asserted about one of them in isolation.
     expect(
       agentCapabilityRejection(
-        { ...hostRow!, components: ['server', 'daemon'] as const },
+        { ...hostRow, id: TEST_MACHINE, online: false, components: ['server', 'daemon'] as const },
         'shell',
       ),
     ).toBe('offline')
