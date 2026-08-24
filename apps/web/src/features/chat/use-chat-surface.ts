@@ -489,6 +489,24 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // prompt text can hide an older failure when a retry reuses the same words.
   const restoredFailed = send.failedMessages
 
+  /**
+   * DEAD-LETTER RETRY MATRIX — an action exists only when this snapshot has a
+   * route that can perform it:
+   *
+   *   live / starting                 Retry → direct session send
+   *   hibernated                      Retry → resume and durably queue
+   *   exited + resumable              Retry → resume and durably queue
+   *   exited + non-resumable          no action; keep the failed row
+   *   gone                            no action; keep the failed row
+   *   archived + resumable            no action; keep the failed row
+   *   archived + non-resumable        no action; keep the failed row
+   *
+   * Archive outranks the retained resume capability in `composerState`.
+   * A transport refusal after one of the three performable routes remains a
+   * distinct failed attempt; it never changes this older row's history.
+   */
+  const canRetryFailedMessage = composer.sendable || composer.canResume
+
   const phase = useMemo(
     () =>
       transcriptPhase({
@@ -741,8 +759,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     sendOfferPrompt: send.sendOfferPrompt,
     dismissOffer: send.dismissOffer,
     retractQueuedMessage: send.retractQueuedMessage,
-    retryFailedMessage:
-      composer.sendable || composer.canResume ? (text) => void send.send(text) : undefined,
+    retryFailedMessage: canRetryFailedMessage ? (text) => void send.send(text) : undefined,
     answerAsk,
     activity,
 

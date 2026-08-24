@@ -191,6 +191,9 @@ async function flush(): Promise<void> {
   // Let pending microtasks (the awaited tRPC query) settle inside act.
   await act(async () => {
     await Promise.resolve()
+    // ChatView code-splits TranscriptFeed. A focused test run must not depend on
+    // an earlier case having warmed that module before this helper settles.
+    await vi.dynamicImportSettled()
     await Promise.resolve()
   })
 }
@@ -642,6 +645,12 @@ describe('ChatView composer', () => {
         exitKind: undefined,
         route: null,
       },
+      {
+        label: 'archived non-resumable',
+        session: meta({ status: 'exited', resumable: false, archived: true }),
+        exitKind: undefined,
+        route: null,
+      },
     ] as const)(
       '$label session exposes only a deliverable retry route',
       async ({ session, exitKind, route }) => {
@@ -657,6 +666,9 @@ describe('ChatView composer', () => {
         const retry = container.querySelector<HTMLButtonElement>(
           '[aria-label="Retry failed message"]',
         )
+        expect(
+          container.querySelector('[data-testid="dead-lettered-chat-message"]'),
+        ).not.toBeNull()
         expect(retry !== null).toBe(route !== null)
         if (!retry || route === null) return
 
@@ -680,7 +692,9 @@ describe('ChatView composer', () => {
     )
 
     it('shows an accepted retry as a new pending attempt while preserving failure history', async () => {
-      fakeTrpc.messages.ledger.query.mockResolvedValueOnce([failedRow])
+      // The original failed attempt remains durable when the accepted retry's
+      // immediate refresh reads the ledger again.
+      fakeTrpc.messages.ledger.query.mockResolvedValue([failedRow])
       fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
         ok: true,
         disposition: 'accepted',
