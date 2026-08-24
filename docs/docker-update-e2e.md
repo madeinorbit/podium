@@ -110,7 +110,7 @@ Every request the gate makes goes through the helpers in
 [update-e2e]   status: 400
 [update-e2e]   request body: {"path":"/work/source"}
 [update-e2e]   response body:
-[update-e2e]   | {"error":{"json":{"message":"machine \"source\" runs no daemon..."}}}
+  | {"error":{"json":{"message":"machine \"source\" runs no daemon..."}}}
 [update-e2e]   refusal: machine "source" runs no daemon and cannot host a repo
 ```
 
