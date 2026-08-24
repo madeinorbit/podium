@@ -227,11 +227,27 @@ export interface HandoverHealthProbe {
 }
 
 /**
- * Handover health (disposition 24): both children up, the server serving the
- * NEW version over /version, and the local daemon connected — never bare /health.
+ * Handover health (disposition 24): every supervised child up, the server
+ * serving the NEW version over /version, and the local daemon connected —
+ * never bare /health.
+ *
+ * `shape.requiresDaemon` is the caller's child table, because disposition 11
+ * includes daemonless machines: on a server-only parent no process will ever
+ * set `daemonConnected`, and demanding it made the gate unsatisfiable — every
+ * coordinator install swapped, timed out, and rolled back while the fleet
+ * record claimed the new version (POD-2732). The boot gate already judges by
+ * the supervised shape; this keeps the handover gate on the same rule.
  */
-export function isHandoverHealthy(probe: HandoverHealthProbe, expectedVersion: string): boolean {
-  return probe.serverRunning && probe.daemonConnected && probe.serverVersion === expectedVersion
+export function isHandoverHealthy(
+  probe: HandoverHealthProbe,
+  expectedVersion: string,
+  shape: { requiresDaemon: boolean } = { requiresDaemon: true },
+): boolean {
+  return (
+    probe.serverRunning &&
+    (probe.daemonConnected || !shape.requiresDaemon) &&
+    probe.serverVersion === expectedVersion
+  )
 }
 
 /**

@@ -413,6 +413,97 @@ describe('ParentProcess', () => {
     for (const kid of kids) expect(kid.signalsReceived).toEqual([])
   })
 
+  /**
+   * POD-2732: the sandbox coordinator is a server-only parent (no daemon child),
+   * and its handover gate demanded `daemonConnected` anyway — a bit no process
+   * on that machine could ever set. Every install then swapped, timed out for
+   * 90s, and rolled back, so the coordinator never held an update while its
+   * fleet record claimed one. The gate must judge a daemonless shape by the
+   * children it actually supervises, exactly as the boot gate already does.
+   */
+  it('daemonless handover passes on server health alone — no daemon will ever connect', async () => {
+    const clock = fakeClock()
+    let nextPid = 700
+    const spawnImpl: SpawnChildFn = () =>
+      new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>
+    let successorUp = false
+    let waits = 0
+    const notifications: string[] = []
+    const exits: number[] = []
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: '/opt/podium',
+        installBinary: '/opt/podium/podium',
+        children: ['server'],
+        env: { PODIUM_APP_VERSION: '1.0.0' },
+        spawn: spawnImpl,
+        // The truthful probe of a daemonless machine: the daemon bit stays
+        // false forever, before AND after the successor serves the target.
+        probeHealth: async () => ({
+          serverRunning: true,
+          serverVersion: successorUp ? '2.0.0' : '1.0.0',
+          daemonConnected: false,
+        }),
+        notify: (s) => notifications.push(s),
+        sleep: async () => {
+          clock.advance(250)
+          if (++waits >= 3) successorUp = true
+        },
+        now: clock.now,
+        exit: (code) => exits.push(code),
+      }),
+    )
+
+    await parent.start()
+    await parent.handover('2.0.0')
+
+    expect(exits, 'a healthy daemonless successor must be handed the stack').toEqual([0])
+    expect(notifications.filter((n) => n.startsWith('MAINPID='))).toHaveLength(1)
+  })
+
+  /** The relaxation is shape-scoped: a parent that DOES supervise a daemon still waits for it. */
+  it('a daemon-bearing handover still requires the local daemon to connect', async () => {
+    const clock = fakeClock()
+    let nextPid = 750
+    let successor: FakeChild | undefined
+    const kids: FakeChild[] = []
+    const spawnImpl: SpawnChildFn = (_cmd, args) => {
+      const child = new FakeChild(nextPid++)
+      if (args[0] === 'parent') successor = child
+      else kids.push(child)
+      return child as unknown as ReturnType<SpawnChildFn>
+    }
+    const exits: number[] = []
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: '/opt/podium',
+        installBinary: '/opt/podium/podium',
+        children: ['server', 'daemon'],
+        env: { PODIUM_APP_VERSION: '1.0.0' },
+        spawn: spawnImpl,
+        // Server serves the target but the machine's daemon never reaches it.
+        probeHealth: async () => ({
+          serverRunning: true,
+          serverVersion: '2.0.0',
+          daemonConnected: false,
+        }),
+        notify: () => {},
+        sleep: async () => clock.advance(250),
+        now: clock.now,
+        exit: (code) => exits.push(code),
+      }),
+    )
+
+    await parent.start()
+    for (const kid of kids.splice(0)) kid.die(0, 'SIGTERM')
+
+    await expect(parent.handover('2.0.0')).rejects.toThrow(/handover timed out/)
+    expect(successor?.signalsReceived).toContain('SIGTERM')
+    expect(exits, 'the old parent must stay when the daemon never connects').toEqual([])
+  })
+
   it('a successor that never gets healthy is killed and supervision comes back', async () => {
     const clock = fakeClock()
     let nextPid = 500

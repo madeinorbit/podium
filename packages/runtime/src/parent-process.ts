@@ -930,7 +930,9 @@ export class ParentProcess {
           return await abortAfterSuccessorExit()
         }
         const healthy = wantsServer
-          ? isHandoverHealthy(await this.deps.probeHealth(this.deps.port), expectedVersion)
+          ? isHandoverHealthy(await this.deps.probeHealth(this.deps.port), expectedVersion, {
+              requiresDaemon: this.requiresDaemon(),
+            })
           : isDaemonHandoverHealthy(await this.deps.probeDaemonHealth(), expectedVersion)
         if (successorExited || successor.exitCode !== null) {
           return await abortAfterSuccessorExit()
