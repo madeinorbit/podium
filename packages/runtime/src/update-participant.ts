@@ -72,31 +72,48 @@ export async function applyGrant(
   deps: GrantApplyDeps,
   signal?: AbortSignal,
 ): Promise<void> {
-  const current = deps.currentVersion()
-  const plan = planConvergence({
-    current,
-    target: grant.target,
-    caps: deps.caps,
-    platform: deps.platform ?? runningPlatform(),
-    repair: grant.repair === true,
-  })
-
-  if (plan.action === 'already-current') {
-    report(deps, grant, 'current', current)
-    return
-  }
-  if (plan.action === 'cannot') {
-    report(deps, grant, 'rejected', current, `cannot converge: ${plan.reason}`)
-    return
-  }
-  const refusal = deps.refuse?.(grant.target)
-  if (refusal) {
-    report(deps, grant, 'rejected', current, refusal)
-    return
-  }
-
-  report(deps, grant, 'downloading', current)
+  /**
+   * EVERY PATH OUT OF HERE REPORTS, INCLUDING THE ONES THAT THROW (POD-2741).
+   *
+   * The coordinator marks a machine `granted` the moment it hands the grant
+   * over, and the only thing that can move that place again is a status report
+   * from this function. Deciding whether to converge used to sit OUTSIDE the
+   * try below — `currentVersion`, `planConvergence`, and `refuse`, which is the
+   * daemon's schema gate — and `local-participant.ts` calls this through a
+   * floating `void runner.apply(...)`. So a gate that threw instead of
+   * answering was swallowed whole: no report, no rejection, and a wave left
+   * holding a machine that was neither working nor failed until the machines
+   * step spent its entire silence budget.
+   *
+   * `current` is declared before the try so a throw in `currentVersion` itself
+   * still reports against a version rather than losing the report too.
+   */
+  let current = ''
   try {
+    current = deps.currentVersion()
+    const plan = planConvergence({
+      current,
+      target: grant.target,
+      caps: deps.caps,
+      platform: deps.platform ?? runningPlatform(),
+      repair: grant.repair === true,
+    })
+
+    if (plan.action === 'already-current') {
+      report(deps, grant, 'current', current)
+      return
+    }
+    if (plan.action === 'cannot') {
+      report(deps, grant, 'rejected', current, `cannot converge: ${plan.reason}`)
+      return
+    }
+    const refusal = deps.refuse?.(grant.target)
+    if (refusal) {
+      report(deps, grant, 'rejected', current, refusal)
+      return
+    }
+
+    report(deps, grant, 'downloading', current)
     let parentResult: { releaseHadMigrations?: boolean } | undefined
     if (deps.installTarget) {
       parentResult = await deps.installTarget(grant.target)
