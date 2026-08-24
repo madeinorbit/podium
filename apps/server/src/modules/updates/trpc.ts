@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
 import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } from '@podium/protocol'
 import { buildsDiffer } from '@podium/protocol'
@@ -24,6 +25,8 @@ import {
 import { ReleaseApprovalRefusal } from './release-approval'
 import type { ChannelCheckRecord, UpdatesService } from './service'
 import { isPackagedRolloutTarget, type WaveMachine } from './wave'
+
+const log = createLogger('server:updates')
 
 const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set(['granted', 'downloading', 'restarting'])
 const FAILED: ReadonlySet<ConvergenceState> = new Set(['rejected', 'stuck'])
@@ -457,11 +460,83 @@ export async function startUpdateOperation(
       message: 'This server cannot run update operations.',
     })
   }
+  logWaveDecision(updates, context.channel, result.operation)
   return {
     operationId: result.operation.id,
     operation: result.operation,
     alreadyRunning: false,
   }
+}
+
+/**
+ * WHY EACH MACHINE ON THE CHANNEL IS, OR IS NOT, IN THIS WAVE.
+ *
+ * The plan already records two of the three verdicts: a machine it will update
+ * is a place on the machines step, and a machine it will not is a `deferred`
+ * entry carrying `offline` or `cannot-take-delivery`. The third is the one that
+ * has cost the most and is written down nowhere — a machine judged ALREADY AT
+ * THE TARGET simply never appears, because `behind` filtered it out before
+ * either list was built.
+ *
+ * That silence is the same shape as POD-2732: a coordinator sat four days
+ * without installing because "already current" and "never considered" look
+ * identical from outside. The local participant now logs its own convergence
+ * decisions for exactly that reason; this is the fleet-level half of it.
+ *
+ * Read off the plan the engine actually produced rather than recomputed, so
+ * this line cannot drift from the decision it describes.
+ */
+function logWaveDecision(
+  updates: UpdatesService,
+  channel: UpdateChannel,
+  operation: Operation | undefined,
+): void {
+  if (!operation) return
+  try {
+    describeWaveDecision(updates, channel, operation)
+  } catch (error) {
+    // A diagnostic must never be able to fail an update. The whole point of
+    // this line is the case where something is already wrong.
+    log.warn('could not describe the update wave decision', {
+      operationId: operation.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+function describeWaveDecision(
+  updates: UpdatesService,
+  channel: UpdateChannel,
+  operation: Operation,
+): void {
+  const target = updates.target(channel)
+  if (!target) return
+  const waved = new Set(
+    (operation.steps ?? [])
+      .filter((step) => step.id === UPDATE_STEP_MACHINES)
+      .flatMap((step) => (step.places ?? []).map((place) => place.id)),
+  )
+  const deferredReason = new Map(
+    (operation.deferred ?? []).map((place) => [place.id, place.reason]),
+  )
+  const decisions = updates
+    .fleet()
+    .filter((machine) => isPackagedRolloutTarget(machine))
+    .map((machine) => ({
+      machine: machine.name ?? machine.id,
+      version: machine.version,
+      online: machine.online,
+      verdict: waved.has(machine.id)
+        ? 'waved'
+        : (deferredReason.get(machine.id) ??
+          (machine.version === target.version ? 'already-at-target' : 'not-on-this-channel')),
+    }))
+  log.info('update wave decision', {
+    operationId: operation.id,
+    channel,
+    targetVersion: target.version,
+    decisions,
+  })
 }
 
 /** The fleet read model used by the dialog and Settings. */
