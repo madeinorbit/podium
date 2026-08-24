@@ -1439,9 +1439,10 @@ main() {
     exit 1
   fi
   rpc POST setup.setChannel '{"channel":"dev"}' >/dev/null
-  rpc POST repos.add '{"path":"/work/source"}' >"$WORK/logs/source-repo-add.json"
-  rpc GET repos.list >"$WORK/logs/source-repos.json"
-  jq -e 'index("/work/source") != null' "$WORK/logs/source-repos.json" >/dev/null
+  # The checkout is the publisher source via PODIUM_DEV_SOURCE_ROOT; it must
+  # NOT be registered as a hosted repo. The sandbox coordinator is server-only
+  # (POD-2668), and POD-2700 structurally refuses `repos.add` onto a machine
+  # that runs no daemon — a refusal this harness would otherwise trip over.
 
   if [[ "$ONLY" == server ]]; then
     run_server_lane
