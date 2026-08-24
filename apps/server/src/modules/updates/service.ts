@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type { MachineId, UpdateChannel } from '@podium/model'
 import { asMachineId, resolveMachineChannel } from '@podium/model'
 import type {
@@ -15,6 +16,8 @@ import {
   TERMINAL_STATES,
   type WaveMachine,
 } from './wave'
+
+const log = createLogger('server:updates')
 
 export interface UpdatesDeps {
   machines(): readonly WaveMachine[]
@@ -937,6 +940,30 @@ export class UpdatesService {
       concurrency: this.deps.concurrency,
       canaryHealthy: rollout.canaryHealthy,
       deliveries: offeredDeliveries(target),
+    })
+    /**
+     * WHY THIS TICK GRANTED WHAT IT GRANTED — INCLUDING NOTHING (POD-2741).
+     *
+     * A tick that selects nobody is indistinguishable from a tick that never
+     * ran, and both look exactly like a wave that has stopped. The gate has
+     * twice recorded a rollout sitting at `[source:current, fleet-a:pending,
+     * fleet-b:pending]` with no way to tell which of the two happened, because
+     * every input this decision turns on — whether the canary is proved, what
+     * each machine's convergence state is, whether it is online at this instant
+     * — lives only in memory and is gone by the time anybody reads a log.
+     */
+    log.info('update wave tick', {
+      channel,
+      targetVersion: target.version,
+      canaryHealthy: rollout.canaryHealthy,
+      concurrency: this.deps.concurrency,
+      selected,
+      considered: channelMachines.map((machine) => ({
+        machine: machine.name ?? machine.id,
+        version: machine.version,
+        state: machine.state,
+        online: machine.online,
+      })),
     })
     return this.issueGrants(channel, target, channelMachines, selected)
   }
