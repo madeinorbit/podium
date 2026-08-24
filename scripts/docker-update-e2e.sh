@@ -13,8 +13,16 @@ PROVE_FAILURE="${PODIUM_UPDATE_E2E_PROVE_FAILURE:-}"
 ONLY="${PODIUM_UPDATE_E2E_ONLY:-}"
 HOLD="${PODIUM_UPDATE_E2E_HOLD:-0}"
 HOLD_REF="${PODIUM_UPDATE_E2E_HOLD_REF:-worktree-pod-2462-update-path}"
-EVIDENCE_DIR="${PODIUM_UPDATE_E2E_OUTPUT_DIR:-}"
 RUN_ID="podium-update-e2e-$(date +%s)-$$"
+# KEEP THE EVIDENCE BY DEFAULT.
+#
+# `cleanup` deletes $WORK, and everything a red row points at lives in it - the
+# operation JSON, the fleet snapshots, the per-machine decision logs. Three
+# separate gate runs investigating a flaky row threw all of it away because the
+# output dir is an env var somebody has to remember, and each time the only
+# surviving trace was a 120-line tail in a terminal. Opting OUT is the rarer
+# need, so it is the flag now.
+EVIDENCE_DIR="${PODIUM_UPDATE_E2E_OUTPUT_DIR:-${TMPDIR:-/tmp}/$RUN_ID-evidence}"
 LABEL="dev.podium.update-e2e.run=$RUN_ID"
 IMAGE="$RUN_ID:ubuntu24"
 NETWORK="$RUN_ID"
