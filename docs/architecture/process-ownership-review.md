@@ -1,5 +1,9 @@
 # Adversarial review: process ownership
 
+> Naming note: at the time of this review, `process-ownership.md` was the
+> lease-ledger design (now `process-ownership-lease-ledger.md`); the chosen
+> native-supervisor design now holds the canonical filename.
+
 Reviewed `docs/architecture/process-ownership.md` at `a49f939b0`. This review
 tries to falsify the safety and completeness claims; it does not propose edits
 to the spec itself.

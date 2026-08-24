@@ -1,5 +1,9 @@
 # Process ownership: first-principles review
 
+> Naming note: at the time of this review, `process-ownership.md` was the
+> lease-ledger design (now `process-ownership-lease-ledger.md`) and the
+> native-supervisor design it recommends now holds the canonical filename.
+
 Status: independent design review of `process-ownership.md` for POD-2717.
 
 ## Method and scope
