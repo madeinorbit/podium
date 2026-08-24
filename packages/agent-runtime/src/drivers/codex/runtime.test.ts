@@ -480,18 +480,10 @@ describe('the subscription-auth assertion', () => {
   })
 })
 
-describe('the watch levels, negotiated rather than filtered', () => {
-  it('suppresses token deltas AT THE SERVER while nobody holds a fine watch', async () => {
-    const w = await world()
-    // The handshake opted out, so the server does not send them at all — which
-    // is strictly better than receiving and discarding them.
-    expect(w.server.optedOutOfDeltas).toBe(true)
-    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
-    w.server.emitDelta('msg_1', 'hel')
-    await settle()
-    expect(w.events().filter((e) => e.t === 'item' && e.item.kind === 'delta')).toHaveLength(0)
-    w.dispose()
-  })
+describe('the watch levels, filtered rather than negotiated', () => {
+  // Whether a fragment reaches a viewer is asserted in 'the fine watch, which
+  // takes effect where the viewer is'. What is left here is the other side of
+  // the same handshake: what muting the fragments must never take with them.
 
   it('never suppresses anything the coarse plane needs', async () => {
     const w = await world()
@@ -574,226 +566,206 @@ describe('the human take-over lease', () => {
   })
 })
 
-describe('the fine-watch upgrade, which reconnects', () => {
+describe('the fine watch, which takes effect where the viewer is', () => {
   const fragments = (events: RuntimeEvent[]): RuntimeEvent[] =>
     events.filter((e) => e.t === 'item' && e.item.kind === 'delta')
 
-  it('opens ONE new client and keeps the same child when two viewers ask at once', async () => {
-    /**
-     * `watch()` cannot await the upgrade — it owes a viewer its release function
-     * immediately — so the call is fire-and-forget. Two viewers opening a chat
-     * in the same tick would otherwise each open and handshake a new client.
-     */
+  /**
+   * THE BUG THIS BLOCK REPLACED A RECONNECT TO FIX (POD-2745).
+   *
+   * Reaching `fine` used to mean re-handshaking, because the coarse handshake
+   * asked the app-server to mute the delta notifications and that mute is sent
+   * once, for the connection's life. A reconnect abandons an in-flight turn and
+   * any outstanding approval, so the upgrade could only be applied in an idle
+   * gap — and the turn a viewer opened the chat DURING was therefore always the
+   * turn that streamed nothing. On a session started with an initial prompt that
+   * is the first turn there is. It is the turn people judge the feature by, and
+   * an adversarial drive that watched only that turn concluded the feature
+   * produced nothing at all.
+   *
+   * THE FAKE IS WHAT MAKES THESE ASSERTIONS ABOUT THE MECHANISM RATHER THAN
+   * ABOUT A COUNTER. `emitDelta` is a no-op on a connection whose handshake
+   * muted `item/agentMessage/delta`, exactly as the real server suppresses it.
+   * So a fragment ARRIVING proves the notification crossed the wire, and a
+   * fragment NOT arriving on an unmuted connection proves the driver dropped it
+   * — two different facts that a `watchers.fine` assertion would conflate.
+   */
+  it('streams the turn that was ALREADY RUNNING when the viewer arrived', async () => {
     const w = await world()
-    const bindingBefore = w.handle.binding.bindingVersion
-    const [releaseA, releaseB] = await Promise.all([w.handle.watch('fine'), w.handle.watch('fine')])
+    // BUSY FIRST, then the viewer. This is the ordering that produced silence,
+    // and it is the normal one rather than an edge.
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
     await settle()
-    await settle()
-    expect(w.counts()).toMatchObject({ launches: 1, reconnects: 1, stopped: 0 })
-    expect(w.handle.binding.bindingVersion).toBe(bindingBefore)
-    releaseA()
-    releaseB()
-    w.dispose()
-  })
-
-  it('ABANDONS the upgrade when a turn opened while it was launching', async () => {
-    /**
-     * The safety guards run BEFORE a connection open and a handshake, and a turn
-     * can arrive during them. Swapping the connection then would abandon the
-     * in-flight turn's notifications — so the candidate client is closed and
-     * the session keeps the connection it has.
-     */
-    const w = await world()
-    const bindingBefore = w.handle.binding.bindingVersion
-    // The upgrade's connection is held open, so the turn genuinely lands INSIDE the
-    // window rather than after it.
-    w.gateNextConnect()
     const release = await w.handle.watch('fine')
     await settle()
-    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
-    w.releaseConnect()
-    await settle()
-    await settle()
-    await settle()
 
-    /**
-     * THE ASSERTION IS THE HARM, NOT THE BOOKKEEPING.
-     *
-     * Counting connections cannot tell "abandoned the candidate" from "swapped
-     * to it". What separates them is whether the session can still hear the turn
-     * it has: a driver that swapped loses the completion on its original client
-     * and never fences. `w.server` is that original connection's server view.
-     */
-    expect(w.handle.binding.bindingVersion).toBe(bindingBefore)
-    w.server.completeTurn('completed')
-    await settle()
-    expect((await w.handle.state()).phase).toBe('idle')
-    release()
-    w.dispose()
-  })
-
-  /**
-   * THE VIEWER WHO LEFT WHILE THE UPGRADE WAS IN FLIGHT (POD-2701, found by
-   * this issue's adversarial reviewer on the release path).
-   *
-   * The re-read after the awaits checked `disposed`, `lease`, `busy` and
-   * `asks` — every reason to abandon EXCEPT the one that motivated the
-   * operation. So the sole fine watch could be released mid-upgrade and the
-   * upgrade would commit anyway, replacing the coarse connection with one
-   * negotiated at `fine`. The upgrade being ONE-WAY is what turns that into a
-   * leak rather than a wasted socket: codex then streams deltas for every later
-   * turn with no viewer anywhere.
-   *
-   * AND IT IS INVISIBLE FROM OUTSIDE, which is why it needs a test rather than
-   * a drive. The driver drops fragments at `watchers.fine <= 0`, so a session
-   * leaking this way looks exactly like an idle one — the same reason
-   * `watch.ts` had to grow a log line before the release could be stated at all.
-   *
-   * THE ASSERTION IS OWNERSHIP, NOT BOOKKEEPING, the same way the abandon test
-   * above works: `w.server` is the ORIGINAL coarse connection, and a turn it
-   * never sees is proof the candidate replaced it.
-   */
-  it('abandons the upgrade when the last viewer leaves mid-flight', async () => {
-    const w = await world()
-    // Hold the candidate connection open so the release lands INSIDE the window
-    // rather than after it.
-    w.gateNextConnect()
-    const release = await w.handle.watch('fine')
-    await settle()
-    // The viewer closes the chat while the upgrade is still connecting. This is
-    // the sole watch, so the demand is now gone entirely.
-    release()
-    w.releaseConnect()
-    await settle()
-    await settle()
-    await settle()
-
-    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
-    await settle()
-    // The original coarse connection still owns the session, so it is the one
-    // that saw the turn. A committed upgrade would have taken this to 0.
-    expect(w.server.turnStarts).toBe(1)
-    w.dispose()
-  })
-
-  /**
-   * THE SAME LEAVING, ONE AWAIT LATER — the window a connect gate cannot reach.
-   *
-   * `thread/resume` is awaited AFTER the post-connect re-read and the commit is
-   * the statement after it, so a viewer leaving in that gap would have been
-   * missed by a check that ran only once. Since nothing downgrades a committed
-   * connection, "never commit without a live demand" is the only protection
-   * there is, and a protection that holds at one of two points does not hold.
-   */
-  it('abandons the upgrade when the last viewer leaves during the resume', async () => {
-    const w = await world()
-    // Past the connect, held at the resume — so the candidate connection is
-    // fully open and only the commit is still ahead.
-    w.gateNextResume()
-    const release = await w.handle.watch('fine')
-    await settle()
-    await settle()
-    release()
-    w.releaseResume()
-    await settle()
-    await settle()
-    await settle()
-
-    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
-    await settle()
-    expect(w.server.turnStarts).toBe(1)
-    w.dispose()
-  })
-
-  /**
-   * A VIEWER WHO LEFT AND CAME BACK WHILE THE UPGRADE WAS STILL CONNECTING.
-   *
-   * The demand check must not be a one-shot latch: `watch()` refuses to start a
-   * second upgrade while one is in flight, so if the abandon fired on a count
-   * that had already recovered, this viewer would be left at `coarse` with
-   * nothing to pick it up. Asking `watchers.fine` at the moment of decision —
-   * rather than remembering that it once hit zero — is what makes the recovery
-   * free.
-   *
-   * WHAT THIS DOES NOT COVER is the narrower window the re-arm in `finally`
-   * exists for: a viewer returning AFTER the abandon has already been decided.
-   * On this fixture's reconnect path that window is empty (the abandon runs to
-   * `finally` without an await), so no test here can reach it; it opens only on
-   * the replacement-child path, where `await endpoint.stop()` sits in between.
-   * The re-arm is deliberately unpinned and `closeTurn`'s retry is its backstop
-   * — see the note on the re-arm itself.
-   */
-  it('keeps the upgrade when a viewer returns before it commits', async () => {
-    const w = await world()
-    w.gateNextConnect()
-    const first = await w.handle.watch('fine')
-    await settle()
-    first()
-    // Back before the candidate connection has finished opening.
-    const second = await w.handle.watch('fine')
-    w.releaseConnect()
-    await settle()
-    await settle()
-    await settle()
-
-    // The upgrade committed, so fragments reach this viewer. The fake honours
-    // its own opt-out, so a delta ARRIVING is the level, not a counter.
-    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
-    await settle()
+    // No turn boundary in between — the same turn the viewer joined mid-way.
     w.liveServer().emitDelta('msg_1', 'streaming')
     await settle()
     expect(fragments(w.events())).toHaveLength(1)
+
+    // And the child was never remade to get here, which is the other half of
+    // the fix: the in-flight turn is not abandoned because nothing reconnects.
+    expect(w.counts()).toMatchObject({ launches: 1, reconnects: 0, stopped: 0 })
+    release()
+    w.dispose()
+  })
+
+  it('streams mid-turn even with an approval outstanding', async () => {
+    /**
+     * THE SECOND CONDITION THE OLD UPGRADE REFUSED ON, and it deserves its own
+     * test because it does not resolve on its own: a turn ends by itself, an
+     * unanswered approval waits for a person. A viewer who opened the chat
+     * BECAUSE something was asking them a question used to be the one guaranteed
+     * to see nothing while they read it.
+     */
+    const w = await world()
+    await w.handle.send({ text: 'run something' }, { origin: 'human', delivery: 'when-ready' })
+    const askId = w.server.askCommandApproval({ command: 'rm -rf build' })
+    await settle()
+    expect((await w.handle.interactions()).map((i) => i.id)).toContain(askId)
+
+    const release = await w.handle.watch('fine')
+    await settle()
+    w.liveServer().emitDelta('msg_1', 'thinking out loud')
+    await settle()
+    expect(fragments(w.events())).toHaveLength(1)
+
+    // The ask is still the user's to answer — streaming did not disturb it.
+    expect((await w.handle.interactions()).map((i) => i.id)).toContain(askId)
+    release()
+    w.dispose()
+  })
+
+  /**
+   * THE OTHER DIRECTION, AND IT IS NOW A REAL TEST RATHER THAN A RESTATEMENT OF
+   * THE HANDSHAKE.
+   *
+   * While the server did the muting, "no viewer means no fragments" was true
+   * because the notification never arrived — the driver's own guard was never
+   * reached, so the test proved the fake's opt-out and nothing about the driver.
+   * Now the notification DOES arrive and the driver has to drop it, so the two
+   * tests below are the only thing standing between this change and an
+   * always-on token stream.
+   */
+  it('emits NO fragment when nobody is watching, though the wire now carries one', async () => {
+    const w = await world()
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+
+    // THE PRECONDITION IS THE POINT: this connection is NOT muted, so the fake
+    // really does send. Without this assertion the test below passes just as
+    // well against a server that suppressed the frame.
+    expect(w.liveServer().optedOutOfDeltas).toBe(false)
+    w.liveServer().emitDelta('msg_1', 'nobody asked for this')
+    await settle()
+    expect(fragments(w.events())).toEqual([])
+    w.dispose()
+  })
+
+  it('stops emitting the moment the last viewer leaves, with nothing left behind', async () => {
+    const w = await world()
+    const release = await w.handle.watch('fine')
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    w.liveServer().emitDelta('msg_1', 'watched')
+    await settle()
+    expect(fragments(w.events())).toHaveLength(1)
+
+    /**
+     * AND THIS IS WHERE THE OLD SHAPE LEAKED. The upgrade was deliberately
+     * ONE-WAY — tearing the child down when a tab closed would have churned a
+     * process per navigation — so a session that once had a viewer kept a `fine`
+     * connection for the rest of its life. Correct, because the refcount still
+     * dropped the fragments, but it meant the level and the demand disagreed
+     * from here on. With nothing negotiated there is nothing to leave behind.
+     */
+    release()
+    w.liveServer().emitDelta('msg_1', ' and then unwatched')
+    await settle()
+    expect(fragments(w.events())).toHaveLength(1)
+
+    // A second viewer gets fragments again, immediately, with no boundary in
+    // between — the reverse of the trip that used to be one-way.
+    const second = await w.handle.watch('fine')
+    w.liveServer().emitDelta('msg_1', ' and watched again')
+    await settle()
+    expect(fragments(w.events())).toHaveLength(2)
     second()
     w.dispose()
   })
 
-  /**
-   * THE OTHER HALF OF THE REFUSAL ABOVE, AND THE ONE THAT WAS MISSING
-   * (POD-2701, found by driving it).
-   *
-   * `upgradeToFine` refusing while a turn is open is correct — the upgrade is a
-   * reconnect and a reconnect abandons the turn. But the refusal was terminal:
-   * `watch()` was its only caller, and a viewer already counted in
-   * `watchers.fine` never calls it again. So a chat opened while the agent was
-   * working stayed at `coarse` for the life of the connection, and every later
-   * turn in that session streamed nothing.
-   *
-   * That ordering is the NORMAL one, not an edge: a session started with an
-   * initial prompt is busy from its first moment, and opening its chat is
-   * exactly what someone does next. The drive found it that way.
-   *
-   * THE FAKE'S OPT-OUT IS WHAT MAKES THIS ASSERTABLE. `emitDelta` is a no-op on
-   * a connection whose handshake opted out of the delta notifications, exactly
-   * as the real app-server suppresses them — so a fragment arriving is proof the
-   * connection reached `fine`, not merely that a counter moved.
-   */
-  it('lands the deferred upgrade at the next turn boundary', async () => {
+  it('counts viewers rather than tracking a level, so one leaving does not silence another', async () => {
     const w = await world()
-    // BUSY FIRST, then the viewer — the ordering that broke.
+    const first = await w.handle.watch('fine')
+    const second = await w.handle.watch('fine')
     await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
     await settle()
-    const release = await w.handle.watch('fine')
-    await settle()
-    await settle()
-
-    // Refused, and honestly so: the connection is still coarse, so the server
-    // suppresses the fragment at its own end.
-    w.liveServer().emitDelta('msg_1', 'nope')
-    await settle()
-    expect(fragments(w.events())).toEqual([])
-
-    // The boundary. Nothing else changes — no new viewer, no new watch call.
-    w.liveServer().completeTurn('completed')
-    await settle()
-    await settle()
-    await settle()
-
-    // And now the same viewer, still holding the same watch, gets fragments.
-    await w.handle.send({ text: 'again' }, { origin: 'human', delivery: 'when-ready' })
-    await settle()
-    w.liveServer().emitDelta('msg_2', 'now it streams')
+    first()
+    w.liveServer().emitDelta('msg_1', 'still one viewer')
     await settle()
     expect(fragments(w.events())).toHaveLength(1)
+    second()
+    w.liveServer().emitDelta('msg_1', 'now none')
+    await settle()
+    expect(fragments(w.events())).toHaveLength(1)
+    w.dispose()
+  })
+
+  /**
+   * WHAT THE HANDSHAKE STILL MUTES, PINNED BY NAME.
+   *
+   * `optOutNotificationMethods` takes any method string, so the failure mode of
+   * a wrong entry is a lifecycle event that silently stops arriving — a session
+   * that never goes idle, if `turn/completed` ever landed on it. Asserting the
+   * exact list is the only check that fails loudly instead.
+   *
+   * The three that remain have no ingest arm at all, so receiving them would be
+   * waste at every level; the assistant one is absent because muting it is what
+   * made the level connection-scoped.
+   */
+  it('mutes only the fragments it never reads, and never the assistant ones', async () => {
+    const w = await world()
+    expect([...w.server.mutedNotificationMethods]).toEqual([
+      'item/reasoning/textDelta',
+      'item/reasoning/summaryTextDelta',
+      'item/plan/delta',
+    ])
+    expect(w.server.optedOutOfDeltas).toBe(false)
+    w.dispose()
+  })
+
+  it('mutes the same list on a resumed connection, and streams on it with no upgrade', async () => {
+    /**
+     * A RESUME IS A NEW CHILD AND A NEW HANDSHAKE, so it is a second place the
+     * mute list is chosen and a second place the old shape started at `coarse`.
+     * A daemon reattach that landed a session back on a muted connection would
+     * reintroduce exactly this bug for every recovered session.
+     */
+    const w = await world()
+    const resumed = await w.adopt()
+    await settle()
+    const release = await resumed.watch('fine')
+    await resumed.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    expect([...w.liveServer().mutedNotificationMethods]).toEqual([
+      'item/reasoning/textDelta',
+      'item/reasoning/summaryTextDelta',
+      'item/plan/delta',
+    ])
+
+    const collected: RuntimeEvent[] = []
+    void (async () => {
+      try {
+        for await (const event of resumed.events('bootstrap')) collected.push(event)
+      } catch {
+        // ends with the session
+      }
+    })()
+    await settle()
+    w.liveServer().emitDelta('msg_1', 'streaming after a reattach')
+    await settle()
+    expect(fragments(collected).length).toBeGreaterThan(0)
     release()
     w.dispose()
   })

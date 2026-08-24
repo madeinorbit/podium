@@ -82,15 +82,21 @@ export function codexAppServerCapabilities(): DriverCapabilities {
     }),
     observation: {
       /**
-       * BOTH LEVELS, and `fine` is NATIVE here rather than filtered in user
-       * space (spec §5). `optOutNotificationMethods` on the initialize handshake
-       * tells the server which notifications not to send at all, so at `coarse`
-       * the token deltas never cross the connection. That is the watch-level knob the
-       * spec asks for, implemented by the protocol instead of by discarding.
+       * BOTH LEVELS, FILTERED IN USER SPACE (spec §5) — like opencode and grok,
+       * and not for want of a protocol knob.
        *
-       * The cost is that the level is fixed for the CONNECTION's life: the
-       * handshake happens once. The driver therefore negotiates the level it
-       * will need and reports honestly — see `watch()` in ./runtime.ts.
+       * `optOutNotificationMethods` on the initialize handshake does tell the
+       * server which notifications not to send at all, and this driver still
+       * uses it for the fragment kinds it never reads. It is the wrong place for
+       * the WATCH LEVEL, though, and POD-2745 is what that cost: the handshake
+       * happens once, so a level expressed through it is fixed for the
+       * CONNECTION's life, and lifting it meant a reconnect that abandons an
+       * in-flight turn. A viewer who opened a chat mid-turn therefore could not
+       * be served until that turn ended — which on a session started with an
+       * initial prompt is the first turn, and the only one most people watch.
+       *
+       * So the level lives where it can change: `watchers.fine`, checked per
+       * fragment in `ingest` — see `watch()` in ./runtime.ts.
        */
       watchLevels: ['coarse', 'fine'],
       /** Thread id + the driver's own monotonic event ordinal, persisted as a

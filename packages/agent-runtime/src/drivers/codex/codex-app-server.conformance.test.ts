@@ -144,12 +144,14 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
        *
        * This used to `close()` the previous server here, on the argument that a
        * relaunch means the old child is already gone. True of the path this
-       * fixture was written for (adopt after a supervisor restart) and FALSE of
-       * the fine-watch upgrade, where the old child is alive, still serving the
-       * session, and stopped by the driver itself — `upgradeToFine` swaps the
-       * connection first and only then awaits `oldEndpoint.stop()`. Killing it
-       * at launch made every send during an upgrade refuse `not_running`
-       * against a connection the real world would have kept answering.
+       * fixture was written for (adopt after a supervisor restart) and FALSE
+       * whenever the driver replaces a connection while the old child is alive
+       * and still serving the session — it swaps first and only then awaits
+       * `oldEndpoint.stop()`. Killing it at launch made every send during such a
+       * swap refuse `not_running` against a connection the real world would have
+       * kept answering. (The fine-watch upgrade was the path that found this;
+       * POD-2745 removed that upgrade, but relaunch-while-alive is a shape of
+       * this fixture's host contract rather than of any one caller.)
        *
        * So the outgoing server stays up and `endpoint.stop()`/`kill()` closes
        * it, exactly as the driver expects. `retired` keeps a handle on it so

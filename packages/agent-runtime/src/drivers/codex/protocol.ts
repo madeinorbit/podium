@@ -171,13 +171,18 @@ export class CodexProtocolError extends Error {
 /**
  * `initialize` params.
  *
- * `optOutNotificationMethods` IS THE WATCH-LEVEL KNOB, natively (spec §5). It
- * lives on `capabilities`, takes EXACT method names, and is the reason this
- * driver does not have to filter deltas in user space: at `coarse` the server
- * never sends them. What must never go on this list is anything the coarse
- * observation plane needs — `turn/completed` and `item/completed` above all,
- * since a turn fence that was opted out of is a session that never goes idle.
- * {@link DELTA_NOTIFICATIONS} is the closed set that may be suppressed.
+ * `optOutNotificationMethods` IS A SERVER-SIDE MUTE, not the watch level. It
+ * lives on `capabilities` and takes EXACT method names, and it is sent ONCE, at
+ * the handshake — so anything muted through it is muted for the CONNECTION's
+ * whole life. That is why the watch level is not expressed here (POD-2745): a
+ * level that can change while a session runs cannot be carried by a knob that
+ * cannot. The driver filters fragments in user space on `watchers.fine`, the
+ * same as opencode and grok, and this list carries only what it never reads.
+ *
+ * What must never go on this list is anything the coarse observation plane
+ * needs — `turn/completed` and `item/completed` above all, since a turn fence
+ * that was opted out of is a session that never goes idle.
+ * {@link DELTA_NOTIFICATIONS} is the closed set that is suppressed.
  */
 export interface CodexInitializeParams {
   clientInfo: { name: string; title?: string; version: string }
@@ -189,16 +194,35 @@ export interface CodexInitializeParams {
 }
 
 /**
- * The ONLY notifications this driver ever opts out of.
+ * The ONLY notifications this driver ever opts out of — and it opts out of them
+ * at EVERY watch level, because it has no arm that reads any of them.
  *
  * A CLOSED LIST, and closed on purpose: `optOutNotificationMethods` takes any
  * method name, so the failure mode of a typo or an over-eager addition is a
  * silently missing lifecycle event rather than an error. Deltas are the only
  * category that is safe to drop, because they are live-only by nature — every
  * fragment they carry is repeated in the `item/completed` that closes the item.
+ *
+ * `item/agentMessage/delta` IS NOT ON THIS LIST, and its absence is the whole
+ * of POD-2745. It used to be, and only at `coarse`, which made the watch level
+ * a property of the CONNECTION: lifting the suppression meant re-handshaking,
+ * a reconnect abandons an in-flight turn, so a viewer who opened a chat while
+ * the agent was working could not reach `fine` until the turn ended — and a
+ * session started with an initial prompt is busy from its first moment, so the
+ * first turn anyone ever watched was exactly the turn that did not stream.
+ *
+ * SUPPRESSING IT AT THE SERVER WAS ALWAYS THE SECOND OF TWO GATES. The first is
+ * `session.watchers.fine`, checked in the driver before a fragment costs a
+ * `seq`, an emit or a journal write, and that gate is the one the contract is
+ * written against. Dropping the redundant one costs local pipe bytes on an
+ * unwatched session and buys a fine watch that takes effect the moment a viewer
+ * asks — which is what opencode and grok have always done, since neither has a
+ * server-side knob and both filter in user space.
+ *
+ * The three that remain have no such counterpart: nothing in `ingest` parses
+ * reasoning or plan fragments, so receiving them would be waste at any level.
  */
 export const DELTA_NOTIFICATIONS = [
-  'item/agentMessage/delta',
   'item/reasoning/textDelta',
   'item/reasoning/summaryTextDelta',
   'item/plan/delta',

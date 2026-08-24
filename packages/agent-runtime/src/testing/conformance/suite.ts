@@ -142,12 +142,15 @@ const fineOnlyStreamId = (event: RuntimeEvent): string | undefined => {
  * GIVE A FINE WATCH A BOUNDED MOMENT TO BECOME REAL.
  *
  * `watch('fine')` resolves as soon as the refcount moves, deliberately: it must
- * hand a viewer its release function immediately, and for two of the three
- * headless families the level is live by then. Codex is the exception, and the
- * reason is structural rather than incidental — its handshake opts OUT of delta
- * notifications, so upgrading is a reconnect: a second connection, a
- * `thread/resume`, and a swap. A corpus that sent the instant `watch` resolved
- * would be measuring the race, not the driver.
+ * hand a viewer its release function immediately, and every headless family
+ * filters fragments on that count, so the level is live by the time it resolves.
+ *
+ * THE WAIT IS STILL HERE BECAUSE IT IS NOT ABOUT THE LEVEL. Codex used to be the
+ * exception — its handshake muted the delta notifications, so reaching `fine`
+ * meant a reconnect, and a corpus that sent the instant `watch` resolved would
+ * have been measuring that race (POD-2745 removed it). What remains is every
+ * driver's own ingest being async in places, and a send that raced the wiring
+ * would be just as unfalsifiable.
  *
  * A FIXED WAIT, NOT A POLL, because there is nothing to poll: the contract
  * exposes no "which level is live now", by the same argument. The consequence is

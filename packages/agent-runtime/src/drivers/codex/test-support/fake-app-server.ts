@@ -168,8 +168,15 @@ export interface FakeAppServer {
     itemId?: string,
   ): { complete: () => void; id: string }
   emitDelta(itemId: string, delta: string): void
-  /** Did this connection's handshake opt out of the deltas? */
+  /** Did this connection's handshake opt out of the ASSISTANT-MESSAGE deltas?
+   *  The one `emitDelta` speaks, and so the one a fragment test turns on. */
   optedOutOfDeltas: boolean
+  /** EXACTLY what the handshake asked this server to mute, in the order it was
+   *  asked. A test that only reads `optedOutOfDeltas` can tell that fragments
+   *  flow but not what else got dropped to make them flow — and the mute list
+   *  takes any method name, so an over-eager entry costs a lifecycle event and
+   *  says nothing when it does. */
+  mutedNotificationMethods: readonly string[]
   /**
    * Hold the NEXT `thread/resume` unanswered until `releaseResume()`.
    *
@@ -246,6 +253,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     steers: 0,
     answers: new Map(),
     optedOutOfDeltas: false,
+    mutedNotificationMethods: [],
     gateNextResume() {
       resumeGate = true
     },
@@ -515,9 +523,9 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         const capabilities = (params.capabilities ?? {}) as {
           optOutNotificationMethods?: string[]
         }
-        server.optedOutOfDeltas = (capabilities.optOutNotificationMethods ?? []).includes(
-          'item/agentMessage/delta',
-        )
+        const muted = capabilities.optOutNotificationMethods ?? []
+        server.mutedNotificationMethods = [...muted]
+        server.optedOutOfDeltas = muted.includes('item/agentMessage/delta')
         ready = true
         respond(id, {
           userAgent: 'podium/0.147.0 (fake)',

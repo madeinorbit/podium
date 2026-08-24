@@ -328,12 +328,10 @@ interface DriverSession {
   queue: QueuedTurn[]
   lease: SessionLease | null
   draft: string
+  /** Viewers, by level. `fine` is the ONLY gate on fragment emission: the
+   *  connection carries them either way (POD-2745), so this count is what makes
+   *  the level a per-viewer fact rather than a per-connection one. */
   watchers: { coarse: number; fine: number }
-  /** The level the CURRENT connection negotiated at its handshake. */
-  connectedLevel: WatchLevel
-  /** An upgrade is mid-flight. Guards against two viewers each opening a
-   *  candidate connection — see `upgradeToFine`. */
-  upgrading: boolean
   log: { seq: number; event: RuntimeEvent }[]
   wakers: Set<() => void>
   state: AgentRuntimeState
@@ -574,12 +572,18 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       }
       case 'item/agentMessage/delta': {
         /**
-         * FINE WATCH ONLY — and at `coarse` these do not even reach us, because
-         * the handshake opted out of them. The guard stays because a connection
-         * negotiated at `fine` outlives the viewer that asked for it (see
-         * `watch()`), and once the last viewer leaves, sending fragments nobody
-         * reads is exactly the always-on token stream the two levels exist to
-         * avoid.
+         * FINE WATCH ONLY, AND THIS LINE IS THE ONLY GATE (POD-2745).
+         *
+         * These now reach the driver at every level — the handshake stopped
+         * muting them at the server, because a mute that can only be lifted by
+         * reconnecting made the level a property of the connection and cost a
+         * mid-turn viewer the very turn they came to watch. So the count decides,
+         * and it decides HERE, ahead of `emit`: a dropped fragment costs no
+         * `seq`, no entry in the bounded event log, no journal write, and
+         * nothing forwarded to the daemon. "Fine must not stay on with nobody
+         * watching" is enforced by this comparison and nothing else, which is
+         * why it is the first statement in the arm rather than a condition
+         * further down.
          */
         if (session.watchers.fine <= 0) break
         // NOT INTO A CLOSED TURN (POD-2293). `closeTurn` clears `openTurnId`, so
@@ -871,30 +875,19 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     for (const wake of [...session.turnOpenWaiters]) wake()
     session.turnOpenWaiters.clear()
     /**
-     * THE SAFE BOUNDARY THE DEFERRED UPGRADE WAS WAITING FOR (POD-2701).
+     * NOTHING TO RESUME AT THIS BOUNDARY ANY MORE (POD-2745).
      *
-     * `watch()` starts the upgrade, and `upgradeToFine` refuses while a turn is
-     * open or an ask is outstanding — correctly, because the upgrade IS a
-     * reconnect and a reconnect abandons both. Its own comment says the demand
-     * "is recorded and applied at the next safe boundary", and the recording was
-     * real: `watchers.fine` outlives the refusal. What was missing is the
-     * APPLYING. `watch()` was the only caller, and a watcher already counted
-     * does not call it again — so a viewer who opened the chat while the agent
-     * was working never reached `fine` for the life of that connection, and
-     * every later turn in that session streamed nothing.
+     * A turn closing used to be the moment a deferred fine upgrade could finally
+     * be applied: reaching `fine` was a reconnect, a reconnect abandons an open
+     * turn, so the demand had to wait here for a safe gap. Which meant the turn
+     * a viewer was actually watching — the one they opened the chat during — was
+     * always the turn that streamed nothing, and on a session started with an
+     * initial prompt that is the FIRST turn, the one people judge the feature by.
      *
-     * That is the common case rather than an edge: a session started with an
-     * initial prompt is busy from its first moment, and opening its chat to
-     * watch is exactly what a person does next.
-     *
-     * A turn closing is the boundary. There is no ordering hazard in running it
-     * here: `openTurnId`/`pendingTurnId` are already cleared above, the queue
-     * drain below is what could make the session busy again, and `upgradeToFine`
-     * re-reads both after every await for precisely that reason.
+     * The handshake no longer decides the level, so there is no upgrade, no
+     * deferral, and no boundary to wait for: a fine watch is live the instant
+     * `watch()` increments the count, mid-turn or not.
      */
-    if (session.watchers.fine > 0 && session.connectedLevel === 'coarse') {
-      void upgradeToFine(session)
-    }
     void drainQueue(session)
   }
 
@@ -1536,28 +1529,37 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       },
 
       /**
-       * Refcounted, and NEGOTIATED RATHER THAN FILTERED (spec §5).
+       * Refcounted, and FILTERED RATHER THAN NEGOTIATED (spec §5, POD-2745).
        *
-       * Codex's `optOutNotificationMethods` is a real protocol knob: at `coarse`
-       * the token deltas never cross the connection at all, which is strictly better
-       * than receiving and discarding them. The cost is that the level is fixed
-       * for a CONNECTION's life — the handshake happens once — so a `fine`
-       * demand on a `coarse` connection cannot take effect until the connection
-       * is remade.
+       * A PURE COUNT, TAKING EFFECT IMMEDIATELY, which is the whole point. This
+       * used to negotiate: `optOutNotificationMethods` is a real protocol knob
+       * and muting deltas at the server is strictly cheaper than receiving and
+       * discarding them, so the driver used it. But that knob is sent once, at
+       * the handshake, so it pinned the level to the CONNECTION — and lifting it
+       * meant a reconnect, which abandons an in-flight turn and any outstanding
+       * approval. The upgrade could therefore only land in an idle gap, so the
+       * turn a viewer opened the chat DURING never streamed. On a session
+       * started with an initial prompt that is the first turn there is, and the
+       * only one most people ever watch closely, which is why the feature read
+       * as broken rather than as having an edge case.
        *
-       * THE UPGRADE IS THEREFORE ONE-WAY AND DEFERRED, and both halves are
-       * deliberate. One-way, because tearing the child down again when the last
-       * viewer closes a tab would churn a process on every UI navigation, and a
-       * connection that stays `fine` merely receives fragments the refcount
-       * above then drops — wasteful, not wrong. Deferred, because the upgrade IS
-       * a reconnect: it is only safe while no turn is open and no ask is
-       * outstanding, since a reconnect abandons both. The demand is recorded and
-       * applied at the next safe boundary, and until then the level is honestly
-       * what it was.
+       * WHAT IT COSTS NOW, stated rather than waved at: on a session nobody is
+       * watching, `item/agentMessage/delta` still crosses the local pipe from
+       * the app-server child and is dropped by the `watchers.fine` guard in
+       * `ingest` — before a `seq`, before an emit, before a journal write, and
+       * so before anything reaches the daemon, the server or a client. The waste
+       * is bytes on a pipe between two processes on one machine, roughly 200 of
+       * them per fragment, and it does not scale with viewers, tokens billed, or
+       * anything that leaves the host. Reasoning and plan fragments — the bulk
+       * of what codex emits — stay muted at the server at every level, since
+       * nothing here parses them.
+       *
+       * AND NOTHING IS ONE-WAY ANY MORE. There is no connection state to leave
+       * behind, so the last viewer leaving genuinely stops emission rather than
+       * leaving a `fine` connection running until the process ends.
        */
       async watch(level: WatchLevel): Promise<() => void> {
         session.watchers[level] += 1
-        if (level === 'fine' && session.connectedLevel === 'coarse') void upgradeToFine(session)
         let released = false
         return () => {
           // IDEMPOTENT. A viewer that disconnected twice must not drive the
@@ -1807,169 +1809,6 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
   }
 
   /**
-   * Re-handshake this session's connection at `fine`, when it is safe to.
-   *
-   * SAFE MEANS: no turn open and no ask outstanding. A reconnect abandons both —
-   * an in-flight turn's notifications would be lost and an unanswered
-   * server→client request would die with the connection, stranding the agent. So a
-   * demand that arrives at a bad moment is simply not applied; the next one
-   * (viewers re-watch constantly) finds a better one.
-   *
-   * DELIBERATELY BEST-EFFORT AND SILENT ON FAILURE: a viewer asked for token
-   * deltas, not for the session to be restarted at any cost. If the reconnect
-   * cannot happen the chat renders complete items instead of fragments, which is
-   * the documented degradation for a driver that cannot produce a token stream.
-   */
-  async function upgradeToFine(session: DriverSession): Promise<void> {
-    /**
-     * ONE UPGRADE AT A TIME, AND THE PRECONDITIONS ARE CHECKED TWICE.
-     *
-     * `watch()` cannot await this — it must hand a viewer its release function
-     * immediately — so the call is fire-and-forget, and two viewers opening a
-     * chat at the same moment would otherwise start two upgrades. A Unix-backed
-     * endpoint opens another client on the same child; older hosts fall back to
-     * launching a replacement child. Either way, an in-flight flag keeps one UI
-     * navigation from creating two candidate connections.
-     *
-     * The second check matters just as much and is easy to miss: the guards
-     * below run BEFORE two awaits (a connection open and a handshake), and a turn
-     * or an approval can arrive during them. Swapping the connection then would
-     * abandon an in-flight turn's notifications, or kill a blocked
-     * server->client request that no longer has anywhere to be answered. So the
-     * state is re-read after the awaits, and a session that got busy in the
-     * meantime keeps the connection it has — the candidate connection is closed
-     * and a fallback child, if one was needed, is stopped rather than adopted.
-     *
-     * AND THE FIRST THING THE RE-READ CHECKS IS THE DEMAND ITSELF (POD-2701).
-     * It did not, and that was a leak rather than a wasted socket: the sole fine
-     * watch could be released while this was connecting, the upgrade would
-     * commit anyway, and because the upgrade is ONE-WAY codex then streamed
-     * deltas for every later turn with nobody watching. `watchers.fine` is the
-     * reason this operation started, so it is the reason that must be re-checked
-     * first — a re-validation that omits its own motivating condition is not a
-     * re-validation.
-     *
-     * THE CHECK RUNS AT EVERY POINT WHERE TIME HAS PASSED, not once. There are
-     * two awaits after the first re-read — `thread/resume` is the second — and
-     * the commit sits immediately after it. Since nothing here can downgrade a
-     * committed connection, "never commit without a live demand" is the ONLY
-     * protection, so it has to hold on every path that reaches the commit.
-     */
-    if (session.disposed || session.upgrading || session.lease !== null) return
-    if (busy(session) || session.asks.size > 0) return
-    if (session.connectedLevel === 'fine') return
-    if (session.watchers.fine <= 0) return
-    session.upgrading = true
-    let endpoint: CodexServerEndpoint | undefined
-    let connection: CodexConnection | undefined
-    let replacementProcess = false
-    /** Abandoned because the last viewer left, as opposed to any other reason.
-     *  Only this one re-arms below — see the note there. */
-    let demandLost = false
-    /** Every reason to walk away from a candidate connection, asked as one
-     *  question so the two call sites below cannot drift apart. */
-    const abandon = (): boolean => {
-      if (session.watchers.fine <= 0) {
-        demandLost = true
-        return true
-      }
-      return session.disposed || session.lease !== null || busy(session) || session.asks.size > 0
-    }
-    try {
-      if (session.endpoint.reconnect) {
-        endpoint = {
-          ...session.endpoint,
-          transport: await session.endpoint.reconnect(),
-        }
-      } else {
-        replacementProcess = true
-        endpoint = await host.launch({
-          sessionId: session.sessionId,
-          workdir: session.spec.workdir,
-          ...(session.spec.env ? { env: session.spec.env } : {}),
-          ...mcpOf(session.spec),
-        })
-      }
-      connection = await connect(endpoint, 'fine')
-      // RE-READ, not remembered. Everything above took real time.
-      if (abandon()) {
-        connection.client.close()
-        if (replacementProcess) await endpoint.stop()
-        return
-      }
-      await connection.client.call(CODEX_METHODS.threadResume, { threadId: session.threadId })
-      // AND AGAIN, because the resume above is an await like any other and the
-      // commit is the next statement. This is the check that actually protects
-      // the invariant; the one before it only saves a wasted round-trip.
-      if (abandon()) {
-        connection.client.close()
-        if (replacementProcess) await endpoint.stop()
-        return
-      }
-      const old = session.client
-      session.connection = connection
-      session.client = connection.client
-      session.connectedLevel = 'fine'
-      wire(session, connection)
-      old.close()
-      if (replacementProcess) {
-        const oldEndpoint = session.endpoint
-        session.endpoint = endpoint
-        session.binding = {
-          ...session.binding,
-          process: endpoint.process,
-          bindingVersion: session.binding.bindingVersion + 1,
-        }
-        await oldEndpoint.stop()
-        persist(session)
-        emit(
-          session,
-          { t: 'process', ev: { ev: 'adopted', bindingVersion: session.binding.bindingVersion } },
-          iso(),
-        )
-      }
-    } catch {
-      connection?.client.close()
-      if (replacementProcess) await endpoint?.stop().catch(() => undefined)
-      // See the note above: the fine watch degrades to complete items.
-    } finally {
-      session.upgrading = false
-      /**
-       * THE NEXT WINDOW, DECIDED RATHER THAN LEFT (POD-2701): a viewer who came
-       * back DURING the abandon.
-       *
-       * `watch()` only starts an upgrade when it sees `connectedLevel ===
-       * 'coarse'`, and it refuses outright while `upgrading` is true — so a
-       * viewer returning inside this window would have had its demand dropped,
-       * and on an idle session nothing would ever pick it up again (the
-       * `closeTurn` retry needs a turn to close).
-       *
-       * RE-ARMED ONLY FOR THE DEMAND-LOST CASE, which is what keeps this from
-       * spinning. Every other abandon reason — disposed, leased, busy, an
-       * outstanding ask — and every thrown failure leaves this alone, so a host
-       * that cannot connect is retried by nothing here. Getting back in needs
-       * the watch count to have gone to zero and returned inside one attempt,
-       * and the daemon debounces its releases by 30s, so a real viewer cannot
-       * drive it.
-       *
-       * DELIBERATELY UNPINNED, and stated rather than hidden. The window this
-       * covers is empty on the Unix-backed reconnect path — the abandon runs
-       * straight through to here with no await for a `watch()` to land in — so
-       * it opens only on the replacement-child path, where `await
-       * endpoint.stop()` sits between the decision and this block. The test
-       * fixture has no replacement-child world, and building one to reach a
-       * microtask window was not judged worth it. If this line were deleted the
-       * cost is bounded rather than unbounded: `closeTurn` retries the upgrade
-       * at the next turn boundary, so the viewer waits a turn rather than
-       * forever.
-       */
-      if (demandLost && !session.disposed && session.watchers.fine > 0) {
-        if (session.connectedLevel === 'coarse') void upgradeToFine(session)
-      }
-    }
-  }
-
-  /**
    * Coerce the contract's `unknown` answer into the typed vocabulary.
    *
    * THE CONFORMANCE CORPUS ANSWERS WITH SHORTHAND — `{decision:'allow'}` for a
@@ -2008,10 +1847,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
    * this family: `initialize` either answers or the child is not usable, so a
    * handle never comes back before it can be driven.
    */
-  async function connect(
-    endpoint: CodexServerEndpoint,
-    level: WatchLevel,
-  ): Promise<CodexConnection> {
+  async function connect(endpoint: CodexServerEndpoint): Promise<CodexConnection> {
     const make = host.makeClient ?? createCodexClient
     /**
      * THE HANDLERS ARE INDIRECTED THROUGH A MUTABLE SINK, on purpose.
@@ -2047,12 +1883,22 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
           experimentalApi: true,
           requestAttestation: false,
           /**
-           * THE WATCH LEVEL, NEGOTIATED (spec §5). At `coarse` the deltas are
-           * suppressed AT THE SERVER. Nothing the coarse observation plane needs
-           * is ever on this list — `turn/completed` and `item/completed` above all,
-           * since a fence that was opted out of is a session that never goes idle.
+           * MUTED FOR THE CONNECTION'S LIFE, AND THAT IS WHY THE WATCH LEVEL IS
+           * NOT HERE (POD-2745). This list is sent once, at the handshake, so
+           * anything on it can only be un-muted by making a new connection —
+           * and a new connection abandons an in-flight turn and any outstanding
+           * approval. A watch level changes whenever a viewer opens or closes a
+           * chat, so it cannot ride a knob that cannot change with it; the
+           * driver gates fragments on `watchers.fine` instead, in the ingest arm
+           * below, before a fragment costs a `seq`, an emit or a journal write.
+           *
+           * So what is left on this list is only what the driver never reads at
+           * ANY level — reasoning and plan fragments, which have no ingest arm.
+           * Nothing the coarse observation plane needs is on it, `turn/completed`
+           * and `item/completed` above all, since a fence that was opted out of
+           * is a session that never goes idle.
            */
-          ...(level === 'coarse' ? { optOutNotificationMethods: [...DELTA_NOTIFICATIONS] } : {}),
+          optOutNotificationMethods: [...DELTA_NOTIFICATIONS],
         },
       })
       return { client, sink }
@@ -2101,7 +1947,6 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     connection: CodexConnection
     threadId: CodexThreadId
     rolloutPath: string | undefined
-    level: WatchLevel
     bindingVersion: number
     observerGeneration: number
   }): Promise<AgentSessionHandle> {
@@ -2141,8 +1986,6 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       lease: null,
       draft: '',
       watchers: { coarse: 0, fine: 0 },
-      connectedLevel: input.level,
-      upgrading: false,
       log: [],
       wakers: new Set(),
       state: { phase: 'idle', since: iso(), nativeSubagentCount: 0 },
@@ -2205,7 +2048,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       ...(spec.env ? { env: spec.env } : {}),
       ...mcpOf(spec),
     })
-    const connection = await connect(endpoint, 'coarse')
+    const connection = await connect(endpoint)
     /**
      * `thread/start` BEFORE the first turn is what gives this family
      * `resumeRefTiming: 'spawn'` — and therefore a `hibernate()` that never has
@@ -2231,7 +2074,6 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       connection,
       threadId,
       rolloutPath: started.thread?.path ?? undefined,
-      level: 'coarse',
       bindingVersion: 1,
       observerGeneration: 1,
     })
@@ -2258,7 +2100,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       ...(input.spec.env ? { env: input.spec.env } : {}),
       ...mcpOf(input.spec),
     })
-    const connection = await connect(endpoint, 'coarse')
+    const connection = await connect(endpoint)
     const resumed = await connection.client.call<{
       thread?: { id?: string; path?: string | null }
     }>(CODEX_METHODS.threadResume, { threadId: input.threadId })
@@ -2272,7 +2114,6 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       // thread the server does not think it opened.
       threadId: resumed.thread?.id ?? input.threadId,
       rolloutPath: resumed.thread?.path ?? undefined,
-      level: 'coarse',
       bindingVersion: input.bindingVersion,
       observerGeneration: input.observerGeneration,
     })

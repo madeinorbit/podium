@@ -20,17 +20,23 @@
  *   2. A RELEASE DEBOUNCE. A viewer navigating between two sessions, or a socket
  *      reclaim, takes the subscriber count to zero and back within a second or
  *      two. Releasing immediately would tear a fine watch down and build it back
- *      up — and on codex that is a reconnect each way, which is far more
- *      expensive than the tokens it would have saved.
+ *      up, flushing whatever preview the viewer was mid-way through reading for
+ *      no reason they can see. (Until POD-2745 a codex round trip was also a
+ *      reconnect each way, which made this a process cost rather than only a
+ *      flicker; the flicker is reason enough on its own.)
  *   3. CAPABILITY GATING. A driver that declares only `coarse` produces no
  *      fragments, so a fine watch on it is a refcount that buys nothing. The PTY
  *      family declares exactly that, and the point of gating here is that a
  *      degraded or terminal session takes NO new code path at all.
  *
  * WHAT THIS DOES NOT DO IS WAIT. `watch('fine')` resolves when the refcount
- * moves, not when the level is live — codex must reconnect to reach fine and
- * declines while a turn is open. So there is nothing to await and nothing to
- * report: the level is a request, and frames arriving (or not) is the answer.
+ * moves, and every driver that declares `fine` now gates its fragments on that
+ * same count — so the level is live when the promise settles, mid-turn or not
+ * (POD-2745; codex used to need a reconnect and declined while a turn was open,
+ * which is exactly why the first turn a viewer joined never streamed). There is
+ * still nothing to await beyond the call itself and nothing to report: the
+ * contract exposes no "which level is live now", and frames arriving is the
+ * answer.
  */
 
 import type { AgentSessionHandle, DriverCapabilities } from '@podium/agent-runtime'
