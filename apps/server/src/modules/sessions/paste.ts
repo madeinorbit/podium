@@ -10,12 +10,12 @@
  * WHY A SECOND COPY EXISTS AT ALL. It mirrors, exactly, the duplication the
  * driver's own header already declares: the injection MECHANICS were ported to
  * the driver while `inbox.ts` stayed authoritative for the flag-off path, so
- * until W4 retires the server's copy there are two places on the live write path
- * that put caller text inside a bracketed paste. A boundary applied at only one
- * of them is a boundary
- * that ships behind a feature flag, and the live path today is the other one —
- * `SessionInbox.typeText` is what the steward's nudges and the automations drain
- * reach, and neither of those has ever passed through message rendering.
+ * until W4 retires the server's copy there are two places on the live write
+ * path that put caller text inside a bracketed paste. A boundary applied at
+ * only one of them is a boundary that ships behind a feature flag, and the live
+ * path today is the other one — `SessionInbox.typeText` is what the steward's
+ * nudges and the automations drain reach, and neither of those has ever passed
+ * through message rendering.
  *
  * A THIRD BUILDER EXISTS AND IS NOT COVERED: `packages/composer` exports the two
  * markers publicly and wraps text in them without a strip. It ships dark, so it
