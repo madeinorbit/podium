@@ -9038,6 +9038,63 @@ a.ref-link--session::before {
   background: color-mix(in oklab, var(--issue) 8%, var(--bar));
 }
 
+/* ── WHERE YOU ARE vs WHERE YOU ARE POINTING (POD-1480) ─────────────────────
+   A tab and a deck row are the same session drawn twice, and the column now
+   answers two questions at once: which row is the tab you are IN, and which
+   row is the tab you are POINTING at. One device — the gutter tick — carries
+   both, and HUE is what separates them.
+
+   The split was previously one hue at two strengths (100% / 45%), which failed
+   twice over: 45% of a 3px tick is not a difference you catch peripherally,
+   and only the POINTED row took a ground, so the state that vanishes when the
+   mouse moves was the loudest mark in the column.
+
+   Active takes `--issue` — the identity channel, which is what "this is the
+   one you are working in" deserves. Pointed takes `--flow`, the no-colour
+   neutral, which is what that token already means everywhere else in the
+   shell: traceable, transient, not a selection.
+
+   THE UNCOLOURED CASE IS NOT AN EDGE CASE. `--issue` is scoped once on the
+   shell root from the SELECTED issue (AppShell) and falls back to `--flow`
+   whenever nothing coloured is selected — so on the default the two ticks
+   would be the identical grey. The active mark therefore falls back to the ink
+   the sidebar already uses for its selected-row spine, which keeps the two
+   marks a full ramp apart in both appearances. */
+.deck-mark-active {
+  background: var(--issue);
+}
+[data-issue-colored='false'] .deck-mark-active {
+  background: var(--text-strong);
+}
+.deck-mark-pointed {
+  background: var(--flow);
+}
+
+/* THE ACTIVE ROW GETS A GROUND. Not decoration — it is what stops a hover from
+   outranking the session you are actually in.
+
+   The dose is the issue-row channel's UPPER step (11 × --issue-row-tint-scale,
+   the sidebar's own hover value), and 11 rather than the resting 7 is
+   arithmetic rather than taste. The wash it has to out-weigh is `--muted`,
+   which on paper is L 0.945 against the column's `--bar` at L 0.968. The
+   7-step lands the active row at L 0.950 — LIGHTER than the hover wash, so
+   the pointer would still have been the louder mark and the fix would have
+   fixed nothing. The 11-step lands it at L 0.935, on the correct side of that
+   line. It also clears `.deck-lead-fill`'s 8%, so an active row and a
+   coordinator row are not the same statement.
+
+   Declared after the lead fill so an active coordinator resolves to the
+   stronger of the two rather than fighting over one `background`. It sits on
+   the row WRAPPER, so the button's own `bg-muted` — the wash a pointed or
+   hovered row takes — still paints over it as a transient layer. */
+.deck-agent-row.deck-agent-active {
+  background: color-mix(
+    in oklab,
+    var(--issue) calc(11 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))),
+    var(--bar)
+  );
+}
+
 /* ── THE DROP ORDER — how a strip gives way (POD-758) ────────────────────────
    The title outranks everything else in the row: it has a 150px floor and it is
    the only shrinker, because a half-rendered clock (`28:`) is a WRONG number

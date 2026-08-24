@@ -1309,9 +1309,10 @@ describe('flight deck spine geometry (POD-1226)', () => {
     deck()
     const row = document.querySelector<HTMLElement>('[data-flight-session="s1"]')
     if (!row) throw new Error('no agent row')
-    const tick = [...row.querySelectorAll<HTMLElement>('span[aria-hidden]')].find(
-      (el) => el.style.background === 'var(--issue)',
-    )
+    // The tick's colour moved to `.deck-mark-active` when the active and
+    // pointed marks split hues (POD-1480); its geometry — what this test is
+    // about — is still inline.
+    const tick = row.querySelector<HTMLElement>('span[aria-hidden].deck-mark-active')
     expect(tick).toBeDefined()
     // The row's own left edge is `AGENT_INDENT` from its block; the tick sits on
     // the rail at `AGENT_RAIL`, so it stops well short of the tile.
@@ -1424,6 +1425,54 @@ describe('flight deck tab-strip hover link', () => {
 
     act(() => clearHoveredSession('s2'))
     expect(pointed('s2')).toBeNull()
+  })
+
+  /**
+   * TWO QUESTIONS, TWO HUES, ONE DEVICE (POD-1480). Where you ARE and where you
+   * are POINTING have to be readable at the same time and told apart at a
+   * glance — the previous 100% / 45% of one hue was neither.
+   */
+  const mark = (id: string): Element | null =>
+    document.querySelector(`[data-flight-session="${id}"] .deck-mark-active`) ??
+    document.querySelector(`[data-flight-session="${id}"] .deck-mark-pointed`)
+
+  it('marks the active row and the pointed row at once, in different hues', () => {
+    harness.paneA = 's1'
+    deck()
+
+    // The active row carries its mark with no pointer involved at all.
+    expect(mark('s1')?.className).toContain('deck-mark-active')
+    expect(mark('s2')).toBeNull()
+
+    act(() => setHoveredSession('s2'))
+
+    // Both marks stand. Neither replaces the other, and they are not the same
+    // colour class — that IS the distinction.
+    expect(mark('s1')?.className).toContain('deck-mark-active')
+    expect(mark('s2')?.className).toContain('deck-mark-pointed')
+  })
+
+  it('keeps the active mark when the pointer lands on the active row', () => {
+    harness.paneA = 's1'
+    deck()
+
+    act(() => setHoveredSession('s1'))
+
+    // You are already there, so pointing at it says nothing new: the row stays
+    // marked as active rather than downgrading to the pointed hue.
+    expect(mark('s1')?.className).toContain('deck-mark-active')
+    expect(pointed('s1')).toBe('true')
+  })
+
+  it('gives the active row a ground, so a hover cannot outrank it', () => {
+    harness.paneA = 's1'
+    deck()
+
+    const row = document.querySelector('[data-flight-session="s1"]')
+    expect(row?.className).toContain('deck-agent-active')
+
+    act(() => setHoveredSession('s2'))
+    expect(row?.className).toContain('deck-agent-active')
   })
 })
 

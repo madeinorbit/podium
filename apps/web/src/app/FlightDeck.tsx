@@ -1084,6 +1084,12 @@ function SessionRow({
         // It owns the whole mission, so it is allowed to be the loudest thing
         // in the roster — and being the only one, the fill means exactly that.
         role?.kind === 'coordinator' && 'deck-lead-fill',
+        // THE SESSION YOU ARE IN owns a ground, not just a tick (POD-1480).
+        // Without one the pointed row — which takes the row's own hover wash —
+        // was the loudest mark in the column, so pointing at any tab visibly
+        // demoted the session you were actually working in. See the dose note
+        // on `.deck-agent-active` in styles.css.
+        active && !flat && 'deck-agent-active',
         flat && 'rounded-md',
       )}
       style={{ marginLeft: flat ? 0 : AGENT_INDENT }}
@@ -1096,23 +1102,28 @@ function SessionRow({
           task takes, in the row's own gutter. Extending the mark rather than
           reaching for a fill is the whole point of the tick: "this one" is one
           device in this column, whatever kind of row it lands on.
-          A row the pointer is on FROM THE TAB STRIP takes the same tick held
-          lightly — the rail's own 45% (`.deck-rail-mission`), which is the dose
-          this column already uses for "traceable, not a selection". One device
-          at two strengths: the strong one is where you ARE, the faint one is
-          where you are POINTING, and a pointed row that is also the active one
-          simply keeps the strong mark. */}
+          A row the pointer is on FROM THE TAB STRIP takes the SAME tick in a
+          DIFFERENT HUE (POD-1480): one device, two colours, both at full
+          strength. The issue accent is where you ARE, the no-colour `--flow`
+          is where you are POINTING — a distinction the palette already draws,
+          rather than a third mark this column would have to teach. Two
+          strengths of one hue was the earlier attempt and 45% of a 3px tick is
+          not a difference you catch peripherally, which is the whole job.
+          A pointed row that is also the active one keeps the active mark: you
+          are already there, so pointing at it says nothing new. The colours and
+          the uncoloured-issue fallback live on `.deck-mark-*` in styles.css. */}
       {(active || pointed) && !flat && (
         <span
           aria-hidden
-          className="pointer-events-none absolute"
+          className={cn(
+            'pointer-events-none absolute',
+            active ? 'deck-mark-active' : 'deck-mark-pointed',
+          )}
           style={{
             left: AGENT_RAIL - AGENT_INDENT + TICK_SELECTED_X,
             top: HUNG_MID - TICK_HEIGHT / 2,
             width: TICK_WIDTH,
             height: TICK_HEIGHT,
-            background: 'var(--issue)',
-            opacity: active ? 1 : 0.45,
           }}
         />
       )}
