@@ -50,9 +50,10 @@ Duplicate selectors and invalid IDs are rejected.
 | Durable terminal label | `podium-<session>` | `podium-blue-<session>`; IDs over 17 bytes use a stable hashed component | none |
 | Durable socket root | legacy backend default | state runtime root when it fits, otherwise `/tmp/pd-<stable-key>` | `ABDUCO_SOCKET_DIR` / `TMUX_TMPDIR` |
 | Codex hook socket | state runtime root | state runtime root when it fits, otherwise `/tmp/pd-<stable-key>` | explicit daemon socket path |
-| Server unit | `podium-server.service` | `podium-blue-server.service` | none |
-| Janitor unit | `podium-janitor.service` | `podium-blue-janitor.service` | none |
-| Daemon unit | `podium-daemon.service` | `podium-blue-daemon.service` | none |
+| Parent unit | `podium.service` | `podium-blue.service` | none |
+| Server child | parent-supervised process | parent-supervised process | none |
+| Janitor | server-owned worker thread | server-owned worker thread | none |
+| Daemon child | parent-supervised process | parent-supervised process | none |
 
 Named endpoint triplets are deterministic and non-overlapping for ordinary IDs. Set all three port
 overrides when an operator needs a fixed allocation.
@@ -97,10 +98,10 @@ podium-blue channel edge
 podium-blue update
 ```
 
-Status and logs consult only blue's state and units. Stop addresses only
-`podium-blue-daemon.service`, `podium-blue-janitor.service`, and
-`podium-blue-server.service`. The blue update service runs only `podium-blue update`, swaps
-only blue's bundle, and restarts only blue's managed siblings.
+Status and logs consult only blue's state and parent-owned components. Stop addresses only
+`podium-blue.service`; that parent stops its server and daemon children, and the server closes
+its janitor worker. An update swaps only blue's bundle and hands supervision to blue's successor
+parent.
 
 The same commands for `podium-green` operate green. For deterministic automation, set explicit
 server, hook, and relay ports rather than relying on derived ports.

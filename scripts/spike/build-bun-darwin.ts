@@ -23,6 +23,7 @@ import {
 } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { DISCOVERY_WORKER_ENTRY } from '../../apps/daemon/src/discovery-worker-embed.js'
+import { JANITOR_WORKER_ENTRY } from '../../apps/janitor/src/janitor-worker-embed.js'
 import {
   bunVersion,
   hasBunTerminal,
@@ -102,6 +103,7 @@ function main(): void {
       `process.env.PODIUM_APP_VERSION="${version}"`,
       'scripts/cli-compiled.ts',
       DISCOVERY_WORKER_ENTRY,
+      JANITOR_WORKER_ENTRY,
       '--outfile',
       `${out}/podium`,
     ],
@@ -120,14 +122,7 @@ function main(): void {
   //     --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist <mach-o>
   execFileSync(
     'rcodesign',
-    [
-      'sign',
-      '--binary-identifier',
-      'podium',
-      '--entitlements-xml-file',
-      entitlements,
-      signed,
-    ],
+    ['sign', '--binary-identifier', 'podium', '--entitlements-xml-file', entitlements, signed],
     { stdio: 'inherit' },
   )
   chmodSync(signed, 0o755)
@@ -181,9 +176,13 @@ function main(): void {
   }
 
   const tarball = `${out}/podium-headless-spike-${platformDir(target)}.tar.gz`
-  execFileSync('tar', ['-czf', tarball, '-C', out, 'headless', 'podium', 'podium.unsigned', 'abduco'], {
-    stdio: 'inherit',
-  })
+  execFileSync(
+    'tar',
+    ['-czf', tarball, '-C', out, 'headless', 'podium', 'podium.unsigned', 'abduco'],
+    {
+      stdio: 'inherit',
+    },
+  )
 
   console.log(`[spike] binary  -> ${signed}`)
   console.log(`[spike] unsigned copy -> ${unsigned}`)

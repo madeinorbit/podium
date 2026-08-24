@@ -31,15 +31,17 @@ export {
 } from '../apps/cli/src/cli'
 
 async function loadHost(): Promise<HostModules> {
-  const [server, daemon, janitor] = await Promise.all([
+  const [server, daemon, janitor, janitorWorker] = await Promise.all([
     import('../apps/server/src/server'),
     import('../apps/daemon/src/daemon'),
     import('../apps/janitor/src/janitor'),
+    import('../apps/janitor/src/worker-client'),
   ])
   return {
     startServer: server.startServer,
     isAddressInUseError: server.isAddressInUseError,
     startDaemon: daemon.startDaemon as HostModules['startDaemon'],
+    startJanitorWorker: janitorWorker.startJanitorWorker,
     startJanitor: janitor.startJanitor,
   }
 }

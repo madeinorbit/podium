@@ -218,11 +218,11 @@ describe('resolvePlan — launch matrix', () => {
       port: 18787,
     })
   })
-  it('explicit component subcommand on a managed box runs in-process (it IS a component)', () => {
+  it('explicit server component owns its janitor worker', () => {
     const p = plan({ mode: 'all-in-one', persistence: 'systemd' }, ['server'])
     expect(p).toMatchObject({
       kind: 'in-process',
-      roles: { server: true, janitor: false, daemon: false },
+      roles: { server: true, janitor: true, daemon: false },
       claimRole: 'server',
     })
   })

@@ -45,6 +45,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
+import { JANITOR_WORKER_ENTRY } from '../apps/janitor/src/janitor-worker-embed.js'
 /**
  * The dev-label rules, from the one place that defines them (POD-2502). The
  * leaf, not the barrel: this script builds the product, and the protocol's
@@ -638,12 +639,11 @@ export function packageHeadlessForFreshClients(
   // `podium server` / `podium daemon` (separate processes), the desktop sidecar as in-process
   // all-in-one — so the previously-separate standalone `podium-server`/`podium-daemon` compiles
   // are redundant and dropped (see #98). The CLI runs a daemon in-process (all-in-one / `podium
-  // daemon`), so it must embed the discovery Worker: `new Worker(new URL('./discovery-worker.ts',
-  // import.meta.url))` is NOT auto-embedded by `bun build --compile` (Bun 1.3.x), so we add the
-  // worker as an explicit extra entrypoint; worker-client.ts spawns it from
-  // DISCOVERY_WORKER_EMBEDDED_PATH (shared via discovery-worker-embed.ts).
+  // daemon`), so it embeds both autonomous worker entrypoints explicitly:
+  // Bun does not discover `new Worker(...)` targets during `--compile`. Their
+  // shared embed modules keep build-time paths and runtime targets identical.
   compile('scripts/cli-compiled.ts', names.compiled, {
-    extraEntrypoints: [DISCOVERY_WORKER_ENTRY],
+    extraEntrypoints: [DISCOVERY_WORKER_ENTRY, JANITOR_WORKER_ENTRY],
   })
   if (spec?.nodePlatform === 'darwin') signDarwin(`${bundleRoot}/${names.compiled}`)
   console.log(`[build-bun] done -> ${bundleRoot}/${names.compiled}`)

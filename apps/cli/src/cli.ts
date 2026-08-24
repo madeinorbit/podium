@@ -783,15 +783,9 @@ export function resolvePlan(
   // the web setup UI (server only), claim no run-registry role.
   const runServer = forceSetup || modePlan.mode === 'all-in-one' || modePlan.mode === 'server'
   const runDaemon = !forceSetup && (modePlan.mode === 'all-in-one' || modePlan.mode === 'daemon')
-  // The native shell supervises one child, so its server-only and all-in-one
-  // shapes must carry the janitor in that child too. A foreground all-in-one
-  // process has the same three-role contract. Explicit headless `server`
-  // components do not: systemd/detached persistence starts their janitor as an
-  // independent sibling.
-  const runJanitor =
-    !forceSetup &&
-    runServer &&
-    (modePlan.mode === 'all-in-one' || env.PODIUM_DESKTOP_SUPERVISED === '1')
+  // Every serving composition owns its janitor worker. The setup-only server is
+  // the exception: it has no maintenance realm to clean yet.
+  const runJanitor = !forceSetup && runServer
   const claimRole = forceSetup
     ? undefined
     : modePlan.mode === 'server'
@@ -1072,12 +1066,8 @@ export function alreadyRunningMessage(
 export interface HostModules {
   startServer(opts: {
     port: number
-    /**
-     * Handed straight through to the server so it can CO-HOST the janitor
-     * without importing apps/janitor [POD-2505]. Composing apps is this seam's
-     * whole job; the server just receives a function.
-     */
-    startJanitor?: HostModules['startJanitor']
+    /** Injected worker-thread client; keeps the server free of an app→app import. */
+    startJanitorWorker?: HostModules['startJanitorWorker']
   }): Promise<{
     port: number
     bootstrapToken?: string
@@ -1091,13 +1081,16 @@ export interface HostModules {
       onBlocked?: (info: { type: string; reason: string }) => void | Promise<void>
     },
   ): Promise<unknown>
+  startJanitorWorker(opts: { serverUrl: string; token: string }): Promise<{
+    progressVersion(): number
+    state(): 'running' | 'degraded' | 'stopped'
+    reason(): string | undefined
+    close(): void
+  }>
+  /** Legacy/debug standalone janitor command. Normal server paths use the worker above. */
   startJanitor(opts: {
     serverUrl: string
     token: string
-    /**
-     * Set by the server co-host: a mid-run compatibility refusal must park the
-     * janitor DEGRADED, not `process.exit(78)` out of the server it lives in.
-     */
     onCompatibilityRefusal?: (error: Error) => void
   }): Promise<{
     service: { progressVersion(): number }
@@ -1196,7 +1189,10 @@ async function runInProcess(
     const { startServer, isAddressInUseError } = host
     let server: Awaited<ReturnType<typeof startServer>>
     try {
-      server = await startServer({ port, startJanitor: host.startJanitor })
+      server = await startServer({
+        port,
+        ...(roles.janitor ? { startJanitorWorker: host.startJanitorWorker } : {}),
+      })
     } catch (err) {
       // The port is taken (the common case on podium-host: the systemd podium-server
       // already owns :18787). Print actionable guidance and exit cleanly rather than
@@ -1215,15 +1211,6 @@ async function runInProcess(
       console.log(`\n  → Open setup:  ${localServerUrl(serverPort)}/\n`)
       console.log('  → …or run: podium setup   (configure here in the terminal)')
     }
-  }
-  let janitorHandle: Awaited<ReturnType<HostModules['startJanitor']>> | undefined
-  if (roles.janitor && host) {
-    const { readOrCreateDaemonSecret } = await import('@podium/runtime/local-machine')
-    janitorHandle = await host.startJanitor({
-      serverUrl: localServerUrl(serverPort),
-      token: readOrCreateDaemonSecret(),
-    })
-    console.log(`podium janitor up -> ${localServerUrl(serverPort)}`)
   }
   if (roles.daemon && host) {
     let daemonOptions: DaemonStartOptions
@@ -1283,7 +1270,6 @@ async function runInProcess(
   const shutdown = (): void => {
     stopWatchdog?.()
     stopSupervisorWatch?.()
-    janitorHandle?.close()
     // Drain the log sink before exiting; best-effort, never a reason to hang.
     void (componentLogging?.close() ?? Promise.resolve())
       .catch(() => {})

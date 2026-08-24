@@ -399,12 +399,11 @@ export async function startServer(
     /** Advertise the safe local all-in-one first-run default to loopback web clients. */
     localSetupDefault?: boolean
     /**
-     * The janitor's `startJanitor`, injected by the composition root
-     * (scripts/cli.ts) so this app never imports another app [POD-2505]. When
-     * present AND this shape co-hosts (`shouldHostJanitor`), the janitor runs
-     * inside this process instead of as its own OS role.
+     * The janitor worker client injected by the composition root so this app
+     * never imports another app. Presence means this server owns the janitor
+     * thread; server constructions without the injection remain janitor-free.
      */
-    startJanitor?: import('./janitor-host').StartJanitorFn
+    startJanitorWorker?: import('./janitor-host').StartJanitorWorkerFn
   } = {},
 ): Promise<ServerHandle> {
   const configuredProxyHops = opts.trustedProxyHops ?? proxyHopsFromEnv(process.env)
@@ -832,6 +831,7 @@ export async function startServer(
   )
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
+  let janitorHostClosing = false
   registerVersionRoute(app, {
     instanceId,
     appVersion: () => appVersion,
@@ -1209,20 +1209,21 @@ export async function startServer(
 
     settled = true
     boundPort = server.port
-    // Parent-supervised / desktop: co-host the janitor inside this process so
-    // there is no separate janitor OS role [POD-2505]. Refusal stays degraded.
+    // The server owns the janitor's worker thread. Construction stays off the
+    // listen path, and the client turns faults/stalls into observable degraded
+    // state plus automatic replacement rather than request-loop failure.
     void (async () => {
-      const { shouldHostJanitor, startJanitorHost } = await import('./janitor-host')
-      // No injected starter ⇒ this process was not started by the composition
-      // root and does not co-host. The server never reaches into apps/janitor.
-      if (!shouldHostJanitor() || !opts.startJanitor) return
-      janitorHost = await startJanitorHost({
+      if (!opts.startJanitorWorker) return
+      const { startJanitorHost } = await import('./janitor-host')
+      const startedJanitorHost = await startJanitorHost({
         port: boundPort,
         token: bootstrapToken,
-        startJanitor: opts.startJanitor,
+        startJanitorWorker: opts.startJanitorWorker,
       })
+      if (janitorHostClosing) startedJanitorHost.close()
+      else janitorHost = startedJanitorHost
     })().catch((error) => {
-      log.warn('janitor host failed to start', { err: error })
+      log.warn('janitor worker host failed to start', { err: error })
     })
     // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
     // the issue command registry DIRECTLY (not the cookie-gated HTTP /trpc, which would
@@ -1422,7 +1423,13 @@ export async function startServer(
               // synchronously, so nothing is buffered and this loses no records —
               // it closes fds a long-lived process would otherwise hold.
               ['logs.close', () => registry.modules.logs.close()],
-              ['janitorHost.close', () => janitorHost?.close()],
+              [
+                'janitorHost.close',
+                () => {
+                  janitorHostClosing = true
+                  janitorHost?.close()
+                },
+              ],
               ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
               ['registry.dispose', () => registry.dispose()],
               ['store.close', () => store.close()],
