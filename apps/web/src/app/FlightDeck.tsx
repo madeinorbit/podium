@@ -46,6 +46,7 @@ import {
   sessionSettled,
   sessionUnreadEmphasized,
   continuationPresenceLine as sharedContinuationPresenceLine,
+  spawnIssueAgent,
   subtreeUnread,
   treeGuides,
   writeFlightDeckFolds,
@@ -3256,9 +3257,9 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     const existingSessionIds = sessions
       .filter((session) => session.issueId === rootIssue.id && !session.archived)
       .map((session) => session.sessionId)
-    await (rootIssue.worktreePath
-      ? trpc.issues.addSession.mutate(input)
-      : trpc.issues.start.mutate(input))
+    // Do not branch on the replica's worktreePath: start is a silent no-op on a
+    // live issue, which left this button stuck on "Adding…" with no new agent.
+    await spawnIssueAgent(trpc.issues, input)
     await focusIssueSession(rootIssue.id, { excludeSessionIds: existingSessionIds })
   }
   const selectSession = (
@@ -3476,6 +3477,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 </div>
                 {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
                   <MissionAgentMenu
+                    key={rootIssue.id}
                     defaultAgent={rootIssue.defaultAgent}
                     repoPath={rootIssue.repoPath}
                     machineId={rootIssue.machineId}

@@ -5,6 +5,7 @@
 // remains below is this package's own viewmodel surface.
 export * from './ask-question'
 export * from './agent-capability'
+export * from './agent-launch'
 export * from './board-scope'
 export * from './chat'
 export * from './chat-verbosity'

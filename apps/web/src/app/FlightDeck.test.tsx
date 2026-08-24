@@ -351,6 +351,40 @@ describe('flight deck mission agent action', () => {
     expect(harness.startIssue).not.toHaveBeenCalled()
   })
 
+  it('adds a session even when the replica has not yet painted the worktree', async () => {
+    harness.issues = harness.issues.map((candidate) =>
+      (candidate as Issue).id === 'root'
+        ? { ...(candidate as Issue), defaultAgent: 'claude-code' }
+        : candidate,
+    )
+    deck()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex' }))
+
+    await waitFor(() =>
+      expect(harness.addSession).toHaveBeenCalledWith({ id: 'root', agentKind: 'codex' }),
+    )
+    expect(harness.startIssue).not.toHaveBeenCalled()
+  })
+
+  it('starts only when addSession says the issue has never been started', async () => {
+    harness.addSession.mockRejectedValueOnce(new Error('issue not started'))
+    harness.issues = harness.issues.map((candidate) =>
+      (candidate as Issue).id === 'root'
+        ? { ...(candidate as Issue), defaultAgent: 'claude-code' }
+        : candidate,
+    )
+    deck()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex' }))
+
+    await waitFor(() =>
+      expect(harness.startIssue).toHaveBeenCalledWith({ id: 'root', agentKind: 'codex' }),
+    )
+  })
+
   it('opens the newly added agent instead of a session already on the mission', async () => {
     harness.issues = harness.issues.map((candidate) =>
       (candidate as Issue).id === 'root'
