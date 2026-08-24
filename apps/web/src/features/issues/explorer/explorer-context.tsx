@@ -51,14 +51,6 @@ export interface IssueExplorerNav {
    * retarget, because a card in another surface is not a step in this trail.
    */
   retarget: (id: string) => void
-  /**
-   * Collapse to level 0 — the task list.
-   *
-   * Silent, and not a pop: the level did not step back, it stopped existing
-   * (the task was deleted, or the replica no longer carries it). Sliding a
-   * level out implies somewhere to slide back to, and there is nowhere.
-   */
-  toIndex: () => void
   /** Null until the operator picks one — the list resolves the default from the
    *  counts it already has, so the shell never pays for that pass. */
   tab: ExplorerTab | null
@@ -81,7 +73,6 @@ const IssueExplorerContext = createContext<IssueExplorerNav>({
   popTo: noop,
   back: noop,
   retarget: noop,
-  toIndex: noop,
   tab: null,
   setTab: noop,
   query: '',
@@ -106,8 +97,17 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
   // task must not move the deck out from under the work in progress.
   const target = useMemo(() => {
     const root = selectedMissionRoot(issues, sessions, selectedIssueId)
+    // A TOMBSTONED FOCUS IS NOT A FOCUS. Membership does not always end at the
+    // grave: a task started by one of the mission's sessions stays a member
+    // after deletion on purpose, so a deleted spin-off would resolve to itself
+    // and strand the explorer on the list while its mission is still selected.
+    // Children fall out of the index on their own; this covers the rest.
+    const focus =
+      focusedIssueId !== null && issues.some((i) => i.id === focusedIssueId && !i.deletedAt)
+        ? focusedIssueId
+        : null
     return resolveFocus(
-      focusedIssueId,
+      focus,
       root ? missionIssueIds(issues, root.id, sessions) : new Set<string>(),
       // NO FALLBACK TO THE RAW SELECTION (POD-1112). With no mission resolved
       // there is nothing for the explorer to point at, and it opens where a
@@ -195,16 +195,12 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
     setSeq((n) => n + 1)
   }, [])
 
-  const toIndex = useCallback((): void => {
-    setStack((prev) => (prev.length === 0 ? prev : []))
-    setMotion(null)
-    setSeq((n) => n + 1)
-  }, [])
-
   const current = stack.length ? (stack[stack.length - 1] ?? null) : null
 
-  // A LEVEL WHOSE TASK IS GONE GOES HOME. Deletion is the one way a level can
-  // outlive its subject — archived tasks still open, and the trail labels them.
+  // A LEVEL WHOSE TASK IS GONE GOES HOME. The check is the stack TOP only, so a
+  // dead rung further down survives until you walk back onto it — same reach the
+  // panel-side rule had. Deletion is the one way a level can outlive its subject
+  // — archived tasks still open, and the trail labels them.
   //
   // This lives in the PROVIDER, not in the panel that renders the trail, because
   // the pointer outlives the panel by design: the dock unmounts the explorer
@@ -214,29 +210,28 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
   // the dead id in the stack until the panel was next mounted, so reopening the
   // dock landed on a task that no longer existed (POD-1471).
   //
-  // HOME IS THE SUBJECT IF THERE STILL IS ONE, and the list otherwise. A
-  // tombstone drops the task out of the mission index, so deleting the task the
-  // explorer is ON re-aims the subject at the live root in the very commit that
-  // strands the level: the two rules fire together, and a flat "go to the list"
-  // would race the re-aim and park the panel on level 0 while real work is still
-  // selected. Resolving the destination here instead of ordering the effects
-  // makes the outcome the same whichever of them lands first.
-  const { missing, reseed } = useMemo(() => {
-    const alive = (id: string): boolean => issues.some((i) => i.id === id && !i.deletedAt)
-    if (!grounded || current === null || alive(current)) return { missing: false, reseed: null }
-    return { missing: true, reseed: target !== null && alive(target) ? target : null }
-  }, [grounded, current, target, issues])
+  // HOME IS THE LIST, and nothing else. Deleting the task the explorer is on
+  // usually re-aims the subject in the same commit, and the re-aim effect above
+  // runs first — so this reads the stack THROUGH the updater, after that effect's
+  // write, and leaves a strand alone once something has already repaired it.
+  // Substituting the subject here instead would be wrong the other way round: a
+  // ref card pointed at a deleted task (POD-1265) would silently land on whatever
+  // the deck happens to be showing, which is not what anyone asked to see.
+  const missing = useMemo(() => {
+    if (!grounded || current === null) return false
+    return !issues.some((i) => i.id === current && !i.deletedAt)
+  }, [grounded, current, issues])
 
   useEffect(() => {
     if (!missing) return
-    if (reseed === null) {
-      toIndex()
-      return
-    }
-    setStack([reseed])
+    setStack((prev) => {
+      const head = prev[prev.length - 1]
+      if (head === undefined) return prev
+      return issues.some((i) => i.id === head && !i.deletedAt) ? prev : []
+    })
     setMotion(null)
     setSeq((n) => n + 1)
-  }, [missing, reseed, toIndex])
+  }, [missing, issues])
 
   const value = useMemo<IssueExplorerNav>(
     () => ({
@@ -248,7 +243,6 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
       popTo,
       back,
       retarget,
-      toIndex,
       tab,
       setTab,
       query,
@@ -265,7 +259,6 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
       popTo,
       back,
       retarget,
-      toIndex,
       tab,
       query,
       listScrollTop,

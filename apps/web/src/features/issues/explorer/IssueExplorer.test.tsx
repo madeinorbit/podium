@@ -24,7 +24,18 @@ const ARCHIVED = makeIssue({
   stage: 'done',
   archived: true,
 })
-const BASE_ISSUES = [EPIC, CHILD, STRANGER, ARCHIVED]
+/** A spin-off: no parentId, so it joins the mission through PROVENANCE — its
+ *  starting session belongs to the root. That route deliberately keeps deleted
+ *  issues, which is what makes it a different case from CHILD. */
+const SPINOFF = makeIssue({
+  id: 'spin',
+  seq: 12,
+  title: 'Spun off from the root',
+  stage: 'backlog',
+  startedBySession: 'sess-p',
+})
+const BASE_ISSUES = [EPIC, CHILD, STRANGER, ARCHIVED, SPINOFF]
+const ROOT_SESSION = { sessionId: 'sess-p', issueId: 'p' } as never
 
 const state = {
   selectedIssueId: null as string | null,
@@ -99,7 +110,9 @@ function tree(missionId: string | null = null, dockOpen = true): JSX.Element {
       <IssueExplorerProvider>
         <DeckClick id="c" />
         <DeckClick id="s" />
+        <DeckClick id="spin" />
         <CardClick id="s" />
+        <CardClick id="spin" />
         <PointerProbe />
         {dockOpen && <IssueExplorerCrumbs />}
         {dockOpen && <IssueExplorer cwd="/r" />}
@@ -355,6 +368,61 @@ describe('issue explorer navigation', () => {
 
     expect(screen.getByTestId('pointer').dataset.current).toBe('p')
     expect(detail().dataset.issueId).toBe('p')
+  })
+
+  it('re-aims when a deleted SPIN-OFF keeps its mission membership (POD-1471)', () => {
+    // Membership does not always end at the grave. A child drops out of the
+    // mission index when it is tombstoned, but a spin-off belongs by provenance
+    // — its starting session is the root's — and that route keeps deleted rows
+    // on purpose. So the subject would go on resolving to the dead task, and the
+    // explorer would sit on the full list with its mission still selected.
+    state.selectedIssueId = 'p'
+    state.sessions = [ROOT_SESSION] as never
+    const view = mount('p')
+    fireEvent.click(screen.getByText('deck: spin'))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('spin')
+
+    state.issues = [EPIC, CHILD, STRANGER, ARCHIVED, { ...SPINOFF, deletedAt: 'now' }]
+    act(() => view.rerender(tree('p')))
+
+    expect(screen.getByTestId('pointer').dataset.current).toBe('p')
+  })
+
+  it('sends a ref card pointed at a deleted task to the list, not to the deck (POD-1265)', () => {
+    // A card in chat points the explorer WITHOUT moving the shell. If the task
+    // it names is gone, the honest answer is the list — substituting whatever
+    // the deck happens to be showing answers a question nobody asked.
+    state.selectedIssueId = 'p'
+    state.sessions = [ROOT_SESSION] as never
+    const view = mount('p')
+    expect(screen.getByTestId('pointer').dataset.current).toBe('p')
+
+    state.issues = [EPIC, CHILD, ARCHIVED, SPINOFF, { ...STRANGER, deletedAt: 'now' }]
+    act(() => view.rerender(tree('p')))
+    fireEvent.click(screen.getByText('card: s'))
+
+    expect(screen.getByTestId('pointer').dataset.current).toBe('')
+  })
+
+  it('rides out an empty replica with a mission selected (POD-1277)', () => {
+    // The mission-scoped half of the ride-out. Without a mission the subject is
+    // null on both sides of the blink, so the retarget effect short-circuits on
+    // `target === lastTarget` and its own empty-replica gate is never exercised
+    // — the trail would survive with or without it. Here the subject really does
+    // go p -> null -> p, so only the gate keeps the trail.
+    state.selectedIssueId = 'p'
+    state.sessions = [ROOT_SESSION] as never
+    const view = mount('p')
+    fireEvent.click(screen.getByText('deck: c'))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('c')
+
+    state.issues = []
+    act(() => view.rerender(tree('p')))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('c')
+
+    state.issues = BASE_ISSUES
+    act(() => view.rerender(tree('p')))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('c')
   })
 
   it('rides out an empty replica without losing the trail (POD-1277)', () => {
