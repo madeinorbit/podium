@@ -36,7 +36,14 @@ import { REAL_AGENT_CLIS } from './agent-smoke-reporter'
 import { QUARANTINE } from './browser-quarantine'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
 import { runWithHeavyTestLease } from './test-heavy'
-import { footer, LEAN_GATE_FILES, otherLanes, resolveLaneAgainst, vitestCommand } from './test-lean'
+import {
+  footer,
+  LEAN_GATE_FILES,
+  otherLanes,
+  reconcileExecution,
+  resolveLaneAgainst,
+  vitestCommand,
+} from './test-lean'
 import scriptsConfig from './vitest.config'
 import rearchConfig from './vitest.rearch.config'
 
@@ -482,6 +489,32 @@ describe('test lane configuration', () => {
   })
 
   /**
+   * A Vitest `json` report, as the runner writes it — absolute paths and all.
+   *
+   * Hand-built, but not hand-waved: every field asserted below was taken from a real
+   * report produced by the two invocations the review used to break the first version
+   * of this gate, so the fixture reproduces the shape that made it lie rather than a
+   * shape convenient for the assertion (POD-2728).
+   */
+  const vitestReport = (
+    files: { file: string; passed?: number; failed?: number; skipped?: number }[],
+  ) => ({
+    testResults: files.map(({ file, passed = 0, failed = 0, skipped = 0 }) => ({
+      // Vitest reports `passed` for a file whose every test was SKIPPED, which is why
+      // this gate counts assertions rather than reading the file-level status.
+      name: `${fileURLToPath(new URL('../', import.meta.url))}${file}`,
+      status: failed > 0 ? 'failed' : 'passed',
+      assertionResults: [
+        ...Array.from({ length: passed }, () => ({ status: 'passed' })),
+        ...Array.from({ length: failed }, () => ({ status: 'failed' })),
+        ...Array.from({ length: skipped }, () => ({ status: 'skipped' })),
+      ],
+    })),
+  })
+
+  const fullRun = () => vitestReport(LEAN_GATE_FILES.map((file) => ({ file, passed: 19 })))
+
+  /**
    * The footer is the whole point of POD-2728, so it is asserted rather than trusted:
    * the last thing a `bun run test` leaves on screen has to deny being a suite run and
    * has to carry the ratio it actually ran. A green that reads like a suite is what
@@ -492,7 +525,7 @@ describe('test lane configuration', () => {
       scripts: Record<string, string>
     }
     const lanes = otherLanes(pkg.scripts)
-    const passed = footer('PASSED', LEAN_GATE_FILES.length, 955, lanes)
+    const passed = footer('PASSED', reconcileExecution(fullRun()), 955, lanes)
     expect(passed).toContain('NOT the test suite')
     expect(passed).toContain(`Ran ${LEAN_GATE_FILES.length} of the 955 files`)
     expect(passed).toContain('0.4%')
@@ -500,9 +533,88 @@ describe('test lane configuration', () => {
     for (const file of LEAN_GATE_FILES) expect(passed).toContain(file)
 
     // A red lean gate must not borrow the reassuring half of that copy.
-    const failed = footer('FAILED', LEAN_GATE_FILES.length, 955, lanes)
+    const failed = footer('FAILED', reconcileExecution(fullRun()), 955, lanes)
     expect(failed).toContain('LEAN GATE FAILED')
     expect(failed).not.toContain('lean gate green')
+  })
+
+  /**
+   * The footer's numerator must come from what Vitest EXECUTED, never from the scope
+   * it was asked for [POD-2728, found in adversarial review of 719e55460].
+   *
+   * The first version of this gate handed `footer()` the length of LEAN_GATE_FILES, so
+   * "Ran 4 of the N files" could not say anything but 4 no matter what happened in the
+   * run. Two ordinary invocations, no tampering with the tree, made it print a
+   * confident green over a run that had done a quarter of the work or none of it — and
+   * both were a REGRESSION, because the plain four-file script at least ended in
+   * Vitest's own honest `Tests 79 skipped (79)`.
+   *
+   * This is an assertion on an IDENTIFIER standing in for the content it addresses, so
+   * both halves are pinned: the count in the prose, and the verdict that follows from it.
+   */
+  it('counts what the runner executed, not what the gate asked for', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const lanes = otherLanes(pkg.scripts)
+
+    // `bun run test --shard=1/4` — one file ran, exit 0, footer used to claim four.
+    const sharded = reconcileExecution(
+      vitestReport(LEAN_GATE_FILES.slice(0, 1).map((file) => ({ file, passed: 19 }))),
+    )
+    expect(sharded.ok, 'a quarter of the gate counted as the gate').toBe(false)
+    expect(sharded.ranFiles).toBe(1)
+    expect(sharded.ranTests).toBe(19)
+    expect(sharded.shortfall.map((entry) => entry.file)).toEqual([...LEAN_GATE_FILES.slice(1)])
+    expect(sharded.shortfall.every((entry) => entry.reason === 'never ran')).toBe(true)
+    const shardFooter = footer('INCOMPLETE', sharded, 1022, lanes)
+    expect(shardFooter, 'the footer still claimed the whole set').toContain('Ran 1 of the 1022')
+    expect(shardFooter).not.toContain('lean gate green')
+    expect(shardFooter).toContain('NARROWER THAN THE GATE')
+
+    // `bun run test -t=<no match>` — four files collected, ZERO tests executed, and
+    // Vitest calls every one of them `passed` and exits 0. This is the gate's own
+    // "no lane may pass empty" invariant, failing on the lane it was written for.
+    const filtered = reconcileExecution(
+      vitestReport(LEAN_GATE_FILES.map((file) => ({ file, skipped: 19 }))),
+    )
+    expect(filtered.ok, 'a run with zero assertions passed').toBe(false)
+    expect(filtered.ranTests).toBe(0)
+    expect(filtered.ranFiles).toBe(0)
+    expect(filtered.skippedTests).toBe(76)
+    expect(filtered.shortfall.every((entry) => entry.reason === 'every test skipped')).toBe(true)
+    const filteredFooter = footer('INCOMPLETE', filtered, 1022, lanes)
+    expect(filteredFooter).toContain('Ran 0 of the 1022')
+    expect(filteredFooter).toContain('NOTHING RAN')
+    expect(filteredFooter).not.toContain('lean gate green')
+
+    // The no-flag version of the same thing: a `describe.skip` committed to one of the
+    // four. Nothing in argv shows it, which is why the check reads the tally instead.
+    const skippedOne = reconcileExecution(
+      vitestReport(
+        LEAN_GATE_FILES.map((file, index) =>
+          index === 2 ? { file, skipped: 19 } : { file, passed: 19 },
+        ),
+      ),
+    )
+    expect(skippedOne.ok, 'a .skip silently removed a file from the gate').toBe(false)
+    expect(skippedOne.ranFiles).toBe(3)
+    expect(skippedOne.shortfall).toEqual([
+      { file: LEAN_GATE_FILES[2], reason: 'every test skipped' },
+    ])
+
+    // And the honest run still passes, with the runner's numbers in the prose.
+    const whole = reconcileExecution(fullRun())
+    expect(whole.ok).toBe(true)
+    expect(whole.ranFiles).toBe(LEAN_GATE_FILES.length)
+    expect(whole.ranTests).toBe(76)
+    expect(whole.skippedTests).toBe(0)
+    // A failing assertion is still an executed one: red is a verdict, not a shortfall.
+    const red = reconcileExecution(
+      vitestReport(LEAN_GATE_FILES.map((file) => ({ file, passed: 18, failed: 1 }))),
+    )
+    expect(red.ok, 'a red gate was misreported as an incomplete one').toBe(true)
+    expect(red.failedTests).toBe(4)
   })
 
   /**

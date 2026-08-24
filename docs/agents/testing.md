@@ -31,11 +31,23 @@ and closes with the ratio it actually covered:
     ────────────────────────────────────────────────
     LEAN GATE PASSED — this is NOT the test suite.
 
-    Ran 4 of the 955 files vitest.unit.config.ts collects in its `node` project (0.4%).
+    Ran 4 of the 955 files vitest.unit.config.ts collects in its `node` project (0.4%), 79 tests executed:
+      packages/runtime/src/boot.test.ts — 16 tests
+      apps/server/src/router.setup.test.ts — 19 tests
+      apps/daemon/src/connection-state.test.ts — 11 tests
+      scripts/test-configuration.test.ts — 33 tests
     ...
 
-(955 is illustrative — the denominator is resolved from the runner on every run, so it
-tracks the tree rather than this page.)
+(955 is illustrative — every number in that footer is read back out of the runner's own
+JSON report for that run, so it tracks the tree rather than this page. The per-file counts
+reconcile against Vitest's `Tests N passed (N)` line directly above them; if they ever
+disagree, trust neither and say so.)
+
+**`LEAN GATE INCOMPLETE` means you have no gate result at all**, and it exits non-zero.
+The run was narrower than the four files — a `--shard`, a `-t` filter that matched nothing,
+or a `.skip` sitting in one of them. Vitest exits 0 for all three, which is why this is
+checked against what executed rather than against what was asked for. Re-run as plain
+`bun run test`; do not report the partial run.
 
 That footer exists because agents were reporting `bun run test` green — correctly, in good
 faith — as though the trailing `Tests 76 passed (76)` were a suite result. It is not. Report
@@ -58,7 +70,7 @@ is not a reason to add a lane.
 
 | Command | Tests live in / selection rule | Also executed by | Run when |
 | --- | --- | --- | --- |
-| `bun run test` | Cached lock-free workspace typecheck, then `scripts/test-lean.ts`: the four exact files above via the `node` project in `vitest.unit.config.ts`, with a scope footer and a refusal if any of the four is no longer collected | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
+| `bun run test` | Cached lock-free workspace typecheck, then `scripts/test-lean.ts`: the four exact files above via the `node` project in `vitest.unit.config.ts`, with a footer built from the runner's own tally, a refusal if any of the four is no longer collected, and a non-zero exit if the run executed less than all four | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
 | `bun run test:agent` | Exactly the same command and scope as `test` | Alias only | Compatibility only; prefer the conventional `bun run test` |
 | `bun run test:full` | Cached lock-free typecheck, then package-owned `*.test.*` / `*.spec.*` under `apps/*`, `packages/*`, and `scripts/*`; one Turbo `test` task per owner; server expands to five shards; exclusions come from `vitest.unit.config.ts` | `oracle` as its `unit` component; CI `unit-tests` | Scheduled CI, merge batches, release validation, or explicit request—not ordinary agent work |
 | `bun run test:unit` | The exhaustive package sweep without the leading typecheck | `test:full` tail | Compatibility/diagnosis only; prefer `test:full` when a full sweep is intentionally required |
@@ -269,6 +281,12 @@ hermetic setup, lane exclusions, and exit-status safeguards.
   `passWithNoTests === false` on all five server shards and pins the lean gate's
   refusal-and-footer behaviour in `scripts/test-lean.ts`. The lean gate was the one
   exception until POD-2728; do not reintroduce `--passWithNoTests` there.
+- **A gate reports what ran, not what it asked for** [POD-2728]: "empty" includes a run
+  that collected every file and then executed nothing, which is what a `-t` filter that
+  matches nothing produces — Vitest marks each such file `passed` and exits 0. Count
+  executed assertions from the runner's own report; never let a scope list stand in for
+  a result. The first fix for this issue got this wrong and printed a confident green
+  over a run of zero tests.
 - **Lane membership is guarded**: `scripts/test-configuration.test.ts` asserts the
   package-owned scopes, normalized-wire serialization, hermetic setup, worker caps,
   heavy-lane split, and package.json script shape. Every new package test needs a real
