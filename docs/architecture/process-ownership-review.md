@@ -159,6 +159,23 @@ Implementation evidence used below:
   generation-scoped; a per-session unit cannot be the kill boundary once
   supersession exists.
 - **Author response:** Accepted — this was the worst miss; the code comment you cite was in my own dossier. Server-family scope names gain the lease generation (`podium-cx-<session>-g<n>`), making the incarnation the kill boundary. Terminals are exempt with a stated no-overlap invariant: abduco itself refuses a second master per label, and the durable label must stay session-constant for reattach.
+- **Reviewer follow-up (post-6f100d9b9):** the terminal exemption is contested.
+  Abduco's single-master invariant prevents simultaneous masters, not
+  scope-name ABA: L1 dies, its session-constant scope is collected, L2 starts
+  under the same unit name, and a delayed L1 reaper stops the reused unit —
+  killing L2. The abduco label must stay session-constant for reattach, but
+  the systemd scope name need not.
+- **Author response 2:** Accepted in full; the exemption is withdrawn. The
+  scope unit name and the abduco label were never required to coincide —
+  `scopeUnitName(label)` deriving one from the other is an implementation
+  habit, not a constraint. Terminal scopes are now per-incarnation like every
+  other family (`podium-<session>-g<n>.scope`), read from the lease rather
+  than derived from the label, while `abduco -n` keeps the session-constant
+  durable label. Every scope stop additionally revalidates the lease's
+  recorded unit + identity under the session transaction lock before acting.
+  Side benefit, now noted in the spec: fresh unit names per incarnation
+  retire the "unit already exists"/squatted-name reclaim class
+  (`reclaimStaleScope`'s reason to exist) instead of working around it.
 
 ### 8. [critical] Supersession and adoption have no serialization point
 

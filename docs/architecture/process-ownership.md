@@ -145,11 +145,16 @@ decision and future changes must engage it, not just the rule.
 
 13. **The kill boundary is one process-tree incarnation, never a session.**
     Each supervised spawn gets a lease with a globally unique, never-reused
-    id and a per-session monotonic generation; server-family scope units
-    carry that generation in their name. *Motivation:* red-team finding 7 —
+    id and a per-session monotonic generation; **every** family's scope unit
+    carries that generation in its name — the terminal family's durable
+    abduco label stays session-constant for reattach, but its scope name is
+    decoupled from it. *Motivation:* red-team finding 7 and its follow-up —
     with supersession, two incarnations of one codex session overlap in one
     per-session scope, and a scope-wide stop of the superseded one kills the
-    successor; the current code already warns about exactly this shape.
+    successor (the current code already warns about exactly this shape); and
+    even without overlap, a session-constant scope name is ABA-reusable, so
+    a delayed reaper for a dead incarnation can stop the recycled unit now
+    hosting its successor.
 
 14. **A verdict reports what it proved, not what it hoped.** Reap outcomes
     are typed — `verified-empty` (containment enumerated and empty),
@@ -251,14 +256,17 @@ way — hence measurement.
 On Linux a fourth sits on top: the **scope**. It is the only *inescapable*
 witness (survives env-scrubbing and double-forking children) and the only
 carrier of memory/CPU budgets and verified whole-tree kill. Per decision 13,
-server-family scope units are **per-incarnation**: `podium-oc-<session>-g<n>`
-and likewise for codex/grok, so a superseded incarnation can be killed
-without touching its successor. The terminal family keeps its
-session-constant durable label — reattach depends on it, and abduco itself
-enforces no-overlap by refusing a second master per label — so its scope
-stays per-session with a stated single-incarnation invariant. The `-attach-`
-infix convention and the exact-match-only rule are unchanged; names remain an
-index, the ledger the authority.
+**all** scope units are per-incarnation: `podium-oc-<session>-g<n>` and
+likewise for codex/grok and the terminal family — the abduco label stays
+session-constant (reattach depends on it; abduco refuses a second master per
+label) but the scope *name* is decoupled from it and read from the lease,
+never derived from the label. A superseded or ABA-recycled incarnation can
+therefore never be confused with its successor, and every scope stop
+revalidates the lease's recorded unit and identity under the session
+transaction lock before acting. Fresh names per incarnation also retire the
+"unit already exists" squatted-name class that today's reclaim code works
+around. The `-attach-` infix convention and the exact-match-only rule are
+unchanged; names remain an index, the ledger the authority.
 
 **Binding edges and supersession** (findings 8, 14). A session is tied to a
 lease by an explicit **binding edge** record with its own generation and
@@ -459,10 +467,14 @@ reasonable implementers would otherwise make incompatible safety choices.
   successor-spawn policy while an intent is pending.
 - **Environment stamps:** add `PODIUM_STATE_DIR` and `PODIUM_LEASE`; the
   other stamps already exist.
-- **Scope naming:** per-incarnation units for the server families; the
-  terminal family's single-incarnation invariant stated where its
-  session-constant label is minted. Update the memory-attribution substring
-  contract (`opencode-attach.ts` documents it) for the new names.
+- **Scope naming:** per-incarnation units for every family; the terminal
+  family passes its session-constant abduco label separately from the scope
+  name, and the scope name is recorded in the lease rather than derived via
+  `scopeUnitName(label)`. Scope stops revalidate lease unit + identity under
+  the session transaction lock. The squatted-name reclaim
+  (`reclaimStaleScope`) becomes unnecessary for new spawns and is retired
+  with the migration. Update the memory-attribution substring contract
+  (`opencode-attach.ts` documents it) for the new names.
 - **Journal demotion** per decision 10; adoption keeps its per-driver
   semantics (§4 table) but corroborates against the lease, never the
   journal's process claim. Supersession replaces today's per-driver
