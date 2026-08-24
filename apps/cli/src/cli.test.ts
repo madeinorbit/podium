@@ -218,8 +218,18 @@ describe('resolvePlan — launch matrix', () => {
       port: 18787,
     })
   })
-  it('explicit server component owns its janitor worker', () => {
+  it('legacy explicit server component leaves janitor ownership to its sibling unit', () => {
     const p = plan({ mode: 'all-in-one', persistence: 'systemd' }, ['server'])
+    expect(p).toMatchObject({
+      kind: 'in-process',
+      roles: { server: true, janitor: false, daemon: false },
+      claimRole: 'server',
+    })
+  })
+  it('parent-supervised server component owns its janitor worker', () => {
+    const p = plan({ mode: 'all-in-one', persistence: 'systemd' }, ['server'], {
+      PODIUM_UNDER_PARENT: '1',
+    })
     expect(p).toMatchObject({
       kind: 'in-process',
       roles: { server: true, janitor: true, daemon: false },

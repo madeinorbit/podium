@@ -783,9 +783,17 @@ export function resolvePlan(
   // the web setup UI (server only), claim no run-registry role.
   const runServer = forceSetup || modePlan.mode === 'all-in-one' || modePlan.mode === 'server'
   const runDaemon = !forceSetup && (modePlan.mode === 'all-in-one' || modePlan.mode === 'daemon')
-  // Every serving composition owns its janitor worker. The setup-only server is
-  // the exception: it has no maintenance realm to clean yet.
-  const runJanitor = !forceSetup && runServer
+  // The modern parent/all-in-one/desktop shapes own a janitor worker in their
+  // server. A bare explicit server stays janitor-free for compatibility with
+  // legacy split-unit installs, where a sibling janitor still exists during
+  // topology migration.
+  const runJanitor =
+    !forceSetup &&
+    runServer &&
+    (modePlan.mode === 'all-in-one' ||
+      env.PODIUM_UNDER_PARENT === '1' ||
+      env.PODIUM_DESKTOP_SUPERVISED === '1' ||
+      env.PODIUM_HOST_JANITOR === '1')
   const claimRole = forceSetup
     ? undefined
     : modePlan.mode === 'server'
