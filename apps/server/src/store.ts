@@ -63,6 +63,7 @@ import { MaintenanceRepository } from './store/maintenance'
 import { MessagesRepository } from './store/messages'
 import { MessagingTopicsRepository } from './store/messaging-topics'
 import { NotificationFactsRepository } from './store/notification-facts'
+import { QuotaHistoryRepository } from './store/quota-history'
 import { ObservationCheckpointsRepository } from './store/observation-checkpoints'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
@@ -135,6 +136,9 @@ export class SessionStore {
   readonly events: EventsRepository
   /** Cross-producer notification deduplication [spec:SP-ba61]. */
   readonly notificationFacts: NotificationFactsRepository
+  /** One row per run of a plan quota window (POD-1571) — the only place Podium
+   *  keeps a quota number after the live read that produced it goes stale. */
+  readonly quotaHistory: QuotaHistoryRepository
   /** Unified agent messaging (#237) [spec:SP-34d7]. */
   readonly messages: MessagesRepository
   /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
@@ -239,6 +243,7 @@ export class SessionStore {
     this.telegramBindings = new TelegramBindingsRepository(this.db)
     this.events = new EventsRepository(this.db)
     this.notificationFacts = new NotificationFactsRepository(this.db)
+    this.quotaHistory = new QuotaHistoryRepository(this.db)
     this.messages = new MessagesRepository(this.db)
     this.readWatermarks = new ReadWatermarksRepository(this.db)
     this.workflows = new WorkflowsRepository(this.db)

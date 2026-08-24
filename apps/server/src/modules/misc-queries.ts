@@ -31,6 +31,7 @@ import { loadConfig } from '@podium/runtime/config'
 import { z } from 'zod'
 import { getFeatureStates } from '../features'
 import type { FamilyState } from './derived-family'
+import { QUOTA_HISTORY_DEFAULT_DAYS, recordQuotaSamples } from './quota-history/service'
 import { assertAllowedRoot } from './files/registry'
 import { defineQuery } from './query-table'
 import { specsInputs } from './specs/service'
@@ -145,8 +146,30 @@ export const QUOTA_QUERIES = {
    *  daemon host from each agent's own usage endpoint. Fans out to every online
    *  machine (each runs its agents under its own account) — one entry per
    *  machine. Distinct from `usage`, which is transcript-harvested token-cost
-   *  analytics. */
-  summary: q(noInput, (s) => s.modules.rpc.agentQuotaAll()),
+   *  analytics.
+   *
+   *  ALSO WRITES (POD-1571), and deliberately: every reading served here is
+   *  folded into the window ledger on the way out, so an open tab adds
+   *  resolution the 15-minute sampler alone would miss. It stays a `query`
+   *  because the write is a fold of what was just read — no caller input reaches
+   *  it, nothing is created, and the same fold runs whether or not anyone asks.
+   *  Best-effort: a failed fold never fails the read. */
+  summary: q(noInput, async (s) => {
+    const machines = await s.modules.rpc.agentQuotaAll()
+    recordQuotaSamples(s.store.quotaHistory, machines)
+    return machines
+  }),
+  /** The window ledger: one entry per run of a plan window, oldest first, over
+   *  the requested lookback. `peakPercent` is what a window came to before it
+   *  reset — the whole point of the series. See `viewmodels/quota-history`. */
+  history: q(
+    z.object({ days: z.number().int().positive().max(365).optional() }).optional(),
+    (s, input) => {
+      const days = input?.days ?? QUOTA_HISTORY_DEFAULT_DAYS
+      const now = Date.now()
+      return s.store.quotaHistory.list(now - days * 24 * 60 * 60 * 1000, now)
+    },
+  ),
 } as const
 
 export const FEATURE_QUERIES = {

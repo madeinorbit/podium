@@ -1,4 +1,5 @@
 import {
+  AgentKind,
   AgentMemoryWire,
   AgentQuotaWire,
   HostDiskWire,
@@ -167,4 +168,42 @@ export const AgentQuotaResultMessage = z.object({
   requestId: z.string(),
   hostname: z.string(),
   agents: z.array(AgentQuotaWire),
+})
+
+// ── Quota HISTORY backfill (POD-1571). Codex writes its rate-limit state into
+// every session rollout and Grok logs each billing fetch, so weeks of past
+// windows sit on the daemon host as a side effect of those harnesses running.
+// Claude writes nothing anywhere and cannot be recovered. These samples are
+// folded by the server through the same identity rule live sampling uses.
+
+/** One recovered reading. Deliberately the RAW sample rather than a folded
+ *  window: folding is the server's job, and running it in two places would be
+ *  two answers to "is this the same window?". */
+export const QuotaHistorySampleWire = z.object({
+  agent: AgentKind,
+  /** Account email when the harness files name one; absent falls back to the
+   *  machine, matching `quotaAccountKey`. */
+  email: z.string().optional(),
+  machineId: z.string(),
+  windowKey: z.string().min(1),
+  label: z.string(),
+  plan: z.string().optional(),
+  usedPercent: z.number(),
+  resetsAtMs: z.number(),
+  windowMinutes: z.number().int().nonnegative(),
+  atMs: z.number(),
+})
+export type QuotaHistorySampleWire = z.infer<typeof QuotaHistorySampleWire>
+
+export const QuotaHistoryRequestMessage = z.object({
+  type: z.literal('quotaHistoryRequest'),
+  requestId: z.string(),
+  /** Oldest sample worth recovering, epoch ms. */
+  sinceMs: z.number(),
+})
+export const QuotaHistoryResultMessage = z.object({
+  type: z.literal('quotaHistoryResult'),
+  requestId: z.string(),
+  hostname: z.string(),
+  samples: z.array(QuotaHistorySampleWire),
 })

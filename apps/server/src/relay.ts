@@ -75,6 +75,8 @@ import { AutomationsService } from './modules/automations/service'
 import { EventBus } from './modules/bus'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { EventLogRetention } from './modules/events/retention'
+import { QuotaBackfill } from './modules/quota-history/backfill'
+import { QuotaSampler } from './modules/quota-history/service'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueEventFeedPublisher } from './modules/issue-events/feed'
@@ -338,6 +340,17 @@ export class SessionRegistry {
   private readonly steward: StewardService
   /** Event-log retention timers (issue #61) — modules/events. */
   private readonly eventRetention: EventLogRetention
+  /**
+   * The quota window ledger's writer (POD-1571). STARTED, unlike the two retired
+   * timers near it, and it has to be: quota is a live pull-through read that
+   * nothing polls on a schedule, so without this timer a window that elapses
+   * while no client is open leaves no record at all — and unlike a cache, that
+   * history cannot be recomputed later from anything on disk.
+   */
+  private readonly quotaSampler: QuotaSampler
+  /** One-shot boot import of the quota history the harnesses wrote themselves
+   *  (POD-1571) — Codex rollouts and Grok's billing log. Claude keeps none. */
+  private readonly quotaBackfill: QuotaBackfill
   /** Durable change-log owner, retained so shutdown cancels maintenance slices. */
   private readonly ledger: Ledger
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
@@ -2535,6 +2548,16 @@ export class SessionRegistry {
     // the janitor's fence to protect — see IssueGitWatch.
     this.issueGitWatch = new IssueGitWatch(issues)
     this.issueGitWatch.start()
+    // Reads through the same fan-out `quota.summary` serves, so the sampler adds
+    // no new path to the daemons — only a clock behind the one that exists.
+    this.quotaSampler = new QuotaSampler(this.store.quotaHistory, () =>
+      this.modules.rpc.agentQuotaAll(),
+    )
+    this.quotaSampler.start()
+    this.quotaBackfill = new QuotaBackfill(this.store.quotaHistory, (sinceMs) =>
+      this.modules.rpc.quotaHistoryAll(sinceMs),
+    )
+    this.quotaBackfill.start()
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.
     this.automationScheduler = new AutomationScheduler(automations)
     // this.automationScheduler.start()
@@ -2607,6 +2630,8 @@ export class SessionRegistry {
     // indistinguishable from a broken one (POD-1390).
     this.modules.memory.dispose()
     this.eventRetention.dispose()
+    this.quotaSampler.dispose()
+    this.quotaBackfill.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)
     clearInterval(this.queuedInputSweep)

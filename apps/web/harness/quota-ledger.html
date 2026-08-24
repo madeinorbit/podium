@@ -1,0 +1,22 @@
+<!doctype html>
+<!--
+  The page for harness/quota-ledger-entry.tsx (POD-1571). Served at
+  /harness/quota-ledger.html (vite's root is apps/web).
+
+  THE THEME LIVES ON THE ROOT ELEMENT. `index.css` defines every colour token
+  under `[data-theme="podium"]`, so a harness page without it resolves
+  `--usage-scale`, `--live` and the rest to nothing — which for this figure means
+  invisible grooves against an invisible ground. `dark` matches the app default;
+  the entry renders a Paper copy beside it so both themes are checked at once.
+-->
+<html lang="en" class="dark" data-theme="podium">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reset ledger harness</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/harness/quota-ledger-entry.tsx"></script>
+  </body>
+</html>

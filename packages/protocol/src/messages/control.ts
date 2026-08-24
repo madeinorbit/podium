@@ -33,6 +33,7 @@ import {
 } from './headless'
 import {
   AgentQuotaRequestMessage,
+  QuotaHistoryRequestMessage,
   MemoryBreakdownRequestMessage,
   ReclaimDiskEstimateRequestMessage,
   UsageRequestMessage,
@@ -98,6 +99,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   HeadlessBindMessage,
   UsageRequestMessage,
   AgentQuotaRequestMessage,
+  QuotaHistoryRequestMessage,
   InventoryRequestMessage,
   ModelProbeRequestMessage,
   UpdateGrantMessage,

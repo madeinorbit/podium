@@ -35,6 +35,7 @@ import {
 import {
   AgentQuotaResultMessage,
   HostMetricsMessage,
+  QuotaHistoryResultMessage,
   MachineDiagnosticMessage,
   MemoryBreakdownResultMessage,
   ReclaimDiskEstimateResultMessage,
@@ -173,6 +174,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   HeadlessBindResultMessage,
   UsageResultMessage,
   AgentQuotaResultMessage,
+  QuotaHistoryResultMessage,
   ImageUploadResultMessage,
   SessionResumeRefMessage,
   SessionCwdMessage,

@@ -37,6 +37,7 @@ import type {
   ModelChoiceWire,
   PortableCredentialBundle,
   PortableCredentialKind,
+  QuotaHistorySampleWire,
   RepoOp,
   ServerTransferManifest,
   ServerTransferManifestEntry,
@@ -176,6 +177,7 @@ const USAGE = daemonRequestKind<{
   buckets: UsageBucketWire[]
 }>('us')
 const AGENT_QUOTA = daemonRequestKind<{ hostname: string; agents: AgentQuotaWire[] }>('aq')
+const QUOTA_HISTORY = daemonRequestKind<{ samples: QuotaHistorySampleWire[] }>('qh')
 const MODEL_PROBE = daemonRequestKind<Record<string, ModelChoiceWire[]>>('mp')
 const TRANSCRIPT_READ = daemonRequestKind<TranscriptSlice>('tr')
 const IMAGE_UPLOAD = daemonRequestKind<{ path: string; error?: string }>('iu')
@@ -260,6 +262,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
       hostname: msg.hostname,
       agents: msg.agents,
     }),
+  quotaHistoryResult: (broker, machineId, msg) =>
+    void broker.settle(QUOTA_HISTORY, msg.requestId, machineId, { samples: msg.samples }),
   modelProbeResult: (broker, machineId, msg) =>
     void broker.settle(MODEL_PROBE, msg.requestId, machineId, msg.byAgent),
   imageUploadResult: (broker, machineId, msg) =>
@@ -497,6 +501,31 @@ export class DaemonRpcService {
       }),
       machineId,
     )
+  }
+
+  /**
+   * Recover past quota windows from harness files on every online host (POD-1571).
+   *
+   * A generous timeout, and deliberately: this walks every Codex session rollout
+   * on the machine — over a thousand files on a working box — where `agentQuota`
+   * beside it makes three HTTP calls. Nothing waits on it; it seeds the ledger in
+   * the background at boot, once.
+   */
+  async quotaHistoryAll(sinceMs: number): Promise<QuotaHistorySampleWire[]> {
+    const machineIds = this.deps.onlineMachineIds()
+    if (machineIds.length === 0) return []
+    const perMachine = await Promise.all(
+      machineIds.map((machineId) =>
+        this.request(
+          QUOTA_HISTORY,
+          120_000,
+          () => ({ samples: [] }),
+          (requestId) => ({ type: 'quotaHistoryRequest', requestId, sinceMs }),
+          machineId,
+        ),
+      ),
+    )
+    return perMachine.flatMap((r) => r.samples)
   }
 
   /**

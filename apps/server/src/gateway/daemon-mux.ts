@@ -193,6 +193,7 @@ const DISPATCH: Dispatcher = {
   harnessExecResult: toRpc,
   usageResult: toRpc,
   agentQuotaResult: toRpc,
+  quotaHistoryResult: toRpc,
   modelProbeResult: toRpc,
   imageUploadResult: toRpc,
   transcriptReadResult: toRpc,

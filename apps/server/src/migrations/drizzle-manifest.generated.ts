@@ -89,6 +89,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260816150512_issue-landing-stamp", sql: "ALTER TABLE `issues` ADD `landed_at` text;--> statement-breakpoint\nALTER TABLE `issues` ADD `landed_sha` text;" },
   { name: "20260818141127_login-shell-purpose", sql: "ALTER TABLE `sessions` ADD `login_harness` text;\n" },
   { name: "20260820074346_session-conversation-binding", sql: "ALTER TABLE `sessions` ADD `conversation_binding` text;" },
+  { name: "20260824202715_quota-windows", sql: "CREATE TABLE `quota_windows` (\n\t`account_key` text NOT NULL,\n\t`agent` text NOT NULL,\n\t`window_key` text NOT NULL,\n\t`resets_at_bucket` integer NOT NULL,\n\t`label` text NOT NULL,\n\t`scope_model` text,\n\t`plan` text,\n\t`resets_at_ms` integer NOT NULL,\n\t`started_at_ms` integer,\n\t`window_minutes` integer NOT NULL,\n\t`first_seen_ms` integer NOT NULL,\n\t`last_seen_ms` integer NOT NULL,\n\t`first_percent` real NOT NULL,\n\t`peak_percent` real NOT NULL,\n\t`last_percent` real NOT NULL,\n\t`sample_count` integer NOT NULL,\n\t`partial` integer NOT NULL,\n\t`source` text NOT NULL,\n\t`trail_json` text NOT NULL,\n\tCONSTRAINT `quota_windows_pk` PRIMARY KEY(`account_key`, `window_key`, `resets_at_bucket`)\n);\n--> statement-breakpoint\nCREATE INDEX `idx_quota_windows_series` ON `quota_windows` (`account_key`,`window_key`,`resets_at_ms`);--> statement-breakpoint\nCREATE INDEX `idx_quota_windows_resets` ON `quota_windows` (`resets_at_ms`);" },
 ]
 
 /**

@@ -29,6 +29,7 @@ import type {
   MachineId,
   MachineQuotaWire,
   MutationId,
+  QuotaWindowHistoryWire,
   ReadPositionSnapshot,
   SessionId,
   ThreadId,
@@ -322,6 +323,10 @@ export interface PodiumClientApi {
    *  token-cost analytics — see `viewmodels/quota`. */
   quota: {
     summary: ApiQuery<void, MachineQuotaWire[]>
+    /** The window ledger (POD-1571) — one entry per run of a plan window, with
+     *  what it came to before it reset. Oldest first. Distinct from `summary`,
+     *  which is the live reading and keeps no record of itself. */
+    history: ApiQuery<{ days?: number } | void, QuotaWindowHistoryWire[]>
   }
   superagent: {
     /** The signed-in principal's own threads. The authority scopes this to the

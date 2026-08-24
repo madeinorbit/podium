@@ -457,6 +457,69 @@ export const MachineQuotaWire = z.object({
 })
 export type MachineQuotaWire = z.infer<typeof MachineQuotaWire>
 
+// ── Quota HISTORY. The wires above are the live reading; these are the record of
+// what each window came to before it reset. Nothing upstream keeps that record —
+// no provider reports a window id, a start, or a prior period — so it exists only
+// because this server samples and folds. [spec:SP-0610]
+
+/**
+ * The identity a quota window belongs to. Rate limits are per-ACCOUNT, not per
+ * machine: two machines signed into one account share a pool, and keying history
+ * by machine would double-count it. Falls back to the machine when the provider
+ * reports no email, so two machines we cannot prove share an account are never
+ * merged.
+ */
+export function quotaAccountKey(
+  agent: AgentKind,
+  email: string | undefined,
+  machineId: string,
+): string {
+  return email ? `${agent}::${email}` : `${agent}::machine:${machineId}`
+}
+
+/**
+ * `USE` — one concrete run of a rolling quota window, from its start to the reset
+ * that ended it. This is the unit the history chart is made of: "how well did I
+ * use my quota" has exactly one honest answer per instance, `peakPercent`.
+ *
+ * PEAK, NOT LAST. The closing sample is always stale by up to one sampling
+ * interval, so a window still climbing when it rolled over would be understated
+ * by its final reading. The peak is stable against a missed last sample.
+ *
+ * NO PROVIDER REPORTS A WINDOW START. `startedAt` is derived as
+ * `resetsAt - windowMinutes`, and is absent when the provider reports no duration
+ * (`windowMinutes: 0`, a legitimate value meaning "unknown").
+ */
+export const QuotaWindowHistoryWire = z.object({
+  accountKey: z.string().min(1),
+  agent: AgentKind,
+  /** `session` · `weekly-all` · `weekly-scoped:model:fable` · `weekly` … */
+  windowKey: z.string().min(1),
+  label: z.string(),
+  scopeModel: z.string().optional(),
+  /** Plan tier at the time. A percentage of one pool is NOT comparable to a
+   *  percentage of another, so a change here segments the series. */
+  plan: z.string().optional(),
+  resetsAt: z.string(),
+  startedAt: z.string().optional(),
+  windowMinutes: z.number().int().nonnegative(),
+  firstSeenAt: z.string(),
+  lastSeenAt: z.string(),
+  firstPercent: z.number(),
+  peakPercent: z.number(),
+  lastPercent: z.number(),
+  sampleCount: z.number().int().nonnegative(),
+  /** True once `now` is past `resetsAt`: the window is over and its peak is final. */
+  closed: z.boolean(),
+  /** First seen more than one sampling interval after the window started, so its
+   *  early life was never watched and the peak may understate what was spent. */
+  partial: z.boolean(),
+  /** `live` — sampled by this server. `backfill` — recovered from harness files on
+   *  the daemon host, which only Codex and Grok write. */
+  source: z.enum(['live', 'backfill']),
+})
+export type QuotaWindowHistoryWire = z.infer<typeof QuotaWindowHistoryWire>
+
 // ---------------------------------------------------------------------------
 // Repos, worktrees and directory browsing (was messages/discovery.ts)
 // ---------------------------------------------------------------------------
