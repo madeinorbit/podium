@@ -325,6 +325,33 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(unifiedWorkList(emptySections([wt]), [], [], [], NOW)).toEqual([])
   })
 
+  it('does not re-home a finished idle session when its issue has decayed', () => {
+    const path = '/r/a/.worktrees/done'
+    const closedAt = new Date(NOW - 2 * 24 * HOUR).toISOString()
+    const done = issue({
+      id: 'done',
+      stage: 'done',
+      parentId: 'root',
+      closedReason: 'done',
+      closedAt,
+      readAt: closedAt,
+      updatedAt: closedAt,
+      unread: false,
+    })
+    const finished = {
+      ...idle('done-session', path, {
+        status: 'hibernated',
+        unread: false,
+        readAt: closedAt,
+        lastActiveAt: closedAt,
+      }),
+      issueId: 'done',
+      agentState: { phase: 'idle', since: closedAt, idle: { kind: 'done' } },
+    } as SessionMeta
+    const wt = navWt(path, { isMain: false, sessions: [finished] })
+    expect(unifiedWorkList(emptySections([wt]), [done], [finished], [], NOW)).toEqual([])
+  })
+
   it('does not re-home a nested started-by child session into a worktree row', () => {
     const path = '/r/a/.worktrees/nested'
     const parent = issue({ id: 'parent', audience: 'human' })
@@ -334,6 +361,29 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     const wt = navWt(path, { isMain: false, sessions: [own, nested] })
     const rows = unifiedWorkList(emptySections([wt]), [parent, child], [own, nested], [], NOW)
     expect(rows.map((row) => row.kind)).toEqual(['issue'])
+  })
+
+  it('does not re-home a three-level started-by grandchild session into a worktree row', () => {
+    const path = '/r/a/.worktrees/deep'
+    const root = issue({ id: 'root', audience: 'human' })
+    const child = issue({ id: 'child', audience: 'agent' as IssueNavigationModel['audience'], parentId: 'root' })
+    const grandchild = issue({ id: 'grandchild', audience: 'agent' as IssueNavigationModel['audience'], parentId: 'child' })
+    const own = { ...idle('own-deep', path), issueId: 'root' } as SessionMeta
+    const nested = { ...working('child-deep', path), issueId: 'child' } as SessionMeta
+    const deepSession = { ...working('grandchild-deep', path), issueId: 'grandchild' } as SessionMeta
+    const wt = navWt(path, { isMain: false, sessions: [own, nested, deepSession] })
+    const rows = unifiedWorkList(
+      emptySections([wt]),
+      [root, child, grandchild],
+      [own, nested, deepSession],
+      [],
+      NOW,
+    )
+    expect(rows.map((row) => row.kind)).toEqual(['issue'])
+    const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(rootRow.startedByChildren?.[0]?.startedByChildren?.map((row) => row.issue.id)).toEqual([
+      'grandchild',
+    ])
   })
 
   it('promotes an unowned session from a pinned worktree', () => {

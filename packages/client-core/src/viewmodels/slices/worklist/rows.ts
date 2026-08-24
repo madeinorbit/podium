@@ -170,6 +170,8 @@ function buildUnifiedRows(
     const guests = worktree.sessions.filter((session) => {
       if (issueSessionIds.has(session.sessionId)) return false
       const issue = session.issueId ? issueByIdForSession.get(session.issueId) : undefined
+      // A missing issue in this replica is intentionally treated as an orphan;
+      // only known hidden lifecycle states are suppressed here.
       if (
         issue &&
         (issue.archived ||
