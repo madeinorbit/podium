@@ -28,6 +28,7 @@ import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { onReconnect } from '@/lib/on-reconnect'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
 import { useKernelReplica } from '@/lib/use-kernel-replica'
@@ -164,22 +165,17 @@ function KernelHubAttach({
    * reconnected TO is not what it was loaded FROM, and the reconnect is where
    * that becomes askable again.
    *
-   * DOWN AND BACK, not merely `ok`: `onConnectionHealth` replays the current
-   * health on subscribe and re-emits on rtt changes, and re-reading `/version`
-   * on every one of those would be a poll wearing a callback's clothes.
+   * The "down and back, never merely `ok`" rule is the subtle half, so it lives
+   * in `onReconnect` where it is tested against the sequence the sandbox
+   * actually logged — a socket that closed and was back inside two seconds.
    */
-  useEffect(() => {
-    let wasDown = false
-    return hub.onConnectionHealth((health) => {
-      if (health.status === 'down') {
-        wasDown = true
-        return
-      }
-      if (health.status !== 'ok' || !wasDown) return
-      wasDown = false
-      void checkServedAssets(httpOrigin)
-    })
-  }, [hub, httpOrigin])
+  useEffect(
+    () =>
+      onReconnect(hub.onConnectionHealth.bind(hub), () => {
+        void checkServedAssets(httpOrigin)
+      }),
+    [hub, httpOrigin],
+  )
   return null
 }
 
