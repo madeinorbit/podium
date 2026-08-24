@@ -85,8 +85,11 @@ function parseVersion(raw: string): ParsedVersion | null {
  * - **Numeric identifiers compare NUMERICALLY.** `edge.10` > `edge.4`; compared
  *   as text it is the other way round, and edge would stall at `.9` forever.
  * - **A development cycle outranks the edge cycle of the same core.**
- *   `0.1.2-dev.1` > `0.1.2-edge.1`, so flattening the publisher label does not
- *   make a development build look older than the edge release it was built past.
+ *   `0.1.2-dev.1` > `0.1.2-edge.1`. Since POD-2737 a mint is minted on the NEXT
+ *   patch, so the cut it was BUILT from is already below it on the core alone —
+ *   what this tier carries is the cut its own base anticipates, the `0.1.2-edge.1`
+ *   that lands later. Without it, cutting that edge would make every development
+ *   build on the 0.1.2 lineage look older than the release it is ahead of.
  *
  * Mixed identifiers: numeric always ranks below alphanumeric, and a shorter set
  * of otherwise-equal identifiers ranks below a longer one.

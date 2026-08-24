@@ -146,10 +146,12 @@ describe('publisher state minted at the old collapsed base', () => {
     expect(isProvablyNewer(next.version, '0.1.1-dev.9+0000000')).toBe(true)
 
     // Legacy nested state carries the prerelease on the base; same outcome.
-    expect(mintDevVersion({ base: '0.1.1-edge.2', counter: 9 }, '0.1.1-edge.2', 'abc1234')).toEqual({
-      version: '0.1.2-dev.1+abc1234',
-      state: { base: '0.1.2', counter: 1 },
-    })
+    expect(mintDevVersion({ base: '0.1.1-edge.2', counter: 9 }, '0.1.1-edge.2', 'abc1234')).toEqual(
+      {
+        version: '0.1.2-dev.1+abc1234',
+        state: { base: '0.1.2', counter: 1 },
+      },
+    )
   })
 
   it('restarts ONCE — the next mint from the same checkout continues the counter', () => {
