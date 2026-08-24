@@ -165,8 +165,16 @@ export function transcriptTailState(
     }
   }
   if (activity?.tone === 'error') {
-    const detail = activity.label.replace(/^error:\s*/i, '').replaceAll('_', ' ')
-    return { mode: 'error', label: 'Agent stopped with an error', detail, since: fallbackSince }
+    // The badge label IS the phrase now (POD-1601) — it used to be `error:
+    // rate_limit`, so this stripped the prefix and un-snaked the token to get
+    // something readable. `agentBadge` reads the same phrase table every other
+    // surface does, so there is nothing left to undo.
+    return {
+      mode: 'error',
+      label: 'Agent stopped with an error',
+      detail: activity.label,
+      since: fallbackSince,
+    }
   }
   if (activity?.label === 'interrupted') {
     return { mode: 'interrupted', label: 'Interrupted by you', since: fallbackSince }

@@ -187,6 +187,7 @@ function UnifiedRow({
   sub,
   meta,
   needs = false,
+  errored = false,
   onOpen,
   onStatusPick,
 }: {
@@ -199,6 +200,11 @@ function UnifiedRow({
    *  Flight Deck's task line use, so one task never reads three ways in three
    *  columns. No box, no rule, no icon: one amber voice per row. */
   needs?: boolean
+  /** …and this row's agent stopped on an ERROR, which is the one thing on this
+   *  line that is not the system working as intended. Still a `needs` row — it
+   *  wants you the same way — but red, matching the sidebar row and the session
+   *  row that say the same thing about the same agent (POD-1601). */
+  errored?: boolean
   onOpen: () => void
 }): JSX.Element {
   const closed = sub.stage === 'done' || Boolean(sub.closedReason)
@@ -239,7 +245,9 @@ function UnifiedRow({
         className={cn(
           DOCK_STAMP,
           'flex-none',
-          needs ? 'font-semibold text-attention' : 'text-text-faint',
+          errored ? 'font-semibold text-destructive' : undefined,
+          needs && !errored ? 'font-semibold text-attention' : undefined,
+          !needs && 'text-text-faint',
         )}
       >
         {meta}
@@ -1047,7 +1055,8 @@ export function IssuePanelView({
                   key={sub.id}
                   sub={sub}
                   meta={state.label}
-                  needs={state.state === 'needs-you'}
+                  needs={state.state === 'needs-you' || state.state === 'error'}
+                  errored={state.state === 'error'}
                   onOpen={() => openLinked(sub)}
                   onStatusPick={(value) => rowStatus.pick(sub, value)}
                 />

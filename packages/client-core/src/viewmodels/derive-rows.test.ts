@@ -2,6 +2,7 @@ import type { AgentRuntimeState, SessionMeta, SessionMetaInput } from '@podium/m
 import { describe, expect, it } from 'vitest'
 import {
   isUnstartedSession,
+  rowErrorLine,
   rowHasWorkingSession,
   rowMotionPhase,
   rowMotionTiming,
@@ -42,6 +43,11 @@ const waiting = (over: Partial<AgentRuntimeState> = {}) =>
   sess({ agentState: agentState({ phase: 'needs_user', need: { kind: 'question' }, ...over }) })
 const done = (over: Partial<AgentRuntimeState> = {}) =>
   sess({ agentState: agentState({ phase: 'idle', idle: { kind: 'done' }, ...over }) })
+const errored = (cls = 'overloaded', over: Partial<SessionMetaInput> = {}) =>
+  sess({
+    agentState: agentState({ phase: 'errored', error: { class: cls, retryable: false } }),
+    ...over,
+  })
 
 const offered = () =>
   sess({
@@ -328,6 +334,74 @@ describe('rowStatusLine — the second line copy grammar', () => {
     expect(
       rowStatusLine(issueRow([done()], false, { childCount: 2, childDoneCount: 2 }), NOW),
     ).toBe('done')
+  })
+
+  // POD-1601 — the case the whole change is for. An agent that moved its issue
+  // to `review` and then died on the next turn satisfied BOTH readings, and the
+  // row printed the stage's: `needs review`, a verdict nobody is waiting for,
+  // over a corpse it never mentioned.
+  describe('an agent that stopped on an error', () => {
+    const reviewIssue = { stage: 'review', branch: 'issue/9-reviewable' }
+
+    it('names the error instead of the stage decision', () => {
+      const row = issueRow([errored()], false, reviewIssue)
+      // The decision is still THERE — the stage genuinely says review, and the
+      // merge/review controls still read it. It just does not get the line.
+      expect(rowPendingDecision(row)).toBe('review')
+      expect(rowErrorLine(row)).toBe('agent overloaded')
+      expect(rowStatusLine(row, NOW)).toBe('agent overloaded')
+    })
+
+    it('beats a merge decision too', () => {
+      const row = issueRow([errored()], false, {
+        ...reviewIssue,
+        gitState: {
+          updatedAt: new Date(NOW).toISOString(),
+          branch: 'issue/9-reviewable',
+          shared: false,
+          ahead: 3,
+          dirtyFiles: 0,
+        },
+      })
+      expect(rowPendingDecision(row)).toBe('merge')
+      expect(rowStatusLine(row, NOW)).toBe('agent overloaded')
+    })
+
+    // `unknown` is the harness admitting it could not classify the failure, and
+    // an unmapped class is one nobody has written words for yet. Neither may
+    // reach the row as a raw token.
+    it.each([
+      ['unknown'],
+      ['error'],
+      ['max_output_tokens_typo'],
+    ])('falls back to a plain sentence for the %s class', (cls) => {
+      expect(rowErrorLine(issueRow([errored(cls)]))).toBe('agent errored')
+      expect(rowStatusLine(issueRow([errored(cls)]), NOW)).toBe('agent errored')
+    })
+
+    // The row's line-2 grammar is lower case throughout — it sits beside
+    // `needs answer` and `ready to merge`, not at the head of a sentence.
+    it('keeps the row grammar lower case', () => {
+      expect(rowErrorLine(issueRow([errored('rate_limit')]))).toBe('rate limited')
+      expect(rowErrorLine(issueRow([errored('max_output_tokens')]))).toBe('hit the output limit')
+    })
+
+    // The same grammar POD-703 gave every other waiting row: the ask keeps the
+    // words, the work says so beside it.
+    it('still says a live teammate is working', () => {
+      expect(rowStatusLine(issueRow([errored(), working()]), NOW)).toBe(
+        'working · agent overloaded',
+      )
+    })
+
+    it('says nothing once the task is closed', () => {
+      const row = issueRow([errored()], false, { stage: 'done' })
+      expect(rowErrorLine(row)).toBeNull()
+    })
+
+    it('is silent about a session that is no longer on the task', () => {
+      expect(rowErrorLine(issueRow([errored('overloaded', { archived: true })]))).toBeNull()
+    })
   })
 
   it('a draft vessel with only unstarted sessions reads "awaiting first prompt", not "idle"', () => {

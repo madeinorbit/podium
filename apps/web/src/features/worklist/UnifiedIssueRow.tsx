@@ -5,6 +5,7 @@ import {
   missionProgress,
   pendingDecisionLabel,
   pendingDecisionTitle,
+  rowErrorLine,
   rowHasWorkingSession,
   rowMotionPhase,
   rowMotionTiming,
@@ -138,6 +139,12 @@ export function UnifiedIssueRow({
   // here, so the phase alone left a running fleet reading as stillness
   // (POD-703). This is the predicate every working texture below gates on.
   const working = rowHasWorkingSession(row)
+  // An agent on this mission stopped on an error (POD-1601). Read BEFORE the
+  // decision, and rendered instead of it: `review` is a stage the agent sets on
+  // ITSELF, so a run that died right after setting it printed `Needs review`
+  // forever — a verdict nobody is waiting for, over a corpse the row never
+  // mentioned.
+  const errorLine = rowErrorLine(row)
   // What this row is asking of the human, if anything (POD-279).
   const decision = rowPendingDecision(row)
   const waitingCount = rowWaitingCount(row)
@@ -262,7 +269,24 @@ export function UnifiedIssueRow({
                 {waitingCount} need you ·{' '}
               </span>
             )}
-            {decision !== null ? (
+            {errorLine !== null ? (
+              // RED, not the line's usual ochre. Amber is the "needs you"
+              // signal and nothing else (POD-293) — a decision waiting on you is
+              // the system working as intended, and a dead agent is not. The
+              // session row underneath already reads `text-destructive` for
+              // `agentBadge` → `tone: 'error'`, so the task row and the agent row
+              // now say the same thing in the same colour.
+              //
+              // The colour is also what lets the words stay this short: `Agent
+              // overloaded` in red needs no `error:` prefix to be read as one.
+              <span
+                data-testid="agent-error-status"
+                title="An agent on this task stopped on an error"
+                className="flex-none font-semibold text-destructive"
+              >
+                {errorLine}
+              </span>
+            ) : decision !== null ? (
               // The one word that answers "what is being asked of me here" — a
               // merge states its commit count so the row is a fact, not a mood
               // (POD-279). It is the row's single amber voice (POD-293): plain

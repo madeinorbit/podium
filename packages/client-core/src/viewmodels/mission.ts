@@ -11,7 +11,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { sessionParked, sessionPresentOnTask } from './fleet'
 import { agentLabel } from './quota'
 import { sessionsForIssueNav } from './session-ownership'
-import { motionPhase } from './session-status'
+import { motionPhase, sessionErrored, sessionErrorLabel } from './session-status'
 import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './slices/issues'
 import { isCoordinatorSession } from './slices/terminal'
 
@@ -275,12 +275,58 @@ function deckCrew(sessions: readonly SessionMeta[]): SessionMeta[] {
   return unique.sort((a, b) => rank(a) - rank(b)).slice(0, CREW_CAP)
 }
 
+/**
+ * AN ERROR COUNTS WHETHER OR NOT IT IS RETRYABLE (POD-1601).
+ *
+ * This used to require `error.retryable === true`, which quietly made the WORST
+ * failure the quietest one: an agent that died on something Continue cannot fix
+ * asked for nothing, so its task kept the word its stage implied and the
+ * operator found out by opening the session. Retryability decides which CONTROL
+ * the row offers — `showContinue` in {@link agentBadge}, and the Continue button
+ * that reads it — not whether a stopped run is worth telling anyone about.
+ *
+ * This also brings the predicate back in step with {@link attentionGroup}, which
+ * has always called any `errored` phase `needsYou`; the two disagreeing is how a
+ * session could read amber on its own row and contribute nothing to its task.
+ */
 export function sessionNeedsHuman(session: SessionMeta): boolean {
   return (
-    session.agentState?.phase === 'needs_user' ||
-    (session.agentState?.phase === 'errored' && session.agentState.error?.retryable === true) ||
-    Boolean(session.offer)
+    session.agentState?.phase === 'needs_user' || sessionErrored(session) || Boolean(session.offer)
   )
+}
+
+/**
+ * The session on this task that stopped on an error, if any — the fact the
+ * task-level state channel reports as `Errored` (POD-1601).
+ *
+ * PRESENCE, NOT HISTORY. Only sessions still on the task can put it in an error
+ * state: an archived session, or one long since exited, is a record of something
+ * that already happened and the operator has no live decision left to make about
+ * it. Same {@link openSession} rule every other count on a strip uses, so the
+ * word and the crew census can never disagree about who is still there.
+ *
+ * A CLOSED TASK NEVER ERRORS, for the same reason it never needs you
+ * (POD-1072): closing is the operator's own "this is finished" flip and nothing
+ * downstream of it may re-open the question.
+ *
+ * Returns the SESSION rather than a boolean so the caller can name the failure —
+ * `Agent overloaded` beats a bare `Errored` wherever there is room for it.
+ */
+export function issueErroredSession(
+  issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>,
+  sessions: readonly SessionMeta[],
+): SessionMeta | null {
+  if (issueClosed(issue)) return null
+  return sessions.find((session) => openSession(session) && sessionErrored(session)) ?? null
+}
+
+/** The words for {@link issueErroredSession}, or null when nothing errored. */
+export function issueErrorLabel(
+  issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>,
+  sessions: readonly SessionMeta[],
+): string | null {
+  const session = issueErroredSession(issue, sessions)
+  return session ? sessionErrorLabel(session) : null
 }
 
 /** Closing is the operator's own "this is finished" flip. `done` and an explicit
@@ -1548,6 +1594,7 @@ export function buildFlightDeckRows(
 
 export type OperationalState =
   | 'working'
+  | 'error'
   | 'needs-you'
   | 'waiting'
   | 'moved'
@@ -1601,6 +1648,17 @@ export function operationalState(
   // is gone, and reading it as "standing by" would tell the operator an agent
   // is on this task when none is. Same predicate the row counts use.
   const active = sessions.filter(openSession)
+  // THE ERROR OUTRANKS EVERY OTHER ASK, and it is the only arm above
+  // `needs-you` (POD-1601). Both states mean "this is on you now", so the
+  // question is only which sentence the operator gets — and `Needs you` on a
+  // task whose agent is dead sends them looking for a question to answer that
+  // nobody is asking. `Agent overloaded` sends them to the one thing that did
+  // happen, and names the cause where the harness classified it — the
+  // difference between "wait for it" and "go and look". The words come from
+  // {@link sessionErrorLabel}, which is where the phrase table lives; this arm
+  // must never build a label of its own.
+  const errored = issueErroredSession(issue, active)
+  if (errored) return { state: 'error', label: sessionErrorLabel(errored) ?? 'Agent errored' }
   if (issueNeedsHuman(issue, active)) return { state: 'needs-you', label: 'Needs you' }
   if (active.some((session) => session.handoffTarget)) return { state: 'moved', label: 'Moving' }
   if (active.some((session) => motionPhase(session) === 'working'))
@@ -1632,6 +1690,7 @@ export function operationalState(
 /** One word per state, and the same word every time it appears in the spine. */
 export type DeckState =
   | 'working'
+  | 'errored'
   | 'moved'
   | 'done'
   | 'cancelled'
@@ -1669,6 +1728,12 @@ const DECK_LABEL: Record<DeckState, string> = {
   working: 'Running',
   moved: 'Moving',
   done: 'Done',
+  // One word, like every other entry here — the strip is the narrowest column on
+  // the deck and its register is state words, not sentences. The surfaces with
+  // room for the cause (the explorer, the sidebar row) get it from
+  // {@link sessionErrorLabel}; here the attention dot beside the word carries
+  // the urgency and the task's own session line carries the detail.
+  errored: 'Errored',
   // The strip already draws the cancel mark (`issueStatusOf` → `StatusGlyph`).
   // Printing `Done` beside it made the row contradict itself in two glyphs'
   // worth of space; this is the word that mark has always meant.
@@ -1703,6 +1768,16 @@ export function deckIssueState(
   if (active.some((session) => motionPhase(session) === 'working')) return at('working')
   if (issueAbandoned(issue)) return at('cancelled')
   if (issueClosed(issue)) return at('done')
+  // BELOW `working`, ABOVE EVERY STAGE WORD (POD-1601). A mission with a second
+  // agent still computing genuinely IS working, and the strip's job in that
+  // moment is to say so — the attention dot beside the word is already lit, and
+  // the dead agent's own row underneath carries its red badge. But the moment
+  // nothing is running, `Errored` is the truest word available, and every arm
+  // below this one would have covered it with something the STAGE implies:
+  // `Standing by` for a task in review, `Blocked`, `Not started`. Those describe
+  // a task waiting on a process that no longer exists.
+  const errored = issueErroredSession(issue, active)
+  if (errored) return at('errored')
   if (issue.stage === 'shipping') return at('working')
   if (issue.blocked) return at('blocked')
   if (waitingRefs(issue, byId).length > 0) return at('waiting')

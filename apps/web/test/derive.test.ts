@@ -434,13 +434,16 @@ describe('agentBadge', () => {
     ).toBe('needs answer')
   })
 
-  it('errored shows the class; Continue only when retryable', () => {
+  it('errored names the failure in words; Continue only when retryable', () => {
     expect(
       agentBadge(
         sessionWithState(stateAt('errored', { error: { class: 'rate_limit', retryable: true } })),
       ),
     ).toEqual({
-      label: 'error: rate_limit',
+      // NOT `error: rate_limit` (POD-1601): `error.class` is a raw harness
+      // token — Cursor sends the literal `failed` — and the badge is the one
+      // place the operator reads fastest.
+      label: 'rate limited',
       tone: 'error',
       showContinue: true,
     })
@@ -451,6 +454,18 @@ describe('agentBadge', () => {
         ),
       )?.showContinue,
     ).toBe(false)
+  })
+
+  // The badge is where a raw token would show up first and be read fastest, so
+  // the allowlist matters most here. Cursor really does send `failed`.
+  it.each([
+    ['failed'],
+    ['unknown'],
+    ['some_future_code'],
+    [undefined],
+  ])('never leaks the %s class into the badge', (cls) => {
+    const error = cls === undefined ? {} : { error: { class: cls, retryable: false } }
+    expect(agentBadge(sessionWithState(stateAt('errored', error)))?.label).toBe('agent errored')
   })
 
   it('ended is muted', () => {

@@ -3,14 +3,16 @@
 // `@podium/client-core/viewmodels` call sites kept working after `derive.ts`
 // was deleted; POD-333 moved the call sites and deleted the republication. What
 // remains below is this package's own viewmodel surface.
-export * from './ask-question'
+
 export * from './agent-capability'
 export * from './agent-launch'
+export * from './ask-question'
 export * from './board-scope'
 export * from './chat'
 export * from './chat-verbosity'
 export * from './cursor-order'
 export * from './dock-panel'
+export * from './error-phrase'
 export * from './file-scope'
 export * from './fleet'
 export * from './flight-deck-folds'

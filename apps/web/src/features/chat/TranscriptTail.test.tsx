@@ -178,10 +178,10 @@ describe('TranscriptTail', () => {
     expect(tail()?.dataset.tail).toBe('interrupted')
     expect(host.textContent).toContain('Interrupted by you')
 
-    mount({ label: 'error: rate_limit', tone: 'error' }, ago(30_000))
+    mount({ label: 'rate limited', tone: 'error' }, ago(30_000))
     expect(tail()?.dataset.tail).toBe('error')
     expect(host.textContent).toContain('Agent stopped with an error')
-    expect(host.textContent).toContain('rate limit')
+    expect(host.textContent).toContain('rate limited')
   })
 
   // NOTHING IS THE RIGHT ENDING (POD-993 round 3). There was an `idle` row here

@@ -23,6 +23,7 @@ import {
   type SessionMeta,
 } from '@podium/model'
 import { attentionGroup } from '../focus'
+import { errorPhrase } from './error-phrase'
 
 // ---------------------------------------------------------------------------
 // Agent identity vocabulary — which agent this is, as opposed to what it is
@@ -134,7 +135,11 @@ export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | n
       }
     case 'errored':
       return {
-        label: `error: ${s.error?.class ?? 'unknown'}`,
+        // The WORDS, not the class token (POD-1601). This badge used to print
+        // `error: max_output_tokens` — a log line wearing a row's clothes, in
+        // the one place the operator reads fastest. Same table the task-level
+        // rollups use, so a row and the task above it never disagree.
+        label: errorPhrase(s.error?.class, 'lower'),
         tone: 'error',
         showContinue: s.error?.retryable ?? false,
       }
@@ -262,6 +267,40 @@ export function sessionDotTone(s: SessionMeta): DotTone {
   // runs; otherwise it — and a fresh agent that hasn't started a turn — is blue.
   if (s.agentKind === 'shell') return s.busy ? 'working' : 'ready'
   return 'ready'
+}
+
+/**
+ * THE SESSION STOPPED ON AN ERROR — the one fact every issue-level rollup used
+ * to lose (POD-1601).
+ *
+ * The harness already publishes it: `agentBadge` names the failure, the
+ * session dot goes red, `attentionGroup` calls it `needsYou`. But nothing that
+ * summarises a TASK asked the question, so an issue whose only agent had died
+ * kept wearing the word its stage implied — `In review`, `Standing by` — and the
+ * one surface that could have said otherwise was the session row the operator
+ * had to unfold to reach.
+ *
+ * Deliberately NOT gated on `error.retryable`. Retryability answers "will
+ * Continue help", which is a question about the CONTROL to offer; whether the
+ * run stopped is a question about the STATE, and a fatal error is the one that
+ * least deserves to be silent.
+ */
+export function sessionErrored(s: SessionMeta): boolean {
+  return s.agentState?.phase === 'errored'
+}
+
+/** Sentence case, or null when this session did not stop on an error. */
+export function sessionErrorLabel(s: SessionMeta): string | null {
+  const state = s.agentState
+  if (state?.phase !== 'errored') return null
+  return errorPhrase(state.error?.class, 'sentence')
+}
+
+/** The same phrase in the worklist row's lower-case grammar. */
+export function sessionErrorLine(s: SessionMeta): string | null {
+  const state = s.agentState
+  if (state?.phase !== 'errored') return null
+  return errorPhrase(state.error?.class, 'lower')
 }
 
 /**

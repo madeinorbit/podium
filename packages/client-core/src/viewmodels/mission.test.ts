@@ -124,11 +124,13 @@ const needsUserState: AgentState = {
   nativeSubagentCount: 0,
   need: { kind: 'question', summary: 'which one?' },
 }
+// `network_error` is a class the harnesses really emit — the phrase table is an
+// allowlist, so a made-up class here would silently test the fallback instead.
 const erroredState = (retryable: boolean): AgentState => ({
   phase: 'errored',
   since: SINCE,
   nativeSubagentCount: 0,
-  error: { class: 'network', retryable },
+  error: { class: 'network_error', retryable },
 })
 /** Ran to a natural stop — quiet, not a request. */
 const finishedState: AgentState = {
@@ -1862,7 +1864,10 @@ describe('sessionNeedsHuman', () => {
   const cases: Array<[string, SessionMeta, boolean]> = [
     ['stopped on a question', sess('a', { agentState: needsUserState }), true],
     ['errored but retryable', sess('a', { agentState: erroredState(true) }), true],
-    ['errored and not retryable', sess('a', { agentState: erroredState(false) }), false],
+    // WAS `false`, AND THAT WAS THE BUG (POD-1601). Retryability decides which
+    // control the row offers, not whether a dead run is worth mentioning — so
+    // the failure Continue cannot fix used to be the one that asked for nothing.
+    ['errored and not retryable', sess('a', { agentState: erroredState(false) }), true],
     ['standing offer', sess('a', { offer }), true],
     ['mid-turn', sess('a', { agentState: workingState }), false],
     ['finished quietly', sess('a', { agentState: finishedState }), false],
@@ -2078,11 +2083,20 @@ describe('operationalState', () => {
       [sess('a', { agentState: finishedState })],
       'idle',
     ],
+    // It reached `needs-you` before POD-1601, through the late `motionPhase`
+    // fallback, and said `Waiting on you` — a sentence about a question nobody
+    // is asking. `error` is its own state now, above `needs-you`.
     [
-      'needs-you when a fatal error leaves the agent parked on us',
+      'error when a fatal error leaves the agent parked on us',
       issue('i'),
       [sess('a', { agentState: erroredState(false) })],
-      'needs-you',
+      'error',
+    ],
+    [
+      'error when the error is retryable too',
+      issue('i'),
+      [sess('a', { agentState: erroredState(true) })],
+      'error',
     ],
   ]
 
@@ -2094,6 +2108,31 @@ describe('operationalState', () => {
   // outranks a machine move, which outranks work in flight, which outranks a
   // stage the issue has not caught up with.
   const precedence: Case[] = [
+    // THE ARM ABOVE `needs-you` (POD-1601). Both mean "this is on you", so the
+    // only question is which sentence the operator gets — and `Needs you` on a
+    // task whose agent is dead sends them hunting for a question.
+    [
+      'error beats needs-you',
+      issue('i', { needsHuman: true }),
+      [sess('a', { agentState: erroredState(false) })],
+      'error',
+    ],
+    // A closed task never errors, for the same reason it never needs you: the
+    // operator's own "this is finished" flip retires the question.
+    [
+      'a close beats the error',
+      issue('i', { stage: 'done' }),
+      [sess('a', { agentState: erroredState(false) })],
+      'done',
+    ],
+    // Presence, not history: a session nobody is looking at any more cannot put
+    // its task into an error state.
+    [
+      'an archived errored session does not error the task',
+      issue('i'),
+      [sess('a', { archived: true, agentState: erroredState(false) })],
+      'retired',
+    ],
     [
       'needs-you beats moved',
       issue('i', { needsHuman: true }),
@@ -2245,9 +2284,49 @@ describe('operationalState', () => {
     expect(operationalState(issue('i'), [sess('a', { agentState: needsUserState })]).label).toBe(
       'Needs you',
     )
+    // A WRITTEN PHRASE, NOT THE CLASS TOKEN (POD-1601). `network_error` is what
+    // the harness stores; `Network error` is what a person reads. The difference
+    // between "wait for it" and "go and look" is worth a label of its own — it
+    // is just never worth spelling `Errored: network_error` to say it.
     expect(
       operationalState(issue('i'), [sess('a', { agentState: erroredState(false) })]).label,
-    ).toBe('Waiting on you')
+    ).toBe('Network error')
+  })
+
+  // The phrase table is an ALLOWLIST, and this is why. `error.class` carries
+  // whatever the harness put there: Claude Code forwards its hook's raw
+  // `error_type`, Cursor sends the literal string `error`, and `unknown` is the
+  // classifier admitting it could not tell. None of those are words for a UI, so
+  // anything without a phrase written for it reads as the plain sentence.
+  it.each([
+    ['unknown'],
+    ['error'],
+    ['failed'],
+    ['some_new_provider_code'],
+  ])('falls back to a plain sentence for the %s class', (cls) => {
+    const state = {
+      phase: 'errored',
+      since: SINCE,
+      nativeSubagentCount: 0,
+      error: { class: cls, retryable: true },
+    } as AgentState
+    expect(operationalState(issue('i'), [sess('a', { agentState: state })]).label).toBe(
+      'Agent errored',
+    )
+  })
+
+  // The one the report was written about: red plus two plain words is the whole
+  // message, and `Error: overloaded` was never the way to say it.
+  it('names an overloaded agent in words', () => {
+    const overloaded = {
+      phase: 'errored',
+      since: SINCE,
+      nativeSubagentCount: 0,
+      error: { class: 'overloaded', retryable: true },
+    } as AgentState
+    expect(operationalState(issue('i'), [sess('a', { agentState: overloaded })]).label).toBe(
+      'Agent overloaded',
+    )
   })
 })
 
@@ -2787,6 +2866,39 @@ describe('deckIssueState', () => {
   // stage-level answer — the same call `issueStatusOf` makes.
   it('does not read an unknown close reason as cancelled', () => {
     expect(deckIssueState(issue('a', { closedReason: 'shipped' }), []).state).toBe('done')
+  })
+
+  // POD-1601 — the strip used to cover a dead agent with whatever its STAGE
+  // implied. A task in `review` whose only agent errored read `Standing by`.
+  describe('an agent that stopped on an error', () => {
+    const dead = (over = {}) =>
+      sess('s', { issueId: 'a', agentState: erroredState(false), ...over })
+
+    it('says Errored instead of the stage word', () => {
+      const state = deckIssueState(issue('a', { stage: 'review' }), [dead()])
+      expect(state.state).toBe('errored')
+      expect(state.label).toBe('Errored')
+    })
+
+    // The attention channel is separate from the state channel by design, and
+    // this is the case that proves both are wired: the word says what happened,
+    // the dot says there is something in here.
+    it('lights the attention indicator with it', () => {
+      expect(deckIssueState(issue('a', { stage: 'review' }), [dead()]).attention).toBe(true)
+    })
+
+    it('does not shout over a task that is genuinely still running', () => {
+      const alive = sess('t', { issueId: 'a', agentState: workingState })
+      expect(deckIssueState(issue('a'), [dead(), alive]).state).toBe('working')
+    })
+
+    it('stays quiet once the task is closed', () => {
+      expect(deckIssueState(issue('a', { stage: 'done' }), [dead()]).state).toBe('done')
+    })
+
+    it('outranks a blocked or unstarted reading', () => {
+      expect(deckIssueState(issue('a', { blocked: true }), [dead()]).state).toBe('errored')
+    })
   })
 })
 
