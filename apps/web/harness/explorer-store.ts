@@ -88,7 +88,17 @@ const store = (): Record<string, unknown> => ({
   navigateToSession: () => {},
   markIssueRead: noop,
   markIssueUnread: noop,
-  updateIssue: noop,
+  // REAL, unlike its neighbours (POD-1618): the rename shot has to photograph
+  // the head wearing the new name, and a no-op store would show the old one.
+  // Patches the replica in place and wakes the subscribers, which is the whole
+  // of what the shipping store does that this frame depends on.
+  updateIssue: async (id: string, patch: Record<string, unknown>): Promise<undefined> => {
+    state.issues = state.issues.map((issue) =>
+      (issue as { id?: string }).id === id ? { ...(issue as object), ...patch } : issue,
+    )
+    for (const listener of state.listeners) listener()
+    return undefined
+  },
   deleteIssue: noop,
   closeIssue: noop,
   deferIssue: noop,

@@ -1,7 +1,7 @@
 import {
-  draftIssueLabel,
   type IssueNavigationModel,
   isDraftAgentVessel,
+  issueDisplayTitle,
   missionProgress,
   pendingDecisionLabel,
   pendingDecisionTitle,
@@ -124,11 +124,18 @@ export function UnifiedIssueRow({
   const active = selectedIssueId === issue.id
   const unread = rowUnreadEmphasized(row)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
+  // WHAT THE ROW CALLS THIS TASK — never the raw title, which on a draft is the
+  // composer's placeholder (see `issueDisplayTitle`).
+  const label = issueDisplayTitle(issue, allSessions, allWorktreePaths)
   // The rename lifecycle and its commit policy live in `use-inline-rename.ts`;
-  // the row keeps only the slot it renders into.
-  const rename = useInlineRename(issue.title, (next) => onRenameIssue(issue.id, next))
-  const renameEditor = inlineRenameEditor(rename, ({ onCommit, onCancel }) => (
-    <SessionNameEditor value={issue.title} onCommit={onCommit} onCancel={onCancel} />
+  // the row keeps only the slot it renders into. Opened on the LABEL, not the
+  // stored title: an editor that opens on a draft showing one name and offers
+  // the word "Draft" to edit is an editor for some other row. The hook snapshots
+  // whatever it opened on and hands it back as `value`, so the field and the
+  // commit policy measure the same string even when the label moves underneath.
+  const rename = useInlineRename(label, (next) => onRenameIssue(issue.id, next))
+  const renameEditor = inlineRenameEditor(rename, ({ value, onCommit, onCancel }) => (
+    <SessionNameEditor value={value} onCommit={onCommit} onCancel={onCancel} />
   ))
   // The row speaks for its whole branch: descendants have no row of their own
   // here, so the fleet stack reads the bubbled aggregate.
@@ -185,7 +192,6 @@ export function UnifiedIssueRow({
   // Shared with the nesting rule so structure and rendering agree (POD-282).
   const draftAgentOnly = isDraftAgentVessel(issue, mine)
   const first = mine[0]
-  const label = issue.draft ? draftIssueLabel(issue, allSessions, allWorktreePaths) : issue.title
   const onContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault()
     setMenuAnchor({ x: e.clientX, y: e.clientY })

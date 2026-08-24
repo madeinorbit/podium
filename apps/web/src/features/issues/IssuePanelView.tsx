@@ -8,11 +8,13 @@ import {
   deckDestinationFor,
   groupRelations,
   type IssueEvent,
+  issueDisplayTitle,
   issueForPanel,
   operationalState,
   type PresenceKind,
   type PresenceNote,
   presenceNote,
+  reposToViews,
   sessionNeedsHuman,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
@@ -41,6 +43,8 @@ import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { SessionNameEditor } from '@/lib/WorkerLabel'
+import { inlineRenameEditor, useInlineRename } from '../worklist/use-inline-rename'
 import { IssueExplorerList } from './explorer/IssueExplorerList'
 import {
   DOCK_BODY,
@@ -443,15 +447,42 @@ function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
  */
 function InspectHead({
   issue,
+  title,
+  onRename,
   onOpenInWork,
 }: {
   issue: IssueViewModel
+  /** What this task is CALLED — `issueDisplayTitle`, derived once by the panel
+   *  body, which already holds the session list it needs. Never `issue.title`
+   *  (POD-1618): a draft carries the composer's placeholder there, so this head
+   *  announced "Draft" for the very task the sidebar row was naming. */
+  title: string
+  /** Write a new name. The panel body owns the mutation for the same reason it
+   *  owns the title: one store subscription for the surface, not one per box. */
+  onRename: (next: string) => void
   /** Point the rest of the shell at this task. The ONE control on this surface
    *  that moves the app: the explorer syncs INWARD, so browsing a stranger's
    *  task must never drag the deck along with it, and the operator who does
    *  want to go there needs one obvious way to say so. */
   onOpenInWork?: () => void
 }): JSX.Element {
+  // RENAMEABLE HERE (POD-1618). The name was readonly on the one surface whose
+  // whole job is judging a task and acting on it: the sidebar row could be
+  // renamed by double-click or by its menu, and the panel showing the same task
+  // offered neither. Same hook, same commit policy, so the two cannot disagree
+  // about what a blur does — and renaming a draft is also what promotes it
+  // (the server clears the draft flag on the first real title).
+  const rename = useInlineRename(title, onRename)
+  const renameEditor = inlineRenameEditor(rename, ({ value, onCommit, onCancel }) => (
+    <SessionNameEditor
+      value={value}
+      onCommit={onCommit}
+      onCancel={onCancel}
+      // The head's own type, not the editor's 12px row default: the field
+      // stands exactly where the name was, so it has to be the same size as it.
+      className="shell-type-reading w-full min-w-0 rounded-sm border border-primary/60 bg-background px-1 py-0 font-semibold text-secondary-foreground outline-none"
+    />
+  ))
   return (
     // 8 / 6 / 10 / 14 / 14 (POD-1457). Tight where things belong together —
     // the crossing, the name and the state chips are one group — and the
@@ -492,14 +523,19 @@ function InspectHead({
           </button>
         )}
       </div>
-      <h2
-        className="shell-type-reading mt-1.5 line-clamp-2 font-semibold text-secondary-foreground"
-        title={issue.title}
-        data-testid="dock-title"
-      >
-        {issue.title}
-      </h2>
-      <IssueCompactControls issue={issue} />
+      {renameEditor ? (
+        <div className="mt-1.5">{renameEditor}</div>
+      ) : (
+        <h2
+          className="shell-type-reading mt-1.5 line-clamp-2 cursor-text font-semibold text-secondary-foreground"
+          title={title}
+          data-testid="dock-title"
+          onDoubleClick={() => rename.begin()}
+        >
+          {title}
+        </h2>
+      )}
+      <IssueCompactControls issue={issue} onRename={rename.begin} />
     </header>
   )
 }
@@ -805,18 +841,28 @@ export function IssuePanelView({
    */
   onNavigate?: (issueId: IssueId) => void
 }): JSX.Element {
-  const { sessions, setPane, setView, setSelectedIssueId, markIssueRead, markSessionRead } =
-    useStoreSelector(
-      (s) => ({
-        sessions: s.sessions,
-        setPane: s.setPane,
-        setView: s.setView,
-        setSelectedIssueId: s.setSelectedIssueId,
-        markIssueRead: s.markIssueRead,
-        markSessionRead: s.markSessionRead,
-      }),
-      shallowEqual,
-    )
+  const {
+    sessions,
+    repos,
+    updateIssue,
+    setPane,
+    setView,
+    setSelectedIssueId,
+    markIssueRead,
+    markSessionRead,
+  } = useStoreSelector(
+    (s) => ({
+      sessions: s.sessions,
+      repos: s.repos,
+      updateIssue: s.updateIssue,
+      setPane: s.setPane,
+      setView: s.setView,
+      setSelectedIssueId: s.setSelectedIssueId,
+      markIssueRead: s.markIssueRead,
+      markSessionRead: s.markSessionRead,
+    }),
+    shallowEqual,
+  )
   const issues = useReplicaIssues()
   // Every task row in this column carries its own status door (POD-1271); the
   // apply and its close guard are shared by all of them, once, here.
@@ -830,6 +876,12 @@ export function IssuePanelView({
     [issues, sessions, cwd, sessionId, issueId],
   )
   const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
+  // The same derivation the Flight Deck makes from the same slice — every
+  // worktree root the shell knows, for `issueDisplayTitle` below.
+  const allWorktreePaths = useMemo(
+    () => reposToViews(repos).flatMap((repo) => repo.worktrees.map((worktree) => worktree.path)),
+    [repos],
+  )
   // DIRECT children only — the artifact's Subtasks section is one tier deep
   // with a completed fold, not a flattened recursive subtree. The meter counts
   // exactly this list and nothing else (POD-516 r3 #4): it used to walk the
@@ -930,6 +982,21 @@ export function IssuePanelView({
   // has no reason to know about.
   const workable = !issue.closedReason && !issue.archived
 
+  // WHAT THIS TASK IS CALLED, and the write that changes it (POD-1618). Both are
+  // derived HERE rather than in the head, which would otherwise open a second
+  // subscription to the session list this component already holds. The worktree
+  // paths are the fallback arm of `sessionsForIssueNav` and are read only for a
+  // row with no `memberSessionIds`; the view-model builder always supplies them,
+  // so this is the shape the derivation asks for rather than a lookup it makes.
+  const title = issueDisplayTitle(issue, sessions, allWorktreePaths)
+  // UNCAUGHT, like every other outboxed curation write (`use-unified-work.ts`):
+  // the queue keeps a rejected write, replays it on reconnect, and parks it in
+  // the recovery surface with its own toast. A `.catch` here would be a second
+  // error policy for one mutation, and a second toast for one refusal.
+  const renameIssue = (next: string): void => {
+    void updateIssue(issue.id, { title: next })
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* TWO BOXES, and only two. Everything above the scroll lives in this
@@ -946,6 +1013,8 @@ export function IssuePanelView({
             finished or archived task has a history to read, not a seat to take. */}
         <InspectHead
           issue={issue}
+          title={title}
+          onRename={renameIssue}
           onOpenInWork={
             onNavigate && workable && deckDestinationFor(issues, sessions, issue.id)
               ? () => showInDeck(issue)

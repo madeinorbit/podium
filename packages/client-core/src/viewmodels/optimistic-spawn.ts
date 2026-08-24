@@ -1,4 +1,4 @@
-import { spawnedByTag } from '@podium/model'
+import { DRAFT_ISSUE_TITLE, spawnedByTag } from '@podium/model'
 import { isSortKey, sortKeyBetween, type AgentKind, type IssueId, type IssueWire, type RepoId, type SessionId, type SessionMeta } from '@podium/model'
 
 /**
@@ -103,7 +103,7 @@ export function optimisticDraftIssue(args: {
     // labels from the session title and sorts to the top regardless — but a future
     // view that renders issue.seq for drafts would see a 0 -> N jump on reconcile.
     seq: 0,
-    title: 'Draft',
+    title: DRAFT_ISSUE_TITLE,
     description: '',
     stage: 'backlog',
     worktreePath: null,
