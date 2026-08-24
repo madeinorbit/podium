@@ -104,6 +104,24 @@ try {
         console.error(`updates.start=${JSON.stringify(payload)}`)
         throw new Error('UI acceptance did not return an update operation id')
       }
+      /**
+       * THE CLICK MUST START AN OPERATION, NOT JOIN ONE.
+       *
+       * `updates.start` deliberately hands a second caller the operation that is
+       * already running (startUpdateOperation, apps/server/src/modules/updates/trpc.ts)
+       * so two tabs render the same panel. That is right for a human and wrong
+       * for a gate: it let this click return an EARLIER scenario's stuck
+       * operation, whose id `rollout` then graded as if the click had produced
+       * it. Two unrelated rows moved together for exactly that reason.
+       */
+      const alreadyRunning =
+        result?.result?.data?.alreadyRunning ?? result?.result?.data?.json?.alreadyRunning
+      if (alreadyRunning === true) {
+        console.error(`updates.start=${JSON.stringify(payload)}`)
+        throw new Error(
+          `UI acceptance joined an update operation that was already running (${operationId}); it did not start one`,
+        )
+      }
       console.log(JSON.stringify({ operationId, offer: label, action }))
     }
   } else if (mode === 'versions') {

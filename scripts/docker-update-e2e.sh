@@ -775,13 +775,72 @@ operation() {
   rpc GET operations.history '{"kind":"update","limit":20}' |
     jq -c --arg id "$1" '.[]|select(.id==$id)' | head -1
 }
+# `canceled`, one L: TERMINAL_OPERATION_STATES in
+# packages/protocol/src/operation/operation.ts. The `cancelled` this replaces
+# matched no state the server can produce, so a canceled operation was waited
+# out to the full timeout instead of being read as the outcome it already was.
 terminal_operation() {
   local value
   value="$(operation "$1")"
   [[ -n "$value" ]] &&
-    jq -e '.state=="done" or .state=="failed" or .state=="cancelled"' <<<"$value" >/dev/null
+    jq -e '.state=="done" or .state=="failed" or .state=="canceled"' <<<"$value" >/dev/null
 }
-start_update() { rpc POST updates.start '{"surface":"settings"}'; }
+
+# No update operation is in flight. `updates.start` does not refuse a second
+# caller — it hands back the one already running (`alreadyRunning`, see
+# startUpdateOperation in apps/server/src/modules/updates/trpc.ts) — so a
+# scenario that starts one while a previous operation is still going does not
+# get an operation of its own. It silently inherits the previous scenario's.
+no_update_in_flight() {
+  rpc GET operations.history '{"kind":"update","limit":20}' |
+    jq -e '[.[]|select((.state|IN("done","failed","canceled"))|not)]|length==0' >/dev/null
+}
+
+# THE OPERATION THIS SCENARIO STARTED, AND NOTHING ELSE.
+#
+# Waiting for the fleet to be quiet before starting is the wait this harness was
+# missing. Without it one operation that outlives a scenario's patience is
+# adopted by every scenario after it: the next refusal waits out the SAME stuck
+# operation, and the UI's Update click returns its id to `rollout`, which then
+# grades a wave that was never its own. That is how two unrelated rows came to
+# fail and pass together.
+#
+# `alreadyRunning` is asserted as well as waited for. The wait can only lose a
+# race the server can still resolve in our favour, and a silently adopted
+# operation must never again read as this scenario's result.
+start_update() {
+  local started
+  # 420s is the product's own bound, not a number tuned until this went green:
+  # UPDATE_STEP_DEADLINES[machines] is machineDeliverySilenceMs (the daemon's
+  # download timeout) plus machineSilenceMarginMs (2 min) in
+  # apps/server/src/modules/updates/operation.ts. An operation that has not
+  # settled by then is a genuine stall, and saying so is the point.
+  if ! wait_for 420 "no update operation in flight" no_update_in_flight; then
+    dump_update_operations "${CURRENT_SCENARIO}-inflight-before-start"
+    say "refusing to start: an earlier update operation is still running" >&2
+    return 1
+  fi
+  started="$(rpc POST updates.start '{"surface":"settings"}')" || return 1
+  if jq -e '.alreadyRunning == true' >/dev/null 2>&1 <<<"$started"; then
+    printf '%s\n' "$started" >"$WORK/logs/${CURRENT_SCENARIO}-adopted-operation.json"
+    say "updates.start returned an already-running operation; not adopting it" >&2
+    return 1
+  fi
+  printf %s "$started"
+}
+
+# WHAT THE OPERATION WAS ACTUALLY DOING WHEN WE GAVE UP.
+#
+# A refusal that times out used to leave nothing behind but the word "timeout".
+# The step states, and the per-place convergence state and detail, are the only
+# things that can say whether a machine was never granted, is still downloading,
+# or answered and was not heard — so they are written out before the row fails.
+dump_update_operations() {
+  local label=$1
+  rpc GET operations.history '{"kind":"update","limit":20}' \
+    >"$WORK/logs/$label-operations.json" 2>&1 || true
+  rpc GET updates.fleet >"$WORK/logs/$label-fleet.json" 2>&1 || true
+}
 
 ui_probe() {
   local mode=$1 target=$2 screenshot=$3
@@ -832,16 +891,68 @@ installed_version_is() {
   [[ "$(container_exec "$1" cat "$(install_path)/VERSION")" == "$2" ]]
 }
 
+# WHY THIS ROW WENT RED, IN ITS OWN WORDS.
+#
+# Every `return 1` below used to be reported by the same sentence about an offer
+# that had, in the runs that produced it, been made correctly. A row that names
+# the wrong cause is worse than a row that names none: it sends the next reader
+# to the wrong subsystem. Each refusal is now recorded where it happens.
+refusal_reason() {
+  printf '%s\n' "$1" >"$WORK/logs/${CURRENT_SCENARIO}-failure-reason.txt"
+  return 1
+}
+
+refusal_failure_detail() {
+  local scenario=$1 reason="$WORK/logs/$1-failure-reason.txt"
+  if [[ -s "$reason" ]]; then
+    tr -d '\n' <"$reason"
+    return 0
+  fi
+  printf %s "$scenario failed before it recorded a reason"
+}
+
 negative_refusal() {
-  local old=$1 pattern=$2 started id value container name expected='[]'
+  local old=$1 pattern=$2 started id value container name expected='[]' stuck
   shift 2
-  started="$(start_update)" || return 1
-  id="$(jq -er .operationId <<<"$started")" || return 1
-  wait_for 150 "refusal operation" terminal_operation "$id" || return 1
-  value="$(operation "$id")" || return 1
+  if ! started="$(start_update)"; then
+    refusal_reason "no update operation of this scenario's own could be started; an earlier operation was still running, or the server refused a new one"
+    return 1
+  fi
+  if ! id="$(jq -er .operationId <<<"$started")"; then
+    refusal_reason "updates.start returned no operation id"
+    return 1
+  fi
+  if ! wait_for 150 "refusal operation" terminal_operation "$id"; then
+    dump_update_operations "${CURRENT_SCENARIO}-stalled"
+    # The stuck step and the place holding it open — the two facts that separate
+    # "never granted" from "granted and still downloading" from "answered and
+    # not heard". Guessing between those is what cost this suite its credibility.
+    # `deferred` is the plan's own record of WHY a machine was left out of the
+    # wave — `offline` or `cannot-take-delivery`, decided in planUpdateOperation
+    # and carried on the operation. It was always there and never read; printing
+    # it is what turns "target was not offered" into a machine and a reason.
+    stuck="$(operation "$id" |
+      jq -r '([.steps[]? | select(.state=="running" or .state=="stalled") |
+        "\(.id)=\(.state)[\([.places[]? | "\(.name // .id):\(.state // "?")\(if .detail then " (" + .detail + ")" else "" end)"] | join(", "))]"] | join("; ")) as $running |
+        ([.deferred[]? | "\(.name // .id) left out of the wave (\(.reason))"] | join("; ")) as $left |
+        [(if ($running | length) > 0 then $running else "no running step" end),
+         (if ($left | length) > 0 then $left else empty end)] | join("; ")' 2>/dev/null || true)"
+    refusal_reason "the update operation did not reach a terminal state within 150s; stuck at ${stuck:-unknown}"
+    return 1
+  fi
+  if ! value="$(operation "$id")"; then
+    refusal_reason "the terminal operation could not be read back from operations.history"
+    return 1
+  fi
   printf '%s\n' "$value" >"$WORK/logs/${CURRENT_SCENARIO}-operation.json" || return 1
-  jq -e '.state=="failed"' <<<"$value" >/dev/null || return 1
-  grep -Eiq "$pattern" <<<"$value" || return 1
+  if ! jq -e '.state=="failed"' <<<"$value" >/dev/null; then
+    refusal_reason "the hostile input produced a $(jq -r '.state // "stateless"' <<<"$value") operation instead of a refusal"
+    return 1
+  fi
+  if ! grep -Eiq "$pattern" <<<"$value"; then
+    refusal_reason "the operation failed but named no $pattern reason: $(jq -r '.error.detail // .error.message // "no error detail"' <<<"$value")"
+    return 1
+  fi
   for container in "$@"; do
     name="$(docker inspect -f '{{.Config.Hostname}}' "$container")" || return 1
     expected="$(jq -c --arg name "$name" '. + [$name]' <<<"$expected")" || return 1
@@ -851,11 +962,17 @@ negative_refusal() {
   # participant and the disposable control, with the ordinary fleet pinned
   # away. Accepting merely "some named failure" here would let the security
   # control pass without proving which installs consumed the hostile input.
-  jq -e --argjson expected "$expected" \
-    '([.steps[]?.places[]?.name] | unique) == ($expected | unique)' \
-    <<<"$value" >/dev/null || return 1
+  if ! jq -e --argjson expected "$expected" \
+      '([.steps[]?.places[]?.name] | unique) == ($expected | unique)' \
+      <<<"$value" >/dev/null; then
+    refusal_reason "the refusal named the wrong installs: expected $(jq -c <<<"$expected"), got $(jq -c '[.steps[]?.places[]?.name] | unique' <<<"$value")"
+    return 1
+  fi
   for container in "$@"; do
-    installed_version_is "$container" "$old" || return 1
+    if ! installed_version_is "$container" "$old"; then
+      refusal_reason "$(docker inspect -f '{{.Config.Hostname}}' "$container") did not stay on $old after refusing the hostile input"
+      return 1
+    fi
   done
 }
 
@@ -873,13 +990,26 @@ schema_refusal() {
   restart_coordinator || return 1
   if ! wait_for 60 "schema target or named resolver refusal" schema_target_or_refusal "$target"; then
     rpc GET updates.fleet >"$WORK/logs/schema-refusal-fleet.json" 2>&1 || true
+    # THE ONLY PLACE ENTITLED TO SAY THE TARGET WAS NOT OFFERED. Every other
+    # exit from this scenario now says what actually happened instead of
+    # inheriting this sentence.
+    refusal_reason "the broken manifest neither produced the target nor a named resolver refusal within 60s: $(jq -r '[.channelChecks[]? | select(.channel=="dev") | .outcome.reason] | last // "the dev channel check reported no reason"' "$WORK/logs/schema-refusal-fleet.json" 2>/dev/null || true)"
     return 1
   fi
   rpc GET updates.fleet >"$WORK/logs/schema-refusal-fleet.json" || return 1
-  wait_for 60 "schema control reconnected on its stable pin" \
-    fleet_machine_online schema-control true || return 1
-  installed_version_is "$container" "$old" || return 1
-  set_machine_channel schema-control dev || return 1
+  if ! wait_for 60 "schema control reconnected on its stable pin" \
+      fleet_machine_online schema-control true; then
+    refusal_reason "schema-control did not come back online within 60s of the coordinator restart, so it could never be offered anything"
+    return 1
+  fi
+  if ! installed_version_is "$container" "$old"; then
+    refusal_reason "schema-control was not on $old before the hostile input was offered"
+    return 1
+  fi
+  if ! set_machine_channel schema-control dev; then
+    refusal_reason "schema-control could not be pinned to dev"
+    return 1
+  fi
   if jq -e --arg target "$target" '.targetVersion==$target' \
       "$WORK/logs/schema-refusal-fleet.json" >/dev/null; then
     [[ "$PROVE_FAILURE" == schema ]] && return 0
@@ -1019,7 +1149,15 @@ rollout() {
   done
   value="$(operation "$id")"
   printf '%s\n' "$value" >"$WORK/logs/rollout-operation.json"
-  jq -e '.state=="done"' <<<"$value" >/dev/null
+  # An unfinished wave used to fail as a bare `jq -e` with a line number. Say
+  # which step is holding it and on which machine, because the answer decides
+  # whether this row is about the rollout at all — the id can belong to an
+  # operation an earlier scenario started (see the wait before UI acceptance).
+  if ! jq -e '.state=="done"' <<<"$value" >/dev/null; then
+    dump_update_operations rollout-not-done
+    say "rollout operation $id is $(jq -r '.state // "missing from operations.history"' <<<"$value"), not done; steps: $(jq -c '[.steps[]? | {id, state, places: [.places[]? | {name, state, detail}]}]' <<<"$value" 2>/dev/null || printf 'unreadable')" >&2
+    return 1
+  fi
   (( saw_canary == 1 ))
   wait_for 120 "both on-disk versions" installed_versions_are "$target"
   wait_for 120 "coordinator on-disk version" installed_version_is "$SOURCE" "$target"
@@ -1630,13 +1768,7 @@ main() {
     if schema_refusal "$original" "$BOOTSTRAP_VERSION" "$SCHEMA_CONTROL"; then
       pass schema-refusal "a proven one-entry migration removal was named and refused on the isolated schema-bearing install before either install changed"
     else
-      if [[ -s "$WORK/logs/schema-refusal-operation.json" ]]; then
-        detail="$(jq -r '.error.detail // .error.message // "schema operation failed without a named refusal"' \
-          "$WORK/logs/schema-refusal-operation.json" 2>/dev/null || true)"
-      else
-        detail="$(jq -r '[.channelChecks[]? | select(.channel=="dev") | .outcome.reason] | last // "target was not offered and no named schema refusal was reported"' \
-          "$WORK/logs/schema-refusal-fleet.json" 2>/dev/null || true)"
-      fi
+      detail="$(refusal_failure_detail schema-refusal)"
       fail schema-refusal "$detail; raw fleet evidence: logs/schema-refusal-fleet.json"
     fi
     set_machine_channel schema-control stable
@@ -1666,7 +1798,7 @@ main() {
           pass tampered-refusal "a byte mutation with a changed digest was named and refused on a disposable old install"
         fi
       else
-        fail tampered-refusal "mutated artifact bytes did not produce a named digest/signature refusal on the disposable old install"
+        fail tampered-refusal "$(refusal_failure_detail tampered-refusal)"
       fi
       set_machine_channel tamper-control stable
       remove_refusal_control "$TAMPER_CONTROL" tamper-control
@@ -1703,6 +1835,15 @@ main() {
 
   CURRENT_SCENARIO=ui-acceptance
   capture_parent_state
+  # THE WAIT THE ROLLOUT ROW WAS MISSING. The refusal scenarios above leave a
+  # real operation behind, and `updates.start` joins a running one rather than
+  # refusing — so clicking Update while one is still going hands `rollout` an
+  # operation that belongs to a negative control. Wait for the fleet to be
+  # quiet, then the click can only produce an operation of its own.
+  if ! wait_for 420 "no update operation in flight before UI acceptance" no_update_in_flight; then
+    dump_update_operations ui-acceptance-inflight-before-click
+    say "an earlier update operation is still running as UI acceptance begins" >&2
+  fi
   local ui_accept operation_id started
   if ui_accept="$(ui_probe accept "$target" "$WORK/logs/update-offer.png" 2>"$WORK/logs/update-accept.stderr")" &&
      operation_id="$(jq -er .operationId <<<"$ui_accept")"; then
