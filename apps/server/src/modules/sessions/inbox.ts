@@ -435,7 +435,12 @@ const tailUserTurnMatches = (session: Session, needle: string, exact = false): b
   return false
 }
 
-export function blockedSessionSendReason(session: Pick<Session, 'agentState'>): string | undefined {
+export function blockedSessionSendReason(
+  session: Pick<Session, 'agentState' | 'archived'>,
+): string | undefined {
+  // Archive is an explicit retirement boundary. Refuse before enqueueing so a
+  // retained resume ref cannot make an ordinary send resurrect hidden work.
+  if (session.archived) return 'session is archived'
   const state = session.agentState
   if (state?.phase !== 'errored' || !state.error || state.error.retryable) return undefined
   return formatAgentError(state.error) + '. ' + agentErrorRecoveryInstruction(state.error)

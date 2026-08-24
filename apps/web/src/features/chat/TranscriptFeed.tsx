@@ -338,7 +338,7 @@ export function TranscriptFeed({
   restoredQueued,
   restoredFailed = [],
   onRetractQueued,
-  onRetryFailed = () => {},
+  onRetryFailed,
   overlay,
   activity,
   attribution,
@@ -824,16 +824,18 @@ export function TranscriptFeed({
               <span className="transcript-delivery transcript-delivery--error">
                 {message.failure}
               </span>
-              <button
-                data-pressable
-                type="button"
-                className="msg-action"
-                aria-label="Retry failed message"
-                title="Retry failed message"
-                onClick={() => onRetryFailed(message.text)}
-              >
-                <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
-              </button>
+              {onRetryFailed && (
+                <button
+                  data-pressable
+                  type="button"
+                  className="msg-action"
+                  aria-label="Retry failed message"
+                  title="Retry failed message"
+                  onClick={() => onRetryFailed(message.text)}
+                >
+                  <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
+                </button>
+              )}
             </div>
           </div>
         </div>

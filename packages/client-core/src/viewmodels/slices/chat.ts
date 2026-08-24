@@ -502,12 +502,20 @@ export function composerState(input: {
   compact: boolean
 }): ComposerState {
   const { session, headless, turnRunning, compact } = input
+  // Archive is retirement, not another parked state. In particular, an
+  // archived session may still carry the resume ref that made its final park
+  // lossless; that capability must not turn a send into an implicit unarchive.
+  const archived = session?.archived === true
   const terminalError =
     session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
       ? session.agentState.error
       : undefined
-  const sendable = !terminalError && (session?.status === 'live' || session?.status === 'starting')
+  const sendable =
+    !archived &&
+    !terminalError &&
+    (session?.status === 'live' || session?.status === 'starting')
   const canResume =
+    !archived &&
     !terminalError &&
     (session?.status === 'hibernated' ||
       (session?.status === 'exited' && session?.resumable === true))
@@ -517,9 +525,11 @@ export function composerState(input: {
   const waking = sessionWaking(session)
   // Headless: PTY status is meaningless — the composer is open whenever no turn
   // is running (a turn is one queued unit; the server rejects overlap anyway).
-  const enabled = headless ? !turnRunning : sendable || canResume
+  const enabled = headless ? !archived && !turnRunning : sendable || canResume
   const placeholder = headless
-    ? turnRunning
+    ? archived
+      ? 'Session is archived.'
+      : turnRunning
       ? 'Working — stop to interject…'
       : compact
         ? // The fresh-thread box says this too. It is ONE box either side of the
@@ -527,7 +537,9 @@ export function composerState(input: {
           // operator at the moment they start using it (POD-516 R3).
           'Ask across all tasks…'
         : 'Message the agent…'
-    : terminalError
+    : archived
+      ? 'Session is archived.'
+      : terminalError
       ? formatAgentError(terminalError) + ' — ' + agentErrorRecoveryInstruction(terminalError)
       : waking
         ? 'Waking the agent — message queues…'
@@ -541,7 +553,7 @@ export function composerState(input: {
     sendable,
     canResume,
     placeholder,
-    ...(!headless && terminalError ? { refusalReason: placeholder } : {}),
+    ...(archived || (!headless && terminalError) ? { refusalReason: placeholder } : {}),
   }
 }
 
@@ -587,6 +599,7 @@ export function chatSendRoute(input: {
   ownThreadIds?: ReadonlySet<string>
 }): ChatSendRoute {
   const { sessionId, headless, superThread, composer, ownThreadIds } = input
+  if (composer.refusalReason) return { kind: 'refused', reason: composer.refusalReason }
   if (headless && superThread) {
     if (ownThreadIds !== undefined && !ownThreadIds.has(superThread.threadId)) {
       return { kind: 'refused', reason: UNKNOWN_THREAD_REFUSAL }

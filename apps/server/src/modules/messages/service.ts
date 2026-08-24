@@ -1042,6 +1042,12 @@ export class MessageDeliveryService {
         // again — the 70 POD-279 losses included exactly this [POD-834 §05].
         return this.deadLetter(message, 'session no longer exists', { notifySender })
       }
+      // An archived row remains addressable for history, but is retired for
+      // delivery. Treat it as a terminal target before the wake path can queue
+      // input and revive a hidden process.
+      if (target.archived) {
+        return this.deadLetter(message, 'session is archived', { notifySender })
+      }
     } else {
       const issue = this.deps.issues.get(message.toId ?? '')
       if (!issue) return this.deadLetter(message, 'issue no longer exists', { notifySender })

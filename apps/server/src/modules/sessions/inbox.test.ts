@@ -43,6 +43,7 @@ function harness(
      *  an agent session, and what the confirmation gate keys off (POD-1100). */
     transcriptAvailable?: boolean
     stateObservedAt?: string
+    archived?: boolean
     /** Model a server-family session (no PTY bridge behind it) — POD-2291. */
     serverDriven?: boolean
     /** Receipts the fake contract port answers with, in order; when omitted
@@ -74,6 +75,7 @@ function harness(
     status: options.status ?? 'live',
     agentKind: options.agentKind ?? 'codex',
     resume: { kind: 'codex', value: 'resume-1' },
+    archived: options.archived ?? false,
     queuedMessageCount: 0,
     transcriptAvailable: options.transcriptAvailable ?? false,
     agentState: {
@@ -325,6 +327,26 @@ describe('SessionInbox terminal provider failures', () => {
       reason:
         'Provider authentication failed: token expired. Re-authenticate with the provider, then choose “I signed in — retry”.',
     })
+  })
+})
+
+describe('SessionInbox archived boundary', () => {
+  it('refuses direct and resumable sends before they can enqueue or resurrect', () => {
+    const h = harness({ status: 'hibernated', archived: true })
+
+    expect(h.inbox.sendText({ sessionId: SID, text: 'do not revive' })).toEqual({
+      ok: false,
+      reason: 'session is archived',
+    })
+    expect(h.inbox.queueText({ sessionId: SID, text: 'do not queue' })).toEqual({
+      ok: false,
+      reason: 'session is archived',
+    })
+    expect(h.inbox.resumeAndSend({ sessionId: SID, text: 'do not resume' })).toEqual({
+      ok: false,
+      reason: 'session is archived',
+    })
+    expect(h.rows).toEqual([])
   })
 })
 

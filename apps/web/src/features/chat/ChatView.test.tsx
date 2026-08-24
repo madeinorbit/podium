@@ -42,7 +42,13 @@ const fakeTrpc = {
         })
       },
     },
-    sendText: { mutate: vi.fn(async () => ({ disposition: 'delivered' })) },
+    sendText: {
+      mutate: vi.fn(
+        async (): Promise<{ ok?: boolean; disposition: string; reason?: string }> => ({
+          disposition: 'delivered',
+        }),
+      ),
+    },
     // `reason` is optional but PRESENT in the contract: a stop can be refused
     // with one, and a fake that could not express that could not test it.
     interrupt: {
@@ -68,6 +74,7 @@ const storeActions = {
 
 let storeSessions: SessionMeta[] = []
 let storeDrafts: Record<string, string> = {}
+let storeExitKind: 'evicted' | 'removed' | undefined
 const fakeUiValues = new Map<string, string>()
 const fakeUiListeners = new Set<() => void>()
 const fakeUiState = {
@@ -117,7 +124,7 @@ vi.mock('@/app/store', () => {
     useSession: (id: string | undefined) =>
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: (id: string | undefined) => (id === undefined ? '' : (storeDrafts[id] ?? '')),
-    useSessionExitKind: () => undefined,
+    useSessionExitKind: () => storeExitKind,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
@@ -166,6 +173,7 @@ beforeEach(() => {
   fakeHub.subscribes.length = 0
   storeSessions = [meta({})]
   storeDrafts = {}
+  storeExitKind = undefined
   fakeUiValues.clear()
   fakeUiListeners.clear()
   container = document.createElement('div')
@@ -584,6 +592,143 @@ describe('ChatView composer', () => {
     expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 's1', text: 'please try this again' }),
     )
+  })
+
+  describe('dead-letter retry state matrix', () => {
+    const failedRow = {
+      id: 'msg_failed_matrix',
+      from: 'operator',
+      to: 'session:s1',
+      body: 'retry this safely',
+      createdAt: '2026-06-03T00:00:01.000Z',
+      status: 'dead_letter',
+      deliveryDeferredReason: 'delivery-failed',
+    } as const
+
+    it.each([
+      {
+        label: 'live',
+        session: meta({ status: 'live' }),
+        exitKind: undefined,
+        route: 'send',
+      },
+      {
+        label: 'hibernated',
+        session: meta({ status: 'hibernated', resumable: true }),
+        exitKind: undefined,
+        route: 'resume',
+      },
+      {
+        label: 'exited resumable',
+        session: meta({ status: 'exited', resumable: true }),
+        exitKind: undefined,
+        route: 'resume',
+      },
+      {
+        label: 'exited non-resumable',
+        session: meta({ status: 'exited', resumable: false }),
+        exitKind: undefined,
+        route: null,
+      },
+      {
+        label: 'gone',
+        session: null,
+        exitKind: 'removed',
+        route: null,
+      },
+      {
+        label: 'archived resumable',
+        session: meta({ status: 'hibernated', resumable: true, archived: true }),
+        exitKind: undefined,
+        route: null,
+      },
+    ] as const)(
+      '$label session exposes only a deliverable retry route',
+      async ({ session, exitKind, route }) => {
+        storeSessions = session ? [session] : []
+        storeExitKind = exitKind
+        fakeTrpc.messages.ledger.query.mockResolvedValueOnce([failedRow])
+
+        act(() => {
+          root.render(<ChatView sessionId={asSessionId('s1')} />)
+        })
+        await flush()
+
+        const retry = container.querySelector<HTMLButtonElement>(
+          '[aria-label="Retry failed message"]',
+        )
+        expect(retry !== null).toBe(route !== null)
+        if (!retry || route === null) return
+
+        await act(async () => {
+          retry.click()
+          await Promise.resolve()
+        })
+        if (route === 'send') {
+          expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+            expect.objectContaining({ sessionId: 's1', text: failedRow.body }),
+          )
+          expect(storeActions.resumeAndSend).not.toHaveBeenCalled()
+        } else {
+          expect(storeActions.resumeAndSend).toHaveBeenCalledWith(
+            asSessionId('s1'),
+            failedRow.body,
+          )
+          expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
+        }
+      },
+    )
+
+    it('shows an accepted retry as a new pending attempt while preserving failure history', async () => {
+      fakeTrpc.messages.ledger.query.mockResolvedValueOnce([failedRow])
+      fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
+        ok: true,
+        disposition: 'accepted',
+      })
+      act(() => {
+        root.render(<ChatView sessionId={asSessionId('s1')} />)
+      })
+      await flush()
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('[aria-label="Retry failed message"]')
+          ?.click()
+        await Promise.resolve()
+      })
+      await flush()
+
+      expect(container.querySelector('[data-testid="dead-lettered-chat-message"]')).not.toBeNull()
+      const retryAttempt = container.querySelector(
+        '.transcript-pending:not(.transcript-pending--failed)',
+      )
+      expect(retryAttempt?.textContent).toContain(failedRow.body)
+      expect(retryAttempt?.textContent).toContain('pending')
+    })
+
+    it('shows a refused retry as a distinct failed attempt with the refusal reason', async () => {
+      fakeTrpc.messages.ledger.query.mockResolvedValueOnce([failedRow])
+      fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
+        ok: false,
+        disposition: 'dead_letter',
+        reason: 'session became unavailable',
+      })
+      act(() => {
+        root.render(<ChatView sessionId={asSessionId('s1')} />)
+      })
+      await flush()
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('[aria-label="Retry failed message"]')
+          ?.click()
+        await Promise.resolve()
+      })
+      await flush()
+
+      expect(container.querySelectorAll('.transcript-pending--failed')).toHaveLength(2)
+      expect(container.textContent).toContain('not delivered — session became unavailable')
+    })
   })
 
   it('stops calling a queued message pending once the CLI has been handed it', async () => {

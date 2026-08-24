@@ -159,7 +159,9 @@ export interface ChatSurface {
   /** Decline the offer without answering it — see `useChatSend`. */
   dismissOffer: (offerAt: string) => Promise<void>
   retractQueuedMessage: (id: string) => Promise<void>
-  retryFailedMessage: (text: string) => void
+  /** Present only while the addressed session can accept or safely resume for
+   *  a retry. Its absence removes the action from durable failed rows. */
+  retryFailedMessage: ((text: string) => void) | undefined
   answerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   activity: ChatActivity | null
 
@@ -739,7 +741,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     sendOfferPrompt: send.sendOfferPrompt,
     dismissOffer: send.dismissOffer,
     retractQueuedMessage: send.retractQueuedMessage,
-    retryFailedMessage: (text) => void send.send(text),
+    retryFailedMessage:
+      composer.sendable || composer.canResume ? (text) => void send.send(text) : undefined,
     answerAsk,
     activity,
 

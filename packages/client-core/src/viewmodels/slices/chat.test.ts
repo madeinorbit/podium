@@ -327,6 +327,30 @@ describe('composer, queue, offer and activity', () => {
     ).toMatchObject({ enabled: false, placeholder: 'Session is not running.' })
   })
 
+  it('treats an archived resume ref as history, not a send route', () => {
+    const composer = composerState({
+      session: session({ status: 'hibernated', resumable: true, archived: true }),
+      headless: false,
+      turnRunning: false,
+      compact: false,
+    })
+    expect(composer).toMatchObject({
+      enabled: false,
+      sendable: false,
+      canResume: false,
+      placeholder: 'Session is archived.',
+      refusalReason: 'Session is archived.',
+    })
+    expect(
+      chatSendRoute({
+        sessionId: asSessionId('s1'),
+        headless: false,
+        superThread: undefined,
+        composer,
+      }),
+    ).toEqual({ kind: 'refused', reason: 'Session is archived.' })
+  })
+
   it('disables chat sends while a provider failure needs recovery', () => {
     const blocked = session({
       agentState: {
