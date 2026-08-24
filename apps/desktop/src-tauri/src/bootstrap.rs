@@ -682,15 +682,32 @@ pub fn wait_for_port(port: u16, attempts: u32, delay_ms: u64) -> bool {
     false
 }
 
-/// Copy `src` to `<cache_dir>/podium-sidecar[.exe]` (chmod 0o755 on unix), re-copying
-/// when missing, size-different, or source-newer; return the runnable path.
+/// Copy `src` to a runnable path under `cache_dir` and return it. Windows gives each
+/// staged source revision its own `.exe` name so an update never overwrites an image
+/// that the previous desktop process still has open.
 fn ensure_executable_into(src: &Path, cache_dir: &Path) -> std::io::Result<PathBuf> {
+    ensure_executable_into_for_platform(src, cache_dir, cfg!(target_os = "windows"))
+}
+
+fn ensure_executable_into_for_platform(
+    src: &Path,
+    cache_dir: &Path,
+    windows: bool,
+) -> std::io::Result<PathBuf> {
     use std::fs;
 
-    let dst = cache_dir.join(cached_sidecar_name(cfg!(target_os = "windows")));
+    let src_meta = fs::metadata(src)?;
+    let modified_stamp = src_meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        // Filesystems without modification times still get a per-process Windows name,
+        // which preserves the no-overwrite guarantee for a running previous sidecar.
+        .unwrap_or_else(|| std::process::id() as u128);
+    let dst = cache_dir.join(cached_sidecar_name(windows, src_meta.len(), modified_stamp));
 
     // Re-copy if: cache missing, OR sizes differ, OR source is newer than cache.
-    let src_meta = fs::metadata(src)?;
     let needs_copy = match fs::metadata(&dst) {
         Err(_) => true,
         Ok(dst_meta) => {
@@ -727,11 +744,13 @@ fn ensure_executable_into(src: &Path, cache_dir: &Path) -> std::io::Result<PathB
 /// Return a path to an executable copy of `path`.
 ///
 /// AppImage mounts are read-only and may not preserve the executable bit, so we
-/// copy the binary to a writable cache dir and chmod it there.  We re-copy when
-/// the cache is missing, the source size differs, or the source is newer than the cache.
+/// copy the binary to a writable cache dir and chmod it there. Windows also needs
+/// a writable copy, but uses a source-revision name because a running `.exe` cannot
+/// be overwritten during an update.
 ///
-/// Cache location: `$PODIUM_STATE_DIR/bin/podium-sidecar[.exe]` if set,
-/// otherwise `~/.podium/bin/podium-sidecar[.exe]`.
+/// Cache location: `$PODIUM_STATE_DIR/bin/podium-sidecar` on Linux and a stamped
+/// `$PODIUM_STATE_DIR/bin/podium-sidecar-<size>-<mtime>.exe` on Windows. Without
+/// an override, the same names live under `~/.podium/bin`.
 ///
 /// macOS is exempt: the sidecar runs from inside the .app, never a copy. Copying it out is what
 /// produced `"podium-sidecar" is damaged and can't be opened` on the first notarized build, for
@@ -751,11 +770,11 @@ pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
     ensure_executable_into(path, &state_dir().join("bin"))
 }
 
-fn cached_sidecar_name(windows: bool) -> &'static str {
+fn cached_sidecar_name(windows: bool, source_len: u64, modified_stamp: u128) -> String {
     if windows {
-        "podium-sidecar.exe"
+        format!("podium-sidecar-{source_len}-{modified_stamp}.exe")
     } else {
-        "podium-sidecar"
+        "podium-sidecar".to_string()
     }
 }
 
@@ -803,8 +822,11 @@ mod tests {
 
     #[test]
     fn windows_cached_sidecar_keeps_its_executable_suffix() {
-        assert_eq!(cached_sidecar_name(true), "podium-sidecar.exe");
-        assert_eq!(cached_sidecar_name(false), "podium-sidecar");
+        assert_eq!(
+            cached_sidecar_name(true, 123, 456),
+            "podium-sidecar-123-456.exe"
+        );
+        assert_eq!(cached_sidecar_name(false, 123, 456), "podium-sidecar");
     }
 
     #[test]
@@ -1483,6 +1505,36 @@ mod tests {
             b"version-2-longer",
             "cache content changed unexpectedly on idempotent call"
         );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn windows_source_revisions_do_not_overwrite_the_previous_executable() {
+        use std::fs;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "podium-windows-exe-revision-test-{}",
+            std::process::id()
+        ));
+        let src_dir = tmp.join("src");
+        let cache_dir = tmp.join("cache");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&src_dir).unwrap();
+        let src = src_dir.join("podium.exe");
+
+        fs::write(&src, b"version-1").unwrap();
+        let first = ensure_executable_into_for_platform(&src, &cache_dir, true)
+            .expect("first Windows copy failed");
+
+        fs::write(&src, b"version-2-longer").unwrap();
+        let second = ensure_executable_into_for_platform(&src, &cache_dir, true)
+            .expect("second Windows copy failed");
+
+        assert_ne!(first, second, "a new source revision must get a new path");
+        assert_eq!(fs::read(&first).unwrap(), b"version-1");
+        assert_eq!(fs::read(&second).unwrap(), b"version-2-longer");
+        assert_eq!(second.extension().and_then(|value| value.to_str()), Some("exe"));
 
         let _ = fs::remove_dir_all(&tmp);
     }

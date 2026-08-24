@@ -54,7 +54,6 @@ const targetBundles: TargetBundle[] = [
     target: 'windows-x86_64',
     updaterSuffix: '-setup.exe',
     requiredDownloadSuffixes: [],
-    matches: (path) => /[\\/]nsis[\\/]/.test(path),
   },
   {
     target: 'darwin-aarch64',

@@ -136,7 +136,9 @@ describe('desktop release manifest', () => {
     scratch.push(root)
     const bundleDir = join(root, 'bundle')
     const linuxDir = join(bundleDir, 'linux')
-    const windowsDir = join(bundleDir, 'windows', 'nsis')
+    // actions/upload-artifact strips the common `bundle/nsis/` upload root, so the
+    // downloaded Windows artifact is flat under its `desktop-windows-x86_64` directory.
+    const windowsDir = join(bundleDir, 'windows')
     const macUpdaterDir = join(bundleDir, 'aarch64-apple-darwin', 'macos')
     const macDmgDir = join(bundleDir, 'aarch64-apple-darwin', 'dmg')
     // The Intel bundle mirrors the CI artifact layout: the rust target triple in the path is
