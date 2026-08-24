@@ -1,5 +1,5 @@
-import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { UiState } from '@podium/client-core/ui-state'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { asIssueId, asMutationId, type IssueId, type MutationId } from '@podium/model'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 import { issueAgentKind } from '@/lib/issue-agents'
@@ -61,8 +61,13 @@ export function readFirstTaskDraft(raw: string | null): FirstTaskDraft {
   }
 }
 
+/** Module-level so `usePersistedUiState` gets a stable `serialize` identity. */
+export function serializeFirstTaskDraft(draft: FirstTaskDraft): string {
+  return JSON.stringify(draft)
+}
+
 export function persistFirstTaskDraft(uiState: Pick<UiState, 'set'>, draft: FirstTaskDraft): void {
-  uiState.set(FIRST_TASK_ACTIVATION_DRAFT_KEY, JSON.stringify(draft))
+  uiState.set(FIRST_TASK_ACTIVATION_DRAFT_KEY, serializeFirstTaskDraft(draft))
 }
 
 export function clearFirstTaskDraft(uiState: Pick<UiState, 'set'>): void {

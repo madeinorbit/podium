@@ -29,8 +29,13 @@ import {
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu } from '@/lib/PropertyMenu'
+import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { activationAgentIsReady, activationAgentReadiness } from './agent-readiness'
-import { clearFirstTaskDraft, persistFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
+import {
+  clearFirstTaskDraft,
+  readFirstTaskDraft,
+  serializeFirstTaskDraft,
+} from './first-task-draft'
 import { SetupError } from './SetupFeedback'
 
 function repoLabel(repo: { path: string; name?: string }): string {
@@ -115,20 +120,34 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     }),
     shallowEqual,
   )
-  const repoChoices = useMemo(
-    () => {
-      const sections = sidebarSections(repos, sessions, EMPTY_PINS)
-      const { byRepo } = lastUsedMaps(sections, sessions)
-      return sections.repos.sort(
-        (a, b) =>
-          (byRepo.get(b.path) ?? 0) - (byRepo.get(a.path) ?? 0) ||
-          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-      )
-    },
-    [repos, sessions],
-  )
-  const [draft, setDraftState] = useState(() =>
-    readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)),
+  const repoChoices = useMemo(() => {
+    const sections = sidebarSections(repos, sessions, EMPTY_PINS)
+    const { byRepo } = lastUsedMaps(sections, sessions)
+    return sections.repos.sort(
+      (a, b) =>
+        (byRepo.get(b.path) ?? 0) - (byRepo.get(a.path) ?? 0) ||
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    )
+  }, [repos, sessions])
+  /**
+   * THE DRAFT IS SUBSCRIBED, NOT SEEDED (POD-1469).
+   *
+   * A `useState(() => uiState.get(...))` initializer runs once, and this box is
+   * mounted for the whole time the shell has nothing selected — which is exactly
+   * the state `New task` and `Start first task` are pressed from. Those write the
+   * seed into this key and clear the selection; with a seeded copy the composer
+   * never re-read it, so the sidebar's buttons appeared to do nothing: the old
+   * half-typed prompt stayed on screen, the named project was discarded, and the
+   * next keystroke wrote the stale draft back over the seed.
+   *
+   * `usePersistedUiState` removes that second source of truth by construction —
+   * the stored row IS the state. This key is device-local, so the write and the
+   * read back are synchronous and typing costs the same render it always did.
+   */
+  const [draft, setDraft] = usePersistedUiState(
+    FIRST_TASK_ACTIVATION_DRAFT_KEY,
+    readFirstTaskDraft,
+    serializeFirstTaskDraft,
   )
   /**
    * The operator's harness, as `roles.coding` answers it — the same read the
@@ -139,14 +158,6 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  const setDraft = useCallback(
-    (next: typeof draft) => {
-      setDraftState(next)
-      persistFirstTaskDraft(uiState, next)
-    },
-    [uiState],
-  )
 
   useEffect(() => {
     let cancelled = false
@@ -175,13 +186,17 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * and never the first, so the row says which it is and the launch is refused
    * only for the first.
    */
-  const machineViews = machineViewsFromWire(machines)
-  const usable = new Set(usableMachines(machineViews).map((machine) => machine.id))
-  const authorized = new Set(
-    machineViews
-      .filter((view) => view.availability !== 'unauthorized')
-      .map((view) => view.machine.id),
-  )
+  // Memoized on `machines` alone: this box re-renders on every keystroke in the
+  // prompt, and neither set has anything to do with what was typed.
+  const { usable, authorized } = useMemo(() => {
+    const views = machineViewsFromWire(machines)
+    return {
+      usable: new Set(usableMachines(views).map((machine) => machine.id)),
+      authorized: new Set(
+        views.filter((view) => view.availability !== 'unauthorized').map((view) => view.machine.id),
+      ),
+    }
+  }, [machines])
   const selectedRepo =
     repoChoices.find(
       (repo) =>
@@ -250,6 +265,14 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * It is deliberately the same key and the same account spelling
    * (`nativeAccountId`), because the point is that every surface reads ONE
    * answer to "which harness does this operator work in".
+   *
+   * IT FIRES ON LAUNCH, NOT ON SELECT, which is also the chip's own rule:
+   * `NewAgentMenu.pick()` persisted and spawned as ONE action, so the operator's
+   * global default only ever moved when work actually started on that harness.
+   * Writing it from the menu's `onSelect` would mean opening the chip to look at
+   * Codex, changing your mind, and navigating away had silently retargeted the
+   * issue page, the dock and the CLI — with nothing to undo it. The draft already
+   * carries the pick for THIS task; this key is only for the next one.
    *
    * Best-effort: the local read is updated first either way, so a failed write
    * costs the operator the persistence and never the pick they just made.
@@ -329,12 +352,26 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * operator navigated away mid-sentence — has to come back open, or the text
    * they wrote would be invisible under a placeholder saying the box is empty.
    * The same holds the moment a file is attached: the strip lives inside the
-   * well, so attaching has to open it.
+   * well, so attaching has to open it. And a FAILED launch holds the box open by
+   * the same rule: `pendingIssueId` means an issue exists and is waiting to be
+   * started, so Launch must stay the retry — a closed box would route the press
+   * to `startCli` and strand the mission the operator thought they were retrying.
+   *
+   * FIRST RUN OPENS WRITTEN. The headline above says "give this project its first
+   * mission", and a closed box under that sentence answers it with a promptless
+   * CLI vessel on the most obvious click there is.
    */
-  const [unfolded, setUnfolded] = useState(false)
-  const expanded = unfolded || draft.title.length > 0 || attachments.attachments.length > 0
+  const [unfolded, setUnfolded] = useState(first)
+  const expanded =
+    unfolded ||
+    draft.title.trim().length > 0 ||
+    attachments.attachments.length > 0 ||
+    Boolean(draft.pendingIssueId)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const collapse = useCallback(() => {
+    // A retry in flight owns this box; there is no closed mode that could carry
+    // it, so the control is not offered and this is a no-op if it is reached.
+    if (draft.pendingIssueId) return
     setUnfolded(false)
     setDraft({ ...draft, title: '' })
     attachments.clear()
@@ -504,11 +541,6 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     }
   }
 
-  /** What Launch and ⌘↵ do, which is the one thing the two modes disagree about. */
-  const launch = (): void => {
-    if (expanded) void start()
-    else startCli()
-  }
   const launchable = expanded
     ? Boolean(draft.pendingIssueId) || draft.title.trim().length > 0
     : true
@@ -523,6 +555,18 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     machineDenied ||
     !ready ||
     !launchable
+
+  /** What Launch and ⌘↵ do, which is the one thing the two modes disagree about. */
+  const launch = (): void => {
+    if (launchBlocked) return
+    // Starting work on a harness is what makes it the operator's harness — see
+    // `persistDefaultAgent`. Once, for both modes, and only when the pick is
+    // actually news: relaunching on the harness that is already the default has
+    // nothing to write.
+    if (agent !== defaultAgent) void persistDefaultAgent(agent)
+    if (expanded) void start()
+    else startCli()
+  }
 
   return (
     <div className="cold-start flex min-h-0 flex-1 flex-col overflow-y-auto bg-card font-sans">
@@ -603,9 +647,13 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             onFocus={() => setUnfolded(true)}
             onKeyDown={(event) => {
               // Escape closes an EMPTY box and nothing else. Two keystrokes from
-              // discarding a written prompt is not a shortcut, it is a trap —
-              // the X is the way out of one of those, deliberately deliberate.
-              if (event.key === 'Escape' && draft.title.length === 0) {
+              // discarding written work is not a shortcut, it is a trap — the X
+              // is the way out of one of those, deliberately deliberate. An
+              // ATTACHED FILE counts as written work: the file was chosen through
+              // a picker or a drop, and the key most likely to be pressed after
+              // either of those is the one dismissing whatever it left behind.
+              const empty = draft.title.trim().length === 0 && attachments.attachments.length === 0
+              if (event.key === 'Escape' && empty) {
                 event.stopPropagation()
                 collapse()
               }
@@ -622,7 +670,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               go back to. It clears rather than hides: a collapsed box showing
               `Click here to enter a prompt` while still holding a paragraph
               would launch a mission the operator believes they cancelled. */}
-          {expanded && (
+          {expanded && !draft.pendingIssueId && (
             <button
               type="button"
               data-pressable
@@ -699,7 +747,6 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 onSelect={(nextAgent) => {
                   const kind = issueAgentKind(nextAgent) ?? agent
                   setDraft({ ...draft, agent: kind, model: AUTO, effort: AUTO })
-                  void persistDefaultAgent(kind)
                 }}
               />
               <span className="w-px bg-hairline-bar" aria-hidden="true" />
@@ -794,7 +841,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   <>
                     Launch
                     <span
-                      className="cold-start-chord font-mono text-[12.5px] leading-none text-primary-foreground/60"
+                      className="font-mono text-[12.5px] leading-none text-primary-foreground/60"
                       aria-hidden="true"
                     >
                       ⌘↵

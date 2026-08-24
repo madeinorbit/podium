@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SidebarRail } from './SidebarRail'
 import { SidebarUnified } from './SidebarUnified'
 
 // ⌘-hold row shortcuts (POD-790): hold Command and every task in the column
@@ -221,6 +222,19 @@ describe('⌘N — the shell menu’s New Task (POD-790, POD-1469)', () => {
     render(<SidebarUnified />)
     cleanup()
     expect(newAgentCommand()).toBeUndefined()
+  })
+
+  // THE COLLAPSED COLUMN IS A COLUMN. `AppShell` renders the rail INSTEAD of
+  // this component, so if only the wide row bound the chord then collapsing the
+  // sidebar — the state an operator collapses INTO to get room — would leave
+  // ⌘N and File > New Agent doing nothing at all.
+  it('is answered by the collapsed rail too', () => {
+    macShell()
+    render(<SidebarRail />)
+    expect(typeof newAgentCommand()).toBe('function')
+    fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
+    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
+    expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 })
 

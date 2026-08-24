@@ -2,6 +2,7 @@ import {
   groupUnifiedWorkRows,
   isDraftAgentVessel,
   planReorderKeys,
+  type RepoNavView,
   reuseUnifiedWorkRows,
   rowAwaitsTuck,
   rowCanBringBack,
@@ -50,6 +51,38 @@ import {
   type WorkPlacement,
 } from './work-folds'
 import { useWorkFilter, WorkFilterEmpty, WorkFilterFootnote, WorkSearchField } from './work-search'
+
+/**
+ * A PROJECT ANSWERS TO MORE THAN ONE KEY, AND THE BAND HAS TO TRY ALL OF THEM
+ * (POD-1469).
+ *
+ * `groupUnifiedWorkRows` keys a group off the ROW — `issue.repoId ?? repoPath` —
+ * while the project tree keys off the REPO. Those are the same string only when
+ * both sides carry the same identity: `repoId` is additive on the wire, so a
+ * pre-backfill issue groups under its path while its project view already has an
+ * id, and an origin-merged repo's view holds the FIRST machine's path while the
+ * issue was created against another machine's checkout. Comparing one key
+ * against one key therefore reported "no group" for a project that is right
+ * there on screen — and drew it a second time, as an empty band with
+ * `Start first task` under a list of its own tasks.
+ *
+ * So the test is over every identity the project could have been grouped under.
+ */
+function repoIdentities(repo: RepoNavView): string[] {
+  return [repo.repoId, repo.path, ...(repo.machines?.map(({ path }) => path) ?? [])].filter(
+    (identity): identity is string => identity !== undefined,
+  )
+}
+
+function hasGroup(repo: RepoNavView, groupKeys: readonly string[]): boolean {
+  return repoIdentities(repo).some((identity) => groupKeys.includes(identity))
+}
+
+/** The key an empty project's band folds under. One identity, chosen the same
+ *  way a row's group key is, so the fold survives the project gaining rows. */
+function repoBandKey(repo: RepoNavView): string {
+  return repo.repoId ?? repo.path
+}
 
 function withStableRow(placement: WorkPlacement, row: UnifiedWorkRow): WorkPlacement {
   if (placement.lane === 'closed' || placement.lane === 'snoozed') {
@@ -479,8 +512,14 @@ export function WorkSections({
   const emptyProjectKeys = useMemo(
     () =>
       [...sections.pinnedRepos, ...sections.repos]
-        .map((repo) => repo.repoId ?? repo.path)
-        .filter((key) => !targetGroups.some((group) => group.key === key)),
+        .filter(
+          (repo) =>
+            !hasGroup(
+              repo,
+              targetGroups.map((group) => group.key),
+            ),
+        )
+        .map((repo) => repoBandKey(repo)),
     [sections, targetGroups],
   )
   const bandKeys = useMemo(
@@ -776,7 +815,7 @@ export function WorkSections({
   const emptyProjects = filtering
     ? []
     : [...sections.pinnedRepos, ...sections.repos].filter(
-        (repo) => !renderedGroupKeys.includes(repo.repoId ?? repo.path),
+        (repo) => !hasGroup(repo, renderedGroupKeys),
       )
   // The folded menu's subject, looked up rather than carried in the state above.
   const foldedMenuRow = foldedMenu
@@ -900,7 +939,7 @@ export function WorkSections({
           fold — shutting one is how an operator retires a project they are not
           using without removing it. */}
       {emptyProjects.map((repo, index) => {
-        const key = repo.repoId ?? repo.path
+        const key = repoBandKey(repo)
         const collapsed = groupCollapsed(key)
         return (
           <div
@@ -920,7 +959,7 @@ export function WorkSections({
               collapsed={collapsed}
               onToggle={() => toggleBand(projectFoldKey(key))}
             />
-            <FoldPanel open={!collapsed} testId="project-group-empty">
+            <FoldPanel open={!collapsed} testId={`project-group-empty:${key}`}>
               <StartFirstTaskRow repoPath={repo.path} />
             </FoldPanel>
           </div>

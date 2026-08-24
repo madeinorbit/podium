@@ -97,7 +97,20 @@ vi.mock('@/app/store', () => {
     uiState: ui,
     // Two projects, and only one of them has ever been worked.
     repos: [
-      { path: '/work/podium', kind: 'repository', branch: 'main', worktrees: [] },
+      // `repoId` on the PROJECT and not on the issue below is the shape that
+      // exposed the key mismatch: `groupUnifiedWorkRows` keys a group off the
+      // row (`issue.repoId ?? repoPath`) while the project tree keys off the
+      // repo, so a project that has work but no backfilled id on its issues was
+      // read as having no group — and drew a second, empty band under its own
+      // task list. `repoId` is additive on the wire, so this is the live state
+      // for every issue created before the backfill.
+      {
+        path: '/work/podium',
+        repoId: 'repo_podium',
+        kind: 'repository',
+        branch: 'main',
+        worktrees: [],
+      },
       { path: '/work/spare', kind: 'repository', branch: 'main', worktrees: [] },
     ],
     sessions: [],
@@ -223,6 +236,18 @@ describe('a project with nothing in it', () => {
     expect(bands.some((label) => label?.includes('podium'))).toBe(true)
     expect(bands.some((label) => label?.includes('spare'))).toBe(true)
     expect(screen.getAllByTestId('start-first-task')).toHaveLength(1)
+  })
+
+  it('is not the same project twice when the ids and the paths disagree', () => {
+    render(<SidebarUnified />)
+    // `podium` has work AND a `repoId` its issue does not carry. Matching one key
+    // against one key called it empty, so it appeared twice: once with Alpha in
+    // it, once as a bare band inviting a first task.
+    const podium = screen
+      .getAllByTestId('project-group-label')
+      .filter((band) => band.textContent?.includes('podium'))
+    expect(podium).toHaveLength(1)
+    expect(screen.getByText('Alpha')).toBeTruthy()
   })
 
   it('points the composer at the project whose band was clicked', () => {

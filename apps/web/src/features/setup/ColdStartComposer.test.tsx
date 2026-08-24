@@ -19,6 +19,7 @@ const start = vi.fn()
 const focusIssueSession = vi.fn(async () => null)
 const uploadImage = vi.fn()
 const uiValues = new Map<string, string>()
+const uiListeners = new Set<() => void>()
 const machineId = asMachineId('machine-a')
 const initialRepo = {
   path: '/work/podium',
@@ -49,11 +50,19 @@ const store = {
       },
     },
   ],
+  // A REAL ui-state, subscription and all: the composer SUBSCRIBES to its draft
+  // key rather than seeding it (POD-1469), so a mock that only stores would show
+  // nothing the operator typed.
   uiState: {
     get: (key: string) => uiValues.get(key) ?? null,
     set: (key: string, value: string | null) => {
       if (value === null) uiValues.delete(key)
       else uiValues.set(key, value)
+      for (const listener of uiListeners) listener()
+    },
+    subscribe: (listener: () => void) => {
+      uiListeners.add(listener)
+      return () => uiListeners.delete(listener)
     },
   },
   focusIssueSession,

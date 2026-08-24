@@ -222,10 +222,15 @@ export function SidebarRail(): JSX.Element {
     setIssueColor,
     now,
   } = useUnifiedWork(derivation)
-  // The rail never owns ⌘N: the wide column's button does, and the two are never
-  // mounted together — but React mounts the arriving one before unmounting the
-  // leaving one, so a collapse would briefly have two owners of one chord.
-  const { startNewTask } = useNewTask()
+  // THE COLLAPSED COLUMN STILL ANSWERS ⌘N (POD-1469). `AppShell` renders the
+  // rail INSTEAD of the wide column, so the tile here is the only owner of the
+  // chord while the sidebar is shut — leaving it unbound made ⌘N and the macOS
+  // File menu dead in exactly the state an operator collapses into to get room.
+  // Two owners for one frame during the fold is harmless now in a way it never
+  // was for the spawn row this replaces: `startNewTask` clears a selection and
+  // seeds a draft, so answering one press twice lands on the same screen, where
+  // answering it twice used to start two agents.
+  const { startNewTask } = useNewTask({ bindChord: true })
   const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
   const commandPaletteEnabled = useFeature('command-palette')
   // What the pointer is on, and where that tile was when it arrived. The rect

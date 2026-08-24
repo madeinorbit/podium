@@ -63,6 +63,9 @@ const state = {
   installed: ['claude-code', 'codex', 'grok'] as string[],
 }
 
+const uiValues = new Map<string, string>()
+const uiListeners = new Set<() => void>()
+
 const updatePersonal = vi.fn(async (input: { values: Record<string, string> }) => {
   state.accountId = input.values['roles.coding.accountId'] ?? state.accountId
   return { roles: { coding: { accountId: state.accountId } } }
@@ -95,7 +98,21 @@ const store = {
       },
     ]
   },
-  uiState: { get: () => null, set: () => {} },
+  // A REAL ui-state: the composer SUBSCRIBES to its draft key rather than seeding
+  // it (POD-1469), so a pick made in the chip only sticks if the store both
+  // stores and notifies.
+  uiState: {
+    get: (key: string) => uiValues.get(key) ?? null,
+    set: (key: string, value: string | null) => {
+      if (value === null) uiValues.delete(key)
+      else uiValues.set(key, value)
+      for (const listener of uiListeners) listener()
+    },
+    subscribe: (listener: () => void) => {
+      uiListeners.add(listener)
+      return () => uiListeners.delete(listener)
+    },
+  },
   focusIssueSession: vi.fn(async () => null),
   spawnDraftAgent: vi.fn(),
   setSelectedIssueId: vi.fn(),
@@ -123,6 +140,8 @@ vi.mock('@/lib/ModelEffortPicker', () => ({
 
 afterEach(() => {
   cleanup()
+  uiValues.clear()
+  uiListeners.clear()
   state.accountId = ''
   state.sessions = []
   state.installed = ['claude-code', 'codex', 'grok']
@@ -153,12 +172,21 @@ describe('the box opens on the harness the sidebar chip would have', () => {
     await waitFor(() => expect(chip().textContent).toContain('Claude Code'))
   })
 
-  it('remembers a pick made here, for every other surface too', async () => {
+  it('remembers a pick made here — on LAUNCH, the way the chip did', async () => {
     render(<ColdStartComposer first={false} />)
     await waitFor(() => expect(chip().textContent).toContain('Claude Code'))
 
     fireEvent.click(chip())
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Codex' }))
+    await waitFor(() => expect(chip().textContent).toContain('Codex'))
+
+    // MERELY LOOKING IS NOT CHOOSING. The deleted menu persisted and spawned as
+    // one action, so the operator's global harness only ever moved when work
+    // started on it — opening the chip to consider Codex and walking away must
+    // not silently retarget the issue page, the dock and the CLI.
+    expect(updatePersonal).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('cold-start-launch'))
 
     // The same key and the same account spelling the deleted sidebar menu wrote.
     await waitFor(() =>
@@ -166,7 +194,6 @@ describe('the box opens on the harness the sidebar chip would have', () => {
         values: { 'roles.coding.accountId': 'native:codex' },
       }),
     )
-    await waitFor(() => expect(chip().textContent).toContain('Codex'))
   })
 
   it('reads a session scan only when the setting arrives unresolved', async () => {

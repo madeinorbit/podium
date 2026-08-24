@@ -37,6 +37,7 @@ const setView = vi.fn()
 const create = vi.fn()
 const start = vi.fn()
 const uiValues = new Map<string, string>()
+const uiListeners = new Set<() => void>()
 
 const store = {
   repos: [
@@ -62,11 +63,19 @@ const store = {
       },
     },
   ],
+  // A REAL ui-state, subscription and all: the composer SUBSCRIBES to its draft
+  // key rather than seeding it (POD-1469), so a mock that only stores would show
+  // nothing the operator typed.
   uiState: {
     get: (key: string) => uiValues.get(key) ?? null,
     set: (key: string, value: string | null) => {
       if (value === null) uiValues.delete(key)
       else uiValues.set(key, value)
+      for (const listener of uiListeners) listener()
+    },
+    subscribe: (listener: () => void) => {
+      uiListeners.add(listener)
+      return () => uiListeners.delete(listener)
     },
   },
   focusIssueSession: vi.fn(async () => null),
@@ -192,6 +201,79 @@ describe('the launch box unfolds', () => {
     render(<ColdStartComposer first={false} />)
     expect(box().getAttribute('data-expanded')).toBe('true')
     expect(field().value).toBe('Half a thought')
+  })
+
+  it('opens written on first run, where the headline asks for a mission', () => {
+    render(<ColdStartComposer first />)
+    expect(box().getAttribute('data-expanded')).toBe('true')
+  })
+
+  // WHITESPACE IS NOT A PROMPT, on either side. Reading it as content in one
+  // place and as emptiness in the other left the box permanently open with
+  // Launch permanently refused and Escape refusing to close it.
+  it('does not treat a box holding only spaces as written', () => {
+    render(<ColdStartComposer first={false} />)
+    fireEvent.focus(field())
+    fireEvent.change(field(), { target: { value: '   ' } })
+    expect(launch().disabled).toBe(true)
+    fireEvent.keyDown(field(), { key: 'Escape' })
+    expect(box().getAttribute('data-expanded')).toBe('false')
+  })
+})
+
+/**
+ * A FAILED LAUNCH OWNS THE BOX (POD-1469 review).
+ *
+ * `pendingIssueId` means the mission exists on the server and only its start
+ * failed, so Launch is a RETRY. If the box could close over that, Launch would
+ * become `startCli` and spawn an unrelated vessel while the created issue sat
+ * there unstarted — and a prompt typed afterwards would be silently discarded,
+ * because `start()` takes the pending branch and never reads it.
+ */
+/**
+ * THE BOX READS ITS DRAFT, IT DOES NOT REMEMBER IT (POD-1469 review).
+ *
+ * `New task` and `Start first task` in the sidebar work by writing this key and
+ * clearing the selection — and the composer is ALREADY MOUNTED in that state,
+ * because nothing selected is what puts it on screen. A `useState` initializer
+ * would have read the key once, at mount, and never again: pressing those
+ * buttons would leave the old half-typed prompt on screen, silently discard the
+ * project they named, and write the stale draft back on the next keystroke.
+ */
+describe('the seed a sidebar button writes', () => {
+  it('reaches a composer that is already on screen', async () => {
+    render(<ColdStartComposer first={false} />)
+    fireEvent.change(field(), { target: { value: 'Half a thought' } })
+    expect(field().value).toBe('Half a thought')
+
+    // Exactly what `startNewTask` does: rewrite the key from outside.
+    seedDraft({ title: '' })
+    for (const listener of uiListeners) listener()
+
+    await waitFor(() => expect(field().value).toBe(''))
+    expect(box().getAttribute('data-expanded')).toBe('false')
+  })
+})
+
+describe('a retry in flight', () => {
+  it('holds the box open and offers no way to close over it', () => {
+    seedDraft({ title: 'Fix the flaky test', pendingIssueId: 'issue-half-made' })
+    render(<ColdStartComposer first={false} />)
+
+    expect(box().getAttribute('data-expanded')).toBe('true')
+    expect(screen.queryByTestId('cold-start-collapse')).toBeNull()
+  })
+
+  it('retries the created mission rather than spawning a bare session', async () => {
+    start.mockResolvedValue({ id: asIssueId('issue-half-made') })
+    seedDraft({ title: 'Fix the flaky test', pendingIssueId: 'issue-half-made' })
+    render(<ColdStartComposer first={false} />)
+    fireEvent.click(launch())
+
+    await waitFor(() => expect(start).toHaveBeenCalled())
+    expect(spawnDraftAgent).not.toHaveBeenCalled()
+    // The issue already exists; a retry must not make a second one.
+    expect(create).not.toHaveBeenCalled()
   })
 })
 

@@ -18,6 +18,7 @@ type Selector<T> = (store: unknown) => T
  *  makes the box permanently forget what was typed, which the fold now depends
  *  on (an unlaunched prompt must come back UNFOLDED). */
 const rows = new Map<string, string>()
+const listeners = new Set<() => void>()
 
 const harness = new URLSearchParams(location.search).get('agent') ?? 'claude-code'
 
@@ -56,6 +57,13 @@ const store = {
     set: (key: string, value: string | null): void => {
       if (value === null) rows.delete(key)
       else rows.set(key, value)
+      for (const listener of listeners) listener()
+    },
+    // The composer SUBSCRIBES to its draft key (POD-1469) — without this the
+    // harness box would not render a single character that was typed into it.
+    subscribe: (listener: () => void): (() => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
     },
   },
   focusIssueSession: async () => null,
