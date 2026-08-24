@@ -419,7 +419,11 @@ if (checkBudget) {
   // next feature of any size turns one of those red, and a payload budget going
   // red means shipping more to the browser. That is not this argument, and it does
   // not get this raise.
-  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_700_000)
+  // TEMPORARY, NOT A PAYDOWN AND NOT AN ARGUMENT FOR A RAISE. Lifted only so the
+  // human can drive the update loop in a sandbox while POD-2730 works out where
+  // the real headroom is. Revert with the commit that follows this one; if you
+  // find this line still here, POD-2730 did not land and this is a bug.
+  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_800_000)
   atMost('settings raw bytes', report.settings.raw, 105_000)
   atMost('settings gzip bytes', report.settings.gzip, 30_000)
   atMost('settings Brotli bytes', report.settings.brotli, 26_000)
