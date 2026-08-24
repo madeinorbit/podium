@@ -1,9 +1,10 @@
 import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
 import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { currentSkew, resetSkewNotice } from '@/app/skew-notice'
+import { currentSkew, reportSkew, resetSkewNotice } from '@/app/skew-notice'
 import { reloadBudgetSpent } from '@/lib/reload-budget'
 import {
+  checkServedAssets,
   checkServerVersion,
   forceReload,
   recoverFromWireSkew,
@@ -506,5 +507,114 @@ describe('checkServerVersion in iteration mode', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mismatched()))
     expect(await checkServerVersion(ORIGIN, false)).toBe('reloaded')
     expect(reload).toHaveBeenCalled()
+  })
+})
+
+/**
+ * BEING TOLD, RATHER THAN FINDING OUT BY FAILING (POD-2721).
+ *
+ * This is the regression for the incident. A page was open across a server
+ * version change; the wire was byte-identical on both sides, so every existing
+ * check said "fine"; and the first thing that told the page its assets had moved
+ * was a lazy import 404 that took the whole interface down.
+ *
+ * The numbers below are the sandbox's own: one commit, `a55ec3d`, built twice —
+ * the packaged `bundle+Bw5YMffE` and the dev release `bundle+CFyX4Q_p`.
+ */
+describe('checkServedAssets', () => {
+  beforeEach(() => {
+    resetSkewNotice()
+  })
+
+  const SAME_WIRE = { wireVersion: WIRE_VERSION, wireSchemaDigest: wireSchemaDigest() }
+  const serving = (bundle: string) => ({
+    ...SAME_WIRE,
+    appVersion: '0.1.1-dev.1+a55ec3d',
+    sourceDigest: 'a55ec3d',
+    web: { present: true, appVersion: '0.1.1-dev.1+a55ec3d', digest: 'a55ec3d', bundle },
+  })
+
+  it('TELLS a page whose build the server has replaced', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+CFyX4Q_p'))))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('replaced')
+    const notice = currentSkew()
+    expect(notice?.source).toBe('assets-replaced')
+    expect(notice?.message).toMatch(/reload/i)
+  })
+
+  /**
+   * The incident produced a crash in EACH direction: a page from the old build
+   * after the update landed, and a page from the new build after the coordinator
+   * rolled back onto the old one 88 seconds later. A check that only fired when
+   * the server was NEWER would have reported the first and missed the second.
+   */
+  it('tells a page the server rolled back underneath just the same', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+Bw5YMffE'))))
+    expect(await checkServedAssets(ORIGIN, 'bundle+CFyX4Q_p')).toBe('replaced')
+    expect(currentSkew()?.source).toBe('assets-replaced')
+  })
+
+  it('fires where the wire check cannot: same wire, same commit, different bytes', async () => {
+    const body = serving('bundle+CFyX4Q_p')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(body)))
+    // The guard that exists today is satisfied, and reloads nothing.
+    expect(await checkServerVersion(ORIGIN, false)).toBe('ok')
+    expect(reload).not.toHaveBeenCalled()
+    expect(currentSkew()).toBeNull()
+    // The assets check is the one that has something to say.
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('replaced')
+    expect(currentSkew()).not.toBeNull()
+  })
+
+  it('says nothing when the page is running the build the server serves', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+Bw5YMffE'))))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('ok')
+    expect(currentSkew()).toBeNull()
+  })
+
+  /**
+   * IT NEVER RELOADS. Not on `replaced`, not on anything. The page is told and
+   * the person decides — the reload loop of POD-2608 needed an automatic action
+   * to loop, and this deliberately has none.
+   */
+  it('never reloads the page by itself, however sure it is', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+CFyX4Q_p'))))
+    await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')
+    expect(reload).not.toHaveBeenCalled()
+    expect(unregister).not.toHaveBeenCalled()
+  })
+
+  it('does not spend the wire guard’s reload budget', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+CFyX4Q_p'))))
+    await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')
+    expect(store.get(COUNTER_KEY)).toBeUndefined()
+    expect(reloadBudgetSpent()).toBe(false)
+  })
+
+  /** CAN SAY NO — each of these is an unidentifiable build, and silence is the answer. */
+  it('stays quiet when the page cannot name its own bundle', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+CFyX4Q_p'))))
+    expect(await checkServedAssets(ORIGIN, undefined)).toBe('unknown')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('stays quiet against a server too old to report what it serves', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(SAME_WIRE)))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unknown')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('stays quiet when /version is unreachable rather than guessing', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unknown')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('does not shout down a live severe wire notice with a milder one', async () => {
+    reportSkew({ source: 'dropped-frames', severe: true, message: 'nothing decodes' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+CFyX4Q_p'))))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('replaced')
+    expect(currentSkew()?.severe).toBe(true)
+    expect(currentSkew()?.source).toBe('dropped-frames')
   })
 })

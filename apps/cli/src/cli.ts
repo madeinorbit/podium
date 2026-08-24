@@ -1575,6 +1575,23 @@ export async function main(
               })
             }
           : undefined,
+        /**
+         * A failed handover leaves this parent supervising under a pidfile the
+         * dead successor took with it (POD-2721). Write it back.
+         *
+         * `reclaimExisting: false` for the same reason the successor's claim
+         * uses it, arrived at from the other side: there is no live holder to
+         * reclaim — the successor has already been SIGTERMed and waited for by
+         * `abortHandover` — and a reclaim would only offer to SIGTERM whatever
+         * process happens to hold that pid now.
+         */
+        reclaimRole: async () => {
+          await registerProcess('parent', {
+            mode: resolveRunRecordMode(process.env),
+            port: plan.port,
+            reclaimExisting: false,
+          })
+        },
         onExit: async () => {
           await parentLogging.close().catch(() => {})
         },

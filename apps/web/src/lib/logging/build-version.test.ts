@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pageBuildDigest, pageBuildVersion } from './build-version'
+import { pageBuildDigest, pageBuildVersion, pageBundleVersion } from './build-version'
 
 function documentWith(head: string): Document {
   return new DOMParser().parseFromString(
@@ -61,5 +61,55 @@ describe('pageBuildDigest', () => {
 
   it('does not invent an identity when neither source can name one', () => {
     expect(pageBuildDigest(documentWith(''), undefined)).toBeUndefined()
+  })
+})
+
+/**
+ * WHICH BYTES ARE RUNNING (POD-2721).
+ *
+ * Read off the entry `<script>` the browser actually loaded rather than out of a
+ * stamped meta, because that URL is the one thing about this page that cannot be
+ * stamped wrong: it IS the request that produced the running code. The same URL
+ * appears in every crash stack.
+ */
+describe('pageBundleVersion', () => {
+  it('names the entry chunk the page was loaded from', () => {
+    expect(
+      pageBundleVersion(documentWith('<script type="module" src="/assets/index-Bw5YMffE.js"></script>')),
+    ).toBe('bundle+Bw5YMffE')
+  })
+
+  it('prefers the module entry over a hashed classic script beside it', () => {
+    expect(
+      pageBundleVersion(
+        documentWith(
+          '<script src="/assets/analytics-DEADBEEF.js"></script>' +
+            '<script type="module" src="/assets/index-Bw5YMffE.js"></script>',
+        ),
+      ),
+    ).toBe('bundle+Bw5YMffE')
+  })
+
+  it('reads the phone export, whose entry is a plain script', () => {
+    expect(
+      pageBundleVersion(
+        documentWith(
+          '<script src="/mobile/_expo/static/js/web/entry-a833d1a61f7a6d85a8c7fe49922500f0.js"></script>',
+        ),
+      ),
+    ).toBe('bundle+a833d1a61f7a6d85a8c7fe49922500f0')
+  })
+
+  /**
+   * CAN SAY NO. Vite serving source has no hashed entry, and a page that cannot
+   * name its own bundle must report that rather than a stand-in — an invented
+   * name here is a reload offered on evidence nobody has.
+   */
+  it('names nothing when the entry carries no content hash', () => {
+    expect(pageBundleVersion(documentWith('<script type="module" src="/src/main.tsx"></script>'))).toBeUndefined()
+  })
+
+  it('names nothing when the page has no entry script at all', () => {
+    expect(pageBundleVersion(documentWith(''))).toBeUndefined()
   })
 })

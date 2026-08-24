@@ -94,6 +94,14 @@ export interface UpdateInput {
   touched: { app: boolean; server: boolean; machines: boolean; phone: boolean }
   skew: SkewVerdict
   desktopUpdate?: DesktopUpdateInfo
+  /**
+   * Has the server swapped the website out from under THIS page? (POD-2721)
+   *
+   * A local staleness, not an update to start: there is nothing to install and
+   * nobody else to wait for. Only this tab is on the wrong build, and the only
+   * action is its own reload — which is exactly what `local-stale` says.
+   */
+  assetsReplaced?: boolean
 }
 
 function machineLabel(count: number): string {
@@ -553,6 +561,25 @@ export function describeUpdate(input: UpdateInput): UpdateView {
   const required =
     input.skew !== 'ok' || target?.critical === true || input.desktopUpdate?.critical === true
   const places = placesFor(input)
+  /**
+   * THE PAGE'S OWN STALENESS, WHEN NOTHING ELSE IS OWED (POD-2721).
+   *
+   * After a successful update the fleet is converged and there is genuinely
+   * nothing to offer — which is why this used to end at `none` while the tab in
+   * front of the user was running a build the server had already deleted. The
+   * remedy is not an update; it is this tab's reload.
+   *
+   * NAMED FROM WHAT THE SERVER SERVES, not from the target. The rollback case is
+   * the one that proves it matters: the target was still the dev release the
+   * coordinator had abandoned, so "Podium 0.1.1-dev.1+a55ec3d is ready here"
+   * would have named a build that reloading provably does not produce.
+   */
+  if (places.length === 0 && input.assetsReplaced === true) {
+    return {
+      state: 'local-stale',
+      version: input.server.web?.appVersion ?? input.server.appVersion ?? version,
+    }
+  }
   if (!required && places.length === 0) return { state: 'none' }
   if (input.fleet.startability?.startable === false && input.desktopUpdate === undefined) {
     return required && input.touched.app ? { state: 'local-stale', version } : { state: 'none' }

@@ -1,9 +1,24 @@
 import { reportCrash } from '@podium/client-core/logging'
 import { createLogger } from '@podium/logger'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { checkServedAssets } from '@/features/setup/version-guard'
 import { AppErrorPage, formatAppError } from './AppErrorPage'
+import { looksLikeChunkLoadFailure } from './chunk-load-failure'
+import { serverConfig } from './trpc'
 
 const log = createLogger('web:boundary')
+
+/**
+ * Ask the server whether it has swapped the website out from under this page.
+ *
+ * Injected so the test can answer without a network, and defaulted here rather
+ * than threaded through `AppShell` so every boundary — including any added later
+ * — gets the behaviour without a prop nobody remembers to pass.
+ */
+export type AssetsReplacedProbe = () => Promise<boolean>
+
+const askTheServer: AssetsReplacedProbe = async () =>
+  (await checkServedAssets(serverConfig(window.location).httpOrigin)) === 'replaced'
 
 /**
  * Catches RENDER crashes (a component threw during render/effects) and shows an
@@ -18,13 +33,24 @@ export class ErrorBoundary extends Component<
     resetKey: string
     onRetry?: () => void
     onError?: (message: string) => void
+    /** Injected for the test; production asks the real server. */
+    probeAssetsReplaced?: AssetsReplacedProbe
   },
-  { message: string | null }
+  { message: string | null; assetsReplaced: boolean }
 > {
-  override state = { message: null }
+  override state: { message: string | null; assetsReplaced: boolean } = {
+    message: null,
+    assetsReplaced: false,
+  }
+
+  private alive = true
 
   static getDerivedStateFromError(error: unknown): { message: string } {
     return { message: formatAppError(error) }
+  }
+
+  override componentWillUnmount(): void {
+    this.alive = false
   }
 
   /**
@@ -37,19 +63,78 @@ export class ErrorBoundary extends Component<
    */
   override componentDidCatch(error: unknown, info: ErrorInfo): void {
     const componentStack = info.componentStack ?? undefined
-    log.error(formatAppError(error), { err: error, componentStack })
+    const message = formatAppError(error)
+    log.error(message, { err: error, componentStack })
     reportCrash(error, { source: 'error-boundary', ...(componentStack ? { componentStack } : {}) })
-    this.props.onError?.(formatAppError(error))
+    this.props.onError?.(message)
+
+    /**
+     * A CHUNK THAT WOULD NOT LOAD IS A QUESTION, NOT AN ANSWER (POD-2721).
+     *
+     * The crash the human hit was a lazily-imported route whose file the server
+     * had deleted during an update. Presenting that as "the interface stopped"
+     * beside a bug-report console is technically true and useless: nothing is
+     * broken, the app simply moved, and the reload button on that page is the
+     * whole fix — it is just not labelled as one.
+     *
+     * What this must NOT do is treat the failure itself as permission to act. A
+     * chunk can also fail because the network blinked, or because the server has
+     * a real asset-serving bug — and a page that reloaded on any chunk 404 would
+     * hide that bug behind a loop nobody can break out of, which is exactly the
+     * bill POD-2608 already paid. So the failure only earns a QUESTION, put to
+     * the one party that can answer it: is what you are serving still what I am
+     * running? Only a yes changes the screen, and even then it changes the words
+     * and the button — it never reloads by itself.
+     */
+    if (!looksLikeChunkLoadFailure(message)) return
+    const probe = this.props.probeAssetsReplaced ?? askTheServer
+    void probe()
+      .then((replaced) => {
+        if (replaced && this.alive) this.setState({ assetsReplaced: true })
+      })
+      .catch(() => {
+        // An unanswerable question leaves the honest crash page in place.
+      })
   }
 
   override componentDidUpdate(prevProps: Readonly<{ resetKey: string }>): void {
     if (prevProps.resetKey !== this.props.resetKey && this.state.message) {
-      this.setState({ message: null })
+      this.setState({ message: null, assetsReplaced: false })
     }
   }
 
   override render(): ReactNode {
     if (this.state.message) {
+      /**
+       * The server has confirmed it is serving a different build. Say THAT — an
+       * app that moved, not an app that broke — and make the reload the point of
+       * the screen rather than the recovery from a bug report.
+       */
+      if (this.state.assetsReplaced) {
+        return (
+          <AppErrorPage
+            title={'Podium was updated.\nThis page is the old one.'}
+            eyebrow="Interface / replaced"
+            message={
+              <>
+                The server is now serving a different build of Podium, so part of this page could
+                not be loaded.{' '}
+                <strong style={{ fontWeight: 600, color: 'var(--text-strong, var(--foreground))' }}>
+                  Nothing has gone wrong and nothing has been lost
+                </strong>{' '}
+                — reload to pick up the build the server is serving.
+              </>
+            }
+            trace={{ from: 'this page', to: 'the server’s build' }}
+            fields={[
+              { label: 'Agents', value: 'still running' },
+              { label: 'Your work', value: 'safe on the host' },
+              { label: 'This page', value: 'a replaced build', tone: 'fault' },
+            ]}
+            detail={`A code file this page asked for is no longer on the server: ${this.state.message}`}
+          />
+        )
+      }
       return (
         <AppErrorPage
           // The headline carries the reassurance, because the operator's real

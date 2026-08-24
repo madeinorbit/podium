@@ -11,6 +11,7 @@ import {
   MIN_SUPPORTED_VERSION,
   type MobileWebIdentity,
   PeerHelloReply,
+  type ServedWebIdentity,
   type UpdateTarget,
   WIRE_VERSION,
   wireSchemaDigest,
@@ -281,6 +282,20 @@ export function registerVersionRoute(
      * from one whose phone export is missing — both mean "nothing to say here".
      */
     mobileWeb?: () => MobileWebIdentity
+    /**
+     * The desktop website on disk — the one a browser pointed at this origin is
+     * running (POD-2721).
+     *
+     * Read per request, and for the same reason the phone's is: this server can
+     * be handed a new dist without restarting, and an identity captured at boot
+     * would keep naming the build it replaced. That freshness is the whole
+     * point — an open page asks this to find out its own assets have moved.
+     *
+     * Reported even when `present` is false, unlike `mobileWeb`: "there is no
+     * website here" is an answer a page can use (it is not being served by this
+     * server), whereas silence is not.
+     */
+    web?: () => ServedWebIdentity
     /** Parent health gate + settings: is the local daemon connected? */
     daemonConnected?: () => boolean
     /** Janitor co-host status for DEGRADED projection [POD-2505]. */
@@ -307,6 +322,12 @@ export function registerVersionRoute(
     } catch {
       mobileWeb = undefined
     }
+    let web: ServedWebIdentity | undefined
+    try {
+      web = deps.web?.()
+    } catch {
+      web = undefined
+    }
     const sourceDigest = deps.sourceDigest?.()
     const daemonConnected = deps.daemonConnected?.() === true
     const janitor = deps.janitor?.()
@@ -332,6 +353,7 @@ export function registerVersionRoute(
       components,
       ...(target ? { target } : {}),
       ...(mobileWeb?.present ? { mobileWeb } : {}),
+      ...(web ? { web } : {}),
     })
   })
 }
@@ -689,6 +711,29 @@ export async function startServer(
           connected: (machineId) => registry.modules.bus.emit('machine.connected', { machineId }),
         })
       : undefined
+  /**
+   * SAY WHEN THIS MACHINE IS ABOUT TO VANISH FROM ITS OWN FLEET (POD-2721).
+   *
+   * Declining the participant is not only "no updates here". The participant is
+   * also what reports this machine's build and what makes it count as `online`,
+   * so a coordinator that skips it keeps whatever version it last managed to
+   * report and shows `online: false` for the rest of its uptime — which is
+   * exactly how the incident looked from the fleet table, and which took a
+   * process listing and a pidfile to explain.
+   *
+   * A packaged coordinator declining is the surprising case and the one worth a
+   * warning; a source checkout is the documented shape and stays at debug.
+   */
+  if (localUpdateParticipant === undefined) {
+    const why = developmentRuntime.runningFromSource
+      ? 'this coordinator runs from source'
+      : process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1'
+        ? 'the local participant is disabled for this run'
+        : 'no supervising parent is discoverable in the run registry'
+    const note = `this machine will not report its build or appear online in its own fleet: ${why}`
+    if (developmentRuntime.runningFromSource) log.debug(note)
+    else log.warn(note)
+  }
 
   /**
    * ADOPT WHATEVER THE PREVIOUS PROCESS WAS DOING (POD-2097/POD-2098, spec §3.4).
@@ -800,6 +845,7 @@ export async function startServer(
     // update offer returned here.
     updateTarget: async () => registry.modules.updates.advertisedTarget(hostMachineId),
     mobileWeb: () => servedWebIdentity(phoneWebDir()),
+    web: () => servedWebIdentity(desktopWebDir()),
     /**
      * THIS HOST's daemon, not "any daemon anywhere". The parent's handover
      * health gate (disposition 24) asks whether the LOCAL daemon reached the new

@@ -150,6 +150,22 @@ export interface ParentProcessDeps {
    * a predecessor that is still supervising a serving stack.
    */
   claimRole?: () => Promise<void> | void
+  /**
+   * Take the `parent` role BACK after an aborted handover (POD-2721).
+   *
+   * The record is how everything else discovers that a supervisor exists, and a
+   * successor that claimed it and then died took it to the grave: its exit
+   * cleanup removes the pidfile, and this process — alive, and supervising a
+   * serving stack — is left anonymous. The server then reads no live parent,
+   * refuses to register a local update participant, and the coordinator drops
+   * out of its own fleet as offline until someone restarts it by hand.
+   *
+   * Distinct from {@link claimRole}, which is a SUCCESSOR's one-time claim after
+   * its boot gate. This one belongs to the process that never stopped being the
+   * supervisor, so it must not reclaim (there is nobody to terminate) — it
+   * simply writes the truth back.
+   */
+  reclaimRole?: () => Promise<void> | void
   /** Called on the way out so the composition root can flush its own logging. */
   onExit?: (code: number) => Promise<void> | void
   /** Test seam; production terminates the process. */
@@ -1003,6 +1019,28 @@ export class ParentProcess {
     if (this.mainPidDeclared) {
       this.deps.notify(`MAINPID=${process.pid}`)
       this.mainPidDeclared = false
+    }
+    /**
+     * TAKE THE NAME BACK BEFORE ANYTHING ELSE (POD-2721).
+     *
+     * MAINPID above points systemd back at this process; this points the rest of
+     * Podium back at it. The successor claimed the `parent` pidfile on its way
+     * up and its exit cleanup deleted it on the way down, so unless this parent
+     * re-registers, the machine spends the rest of its uptime supervised by a
+     * process nothing can find — and a coordinator nothing can find reports no
+     * build and shows as offline in its own fleet.
+     *
+     * FIRST, because it is the fact every later step assumes: the children this
+     * method is about to respawn will read it during their own boot.
+     *
+     * AND NEVER FATAL. A failed write is a discovery problem; refusing to resume
+     * supervision over it would be an outage. The stack comes back either way,
+     * and the failure is logged where an operator can see it.
+     */
+    try {
+      await this.deps.reclaimRole?.()
+    } catch (error) {
+      log.error('could not take the parent role back after a failed handover', { err: error })
     }
     const decision = oldBundlePresent(this.installDir)
       ? rollbackDecision({

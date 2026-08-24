@@ -24,6 +24,7 @@
  */
 import {
   buildsDiffer,
+  classifyAssets,
   classifySkew,
   isDevChannelVersion,
   type Operation,
@@ -37,7 +38,7 @@ import {
 } from '@podium/protocol'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isServerUnavailable, makeTrpc } from '@/app/trpc'
-import { pageBuildDigest, pageBuildVersion } from '@/lib/logging/build-version'
+import { pageBuildDigest, pageBuildVersion, pageBundleVersion } from '@/lib/logging/build-version'
 import {
   isNativeDesktopUpdateError,
   type NativeDesktopUpdateChannel,
@@ -590,6 +591,11 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const serverBehind = server.installKind !== 'source' && serverDiffers
   const phoneStale = targetWebDigest !== undefined && phoneBehind(server, targetWebDigest)
   const skew = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
+  /**
+   * Is the website this page was loaded from still the one being served?
+   * (POD-2721 — see `behind` below for why this is a fact of its own.)
+   */
+  const assets = classifyAssets(server, { bundle: pageBundleVersion() })
 
   const touched = target
     ? computeTouched({
@@ -619,6 +625,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     touched,
     skew,
     ...(desktopUpdate ? { desktopUpdate } : {}),
+    ...(assets === 'replaced' ? { assetsReplaced: true } : {}),
   }
   /**
    * A manual check is the one time the panel says "nothing to do". It is asked
@@ -642,6 +649,31 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    * served dist, which is the server's business and is already a step of the
    * operation. A service worker holding a newer build is the same fact arriving
    * by another route.
+   *
+   * -------------------------------------------------------------------------
+   * WHY THE SERVED BUNDLE IS ONE OF THE REASONS (POD-2721)
+   * -------------------------------------------------------------------------
+   *
+   * The operation comparison below is the RIGHT question asked with a currency
+   * that cannot always answer it. `buildsDiffer` reads source digests first, so
+   * two builds of ONE commit are equal to it — and the first successful
+   * end-to-end update was exactly that: a packaged `0.1.1-edge.2` replaced by a
+   * dev release `0.1.1-dev.1+a55ec3d`, both from `a55ec3d`. It said "not behind"
+   * about a page whose every unloaded chunk had just been deleted, and the panel
+   * offered nothing until the interface crashed. That digest short-circuit is
+   * POD-2608's fix for the opposite failure and it stays; what it needed was a
+   * fact of its own currency.
+   *
+   * Two other things the served bundle fixes, both structural:
+   *
+   *  - IT DOES NOT NEED AN OPERATION. Every route to a reload used to run
+   *    through `operation.details.target`, so a tab that was not watching the
+   *    update — a second window, a phone, a tab opened afterwards — could not be
+   *    told at all. What the server is serving is a fact about the server, and
+   *    every tab reads the same one.
+   *  - IT IS SYMMETRIC. `replaced` is an inequality, not an ordering, so a page
+   *    stranded by a ROLLBACK is offered the same reload as one stranded by an
+   *    update. POD-2721 produced one crash of each kind, ninety seconds apart.
    */
   const operationTarget = (
     operation?.details as
@@ -652,6 +684,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const behind =
     options.needRefresh ||
     skew !== 'ok' ||
+    assets === 'replaced' ||
     (operationTargetVersion !== undefined &&
       buildsDiffer(
         { version: localVersion, digest: pageBuildDigest() },

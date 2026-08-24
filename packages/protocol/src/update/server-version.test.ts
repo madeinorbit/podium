@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifySkew, parseServerVersion } from './server-version'
+import { classifyAssets, classifySkew, parseServerVersion, type ServerVersion } from './server-version'
 
 const full = {
   appVersion: '0.4.2',
@@ -94,5 +94,76 @@ describe('classifySkew', () => {
   it('prefers the version verdict over the digest verdict', () => {
     const v = parseServerVersion({ ...full, wireVersion: 1, wireSchemaDigest: 'different' })
     expect(classifySkew(v, local)).toBe('client-too-new')
+  })
+})
+
+/**
+ * THE FACT THAT MOVED IN POD-2721, in the numbers the sandbox actually reported.
+ *
+ * Two builds of the SAME commit `a55ec3d` were served in turn — the packaged
+ * `0.1.1-edge.2` (`bundle+Bw5YMffE`) and the dev release `0.1.1-dev.1+a55ec3d`
+ * (`bundle+CFyX4Q_p`). A source-digest comparison sees one commit and says
+ * "fine"; the wire schema is byte-identical in both, so `classifySkew` says
+ * "fine" too. The only field that moved is the one that decides whether a
+ * loaded page's chunk URLs still resolve.
+ */
+describe('classifyAssets', () => {
+  const served = (bundle: string): ServerVersion =>
+    parseServerVersion({
+      ...full,
+      appVersion: '0.1.1-dev.1+a55ec3d',
+      sourceDigest: 'a55ec3d',
+      web: { present: true, appVersion: '0.1.1-dev.1+a55ec3d', digest: 'a55ec3d', bundle },
+    })
+
+  it('calls the page replaced when the served entry chunk is a different build', () => {
+    expect(classifyAssets(served('bundle+CFyX4Q_p'), { bundle: 'bundle+Bw5YMffE' })).toBe('replaced')
+  })
+
+  it('is symmetric, because a rollback replaces the page just as an update does', () => {
+    expect(classifyAssets(served('bundle+Bw5YMffE'), { bundle: 'bundle+CFyX4Q_p' })).toBe('replaced')
+  })
+
+  it('says ok when the page is running the bundle the server serves', () => {
+    expect(classifyAssets(served('bundle+Bw5YMffE'), { bundle: 'bundle+Bw5YMffE' })).toBe('ok')
+  })
+
+  it('would have missed the incident on source digest alone', () => {
+    const server = served('bundle+CFyX4Q_p')
+    // Same commit on both ends — the reason nothing fired.
+    expect(server.sourceDigest).toBe('a55ec3d')
+    expect(server.web?.digest).toBe('a55ec3d')
+    expect(classifySkew(server, { wire: 2, digest: 'abc123' })).toBe('ok')
+    // And yet the page's assets are gone.
+    expect(classifyAssets(server, { bundle: 'bundle+Bw5YMffE' })).toBe('replaced')
+  })
+
+  /**
+   * NEVER MANUFACTURE A RELOAD. Each of these is a build we cannot identify, and
+   * an unidentifiable build must not be reported as replaced — that is how a
+   * reload offer becomes a reload offer nobody can clear (POD-2608).
+   */
+  it('is unknown when the page cannot name its own bundle', () => {
+    expect(classifyAssets(served('bundle+CFyX4Q_p'), { bundle: undefined })).toBe('unknown')
+  })
+
+  it('is unknown when the server does not report a served bundle', () => {
+    expect(classifyAssets(parseServerVersion(full), { bundle: 'bundle+Bw5YMffE' })).toBe('unknown')
+  })
+
+  it('is unknown when the server serves no website at all', () => {
+    const apiOnly = parseServerVersion({ ...full, web: { present: false } })
+    expect(classifyAssets(apiOnly, { bundle: 'bundle+Bw5YMffE' })).toBe('unknown')
+  })
+
+  it('is unknown when the served website is present but unstamped', () => {
+    const unstamped = parseServerVersion({ ...full, web: { present: true } })
+    expect(classifyAssets(unstamped, { bundle: 'bundle+Bw5YMffE' })).toBe('unknown')
+  })
+
+  it('survives a served-web payload it cannot parse rather than losing the version', () => {
+    const parsed = parseServerVersion({ ...full, web: { present: 'yes please' } })
+    expect(parsed.appVersion).toBe(full.appVersion)
+    expect(classifyAssets(parsed, { bundle: 'bundle+Bw5YMffE' })).toBe('unknown')
   })
 })

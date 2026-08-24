@@ -17,7 +17,7 @@ import {
 import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
-import { recoverFromWireSkew } from '@/features/setup/version-guard'
+import { checkServedAssets, recoverFromWireSkew } from '@/features/setup/version-guard'
 import { vpsIntroState } from '@/features/setup/vps-activation'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
@@ -150,6 +150,36 @@ function KernelHubAttach({
       }),
     [hub, httpOrigin],
   )
+  /**
+   * THE MOMENT THE ASSETS CAN HAVE MOVED (POD-2721).
+   *
+   * A server cannot swap the website it serves without going away and coming
+   * back, so a socket that dropped and reconnected is the exact — and only —
+   * instant worth re-asking "am I still the app you are serving?". That makes
+   * this free: no polling, no timer, one `/version` read per genuine outage.
+   *
+   * It is also the answer to the awkward part of this problem, which is that a
+   * page cannot ask the server what to do when the server it was talking to has
+   * just been replaced. It does not have to. It only has to notice that what it
+   * reconnected TO is not what it was loaded FROM, and the reconnect is where
+   * that becomes askable again.
+   *
+   * DOWN AND BACK, not merely `ok`: `onConnectionHealth` replays the current
+   * health on subscribe and re-emits on rtt changes, and re-reading `/version`
+   * on every one of those would be a poll wearing a callback's clothes.
+   */
+  useEffect(() => {
+    let wasDown = false
+    return hub.onConnectionHealth((health) => {
+      if (health.status === 'down') {
+        wasDown = true
+        return
+      }
+      if (health.status !== 'ok' || !wasDown) return
+      wasDown = false
+      void checkServedAssets(httpOrigin)
+    })
+  }, [hub, httpOrigin])
   return null
 }
 

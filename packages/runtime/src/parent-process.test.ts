@@ -723,6 +723,189 @@ describe('ParentProcess', () => {
       expect(outcome?.outcome).toBe('rollback-unavailable')
       expect(outcome?.why).toMatch(/migrations/)
     })
+
+    /**
+     * THE COORDINATOR THAT NEVER CAME BACK ONLINE (POD-2721).
+     *
+     * The `parent` pidfile is how the rest of Podium discovers that a
+     * supervisor exists. A successor claims it once its own boot gate passes,
+     * and removes it again when it exits — correct on its own terms, and
+     * catastrophic in combination: after an aborted handover the successor is
+     * dead, its exit cleanup has deleted the record, and THIS parent is alive
+     * and supervising a serving stack under no name at all.
+     *
+     * What that costs is not cosmetic. The server reads `liveRecord('parent')`
+     * to decide whether it can take an update at all; finding nothing, it starts
+     * no local update participant, never reports its build, and is counted
+     * offline in its own fleet. The sandbox showed exactly that: parent 2859
+     * alive since 13:32, `run/` holding `server.pid` and nothing else, and the
+     * coordinator's row frozen at the version it had briefly run at 13:46:08
+     * with `online: false` for as long as it stays up.
+     *
+     * The invariant is one sentence: the `parent` record names whoever is
+     * actually supervising. A handover moves it forward; an abort must move it
+     * back.
+     */
+    it('takes the parent role back when it reclaims supervision', async () => {
+      const claims: string[] = []
+      const { install, state } = installDirs('2.0.0')
+      const clock = fakeClock()
+      const kids: FakeChild[] = []
+      let nextPid = 900
+      const spawnImpl: SpawnChildFn = (_cmd, args) => {
+        const child = new FakeChild(nextPid++)
+        if (args[0] === 'server') kids.push(child)
+        return child as unknown as ReturnType<SpawnChildFn>
+      }
+      const parent = track(
+        new ParentProcess({
+          port: 19099,
+          installDir: install,
+          stateDir: state,
+          installBinary: join(install, 'podium'),
+          children: ['server'],
+          env: { PODIUM_APP_VERSION: '2.0.0', NOTIFY_SOCKET: '/dev/null' },
+          releaseHadMigrations: false,
+          spawn: spawnImpl,
+          probeHealth: async () => healthy('2.0.0'),
+          notify: () => {},
+          sleep: async () => clock.advance(250),
+          now: clock.now,
+          exit: () => {},
+          claimRole: () => {
+            claims.push('boot')
+          },
+          reclaimRole: () => {
+            claims.push('abort')
+          },
+        }),
+      )
+      await parent.start()
+      retainBackup(install, '1.0.0')
+      for (const kid of kids.splice(0)) kid.die(0, 'SIGTERM')
+      expect(claims, 'the boot gate claims the role once').toEqual(['boot'])
+
+      await expect(parent.handover('9.9.9')).rejects.toThrow(/handover timed out/)
+
+      expect(claims, 'the abort must take the role back').toEqual(['boot', 'abort'])
+      // And it is genuinely supervising again, which is what the record claims.
+      expect(kids.length).toBeGreaterThan(0)
+      expect(parent.snapshot().phase).toBe('running')
+    })
+
+    it('takes it back even when migrations forbid the rollback', async () => {
+      const claims: string[] = []
+      const { install } = installDirs('2.0.0')
+      const clock = fakeClock()
+      const kids: FakeChild[] = []
+      let nextPid = 900
+      const spawnImpl: SpawnChildFn = (_cmd, args) => {
+        const child = new FakeChild(nextPid++)
+        if (args[0] === 'server') kids.push(child)
+        return child as unknown as ReturnType<SpawnChildFn>
+      }
+      const parent = track(
+        new ParentProcess({
+          port: 19099,
+          installDir: install,
+          installBinary: join(install, 'podium'),
+          children: ['server'],
+          env: { PODIUM_APP_VERSION: '2.0.0', NOTIFY_SOCKET: '/dev/null' },
+          releaseHadMigrations: true,
+          spawn: spawnImpl,
+          probeHealth: async () => healthy('2.0.0'),
+          notify: () => {},
+          sleep: async () => clock.advance(250),
+          now: clock.now,
+          exit: () => {},
+          reclaimRole: () => {
+            claims.push('abort')
+          },
+        }),
+      )
+      await parent.start()
+      retainBackup(install, '1.0.0')
+      for (const kid of kids.splice(0)) kid.die(0, 'SIGTERM')
+
+      await expect(parent.handover('9.9.9')).rejects.toThrow(/handover timed out/)
+
+      // A parent that cannot roll back is still the supervisor, and still the
+      // only process that can be asked to restart this machine.
+      expect(claims).toEqual(['abort'])
+      expect(parent.snapshot().phase).toBe('degraded')
+    })
+
+    /** A handover that SUCCEEDS hands the role on; the outgoing parent must not grab it back. */
+    it('does not take the role back when the handover completes', async () => {
+      const claims: string[] = []
+      const clock = fakeClock()
+      let nextPid = 500
+      const spawnImpl: SpawnChildFn = () =>
+        new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>
+      const exits: number[] = []
+      const parent = track(
+        new ParentProcess({
+          port: 19099,
+          installDir: '/opt/podium',
+          installBinary: '/opt/podium/podium',
+          env: { PODIUM_APP_VERSION: '1.0.0' },
+          spawn: spawnImpl,
+          probeHealth: async () => healthy('2.0.0'),
+          notify: () => {},
+          sleep: async () => clock.advance(250),
+          now: clock.now,
+          exit: (code) => exits.push(code),
+          reclaimRole: () => {
+            claims.push('abort')
+          },
+        }),
+      )
+      await parent.start()
+      await parent.handover('2.0.0')
+
+      expect(exits).toEqual([0])
+      expect(claims, 'the successor owns the role now').toEqual([])
+    })
+
+    /** An abort that cannot re-register is still an abort: supervision comes first. */
+    it('resumes supervision even when re-registering fails', async () => {
+      const { install } = installDirs('2.0.0')
+      const clock = fakeClock()
+      const kids: FakeChild[] = []
+      let nextPid = 900
+      const spawnImpl: SpawnChildFn = (_cmd, args) => {
+        const child = new FakeChild(nextPid++)
+        if (args[0] === 'server') kids.push(child)
+        return child as unknown as ReturnType<SpawnChildFn>
+      }
+      const parent = track(
+        new ParentProcess({
+          port: 19099,
+          installDir: install,
+          installBinary: join(install, 'podium'),
+          children: ['server'],
+          env: { PODIUM_APP_VERSION: '2.0.0', NOTIFY_SOCKET: '/dev/null' },
+          releaseHadMigrations: false,
+          spawn: spawnImpl,
+          probeHealth: async () => healthy('2.0.0'),
+          notify: () => {},
+          sleep: async () => clock.advance(250),
+          now: clock.now,
+          exit: () => {},
+          reclaimRole: () => {
+            throw new Error('run dir is read-only')
+          },
+        }),
+      )
+      await parent.start()
+      retainBackup(install, '1.0.0')
+      for (const kid of kids.splice(0)) kid.die(0, 'SIGTERM')
+
+      await expect(parent.handover('9.9.9')).rejects.toThrow(/handover timed out/)
+
+      expect(kids.length, 'the children must come back regardless').toBeGreaterThan(0)
+      expect(parent.snapshot().phase).toBe('running')
+    })
   })
 
   it('a successor boots under handover_incoming with the expected version', () => {

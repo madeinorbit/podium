@@ -1,6 +1,8 @@
 import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
 import {
+  type AssetVerdict,
+  classifyAssets,
   classifySkew,
   parseServerVersion,
   type ServerVersion,
@@ -10,6 +12,7 @@ import {
 } from '@podium/protocol'
 import { reportSkew } from '@/app/skew-notice'
 import { isIterationMode } from '@/lib/iteration-mode'
+import { pageBundleVersion } from '@/lib/logging/build-version'
 import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/lib/reload-budget'
 
 /**
@@ -261,6 +264,100 @@ export async function checkServerVersion(
   await forceReload()
   return 'reloaded'
 }
+
+/**
+ * THE SENTENCE A PAGE IS OWED BEFORE ITS ASSETS RUN OUT (POD-2721).
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS NOT `checkServerVersion`
+ * ---------------------------------------------------------------------------
+ *
+ * That check is about the WIRE. It asks whether this bundle can still read what
+ * this server sends, and in the incident this exists for the answer was yes: the
+ * wire version and the schema digest were byte-identical across the swap, so it
+ * looked, correctly, at a perfectly compatible pair and said nothing. Meanwhile
+ * every lazy chunk the page had not yet fetched had been deleted from the
+ * server's disk, and the first thing that told the page so was a failed dynamic
+ * import that took the interface down.
+ *
+ * Those are two different disagreements and they need two different checks. This
+ * one compares the entry chunk the page was loaded from against the entry chunk
+ * the server is serving now — see `classifyAssets` — which is the only pair that
+ * answers "are the URLs I am holding still there?".
+ *
+ * ---------------------------------------------------------------------------
+ * WHY IT ONLY TELLS
+ * ---------------------------------------------------------------------------
+ *
+ * It never reloads, and it never touches the wire guard's reload budget.
+ *
+ * A page in this state is not broken; it is INCOMPLETE. Everything already
+ * loaded still works and the socket has reconnected, so taking the tab away
+ * would discard a half-written message to solve a problem the person may not
+ * meet for an hour. And an automatic action is the one ingredient POD-2608's
+ * unclearable reload loop required — a banner cannot loop, because a render is
+ * not an attempt.
+ *
+ * The escalation belongs where the cost changes: once a chunk really does fail,
+ * the page is already showing a crash screen with nothing left to lose, and
+ * THERE the reload is the primary button (see `AppErrorPage`). Quiet while it
+ * costs nothing; one click exactly when it costs something.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY IT ASKS `/version` RATHER THAN THE PAGE'S OWN STAMP
+ * ---------------------------------------------------------------------------
+ *
+ * A page cannot answer this from anything it fetches for itself: `/podium-build.json`
+ * returns whatever is on disk NOW, which after a swap is the build that replaced
+ * it — the page would be comparing the new build against itself. Only the server
+ * can name the bytes it is currently handing out. The page's half of the pair
+ * comes from its own `<script>` element, which is the one fact about it that no
+ * later swap can move.
+ */
+export async function checkServedAssets(
+  httpOrigin: string,
+  /** Injected for the test; production reads the entry script off this document. */
+  page: string | undefined = pageBundleVersion(),
+): Promise<AssetVerdict> {
+  let server: ReturnType<typeof parseServerVersion>
+  try {
+    const res = await fetch(`${httpOrigin}/version`)
+    server = parseServerVersion(await res.json())
+  } catch {
+    // An unreachable `/version` is not evidence of anything. Say nothing.
+    return 'unknown'
+  }
+
+  const verdict = classifyAssets(server, { bundle: page })
+  if (verdict !== 'replaced') return verdict
+
+  log.warn('served web bundle has been replaced under this page', {
+    page,
+    served: server.web?.bundle,
+    servedVersion: server.web?.appVersion,
+  })
+  reportSkew({
+    source: 'assets-replaced',
+    // Not severe: what has already loaded still works. The wording carries the
+    // whole of the warning, and overstating it here would outrank a genuine
+    // "nothing decodes" notice that deserves the louder banner.
+    severe: false,
+    message: ASSETS_REPLACED_SENTENCE,
+  })
+  return 'replaced'
+}
+
+/**
+ * Direction-neutral on purpose. The incident produced a crash in each direction
+ * — a page from the old build after the update landed, and a page from the new
+ * build after the coordinator rolled back onto the old one 88 seconds later —
+ * so "updated" would be the wrong word half the time. What is always true is
+ * that the two are no longer the same app.
+ */
+export const ASSETS_REPLACED_SENTENCE =
+  'Podium’s server is now serving a different app build than this page is running. ' +
+  'Anything this page has not already loaded will fail. Reload to pick up the build ' +
+  'the server is serving.'
 
 /**
  * THE TAB THAT CANNOT PRESS ITS OWN BUTTON (POD-2253).

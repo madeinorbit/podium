@@ -7,7 +7,7 @@ import { SetupStaleBuild } from './SetupStaleBuild'
 import { SetupUnreachable } from './SetupUnreachable'
 import { isTooOldForLocalData, localBuildStamp } from './local-build-guard'
 import { restartPodiumShell } from './restart-shell'
-import { checkServerVersion } from './version-guard'
+import { checkServedAssets, checkServerVersion } from './version-guard'
 
 const SetupView = lazy(() =>
   import('./SetupView').then((module) => ({ default: module.SetupView })),
@@ -216,6 +216,18 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
     checkServerVersion(httpOrigin).then((result) => {
       if (alive && result !== 'reloaded') run(0)
     })
+
+    /**
+     * AND THE OTHER HALF OF "IS THIS THE SAME APP" (POD-2721): the wire may
+     * match perfectly while the served website has been swapped out from under
+     * this page. Separate, deliberately unawaited, and it never reloads — it
+     * only raises the banner — so it cannot delay or divert the gate above.
+     *
+     * Worth doing at boot as well as on reconnect, because a tab restored from
+     * the browser's back-forward cache boots against whatever the server
+     * happens to be serving now.
+     */
+    void checkServedAssets(httpOrigin)
 
     return () => {
       alive = false

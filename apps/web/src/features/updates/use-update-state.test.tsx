@@ -6,7 +6,7 @@
  * The states themselves are table-tested in `operation-view.test.ts` — this file
  * is deliberately about the wiring, not the copy.
  */
-import type { UpdateTarget } from '@podium/protocol'
+import type { ServedWebIdentity, UpdateTarget } from '@podium/protocol'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -88,6 +88,8 @@ function setupTransport(
     installKind?: 'installed' | 'source'
     sourceDigest?: string
     target?: UpdateTarget
+    /** What this server says it is serving right now (POD-2721). */
+    web?: ServedWebIdentity
   } = {
     appVersion: '0.4.1',
     target,
@@ -181,6 +183,23 @@ function setPageDigest(digest: string): void {
   document.head.append(meta)
 }
 
+/**
+ * The entry chunk this page was loaded from — the real `<script>`, because that
+ * is where the app reads it from (POD-2721).
+ */
+function setPageBundle(entrySrc: string): void {
+  document.head.querySelector('script[data-page-entry]')?.remove()
+  const script = document.createElement('script')
+  script.setAttribute('type', 'module')
+  script.setAttribute('src', entrySrc)
+  script.setAttribute('data-page-entry', '')
+  document.head.append(script)
+}
+
+function clearPageBundle(): void {
+  document.head.querySelector('script[data-page-entry]')?.remove()
+}
+
 afterEach(() => {
   cleanup()
   // The poll cache is process-wide by design, so one test's answer would
@@ -193,6 +212,7 @@ afterEach(() => {
   globalThis.localStorage?.clear()
   document.head.querySelector('meta[name="podium-version"]')?.remove()
   document.head.querySelector('meta[name="podium-source-digest"]')?.remove()
+  clearPageBundle()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
@@ -1053,5 +1073,174 @@ describe('useUpdateState — dispatching actions', () => {
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('done'))
     expect(results.at(-1)?.view.title).toBe('Podium is up to date')
     expect(results.at(-1)?.view.indicator).toBe('none')
+  })
+})
+
+/**
+ * THE OFFER THAT NEVER CAME (POD-2721).
+ *
+ * The human's first successful end-to-end update, in the sandbox's own numbers.
+ * One commit, `a55ec3d`, built twice: the packaged `0.1.1-edge.2`
+ * (`bundle+Bw5YMffE`) and the dev release `0.1.1-dev.1+a55ec3d`
+ * (`bundle+CFyX4Q_p`). The update finished, the server swapped to the dev
+ * release, and the panel offered nothing.
+ *
+ * WHY IT OFFERED NOTHING, precisely: `behind` asks `buildsDiffer`, which
+ * compares SOURCE DIGESTS first and only falls through to versions when a digest
+ * is missing. Both sides named `a55ec3d`, so it returned false and the panel
+ * reported the page as current. That short-circuit is POD-2608's fix for the
+ * OPPOSITE failure — a reload offered forever against a build that already
+ * matched — and here it suppressed a true one.
+ *
+ * The bundle is the fact neither of them has: same commit, different bytes,
+ * different chunk URLs.
+ */
+describe('a page whose assets the server has replaced', () => {
+  const devRelease: UpdateTarget = {
+    version: '0.1.1-dev.1+a55ec3d',
+    critical: false,
+    artifacts: { web: { digest: 'a55ec3d' } },
+  }
+
+  /** What the coordinator reported after the update landed. */
+  const servedDevRelease = (): Parameters<typeof setupTransport>[0] => ({
+    appVersion: '0.1.1-dev.1+a55ec3d',
+    installKind: 'installed',
+    sourceDigest: 'a55ec3d',
+    target: devRelease,
+    web: {
+      present: true,
+      appVersion: '0.1.1-dev.1+a55ec3d',
+      digest: 'a55ec3d',
+      bundle: 'bundle+CFyX4Q_p',
+    },
+  })
+
+  /** The page the human had open: the packaged build, from the same commit. */
+  function openOnThePackagedBuild(): void {
+    setPageVersion('0.1.1-edge.2')
+    setPageDigest('a55ec3d')
+    setPageBundle('/assets/index-Bw5YMffE.js')
+  }
+
+  it('is offered a reload once the update is done', async () => {
+    openOnThePackagedBuild()
+    setupTransport(servedDevRelease())
+    globalThis.localStorage?.setItem(
+      'podium.update.watched-operation',
+      JSON.stringify({ id: 'op_a3440a33', at: Date.now() }),
+    )
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      {
+        id: 'op_a3440a33',
+        kind: 'update',
+        state: 'done',
+        details: { target: devRelease },
+        finishedAt: Date.now() - 2_000,
+        steps: [],
+      },
+    ])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} withReload behind={0} />)
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('waiting-you'))
+    expect(results.at(-1)?.view.primary?.kind).toBe('reload')
+  })
+
+  /**
+   * AND WITHOUT AN OPERATION TO HANG IT ON. The panel's only route to a reload
+   * used to run through an operation's target, so a tab that was not watching
+   * the update — a second window, a phone, a tab opened after it finished —
+   * had no way to be told at all. The served bundle is a fact about the server,
+   * available to every tab equally.
+   */
+  it('is offered a reload even with no operation in play', async () => {
+    openOnThePackagedBuild()
+    setupTransport(servedDevRelease())
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} withReload behind={0} />)
+
+    await waitFor(() => expect(results.at(-1)?.server.appVersion).toBe('0.1.1-dev.1+a55ec3d'))
+    await waitFor(() => expect(results.at(-1)?.view.primary?.kind).toBe('reload'))
+  })
+
+  /** The rollback direction: the coordinator went back and this page is the NEW one. */
+  it('is offered a reload after the server rolls back under it', async () => {
+    setPageVersion('0.1.1-dev.1+a55ec3d')
+    setPageDigest('a55ec3d')
+    setPageBundle('/assets/index-CFyX4Q_p.js')
+    setupTransport({
+      appVersion: '0.1.1-edge.2',
+      installKind: 'installed',
+      sourceDigest: 'a55ec3d',
+      target: devRelease,
+      web: { present: true, appVersion: '0.1.1-edge.2', digest: 'a55ec3d', bundle: 'bundle+Bw5YMffE' },
+    })
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} withReload behind={0} />)
+
+    await waitFor(() => expect(results.at(-1)?.server.appVersion).toBe('0.1.1-edge.2'))
+    await waitFor(() => expect(results.at(-1)?.view.primary?.kind).toBe('reload'))
+  })
+
+  /**
+   * CAN SAY NO. A page running the bundle the server serves is not behind, and
+   * an offer here would be the POD-2608 failure again — a reload nobody can
+   * clear, because there is nothing to clear.
+   */
+  it('offers nothing when the page is running the bundle the server serves', async () => {
+    setPageVersion('0.1.1-dev.1+a55ec3d')
+    setPageDigest('a55ec3d')
+    setPageBundle('/assets/index-CFyX4Q_p.js')
+    setupTransport(servedDevRelease())
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} withReload behind={0} />)
+
+    await waitFor(() => expect(results.at(-1)?.server.appVersion).toBe('0.1.1-dev.1+a55ec3d'))
+    expect(results.at(-1)?.view.state).toBe('none')
+  })
+
+  it('offers nothing when the page cannot name its own bundle', async () => {
+    setPageVersion('0.1.1-edge.2')
+    setPageDigest('a55ec3d')
+    clearPageBundle()
+    setupTransport(servedDevRelease())
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} withReload behind={0} />)
+
+    await waitFor(() => expect(results.at(-1)?.server.appVersion).toBe('0.1.1-dev.1+a55ec3d'))
+    expect(results.at(-1)?.view.state).toBe('none')
+  })
+
+  it('offers nothing against a server too old to say what it serves', async () => {
+    openOnThePackagedBuild()
+    setupTransport({
+      appVersion: '0.1.1-dev.1+a55ec3d',
+      installKind: 'installed',
+      sourceDigest: 'a55ec3d',
+      target: devRelease,
+    })
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} withReload behind={0} />)
+
+    await waitFor(() => expect(results.at(-1)?.server.appVersion).toBe('0.1.1-dev.1+a55ec3d'))
+    expect(results.at(-1)?.view.state).toBe('none')
   })
 })
