@@ -121,8 +121,12 @@ window.chips = {
     const selector = `a.ref-link--issue[data-ref="POD-${seq}"]`
     const anchorWas = after.querySelector<HTMLAnchorElement>(selector)
     const textWas = anchorWas?.firstChild
+    // Without this, a selector that matches NOTHING reports sameAnchor: true —
+    // `null === null` — and the identity check passes by finding no chip at all.
+    if (!anchorWas || !textWas) throw new Error(`no chip to restage: ${selector}`)
     const target = ISSUES.find((i) => i.seq === seq)
-    if (target) target.stage = stage
+    if (!target) throw new Error(`no fixture issue POD-${seq}`)
+    target.stage = stage
     decorateIssueRefAnchors(after, issueReferenceLookup(ISSUES))
     const anchorNow = after.querySelector<HTMLAnchorElement>(selector)
     return { sameAnchor: anchorNow === anchorWas, sameText: anchorNow?.firstChild === textWas }

@@ -59,4 +59,23 @@ describe('IssueChipLiveness host lifecycle', () => {
     expect(anchor?.getAttribute('data-issue-availability')).toBe('present')
     expect(anchor?.getAttribute('aria-label')).toBe('Review task POD-13: Stable chips')
   })
+
+  it('follows an anchor RETARGETED in place, with no node added or removed', async () => {
+    // React owns some ref anchors inside this root — MessageEnvelopeGroup's
+    // principal labels. Re-pointing one at another issue patches `data-ref` on
+    // the same element: no childList record, so a childList-only observer left
+    // the chip wearing the previous issue's stage and announcing its title.
+    act(() => root.render(<LivenessBeforeHost />))
+    const anchor = container.querySelector<HTMLAnchorElement>('a[data-ref="POD-13"]')
+    if (!anchor) throw new Error('fixture anchor missing')
+
+    anchor.setAttribute('data-ref', 'POD-99')
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(anchor.hasAttribute('data-issue-stage')).toBe(false)
+    expect(anchor.getAttribute('data-issue-availability')).toBe('unavailable')
+    expect(anchor.getAttribute('aria-label')).toBe('Task POD-99 is unavailable')
+  })
 })
