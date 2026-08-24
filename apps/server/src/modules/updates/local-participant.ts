@@ -28,24 +28,6 @@ export interface LocalUpdateParticipantDeps {
   machineId: MachineId
   appVersion: string
   runtimeDir: string
-  /**
-   * THE INSTALLED VERSION, READ FROM DISK — not {@link appVersion} (POD-2462).
-   *
-   * `appVersion` comes from `captureServerBuildVersion`, which reads
-   * `PODIUM_APP_VERSION` out of the environment. That names the process that was
-   * LAUNCHED, and on a publishing coordinator the environment carries the version
-   * it just minted — so this participant announced the target as its current
-   * version, `planConvergence` compared the two strings, found them equal, and
-   * returned `already-current`. `applyGrant` then returned before `installTarget`,
-   * so no swap was ever requested and the coordinator never updated ONCE for the
-   * whole epic, while reporting itself converged.
-   *
-   * Spec disposition 11 already names the fence: the post-swap re-read of
-   * `VERSION`. What is on disk is the fact; the environment is a claim about a
-   * process. Source runs have no install dir and fall back to `appVersion`, which
-   * is correct for them — a checkout is never converged by a packaged artifact.
-   */
-  installedVersion?: () => string
   pinnedPubkey?: string
   machines: {
     setMachineBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): void
@@ -91,20 +73,8 @@ export function startLocalUpdateParticipant(deps: LocalUpdateParticipantDeps): {
         )
       }
     })
-  const installedVersion =
-    deps.installedVersion ??
-    (() => {
-      try {
-        return readFileSync(join(resolveInstallDir(), 'VERSION'), 'utf8').trim() || deps.appVersion
-      } catch {
-        // No install dir: a source run, or a packaged tree mid-swap. Fall back to
-        // the process identity rather than refusing — an unreadable VERSION must
-        // not be reported as "no version", which reads as a machine to converge.
-        return deps.appVersion
-      }
-    })
   const runner = createGrantRunner({
-    currentVersion: installedVersion,
+    currentVersion: () => deps.appVersion,
     caps: ['update.delivery.feed'],
     installTarget,
     writePending: deps.writePending ?? ((pending) => writePendingGrant(deps.runtimeDir, pending)),
@@ -125,14 +95,26 @@ export function startLocalUpdateParticipant(deps: LocalUpdateParticipantDeps): {
     },
     now,
   })
+  // FOR THE LOG LINE ONLY — convergence is decided on the process identity
+  // (see the revert of 53b269c71's disk-read: a post-swap re-delivered grant
+  // would read the target off disk, report already-current, and never ask for
+  // the restart). The disk fact still belongs in the log, because process ≠
+  // install divergence is exactly the state worth seeing in one line.
+  const installedVersionForLog = (): string | undefined => {
+    try {
+      return readFileSync(join(resolveInstallDir(), 'VERSION'), 'utf8').trim() || undefined
+    } catch {
+      return undefined
+    }
+  }
   const receive = (message: Extract<ControlMessage, { type: 'updateGrant' }>): void => {
     log.info('local update participant received grant', {
       grantId: message.grantId,
       targetVersion: message.target.version,
-      // The version convergence will judge against — the installed fact, with
-      // the process identity beside it so a divergence is visible in one line.
-      currentVersion: installedVersion(),
-      processVersion: deps.appVersion,
+      currentVersion: deps.appVersion,
+      ...(installedVersionForLog() !== undefined
+        ? { installedVersion: installedVersionForLog() }
+        : {}),
     })
     void runner.apply(message)
   }
