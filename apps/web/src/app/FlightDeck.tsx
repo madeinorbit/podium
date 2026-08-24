@@ -3257,8 +3257,6 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     const existingSessionIds = sessions
       .filter((session) => session.issueId === rootIssue.id && !session.archived)
       .map((session) => session.sessionId)
-    // Do not branch on the replica's worktreePath: start is a silent no-op on a
-    // live issue, which left this button stuck on "Adding…" with no new agent.
     await spawnIssueAgent(trpc.issues, input)
     await focusIssueSession(rootIssue.id, { excludeSessionIds: existingSessionIds })
   }

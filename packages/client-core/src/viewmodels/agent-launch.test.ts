@@ -42,5 +42,8 @@ describe('isIssueNotStartedError', () => {
     expect(isIssueNotStartedError(new Error('issue not started'))).toBe(true)
     expect(isIssueNotStartedError(new Error('TRPCClientError: issue not started'))).toBe(true)
     expect(isIssueNotStartedError(new Error('no repo registered'))).toBe(false)
+    expect(
+      isIssueNotStartedError(new Error('TRPCClientError', { cause: new Error('issue not started') })),
+    ).toBe(true)
   })
 })
