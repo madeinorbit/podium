@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { asMachineId, asRepoId } from '../ids/brands'
+import { handoffAvailability, handoffSource, handoffTargets } from './machine-handoff'
 import {
   agentCapabilityRejection,
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
-  handoffAvailability,
-  handoffSource,
-  handoffTargets,
   machinesForAgent,
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
@@ -156,7 +154,6 @@ describe('agent machine capability', () => {
     expect(resolveTargetMachineForAgent(cloneable, [], machines, 'codex')).toBe('a')
   })
 })
-
 describe('handoffTargets', () => {
   it('requires another online repo machine with the harness installed', () => {
     const session = { cwd: '/a/.worktrees/x', machineId: asMachineId('source'), agentKind: 'codex' }

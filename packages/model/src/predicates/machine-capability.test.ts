@@ -20,8 +20,8 @@ import {
   machinesFor,
   runAgent,
   structuralEligibility,
-  structuralRejection,
-} from './machine-selection'
+} from './machine-capability'
+import { structuralRejection } from './machine-selection'
 
 const machine = (
   id: string,

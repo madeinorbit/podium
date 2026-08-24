@@ -97,6 +97,8 @@ const INTERACTION_ONLY_MODULES = [
 
 /** Heavy leaf renderers whose callers deliberately load them after the shell. */
 const DEFERRED_FIRST_PAINT_MODULES = [
+  'packages/model/src/predicates/machine-capability.ts',
+  'packages/model/src/predicates/machine-handoff.ts',
   'src/app/IterationModeFrame.tsx',
   'src/lib/machine-version-skew.ts',
   'src/features/mobile-handoff/MobileHandoffQr.tsx',
@@ -522,7 +524,7 @@ if (checkBudget) {
 
   if (report.eager.deferredFirstPaintSources.length > 0)
     errors.push(
-      `deferred leaf renderer is back in first paint: ${report.eager.deferredFirstPaintSources.join(', ')}`,
+      `deferred first-paint module is back in first paint: ${report.eager.deferredFirstPaintSources.join(', ')}`,
     )
 
   const allowedSettingsCommandSources = new Set([
