@@ -5933,6 +5933,15 @@ html[data-density="compact"] .brief-shelf {
   gap: 11px;
   width: 100%;
   padding: 13px 0 5px;
+  /* The sending → working hand-off no longer remounts the row (see
+     TranscriptTail), so the two tones are a fade rather than a cut. Colour only:
+     the box is fixed by .feed-tail-slot and nothing here may move. */
+  transition: color 240ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .feed-tail {
+    transition: none;
+  }
 }
 .feed-tail-body {
   display: flex;

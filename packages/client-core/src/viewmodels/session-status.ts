@@ -195,6 +195,25 @@ export function sessionWaking(meta: SessionMeta | undefined, justSent = false): 
  * up and their text goes in when it does. A stale "needs answer" from before the
  * hibernate is true but it is not the answer to the question they just asked by
  * pressing Enter, and it reads as "nothing happened".
+ *
+ * AND SO DOES SENDING (POD-1595). The same reasoning was applied to exactly one
+ * branch and then not to the rest. `justSent` used to be the LAST test in this
+ * function, under every verdict `agentBadge` produces — so a send into a session
+ * carrying an offer, a question, a plan, an error or an open todo list showed
+ * the operator, underneath the prompt they had just pressed Enter on, the state
+ * of the turn BEFORE it. "Waiting on your decision" is not a description of a
+ * message in flight, and it did not budge until the daemon's first observation
+ * of the new turn arrived, which for a prompt carrying large attachments is ten
+ * or fifteen seconds later. The feed read as though nothing had happened.
+ *
+ * Every one of those verdicts is a statement about the PREVIOUS turn, and
+ * pressing Enter is what answers them — so the send now outranks them all. What
+ * still outranks the send is anything describing work happening NOW: a `working`
+ * badge, and the PTY's own `busy` for uninstrumented kinds. Both are live
+ * observations rather than a turn's parting verdict, so neither can be the stale
+ * claim this is about. Freshness is the caller's job: `justSent` stays true only
+ * while the daemon has said nothing about the new turn (see `useChatSend`), so
+ * an ask raised three seconds into the turn still reaches the tail at once.
  */
 export function chatActivity(
   meta: SessionMeta | undefined,
@@ -207,6 +226,8 @@ export function chatActivity(
   if (badge?.tone === 'working' && !parked) {
     return { label: badge.label === 'compacting' ? 'Compacting…' : 'Working…', tone: 'working' }
   }
+  if (!meta.agentState && meta.busy && !parked) return { label: 'Working…', tone: 'working' }
+  if (justSent) return { label: 'Sending', tone: 'idle', transient: 'just-sent' }
   if (badge?.tone === 'attention') return { label: badge.label, tone: 'attention' }
   // Errors and meaningful passive stops belong at the end of the transcript,
   // too. They used to disappear here even though `agentBadge` had already
@@ -216,8 +237,6 @@ export function chatActivity(
   if (badge?.tone === 'idle' && (badge.label === 'interrupted' || badge.label === 'todos open')) {
     return { label: badge.label, tone: 'idle' }
   }
-  if (!meta.agentState && meta.busy && !parked) return { label: 'Working…', tone: 'working' }
-  if (justSent) return { label: 'Sending', tone: 'idle', transient: 'just-sent' }
   return null
 }
 
