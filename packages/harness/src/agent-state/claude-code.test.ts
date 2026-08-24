@@ -697,6 +697,98 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
     })
   })
 
+  /**
+   * THE BACKGROUNDED FORK. A child spawned in one turn can finish under a later
+   * one, or under none at all — `/code-review` launched in the background is the
+   * live case. The observer used to mirror the reducer's identity list into its
+   * own `activeChildren` set and clear that set on every UserPromptSubmit, while
+   * the reducer deliberately carries the list across turns. From the next turn
+   * on, the two disagreed about exactly the children that outlive their turn:
+   * `closing` computed false, and the child's own SubagentStop — the only hook
+   * that can settle an `awaitingSubagents` hold — was dropped by the epoch gate.
+   * The count never reached zero, so `turn_completed` rewrote every subsequent
+   * Stop into `working`. POD-1581-A read working for 7.5 hours after its turn
+   * ended, and terminal proof refused to park it the whole time. [POD-1610]
+   */
+  it('settles a child that outlives the turn that spawned it [POD-1610]', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+    await causal.observeHook(
+      hook('SubagentStart', { prompt_id: 'p1', agent_id: 'fork-1', agent_type: 'general-purpose' }),
+      120,
+    )
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 130)).toMatchObject({
+      nextPhase: 'working',
+      state: { awaitingSubagents: true, nativeSubagentCount: 1 },
+    })
+
+    // A SECOND turn opens while the fork is still running — in the live case an
+    // unrelated background task's notification arrived as a new prompt.
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p2' }), 140)
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p2' }), 150)).toMatchObject({
+      nextPhase: 'working',
+      state: { awaitingSubagents: true, nativeSubagentCount: 1 },
+    })
+
+    // The fork finishes. Its stop carries the SPAWNING turn's prompt id, which is
+    // no longer the parent's — the fence and the epoch gate both used to drop it.
+    expect(
+      await causal.observeHook(hook('SubagentStop', { prompt_id: 'p1', agent_id: 'fork-1' }), 160),
+    ).toMatchObject({
+      transitionKind: 'subagent_bookkeeping',
+      priorPhase: 'working',
+      nextPhase: 'idle',
+      state: { nativeSubagentCount: 0, idle: { kind: 'done' } },
+    })
+  })
+
+  it('counts a stale-prompt-id child stop down mid-turn without ending the turn [POD-1610]', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+    await causal.observeHook(hook('SubagentStart', { prompt_id: 'p1', agent_id: 'fork-1' }), 120)
+    await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 130)
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p2' }), 140)
+    // The fork lands while p2 is still in flight. The count comes down; the turn
+    // stays open, so this must NOT settle anything to idle.
+    expect(
+      await causal.observeHook(hook('SubagentStop', { prompt_id: 'p1', agent_id: 'fork-1' }), 150),
+    ).toMatchObject({
+      transitionKind: 'subagent_bookkeeping',
+      nextPhase: 'working',
+      state: { nativeSubagentCount: 0 },
+    })
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p2' }), 160)).toMatchObject({
+      transitionKind: 'turn_terminal',
+      nextPhase: 'idle',
+    })
+  })
+
+  /** The exemption is keyed on a child the identity list still names, so a stop
+   *  for an unknown child cannot use it to walk past a closed terminal — nor can
+   *  a replay of one that already landed. */
+  it('admits no child stop the identity list does not name [POD-1610]', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+    await causal.observeHook(hook('SubagentStart', { prompt_id: 'p1', agent_id: 'fork-1' }), 120)
+    await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 130)
+    // Unknown child, foreign prompt id: no way in.
+    expect(
+      await causal.observeHook(hook('SubagentStop', { prompt_id: 'p9', agent_id: 'ghost' }), 140),
+    ).toBeNull()
+    // A stop with no agent id at all names nothing and is likewise refused.
+    expect(await causal.observeHook(hook('SubagentStop', { prompt_id: 'p9' }), 150)).toBeNull()
+    expect(
+      await causal.observeHook(hook('SubagentStop', { prompt_id: 'p1', agent_id: 'fork-1' }), 160),
+    ).toMatchObject({ nextPhase: 'idle' })
+    // Replayed after it landed: the list no longer names it.
+    expect(
+      await causal.observeHook(hook('SubagentStop', { prompt_id: 'p1', agent_id: 'fork-1' }), 170),
+    ).toBeNull()
+  })
+
   // A daemon restart mid-turn re-bootstraps from a transcript-tail guess. When that
   // guess is 'idle' the epoch the agent is actually in was never opened here, and
   // before POD-593 every hook it went on to emit was discarded for the life of the
