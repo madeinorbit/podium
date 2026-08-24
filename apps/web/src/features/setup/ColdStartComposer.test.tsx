@@ -272,6 +272,101 @@ describe('ColdStartComposer', () => {
     expect(repoItems).toEqual(['beta', 'alpha'])
   })
 
+  /* POD-1582. `reposToViews` drops nothing by `kind`, but `checkoutForMachine`
+   * refuses a `worktree` — so a linked worktree registered as its own root,
+   * with no registered parent to nest it under, rendered as a project that
+   * could never launch. The list and the resolver answer to one predicate now. */
+  it('leaves out a project no launch could resolve to a checkout', () => {
+    store.repos.splice(0, store.repos.length, initialRepo, {
+      path: '/work/stray-worktree',
+      name: 'stray',
+      kind: 'worktree',
+      branch: 'feature',
+      worktrees: [],
+      machineId,
+      originUrl: 'https://example.com/acme/stray.git',
+    } as GitRepositoryWire)
+
+    render(<ColdStartComposer first={false} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project: podium' }))
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent?.trim())).toEqual([
+      'podium',
+    ])
+  })
+
+  /* POD-1582. Both dead ends reported `unavailable`, and the single message
+   * sent this one to Settings → Agents, where nothing changes the outcome. The
+   * agent is fine; there is no checkout on the machine that got selected — a
+   * repo scanned without a machineId is the reachable way in, since the machine
+   * list then falls back to every machine and none of them owns the path. */
+  it('names the machine when the project has no checkout on it, not the agent setup', () => {
+    const { machineId: _drop, ...homeless } = initialRepo
+    store.repos.splice(0, store.repos.length, homeless as GitRepositoryWire)
+
+    render(<ColdStartComposer first={false} />)
+
+    expect(screen.queryByText(/Open Settings → Agents/)).toBeNull()
+    expect(screen.getByText(/podium is not checked out on Studio Mac/)).toBeTruthy()
+  })
+
+  /* POD-1582. `selectedRepo` matches a draft whose repoPath is one of the
+   * entry's machine-specific paths — that is how a draft written elsewhere
+   * still finds its project. Reading that alias as a repo SWITCH wiped the
+   * operator's model and effort on the first render after the draft loaded. */
+  it('keeps model and effort when the draft names the project by an alias path', async () => {
+    const machineB = asMachineId('machine-b')
+    store.repos.splice(
+      0,
+      store.repos.length,
+      {
+        path: '/work/podium',
+        name: 'podium',
+        kind: 'repository',
+        branch: 'main',
+        worktrees: [],
+        machineId,
+        originUrl: 'https://example.com/acme/podium.git',
+      } as GitRepositoryWire,
+      {
+        path: '/srv/podium',
+        name: 'podium',
+        kind: 'repository',
+        branch: 'main',
+        worktrees: [],
+        machineId: machineB,
+        originUrl: 'https://example.com/acme/podium.git',
+      } as GitRepositoryWire,
+    )
+    const [primary] = store.machines as [(typeof store.machines)[number]]
+    store.machines.push({ ...primary, id: machineB, name: 'Build host' })
+    create.mockResolvedValue({ id: asIssueId('issue-alias') })
+    start.mockResolvedValue({ id: asIssueId('issue-alias') })
+    // The group's canonical path is /work/podium; this draft names the other one.
+    uiValues.set(
+      'podium.firstTaskActivation.draft',
+      JSON.stringify({
+        repoPath: '/srv/podium',
+        machineId: machineB,
+        agent: 'codex',
+        model: 'gpt-5.6-sol',
+        effort: 'high',
+        title: 'Ship it',
+      }),
+    )
+
+    render(<ColdStartComposer first={false} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    const input = create.mock.calls[0]?.[0]
+    expect(input.defaultModel).toBe('gpt-5.6-sol')
+    expect(input.defaultEffort).toBe('high')
+    // …and the mission is created in the checkout the draft named, not in
+    // whichever clone the scan happened to list first.
+    expect(input.repoPath).toBe('/srv/podium')
+  })
+
   /* POD-1169. The instrument strip clips its own contents (`overflow-hidden`)
    * to keep the three pickers in one groove, and that sets its automatic
    * minimum size to 0 — as a shrinkable flex item it SQUASHED instead of

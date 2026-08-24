@@ -2,12 +2,12 @@ import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
-  EMPTY_PINS,
-  lastUsedMaps,
   machineViewsFromWire,
-  type RepoNavView,
+  reposToViews,
+  repoUsageAt,
+  type RepoView,
   resolveDefaultAgent,
-  sidebarSections,
+  sidebarSessions,
   usableMachines,
 } from '@podium/client-core/viewmodels'
 import { asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
@@ -48,19 +48,53 @@ function repoLabel(repo: { path: string; name?: string }): string {
   return repo.name ?? repo.path.split('/').filter(Boolean).pop() ?? repo.path
 }
 
+/**
+ * WHICH CHECKOUT ON DISK A PICKER ENTRY MEANS (POD-1582).
+ *
+ * A picker entry is a repo IDENTITY, not a directory: `reposToViews` groups by
+ * `repoId`, which is derived from the origin URL alone, so two clones of one
+ * origin on one machine arrive as a single entry carrying two `machines[]` rows
+ * with the same `machineId`. Something has to choose between them, and the two
+ * ways to get that wrong are both live:
+ *
+ *  - SCAN ORDER. `find` took whichever row the scanner happened to append
+ *    first, so which clone a mission was created in could change between
+ *    refreshes. The candidates are sorted, so the answer is at least the same
+ *    answer twice.
+ *  - THE OPERATOR'S OWN CHOICE. A draft's `repoPath` may already name one of
+ *    those checkouts — that is how `selectedRepo` matched the entry. `prefer`
+ *    honours it, which is the only way the second clone is reachable at all
+ *    until the picker offers both (POD-1629).
+ *
+ * Returns undefined when the identity has no non-worktree checkout on that
+ * machine; every caller treats that as "cannot launch here" rather than as a
+ * repo that merely needs setup.
+ */
 function checkoutForMachine(
   repos: GitRepositoryWire[],
-  repo: RepoNavView,
+  repo: RepoView,
   machineId: string | undefined,
+  prefer?: string,
 ): GitRepositoryWire | undefined {
-  const path =
-    repo.machines?.find((candidate) => candidate.machineId === machineId)?.path ?? repo.path
-  return repos.find(
-    (candidate) =>
-      candidate.kind !== 'worktree' &&
-      candidate.path === path &&
-      (machineId === undefined || candidate.machineId === machineId),
-  )
+  const onMachine = (repo.machines ?? [])
+    .filter((candidate) => machineId === undefined || candidate.machineId === machineId)
+    .map((candidate) => candidate.path)
+    .sort()
+  const ordered = [
+    ...(prefer !== undefined && onMachine.includes(prefer) ? [prefer] : []),
+    ...onMachine,
+    repo.path,
+  ]
+  for (const path of ordered) {
+    const found = repos.find(
+      (candidate) =>
+        candidate.kind !== 'worktree' &&
+        candidate.path === path &&
+        (machineId === undefined || candidate.machineId === machineId),
+    )
+    if (found) return found
+  }
+  return undefined
 }
 
 function promptTitle(prompt: string): string {
@@ -128,14 +162,40 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     }),
     shallowEqual,
   )
+  /**
+   * THE PICKER OFFERS EXACTLY WHAT LAUNCH CAN RESOLVE (POD-1582).
+   *
+   * Two rules that used to disagree. The list came from `sidebarSections`,
+   * which drops nothing by `kind`, while `checkoutForMachine` rejects a
+   * `worktree` — so a linked worktree registered as its own root, with no
+   * registered parent to nest it under, rendered as a project whose Launch
+   * button could never enable and whose only explanation was an agent-setup
+   * message about an agent that was fine. One predicate now answers both: an
+   * entry is listed only if it resolves to a real checkout somewhere.
+   *
+   * Ordering is `repoUsageAt`, which exists for this ("for sorting repo
+   * pickers by recent use") and reads the two session fields it needs. The
+   * sidebar model this used to build was thrown away except for path, name and
+   * machines, and it rebuilt the whole session-ownership index every time the
+   * sessions array was replaced — which is many times a second next to a busy
+   * fleet, for a pane that is not even showing sessions.
+   */
   const repoChoices = useMemo(() => {
-    const sections = sidebarSections(repos, sessions, EMPTY_PINS)
-    const { byRepo } = lastUsedMaps(sections, sessions)
-    return sections.repos.sort(
-      (a, b) =>
-        (byRepo.get(b.path) ?? 0) - (byRepo.get(a.path) ?? 0) ||
-        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-    )
+    const usage = new Map<string, number>()
+    const active = sidebarSessions(sessions)
+    for (const repo of repos) usage.set(repo.path, repoUsageAt(repo, active))
+    const usageFor = (view: RepoView): number =>
+      Math.max(
+        usage.get(view.path) ?? 0,
+        ...(view.machines ?? []).map(({ path }) => usage.get(path) ?? 0),
+      )
+    return reposToViews(repos)
+      .filter((view) => checkoutForMachine(repos, view, undefined) !== undefined)
+      .sort(
+        (a, b) =>
+          usageFor(b) - usageFor(a) ||
+          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+      )
   }, [repos, sessions])
   /**
    * THE DRAFT IS SUBSCRIBED, NOT SEEDED (POD-1469).
@@ -226,7 +286,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     targetMachines.find((machine) => authorized.has(machine.id)) ??
     targetMachines[0]
   const selectedCheckout = selectedRepo
-    ? checkoutForMachine(repos, selectedRepo, selectedMachine?.id)
+    ? checkoutForMachine(repos, selectedRepo, selectedMachine?.id, draft.repoPath)
     : undefined
   /** A host the operator may see but not run on. Everything that starts work
    *  refuses on it; the picker still shows it, saying why. */
@@ -441,9 +501,26 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     inputRef.current?.blur()
   }, [attachments, draft, setDraft])
 
+  /**
+   * A DIFFERENT PATH FOR THE SAME PROJECT IS NOT A DIFFERENT PROJECT (POD-1582).
+   *
+   * `selectedRepo` deliberately matches a draft whose `repoPath` is one of the
+   * entry's machine-specific paths rather than the group's canonical one — that
+   * is how a draft written on one machine still finds its project. Comparing
+   * against `selectedRepo.path` alone then read that alias as a repo SWITCH, so
+   * the first render after such a draft loaded rewrote it with `model: AUTO,
+   * effort: AUTO` and the operator's choices were gone before they touched
+   * anything. Model and effort reset when the project actually changes, which
+   * is what `selectRepo` does explicitly.
+   *
+   * The alias is also kept rather than canonicalised, because it is the only
+   * record of WHICH checkout the operator meant when one origin has two on a
+   * machine — `checkoutForMachine` reads it back as `prefer`.
+   */
   useEffect(() => {
     if (!selectedRepo) return
-    const repoChanged = draft.repoPath !== selectedRepo.path
+    const aliases = [selectedRepo.path, ...(selectedRepo.machines ?? []).map(({ path }) => path)]
+    const repoChanged = !aliases.includes(draft.repoPath)
     const machineChanged = selectedMachine && draft.machineId !== selectedMachine.id
     /**
      * NOT BEFORE THE SETTINGS LAND (POD-1469).
@@ -465,7 +542,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     if (!repoChanged && !machineChanged && !agentChanged) return
     setDraft({
       ...draft,
-      repoPath: selectedRepo.path,
+      repoPath: repoChanged ? selectedRepo.path : draft.repoPath,
       machineId: selectedMachine?.id ?? '',
       ...(agentChanged ? { agent } : {}),
       ...(repoChanged ? { model: AUTO, effort: AUTO } : {}),
@@ -1010,21 +1087,35 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             )}
           </div>
 
-          {/* UNAUTHORIZED IS NOT UNREADY, and it is stated first: no amount of
+          {/* THREE DEAD ENDS, THREE ANSWERS (POD-1469, POD-1582).
+              UNAUTHORIZED IS NOT UNREADY, and it is stated first: no amount of
               agent setup makes a host you have no grant on runnable, so the note
-              that sends the operator to Settings would be a wrong instruction. */}
+              that sends the operator to Settings would be a wrong instruction.
+              NEITHER IS A MISSING CHECKOUT. `activationAgentReadiness` reports
+              `unavailable` both when the harness is not set up and when there is
+              no checkout to run it in, and one message for both sent the second
+              case to Settings → Agents — where nothing on the page changes the
+              outcome, with Launch dead and no way to tell why. The machine
+              picker is the control that fixes that one, so name it. */}
           {machineDenied ? (
             <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
               You do not have access to run work on this machine. Ask its owner for access, or pick
               another machine.
             </p>
           ) : (
-            !ready && (
+            !ready &&
+            (selectedCheckout ? (
               <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
                 The selected agent is not ready on this machine yet. Open Settings → Agents to
                 finish setup.
               </p>
-            )
+            ) : (
+              <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
+                {selectedRepo ? repoLabel(selectedRepo) : 'This project'} is not checked out on{' '}
+                {selectedMachine?.name ?? 'this machine'}. Pick another machine, or clone it there
+                first.
+              </p>
+            ))
           )}
           {draft.pendingIssueId && !error && (
             <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
