@@ -32,7 +32,9 @@ import { useReplicaIssues, useStoreSelector } from './store'
  * never was — so the rail now names panels and reports on nothing. The count
  * itself is unchanged and still readable where it belongs to something: the
  * explorer's Needs tab and the Flight Deck's "Needs you" filter, both on
- * `issueIsActionable`, the predicate that badge summed.
+ * `issueIsActionable`, the predicate that badge summed. The explorer runs it
+ * over board scope (POD-1581), so a draft vessel whose agent is waiting is
+ * counted by neither — its sidebar row IS the agent, and carries the pill.
  *
  * The rail carries NO issue tint (POD-516 item 9). It hosts Superagent, Git,
  * Files, Shell and Messages alongside the task cell, so a tint pulled from the

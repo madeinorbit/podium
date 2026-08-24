@@ -145,17 +145,24 @@ export function explorerRows(
   const query = opts.query.trim()
   if (query) {
     const normalized = query.toLowerCase()
-    // Archive is a browsing boundary, not an identity boundary. A person who
-    // supplies the whole ref already knows which task they want, so let that
-    // one archived row cross it. Partial refs and title prose still run over
-    // `open` only; typing "minimap" must not turn search into an archive dump.
-    const archivedExactRefs = scoped.filter(
+    const matched = open.filter((issue) => matchesQuery(issue, query))
+    // Archive and scope are BROWSING boundaries, not identity boundaries. A
+    // person who supplies the whole ref already knows which task they want, so
+    // let that one row cross both — this dock's search is the shell's only
+    // ref-jump, and "No task matches POD-1234" about a task that plainly exists
+    // reads as a broken search rather than a narrow one (POD-1581). It is also
+    // what keeps a draft vessel reachable: the vessel is the route back to its
+    // session's recovery UI (POD-1369), and scope only stops it BROWSING as a
+    // task. Partial refs and title prose still run over `open` only; typing
+    // "minimap" must not turn search into an archive dump.
+    const seen = new Set(matched.map((issue) => issue.id))
+    const exactRef = issues.filter(
       (issue) =>
-        issue.archived && !issue.deletedAt && issueDisplayRef(issue).toLowerCase() === normalized,
+        !issue.deletedAt &&
+        !seen.has(issue.id) &&
+        issueDisplayRef(issue).toLowerCase() === normalized,
     )
-    return [...open.filter((issue) => matchesQuery(issue, query)), ...archivedExactRefs].sort(
-      byRecency,
-    )
+    return [...matched, ...exactRef].sort(byRecency)
   }
   if (opts.tab === 'needs') {
     const byIssue = sessionsByIssue(scoped, sessions)

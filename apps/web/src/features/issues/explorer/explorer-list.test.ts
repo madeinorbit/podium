@@ -1,6 +1,6 @@
 import { portfolioActionableCount } from '@podium/client-core/viewmodels'
 import type { IssueStage, SessionMeta } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueViewModel } from '@/app/store'
 import { defaultTab, explorerCounts, explorerRows, matchesQuery } from './explorer-list'
@@ -91,9 +91,26 @@ describe('explorer rows', () => {
     expect(rows.map((r) => r.id)).toEqual(['real'])
   })
 
-  it('does not surface a vessel through search either', () => {
+  it('does not surface a vessel through ordinary search', () => {
     const withVessel = [issue('vessel', 'backlog', { draft: true, title: 'Draft' })]
     expect(explorerRows(withVessel, [], { tab: 'backlog', query: 'Draft' })).toEqual([])
+  })
+
+  it('still resolves a whole ref that scope would otherwise hide', () => {
+    // Scope is a browsing boundary. Someone typing `POD-1234` off a transcript
+    // has already decided which task they want, and this dock is the only
+    // ref-jump in the shell — answering "no match" about a task that exists is
+    // a broken search, not a narrow one.
+    const hidden = [
+      issue('internal', 'backlog', { audience: 'agent', displayRef: 'POD-1234' }),
+      issue('vessel', 'backlog', { draft: true, displayRef: 'POD-1443' }),
+    ]
+    expect(
+      explorerRows(hidden, [], { tab: 'backlog', query: 'POD-1234' }).map((r) => r.id),
+    ).toEqual(['internal'])
+    expect(
+      explorerRows(hidden, [], { tab: 'backlog', query: 'pod-1443' }).map((r) => r.id),
+    ).toEqual(['vessel'])
   })
 
   it('keeps top-level agent-internal work off the list, as the board does', () => {
@@ -110,7 +127,7 @@ describe('explorer rows', () => {
     // real work, and the explorer is flat, so it has to appear as its own row.
     const tree = [
       issue('epic', 'in_progress'),
-      issue('sub', 'backlog', { audience: 'agent', parentId: 'epic' }),
+      issue('sub', 'backlog', { audience: 'agent', parentId: asIssueId('epic') }),
     ]
     const rows = explorerRows(tree, [], { tab: 'backlog', query: '' })
     expect(rows.map((r) => r.id)).toEqual(['sub'])
@@ -133,9 +150,11 @@ describe('explorer counts', () => {
     expect(counts.proposed).toBe(0)
   })
 
-  it('agrees with the rail badge about how many tasks need you', () => {
+  it('agrees with the portfolio count over the work it lists', () => {
     // Two surfaces re-deriving "needs me" independently is how a badge reading
-    // 3 comes to sit above a list of 5. Same predicate, same number.
+    // 3 comes to sit above a list of 5. Same predicate, same number — over the
+    // population the explorer lists. POD-1581 narrowed that population, and the
+    // vessel case below is the one deliberate divergence.
     const issues = [issue('needy', 'backlog'), issue('quiet', 'planning'), issue('shipped', 'done')]
     const counts = explorerCounts(issues, [waiting])
     expect(counts.needs).toBe(portfolioActionableCount(issues, [waiting]))
