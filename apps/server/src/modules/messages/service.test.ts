@@ -1222,27 +1222,34 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(r.message).toMatchObject({ status: 'queued' })
   })
 
-  it('archived session target dead-letters before either hold or wake can revive it', () => {
-    const { svc, queued } = harness([
-      session({
-        sessionId: asSessionId('s1'),
-        status: 'hibernated',
-        resumable: true,
-        archived: true,
-      }),
-    ])
-    const r = svc.send(
-      { kind: 'operator' },
-      { to: { kind: 'session', id: asSessionId('s1') }, body: 'stay retired', lifecycle: 'wake' },
-    )
+  it.each(['wait', 'wake'] as const)(
+    'archived session target dead-letters before lifecycle=%s can revive it',
+    (lifecycle) => {
+      const { svc, queued } = harness([
+        session({
+          sessionId: asSessionId('s1'),
+          status: 'hibernated',
+          resumable: true,
+          archived: true,
+        }),
+      ])
+      const r = svc.send(
+        { kind: 'operator' },
+        {
+          to: { kind: 'session', id: asSessionId('s1') },
+          body: 'stay retired',
+          lifecycle,
+        },
+      )
 
-    expect(r).toMatchObject({
-      ok: false,
-      disposition: 'dead_letter',
-      reason: 'dead-lettered: session is archived',
-    })
-    expect(queued).toHaveLength(0)
-  })
+      expect(r).toMatchObject({
+        ok: false,
+        disposition: 'dead_letter',
+        reason: 'dead-lettered: session is archived',
+      })
+      expect(queued).toHaveLength(0)
+    },
+  )
 
   it('parked target + wake: rides the durable queue (queueText resurrects)', () => {
     const { svc, queued, store } = harness([

@@ -435,15 +435,34 @@ const tailUserTurnMatches = (session: Session, needle: string, exact = false): b
   return false
 }
 
-export function blockedSessionSendReason(
-  session: Pick<Session, 'agentState' | 'archived'>,
+/** Archive records deliberate human intent, never a provider failure that a
+ * recovery answer may override. Keep this gate separate from
+ * {@link terminalSessionSendFailureReason}: combining them makes
+ * `allowErrored` an archive bypass. */
+export function archivedSessionSendReason(
+  session: Pick<Session, 'archived'>,
 ): string | undefined {
-  // Archive is an explicit retirement boundary. Refuse before enqueueing so a
-  // retained resume ref cannot make an ordinary send resurrect hidden work.
-  if (session.archived) return 'session is archived'
+  return session.archived ? 'session is archived' : undefined
+}
+
+/** The terminal provider failure that the one recovery-answer flow may cross. */
+export function terminalSessionSendFailureReason(
+  session: Pick<Session, 'agentState'>,
+): string | undefined {
   const state = session.agentState
   if (state?.phase !== 'errored' || !state.error || state.error.retryable) return undefined
   return formatAgentError(state.error) + '. ' + agentErrorRecoveryInstruction(state.error)
+}
+
+/** Refuse archive unconditionally; only provider failure is overridable. */
+function sessionSendRefusalReason(
+  session: Pick<Session, 'agentState' | 'archived'>,
+  allowErrored: boolean,
+): string | undefined {
+  return (
+    archivedSessionSendReason(session) ??
+    (allowErrored ? undefined : terminalSessionSendFailureReason(session))
+  )
 }
 
 export class SessionInbox {
@@ -497,8 +516,10 @@ export class SessionInbox {
 
   sendText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
     const session = this.deps.getSession(input.sessionId)
-    const blockedReason = session ? blockedSessionSendReason(session) : undefined
-    if (blockedReason && !input.allowErrored) return { ok: false, reason: blockedReason }
+    const blockedReason = session
+      ? sessionSendRefusalReason(session, input.allowErrored === true)
+      : undefined
+    if (blockedReason) return { ok: false, reason: blockedReason }
     if (
       session &&
       (session.queuedMessageCount > 0 ||
@@ -522,16 +543,18 @@ export class SessionInbox {
   } {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
-    const blockedReason = blockedSessionSendReason(session)
-    if (blockedReason && !input.allowErrored) return { ok: false, reason: blockedReason }
+    const blockedReason = sessionSendRefusalReason(session, input.allowErrored === true)
+    if (blockedReason) return { ok: false, reason: blockedReason }
     if (session.status === 'live' && session.queuedMessageCount === 0) return this.sendText(input)
     return this.queueText({ ...input, mutationId: input.mutationId })
   }
 
   interruptText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
     const session = this.deps.getSession(input.sessionId)
-    const blockedReason = session ? blockedSessionSendReason(session) : undefined
-    if (blockedReason && !input.allowErrored) return { ok: false, reason: blockedReason }
+    const blockedReason = session
+      ? sessionSendRefusalReason(session, input.allowErrored === true)
+      : undefined
+    if (blockedReason) return { ok: false, reason: blockedReason }
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
     }
@@ -597,8 +620,8 @@ export class SessionInbox {
   } {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
-    const blockedReason = blockedSessionSendReason(session)
-    if (blockedReason && !input.allowErrored) return { ok: false, reason: blockedReason }
+    const blockedReason = sessionSendRefusalReason(session, input.allowErrored === true)
+    if (blockedReason) return { ok: false, reason: blockedReason }
     const parked = session.status === 'hibernated' || session.status === 'exited'
     if (parked && session.agentKind !== 'shell' && !session.resume) {
       return { ok: false, reason: 'no resume ref' }
@@ -804,8 +827,11 @@ export class SessionInbox {
           stop()
           return
         }
-        const blockedReason = blockedSessionSendReason(current)
-        if (blockedReason && !this.recoveryDrains.has(sessionId)) {
+        const blockedReason = sessionSendRefusalReason(
+          current,
+          this.recoveryDrains.has(sessionId),
+        )
+        if (blockedReason) {
           reportPromptFailure(current, head, blockedReason)
           stop()
           return
@@ -891,8 +917,8 @@ export class SessionInbox {
         stop()
         return
       }
-      const blockedReason = blockedSessionSendReason(current)
-      if (blockedReason && !this.recoveryDrains.has(sessionId)) {
+      const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
+      if (blockedReason) {
         reportPromptFailure(current, head, blockedReason)
         stop()
         return
@@ -1015,8 +1041,8 @@ export class SessionInbox {
         stop()
         return
       }
-      const blockedReason = blockedSessionSendReason(current)
-      if (blockedReason && !this.recoveryDrains.has(sessionId)) {
+      const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
+      if (blockedReason) {
         if (head) reportPromptFailure(current, head, blockedReason)
         stop()
         return
@@ -1193,8 +1219,8 @@ export class SessionInbox {
         return
       }
       const now = this.deps.now()
-      const blockedReason = blockedSessionSendReason(current)
-      if (blockedReason && !this.recoveryDrains.has(sessionId)) {
+      const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
+      if (blockedReason) {
         if (head) reportPromptFailure(current, head, blockedReason)
         else stop()
         return
@@ -1490,8 +1516,8 @@ export class SessionInbox {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
     }
-    const blockedReason = blockedSessionSendReason(session)
-    if (blockedReason && !input.allowErrored) return { ok: false }
+    const blockedReason = sessionSendRefusalReason(session, input.allowErrored === true)
+    if (blockedReason) return { ok: false }
     // A server-family session has no PTY bridge: the daemon discards "typed"
     // bytes without an error, so an ok here would be the exact lie POD-2291
     // closes. Refusing keeps the caller's row queued and visible; the drain's

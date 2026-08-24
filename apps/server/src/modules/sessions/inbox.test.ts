@@ -331,23 +331,28 @@ describe('SessionInbox terminal provider failures', () => {
 })
 
 describe('SessionInbox archived boundary', () => {
-  it('refuses direct and resumable sends before they can enqueue or resurrect', () => {
-    const h = harness({ status: 'hibernated', archived: true })
+  it.each([false, true])(
+    'refuses direct and resumable sends before enqueue or resurrection (allowErrored=%s)',
+    (allowErrored) => {
+      const h = harness({ status: 'hibernated', archived: true })
 
-    expect(h.inbox.sendText({ sessionId: SID, text: 'do not revive' })).toEqual({
-      ok: false,
-      reason: 'session is archived',
-    })
-    expect(h.inbox.queueText({ sessionId: SID, text: 'do not queue' })).toEqual({
-      ok: false,
-      reason: 'session is archived',
-    })
-    expect(h.inbox.resumeAndSend({ sessionId: SID, text: 'do not resume' })).toEqual({
-      ok: false,
-      reason: 'session is archived',
-    })
-    expect(h.rows).toEqual([])
-  })
+      expect(h.inbox.sendText({ sessionId: SID, text: 'do not revive', allowErrored })).toEqual({
+        ok: false,
+        reason: 'session is archived',
+      })
+      expect(h.inbox.queueText({ sessionId: SID, text: 'do not queue', allowErrored })).toEqual({
+        ok: false,
+        reason: 'session is archived',
+      })
+      expect(
+        h.inbox.resumeAndSend({ sessionId: SID, text: 'do not resume', allowErrored }),
+      ).toEqual({
+        ok: false,
+        reason: 'session is archived',
+      })
+      expect(h.rows).toEqual([])
+    },
+  )
 })
 
 describe('SessionInbox authorization and identity', () => {

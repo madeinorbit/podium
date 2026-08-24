@@ -89,16 +89,33 @@ describe('W4 guard: the legacy send verbs have a closed set of callers (C5)', ()
 })
 
 describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () => {
-  const sender = (onContract: boolean, queueNotEmpty = false) => {
+  const sender = (
+    onContract: boolean,
+    queueNotEmpty = false,
+    reasons: { archive?: string; failure?: string } = {},
+  ) => {
     const forwarded: string[] = []
     const forwardedAttachments: unknown[] = []
     const enqueued: string[] = []
+    const legacy: string[] = []
     const s = new ReceiptSender({
       legacy: {
-        sendText: () => ({ ok: true }),
-        queueText: () => ({ ok: true, queued: true }),
-        interruptText: () => ({ ok: true }),
-        resumeAndSend: () => ({ ok: true }),
+        sendText: () => {
+          legacy.push('now')
+          return { ok: true }
+        },
+        queueText: () => {
+          legacy.push('queue')
+          return { ok: true, queued: true }
+        },
+        interruptText: () => {
+          legacy.push('interrupt')
+          return { ok: true }
+        },
+        resumeAndSend: () => {
+          legacy.push('wake')
+          return { ok: true }
+        },
       },
       contract: {
         send: async (input) => {
@@ -122,6 +139,8 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
       onContract: () => onContract,
       liveWithEmptyQueue: () => false,
       queueNotEmpty: () => queueNotEmpty,
+      archiveReason: () => reasons.archive,
+      failureReason: () => reasons.failure,
       systemPrincipal: () => ({
         kind: 'system',
         attribution: { actor: { kind: 'system', job: 'guard' }, onBehalfOf: null },
@@ -130,7 +149,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
       }),
       now: () => 0,
     })
-    return { s, forwarded, forwardedAttachments, enqueued }
+    return { s, forwarded, forwardedAttachments, enqueued, legacy }
   }
 
   it('completes a queued send on the server and forwards nothing', () => {
@@ -142,6 +161,43 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     // THE PRECONDITION. `authorizeAtDrain` has no daemon provider, so a queue
     // that reached the machine would drain unauthorized.
     expect(forwarded).toEqual([])
+  })
+
+  it.each([false, true])(
+    'archive refusal outranks allowErrored before the contract=%s send seam',
+    (onContract) => {
+      const { s, forwarded, enqueued, legacy } = sender(onContract, false, {
+        archive: 'session is archived',
+        failure: 'provider failed',
+      })
+
+      for (const via of ['now', 'queue', 'interrupt', 'wake'] as const) {
+        expect(
+          s.send(via, {
+            sessionId: asSessionId('s1'),
+            text: 'do not revive',
+            allowErrored: true,
+          }),
+        ).toEqual({ ok: false, reason: 'session is archived' })
+      }
+
+      expect(forwarded).toEqual([])
+      expect(enqueued).toEqual([])
+      expect(legacy).toEqual([])
+    },
+  )
+
+  it('allowErrored still crosses a provider failure when archive is absent', () => {
+    const { s, enqueued } = sender(true, false, { failure: 'provider failed' })
+
+    expect(
+      s.send('queue', {
+        sessionId: asSessionId('s1'),
+        text: 'recovery answer',
+        allowErrored: true,
+      }),
+    ).toEqual({ ok: true, queued: true })
+    expect(enqueued).toEqual(['recovery answer'])
   })
 
   it('forwards staged refs on a live send and refuses to drop them into the durable queue', async () => {

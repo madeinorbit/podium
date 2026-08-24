@@ -154,6 +154,8 @@ export interface ReceiptSenderPorts {
    * `now` may go straight to the driver.
    */
   queueNotEmpty(sessionId: SessionId): boolean
+  /** Human-facing refusal for deliberate archive intent. Never overridable. */
+  archiveReason?(sessionId: SessionId): string | undefined
   /** Human-facing refusal when the session is stopped on a non-retryable provider error. */
   failureReason?(sessionId: SessionId): string | undefined
   /** The principal an unattributed turn is queued as. Supplied by the composition
@@ -188,6 +190,11 @@ export class ReceiptSender {
     input: ReceiptSendInput,
     onReceipt?: ReceiptReconciler,
   ): ReceiptSendResult {
+    // Archive is a deliberate human boundary, not an errored run. Recovery may
+    // override the provider failure below, but it must never enqueue, forward,
+    // or report success for an archived session.
+    const archiveReason = this.ports.archiveReason?.(input.sessionId)
+    if (archiveReason) return { ok: false, reason: archiveReason }
     const failureReason = this.ports.failureReason?.(input.sessionId)
     if (failureReason && !input.allowErrored) return { ok: false, reason: failureReason }
     if (!this.ports.onContract(input.sessionId)) {

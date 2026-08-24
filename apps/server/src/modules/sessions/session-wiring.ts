@@ -37,11 +37,12 @@ import { AgentConcurrencyHistory } from './concurrency-history'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import {
+  archivedSessionSendReason,
   inboxActorColumns,
-  blockedSessionSendReason,
   inboxActorFromColumns,
   SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
+  terminalSessionSendFailureReason,
 } from './inbox'
 import { SessionLaunchConfig } from './launch-config'
 import type { SessionLifecycle, SessionLifecycleDeps } from './lifecycle'
@@ -652,9 +653,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       const s = bag.sessions.get(sessionId)
       return (s?.queuedMessageCount ?? 0) > 0 || bag.inbox.isDraining(sessionId)
     },
+    archiveReason: (sessionId: SessionId) => {
+      const s = bag.sessions.get(sessionId)
+      return s ? archivedSessionSendReason(s) : undefined
+    },
     failureReason: (sessionId: SessionId) => {
       const s = bag.sessions.get(sessionId)
-      return s ? blockedSessionSendReason(s) : undefined
+      return s ? terminalSessionSendFailureReason(s) : undefined
     },
     systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
     now: () => bag.now(),
