@@ -450,7 +450,12 @@ export function ChatComposer({
             ),
       )}
       ref={setRootEl}
-      {...attachments.dropHandlers}
+      // NO DROP HANDLERS HERE ANY MORE (POD-1595) — ChatView mounts them on the
+      // whole chat surface instead. They lived on this dock, which is a ~70px
+      // strip at the bottom of the pane, so "drag a file into the conversation"
+      // only worked if you released it inside that strip and did nothing at all
+      // — not even showing a target — over the ~90% of the surface a person
+      // actually aims at. Mounting them in both places would double every drop.
     >
       {compact && <PromptAutoGrow taRef={taRef} value={draft} />}
       {/* Agent action offer [spec:SP-c7f1]: the agent's suggested next
@@ -556,18 +561,6 @@ export function ChatComposer({
           >
             {chordLabel()} to focus
           </span>
-        )}
-        {attachments.dragOver && (
-          <div
-            className={cn(
-              'pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/5',
-              // Follow the well's own corner, or the drop target reads as a
-              // second box laid over the field.
-              compact ? 'rounded-[9px]' : 'rounded-[12px]',
-            )}
-          >
-            <span className="text-sm font-medium text-primary">Drop files to attach</span>
-          </div>
         )}
         <input
           ref={attachments.fileInputRef}

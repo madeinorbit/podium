@@ -42,6 +42,7 @@ import type { KernelAssembly } from '@/lib/kernelReplica'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
+import { useFileDropGuard } from '@/lib/use-file-drop-guard'
 import { type AuthBootstrap, useKernelReplica } from '@/lib/use-kernel-replica'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
@@ -167,6 +168,9 @@ function KernelHubAttach({
 }
 
 export function AppShell({ auth }: { auth: AuthBootstrap }): JSX.Element {
+  // Whole-window, and mounted at the top so it also covers the boot and error
+  // screens — a drag released over a loading app would navigate it away too.
+  useFileDropGuard()
   const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
   // One tRPC client for the gate, memoized on the origin so the gate's effect

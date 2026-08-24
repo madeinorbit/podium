@@ -10889,3 +10889,41 @@ a.ref-link--session::before {
   outline: none;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 40%, transparent);
 }
+
+/* ---------------------------------------------------------------------------
+   THE CHAT DROP VEIL (POD-1595)
+
+   Shown while a drag carrying files is anywhere over the conversation. It is a
+   TARGET, not a dialog: one keyline round the surface that accepts the drop and
+   one phrase naming what releasing does. The ground is barely there — the
+   transcript underneath stays readable, because the operator is aiming at a
+   place in a conversation and covering the conversation would take away the
+   only thing they are aiming by.
+   --------------------------------------------------------------------------- */
+.chat-drop-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Out of the drag's hit-testing: a veil that took pointer events would fire
+     dragleave against itself the frame it appeared and flicker thereafter. */
+  pointer-events: none;
+  border: 2px dashed color-mix(in oklab, var(--primary) 70%, transparent);
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--primary) 6%, transparent);
+}
+.chat-drop-veil-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 15px;
+  border-radius: 9px;
+  background: var(--popover, var(--card));
+  box-shadow: 0 6px 20px var(--carve-popover-near, rgb(0 0 0 / 0.18));
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+}

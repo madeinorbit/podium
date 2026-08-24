@@ -3,7 +3,7 @@ import type { SuperThreadRef } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { useVoiceInput } from '@podium/terminal-client-react'
-import { ArrowDownToLine } from 'lucide-react'
+import { ArrowDownToLine, Paperclip } from 'lucide-react'
 import type { JSX, MutableRefObject } from 'react'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useSessionDraft } from '@/app/store'
@@ -288,7 +288,24 @@ export function ChatView({
   }, [active, chat.phase, sessionId])
 
   return (
-    <div className={cn('flex min-h-0 flex-1 flex-col', compact && 'chat-compact')}>
+    /**
+     * THE WHOLE CONVERSATION IS THE DROP TARGET (POD-1595).
+     *
+     * These handlers used to sit on the composer dock alone — a strip about
+     * seventy pixels tall at the very bottom of the pane. Dragging a file into
+     * a chat means dragging it at the CONVERSATION, and the conversation is the
+     * other ninety percent of the surface: over all of it the cursor said "no",
+     * releasing did nothing, and in a plain browser tab the page navigated away
+     * to the dropped file, taking the half-written prompt with it.
+     *
+     * `relative` is new and is only the overlay's containing block; every other
+     * absolutely-positioned child of this view already resolves against a nearer
+     * `relative` ancestor (`.offer-lift-region`, `.chat-composer-well`).
+     */
+    <div
+      className={cn('relative flex min-h-0 flex-1 flex-col', compact && 'chat-compact')}
+      {...chat.attachments.dropHandlers}
+    >
       {/* `offer-lift-region`: an opened offer fold pushes the whole transcript
           up under the panel header instead of resizing it — the feed keeps its
           box, so nothing here re-renders or loses its scroll (POD-1068). */}
@@ -403,6 +420,19 @@ export function ChatView({
         quoteDraftRef={quoteDraftRef}
       />
       <ImageLightbox src={chat.lightbox} onClose={() => chat.setLightbox(null)} />
+      {/* One target, drawn once, over everything it covers — so what is offered
+          and what accepts the drop are the same rectangle. `pointer-events-none`
+          keeps it out of the drag's own hit-testing: a veil that took the events
+          would fire dragleave against itself the moment it appeared and flicker
+          for the rest of the drag. */}
+      {chat.attachments.dragOver && (
+        <div className="chat-drop-veil" data-testid="chat-drop-veil" aria-hidden="true">
+          <span className="chat-drop-veil-label">
+            <Paperclip size={15} aria-hidden="true" />
+            Drop to attach
+          </span>
+        </div>
+      )}
     </div>
   )
 }
