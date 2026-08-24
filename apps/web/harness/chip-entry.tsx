@@ -19,10 +19,10 @@
  * component wrapper (`IssueChipLiveness`, its mount race and its
  * MutationObserver) is covered where it belongs, in its own vitest file.
  */
-import type { IssueReferenceSource } from '@podium/client-core/viewmodels'
-import { asIssueId, type IssueStage } from '@podium/model'
+import type { IssueStage } from '@podium/model'
 import { decorateIssueRefAnchors, issueReferenceLookup } from '@/lib/issue-chip-liveness'
 import { renderMarkdown, setKnownRefPrefixes } from '@/lib/markdown'
+import { makeIssue } from '@/lib/test-issue'
 import '@/index.css'
 import '@/styles.css'
 
@@ -35,28 +35,21 @@ setKnownRefPrefixes(['POD'])
 document.documentElement.setAttribute('data-theme', 'podium')
 document.documentElement.classList.add('dark')
 
-type Issue = IssueReferenceSource & {
-  seq: number
-  prefix: string
-  displayRef: string
-  title: string
-}
+/** One fixture issue, built through the shared `makeIssue` so these chips read
+ *  the same fully-populated view model the app hands the pass — and so a field
+ *  added to that model reaches this harness rather than silently missing it. */
+type Issue = ReturnType<typeof makeIssue>
 
-const issue = (
-  seq: number,
-  stage: IssueStage,
-  title: string,
-  over: Partial<Issue> = {},
-): Issue => ({
-  id: asIssueId(`iss_${seq}`),
-  seq,
-  prefix: 'POD',
-  displayRef: `POD-${seq}`,
-  title,
-  stage,
-  archived: false,
-  ...over,
-})
+const issue = (seq: number, stage: IssueStage, title: string, over: Partial<Issue> = {}): Issue =>
+  makeIssue({
+    id: `iss_${seq}`,
+    seq,
+    prefix: 'POD',
+    displayRef: `POD-${seq}`,
+    title,
+    stage,
+    ...over,
+  })
 
 /** Every stage the chip can wear, both non-present availabilities, and a ref no
  *  issue answers — which must STAY the grey question mark after the pass. */
