@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   classifyUpdateFailureDetail,
   type MachineFailureCode,
@@ -125,6 +128,46 @@ describe('every refusal a daemon can produce is classified by the shared table',
       currentVersion: '0.1.7',
     })({ version: '0.1.3' })
     expect(classifyUpdateFailureDetail(detail)).toBe('machine-schema-unreadable')
+  })
+
+  /**
+   * An effect inside `applyGrant` threw while the participant was alive enough
+   * to report the exception. This is the exact opposite of silence: the raw
+   * errno must survive as support detail and must not be relabelled as a dead
+   * machine by the coordinator.
+   */
+  it('keeps an unexpected pending-marker write failure out of unreachable', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pending-write-refusal-'))
+    try {
+      const [detail] = await detailsFromApplyGrant({
+        target: {
+          version: '0.1.5',
+          artifacts: {
+            headless: {
+              delivery: 'feed',
+              platforms: {
+                'linux-x86_64': {
+                  url: 'https://x.test/a',
+                  digest: 'd',
+                  signature: 's',
+                },
+              },
+            },
+          },
+        },
+        caps: ['update.delivery.feed'],
+        // The pre-fix marker write: its parent directory does not exist.
+        writePending: () =>
+          writeFileSync(join(root, 'runtime', 'pending-update.json.tmp'), '{}'),
+      })
+
+      expect(detail).toMatch(/ENOENT.*pending-update\.json\.tmp/i)
+      expect(matchUpdateFailureToken(detail)).toBeUndefined()
+      expect(classifyUpdateFailureDetail(detail)).toBe('machine-update-failed')
+      expect(classifyUpdateFailureDetail(detail)).not.toBe('machine-unreachable')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   /** The planner's three refusals, through the wrapper `applyGrant` puts on them. */

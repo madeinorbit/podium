@@ -339,6 +339,12 @@ const MACHINE_FAILURE_COPY: Record<
       'Podium stopped waiting for it. Check that machine is running, then apply the update ' +
       'again from Settings → Machines.',
   }),
+  'machine-update-failed': (subject) => ({
+    message: `${subject ?? 'A machine'} reported an unexpected update failure.`,
+    nextAction:
+      "The technical detail below is the error it reported. Check that machine's log and disk " +
+      'before trying again.',
+  }),
   /**
    * THE FIRST FAILURE WHOSE NEXT ACTION WAS NOT "TRY AGAIN" (POD-2210).
    *

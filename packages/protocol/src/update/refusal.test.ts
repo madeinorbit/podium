@@ -38,15 +38,16 @@ describe('the shared refusal table', () => {
 
   /**
    * The default is the honest answer for ONE input — a machine that said
-   * nothing — and a confident lie for anything that said something. Keeping it
-   * reachable matters as much as keeping it narrow: a table that classified
-   * everything would have no way to say "this machine went quiet".
+   * nothing — and a confident lie for anything that reported a local error.
+   * Keeping it reachable matters as much as keeping it narrow: a table that
+   * classified everything would have no way to say "this machine went quiet".
    */
-  it('falls back to unreachable only when the machine said nothing recognizable', () => {
+  it('reserves unreachable for silence and preserves an unexpected reported failure', () => {
     expect(classifyUpdateFailureDetail(undefined)).toBe('machine-unreachable')
     expect(classifyUpdateFailureDetail('   ')).toBe('machine-unreachable')
-    expect(classifyUpdateFailureDetail('ludovico did not come back')).toBe('machine-unreachable')
-    expect(matchUpdateFailureToken('ludovico did not come back')).toBeUndefined()
+    const detail = 'ENOENT: no such file or directory, open /state/runtime/pending-update.json.tmp'
+    expect(matchUpdateFailureToken(detail)).toBeUndefined()
+    expect(classifyUpdateFailureDetail(detail)).toBe('machine-update-failed')
   })
 
   /**

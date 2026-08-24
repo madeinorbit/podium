@@ -87,6 +87,8 @@ export type MachineFailureCode =
   | 'machine-unsupported'
   /** The machine went quiet. THE ONLY MEMBER THAT MEANS "NOT ANSWERING". */
   | 'machine-unreachable'
+  /** A live participant reported an unexpected local error while applying the update. */
+  | 'machine-update-failed'
   /** Server and daemon share one PID with nothing to restart it (POD-2210). */
   | 'machine-cannot-restart'
   /** Its database has applied a migration the target does not define. */
@@ -426,14 +428,15 @@ export function matchUpdateFailureToken(
 /**
  * The code a `detail` sentence resolves to.
  *
- * UNRECOGNIZED FALLS TO `machine-unreachable`, STILL — because for the one
- * remaining case that reaches here unnamed (a machine that said nothing at all
- * before its clock ran out) that is the honest answer, and the alternative is a
- * generic "could not finish" that tells the operator nothing about where to
- * look. What changed in POD-2241 is that it is no longer the answer for eleven
- * sentences that said something precise.
+ * ABSENT DETAIL means `machine-unreachable`: the machine said nothing before
+ * its clock ran out. Non-empty unrecognized detail is the opposite — a live
+ * participant reported an error this version does not know how to classify.
+ * Preserve it as `machine-update-failed`; relabelling an errno as connectivity
+ * sends the operator to debug a machine that demonstrably answered.
  */
 export function classifyUpdateFailureDetail(detail: string | undefined): MachineFailureCode {
-  const token = matchUpdateFailureToken(detail)
-  return token === undefined ? 'machine-unreachable' : CODE_FOR_UPDATE_FAILURE_TOKEN[token]
+  const normalized = detail?.trim()
+  if (!normalized) return 'machine-unreachable'
+  const token = matchUpdateFailureToken(normalized)
+  return token === undefined ? 'machine-update-failed' : CODE_FOR_UPDATE_FAILURE_TOKEN[token]
 }

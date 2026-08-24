@@ -697,6 +697,27 @@ describe('the error taxonomy', () => {
     expect(error.detail).toBe('dirty-working-tree')
   })
 
+  it('surfaces an unexpected local error without inventing a connectivity failure', () => {
+    const detail =
+      'ENOENT: no such file or directory, open /state/runtime/pending-update.json.tmp'
+    const code = classifyMachineFailure(detail)
+    const error = describeUpdateOperationFailure({
+      code: 'machine-update-failed',
+      places: ['m_a'],
+      names: ['fleet-a'],
+      detail,
+    })
+
+    expect(code).toBe('machine-update-failed')
+    expect(error).toMatchObject({
+      code: 'machine-update-failed',
+      places: ['m_a'],
+      detail,
+    })
+    expect(error.message).toMatch(/fleet-a.*unexpected update failure/i)
+    expect(error.message).not.toMatch(/stopped responding|check (?:that )?it'?s running/i)
+  })
+
   it('tells a foreground Podium what was NOT done, and the two ways out', () => {
     const error = describeUpdateOperationFailure({
       code: 'machine-cannot-restart',

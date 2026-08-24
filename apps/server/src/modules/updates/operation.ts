@@ -110,6 +110,7 @@ export const UPDATE_ERROR_CODES = [
   'machine-dirty-checkout',
   'machine-unsupported',
   'machine-unreachable',
+  'machine-update-failed',
   /**
    * The machine took no update because finishing one would have stopped it for
    * good (POD-2210): a Podium running as a single foreground process is server
@@ -195,6 +196,12 @@ export type UpdateFailure =
     }
   | {
       code: 'machine-unreachable'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-update-failed'
       places: string[]
       names: string[]
       detail?: string
@@ -304,6 +311,15 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
         message: `${subject(
           failure,
         )} stopped responding while updating. Check it's running; it will resume when it reconnects.`,
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'machine-update-failed':
+      return {
+        code: failure.code,
+        message:
+          `${subject(failure)} reported an unexpected update failure. The technical detail ` +
+          "below is the error it reported; check that machine's log and disk before trying again.",
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }

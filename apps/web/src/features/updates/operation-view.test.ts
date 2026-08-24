@@ -671,6 +671,24 @@ describe('operationView — action rejections (the retired POD-2091 bug)', () =>
     }
   })
 
+  it('shows an unexpected local update error instead of unreachable guidance', () => {
+    const diagnostic =
+      'ENOENT: no such file or directory, open /state/runtime/pending-update.json.tmp'
+    const presented = presentOperationError({
+      code: 'machine-update-failed',
+      detail: diagnostic,
+      places: ['fleet-a'],
+    })
+
+    expect(presented.message).toMatch(/fleet-a.*unexpected update failure/i)
+    expect(presented.nextAction).toMatch(/technical detail.*error it reported/i)
+    expect(presented.detail).toContain(diagnostic)
+    expect(presented.detail).toContain('code: machine-update-failed')
+    expect(`${presented.message} ${presented.nextAction}`).not.toMatch(
+      /stopped responding|check (?:that )?machine is running/i,
+    )
+  })
+
   it('keeps desktop check failures distinct with one useful next action', () => {
     const cases = [
       {

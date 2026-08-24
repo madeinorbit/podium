@@ -35,6 +35,16 @@ describe('pending grant marker', () => {
     expect(readPendingGrant(dir)).toEqual(grant)
   })
 
+  it('owns and creates a missing runtime directory before publishing', () => {
+    const runtimeDir = join(dir, 'state', 'runtime')
+    expect(existsSync(runtimeDir)).toBe(false)
+
+    writePendingGrant(runtimeDir, grant)
+
+    expect(readPendingGrant(runtimeDir)).toEqual(grant)
+    expect(existsSync(join(runtimeDir, 'pending-update.json.tmp'))).toBe(false)
+  })
+
   it('finalizes only the target the complete parent gate proved', () => {
     writePendingGrant(dir, grant)
 

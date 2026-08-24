@@ -2,6 +2,7 @@ import {
   closeSync,
   existsSync,
   fsyncSync,
+  mkdirSync,
   openSync,
   readFileSync,
   renameSync,
@@ -105,6 +106,12 @@ export function writePendingGrant(
   g: PendingGrant,
   writeBytes: WriteMarkerBytes = writeFileDurable,
 ): void {
+  // The writer owns its directory. The daemon used to create this during host
+  // runtime bootstrap, but the server-local participant can apply a grant
+  // without ever constructing that runtime (POD-2668). Requiring callers to
+  // reproduce that unrelated boot ordering would make the rollback marker
+  // conditional on topology again.
+  mkdirSync(dir, { recursive: true })
   const temp = join(dir, TEMP_FILE)
   writeBytes(temp, JSON.stringify(g))
   renameSync(temp, join(dir, FILE))
