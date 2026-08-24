@@ -38,6 +38,7 @@ import {
 } from '@podium/protocol'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isServerUnavailable, makeTrpc } from '@/app/trpc'
+import { servedWebsiteForPage } from '@/lib/served-website'
 import { pageBuildDigest, pageBuildVersion, pageBundleVersion } from '@/lib/logging/build-version'
 import {
   isNativeDesktopUpdateError,
@@ -594,8 +595,16 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   /**
    * Is the website this page was loaded from still the one being served?
    * (POD-2721 — see `behind` below for why this is a fact of its own.)
+   *
+   * `servedWebsiteForPage` is what keeps this from becoming an offer nobody can
+   * clear: it answers only for a page this origin actually served, and only with
+   * the dist that page belongs to. A baked desktop shell and an iteration-mode
+   * page get `undefined`, because their assets are somewhere a reload cannot
+   * reach.
    */
-  const assets = classifyAssets(server, { bundle: pageBundleVersion() })
+  const assets = classifyAssets(servedWebsiteForPage(server, options.httpOrigin), {
+    bundle: pageBundleVersion(),
+  })
 
   const touched = target
     ? computeTouched({

@@ -10,47 +10,42 @@ import { UpdateTarget } from './target'
  * built at all — and those two need opposite verdicts. The server can tell them
  * apart (index.html is either there or it is not), so the server is what says so.
  */
-export const MobileWebIdentity = z.object({
-  /** An exported phone website exists here. Absent means "no phone app", not "stale". */
-  present: z.boolean(),
-  /** Product version from the phone bundle's build stamp, when the stamp names one. */
-  appVersion: z.string().optional(),
-  /** Its checkout, in the same currency as `artifacts.web.digest`. */
-  digest: z.string().optional(),
-})
-export type MobileWebIdentity = z.infer<typeof MobileWebIdentity>
-
-/**
- * The website this server is serving RIGHT NOW, read off its own disk (POD-2721).
- *
- * `digest` and `bundle` answer two different questions and only one of them is
- * about assets. `digest` is the checkout — the currency `artifacts.web.digest`
- * uses, and the thing an update is trying to move. `bundle` is the entry chunk's
- * content hash, which is what decides whether a page loaded from an earlier
- * build can still resolve the URLs it is holding.
- *
- * They come apart, and POD-2721 is the case where they did: a packaged
- * `0.1.1-edge.2` and a dev release `0.1.1-dev.1+a55ec3d` built from the SAME
- * commit `a55ec3d` were served in turn, so the checkout never moved while every
- * lazy chunk's URL did.
- */
 export const ServedWebIdentity = z.object({
-  /** A website exists here. Absent means "API only", not "stale". */
+  /** A website exists here. Absent means "no app of this kind", not "stale". */
   present: z.boolean(),
   /** Product version from its build stamp, when the stamp names one. */
   appVersion: z.string().optional(),
   /** Its checkout, in the same currency as `artifacts.web.digest`. */
   digest: z.string().optional(),
   /**
-   * `bundle+<entry chunk hash>` from its build stamp.
+   * `bundle+<entry chunk hash>` from its build stamp (POD-2721).
    *
-   * The entry chunk fingerprints the WHOLE module graph — a lazy chunk's hash
-   * appears in the entry as an import specifier — so this moves exactly when a
-   * loaded page's chunk URLs stop being the ones on disk.
+   * A SECOND IDENTITY, not a finer one. `digest` is the checkout — what an
+   * update is trying to move. This is the bytes, and it is the only one that
+   * decides whether a page loaded from an earlier build can still resolve the
+   * URLs it is holding: the entry chunk fingerprints the whole module graph,
+   * because a lazy chunk's hash appears inside it as an import specifier.
+   *
+   * The two come apart, and POD-2721 is the case where they did: a packaged
+   * `0.1.1-edge.2` and a dev release `0.1.1-dev.1+a55ec3d` built from the SAME
+   * commit `a55ec3d` were served in turn, so the checkout never moved while
+   * every lazy chunk's URL did.
    */
   bundle: z.string().optional(),
 })
 export type ServedWebIdentity = z.infer<typeof ServedWebIdentity>
+
+/**
+ * The phone website this server serves, as the server sees it on disk (POD-1980).
+ *
+ * ONE SHAPE, TWO WEBSITES. This is the same idea as {@link ServedWebIdentity}
+ * pointed at the other dist, and it is deliberately the same type: they are read
+ * by the same code, compared the same way, and a second copy of the shape is a
+ * second answer waiting to disagree. The name is kept because the field on
+ * `/version` is named for the website it describes.
+ */
+export const MobileWebIdentity = ServedWebIdentity
+export type MobileWebIdentity = ServedWebIdentity
 
 export const ServerVersion = z
   .object({
@@ -108,8 +103,19 @@ export function classifySkew(
  */
 export type AssetVerdict = 'ok' | 'unknown' | 'replaced'
 
-export function classifyAssets(server: ServerVersion, page: { bundle?: string }): AssetVerdict {
-  const served = server.web
+/**
+ * THE CALLER CHOOSES WHICH WEBSITE. A server serves two of them — the desktop
+ * dist and the phone export — and a page belongs to exactly one. Comparing a
+ * page against the wrong one is not a near-miss: the two are built by different
+ * toolchains and will never share an entry hash, so it would report `replaced`
+ * forever and offer a reload that changes nothing. That is the POD-2608 failure
+ * with a new cause, so the choice is made where the page's own identity is
+ * known and this function is handed only the pair it should compare.
+ */
+export function classifyAssets(
+  served: ServedWebIdentity | undefined,
+  page: { bundle?: string },
+): AssetVerdict {
   if (served?.present !== true) return 'unknown'
   if (served.bundle === undefined || page.bundle === undefined) return 'unknown'
   return served.bundle === page.bundle ? 'ok' : 'replaced'

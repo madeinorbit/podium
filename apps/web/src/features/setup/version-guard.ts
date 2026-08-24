@@ -14,6 +14,7 @@ import { reportSkew } from '@/app/skew-notice'
 import { isIterationMode } from '@/lib/iteration-mode'
 import { pageBundleVersion } from '@/lib/logging/build-version'
 import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/lib/reload-budget'
+import { servedWebsiteForPage } from '@/lib/served-website'
 
 /**
  * Wire-version handshake for the web client. A cached PWA shell can outlive a server redeploy
@@ -328,13 +329,14 @@ export async function checkServedAssets(
     return 'unknown'
   }
 
-  const verdict = classifyAssets(server, { bundle: page })
+  const served = servedWebsiteForPage(server, httpOrigin)
+  const verdict = classifyAssets(served, { bundle: page })
   if (verdict !== 'replaced') return verdict
 
   log.warn('served web bundle has been replaced under this page', {
     page,
-    served: server.web?.bundle,
-    servedVersion: server.web?.appVersion,
+    served: served?.bundle,
+    servedVersion: served?.appVersion,
   })
   reportSkew({
     source: 'assets-replaced',

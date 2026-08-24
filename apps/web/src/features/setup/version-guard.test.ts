@@ -47,7 +47,7 @@ beforeEach(() => {
     keys: vi.fn().mockResolvedValue(['podium-precache', 'podium-runtime']),
     delete: cacheDelete,
   })
-  vi.stubGlobal('location', { reload })
+  vi.stubGlobal('location', { reload, origin: ORIGIN, pathname: '/' })
   vi.stubGlobal('sessionStorage', {
     getItem: (k: string) => store.get(k) ?? null,
     setItem: (k: string, v: string) => {
@@ -616,5 +616,63 @@ describe('checkServedAssets', () => {
     expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('replaced')
     expect(currentSkew()?.severe).toBe(true)
     expect(currentSkew()?.source).toBe('dropped-frames')
+  })
+})
+
+/**
+ * THE OFFER THAT COULD NEVER CLEAR, CAUGHT BEFORE IT SHIPPED.
+ *
+ * Some pages are not running the website the server they talk to is serving, and
+ * never will be: a desktop shell with a baked `tauri://` UI, an iteration-mode
+ * page served from source by Vite in front of an installed server, and any page
+ * under `/mobile`, whose Metro entry hash can never equal the Vite one. Compared
+ * against the desktop dist, every one of them is `replaced` on every poll —
+ * a banner recommending a reload that provably cannot change their assets.
+ *
+ * That is the POD-2608 failure mode reached by a new road, so it gets its own
+ * regression rather than a comment.
+ */
+describe('checkServedAssets and pages this server did not serve', () => {
+  beforeEach(() => {
+    resetSkewNotice()
+  })
+
+  const servingDesktop = {
+    wireVersion: WIRE_VERSION,
+    wireSchemaDigest: wireSchemaDigest(),
+    web: { present: true, appVersion: '0.1.1', bundle: 'bundle+CFyX4Q_p' },
+    mobileWeb: { present: true, appVersion: '0.1.1', bundle: 'bundle+a833d1a61f7a6d85a8c7fe49922500f0' },
+  }
+
+  it('stays quiet for a desktop shell running its own baked bundle', async () => {
+    vi.stubGlobal('location', { reload, origin: 'tauri://localhost', pathname: '/' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unknown')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('stays quiet for an iteration-mode page served from source', async () => {
+    vi.stubGlobal('location', { reload, origin: 'http://localhost:5173', pathname: '/' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unknown')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('measures a phone page against the phone export, which it matches', async () => {
+    vi.stubGlobal('location', { reload, origin: ORIGIN, pathname: '/mobile/sessions' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
+    expect(
+      await checkServedAssets(ORIGIN, 'bundle+a833d1a61f7a6d85a8c7fe49922500f0'),
+    ).toBe('ok')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('still tells a phone page when the phone export itself was replaced', async () => {
+    vi.stubGlobal('location', { reload, origin: ORIGIN, pathname: '/mobile/sessions' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
+    expect(await checkServedAssets(ORIGIN, 'bundle+0000000000000000000000000000000f')).toBe(
+      'replaced',
+    )
+    expect(currentSkew()?.source).toBe('assets-replaced')
   })
 })

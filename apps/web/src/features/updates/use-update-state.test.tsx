@@ -57,7 +57,7 @@ function Probe({
   pollFleet?: boolean
 }) {
   const result = useUpdateState({
-    httpOrigin: 'http://podium.test',
+    httpOrigin: window.location.origin,
     needRefresh: false,
     ...(pollFleet ? {} : { fleet: { total: 1, behind, converging: 0, failed: 0 } }),
     reload: withReload ? reloadAction : undefined,
