@@ -1301,6 +1301,31 @@ crash_artifact() {
   verify_signed_manifest "$manifest" "$bundle"
 }
 
+# ASSERT THE CODE, NOT THE SENTENCE (POD-2747).
+#
+# This row used to grep the whole operation JSON for
+# `rollback|rolled back|stuck|health|successor`. The operation says exactly the
+# right thing and says it better than that: code `machine-update-not-confirmed`,
+# whose contract in operation.ts is "it restarted and came back on the wrong
+# version — it is UP, the boot itself is what reported this", carrying the
+# message "fleet-a took this update but did not come back on the new version,
+# and is running again on the version it had". That is this row's outcome
+# described precisely, in prose containing none of the five words. Pinned to
+# vocabulary, the assertion would break when the copy improved and pass a
+# regression that kept the wording.
+#
+# Prose is the wrong surface for a gate — POD-2741 lost a day to "target was not
+# offered" firing while the offer was perfectly healthy. The codes are a closed
+# set built for exactly this question, so match one.
+#
+# ONE code, not an alternation. `machine-artifact-rejected` here would mean the
+# crash bundle failed verification instead of crashing on boot — that is
+# tampered-refusal's outcome, and it must never read as this row passing.
+rollback_outcome_holds() {
+  jq -e '.state=="failed" and .error.code=="machine-update-not-confirmed"' \
+    <<<"$1" >/dev/null
+}
+
 rollback() {
   local prior=$1 prior_manifest=$2 manifest="$WORK/rollback.json" target artifact started id value
   local head proposal container sentinel=".update-e2e-rollback-sentinel"
@@ -1343,8 +1368,10 @@ rollback() {
   value="$(operation "$id")"
   printf '%s\n' "$value" >"$WORK/logs/rollback-operation.json"
   rpc GET updates.fleet >"$WORK/logs/rollback-terminal-fleet.json"
-  jq -e '.state=="failed"' <<<"$value" >/dev/null
-  grep -Eiq 'rollback|rolled back|stuck|health|successor' <<<"$value"
+  if ! rollback_outcome_holds "$value"; then
+    say "rollback operation ended $(jq -r '.state // "stateless"' <<<"$value")/$(jq -r '.error.code // "no code"' <<<"$value"), expected failed/machine-update-not-confirmed; it said: $(jq -r '.error.message // "no message"' <<<"$value"); raw: logs/rollback-operation.json" >&2
+    return 1
+  fi
   wait_for 120 "old bundle restored" installed_versions_are "$prior"
   for container in "$FLEET_A" "$FLEET_B"; do
     [[ "$(container_exec "$container" cat "$(install_path)/$sentinel")" == "$prior" ]]

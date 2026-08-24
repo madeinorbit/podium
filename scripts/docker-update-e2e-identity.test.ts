@@ -45,6 +45,15 @@ if proposal_identity_holds ${args}; then echo held; else echo refused; fi`,
   return run.stdout.trim()
 }
 
+/** Ask the real `rollback_outcome_holds` about one terminal operation. */
+async function rollbackOutcome(operation: object): Promise<string> {
+  const run = await bash(
+    `V=${JSON.stringify(JSON.stringify(operation))}
+if rollback_outcome_holds "$V"; then echo held; else echo refused; fi`,
+  )
+  return run.stdout.trim()
+}
+
 /** Ask the real `coordinator_is_installed_build` about one /version body. */
 async function installedBuild(body: object, expected?: string): Promise<string> {
   const run = await bash(
@@ -103,6 +112,49 @@ describe('the HEAD/version identity contract', () => {
     expect(await identity({ ...ROLLBACK, version: '0.1.2-dev.0+cf7dcaf' })).toBe('refused')
     expect(await identity({ ...ROLLBACK, version: '0.1.2' })).toBe('refused')
     expect(await identity({ ...ROLLBACK, state: 'approved' })).toBe('refused')
+  })
+})
+
+describe('the rollback row reads the outcome code, not the prose', () => {
+  // The operation a real gate run produced when the crashing canary rolled back.
+  // Note what it does NOT contain: rollback, rolled back, stuck, health,
+  // successor. The row used to grep the JSON for exactly those five words.
+  const REAL = {
+    state: 'failed',
+    error: {
+      code: 'machine-update-not-confirmed',
+      message:
+        'fleet-a took this update but did not come back on the new version, and is running again on the version it had.',
+      detail: 'attempt 2 of 2 did not reach 0.1.2-dev.2+5f5c049 (running 0.1.2-dev.1+a029ce1)',
+    },
+  }
+
+  it('holds for the operation a real rollback produced', async () => {
+    expect(await rollbackOutcome(REAL)).toBe('held')
+  })
+
+  it('would not have been matched by the prose it replaced', async () => {
+    // Pins the diagnosis, not just the fix: this payload is correct in every
+    // respect and the old vocabulary check refused it.
+    const words = /rollback|rolled back|stuck|health|successor/i
+    expect(words.test(JSON.stringify(REAL))).toBe(false)
+  })
+
+  it('refuses a crash bundle that failed verification instead of crashing on boot', async () => {
+    // machine-artifact-rejected is tampered-refusal's outcome. If this row ever
+    // ends that way the crash artifact was not served intact, and it must not
+    // read as a passing rollback.
+    expect(await rollbackOutcome({ ...REAL, error: { ...REAL.error, code: 'machine-artifact-rejected' } })).toBe(
+      'refused',
+    )
+  })
+
+  it('refuses a delivery failure, a missing error, and an operation that succeeded', async () => {
+    expect(await rollbackOutcome({ ...REAL, error: { ...REAL.error, code: 'machine-delivery-failed' } })).toBe(
+      'refused',
+    )
+    expect(await rollbackOutcome({ state: 'failed', error: null })).toBe('refused')
+    expect(await rollbackOutcome({ ...REAL, state: 'done' })).toBe('refused')
   })
 })
 
