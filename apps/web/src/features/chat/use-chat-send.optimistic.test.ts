@@ -218,6 +218,70 @@ describe('useChatSend optimistic window', () => {
     expect(result.current.justSent).toBe(false)
   })
 
+  /** POD-1595 review round two — all three were real, all three in the queued
+   *  path added by round one. */
+  it('a slow rejection does not close a LATER send’s window', async () => {
+    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(IDLE_SINCE),
+    })
+    // A hangs, then rejects. B is sent while A is still in the air, and is fine.
+    let rejectA: (e: unknown) => void = () => {}
+    sendText.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectA = reject
+        }) as never,
+    )
+    let a: Promise<void> | undefined
+    await act(async () => {
+      a = result.current.send('the slow one')
+    })
+    await act(async () => {
+      await result.current.send('the one that lands')
+    })
+    expect(result.current.justSent).toBe(true)
+    await act(async () => {
+      rejectA(REFUSED)
+      await a
+    })
+    // B is genuinely in flight and the daemon has said nothing. Closing here
+    // dropped the tail back onto the previous turn's verdict under B's bubble.
+    expect(result.current.justSent).toBe(true)
+  })
+
+  it('does not run the ceiling down against a turn it is queued behind', async () => {
+    const WORKING = '2026-08-24T10:00:00.000Z'
+    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(WORKING, undefined, 'working'),
+    })
+    await act(async () => {
+      await result.current.send('do this next')
+    })
+    // Agent turns routinely outlast 30s. The ceiling is for a session saying
+    // NOTHING; this one is reporting `working` throughout, so counting down
+    // against it closed the window unseen and made the queued fix inert.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120_000)
+    })
+    expect(result.current.justSent).toBe(true)
+  })
+
+  it('yields to a permission ask raised by the turn it is queued behind', async () => {
+    const WORKING = '2026-08-24T10:00:00.000Z'
+    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(WORKING, undefined, 'working'),
+    })
+    await act(async () => {
+      await result.current.send('do this next')
+    })
+    // The RUNNING turn asks for approval. That is not it ending, and it is news
+    // the operator needs far more than they need our receipt.
+    await act(async () => {
+      rerender(opts('2026-08-24T10:00:05.000Z', undefined, 'needs_user'))
+    })
+    expect(result.current.justSent).toBe(false)
+  })
+
   it('gives up eventually on a session that never reports at all', async () => {
     const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
       initialProps: opts(undefined),

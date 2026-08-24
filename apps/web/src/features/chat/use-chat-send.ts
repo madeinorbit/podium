@@ -314,6 +314,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
    * bubble still says the message is going, the tail agrees with it.
    */
   const agentSince = session?.agentState?.since
+  const agentPhase = session?.agentState?.phase
   useEffect(() => {
     if (openSend === null) return
     if ((agentSince ?? null) !== openSend.since) {
@@ -325,31 +326,59 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       // had not been picked up yet: precisely the stale frame this issue is
       // about, one turn boundary further along. So re-arm against the new
       // observation and spend the flag; the NEXT move is the one about us.
-      if (openSend.queuedBehindTurn) {
+      // ...and only when it ended QUIETLY. `idle` is the turn finishing; every
+      // other phase is the daemon saying something the operator needs more than
+      // they need our receipt. A `needs_user` here is the running turn raising a
+      // permission ask mid-flight — the commonest thing that happens in this
+      // product — and holding "Sending" over it would re-create, for queued
+      // sends, the very regression the mobile half of this change was about.
+      // `errored` and `ended` likewise: the turn our message was queued behind
+      // did not finish, so the news is theirs, not ours.
+      if (openSend.queuedBehindTurn && agentPhase === 'idle') {
         setOpenSend({ ...openSend, since: agentSince ?? null, queuedBehindTurn: false })
         return
       }
       setOpenSend(null)
       return
     }
+    // NO CEILING WHILE THE TURN WE ARE QUEUED BEHIND IS VISIBLY RUNNING. The
+    // ceiling exists for a session saying NOTHING; one reporting `working` is
+    // saying plenty, just about the turn ahead of ours. Counting down against it
+    // closed the window unseen — the badge outranks the optimistic row while the
+    // agent works, so nothing on screen changed — and then handed the turn
+    // boundary back to the stale verdict. Agent turns routinely outlast 30s, so
+    // this was not an edge case; it made the queued-send fix inert.
+    if (openSend.queuedBehindTurn && (agentPhase === 'working' || agentPhase === 'compacting')) {
+      return
+    }
     const t = setTimeout(() => setOpenSend(null), OPTIMISTIC_SEND_CEILING_MS)
     return () => clearTimeout(t)
-  }, [openSend, agentSince])
+  }, [openSend, agentSince, agentPhase])
 
   /** Open the optimistic window, and record what the tail is optimistic AGAINST.
    *  Always a fresh value, so a second send re-arms the ceiling rather than
    *  inheriting the first one's. */
-  const markSent = useCallback(() => {
+  const markSent = useCallback((): number => {
+    const seq = ++sendSeq.current
     setOpenSend({
-      seq: ++sendSeq.current,
+      seq,
       since: latestSince.current ?? null,
       queuedBehindTurn: latestPhase.current === 'working' || latestPhase.current === 'compacting',
     })
+    return seq
   }, [])
 
-  /** Close it. A send that was REFUSED is not in flight, and must not go on
-   *  claiming the row — the refusal's own error line is what belongs there. */
-  const clearSent = useCallback(() => setOpenSend(null), [])
+  /**
+   * Close the window opened by ONE send. A refused send is not in flight and
+   * must not go on claiming the row — the refusal's own error line belongs there
+   * — but it must close only its OWN claim. Sends resolve out of order: a slow
+   * one rejecting on a timeout can land after a later one was accepted, and
+   * clearing the window wholesale killed the live send's row and handed the tail
+   * straight back to the stale verdict. That is what `seq` is for.
+   */
+  const clearSent = useCallback((seq: number) => {
+    setOpenSend((current) => (current?.seq === seq ? null : current))
+  }, [])
 
   /**
    * TYPING PAST AN OFFER ANSWERS IT (POD-1595).
@@ -510,7 +539,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           ...(toolPaths && toolPaths.length > 0 ? { toolPaths } : {}),
         },
       ])
-      markSent()
+      const mySend = markSent()
       const retired = retireOfferOptimistically()
       try {
         await deliver(fullText, deliveryId, () =>
@@ -518,7 +547,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         )
       } catch {
         setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
-        clearSent()
+        clearSent(mySend)
         // Only un-hide the offer THIS send hid: a dismissal made in between is
         // the operator's own and must not be undone by a failure over here.
         if (retired !== null && dismissedOfferAtRef.current === retired) {
@@ -538,7 +567,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       const id = `pending-${++pendingSeq.current}`
       const deliveryId = `msg_${randomUUID()}`
       setPending((p) => [...p, { id, deliveryId, text: prompt, at: Date.now(), state: 'sending' }])
-      markSent()
+      const mySend = markSent()
       pinToBottom()
       try {
         await deliver(prompt, deliveryId, () =>
@@ -546,8 +575,11 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         )
       } catch (cause) {
         setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
-        clearSent()
-        applyDismissedOfferAt(null) // send failed — let the offer reappear
+        clearSent(mySend)
+        // Same guard the typed path got: un-hide only if THIS click's offer is
+        // still the one hidden. A newer offer, retired by a later send that is
+        // still in flight, is not ours to put back.
+        if (dismissedOfferAtRef.current === offerAt) applyDismissedOfferAt(null)
         throw cause
       }
     },
