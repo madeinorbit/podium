@@ -112,8 +112,29 @@ const id = (prefix: string): string => `${prefix}_${(++nextId).toString().padSta
 export async function startFakeOpencodeServer(options: {
   username: string
   password: string
+  /**
+   * THE CONVERSATION STORE, WHICH OUTLIVES THE PROCESS (POD-2703).
+   *
+   * opencode keeps every session on the machine in ONE shared sqlite database —
+   * the same fact `capabilities.ts` cites when it declares `byteFaithful:
+   * false`, because there is no per-session file to copy. That database is not
+   * owned by any `opencode serve` incarnation: it is what makes this driver's
+   * `resume()` "a server restart, not a flag", because the rows are still there
+   * when a fresh server comes up and the same `ses_…` is addressed over the API.
+   *
+   * A fixture that gave every server its own private map modelled the opposite
+   * world — one where killing the process destroys the conversation — and in
+   * that world a resumed session correctly reports `not_running` for a session
+   * id no server has ever heard of. The corpus's resume properties are the
+   * first thing that ever asked, so pass ONE map across every server a world
+   * starts and the fixture says what the harness actually does.
+   *
+   * Omitted, each server keeps its own — which is right for the many tests that
+   * start exactly one.
+   */
+  store?: Map<string, FakeOpencodeSession>
 }): Promise<FakeOpencodeServer> {
-  const sessions = new Map<string, FakeOpencodeSession>()
+  const sessions = options.store ?? new Map<string, FakeOpencodeSession>()
   const permissions = new Map<string, FakePermissionRequest>()
   const questions = new Map<string, FakeQuestionRequest>()
   const prompts = new Map<string, number>()

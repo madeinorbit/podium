@@ -25,6 +25,9 @@ export interface FakeGrokAcpServer {
 }
 
 export function startFakeGrokAcpServer(
+  // Reassigned by `session/load`: the server serves whichever conversation it
+  // was asked to load, not the one it happened to mint at startup.
+  // biome-ignore lint/style/noParameterAssign: modelling a real load is the point
   sessionId = 'grok-native-1',
   options: FakeGrokAcpServerOptions = {},
 ): FakeGrokAcpServer {
@@ -80,9 +83,35 @@ export function startFakeGrokAcpServer(
               })
               return
             case 'session/new':
-            case 'session/load':
               response(frame.id, { sessionId })
               return
+            case 'session/load': {
+              /**
+               * THE SERVER TAKES ON THE SESSION IT IS ASKED TO LOAD (POD-2703).
+               *
+               * `session/load` used to answer with the id this fixture minted at
+               * startup and ignore the one in the request. That is not what a
+               * load is: the conversation is Grok's, it outlived the agent
+               * process, and a fresh `grok --acp` asked to load `X` serves `X`
+               * afterwards — its own startup id is not a thing the client ever
+               * knew about.
+               *
+               * Nothing noticed until `resume()` came under the corpus, because
+               * every other path here loads the id the same server minted, so
+               * the two were equal by accident. On the resume path they are not:
+               * the driver addresses the ref it was given, and every
+               * `session/update` this fixture pushed carried a DIFFERENT
+               * `sessionId`, so the driver — correctly — dropped them all and
+               * the resumed session went silent.
+               */
+              const requested = frame.params?.sessionId
+              if (typeof requested === 'string' && requested.length > 0) {
+                sessionId = requested
+                server.sessionId = requested
+              }
+              response(frame.id, { sessionId })
+              return
+            }
             case 'session/set_mode':
               response(frame.id, {})
               return

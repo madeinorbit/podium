@@ -35,6 +35,7 @@
  * or an argued addition to the permitted-failures table — never a skip here.
  */
 
+import type { ResumeRef } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentSessionHandle,
@@ -49,6 +50,8 @@ import {
   type PendingInteraction,
   permits,
   permitsNoNativeSteer,
+  type ResumeRefTiming,
+  type RuntimeDriver,
   type RuntimeEvent,
   type SessionSpec,
   type TurnReceipt,
@@ -300,6 +303,32 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         if (source === 'screen-classifier') expect(atLeastOnce).toBe(true)
       })
 
+      it('cannot declare an ARCHIVE it has no resume ref to put in one', () => {
+        const { driver } = setup()
+        const caps = driver.capabilities()
+        if (caps.resumeRefTiming !== 'never') return
+        /**
+         * TWO DECLARATIONS THAT CANNOT BOTH BE TRUE (POD-2703).
+         *
+         * `SessionArchive.resume` is not optional, and the archive guarantee is
+         * that an archive suffices to CONTINUE the conversation on another
+         * machine. A driver whose harness never mints a resume ref has nothing
+         * to put in that field, so an archive it produced could only carry a
+         * fabricated one — a backup that restores into a conversation that does
+         * not exist. The honest declaration is `unsupported`, with the reason a
+         * human reads in `podium doctor`.
+         *
+         * Checked here rather than left to the export properties because a
+         * capability pair that contradicts itself is wrong before any verb runs,
+         * and because this is the one cross-axis constraint the type system
+         * cannot state: both axes are independently well-typed.
+         */
+        expect(
+          caps.archive.supported,
+          'a driver that never mints a resume ref cannot declare an archive',
+        ).toBe(false)
+      })
+
       it('ships dedicated placement, or declares that it does not', () => {
         const { driver } = setup()
         // v1 is dedicated-only: per-session MemoryMax and OOM isolation exist
@@ -320,9 +349,9 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const declared = driver.capabilities().staging
 
         if (!declared.supported) {
-          await expect(session.stageAttachment(attachmentSourceFor('image'))).resolves.toMatchObject(
-            { reason: 'unsupported' },
-          )
+          await expect(
+            session.stageAttachment(attachmentSourceFor('image')),
+          ).resolves.toMatchObject({ reason: 'unsupported' })
           return
         }
 
@@ -484,7 +513,10 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const { handle, driver } = setup()
         const session = await handle
         const capabilities = driver.capabilities()
-        const first = await session.send({ text: 'one' }, { origin: 'human', delivery: 'when-ready' })
+        const first = await session.send(
+          { text: 'one' },
+          { origin: 'human', delivery: 'when-ready' },
+        )
         expectDeclaredDelivery(capabilities, first)
         const queued = await session.send({ text: 'two' }, { origin: 'human', delivery: 'queue' })
         expectDeclaredDelivery(capabilities, queued)
@@ -1006,6 +1038,275 @@ export function describeDriverConformance(target: ConformanceTarget): void {
     })
 
     // -----------------------------------------------------------------------
+    // Resume — the path where the process is GONE
+    // -----------------------------------------------------------------------
+
+    /**
+     * WHY THIS BLOCK EXISTS BESIDE `adopt` RATHER THAN INSIDE IT (POD-2703).
+     *
+     * The corpus reached the post-restart world through `adopt()` alone, and
+     * `adopt()` has a PRECONDITION this path does not: a SURVIVING PROCESS TREE.
+     * Its own property one screen up says so — "refuses to adopt a binding whose
+     * process did not survive". `resume()` is the other half of the same story,
+     * and it is the half every user-visible promise rests on: hibernate-and-wake,
+     * revival after a crash, handoff to another machine. Those all begin with the
+     * process GONE, which is precisely where adopt is required to refuse.
+     *
+     * So a green adopt block says nothing at all about resume, and until this
+     * block landed `resume()` was a CORE verb with no caller and no test outside
+     * a `describe.skip` behind `PODIUM_CODEX_LIVE=1`. Under this milestone's rule
+     * — a primitive that is declared but has no caller and no test is NOT
+     * implemented — it was not implemented on any driver.
+     *
+     * THE FAILURE MODE THIS GUARDS is not a stack trace. A driver whose `resume`
+     * ignores the ref and starts a FRESH conversation returns a perfectly good
+     * handle; every existing property passes on it. What the user sees is a
+     * session that came back empty, which reads as lost work rather than as a
+     * driver bug. `binding.resume` equalling the ref that was asked for is the
+     * cheapest thing that separates "resumed" from "quietly started over".
+     */
+    /**
+     * A SESSION THAT HAS ACTUALLY HAD A CONVERSATION, and its resume ref if the
+     * harness ever mints one.
+     *
+     * BOTH HALVES ARE LOAD-BEARING and each was learned rather than designed.
+     * The TURN is not decoration: an archive taken from a session that has said
+     * nothing is empty for an honest reason, so an export property standing on a
+     * fresh handle cannot tell a driver that ships no bytes from one that had no
+     * bytes to ship. And `resumeRefTiming: 'first-turn'` is the honest answer for
+     * a harness whose store is written lazily (Codex's rollout files; the
+     * terminal family's floor), so a corpus that only ever looked at a
+     * freshly-created session would find `null` and conclude the family cannot
+     * resume at all.
+     */
+    const afterOneTurn = async (
+      session: AgentSessionHandle,
+      control: ConformanceControl,
+      timing: ResumeRefTiming,
+    ): Promise<ResumeRef | null> => {
+      await session.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
+      await control.completeTurn(session.binding.sessionId)
+      if (timing === 'never') return null
+      await waitUntil(() => session.binding.resume !== null)
+      return session.binding.resume
+    }
+
+    describe('resume — the path where the process is GONE', () => {
+      it('mints the ref its capability promises, WHEN it promises it', async () => {
+        const { handle, control, driver } = setup()
+        const session = await handle
+        const timing = driver.capabilities().resumeRefTiming
+        if (timing === 'spawn') {
+          // "Captured as EARLY as the harness allows" — for this family that is
+          // before a single turn runs, and the declaration is what a caller
+          // reads before deciding whether hibernation is safe.
+          expect(session.binding.resume).not.toBeNull()
+          return
+        }
+        await session.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(session.binding.sessionId)
+        if (timing === 'never') {
+          // A declaration that no ref is ever coming. It must stay true after a
+          // turn, because a driver that quietly grows one has made `hibernate`'s
+          // refusal a lie in the other direction.
+          expect(await waitUntil(() => session.binding.resume !== null, 200)).toBe(false)
+          return
+        }
+        // `first-turn`: the ref is the WHOLE content of the declaration, and
+        // nothing checked it. A harness that never writes its store leaves the
+        // session unresumable while the capability says otherwise.
+        expect(
+          await waitUntil(() => session.binding.resume !== null),
+          'resumeRefTiming is `first-turn`, but no ref existed after one completed turn',
+        ).toBe(true)
+      })
+
+      it('succeeds where adopt CANNOT — no survivor, same conversation', async () => {
+        const { handle, control, driver, spec } = setup()
+        const session = await handle
+        const timing = driver.capabilities().resumeRefTiming
+        const ref = await afterOneTurn(session, control, timing)
+        if (!ref) {
+          // Stated rather than skipped: the refusal is asserted below, in the
+          // property that exists for exactly this driver.
+          expect(timing).toBe('never')
+          return
+        }
+        const dead = session.binding
+        await session.kill()
+
+        // THE PRECONDITION, PROVEN RATHER THAN ASSUMED. This is the same
+        // assertion the adopt block makes, made here so the two paths are
+        // separated by something the test can see: from this world, adopt is
+        // required to refuse. Anything resume does next it does WITHOUT a
+        // process tree to rebind to.
+        await expect(driver.adopt(dead)).rejects.toThrow()
+
+        const resumed = await driver.resume(ref, spec)
+        // THE SAME CONVERSATION, NOT A FRESH ONE. A driver that discards the ref
+        // and creates a new session passes every other property in this file.
+        expect(resumed.binding.resume).toEqual(ref)
+        expect(resumed.binding.driver).toBe(driver.id)
+        expect(resumed.binding.family).toBe(driver.family)
+        expect(resumed.binding.workdir).toBe(spec.workdir)
+
+        // AND IT IS GENUINELY RUNNING. A handle whose process never came up
+        // answers `not_running`, which is the difference between "resumed" and
+        // "handed back an object shaped like a session".
+        const receipt = await resumed.send(
+          { text: 'still here?' },
+          { origin: 'human', delivery: 'when-ready' },
+        )
+        if (receipt.outcome === 'refused') {
+          expect(
+            receipt.refusal.reason,
+            `resume() returned a handle that refuses sends: ${receipt.refusal.reason}`,
+          ).not.toBe('not_running')
+        }
+      })
+
+      it('comes back as a working OBSERVATION source, not just a handle', async () => {
+        const { handle, control, driver, spec } = setup()
+        const session = await handle
+        const timing = driver.capabilities().resumeRefTiming
+        const ref = await afterOneTurn(session, control, timing)
+        if (!ref) {
+          expect(timing).toBe('never')
+          return
+        }
+        await session.kill()
+        const resumed = await driver.resume(ref, spec)
+
+        // Exactly one snapshot opens a stream; everything after it is a
+        // cursor-fenced live delta. A resumed session that cannot do that is
+        // unwatchable, and the chat above it shows a session that came back
+        // frozen — which is the same "lost work" the ref check guards, arriving
+        // through observation instead of through identity.
+        const bootstrap = await resumed.snapshot()
+        expect(bootstrap.binding.resume).toEqual(ref)
+        control.askInteraction(resumed.binding.sessionId, 'permission')
+
+        const events = await drain(resumed.events(bootstrap.cursor), 1)
+        expect(events.length).toBeGreaterThan(0)
+        for (const event of events) {
+          expect(seqOf(event)).toBeGreaterThan(Number(bootstrap.cursor.components.seq ?? 0))
+          // Post-bootstrap events are LIVE. A replay must say so instead.
+          expect(event.provenance).not.toBe('bootstrap')
+        }
+      })
+
+      it('REFUSES when the harness has no resume at all — never a fresh session', async () => {
+        const { handle, driver, spec } = setup()
+        const session = await handle
+        if (driver.capabilities().resumeRefTiming !== 'never') {
+          // Unreachable BY CONSTRUCTION on this driver rather than by omission:
+          // its harness does mint a ref, so there is no refusal to reach. Say so
+          // instead of pretending to test it.
+          expect(await session.hibernate()).not.toMatchObject({ reason: 'unsupported' })
+          return
+        }
+        expect(session.binding.resume).toBeNull()
+        // Hibernating a session we cannot bring back is data loss wearing a
+        // lifecycle verb's name — and the same fact must reach `resume()`.
+        expect(await session.hibernate()).toMatchObject({ reason: 'no_resume_ref' })
+        // REFUSE, DO NOT DEGRADE. `resume()` returns a handle or nothing; there
+        // is no refusal channel in its type, so the only honest answer is to
+        // reject. Returning a fresh session here is the silent degradation this
+        // milestone's test bar exists to catch: the caller believes the
+        // conversation came back, and it did not.
+        await expect(
+          driver.resume({ kind: 'fabricated', value: 'no-such-conversation' }, spec),
+          'a driver declaring `resumeRefTiming: never` must reject resume(), not start a fresh session',
+        ).rejects.toThrow()
+      })
+    })
+
+    // -----------------------------------------------------------------------
+    // Export — the portable archive
+    // -----------------------------------------------------------------------
+
+    /**
+     * THE ARCHIVE GUARANTEE, PINNED AS FAR AS IT CAN BE PINNED TODAY (POD-2703).
+     *
+     * `export()` is core because handoff, cloud migration, disaster recovery and
+     * scheduled backup all rest on it — and until this block landed the only
+     * test of it anywhere drove the in-memory fake. What made that comfortable is
+     * that a broken `export` looks like nothing at all: an archive with no files,
+     * or with absolute paths, or naming a different conversation than the session
+     * it came from, is a well-formed object that only fails on the destination
+     * machine, months later, when somebody needs it.
+     *
+     * WHAT IS NOT PROVED HERE, stated so nobody reads more into a green run than
+     * it carries: `runtime.import()` throws on the daemon (blocked on POD-2415),
+     * so there is no end-to-end archive round-trip anywhere in the tree. What IS
+     * provable without it is the half of the guarantee that lives on the SOURCE
+     * machine — the archive is complete, self-describing, machine-independent and
+     * names the right conversation — plus the export→resume join at the bottom of
+     * this block, which is the handoff story minus the file transfer.
+     */
+    describe('export — the portable archive', () => {
+      it('produces the archive its capability DECLARES, or refuses to produce one', async () => {
+        const { handle, control, driver } = setup()
+        const session = await handle
+        await afterOneTurn(session, control, driver.capabilities().resumeRefTiming)
+        // The judgement lives in an exported function for the same reason
+        // `assertAttachHonoursOneControlLease` does: a driver whose capability
+        // varies with a HOST fact — the terminal family's `archivable` is one,
+        // and it flips this property from "produce" to "refuse" — reaches only
+        // one of the two arms under its own `runConformance` pass. Its fixture
+        // builds the other world and is judged by this same function rather than
+        // by a copy of it.
+        await assertArchiveHonoursItsDeclaration(session, driver)
+      })
+
+      it('REFUSES before the harness has minted a resume ref', async () => {
+        const { driver, spec } = setup()
+        // A FRESH session, deliberately: no turn, so a lazily-written harness
+        // store does not exist yet. A driver whose ref arrives at spawn has this
+        // refusal unreachable BY CONSTRUCTION rather than by omission, and the
+        // judgement below says which of the two worlds it is in.
+        const session = await driver.create(spec)
+        if (session.binding.resume) {
+          // `resumeRefTiming: 'spawn'` — the ref exists from the moment the
+          // handle does, so this refusal is unreachable BY CONSTRUCTION on this
+          // driver rather than by omission. Say so, and assert the thing that IS
+          // true: the archive of a session that has not spoken yet still names
+          // the conversation it is on. (The full judgement is deliberately not
+          // run here — it requires bytes, and a session with no turn honestly
+          // has none.)
+          expect(driver.capabilities().resumeRefTiming).toBe('spawn')
+          const declared = driver.capabilities().archive
+          if (declared.supported) {
+            expect((await session.export()).resume).toEqual(session.binding.resume)
+          }
+          return
+        }
+        await assertArchiveHonoursItsDeclaration(session, driver)
+      })
+
+      it('EXPORT → RESUME: the half of the guarantee that needs no import', async () => {
+        const { handle, control, driver, spec } = setup()
+        const session = await handle
+        if (!driver.capabilities().archive.supported) return
+        await afterOneTurn(session, control, driver.capabilities().resumeRefTiming)
+        const archive = await session.export()
+        await session.kill()
+
+        /**
+         * THE ROUND TRIP, AS FAR AS IT GOES TODAY. `runtime.import()` throws on
+         * the daemon (POD-2415), so the FILES half of the archive cannot be
+         * landed on another machine and resumed from there by anything in this
+         * tree. The REF half can be, and it is the half that fails silently:
+         * a driver whose export ships a ref its own `resume()` cannot address
+         * produces backups that are unusable by the very driver that wrote them,
+         * and no test between here and POD-2415 would have said so.
+         */
+        const resumed = await driver.resume(archive.resume, spec)
+        expect(resumed.binding.resume).toEqual(archive.resume)
+      })
+    })
+
+    // -----------------------------------------------------------------------
     // Lifecycle refusals
     // -----------------------------------------------------------------------
 
@@ -1238,6 +1539,134 @@ export function runConformance(
     reset: opts.reset,
     spec: opts.spec,
   })
+}
+
+/**
+ * THE ARCHIVE, JUDGED AGAINST WHAT THE DRIVER SAID IT WOULD BE (POD-2703).
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS A FUNCTION AND NOT A PROPERTY BODY
+ * ---------------------------------------------------------------------------
+ *
+ * `archive` is the one CORE capability whose declaration can flip on a HOST
+ * fact. The terminal family's `archivable` — "this harness declares a handoff
+ * transcript locator" — decides between `supported` and `unsupported`, and a
+ * driver reaches exactly ONE of the two arms under its own `runConformance`
+ * pass. Judging the other arm by a copy of these assertions is how the two
+ * drift; judging it by this function is how they cannot. It is the same shape,
+ * and the same argument, as `assertAttachHonoursOneControlLease` above.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT A BROKEN EXPORT LOOKS LIKE, WHICH IS WHY EACH ARM IS HERE
+ * ---------------------------------------------------------------------------
+ *
+ * Nothing. That is the whole problem. An archive with no files, or with absolute
+ * paths, or carrying the source machine's pid, or naming a different
+ * conversation than the session it came from, is a WELL-FORMED OBJECT. It fails
+ * on the destination machine, months later, at the moment somebody needs it —
+ * which is the moment with the least tolerance for a driver bug. So every arm
+ * below is stated against something the source machine can check for itself.
+ *
+ * REFUSE, DO NOT DEGRADE. `export()` returns `Promise<SessionArchive>` with no
+ * refusal channel in its type, so an honest decline has two halves and they must
+ * agree: the capability carries a `Declared` reason a human can act on, and the
+ * verb REJECTS. A driver that declares no archive and then hands back an empty
+ * one has told a caller their backup succeeded.
+ */
+export async function assertArchiveHonoursItsDeclaration(
+  session: AgentSessionHandle,
+  driver: Pick<RuntimeDriver, 'id' | 'harness' | 'family' | 'capabilities'>,
+): Promise<void> {
+  const declared = driver.capabilities().archive
+  if (!declared.supported) {
+    // The declaration IS the typed refusal; the throw is what enforces it.
+    expect(declared.reason.length).toBeGreaterThan(0)
+    await expect(
+      session.export(),
+      'this driver declares no archive, so export() must reject rather than return a hollow one',
+    ).rejects.toThrow()
+    return
+  }
+
+  /**
+   * NO REF YET IS ALSO A REFUSAL, and it is the arm a driver reaches only when
+   * its harness writes its store lazily. `SessionArchive.resume` is not
+   * optional, and it is not decoration: an archive without it is bytes nobody
+   * can resume from. Fabricating one — the session id, a path, anything to hand
+   * — produces a backup that restores into a conversation that does not exist,
+   * and the failure surfaces on the destination machine rather than here.
+   */
+  if (!session.binding.resume) {
+    await expect(
+      session.export(),
+      'export() before a resume ref must reject: an archive that cannot be resumed is not an archive',
+    ).rejects.toThrow()
+    return
+  }
+
+  const archive = await session.export()
+
+  // ---- it is the archive this driver said it produces -------------------
+  // "Opaque-but-VERSIONED per harness: the importing side refuses a version it
+  // does not speak rather than guessing at the layout." A version the capability
+  // never declared is a layout nobody on the far side can refuse.
+  expect(archive.formatVersion).toBe(declared.value.formatVersion)
+  expect(archive.harness).toBe(driver.harness)
+  expect(archive.binding.harness).toBe(driver.harness)
+  expect(archive.binding.driver).toBe(driver.id)
+  expect(archive.binding.family).toBe(driver.family)
+  expect(archive.binding.sessionId).toBe(session.binding.sessionId)
+  expect(archive.binding.workdir).toBe(session.binding.workdir)
+
+  // ---- it names the conversation the session is ACTUALLY on -------------
+  // The one field the destination machine resumes from. An archive whose ref
+  // names a different conversation restores somebody else's work under this
+  // session's name, and nothing downstream can detect it: both refs are
+  // well-formed.
+  if (session.binding.resume) expect(archive.resume).toEqual(session.binding.resume)
+  expect(archive.binding.resume).toEqual(archive.resume)
+
+  // ---- it carries the bytes its byte-faithful claim promises ------------
+  if (declared.value.byteFaithful) {
+    // BYTE-FAITHFUL IS A CLAIM ABOUT FILES, so an empty file list refutes it —
+    // and this is a live failure mode rather than a hypothetical: the server
+    // drivers build `files` from a host read that can answer `undefined`, and
+    // the fallback is `[]`. That is an archive silently shipping zero bytes
+    // while still declaring byte fidelity.
+    expect(
+      archive.files.length,
+      'archive declares byteFaithful but shipped no files',
+    ).toBeGreaterThan(0)
+  }
+  for (const file of archive.files) {
+    expect(file.bytes.byteLength, `archive file ${file.path} is empty`).toBeGreaterThan(0)
+  }
+
+  // ---- it is MACHINE-INDEPENDENT ----------------------------------------
+  for (const file of archive.files) {
+    expect(file.path.length).toBeGreaterThan(0)
+    // "Never absolute: an absolute path is a promise about the DESTINATION
+    // machine that the source machine cannot make." Three drivers carry that
+    // sentence as a comment and nothing checked it.
+    expect(file.path.startsWith('/'), `${file.path} is absolute`).toBe(false)
+    expect(file.path.startsWith('\\'), `${file.path} is absolute`).toBe(false)
+    expect(/^[a-zA-Z]:[\\/]/.test(file.path), `${file.path} is absolute`).toBe(false)
+    // An escape from the archive root is the same broken promise wearing a
+    // relative path, and it writes outside the extraction directory.
+    expect(file.path.split(/[\\/]/), `${file.path} escapes the archive root`).not.toContain('..')
+  }
+
+  /**
+   * PROCESS IDENTITY IS PER-MACHINE, and the archive's type says so by omitting
+   * it. The type alone does not enforce it: `Omit<>` rejects an excess property
+   * in an object LITERAL, but a SPREAD of the live binding satisfies the
+   * compiler while carrying the pid, the cgroup scope and the binding version
+   * onto the destination machine — where they name a process that has never
+   * existed there. Every driver builds this field by field today; this is what
+   * keeps the cheaper spread from arriving later without anyone noticing.
+   */
+  expect(Object.hasOwn(archive.binding, 'process')).toBe(false)
+  expect(Object.hasOwn(archive.binding, 'bindingVersion')).toBe(false)
 }
 
 /**

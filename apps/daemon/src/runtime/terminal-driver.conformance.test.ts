@@ -36,10 +36,15 @@
 import type { PendingInteraction } from '@podium/agent-runtime'
 import { TERMINAL_PERMITTED_FAILURES } from '@podium/agent-runtime'
 import type { ConformanceControl, ConformanceTarget } from '@podium/agent-runtime/testing'
-import { defaultAskFor, runConformance } from '@podium/agent-runtime/testing'
-import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
+import {
+  assertArchiveHonoursItsDeclaration,
+  defaultAskFor,
+  runConformance,
+} from '@podium/agent-runtime/testing'
+import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
+import { describe, expect, it } from 'vitest'
 import {
   createTerminalRuntime,
   type TerminalHarnessProfile,
@@ -83,7 +88,27 @@ interface VirtualTimer {
 }
 
 /** One fixture world plus the driver runtime standing on it. */
-function makeWorld(): { target: ConformanceTarget } {
+/**
+ * THE ONE HARNESS FACT THIS FILE VARIES, and it is a fact about the HARNESS
+ * rather than about the driver: whether this CLI writes a handoff transcript
+ * somewhere the daemon can locate and copy.
+ *
+ * `archivable: false` — the default and the hardest profile — makes
+ * `capabilities().archive` an `unsupported` declaration, so this driver reaches
+ * only the REFUSAL arm of the corpus's archive judgement. Every terminal harness
+ * Podium actually ships (Claude, Codex, Grok) declares a locator and takes the
+ * other arm, which nothing here would ever have exercised. See the second
+ * `describe` at the bottom of this file.
+ */
+interface WorldOptions {
+  archivable?: boolean
+}
+
+function makeWorld(options: WorldOptions = {}): {
+  target: ConformanceTarget
+  profile: TerminalHarnessProfile
+} {
+  const profile: TerminalHarnessProfile = { ...PROFILE, archivable: options.archivable ?? false }
   let runtime: TerminalRuntime | undefined
   let clock = Date.UTC(2026, 7, 14)
   let timers: VirtualTimer[] = []
@@ -100,6 +125,37 @@ function makeWorld(): { target: ConformanceTarget } {
    *  one delivery; the CR and the bounded verification nudges that follow it are
    *  the same delivery finishing, not new ones. */
   const deliveries = new Map<SessionId, number>()
+  /**
+   * THE HARNESS'S OWN SESSION STORE, AS FAR AS THIS FIXTURE MODELS IT (POD-2703).
+   *
+   * `resumeRefTiming: 'first-turn'` is the terminal family's declared floor, and
+   * the driver learns the ref from ONE place: a `sessionResumeRef` observation,
+   * which a real harness produces once it has written its transcript file. This
+   * fixture posted none, so every session it ran was permanently unresumable —
+   * `binding.resume` stayed `null`, `hibernate()` refused forever, and
+   * `export()` threw before it ever reached the archivable check.
+   *
+   * That was invisible while the corpus only reached the post-restart world
+   * through `adopt()`, which needs no ref at all. It is not a detail the corpus
+   * can be relaxed around: the declaration is a PROMISE that a ref arrives, so a
+   * fixture that never delivers one is describing a different harness.
+   *
+   * WHEN IT ARRIVES, and the two cases are genuinely different worlds:
+   *   - a FRESH launch has no store until the first turn is written, so the ref
+   *     lands with the first echoed user turn — which is what `first-turn` means;
+   *   - a RESUMED launch is handed the ref it is resuming; that store already
+   *     exists on disk, so the harness reports it as soon as it is up.
+   */
+  const resumeRefs = new Map<SessionId, ResumeRef>()
+  const storeWritten = new Set<SessionId>()
+
+  const postResumeRef = (sessionId: SessionId): void => {
+    if (storeWritten.has(sessionId)) return
+    const resume = resumeRefs.get(sessionId)
+    if (!resume) return
+    storeWritten.add(sessionId)
+    runtime?.observe({ type: 'sessionResumeRef', sessionId, resume, confidence: 'exact' })
+  }
 
   const labelFor = (sessionId: SessionId): string => `podium-${sessionId}`
   const iso = (): string => new Date(clock).toISOString()
@@ -150,6 +206,8 @@ function makeWorld(): { target: ConformanceTarget } {
       text,
     }
     runtime?.observe({ type: 'transcriptDelta', sessionId, items: [item] })
+    // The harness has now written its store. `first-turn` is that moment.
+    postResumeRef(sessionId)
   }
 
   const observation = (
@@ -210,6 +268,14 @@ function makeWorld(): { target: ConformanceTarget } {
     launch: async (msg) => {
       const label = labelFor(msg.sessionId)
       alive.set(label, true)
+      // A RESUMED launch is handed the conversation it is reopening; a fresh one
+      // will mint its own when the first turn is written. Either way the ref the
+      // harness reports later is THIS one — a fixture that invented a new value
+      // on resume would be modelling a harness that forked the conversation.
+      resumeRefs.set(
+        msg.sessionId,
+        msg.resume ?? { kind: 'fixture-transcript', value: `native-${msg.sessionId}` },
+      )
       phases.set(msg.sessionId, { phase: 'idle', since: iso(), nativeSubagentCount: 0 })
       turnEpochs.set(msg.sessionId, 0)
       // THE CLI CAME UP. A real daemon says so with a `bind` frame — the same one
@@ -228,7 +294,7 @@ function makeWorld(): { target: ConformanceTarget } {
       // unnoticed because no property looked at what a queued turn DOES until
       // POD-2085 added one. A real bind crosses a socket long after the spawn
       // call returns; one macrotask is the smallest honest way to say so.
-      setTimeout(() =>
+      setTimeout(() => {
         runtime?.observe({
           type: 'bind',
           sessionId: msg.sessionId,
@@ -236,8 +302,12 @@ function makeWorld(): { target: ConformanceTarget } {
           cwd: msg.cwd,
           agentKind: msg.agentKind,
           geometry: { cols: 120, rows: 40 },
-        }),
-      )
+        })
+        // The store this launch was pointed at already exists on disk, so the
+        // harness reports it as soon as it is up rather than at a first turn it
+        // is not going to be the author of.
+        if (msg.resume) postResumeRef(msg.sessionId)
+      })
       bridgeOf.set(msg.sessionId, {
         pid: 4242,
         write: (dataBase64) => {
@@ -270,10 +340,26 @@ function makeWorld(): { target: ConformanceTarget } {
       })
     },
     readTranscript: async () => [],
-    archiveTranscript: async () => {
-      throw new Error('fixture harness declares no handoff transcript')
+    archiveTranscript: async ({ resumeValue }) => {
+      // A HARNESS WITH NO LOCATOR CANNOT BE ASKED, and the driver is required to
+      // stop at its own capability check before it gets here — this throw is the
+      // fixture refusing to be the reason the refusal arm passes.
+      if (!profile.archivable) throw new Error('fixture harness declares no handoff transcript')
+      return {
+        // ABSOLUTE, as a real locator is: it names a file on THIS machine. What
+        // the archive carries is the driver's own archive-relative rendering of
+        // it, which is the distinction the corpus's path assertions turn on.
+        path: `/home/agent/.fixture/sessions/${resumeValue}.jsonl`,
+        relativeDir: 'fixture/sessions',
+      }
     },
-    readFileBytes: async () => new Uint8Array(),
+    readFileBytes: async (path) =>
+      // The harness's own store, byte for byte. An empty answer here is what an
+      // archive that shipped nothing looks like from the driver's side, and the
+      // corpus refuses it — so the fixture must not be the one producing it.
+      profile.archivable
+        ? new TextEncoder().encode(`{"transcript":"${path}"}\n`)
+        : new Uint8Array(),
     resources: () => undefined,
     now: () => clock,
     setTimer: (fn, delayMs) => {
@@ -350,12 +436,13 @@ function makeWorld(): { target: ConformanceTarget } {
   }
 
   return {
+    profile,
     target: {
       name: 'generic-pty',
       family: 'terminal',
       createDriver: () => {
         runtime = createTerminalRuntime(host)
-        return { driver: runtime.driverFor('grok', PROFILE), control }
+        return { driver: runtime.driverFor('grok', profile), control }
       },
       reset: () => {
         runtime?.dispose()
@@ -370,6 +457,8 @@ function makeWorld(): { target: ConformanceTarget } {
         bridgeOf.clear()
         pendingPaste.clear()
         deliveries.clear()
+        resumeRefs.clear()
+        storeWritten.clear()
       },
       spec: () => ({
         harness: 'grok',
@@ -399,4 +488,66 @@ runConformance(target.createDriver, {
   reset: target.reset,
   spec: target.spec,
   exemptions: TERMINAL_PERMITTED_FAILURES,
+})
+
+/**
+ * THE OTHER ARM, ON THE SAME REAL DRIVER (POD-2703).
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THE ARM WAS UNREACHABLE, AND WHAT THAT LEFT UNGUARDED
+ * ---------------------------------------------------------------------------
+ *
+ * The profile above declares `archivable: false`, deliberately — it is the
+ * hardest one, and it is what makes this file exercise the family's permitted
+ * failures. But it also makes `capabilities().archive` an `unsupported`
+ * declaration, so the run above only ever reaches "export() must reject". Every
+ * terminal harness Podium actually ships declares a locator, which means the
+ * whole of `terminal-driver.ts`'s `export()` — the locate, the read, the
+ * archive-RELATIVE path it builds out of an ABSOLUTE one, the binding it copies
+ * field by field so the pid and cgroup scope stay on this machine — was guarded
+ * by nothing at all.
+ *
+ * WHY NOT A SECOND FULL `runConformance`. Nothing else in the corpus reads
+ * `archivable`, so a second whole-corpus pass would re-prove ~40 properties to
+ * reach one branch. The suite exports its archive judgement for exactly this,
+ * and using the exported function rather than a copy is what keeps the two arms
+ * from drifting apart.
+ */
+describe('generic-pty on a harness that DOES declare a handoff transcript', () => {
+  it('produces a portable archive rather than refusing', async () => {
+    const world = makeWorld({ archivable: true })
+    world.target.reset()
+    const { driver, control } = world.target.createDriver()
+    const spec = world.target.spec()
+    const session = await driver.create(spec)
+
+    // `resumeRefTiming: 'first-turn'` for this family, and `export()` refuses
+    // without a ref — so the archive arm is only reachable through a real turn.
+    await session.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
+    await control.completeTurn(session.binding.sessionId)
+    for (let i = 0; i < 200 && !session.binding.resume; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(session.binding.resume).not.toBeNull()
+
+    await assertArchiveHonoursItsDeclaration(session, driver)
+    world.target.reset()
+  })
+
+  it('still refuses before the harness has written its store', async () => {
+    const world = makeWorld({ archivable: true })
+    world.target.reset()
+    const { driver } = world.target.createDriver()
+    const session = await driver.create(world.target.spec())
+
+    // DECLARING A LOCATOR IS NOT THE SAME AS HAVING A FILE. This family's ref
+    // arrives at the first turn, so before one there is nothing an archive
+    // could name — and this is the one world where that is reachable at all:
+    // the run above declares no archive, so it refuses one screen earlier for a
+    // different reason and cannot tell a fabricated ref from an absent one.
+    expect(driver.capabilities().archive.supported).toBe(true)
+    expect(session.binding.resume).toBeNull()
+    await assertArchiveHonoursItsDeclaration(session, driver)
+    world.target.reset()
+  })
 })

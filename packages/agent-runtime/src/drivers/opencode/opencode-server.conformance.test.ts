@@ -52,7 +52,11 @@ import {
   type OpencodeRuntimeHost,
   type OpencodeServerEndpoint,
 } from './runtime.js'
-import { type FakeOpencodeServer, startFakeOpencodeServer } from './test-support/fake-server.js'
+import {
+  type FakeOpencodeServer,
+  type FakeOpencodeSession,
+  startFakeOpencodeServer,
+} from './test-support/fake-server.js'
 
 /**
  * A server per session, started on demand and remembered.
@@ -100,6 +104,11 @@ function makeWorld(options: WorldOptions = {}): {
   const opencodeIds = new Map<SessionId, string>()
   const secretRefused = new Map<SessionId, boolean>()
   const started: FakeOpencodeServer[] = []
+  /** ONE conversation store for every server this world starts — opencode's
+   *  shared sqlite, which outlives any single `opencode serve`. See
+   *  `startFakeOpencodeServer`'s `store` for why a private map per server
+   *  modelled the wrong world. */
+  const store = new Map<string, FakeOpencodeSession>()
   const entries = new Map<SessionId, OpencodeJournalEntry>()
 
   const journal: OpencodeJournal = {
@@ -156,6 +165,7 @@ function makeWorld(options: WorldOptions = {}): {
       const server = await startFakeOpencodeServer({
         username: input.username,
         password: input.secret,
+        store,
       })
       started.push(server)
       servers.set(input.sessionId, server)
@@ -355,6 +365,9 @@ function makeWorld(options: WorldOptions = {}): {
         runtime = undefined
         for (const server of started.splice(0)) void server.close()
         servers.clear()
+        // The store is per-WORLD, not per-server, but a property must not
+        // inherit a previous property's conversations.
+        store.clear()
         opencodeIds.clear()
         secretRefused.clear()
         entries.clear()

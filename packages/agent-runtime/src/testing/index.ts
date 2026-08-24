@@ -18,7 +18,18 @@
  * calls with their own driver and a small control surface.
  */
 
-export { describeDriverConformance, runConformance } from './conformance/suite.js'
+export {
+  /**
+   * Exported for the same reason `assertAttachHonoursOneControlLease` is, and
+   * the driver fixtures use it the same way: `archive` is the one CORE
+   * capability whose declaration flips on a HOST fact, so a driver reaches only
+   * ONE of its two arms under its own `runConformance` pass. Its fixture builds
+   * the other world and is judged by this function rather than by a copy of it.
+   */
+  assertArchiveHonoursItsDeclaration,
+  describeDriverConformance,
+  runConformance,
+} from './conformance/suite.js'
 export type {
   ConformanceControl,
   ConformanceOptions,

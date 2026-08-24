@@ -77,6 +77,8 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
   const hostsClientTerminals = options.hostsClientTerminals ?? true
   let runtime: CodexRuntime | undefined
   let seq = 0
+  /** World-wide thread minting — see `launch`. */
+  let mintedThreads = 0
   const servers = new Map<SessionId, FakeAppServer>()
   const entries = new Map<SessionId, CodexJournalEntry>()
 
@@ -113,7 +115,23 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
       // happens on the real host: the old child is gone (it died with the
       // daemon, or was stopped) and a new one takes its place under the same
       // session-derived identity.
-      const server = startFakeAppServer()
+      /**
+       * THREAD IDS ARE MINTED PER WORLD, NOT PER SERVER (POD-2703).
+       *
+       * The fixture used to take the fake's default list, which starts at
+       * `thr-1` for EVERY server it builds. Codex does not: a thread id names a
+       * conversation on disk, globally, and two `codex app-server` incarnations
+       * never mint the same one.
+       *
+       * The difference was invisible until `resume()` came under the corpus, and
+       * then it was load-bearing in the worst way: a mutant whose `resume()`
+       * THREW THE REF AWAY and started a brand-new thread still came back
+       * holding `thr-1`, so "the resumed session is on the conversation we asked
+       * for" was true by coincidence and the property could not fail. A fixture
+       * whose ids collide cannot tell a resumed conversation from a fresh one —
+       * which is the single thing that property exists to tell.
+       */
+      const server = startFakeAppServer({ threadIds: [`thr-w${++mintedThreads}`] })
       servers.get(input.sessionId)?.close()
       servers.set(input.sessionId, server)
       const endpoint: CodexServerEndpoint = {
@@ -288,6 +306,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
         servers.clear()
         entries.clear()
         seq = 0
+        mintedThreads = 0
       },
       spec: () => ({
         harness: 'codex',

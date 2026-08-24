@@ -47,6 +47,7 @@ import type {
   PendingInteraction,
   ProcessEvent,
   Refusal,
+  ResumeRefTiming,
   RuntimeDriver,
   RuntimeEvent,
   RuntimeEventBody,
@@ -151,6 +152,21 @@ export interface FakeDriverOptions {
    * assertions themselves have not been weakened.
    */
   attachLease?: 'honest' | 'displaces' | 'refuses-after-taking'
+  /**
+   * WHEN — OR WHETHER — THIS FAKE'S HARNESS MINTS A RESUME REF (POD-2703).
+   *
+   * `'spawn'` is the default and what every bundled fake used to be, which left
+   * the corpus's whole refuse-not-degrade arm for `resume()` unreachable: with
+   * every target able to resume, "a driver that CANNOT resume must reject rather
+   * than start a fresh conversation" was asserted in a branch no driver entered.
+   * A suite of only positive assertions cannot tell `implemented` from `quietly
+   * does nothing`, and neither can a refusal nobody ever provokes.
+   *
+   * `'never'` is a CLI with no resume at all. Such a driver must also decline
+   * the ARCHIVE — `SessionArchive.resume` is not optional, so there is nothing
+   * honest to put in it — and the corpus asserts that pair.
+   */
+  resumeRefTiming?: ResumeRefTiming
 }
 
 /**
@@ -227,6 +243,9 @@ interface SessionCore {
   interactions: Map<string, PendingInteraction>
   answered: Set<string>
   expired: Set<string>
+  /** The PARKED WORDS, in order — not a list of timestamps. What a drain hands
+   *  the agent has to be the caller's own text, or the store `export()` reads
+   *  records a turn that never had a body. */
   queue: string[]
   lease: SessionLease | null
   draft: string
@@ -373,6 +392,8 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
   const requiresConnectSecret = options.requiresConnectSecret ?? family === 'server'
   const steerImpostor = options.steerImpostor
   const attachLease = options.attachLease ?? 'honest'
+  const resumeRefTiming: ResumeRefTiming = options.resumeRefTiming ?? 'spawn'
+  const resumable = resumeRefTiming !== 'never'
 
   const capabilities = (): DriverCapabilities => ({
     send: {
@@ -400,8 +421,12 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
         : supported({ kinds: family === 'terminal' ? ['engine'] : ['client'] }),
     lease: supported({ humanTakeover: true }),
     snapshot: supported({ includesDraft: true }),
-    archive: supported({ formatVersion: 1, byteFaithful: true }),
-    resumeRefTiming: 'spawn',
+    archive: resumable
+      ? supported({ formatVersion: 1, byteFaithful: true })
+      : unsupported(
+          'this harness mints no resume ref, so an archive could not name a conversation',
+        ),
+    resumeRefTiming,
     placement: 'dedicated',
     draft: supported({ read: true, write: true }),
     configure: supported({ fields: ['model', 'effort', 'permissionMode'] }),
@@ -441,6 +466,36 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     return core.turnEpoch
   }
 
+  /**
+   * ONE DELIVERY OF THE CALLER'S WORDS, RECORDED WHERE IT HAPPENS (POD-2703).
+   *
+   * `core.textDeliveries += 1` used to stand alone at each of these four points.
+   * That left the fake declaring `archive: byteFaithful: true` over a store that
+   * NOTHING the driver itself did ever wrote to — `core.items` grew only when a
+   * test reached past the contract and called `control.emitItem`. So `export()`
+   * shipped a zero-byte file for every conversation the fake had actually had,
+   * and `transcript.history()` answered `[]` after a turn it had accepted.
+   *
+   * A harness writes the user's turn to its native store; that is the whole
+   * reason a resume ref points at anything. The fake now does too, at exactly
+   * the moments its own delivery counter moves — so the count and the store can
+   * never disagree, and the archive properties in the corpus measure a
+   * conversation rather than an empty file.
+   *
+   * DELIBERATELY NOT AN EVENT. What the PROVIDER announces stays under the
+   * control surface (`emitItem`), where every other provider act in this fake
+   * lives. This is the one part of the store the driver itself authors.
+   */
+  function recordDelivery(core: SessionCore, text: string): void {
+    core.textDeliveries += 1
+    core.items.push({
+      id: `item-${core.sessionId}-${core.nextId++}`,
+      role: 'user',
+      text,
+      ts: stamp(),
+    })
+  }
+
   function closeTurn(core: SessionCore, ev: TurnEvent): void {
     // ABSORBING: a second terminal event for an epoch already fenced changes
     // nothing. This is the invariant that stops a late provider message from
@@ -468,12 +523,12 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     // Drain one queued send into the next turn, so `queued` is a real promise
     // rather than a receipt shape nothing honours.
     if (core.queue.length > 0) {
-      core.queue.shift()
+      const drained = core.queue.shift() ?? ''
       // Rule 3, the other end of it: THIS is where a queued turn's words reach
       // the agent. Counting at `send()` instead made "the queue drained" true
       // before the drain, which is the defect that let a queue that silently
       // dropped its words pass the whole corpus (POD-2085 review, finding 1).
-      core.textDeliveries += 1
+      recordDelivery(core, drained)
       openTurn(core, 'system')
     }
   }
@@ -593,7 +648,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       },
 
       // ---- turns ----
-      async send(_input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
+      async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
         assertLive()
         if (!core.alive) return { outcome: 'refused', refusal: refuse('not_running') }
         if (core.interactions.size > 0) {
@@ -636,7 +691,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
             )
           }
           // Rule 1: the keystrokes went out, only the proof did not come back.
-          core.textDeliveries += 1
+          recordDelivery(core, input.text)
           return {
             outcome: 'unverified',
             deliveredAs,
@@ -649,7 +704,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           if (core.turnOpen) {
             closeTurn(core, { ev: 'completed', turnEpoch: core.turnEpoch, verdict: 'interrupted' })
           }
-          core.textDeliveries += 1
+          recordDelivery(core, input.text)
           return {
             outcome: 'accepted',
             turnEpoch: openTurn(core, options.origin),
@@ -665,8 +720,10 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           // delivery is REAL even though no turn opened, and a counter watching
           // turn starts would report nothing here (POD-2024 measured exactly
           // that against their codex fixture).
-          if (steerImpostor) core.queue.push(stamp())
-          if (!steerImpostor || steerImpostor === 'queues-and-counts') core.textDeliveries += 1
+          if (steerImpostor) core.queue.push(input.text)
+          if (!steerImpostor || steerImpostor === 'queues-and-counts') {
+            recordDelivery(core, input.text)
+          }
           return {
             outcome: 'accepted',
             turnEpoch: core.turnEpoch,
@@ -679,7 +736,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
         if (deliveredAs === 'queue' || core.turnOpen) {
           // Rule 3: NOT counted here. The words are parked, and `queued` is the
           // receipt that says so.
-          core.queue.push(stamp())
+          core.queue.push(input.text)
           return {
             outcome: 'queued',
             position: core.queue.length,
@@ -688,7 +745,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           }
         }
 
-        core.textDeliveries += 1
+        recordDelivery(core, input.text)
         return {
           outcome: 'accepted',
           turnEpoch: openTurn(core, options.origin),
@@ -1035,10 +1092,23 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       // which for this fake is immediately. A driver declaring 'first-turn'
       // would hand `null` here and fill it after the first send.
       return makeHandle(
-        newCore(sessionId, spec, { kind: `${harness}-session`, value: `native-${sessionId}` }),
+        newCore(
+          sessionId,
+          spec,
+          resumable ? { kind: `${harness}-session`, value: `native-${sessionId}` } : null,
+        ),
       )
     },
     async resume(ref: ResumeRef, spec: SessionSpec) {
+      // REFUSE, DO NOT DEGRADE. There is no refusal channel in `resume()`'s
+      // return type, so the only honest answer for a harness with no resume is
+      // to reject. Handing back a FRESH session here would satisfy every caller
+      // and every other property in the corpus, and the user would see a
+      // conversation that came back empty — which reads as lost work rather than
+      // as a driver that never had the verb.
+      if (!resumable) {
+        throw new Error(`${id}: this harness has no resume; ${ref.kind} cannot be reopened`)
+      }
       return makeHandle(newCore(mintSessionId(), spec, ref))
     },
     async adopt(binding: SessionBinding) {

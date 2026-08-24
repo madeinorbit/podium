@@ -64,6 +64,34 @@ describeDriverConformance({
   spec,
 })
 
+/**
+ * A THIRD TARGET, AND IT EXISTS FOR THE ARM THE OTHER TWO CANNOT REACH
+ * (POD-2703).
+ *
+ * Both fakes above mint a resume ref at spawn and declare an archive, so between
+ * them they exercise only the POSITIVE side of `resume()` and `export()`. The
+ * corpus's other side — "a family that cannot support a verb must REFUSE rather
+ * than silently degrade" — was asserted in branches no target entered, which is
+ * the same nothing as not asserting it.
+ *
+ * This is a CLI with no resume at all: `resumeRefTiming: 'never'`, and therefore
+ * no archive either, because `SessionArchive.resume` is not optional and there
+ * would be nothing honest to put in it. Under the corpus it must refuse
+ * `hibernate()`, reject `resume()` and reject `export()` — and it must go on
+ * passing every other property, because "no resume" is a missing verb, not a
+ * licence to be a worse driver.
+ */
+describeDriverConformance({
+  name: 'fake-terminal-no-resume',
+  family: 'terminal',
+  createDriver: () => {
+    const driver = createFakeTerminalDriver({ resumeRefTiming: 'never' })
+    return { driver, control: driver.control as ConformanceControl }
+  },
+  reset: resetFakeRuntime,
+  spec,
+})
+
 // ---------------------------------------------------------------------------
 // The tables themselves — a permission nobody can read is a permission that
 // grows quietly.
