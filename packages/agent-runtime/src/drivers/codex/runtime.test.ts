@@ -37,6 +37,10 @@ interface World {
    *  act INSIDE the window between "an upgrade started" and "it finished". */
   gateNextConnect(): void
   releaseConnect(): void
+  /** Hold the `thread/resume` of the NEXT candidate connection, so a test can act
+   *  in the window between a fine upgrade connecting and committing. */
+  gateNextResume(): void
+  releaseResume(): void
   attachedAddresses: string[]
   /** The fake serving the session's CURRENT connection. A fine upgrade opens a
    *  second connection to the same logical child, and the fake speaks
@@ -68,6 +72,7 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
   let detached = 0
   let gate: Promise<void> | undefined
   let openGate: (() => void) | undefined
+  let armResumeGate = false
   const journal: CodexJournal = {
     read: (id) => entries.get(id),
     write: (entry) => {
@@ -116,6 +121,13 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
           // A distinct protocol connection to the same logical child. The fake
           // speaks per-connection handshake state, just as Codex's listener does.
           const client = startFakeAppServer()
+          // ARMED FOR THE CANDIDATE, not for the connection being replaced: the
+          // resume the upgrade awaits is spoken by THIS new client, and a gate
+          // set on the outgoing one would hold nothing.
+          if (armResumeGate) {
+            armResumeGate = false
+            client.gateNextResume()
+          }
           clients.push(client)
           servers.set(input.sessionId, client)
           return client.transport
@@ -183,6 +195,10 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
       })
     },
     releaseConnect: () => openGate?.(),
+    gateNextResume: () => {
+      armResumeGate = true
+    },
+    releaseResume: () => servers.get(handle.binding.sessionId)?.releaseResume(),
     attachedAddresses,
     authReports,
     abandonments,
@@ -613,6 +629,121 @@ describe('the fine-watch upgrade, which reconnects', () => {
     await settle()
     expect((await w.handle.state()).phase).toBe('idle')
     release()
+    w.dispose()
+  })
+
+  /**
+   * THE VIEWER WHO LEFT WHILE THE UPGRADE WAS IN FLIGHT (POD-2701, found by
+   * this issue's adversarial reviewer on the release path).
+   *
+   * The re-read after the awaits checked `disposed`, `lease`, `busy` and
+   * `asks` — every reason to abandon EXCEPT the one that motivated the
+   * operation. So the sole fine watch could be released mid-upgrade and the
+   * upgrade would commit anyway, replacing the coarse connection with one
+   * negotiated at `fine`. The upgrade being ONE-WAY is what turns that into a
+   * leak rather than a wasted socket: codex then streams deltas for every later
+   * turn with no viewer anywhere.
+   *
+   * AND IT IS INVISIBLE FROM OUTSIDE, which is why it needs a test rather than
+   * a drive. The driver drops fragments at `watchers.fine <= 0`, so a session
+   * leaking this way looks exactly like an idle one — the same reason
+   * `watch.ts` had to grow a log line before the release could be stated at all.
+   *
+   * THE ASSERTION IS OWNERSHIP, NOT BOOKKEEPING, the same way the abandon test
+   * above works: `w.server` is the ORIGINAL coarse connection, and a turn it
+   * never sees is proof the candidate replaced it.
+   */
+  it('abandons the upgrade when the last viewer leaves mid-flight', async () => {
+    const w = await world()
+    // Hold the candidate connection open so the release lands INSIDE the window
+    // rather than after it.
+    w.gateNextConnect()
+    const release = await w.handle.watch('fine')
+    await settle()
+    // The viewer closes the chat while the upgrade is still connecting. This is
+    // the sole watch, so the demand is now gone entirely.
+    release()
+    w.releaseConnect()
+    await settle()
+    await settle()
+    await settle()
+
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    // The original coarse connection still owns the session, so it is the one
+    // that saw the turn. A committed upgrade would have taken this to 0.
+    expect(w.server.turnStarts).toBe(1)
+    w.dispose()
+  })
+
+  /**
+   * THE SAME LEAVING, ONE AWAIT LATER — the window a connect gate cannot reach.
+   *
+   * `thread/resume` is awaited AFTER the post-connect re-read and the commit is
+   * the statement after it, so a viewer leaving in that gap would have been
+   * missed by a check that ran only once. Since nothing downgrades a committed
+   * connection, "never commit without a live demand" is the only protection
+   * there is, and a protection that holds at one of two points does not hold.
+   */
+  it('abandons the upgrade when the last viewer leaves during the resume', async () => {
+    const w = await world()
+    // Past the connect, held at the resume — so the candidate connection is
+    // fully open and only the commit is still ahead.
+    w.gateNextResume()
+    const release = await w.handle.watch('fine')
+    await settle()
+    await settle()
+    release()
+    w.releaseResume()
+    await settle()
+    await settle()
+    await settle()
+
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    expect(w.server.turnStarts).toBe(1)
+    w.dispose()
+  })
+
+  /**
+   * A VIEWER WHO LEFT AND CAME BACK WHILE THE UPGRADE WAS STILL CONNECTING.
+   *
+   * The demand check must not be a one-shot latch: `watch()` refuses to start a
+   * second upgrade while one is in flight, so if the abandon fired on a count
+   * that had already recovered, this viewer would be left at `coarse` with
+   * nothing to pick it up. Asking `watchers.fine` at the moment of decision —
+   * rather than remembering that it once hit zero — is what makes the recovery
+   * free.
+   *
+   * WHAT THIS DOES NOT COVER is the narrower window the re-arm in `finally`
+   * exists for: a viewer returning AFTER the abandon has already been decided.
+   * On this fixture's reconnect path that window is empty (the abandon runs to
+   * `finally` without an await), so no test here can reach it; it opens only on
+   * the replacement-child path, where `await endpoint.stop()` sits in between.
+   * The re-arm is deliberately unpinned and `closeTurn`'s retry is its backstop
+   * — see the note on the re-arm itself.
+   */
+  it('keeps the upgrade when a viewer returns before it commits', async () => {
+    const w = await world()
+    w.gateNextConnect()
+    const first = await w.handle.watch('fine')
+    await settle()
+    first()
+    // Back before the candidate connection has finished opening.
+    const second = await w.handle.watch('fine')
+    w.releaseConnect()
+    await settle()
+    await settle()
+    await settle()
+
+    // The upgrade committed, so fragments reach this viewer. The fake honours
+    // its own opt-out, so a delta ARRIVING is the level, not a counter.
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    w.liveServer().emitDelta('msg_1', 'streaming')
+    await settle()
+    expect(fragments(w.events())).toHaveLength(1)
+    second()
     w.dispose()
   })
 

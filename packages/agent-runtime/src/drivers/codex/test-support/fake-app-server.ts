@@ -170,6 +170,15 @@ export interface FakeAppServer {
   emitDelta(itemId: string, delta: string): void
   /** Did this connection's handshake opt out of the deltas? */
   optedOutOfDeltas: boolean
+  /**
+   * Hold the NEXT `thread/resume` unanswered until `releaseResume()`.
+   *
+   * The fine upgrade awaits the resume and COMMITS on the next statement, so
+   * this is the second window in which a viewer can leave — and the only one a
+   * connect gate cannot reach, because by then the connection is already open.
+   */
+  gateNextResume(): void
+  releaseResume(): void
   /** The child died. Closes the pipe, which is the only liveness signal this
    *  transport has. */
   crash(): void
@@ -217,6 +226,8 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
    *  edge one. */
   let nextRequestId = 0
 
+  let resumeGate = false
+  let releaseResumeGate: (() => void) | undefined
   const server: FakeAppServer = {
     transport: {
       write(line) {
@@ -235,6 +246,12 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     steers: 0,
     answers: new Map(),
     optedOutOfDeltas: false,
+    gateNextResume() {
+      resumeGate = true
+    },
+    releaseResume() {
+      releaseResumeGate?.()
+    },
     failNextTurn() {
       failNext = true
     },
@@ -523,8 +540,19 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       case 'thread/resume': {
         const threadId = String(params.threadId)
         server.threadId = threadId
-        respond(id, { thread: threadPayload(threadId) })
-        notify('thread/started', { thread: threadPayload(threadId) })
+        const answer = (): void => {
+          respond(id, { thread: threadPayload(threadId) })
+          notify('thread/started', { thread: threadPayload(threadId) })
+        }
+        if (resumeGate) {
+          resumeGate = false
+          releaseResumeGate = () => {
+            releaseResumeGate = undefined
+            answer()
+          }
+          return
+        }
+        answer()
         return
       }
       case 'thread/name/set':

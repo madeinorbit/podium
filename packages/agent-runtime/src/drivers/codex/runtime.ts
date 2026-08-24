@@ -1839,14 +1839,42 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
      * state is re-read after the awaits, and a session that got busy in the
      * meantime keeps the connection it has — the candidate connection is closed
      * and a fallback child, if one was needed, is stopped rather than adopted.
+     *
+     * AND THE FIRST THING THE RE-READ CHECKS IS THE DEMAND ITSELF (POD-2701).
+     * It did not, and that was a leak rather than a wasted socket: the sole fine
+     * watch could be released while this was connecting, the upgrade would
+     * commit anyway, and because the upgrade is ONE-WAY codex then streamed
+     * deltas for every later turn with nobody watching. `watchers.fine` is the
+     * reason this operation started, so it is the reason that must be re-checked
+     * first — a re-validation that omits its own motivating condition is not a
+     * re-validation.
+     *
+     * THE CHECK RUNS AT EVERY POINT WHERE TIME HAS PASSED, not once. There are
+     * two awaits after the first re-read — `thread/resume` is the second — and
+     * the commit sits immediately after it. Since nothing here can downgrade a
+     * committed connection, "never commit without a live demand" is the ONLY
+     * protection, so it has to hold on every path that reaches the commit.
      */
     if (session.disposed || session.upgrading || session.lease !== null) return
     if (busy(session) || session.asks.size > 0) return
     if (session.connectedLevel === 'fine') return
+    if (session.watchers.fine <= 0) return
     session.upgrading = true
     let endpoint: CodexServerEndpoint | undefined
     let connection: CodexConnection | undefined
     let replacementProcess = false
+    /** Abandoned because the last viewer left, as opposed to any other reason.
+     *  Only this one re-arms below — see the note there. */
+    let demandLost = false
+    /** Every reason to walk away from a candidate connection, asked as one
+     *  question so the two call sites below cannot drift apart. */
+    const abandon = (): boolean => {
+      if (session.watchers.fine <= 0) {
+        demandLost = true
+        return true
+      }
+      return session.disposed || session.lease !== null || busy(session) || session.asks.size > 0
+    }
     try {
       if (session.endpoint.reconnect) {
         endpoint = {
@@ -1864,12 +1892,20 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       }
       connection = await connect(endpoint, 'fine')
       // RE-READ, not remembered. Everything above took real time.
-      if (session.disposed || session.lease !== null || busy(session) || session.asks.size > 0) {
+      if (abandon()) {
         connection.client.close()
         if (replacementProcess) await endpoint.stop()
         return
       }
       await connection.client.call(CODEX_METHODS.threadResume, { threadId: session.threadId })
+      // AND AGAIN, because the resume above is an await like any other and the
+      // commit is the next statement. This is the check that actually protects
+      // the invariant; the one before it only saves a wasted round-trip.
+      if (abandon()) {
+        connection.client.close()
+        if (replacementProcess) await endpoint.stop()
+        return
+      }
       const old = session.client
       session.connection = connection
       session.client = connection.client
@@ -1898,6 +1934,38 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       // See the note above: the fine watch degrades to complete items.
     } finally {
       session.upgrading = false
+      /**
+       * THE NEXT WINDOW, DECIDED RATHER THAN LEFT (POD-2701): a viewer who came
+       * back DURING the abandon.
+       *
+       * `watch()` only starts an upgrade when it sees `connectedLevel ===
+       * 'coarse'`, and it refuses outright while `upgrading` is true — so a
+       * viewer returning inside this window would have had its demand dropped,
+       * and on an idle session nothing would ever pick it up again (the
+       * `closeTurn` retry needs a turn to close).
+       *
+       * RE-ARMED ONLY FOR THE DEMAND-LOST CASE, which is what keeps this from
+       * spinning. Every other abandon reason — disposed, leased, busy, an
+       * outstanding ask — and every thrown failure leaves this alone, so a host
+       * that cannot connect is retried by nothing here. Getting back in needs
+       * the watch count to have gone to zero and returned inside one attempt,
+       * and the daemon debounces its releases by 30s, so a real viewer cannot
+       * drive it.
+       *
+       * DELIBERATELY UNPINNED, and stated rather than hidden. The window this
+       * covers is empty on the Unix-backed reconnect path — the abandon runs
+       * straight through to here with no await for a `watch()` to land in — so
+       * it opens only on the replacement-child path, where `await
+       * endpoint.stop()` sits between the decision and this block. The test
+       * fixture has no replacement-child world, and building one to reach a
+       * microtask window was not judged worth it. If this line were deleted the
+       * cost is bounded rather than unbounded: `closeTurn` retries the upgrade
+       * at the next turn boundary, so the viewer waits a turn rather than
+       * forever.
+       */
+      if (demandLost && !session.disposed && session.watchers.fine > 0) {
+        if (session.connectedLevel === 'coarse') void upgradeToFine(session)
+      }
     }
   }
 
