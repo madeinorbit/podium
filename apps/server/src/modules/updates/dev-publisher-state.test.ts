@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { compareVersions } from '@podium/protocol'
+import { compareVersions, isProvablyNewer } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { allocateDevPublishVersion, rememberDevArtifact } from './dev-bundle'
 import { readDevPublisherState, writeDevPublisherState } from './dev-publisher-state'
@@ -92,8 +92,15 @@ describe('dev publisher state', () => {
       checkoutBase: '0.1.0-edge.20',
       sha: 'abc1234',
     })
-    expect(allocated.version).toBe('0.1.0-dev.6+abc1234')
-    expect(readDevPublisherState(dir)?.lastVersion).toBe('0.1.0-dev.6+abc1234')
+    // The legacy `lastVersion` is not reused even though the sha matches: it is
+    // not the flat form. It re-mints on the lineage the checkout points at —
+    // 0.1.1, the cycle 0.1.0-edge.20 leads to (POD-2737) — and the counter
+    // restarts there because the base moved, which is sound precisely because
+    // the new mint still clears the old one.
+    expect(allocated.version).toBe('0.1.1-dev.1+abc1234')
+    expect(readDevPublisherState(dir)?.lastVersion).toBe('0.1.1-dev.1+abc1234')
+    expect(readDevPublisherState(dir)?.base).toBe('0.1.1')
+    expect(isProvablyNewer(allocated.version, '0.1.0-edge.20.dev.5+abc1234')).toBe(true)
   })
 
   it('mints monotonically and remembers artifact basenames for the sweep allowlist', () => {
@@ -103,13 +110,13 @@ describe('dev publisher state', () => {
       checkoutBase: '0.1.0-edge.20',
       sha: '1111111',
     })
-    expect(first.version).toBe('0.1.0-dev.1+1111111')
+    expect(first.version).toBe('0.1.1-dev.1+1111111')
     const referenced = rememberDevArtifact({
       stateDir: dir,
       // One publish is one artifact PER PLATFORM (POD-2504); the ledger remembers them
       // together so a sweep cannot reclaim part of a build it just published.
       artifactNames: [
-        'podium-headless-0.1.0-dev.1+1111111-linux-x86_64-20260812T182015Z.tar.gz',
+        'podium-headless-0.1.1-dev.1+1111111-linux-x86_64-20260812T182015Z.tar.gz',
       ],
     })
     const second = allocateDevPublishVersion({
@@ -117,12 +124,13 @@ describe('dev publisher state', () => {
       checkoutBase: '0.1.0-edge.18', // older checkout — publisher base wins
       sha: '2222222',
     })
-    expect(second.version).toBe('0.1.0-dev.2+2222222')
+    expect(second.version).toBe('0.1.1-dev.2+2222222')
     expect(readDevPublisherState(dir)?.counter).toBe(2)
     expect(referenced[0]).toContain('dev.1+1111111')
-    // File on disk is valid JSON after the atomic rename.
+    // File on disk is valid JSON after the atomic rename, and carries the
+    // NEXT-patch lineage rather than the checkout's own core.
     expect(JSON.parse(readFileSync(join(dir, 'dev-publisher-version.json'), 'utf8')).base).toBe(
-      '0.1.0',
+      '0.1.1',
     )
   })
 
