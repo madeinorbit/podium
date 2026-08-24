@@ -426,23 +426,6 @@ export function deadLetteredOperatorMessages(
     .sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
 }
 
-/** Hide a durable failure already represented by the local failed send that
- * produced it. Duplicate prompt text is consumed FIFO, matching queue restore. */
-export function withoutOptimisticFailedDuplicates(
-  failed: DeadLetteredChatMessage[],
-  pending: PendingItem[],
-): DeadLetteredChatMessage[] {
-  const optimisticTexts = pending
-    .filter((item) => item.state === 'failed')
-    .map((item) => item.text.trim())
-  return failed.filter((item) => {
-    const index = optimisticTexts.indexOf(item.text.trim())
-    if (index === -1) return true
-    optimisticTexts.splice(index, 1)
-    return false
-  })
-}
-
 /** Hide server-restored rows already represented by an optimistic bubble.
  * Duplicate prompt text is consumed FIFO so two identical queued sends still
  * render twice after refresh and only once each before it. */

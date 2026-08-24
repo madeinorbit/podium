@@ -34,7 +34,6 @@ import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { ChatBlock, DeadLetteredChatMessage, PendingItem, QueuedChatMessage } from './chat'
-import { withoutOptimisticFailedDuplicates } from './chat'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
@@ -483,10 +482,10 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       }),
     [session, send.queuedMessages, send.pending],
   )
-  const restoredFailed = useMemo(
-    () => withoutOptimisticFailedDuplicates(send.failedMessages, send.pending),
-    [send.failedMessages, send.pending],
-  )
+  // Keep the durable terminal row even while its local optimistic failure is
+  // still present. The two attempts have different identities; matching by
+  // prompt text can hide an older failure when a retry reuses the same words.
+  const restoredFailed = send.failedMessages
 
   const phase = useMemo(
     () =>
