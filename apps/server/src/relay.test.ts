@@ -1361,11 +1361,28 @@ describe('SessionRegistry', () => {
     expect(otherInitial.every((machine) => machine.use !== undefined)).toBe(true)
 
     const denied = ownerInitial.find((machine) => machine.id === 'shared')
-    const unreachable = ownerInitial.find((machine) => machine.id === TEST_MACHINE)
+    const hostRow = ownerInitial.find((machine) => machine.id === TEST_MACHINE)
     expect(denied).toMatchObject({ online: false, use: 'denied' })
-    expect(unreachable).toMatchObject({ online: false, use: 'granted' })
+    expect(hostRow).toMatchObject({ online: false, use: 'granted' })
     expect(agentCapabilityRejection(denied!, 'shell')).toBe('unauthorized')
-    expect(agentCapabilityRejection(unreachable!, 'shell')).toBe('offline')
+    // THREE ANSWERS NOW, NOT TWO (POD-2700). `TEST_MACHINE` is the boot-time host
+    // row: the server has stamped its own `server` component on it and no daemon
+    // has ever attached, so the honest answer is that it runs none — NOT that it
+    // is offline, which would tell its user to wait for something that has never
+    // existed. The unauthorized-vs-not distinction this test exists for is
+    // unchanged and asserted above; what follows pins the new split so the two
+    // cannot quietly collapse back into one.
+    expect(hostRow?.components).toEqual(['server'])
+    expect(agentCapabilityRejection(hostRow!, 'shell')).toBe('no-daemon')
+    // A machine that HAS a daemon and is merely disconnected still answers
+    // `offline` — that is the distinction, stated as a comparison rather than
+    // asserted about one row.
+    expect(
+      agentCapabilityRejection(
+        { ...hostRow!, components: ['server', 'daemon'] as const },
+        'shell',
+      ),
+    ).toBe('offline')
 
     owner.sent.length = 0
     other.sent.length = 0
