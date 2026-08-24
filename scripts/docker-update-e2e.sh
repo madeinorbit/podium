@@ -13,6 +13,16 @@ PROVE_FAILURE="${PODIUM_UPDATE_E2E_PROVE_FAILURE:-}"
 ONLY="${PODIUM_UPDATE_E2E_ONLY:-}"
 HOLD="${PODIUM_UPDATE_E2E_HOLD:-0}"
 HOLD_REF="${PODIUM_UPDATE_E2E_HOLD_REF:-worktree-pod-2462-update-path}"
+# THE DECISION LOGS ARE INFO, AND INFO WAS BEING THROWN AWAY.
+#
+# The coordinator already logs every convergence decision its local participant
+# makes (POD-2732) and, since POD-2741, why each machine is or is not in the
+# wave. Both are `log.info`, and the containers ran at the default level - so a
+# run that captured `server.log` faithfully captured only WARN and above, and
+# the one evidence that could explain a stalled wave was never written at all.
+# Naming the namespaces rather than raising the global level keeps the capture
+# readable: a full debug feed would bury these under the build.
+UPDATE_LOG_SPEC="${PODIUM_UPDATE_E2E_LOG_SPEC:-server:updates=info,daemon=info}"
 RUN_ID="podium-update-e2e-$(date +%s)-$$"
 # KEEP THE EVIDENCE BY DEFAULT.
 #
@@ -548,6 +558,7 @@ launch_coordinator_setup() {
     --env PODIUM_PORT=18787 --env PODIUM_HOST=0.0.0.0 \
     --env PODIUM_DEV_SOURCE_ROOT=/work/source \
     --env PODIUM_NO_RELAY=1 --env PODIUM_NO_SCOPE=1 \
+    --env PODIUM_LOG="$UPDATE_LOG_SPEC" \
     --env BUN_INSTALL_CACHE_DIR=/bun-cache-cow/merged \
     "$SOURCE" bash -lc \
     "cd /work/source && exec '$(command_path)' setup >>/tmp/podium-source.log 2>&1"
@@ -564,6 +575,7 @@ launch_coordinator_parent() {
     --env PODIUM_DEV_SOURCE_ROOT=/work/source \
     --env PODIUM_DEV_ARTIFACT_BASE_URL=http://source:18787 \
     --env PODIUM_NO_RELAY=1 --env PODIUM_NO_SCOPE=1 \
+    --env PODIUM_LOG="$UPDATE_LOG_SPEC" \
     --env BUN_BIN=/home/podium/.local/bin/bun --env BUN_INSTALL_CACHE_DIR=/bun-cache-cow/merged \
     --env PODIUM_ZIG=/opt/host-tools/zig-root/zig \
     --env PODIUM_RCODESIGN=/opt/host-tools/rcodesign \
