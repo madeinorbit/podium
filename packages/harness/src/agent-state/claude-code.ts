@@ -562,7 +562,17 @@ export class ClaudeCausalObserver {
     } else if (acceptedCursor) {
       this.predecessorSegmentId = acceptedCursor.segmentId
     }
-    if (checkpoint?.terminalFence?.closing && !reconciledNewEpoch && this.state.awaitingSubagents) {
+    // `&& liveChildCount` for the reason given over {@link liveChildCount}: only a
+    // named child can be matched by the SubagentStop that clears this. Restoring
+    // `closing` over a hold with no names (anonymous mode, or a turnState whose
+    // optional list did not survive a version boundary) left the observer holding
+    // an absorbing terminal nothing could ever end. [POD-1610]
+    if (
+      checkpoint?.terminalFence?.closing &&
+      !reconciledNewEpoch &&
+      this.state.awaitingSubagents &&
+      this.liveChildCount > 0
+    ) {
       this.closing = true
     } else if (
       checkpoint &&
@@ -779,7 +789,7 @@ export class ClaudeCausalObserver {
     if (
       hook !== 'UserPromptSubmit' &&
       !childStopForKnownChild &&
-      (this.epochOpen || this.closing) &&
+      (this.epochOpen || (this.closing && !EPOCH_REVIVING_HOOKS.has(hook))) &&
       this.providerPromptId !== null &&
       hookPromptId &&
       hookPromptId !== this.providerPromptId
@@ -854,14 +864,23 @@ export class ClaudeCausalObserver {
     // touched until the transition is known to be emittable (below), so a hook that
     // reduces to nothing can never burn an epoch number the server would then
     // reject as non-causal.
+    //
+    // `closing` does NOT bar revival, and must not: it now lasts as long as a
+    // child does, and a backgrounded fork outlives many turns. Barring it there
+    // would discard every hook of every turn taken while the fork runs — the
+    // question a permission prompt asks would never surface, which is the exact
+    // failure POD-593 exists to prevent, merely relocated. Nothing is weakened
+    // by allowing it: the bar is still a revive-listed (never terminal) hook
+    // naming a DIFFERENT turn, so a replayed terminal still cannot manufacture
+    // one, and the hold itself lives in the reducer's state rather than in this
+    // flag — the child's stop still settles it either way. [POD-1610]
     const reviving =
       !this.epochOpen &&
-      !this.closing &&
       EPOCH_REVIVING_HOOKS.has(hook) &&
       hookPromptId !== null &&
       hookPromptId !== this.providerPromptId
     if (!this.epochOpen && !this.closing && !reviving && !childStopForKnownChild) return null
-    if (this.closing && !childStopForKnownChild) return null
+    if (this.closing && !reviving && !childStopForKnownChild) return null
 
     let events = await translateClaudeHookPayload(payload)
     const scheduledSelfWake =
@@ -885,6 +904,7 @@ export class ClaudeCausalObserver {
       this.turnEpoch += 1
       this.providerPromptId = hookPromptId
       this.epochOpen = true
+      this.closing = false
       // No prompt record backs this turn, so the origin is genuinely unknown —
       // inheriting the previous turn's would misattribute it.
       this.currentOrigin = inputOrigin ?? 'unknown'

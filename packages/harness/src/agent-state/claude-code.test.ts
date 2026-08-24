@@ -765,6 +765,112 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
     })
   })
 
+  /**
+   * Holding a child must not cost the session POD-593's revival. `closing` now
+   * lasts as long as the child does, so barring revival while it is set would
+   * discard every hook of every turn taken while a backgrounded fork runs — the
+   * question below would never surface, which is POD-593's own failure moved to
+   * a new trigger rather than fixed. [POD-1610]
+   */
+  it('still revives an unwitnessed turn while a child is held [POD-1610]', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+    await causal.observeHook(hook('SubagentStart', { prompt_id: 'p1', agent_id: 'fork-1' }), 120)
+    await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 130)
+
+    // p2's UserPromptSubmit never reached us. Its permission prompt proves the
+    // turn anyway, and the operator has to see the question.
+    expect(
+      await causal.observeHook(
+        hook('PermissionRequest', { prompt_id: 'p2', tool_name: 'Bash' }),
+        140,
+      ),
+    ).toMatchObject({
+      transitionKind: 'turn_opened',
+      turnEpoch: 2,
+      providerPromptId: 'p2',
+      nextPhase: 'needs_user',
+    })
+    // The hold survives the revival — the child is still out there.
+    expect(
+      await causal.observeHook(hook('SubagentStop', { prompt_id: 'p1', agent_id: 'fork-1' }), 150),
+    ).toMatchObject({ transitionKind: 'subagent_bookkeeping', state: { nativeSubagentCount: 0 } })
+    // And a straggler from the turn the terminal closed is still absorbed.
+    expect(
+      await causal.observeHook(hook('PostToolUse', { prompt_id: 'p1', tool_use_id: 't' }), 160),
+    ).toBeNull()
+  })
+
+  /** A hold with no named children is one no SubagentStop can ever match, so
+   *  restoring an absorbing `closing` over it left the observer holding a
+   *  terminal nothing could end — it dropped the inherited turn's own hooks, its
+   *  Stop included, and the branch that would clear the flag sits below that
+   *  drop. Unguarded, every expectation below is null. [POD-1610] */
+  it('does not restore an absorbing terminal over a nameless hold [POD-1610]', async () => {
+    const anonymousHold = {
+      phase: 'working' as const,
+      since: at,
+      workingMsTotal: 0,
+      nativeSubagentCount: 1,
+      awaitingSubagents: true,
+    }
+    const causal = new ClaudeCausalObserver({
+      podiumSessionId: asSessionId('podium-1'),
+      observerGeneration: 7,
+      bindingVersion: 3,
+      providerSessionId: 'claude-1',
+      transcriptPath: '/exact/claude-1.jsonl',
+      bootstrapState: anonymousHold,
+      bootstrapOffset: 100,
+      now: () => at,
+      acceptedCheckpoint: {
+        schemaVersion: 1,
+        podiumSessionId: asSessionId('podium-1'),
+        provider: 'claude-code',
+        providerSessionId: 'claude-1',
+        bindingVersion: 3,
+        lifecycleObservationGeneration: 7,
+        providerCursor: {
+          segmentId: 'claude:claude-1:/exact/claude-1.jsonl',
+          components: { transcript: 100, hook: 4 },
+        },
+        bootstrapCursor: null,
+        lastAcceptedLiveCursor: null,
+        turnEpoch: 1,
+        providerTurnId: null,
+        providerPromptId: 'p1',
+        turnState: anonymousHold,
+        terminalFence: {
+          turnEpoch: 1,
+          providerCursor: {
+            segmentId: 'claude:claude-1:/exact/claude-1.jsonl',
+            components: { transcript: 100, hook: 4 },
+          },
+          verdict: 'done',
+          transitionId: 'fence-1',
+          closing: true,
+        },
+        providerAt: null,
+        acceptedAt: at,
+        lastLiveReceiptAt: at,
+        lastTransitionId: 'fence-1',
+        acceptedTransitionIds: ['fence-1'],
+      } satisfies SessionObservationCheckpointV1,
+    })
+    causal.bootstrap()
+    // Nothing can name the child, so the terminal must not absorb: the inherited
+    // turn's own hooks still reach the reducer…
+    expect(
+      await causal.observeHook(hook('PostToolUse', { prompt_id: 'p1', tool_use_id: 't' }), 200),
+    ).toMatchObject({ transitionKind: 'activity', turnEpoch: 1, nextPhase: 'working' })
+    // …and so does the Stop that ends it, which is what the freeze swallowed.
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 210)).toMatchObject({
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+    })
+  })
+
   /** The exemption is keyed on a child the identity list still names, so a stop
    *  for an unknown child cannot use it to walk past a closed terminal — nor can
    *  a replay of one that already landed. */
