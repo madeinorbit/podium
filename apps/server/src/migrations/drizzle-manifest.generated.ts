@@ -89,6 +89,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260816150512_issue-landing-stamp", sql: "ALTER TABLE `issues` ADD `landed_at` text;--> statement-breakpoint\nALTER TABLE `issues` ADD `landed_sha` text;" },
   { name: "20260818141127_login-shell-purpose", sql: "ALTER TABLE `sessions` ADD `login_harness` text;\n" },
   { name: "20260820074346_session-conversation-binding", sql: "ALTER TABLE `sessions` ADD `conversation_binding` text;" },
+  { name: "20260824101642_machine-components", sql: "ALTER TABLE `machines` ADD `components_json` text;--> statement-breakpoint\n-- POD-2700 seed. A row that has EVER carried a daemon-reported inventory or a\n-- daemon build report has PROVABLY run a daemon, so it keeps its host\n-- capabilities across this upgrade instead of vanishing from every picker until\n-- its daemon next connects. Rows with neither proxy stay NULL — \"not recorded\",\n-- which refuses nothing; the boot-time server stamp and the ordinary daemon\n-- handshake write the real fact from here on. The coordinator row minted by\n-- `ensureHostMachine` receives neither proxy and is therefore left for that boot\n-- stamp to mark `server`, which is what finally makes it honestly incapable of\n-- hosting a repository.\nUPDATE `machines`\n   SET `components_json` = '[\"daemon\"]'\n WHERE `components_json` IS NULL\n   AND (`inventory_json` IS NOT NULL OR `build_reported_at` IS NOT NULL);\n" },
 ]
 
 /**

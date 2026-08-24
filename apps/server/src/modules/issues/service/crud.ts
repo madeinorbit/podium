@@ -752,6 +752,11 @@ export class IssueCrudModule {
     if ((input as { stage?: string }).stage === 'shipping') {
       throw new Error('shipping stage is system-owned and requires a ship order')
     }
+    // Same gate as `update` below, at the other door an issue can be homed
+    // through (`podium issue create --machine`, the new-issue dialog):
+    // POD-2700 §2.5 lists issue homing as an enforcement site, and refusing only
+    // one of the two entry points is how a guard becomes decorative.
+    if (input.machineId != null) this.store.d.requireIssueHomeMachine?.(input.machineId)
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
     const repoId = this.store.deps.store.repos.resolveRepoIdForPath(input.repoPath)
@@ -916,6 +921,16 @@ export class IssueCrudModule {
     // is exactly how one person's pin became the issue's. It is split out first so
     // both branches below are assigning shared-row fields only.
     const { pinned: pinnedPatch, ...rowPatch } = patch
+    // HOMING AN ISSUE IS A MACHINE CHOICE (POD-2700 §2.5). The issue's machine
+    // is where its worktree lives and where its agents run, so a machine that
+    // runs no daemon can never be its home — refuse the property rather than
+    // letting the pin sit there and dead-end every later action on it. Only when
+    // the patch actually MOVES the pin: clearing it (`null`) and updates that do
+    // not mention it are untouched.
+    if (rowPatch.machineId != null && rowPatch.machineId !== row.machineId) {
+      this.store.d.requireIssueHomeMachine?.(rowPatch.machineId)
+    }
+
     if (pinnedPatch !== undefined) {
       // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away.
       const prevPinnedAt = this.store.issueUserState(row.id)?.pinnedAt ?? null

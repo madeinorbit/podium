@@ -16,7 +16,13 @@ import { type MachinesDeps, MachinesService, type PairingGrant } from './service
 function makeService(): MachinesService {
   const deps = {
     instanceId: 'default',
-    store: {} as MachinesDeps['store'],
+    // POD-2700: `attach` records the durable `daemon` component, so the store
+    // stub has to answer that write. `false` = "nothing changed", which is the
+    // truthful answer for a fixture with no rows and keeps these socket-identity
+    // tests about sockets.
+    store: {
+      machines: { addMachineComponent: () => false },
+    } as unknown as MachinesDeps['store'],
     hostMachineId: asMachineId('host-under-test'),
     sessionsChangedForMachine: () => {},
     clients: () => [],

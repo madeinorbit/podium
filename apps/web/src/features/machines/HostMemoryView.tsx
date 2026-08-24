@@ -191,9 +191,15 @@ function MemoryPanel({
 
   // Instant headline from the live host-metrics sample (already streamed to the
   // store), so "12.3/32 GB used" is on screen the moment the modal opens. Pick
-  // the clicked machine's sample (fall back to the first host if its metric
-  // hasn't arrived yet) so the headline matches the breakdown below.
-  const headlineHost = hostMetrics.find((h) => h.machineId === machineId) ?? hostMetrics[0]
+  // the clicked machine's sample so the headline matches the breakdown below.
+  //
+  // POD-2700 §3.3: no first-host fallback when a machine WAS named. A machine
+  // that runs no daemon reports no metrics, and borrowing another host's sample
+  // put a confident, wrong "12.3/32 GB used" under its name.
+  const headlineHost =
+    machineId === undefined
+      ? hostMetrics[0]
+      : hostMetrics.find((h) => h.machineId === machineId)
   const headline = !data && headlineHost ? hostMemoryView(headlineHost) : null
 
   // Current memory pressure for the hibernation explainer — prefer the

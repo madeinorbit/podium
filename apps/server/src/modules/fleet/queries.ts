@@ -9,7 +9,7 @@
  * be a behaviour change wearing a refactor's clothes.
  */
 
-import { MachineIdField } from '@podium/model'
+import { HOST_REPOS, MachineIdField } from '@podium/model'
 import { GitHubCliResultMessage } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -49,6 +49,23 @@ export const REPO_QUERIES = {
       .optional(),
     async (s, input) => {
       if (input?.machineId) {
+        // POD-2700: browsing a machine's disk is `host-repos` work, so refuse a
+        // machine that has no daemon to browse WITH — otherwise the picker's
+        // first action against the server-only coordinator spends 35 seconds in
+        // a queue and comes back "directory browse failed", which names neither
+        // the machine nor the reason.
+        try {
+          s.modules.machines.requireCapability(
+            input.machineId,
+            HOST_REPOS,
+            'browse directories',
+          )
+        } catch (e) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: e instanceof Error ? e.message : String(e),
+          })
+        }
         const res = await s.modules.rpc.browseDirs(
           input.path,
           { ...(input.includeHidden === undefined ? {} : { includeHidden: input.includeHidden }) },

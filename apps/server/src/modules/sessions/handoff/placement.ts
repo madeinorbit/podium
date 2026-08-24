@@ -32,7 +32,14 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { asMachineId, HandoffManifestV1, type MachineId, type RepoId } from '@podium/model'
+import {
+  asMachineId,
+  HandoffManifestV1,
+  machineRejectionMessage,
+  type MachineId,
+  type RepoId,
+  structuralRejection,
+} from '@podium/model'
 import type { Session } from '../session'
 import { type ExportedIdentity, exportedIdentity } from './attribution'
 import {
@@ -160,6 +167,21 @@ export function resolveHandoffPlacement(
   // `use` checks above already passed, so the principal may use this machine
   // and retrying later is the correct advice. Reachable only inside the `see`
   // set, which is what keeps this compatible with the consistent-error rule.
+  // STRUCTURAL BEFORE LIVE (POD-2700 §1.4/§2.5). A target that runs no daemon
+  // has nothing to import the worktree INTO — ever — so it must not be refused
+  // as "offline", which tells the user to wait for something that will never
+  // arrive. Refused as `unreachable` all the same: the classification is about
+  // whether the DENIAL leaks anything (it does not — the two `use` checks above
+  // have passed), and the sentence is what carries the difference.
+  if (targetMachine && structuralRejection(targetMachine) === 'no-daemon')
+    throw new HandoffRefusalError(
+      machineRejectionMessage(
+        targetMachine.name ?? targetMachine.id,
+        'no-daemon',
+        'receive this session',
+      ),
+      'unreachable',
+    )
   if (!targetMachine?.online)
     throw new HandoffRefusalError('target machine is offline', 'unreachable')
   const harness = targetMachine.inventory?.agents.find((agent) => agent.kind === session.agentKind)

@@ -102,7 +102,16 @@ export function LoadPanel({
   }, [trpc, machineId])
 
   // Instant headline from the streamed host metric; the breakdown fills in.
-  const metric = hostMetrics.find((h) => h.machineId === machineId) ?? hostMetrics[0]
+  //
+  // POD-2700 §3.3: the fallback is `undefined`, NOT `hostMetrics[0]`. Metrics
+  // come from daemons, so a machine that runs none reports none — and the old
+  // fallback then showed SOMEBODY ELSE'S memory and load under this machine's
+  // name. An empty panel is a smaller lie than a confident wrong number. The
+  // first-host fallback survives only where no machine was asked for.
+  const metric =
+    machineId === undefined
+      ? hostMetrics[0]
+      : hostMetrics.find((h) => h.machineId === machineId)
   const mem = data
     ? hostMemoryView({ hostname: data.hostname, sampledAt: data.sampledAt, memory: data.memory })
     : metric

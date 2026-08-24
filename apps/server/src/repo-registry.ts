@@ -107,6 +107,13 @@ export class RepoRegistry {
     if (!p) throw new Error('repo path is empty')
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
     const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
+    // THE GUARD THE REPO SCREEN NEEDED (POD-2700 §2.5). Every path that registers
+    // a repository — `repos.add`, `repos.addMany`, `repos.createRepo`, and
+    // whatever is written next — funnels through here, which is why the check
+    // sits at the WRITE rather than in each handler: a filtered dropdown does
+    // nothing for a stale tab, a direct RPC call or a CLI, and a per-handler
+    // guard is one someone can forget to copy.
+    this.sessionReg.modules.machines.requireRepoHostStructure(mid)
     // Best-effort origin capture: reads <p>/.git locally, so it only yields a URL
     // when the path exists on this host (remote repos get it later via scan).
     // `prefix` (uppercased courtesy) overrides the derived nice-id prefix (#474).
@@ -121,6 +128,9 @@ export class RepoRegistry {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
+    // Same gate as `add` — a clone lands a repo on a machine just as much as a
+    // registration does, and this is the second write path (POD-2700).
+    this.sessionReg.modules.machines.requireRepoHostStructure(machineId)
     this.store.repos.addRepo(p, machineId, originUrl)
     this.publishRepos()
   }

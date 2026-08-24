@@ -835,6 +835,10 @@ export class SessionRegistry {
           exists: machine !== undefined,
           online: machines.hasDaemon(machineId),
           capable: machine?.wireSchemaDigest === wireSchemaDigest(),
+          // POD-2700. `undefined` components mean NOT RECORDED, which must not
+          // refuse — same reading as everywhere else — so only an evaluated row
+          // that lacks the component answers `false`.
+          hasDaemon: machine?.components === undefined || machine.components.includes('daemon'),
         }
       },
       sourceHealthy: () => this.store.checkpointForTransfer(),
@@ -1197,6 +1201,7 @@ export class SessionRegistry {
       resolveMachine: (requested, cwd) => machines.resolveMachine(requested, cwd),
       requireMachineForRepo: (machineId, repoPath) =>
         machines.requireMachineForRepo(machineId, repoPath),
+      requireIssueHomeMachine: (machineId) => machines.requireRepoHostStructure(machineId),
       // Machine-pinned start (POD-1386/POD-1405/POD-1424): resolve the repository on the
       // target by IDENTITY — the repoId-keyed resolver handoff already uses, so a pin
       // finds the repo instead of demanding the source's path — then materialise the

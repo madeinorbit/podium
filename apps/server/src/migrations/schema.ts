@@ -681,6 +681,19 @@ export const machines = sqliteTable('machines', {
   // and for a daemon that has not reported since.
   supervised: integer('supervised'),
   buildReportedAt: text('build_reported_at'),
+  // WHICH PODIUM COMPONENTS RUN HERE (POD-2700) — a JSON array of
+  // `MachineComponent` ('daemon' | 'server'). The DURABLE structural axis, kept
+  // apart from the momentary socket fact and from `delivery_caps_json`: a
+  // machine that is merely offline may do the job in five minutes, one that runs
+  // no daemon never can, and an EMPTY delivery-cap list means *permit* while a
+  // missing component must mean *refuse*.
+  //
+  // NULL means NOT RECORDED and is distinct from '[]'. The upgrade below seeds
+  // every pre-existing row from the provable proxy — a row that ever carried an
+  // inventory or a build report has provably run a daemon — so a fleet does not
+  // wake up with every picker empty; the boot-time server stamp and the daemon
+  // handshake take over from there.
+  componentsJson: text('components_json'),
 })
 
 export const repos = sqliteTable(

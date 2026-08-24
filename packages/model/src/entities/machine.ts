@@ -223,6 +223,38 @@ export const MachineUseDecision = z.enum(['granted', 'denied'])
 export type MachineUseDecision = z.infer<typeof MachineUseDecision>
 
 /**
+ * WHICH PODIUM COMPONENTS RUN ON A MACHINE — the DURABLE structural fact
+ * (POD-2700, `docs/machine-capability-filtering.md` §1.2).
+ *
+ * This is the third axis, and the one that was missing. `online` is a SOCKET
+ * fact with a lifetime of milliseconds; `use` is a per-principal grant; this is
+ * an install fact that changes only when somebody installs or removes software.
+ * Keeping it separate is the whole point: a machine that is merely OFFLINE might
+ * do the job in five minutes, while a machine that runs no daemon can NEVER do
+ * it. Collapsing them into one `online: false` is what pinned the repo screen to
+ * the server-only coordinator and then dead-ended every action on it.
+ *
+ *  - `daemon` — a Podium daemon is enrolled here. The master capability for
+ *    everything host-shaped: browsing the filesystem, hosting repos and
+ *    worktrees, running agent processes and PTYs, reporting metrics.
+ *  - `server` — the coordinator runs here. Needed by the server-transfer
+ *    surface; more importantly its presence WITHOUT `daemon` is what makes a
+ *    coordinator row honestly incapable rather than mysteriously offline.
+ *
+ * Nothing else earns a component. Harness-level capability (is claude-code
+ * installed, is it logged in) stays in {@link Inventory}; update delivery stays
+ * in `deliveryCaps`, deliberately NOT converged with this (§1.5: an EMPTY
+ * delivery cap list means *permit* on the server, while a missing component must
+ * mean *refuse* everywhere — one vocabulary cannot carry both readings).
+ *
+ * There is deliberately no operator-maintained "server-only" toggle. The absence
+ * of an enrolled daemon IS the declaration, and installing a daemon later flips
+ * the fact through the ordinary handshake with no setting to un-stick.
+ */
+export const MachineComponent = z.enum(['daemon', 'server'])
+export type MachineComponent = z.infer<typeof MachineComponent>
+
+/**
  * The update authority selected for one managed machine.
  *
  * `dev` is the coordinating source server's exact signed git/bundle target.
@@ -303,6 +335,25 @@ export const MachineWire = z.object({
   /** Whether this machine was paired as a Podium-managed host. */ podiumManaged: z
     .boolean()
     .optional(),
+  /**
+   * `SEE` — the durable components installed here ({@link MachineComponent}).
+   *
+   * Deliberately in the `see` slice, on the same shelf as `online`: "that box
+   * runs a daemon" is an existence/health fact of exactly the kind §3.1.4 M1
+   * puts inside `see`, and every picker needs it in order not to OFFER a machine
+   * that can never perform the act. It says nothing about what is checked out or
+   * who is logged in — that is `inventory`, and it stays `USE`.
+   *
+   * ABSENT MEANS NOT RECORDED, the same closed-but-not-refusing reading as
+   * `use`: a producer that predates the field has not answered the question, so
+   * a reader must not conclude "incapable" from silence and blank the fleet.
+   * The server always supplies it, so the guards downstream are armed in
+   * practice — see `structuralRejection` in `predicates/machine-selection.ts`,
+   * which documents the trade in full. An EMPTY array is different and is a real
+   * answer: this row has been evaluated and runs nothing yet (a machine
+   * mid-pairing whose daemon has never connected).
+   */
+  components: z.array(MachineComponent).optional(),
   /** `USE` — see {@link Inventory}. */
   inventory: Inventory.optional(),
   /**

@@ -1,4 +1,10 @@
-import { asMachineId, type MachineId, type MachineWire } from '@podium/model/browser'
+import {
+  asMachineId,
+  HOST_REPOS,
+  type MachineActionCopy,
+  type MachineId,
+  type MachineWire,
+} from '@podium/model/browser'
 import {
   Check,
   ChevronLeft,
@@ -24,8 +30,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
+import {
+  MachineEmptyStateNotice,
+  MachineExclusionNote,
+  machineOptionLabel,
+  useMachineChoices,
+} from '../machines/machine-choices'
 import { GitHubProjectIntake } from './GitHubProjectIntake'
 import { SetupBusyOverlay, SetupError } from './SetupFeedback'
+
+/** The words this screen uses for its requirement — see `MachineActionCopy`. */
+const REPO_HOST_COPY: MachineActionCopy = {
+  action: 'host a repository',
+  capability: 'host repositories',
+  remedy: 'Pair a machine that runs the Podium daemon to add repos.',
+}
 
 type DirectoryEntry = {
   name: string
@@ -45,7 +64,12 @@ type DirectoryListing = {
   originUrl?: string
 }
 
-type RepoPickerMachine = Pick<MachineWire, 'id' | 'name' | 'hostname' | 'online' | 'inventory'>
+/** POD-2700 adds `components` and `use`: this screen states a REQUIREMENT now,
+ *  and the predicate that answers it reads the structural and `use` axes. */
+type RepoPickerMachine = Pick<
+  MachineWire,
+  'id' | 'name' | 'hostname' | 'online' | 'inventory' | 'components' | 'use'
+>
 
 /**
  * Pick a repo on a machine (POD-814/POD-855) [spec:SP-5eb6]: choose a machine,
@@ -376,7 +400,28 @@ export function RepoPickerModal({
     }
   }
 
-  const showMachinePicker = onMachineChange !== undefined && machines.length > 1
+  /**
+   * THE FIX FOR THE REPORTED FAILURE (POD-2700).
+   *
+   * `machines` is the whole fleet; this screen may only offer the machines that
+   * can OWN a repository. The server-only coordinator leaves the option list and
+   * is counted in `exclusionNote` instead, and when nothing qualifies
+   * `emptyState` carries the three sentences §4.2 requires rather than an empty
+   * dropdown.
+   */
+  const repoChoices = useMachineChoices(machines, HOST_REPOS, REPO_HOST_COPY, selectedMachineId)
+  /**
+   * Show the picker whenever there is a CHOICE or something to explain.
+   *
+   * It used to hide at `machines.length <= 1`, and that is half of how the
+   * operator got stuck: with one machine — the coordinator — the control
+   * vanished and the dud was selected invisibly, so there was no dropdown to
+   * notice was wrong. Now a fleet whose only row is excluded still renders the
+   * control, and the control renders the reason.
+   */
+  const showMachinePicker =
+    onMachineChange !== undefined &&
+    (repoChoices.options.length > 1 || repoChoices.exclusionNote !== undefined)
 
   return (
     <Dialog
@@ -493,13 +538,20 @@ export function RepoPickerModal({
                         )
                       }}
                     >
-                      {machines.map((machine) => (
-                        <option key={machine.id} value={machine.id} disabled={!machine.online}>
-                          {machine.name}
-                          {machine.online ? '' : ' (offline)'}
+                      {/* Offline machines stay LISTED and disabled — they can
+                          host repos, just not this second. Machines that run no
+                          daemon are absent by construction and counted below. */}
+                      {repoChoices.options.map((choice) => (
+                        <option
+                          key={choice.machine.id}
+                          value={choice.machine.id}
+                          disabled={choice.rejection !== undefined}
+                        >
+                          {machineOptionLabel(choice)}
                         </option>
                       ))}
                     </select>
+                    <MachineExclusionNote note={repoChoices.exclusionNote} />
                   </div>
                 ) : null}
                 {source === 'local' && (
@@ -636,10 +688,21 @@ export function RepoPickerModal({
                 className="min-h-[260px] flex-1 overflow-y-auto overscroll-contain"
                 aria-busy={loading}
               >
+                {/* THE EMPTY STATE, AXIS-AWARE (POD-2700 §4.2). The line this
+                    replaces fired on CONNECTIVITY — "No machines are connected"
+                    — which was the right instinct with the wrong trigger: it
+                    said the same thing whether every repo host was asleep or the
+                    only machine was a coordinator that can never host one. Those
+                    need opposite advice, so they now get different words. */}
                 {!selectedMachine && (
-                  <div className="p-3 text-xs text-muted-foreground/70">
-                    No machines are connected. Pair a machine to add repos.
-                  </div>
+                  <MachineEmptyStateNotice
+                    state={
+                      repoChoices.emptyState ?? {
+                        title: 'No machine selected.',
+                        detail: 'Choose a machine to browse its folders.',
+                      }
+                    }
+                  />
                 )}
                 {selectedMachine && !selectedMachine.online && (
                   <div className="p-3 text-xs text-muted-foreground/70">

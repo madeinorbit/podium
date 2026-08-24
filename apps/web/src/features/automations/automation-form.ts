@@ -387,11 +387,15 @@ export interface AutomationTargetChoice {
 export interface AutomationTargetExclusions {
   readonly unauthorized: number
   readonly unreachable: number
+  /** POD-2700: repos on machines that run no Podium daemon. Counted apart from
+   *  `unreachable` because "offline" invites a wait that can never end. */
+  readonly incapable: number
 }
 
 export const NO_TARGET_EXCLUSIONS: AutomationTargetExclusions = {
   unauthorized: 0,
   unreachable: 0,
+  incapable: 0,
 }
 
 const repoLabel = (path: string): string => path.split('/').filter(Boolean).pop() ?? path
@@ -416,6 +420,7 @@ export function automationTargetChoices(
   const withheld: AutomationTargetChoice[] = []
   let unauthorized = 0
   let unreachable = 0
+  let incapable = 0
   for (const repo of repos) {
     if (repo.kind === 'worktree') continue
     // No machineId means an unscoped legacy row, not an unknown machine: the
@@ -430,6 +435,7 @@ export function automationTargetChoices(
       continue
     }
     if (availability === 'unauthorized') unauthorized += 1
+    else if (availability === 'incapable') incapable += 1
     else unreachable += 1
     withheld.push(choice)
   }
@@ -448,13 +454,17 @@ export function automationTargetChoices(
     choices.push({
       value: currentPath,
       label: `${repoLabel(currentPath)} — ${
-        known?.availability === 'unreachable' ? 'machine offline' : 'not available to you'
+        known?.availability === 'unreachable'
+          ? 'machine offline'
+          : known?.availability === 'incapable'
+            ? 'machine runs no daemon'
+            : 'not available to you'
       }`,
       availability: known?.availability ?? 'unauthorized',
       opaque: true,
     })
   }
-  return { choices, excluded: { unauthorized, unreachable } }
+  return { choices, excluded: { unauthorized, unreachable, incapable } }
 }
 
 function usageAt(
@@ -473,6 +483,10 @@ export function targetExclusionNote(excluded: AutomationTargetExclusions): strin
   if (excluded.unauthorized > 0)
     parts.push(
       `${excluded.unauthorized} ${plural(excluded.unauthorized)} on machines you may not run on`,
+    )
+  if (excluded.incapable > 0)
+    parts.push(
+      `${excluded.incapable} ${plural(excluded.incapable)} on machines that run no Podium daemon`,
     )
   if (excluded.unreachable > 0)
     parts.push(

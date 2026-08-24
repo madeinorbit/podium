@@ -1,9 +1,9 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { LOCAL_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { MachineId } from '@podium/model'
-import { asMachineId } from '@podium/model'
+import { asMachineId, HOST_REPOS, machinesFor } from '@podium/model'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
 import { useStoreSelector } from '@/app/store'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -134,26 +134,48 @@ export function RepoScanFlow({
     onDone(changedCount)
   }
 
+  /**
+   * Machines that could EVER own a repository (POD-2700) — the population this
+   * screen may select from, offer, or restore a persisted pin out of.
+   *
+   * Structural, not live: an offline laptop is still a repo host and stays in
+   * the list (disabled, labelled offline), because "wake it up" is real advice.
+   * A machine that runs no daemon is excluded and counted instead — see
+   * `RepoPickerModal`, which renders the count and the empty state.
+   */
+  const repoHosts = useMemo(() => machinesFor(machines, HOST_REPOS), [machines])
+
   // Settle on a machine as soon as the fleet is known: the picker browses a
   // machine's daemon, so "none selected" is not a usable state. Preference order —
   // the caller's pick, then the device the user is sitting at (the desktop shell
   // knows its own machineId), then any online machine, then the first known one.
   // A single-machine install has exactly one, and lands on it.
+  //
+  // POD-2700 §3.3: EVERY arm of this now draws from `repoHosts`, and there is no
+  // final `machines[0]`. Auto-selection is a listing site with no visible list,
+  // and this fallback is what pinned the operator's repo screen to the
+  // server-only coordinator: it was the only row, so it was `machines[0]`, so it
+  // was silently selected, and every action on it dead-ended. When nothing
+  // qualifies the answer is now NO SELECTION, which is what makes the modal
+  // render its empty state instead of a dud.
   useEffect(() => {
     if (
-      machines.length === 0 ||
-      (selectedMachineId !== undefined &&
-        machines.some((machine) => machine.id === selectedMachineId))
+      selectedMachineId !== undefined &&
+      repoHosts.some((machine) => machine.id === selectedMachineId)
     ) {
       return
     }
     const thisDevice = nativeDesktopBridge()?.machineId
     const preferred =
-      machines.find((m) => m.id === thisDevice && m.online) ??
-      machines.find((m) => m.online) ??
-      machines[0]
-    if (preferred) setSelectedMachineId(preferred.id)
-  }, [machines, selectedMachineId])
+      repoHosts.find((m) => m.id === thisDevice && m.online) ??
+      repoHosts.find((m) => m.online) ??
+      repoHosts[0]
+    // A STALE PIN IS NOT RESTORED, it is replaced. `selectedMachineId` seeds from
+    // the persisted draft, which may name a machine that has since lost its
+    // daemon or left the fleet; re-validating it against the predicate above is
+    // the difference between a remembered convenience and a resurrected dud.
+    setSelectedMachineId(preferred?.id)
+  }, [repoHosts, selectedMachineId])
 
   function repoMachineInput(): { machineId?: MachineId } {
     return selectedMachineId ? { machineId: asMachineId(selectedMachineId) } : {}

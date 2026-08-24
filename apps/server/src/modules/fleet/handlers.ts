@@ -18,7 +18,7 @@
 
 import { join } from 'node:path'
 import type { MachineId, UpdateChannel, UserId } from '@podium/model'
-import { asMachineId, resolveMachineChannel } from '@podium/model'
+import { asMachineId, HOST_REPOS, resolveMachineChannel } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import { normalizeRepoPath } from '../../store'
@@ -239,6 +239,32 @@ export const machinePairingCodeHandler = ({
   return { code, joinCommand: ports.joinCommand(code, input?.podiumManaged ?? true) }
 }
 
+
+/**
+ * REFUSE BEFORE ROUNDTRIPPING (POD-2700 §2.5).
+ *
+ * Every handler below reaches through a machine's daemon to touch its disk —
+ * browse, clone, create, rename, scan. Without this the caller's reward for
+ * naming a machine that runs no daemon is a 35-second "no daemon answered"
+ * timeout, indistinguishable from a flaky network, and for an OFFLINE machine
+ * the queued op may still run later. Naming the axis up front is the difference
+ * between "wake it up" and "it can never do this".
+ *
+ * The `use` axis is already decided a layer above, by `authz.ts`'s per-command
+ * gate, so this adds the structural and liveness ones — the two that were
+ * missing.
+ */
+const requireRepoHost = (ctx: Context, machineId: MachineId, action: string): void => {
+  try {
+    mods(ctx).machines.requireCapability(machineId, HOST_REPOS, action)
+  } catch (e) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: e instanceof Error ? e.message : String(e),
+    })
+  }
+}
+
 // ---------------------------------------------------------------------------
 // repos.*
 // ---------------------------------------------------------------------------
@@ -300,6 +326,7 @@ export const repoCloneGithubHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ machineId: MachineId; repository: string; destination: string }>) => {
+  requireRepoHost(ctx, input.machineId, 'clone repositories')
   const result = await mods(ctx).rpc.githubCli('clone', input.machineId, {
     repository: input.repository,
     destination: input.destination,
@@ -338,6 +365,7 @@ export const repoCreateFolderHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ machineId: MachineId; parentPath: string; name: string }>) => {
+  requireRepoHost(ctx, input.machineId, 'hold folders')
   const result = await mods(ctx).rpc.dirOp('createFolder', input.machineId, {
     parentPath: input.parentPath,
     name: input.name,
@@ -350,6 +378,7 @@ export const repoCreateRepoHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ machineId: MachineId; parentPath: string; name: string }>) => {
+  requireRepoHost(ctx, input.machineId, 'host repositories')
   const result = await mods(ctx).rpc.dirOp('createRepo', input.machineId, {
     parentPath: input.parentPath,
     name: input.name,
@@ -372,6 +401,7 @@ export const repoRenameFolderHandler = async ({
   currentName: string
   name: string
 }>) => {
+  requireRepoHost(ctx, input.machineId, 'hold folders')
   const source = normalizeRepoPath(join(input.parentPath, input.currentName))
   // The folder itself, or anything registered BELOW it: both sets of rows point
   // at paths the rename would invalidate.
@@ -418,12 +448,21 @@ export const discoveryRefreshReposHandler = ({ ctx }: FleetArgs<void>) =>
 export const discoveryScanFolderHandler = ({
   ctx,
   input,
-}: FleetArgs<{ path: string; maxDepth?: number; machineId?: MachineId }>) =>
-  ctx.registry.modules.rpc.scanRepos(
+}: FleetArgs<{ path: string; maxDepth?: number; machineId?: MachineId }>) => {
+  // The machine is optional here; when it is omitted the scan resolves through
+  // `defaultMachine()`, which POD-2700 also taught to prefer a daemon-bearing
+  // machine — so guard the id that will actually be used, not the one supplied.
+  requireRepoHost(
+    ctx,
+    input.machineId ?? mods(ctx).machines.defaultMachine(),
+    'scan for repositories',
+  )
+  return ctx.registry.modules.rpc.scanRepos(
     [input.path],
     { includeHome: false, maxDepth: input.maxDepth ?? 6 },
     input.machineId,
   )
+}
 
 export const discoveryScanMachineHandler = ({
   ctx,
@@ -431,6 +470,7 @@ export const discoveryScanMachineHandler = ({
 }: FleetArgs<{ machineId: MachineId; deep?: boolean; atPath?: string }>) => {
   if (!ctx.discovery)
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'discovery unavailable' })
+  requireRepoHost(ctx, input.machineId, 'scan for repositories')
   return ctx.discovery.scan(input.machineId, {
     deep: input.deep ?? true,
     ...(input.atPath === undefined ? {} : { atPath: input.atPath }),

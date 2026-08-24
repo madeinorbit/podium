@@ -184,7 +184,11 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
     if (explicit !== undefined)
       return usable.some((machine) => machine.id === explicit) ? explicit : null
     const { machineId: resolved, refusal } = resolveSpawnTargetMachine(repo, sessions, machineViews)
-    return refusal === 'unauthorized' ? null : resolved
+    // `incapable` STOPS the spawn for the same reason `unauthorized` does
+    // (POD-2700): falling through to the repo's main checkout would silently
+    // retarget the work onto a machine the operator did not choose, and here the
+    // one they DID choose cannot run it at all.
+    return refusal === 'unauthorized' || refusal === 'incapable' ? null : resolved
   }
 
   const close = () => {
@@ -429,7 +433,15 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
                     </Text>
                     {ok ? null : (
                       <Text style={styles.rowSub}>
-                        {view.availability === 'unauthorized' ? 'No access' : 'Offline'}
+                        {view.availability === 'unauthorized'
+                          ? 'No access'
+                          : view.availability === 'incapable'
+                            ? // POD-2700. A THIRD word, because a machine that
+                              // runs no daemon is not asleep — "Offline" here
+                              // asked the operator to wait for something that
+                              // will never arrive.
+                              'Runs no Podium daemon'
+                            : 'Offline'}
                       </Text>
                     )}
                   </View>

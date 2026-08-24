@@ -63,9 +63,11 @@ export function machineHelpText(): string {
     '  --json    Print the exact server payload as JSON.',
     '  --help    Show this help.',
     '',
-    'A machine is usable for agent work when it is online, `use` is granted, the',
-    'harness you want is installed and logged in, and the repository you want is',
-    'registered on it. `list` shows all four so you do not have to guess.',
+    'A machine is usable for agent work when it RUNS A PODIUM DAEMON, is online,',
+    '`use` is granted, the harness you want is installed and logged in, and the',
+    'repository you want is registered on it. `list` shows all five so you do not',
+    'have to guess — and the first is durable: a machine with no daemon can never',
+    'host repos or run agents, however long you wait for it to come online.',
     '',
     'Placing work on a machine is a separate command: see `podium issue start',
     '--machine` to start there, and `podium session handoff` to move a session',
@@ -137,6 +139,25 @@ function machineBlock(machine: MachineWire, repos: RepoRow[], nowMs: number): st
   const lines = [`${identity} — ${liveness} · ${use}`]
   if (!machine.online) lines.push(`  ${lastSeenDescription(machine.lastSeenAt, nowMs)}`)
   lines.push(`  id ${machine.id}`)
+  // WHAT RUNS HERE (POD-2700 §4.1). `machine list` is an ADMIN surface: it shows
+  // every machine, including the ones no picker may offer, so the operator can
+  // tell a server-only coordinator from a laptop with its lid closed. Without
+  // this line the two print identically apart from a timestamp, which is exactly
+  // how a coordinator reads as a permanently-offline mystery.
+  //
+  // ABSENT PRINTS NOTHING: a server that predates the field has not answered.
+  // An EMPTY array prints, because that is an answer.
+  if (machine.components !== undefined) {
+    lines.push(
+      machine.components.length === 0
+        ? '  components: none yet — its daemon has never connected'
+        : `  components: ${machine.components.join(', ')}${
+            machine.components.includes('daemon')
+              ? ''
+              : ' — no daemon, so it cannot host repos or run agents'
+          }`,
+    )
+  }
 
   const inventory = machine.inventory
   if (!inventory) {

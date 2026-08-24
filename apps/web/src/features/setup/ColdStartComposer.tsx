@@ -7,7 +7,13 @@ import {
   type RepoNavView,
   sidebarSections,
 } from '@podium/client-core/viewmodels'
-import { asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
+import {
+  asMutationId,
+  asSessionId,
+  type GitRepositoryWire,
+  HOST_REPOS,
+  type MachineActionCopy,
+} from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import { ArrowRight, ChevronDown, LoaderCircle, Monitor, Paperclip } from 'lucide-react'
 import type { JSX } from 'react'
@@ -25,6 +31,14 @@ import {
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu } from '@/lib/PropertyMenu'
+import { machineOptionLabel, useMachineChoices } from '@/features/machines/machine-choices'
+
+/** What the cold-start composer is choosing a machine FOR. */
+const COLD_START_COPY: MachineActionCopy = {
+  action: 'run this mission',
+  capability: 'run agents',
+  remedy: 'Pair a machine that runs the Podium daemon.',
+}
 import { activationAgentIsReady, activationAgentReadiness } from './agent-readiness'
 import { clearFirstTaskDraft, persistFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
 import { SetupError } from './SetupFeedback'
@@ -142,14 +156,26 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
         repo.path === draft.repoPath || repo.machines?.some(({ path }) => path === draft.repoPath),
     ) ?? repoChoices[0]
   const repoMachineIds = new Set(selectedRepo?.machines?.map(({ machineId }) => machineId) ?? [])
-  const targetMachines =
+  /**
+   * POD-2700. The fallback here used to be THE WHOLE FLEET: when the repo named
+   * no machines, every row was offered — coordinator included — and the auto-pick
+   * below then landed on `targetMachines[0]`. Two of §3.3's retired fallbacks in
+   * four lines. The population is now the machines that could actually run this
+   * mission, and when that is empty the composer says so instead of picking.
+   */
+  const machineChoices = useMachineChoices(
     repoMachineIds.size > 0
       ? machines.filter((machine) => repoMachineIds.has(machine.id))
-      : machines
+      : machines,
+    HOST_REPOS,
+    COLD_START_COPY,
+    draft.machineId,
+  )
+  const targetMachines = machineChoices.options.map((choice) => choice.machine)
   const selectedMachine =
-    targetMachines.find((machine) => machine.id === draft.machineId) ??
-    targetMachines.find((machine) => machine.online) ??
-    targetMachines[0]
+    machineChoices.selectable.find((machine) => machine.id === draft.machineId) ??
+    machineChoices.selectable.find((machine) => machine.online) ??
+    machineChoices.selectable[0]
   const selectedCheckout = selectedRepo
     ? checkoutForMachine(repos, selectedRepo, selectedMachine?.id)
     : undefined
@@ -462,14 +488,16 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   className="inline-flex h-7 max-w-full flex-none items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
                 >
                   <Monitor size={13} className="text-text-faint" aria-hidden="true" />
-                  {selectedMachine?.name ?? 'Choose machine'}
+                  {selectedMachine?.name ??
+                    (machineChoices.emptyState ? 'No machine can run this' : 'Choose machine')}
                   <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
                 </button>
               }
-              options={targetMachines.map((machine) => ({
-                value: machine.id,
-                label: `${machine.name}${machine.online ? '' : ' (offline)'}`,
+              options={machineChoices.options.map((choice) => ({
+                value: choice.machine.id,
+                label: machineOptionLabel(choice),
               }))}
+              footnote={machineChoices.exclusionNote ?? machineChoices.emptyState?.detail}
               selectedValue={selectedMachine?.id}
               placeholder="Choose a machine…"
               onSelect={selectMachine}

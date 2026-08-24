@@ -1,5 +1,6 @@
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { shallowEqual } from '@podium/client-core/store'
+import { HOST_REPOS, machinesFor } from '@podium/model'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import { EXAMPLE_USAGE_REPORT_DISPLAY as TELEMETRY_EXAMPLE } from '@podium/telemetry/example'
@@ -359,8 +360,16 @@ export function FirstTaskActivation({
     )
   }
 
+  // POD-2700 §3.3: the `?? machines[0]` this replaces was one of the retired
+  // fallbacks — on a fleet whose first row is the server-only coordinator it
+  // named a machine that can run nothing, and the login/readiness panel then
+  // reported that machine's (empty) agent inventory as the user's. Falling back
+  // only within the repo-capable machines keeps the panel honest; `undefined` is
+  // an answer the caller below already renders.
   const selectedMachine =
-    machines.find((machine) => machine.id === selectedRepo?.machineId) ?? machines[0]
+    machines.find((machine) => machine.id === selectedRepo?.machineId) ??
+    machinesFor(machines, HOST_REPOS).find((machine) => machine.online) ??
+    machinesFor(machines, HOST_REPOS)[0]
   const otherAgents = ISSUE_AGENT_KINDS.filter(
     (agent) => !activationAgentIsReady(readinessByAgent[agent]),
   )

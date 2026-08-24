@@ -212,6 +212,9 @@ export const TRANSFER_FAILURE_CODES = {
   TARGET_NOT_FOUND: 'target-not-found',
   TARGET_IS_SOURCE: 'target-is-source',
   TARGET_OFFLINE: 'target-offline',
+  /** POD-2700: the target runs no Podium daemon, so promotion has nothing to
+   *  drive. Distinct from `TARGET_OFFLINE` because waiting cannot fix it. */
+  TARGET_NO_DAEMON: 'target-no-daemon',
   TARGET_UNSUPPORTED: 'target-unsupported',
   SOURCE_UNHEALTHY: 'source-unhealthy',
   DISK_FULL: 'disk-full',

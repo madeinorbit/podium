@@ -3,6 +3,7 @@ import {
   harnessSupportsCredentialPropagation,
 } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
+import { HOST_REPOS } from '@podium/model'
 import type { AgentKind, HarnessAgent, MachineId, UserId } from '@podium/model'
 import type { PortableCredentialBundle } from '@podium/protocol'
 import { buildLoginCatalog, catalogEntriesForHarness } from '../../login-catalog'
@@ -39,7 +40,7 @@ interface AttemptState {
 
 interface LoginPropagationDeps {
   store: SessionStore
-  machines: Pick<MachinesService, 'hasDaemon'>
+  machines: Pick<MachinesService, 'hasDaemon' | 'capabilityRejection'>
   rpc: Pick<DaemonRpcService, 'credentialExport' | 'credentialInstall'>
   now?: () => number
 }
@@ -143,7 +144,19 @@ export class LoginPropagationService {
       return { status: 'skipped', reason: 'harness has no portable credential declaration' }
     }
     if (!this.deps.machines.hasDaemon(input.input.targetMachineId)) {
-      return { status: 'skipped', reason: 'target is offline' }
+      // POD-2700: the live check below is already the STRONGER one (a live socket
+      // implies an enrolled daemon), so nothing about who is eligible changes
+      // here. What changes is the WORD: a machine that runs no daemon was being
+      // reported as "offline", which reads as "try again later" for a state that
+      // never resolves. The `use` and liveness axes stay exactly where they are.
+      return {
+        status: 'skipped',
+        reason:
+          this.deps.machines.capabilityRejection(input.input.targetMachineId, HOST_REPOS) ===
+          'no-daemon'
+            ? 'target runs no Podium daemon'
+            : 'target is offline',
+      }
     }
 
     const targetAgent = input.targetInventory?.agents.find((agent) => agent.kind === input.harness)

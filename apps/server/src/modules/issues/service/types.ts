@@ -213,6 +213,19 @@ export interface IssueDeps {
    *  existing test deps literals stay valid. */
   requireMachineForRepo?(machineId: MachineId, repoPath: string): void
   /**
+   * Pre-flight for HOMING an issue on a machine (POD-2700): throws when the
+   * machine can never hold a worktree because it runs no Podium daemon.
+   *
+   * Separate from `requireMachineForRepo` above because the two guard different
+   * moments and must NOT be merged. That one runs at START, against a resolved
+   * repo path, and refuses an offline machine — correct there, since starting
+   * actually needs the daemon. This one runs when the PROPERTY is set, where
+   * offline is fine (the machine may be exactly the right home once it wakes)
+   * and only the durable answer is knowable. Injected by the relay; optional so
+   * the existing test deps literals stay valid.
+   */
+  requireIssueHomeMachine?(machineId: MachineId): void
+  /**
    * Prepare a machine-pinned start (POD-1424): put the right REPOSITORY on the target
    * (resolved by repo IDENTITY, cloned on absence — POD-1386) and the right COMMITS in
    * it (bundled directly, because a local-only base is on no shared remote — POD-1405).

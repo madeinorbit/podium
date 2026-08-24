@@ -97,6 +97,11 @@ export function handoffRejectionText(rejection: HandoffRejection, agentKind: Age
     // reads "offline" waits for a wake-up that will never help.
     case 'unauthorized':
       return 'no access'
+    // POD-2700, and for the same reason as 'unauthorized' above: a machine with
+    // no Podium daemon can never import a worktree, so calling it offline offers
+    // a wake-up that will never help.
+    case 'no-daemon':
+      return 'no daemon'
     case 'offline':
       return 'offline'
     case 'harness-missing':

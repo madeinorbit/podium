@@ -289,6 +289,11 @@ export type ProfilePlacementState =
   | 'available'
   | 'unreachable'
   | 'unauthorized'
+  /** POD-2700: the profile names a machine that runs no Podium daemon, so it can
+   *  never execute there. Carried through beside `unreachable` for the same
+   *  reason `unauthorized` is: "wake it up" and "it cannot ever" are opposite
+   *  recoveries and a single "unavailable" tells the user neither. */
+  | 'incapable'
   /** The profile names no machine. Nothing is chosen on the principal's behalf. */
   | 'unplaced'
   /** The profile names a machine the principal cannot even SEE. Indistinguishable
@@ -326,6 +331,9 @@ export interface PlacementOptions<M> {
   readonly offerable: readonly M[]
   readonly unauthorized: readonly M[]
   readonly unreachable: readonly M[]
+  /** Runs no Podium daemon (POD-2700). Reported separately so the control can
+   *  say "cannot", never "not right now". */
+  readonly incapable: readonly M[]
 }
 
 export function placementOptions<M extends { id: string; online: boolean }>(
@@ -337,5 +345,6 @@ export function placementOptions<M extends { id: string; online: boolean }>(
     offerable: by('available'),
     unauthorized: by('unauthorized'),
     unreachable: by('unreachable'),
+    incapable: by('incapable'),
   }
 }

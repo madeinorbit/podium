@@ -30,7 +30,14 @@
  * operator who wanted Codex on this one had to leave the explorer, open the full
  * page, set it there, and come back. One box, one grammar, both surfaces.
  */
-import { asMachineId, type MachineId } from '@podium/model/browser'
+import {
+  asMachineId,
+  HOST_REPOS,
+  type MachineActionCopy,
+  type MachineComponent,
+  type MachineId,
+  type MachineUseDecision,
+} from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -40,6 +47,17 @@ import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
 import { issueAgentLabel, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu } from '@/lib/PropertyMenu'
+import {
+  machineOptionLabel,
+  useMachineChoices,
+} from '@/features/machines/machine-choices'
+
+/** What this pin is for — see `MachineActionCopy`. */
+const ISSUE_HOME_COPY: MachineActionCopy = {
+  action: 'hold this issue',
+  capability: 'hold worktrees',
+  remedy: 'Pair a machine that runs the Podium daemon.',
+}
 import { cn } from '@/lib/utils'
 import { useAgentFleetOptions } from './use-agent-fleet-options'
 
@@ -47,6 +65,10 @@ export interface LaunchMachine {
   id: string
   name: string
   online: boolean
+  /** POD-2700: the durable structural axis. An issue's machine is where its
+   *  worktree lives, so a machine with no daemon can never be its home. */
+  components?: readonly MachineComponent[]
+  use?: MachineUseDecision
 }
 
 /**
@@ -105,6 +127,7 @@ export function LaunchBox({
   // asks nothing, so the control stays, in outline.
   const spent = issue.closedReason != null || issue.stage === 'done' || issue.archived
   const machine = machines.find((m) => m.id === issue.machineId)
+  const machineChoices = useMachineChoices(machines, HOST_REPOS, ISSUE_HOME_COPY, issue.machineId)
   // The same 15px tile the roster rows above wear, one size down: the agent this
   // task launches with and the agents already on it are then the same mark.
   const AgentIcon = agentIconFor(agentKind)
@@ -181,15 +204,24 @@ export function LaunchBox({
             onChange={commands.setDefaultEffort}
           />
           {/* The machine pin only exists as a question when there is more than
-              one machine to pin to ('auto' = repo affinity). */}
-          {machines.length > 1 && (
+              one machine to pin to ('auto' = repo affinity) — or when there is
+              something to explain about the ones that are missing (POD-2700).
+
+              WHY THIS IS FILTERED AT ALL: the pin decides where the issue's
+              worktree is cut and where its agents run, so a machine that runs no
+              Podium daemon can never be its home. It used to be offered anyway,
+              and an issue homed there dead-ended at start. Offline machines DO
+              stay in the list, labelled — an asleep laptop is still a valid home
+              for work that starts tomorrow. */}
+          {(machineChoices.options.length > 1 || machineChoices.exclusionNote) && (
             <PropertyMenu
               selectedValue={issue.machineId ?? 'auto'}
+              footnote={machineChoices.exclusionNote}
               options={[
                 { value: 'auto', label: 'auto machine' },
-                ...machines.map((m) => ({
-                  value: m.id,
-                  label: m.online ? m.name : `${m.name} (offline)`,
+                ...machineChoices.options.map((choice) => ({
+                  value: choice.machine.id,
+                  label: machineOptionLabel(choice),
                 })),
               ]}
               onSelect={(v) => commands.setMachine(v === 'auto' ? null : asMachineId(v))}

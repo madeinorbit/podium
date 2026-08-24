@@ -8,6 +8,13 @@ import {
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
   asMachineId,
+  HOST_REPOS,
+  type MachineComponent,
+  type MachineRejection,
+  type MachineRequirement,
+  machineRejection,
+  machineRejectionMessage,
+  structuralEligibility,
   asUserId,
   type Inventory,
   type MachineId,
@@ -256,6 +263,26 @@ export class MachinesService {
     // The daemon may have (re-)registered/touched its machine row on the way in
     // (pair/hello, or a test upserting directly before attaching) — drop the cache.
     this.invalidateMachineCache()
+    // A DAEMON JUST ATTACHED HERE (POD-2700), so this machine durably runs one —
+    // the structural fact §1.2 asks for, recorded at the same moment the socket
+    // fact is. This is the one place every enrolment path converges on (pair and
+    // hello both end here), which is why it is stamped here rather than in the
+    // handshake, where a second path could be added without one.
+    this.recordComponent(machineId, 'daemon')
+  }
+
+  /**
+   * Record that a Podium component durably runs on a machine (POD-2700).
+   *
+   * ADDITIVE and idempotent — see `MachinesRepository.addMachineComponent` for
+   * why. The cheap-path guard matters: this runs on EVERY daemon attach, and
+   * without it a reconnect storm would broadcast the whole fleet projection once
+   * per socket for a fact that did not change.
+   */
+  recordComponent(machineId: MachineId, component: MachineComponent): void {
+    if (!this.deps.store.machines.addMachineComponent(machineId, component)) return
+    this.invalidateMachineCache()
+    this.broadcastMachines()
   }
 
   /** Register the parent-backed update participant for this host. A daemon socket may
@@ -453,7 +480,19 @@ export class MachinesService {
    */
   defaultMachine(): MachineId {
     const online = this.onlineMachineIds()
-    return online[0] ?? this.deps.hostMachineId
+    if (online[0] !== undefined) return online[0]
+    // NOTHING IS ONLINE. The old answer was always this host — and on a
+    // server-only coordinator that is a machine which can never do the work,
+    // handed out as a default (POD-2700 §2.4). Prefer a machine that DURABLY
+    // runs a daemon: it is offline, so the request queues either way, but it
+    // queues under an id whose daemon can actually flush it, and every caller
+    // that checks capability before routing now gets a truthful answer.
+    //
+    // The host stays the last resort rather than a refusal, because the
+    // boot-before-daemon case is real and must keep queueing: at boot this
+    // host's own daemon is precisely the one about to attach.
+    const durable = this.machineRecords().find((m) => m.components?.includes('daemon'))
+    return durable?.id ?? this.deps.hostMachineId
   }
 
   /**
@@ -534,6 +573,8 @@ export class MachinesService {
         return
       case 'unauthorized':
         throw new Error(`you do not have access to run agents on machine '${machine.name}'`)
+      case 'no-daemon':
+        throw new Error(machineRejectionMessage(machine.name, 'no-daemon', `run ${agentKind}`))
       case 'offline':
         throw new Error(`machine '${machine.name}' is offline`)
       case 'harness-missing':
@@ -546,6 +587,81 @@ export class MachinesService {
   }
 
   /**
+   * THE ENFORCEMENT SEAM (POD-2700 §2.5): refuse an action on a machine that
+   * cannot perform it, at the ACTION, not only in the picker that offered it.
+   *
+   * A filtered dropdown is the ergonomic half. This is the safety half — the
+   * only one that also covers a stale tab, a CLI call, a raw tRPC request and
+   * the next surface somebody adds without reading this file. It answers with
+   * the SAME predicate the picker used (`machineRejection` in `@podium/model`)
+   * and the same sentence (`machineRejectionMessage`), so a refusal a user sees
+   * server-side matches the reason the UI would have given.
+   *
+   * FAILS CLOSED on an unknown machine, exactly as {@link requireAgent} does:
+   * being unable to evaluate a machine is not permission to use it.
+   *
+   * `action` is the verb phrase for the refusal — "host repositories".
+   */
+  requireCapability(
+    machineId: MachineId,
+    requirement: MachineRequirement,
+    action: string,
+    use?: MachineUseResolver,
+  ): void {
+    const machine = this.listMachines(use).find((candidate) => candidate.id === machineId)
+    if (!machine) throw new Error(`unknown machine '${machineId}'`)
+    const rejection = machineRejection(machine, requirement)
+    if (rejection === undefined) return
+    throw new Error(machineRejectionMessage(machine.name, rejection, action))
+  }
+
+  /** The verdict {@link requireCapability} would throw on, without throwing —
+   *  for callers that report rather than refuse (fleet panels, `machine show`). */
+  capabilityRejection(
+    machineId: MachineId,
+    requirement: MachineRequirement,
+    use?: MachineUseResolver,
+  ): MachineRejection | undefined {
+    const machine = this.listMachines(use).find((candidate) => candidate.id === machineId)
+    if (!machine) return 'no-daemon'
+    return machineRejection(machine, requirement)
+  }
+
+  /**
+   * Refuse to REGISTER a repository onto a machine that can never hold one
+   * (POD-2700) — the guard behind `repos.add` / `repos.addMany` / scan / clone.
+   *
+   * Distinct from {@link requireMachineForRepo} below, and the gap between them
+   * is the reported bug: that one guards operations on a repo the machine
+   * ALREADY has, so nothing guarded putting a repo there in the first place, and
+   * the repo screen happily offered the server-only coordinator.
+   */
+  requireRepoHost(machineId: MachineId, use?: MachineUseResolver): void {
+    this.requireCapability(machineId, HOST_REPOS, 'host repositories', use)
+  }
+
+  /**
+   * The DURABLE half of {@link requireRepoHost}, for the one act that does not
+   * touch the daemon: writing the `repos` row.
+   *
+   * Registering a path is a server-local database write, so refusing it because
+   * the machine happens to be asleep would break legitimate flows (a CLI
+   * registering a repo on a laptop that is closed, and every test that adds a
+   * repo without attaching a socket) for no safety gained. What must NEVER
+   * succeed is registering a repo onto a machine that can never hold one — the
+   * reported bug — and that is exactly the structural axis, which is what this
+   * checks. Everything that then ACTS on the repo still goes through the live
+   * check in {@link requireMachineForRepo}.
+   */
+  requireRepoHostStructure(machineId: MachineId): void {
+    const machine = this.listMachines().find((candidate) => candidate.id === machineId)
+    if (!machine) throw new Error(`unknown machine '${machineId}'`)
+    const rejection = structuralEligibility(machine, HOST_REPOS)
+    if (rejection === undefined) return
+    throw new Error(machineRejectionMessage(machine.name, rejection, 'host repositories'))
+  }
+
+  /**
    * Guard an explicit machine pin BEFORE any work is routed to it. Without this,
    * an offline machine silently queues the request until the 35s daemonRequest
    * timeout ("no daemon answered…") — and the queued op may still run when the
@@ -554,6 +670,16 @@ export class MachinesService {
    */
   requireMachineForRepo(machineId: MachineId, repoPath: string): void {
     const name = this.machineName(machineId)
+    // STRUCTURAL FIRST (POD-2700 §1.4). A machine that runs no daemon is not
+    // "offline": telling its user to bring the daemon online is advice that can
+    // never be taken, and following it is what left the operator stuck. The
+    // ordering — unauthorized, then structural, then live — is the canonical one
+    // and it lives in the shared predicate; here it is spelled out because this
+    // function predates the seam and guards the hottest path.
+    const machine = this.listMachines().find((candidate) => candidate.id === machineId)
+    if (machine && structuralEligibility(machine, HOST_REPOS) === 'no-daemon') {
+      throw new Error(machineRejectionMessage(name, 'no-daemon', 'host repositories'))
+    }
     if (!this.daemons.has(machineId)) {
       throw new Error(
         `machine '${name}' is offline — bring its daemon online or clear the issue's machine pin`,
@@ -655,6 +781,10 @@ export class MachinesService {
         // ordinary machines and a supervised one is unmistakable (POD-2099).
         ...(m.supervised ? { supervised: true } : {}),
         buildReportedAt: m.buildReportedAt,
+        // POD-2700: the durable structural axis, `SEE`-visible beside `online`.
+        // Omitted when the row has NOT been evaluated, which is how a reader
+        // tells "we have not recorded this" from "[] — evaluated, runs nothing".
+        ...(m.components !== null ? { components: m.components } : {}),
         versionState: deriveVersionState(m.appVersion, target),
         ...(m.podiumManaged === false ? { podiumManaged: false } : {}),
         ...(m.inventory ? { inventory: m.inventory } : {}),
@@ -879,6 +1009,15 @@ export class MachinesService {
       ownerUserId: deviceGradeSoleOwner(),
     })
     this.invalidateMachineCache()
+    // THE COORDINATOR RUNS HERE (POD-2700). The server is the only honest source
+    // for this — no machine self-reports being the server — and stamping it at
+    // boot is what finally makes a server-only host legible as such: a row with
+    // `server` and no `daemon` is structurally incapable of hosting a repo, which
+    // reads as "runs the Podium server only" instead of as a mystery row that is
+    // permanently offline. On the ordinary single-box install the same row also
+    // gains `daemon` when the local daemon attaches; the two writers are additive
+    // precisely so neither erases the other.
+    this.recordComponent(id, 'server')
     // The row's NAME is derived onto every session's `machineName`, and this write is
     // where it first becomes known (before it, the projection falls back to the raw
     // id). Same seam a rename uses — the derived field has one way to be refreshed,

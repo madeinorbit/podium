@@ -950,6 +950,31 @@ function MachineRow({
   }
 
   // POD-838/POD-1873: surface skew against this machine's selected channel target.
+  /**
+   * The row's durable components, in the words §4.1 asks for.
+   *
+   * `undefined` renders NOTHING — a server that predates the field has not
+   * answered the question, and inventing "no components" for it would badge the
+   * whole fleet as broken. `[]` DOES render, because that is an answer: the row
+   * exists and its daemon has never connected.
+   */
+  const components = machine.components
+  const componentsLabel =
+    components === undefined
+      ? null
+      : components.length === 0
+        ? 'Waiting for first connection'
+        : components.includes('daemon')
+          ? null
+          : components.includes('server')
+            ? 'Server only'
+            : 'No daemon'
+  const componentsTitle =
+    componentsLabel === 'Server only'
+      ? 'Runs the Podium server and no daemon — it cannot host repositories or run agents.'
+      : componentsLabel === 'Waiting for first connection'
+        ? 'Paired, but its daemon has never connected.'
+        : undefined
   const daemonVersion = machine.inventory?.podiumVersion
   const updateTargetVersion =
     machine.targetVersion !== undefined ? machine.targetVersion : serverAppVersion
@@ -1127,6 +1152,19 @@ function MachineRow({
               <span className="tabular-nums">
                 {machine.online ? 'Online' : `Last seen ${relativeTime(machine.lastSeenAt, now)}`}
               </span>
+              {/* WHAT RUNS HERE (POD-2700 §4.1). The fleet panel is the one
+                  surface that shows EVERY machine, including the ones no picker
+                  may offer — an operator must be able to repair a machine that
+                  can do nothing else. So instead of filtering, it LABELS: a row
+                  reading "server only" is legible as a coordinator rather than
+                  as a permanently-offline mystery, which is how the operator
+                  read it while the repo screen was stuck on it. */}
+              {componentsLabel && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span title={componentsTitle}>{componentsLabel}</span>
+                </>
+              )}
               {serverTransferUnsupported && (
                 <>
                   <span aria-hidden="true">·</span>
