@@ -231,12 +231,6 @@ export function issuePageCommands({
     startWork: (agentKind?: IssueAgentKind): void => {
       void run(() => trpc.issues.start.mutate(agentKind ? { id, agentKind } : { id }))
     },
-    addSession: (agentKind?: IssueAgentKind): void => {
-      void run(() => trpc.issues.addSession.mutate(agentKind ? { id, agentKind } : { id }))
-    },
-    addShell: (): void => {
-      void run(() => trpc.issues.addShell.mutate({ id }))
-    },
 
     // ---- git workflow ----
     gitAction: (kind: GitActionKind): Promise<void> =>

@@ -1,9 +1,17 @@
 /**
  * The Sessions block of the properties aside: who is on this task, the ghosts of
- * sessions that moved on, and — in one launch box — the agent / model / effort /
- * machine the next one starts with, plus the button that starts it. Split out of
- * issue-page-properties.tsx (POD-646); the box is {@link LaunchBox} (POD-1224),
- * shared with the right dock's task panel since POD-1457.
+ * sessions that moved on, and — until somebody picks the work up — the launch
+ * box holding the agent / model / effort / machine it starts with and the button
+ * that starts it. Split out of issue-page-properties.tsx (POD-646); the box is
+ * {@link LaunchBox} (POD-1224), shared with the right dock's task panel since
+ * POD-1457.
+ *
+ * THE BOX LEAVES WHEN THE WORK BEGINS (POD-1585). It is a launch instrument, and
+ * on running work there is nothing left to launch: the block is then the roster
+ * and only the roster. Its old second face — `+ Session` beside `+ Shell` — put
+ * the two loudest buttons in the aside on the one state that wanted neither, and
+ * both moves live where they belong already (the flight deck spawns an agent
+ * onto running work; a shell is a tab).
  *
  * PARTIAL WORLD, TWICE OVER.
  *
@@ -28,9 +36,10 @@ import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
 import { PhaseTimer } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
+import { isOpenSession } from '../IssueCompactControls'
 import { issueRefLong } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
-import { LaunchBox, type LaunchMachine } from '../LaunchBox'
+import { issueWorkBegun, LaunchBox, type LaunchMachine } from '../LaunchBox'
 import { SectionHeading } from './chrome'
 import { edgeIssue, useIssueEdgeResolver } from './issue-edges'
 
@@ -158,7 +167,12 @@ export function IssueSessionsBlock({
           })}
         </div>
       )}
-      <LaunchBox issue={issue} busy={busy} commands={commands} machines={machines} />
+      {/* Same reading as the dock's, from the roster this block already holds:
+          an agent on it, a checkout, or a stage whose name says somebody picked
+          it up (see {@link issueWorkBegun}). */}
+      {!issueWorkBegun(issue, memberSessions.filter(isOpenSession).length) && (
+        <LaunchBox issue={issue} busy={busy} commands={commands} machines={machines} />
+      )}
     </section>
   )
 }

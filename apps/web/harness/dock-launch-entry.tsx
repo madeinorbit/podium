@@ -95,8 +95,10 @@ state.machines = [
   },
 ]
 
-/** WORK THAT HAS BEGUN. `Start work` would name the wrong move here, so the
- *  box's foot becomes `+ Session` / `+ Shell` instead (POD-1457). */
+/** WORK THAT HAS BEGUN. There is nothing left to launch, so the box does not
+ *  mount at all (POD-1585) — it used to answer this state with a `+ Session` /
+ *  `+ Shell` foot, which put the panel's two loudest buttons on the one task
+ *  that wanted neither. */
 const RUNNING = makeIssue({
   id: 'i-1457',
   seq: 1457,

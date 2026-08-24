@@ -29,8 +29,17 @@
  * say WHETHER to start and (for discovered work) WHERE, but never with what: an
  * operator who wanted Codex on this one had to leave the explorer, open the full
  * page, set it there, and come back. One box, one grammar, both surfaces.
+ *
+ * IT EXISTS ONLY BEFORE THE WORK STARTS (POD-1585). The box is a LAUNCH
+ * instrument: four decisions and the button that spends them. Once an agent is
+ * on the task those decisions are spent — the harness a running session uses is
+ * fixed, and another session is not this surface's job. Adding an agent to work
+ * already under way is the flight deck's move, and a shell is a tab, so the box
+ * carried a `+ Session` / `+ Shell` face that duplicated both and put the two
+ * loudest buttons in the panel on the one task that needed nothing. Its callers
+ * mount it only where the work has not begun; there is one face left.
  */
-import { asMachineId, type MachineId } from '@podium/model/browser'
+import { asMachineId, type IssueStage, type MachineId } from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -42,6 +51,39 @@ import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
 import { useAgentFleetOptions } from './use-agent-fleet-options'
+
+/** Stages whose own name says somebody has picked the work up. Mirrors the
+ *  flight deck's `UNDERWAY` bucket (client-core/viewmodels/mission.ts) with
+ *  `review` added: work under review has been done too, and neither reads as
+ *  something to "start". */
+const BEGUN_STAGES: ReadonlySet<IssueStage> = new Set<IssueStage>([
+  'planning',
+  'in_progress',
+  'review',
+  'shipping',
+])
+
+/**
+ * HAS SOMEBODY PICKED THIS UP? — the one test both surfaces gate the box on
+ * (POD-1585), so the explorer and the full page never disagree about whether a
+ * task is still launchable.
+ *
+ * Three independent proofs, any one of which settles it: an agent on it right
+ * now, a checkout it already delivers on, or a stage whose own NAME says
+ * somebody picked it up. The stage half matters — an `in_progress` task whose
+ * agent has exited is not unstarted work, and offering to "start" it names the
+ * wrong move for the state it is in. `review` is in the set on purpose: work
+ * under review has been done.
+ *
+ * The caller counts its own live sessions, which keeps this module clear of the
+ * session slice, and of an import edge back through the dock.
+ */
+export function issueWorkBegun(
+  issue: Pick<IssueViewModel, 'worktreePath' | 'stage'>,
+  activeSessions: number,
+): boolean {
+  return activeSessions > 0 || Boolean(issue.worktreePath) || BEGUN_STAGES.has(issue.stage)
+}
 
 export interface LaunchMachine {
   id: string
@@ -60,15 +102,12 @@ export interface LaunchCommands {
   setDefaultEffort: (defaultEffort: string) => void
   setMachine: (machineId: MachineId | null) => void
   startWork: () => void
-  addSession: () => void
-  addShell: () => void
 }
 
 export function LaunchBox({
   issue,
   busy,
   starting = false,
-  started: startedOverride,
   commands,
   machines,
   fork,
@@ -78,17 +117,6 @@ export function LaunchBox({
   /** The start itself is in flight — the button says so. Distinct from `busy`,
    *  which any property write raises. */
   starting?: boolean
-  /**
-   * Override the derived "this task already has a checkout" test.
-   *
-   * A CHECKOUT IS NOT AN AGENT. The issue page's aside is always mounted, so a
-   * surviving worktree is the best available proof that work has begun and the
-   * foot becomes `+ Session` / `+ Shell`. The dock mounts the box only where
-   * NOBODY is on the task, and there a worktree left behind by an exited
-   * session is not work in progress — `Start work` is the honest face, and it
-   * is the one that surface has always shown.
-   */
-  started?: boolean
   commands: LaunchCommands
   machines: LaunchMachine[]
   /** WHERE the work will live, offered at the moment it starts (POD-679). The
@@ -97,7 +125,6 @@ export function LaunchBox({
   fork?: ReactNode
 }): JSX.Element {
   const agentKind = issueDefaultAgentKind(issue.defaultAgent)
-  const started = startedOverride ?? Boolean(issue.worktreePath)
   // THE SIGNAL RULE (POD-635). IssueGitBlock already stopped spending Superade
   // Yellow on a merge with nothing to land; this slab was still the loudest
   // pixel on every CLOSED task, offering to start work that has already
@@ -211,50 +238,25 @@ export function LaunchBox({
         </div>
       </div>
 
-      {started ? (
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="flex-1"
-            disabled={busy}
-            onClick={() => commands.addSession()}
-          >
-            + Session
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="flex-1"
-            disabled={busy}
-            onClick={commands.addShell}
-          >
-            + Shell
-          </Button>
-        </div>
-      ) : (
-        // THE FORK RIDES THE BUTTON (POD-679). The plain press keeps the shape
-        // the filing agent chose, so the fast path costs no extra click; the
-        // chevron is for the case the operator already knows the work is
-        // something else. One control, so the two halves share a rim.
-        <div className="flex items-stretch">
-          <Button
-            type="button"
-            variant={spent ? 'outline' : 'default'}
-            size="sm"
-            data-testid="task-primary-action"
-            data-action="start-work"
-            className={cn('min-w-0 flex-1', fork && 'rounded-r-none')}
-            disabled={busy}
-            onClick={() => commands.startWork()}
-          >
-            {starting ? 'Starting…' : 'Start work'}
-          </Button>
-          {fork}
-        </div>
-      )}
+      {/* THE FORK RIDES THE BUTTON (POD-679). The plain press keeps the shape
+          the filing agent chose, so the fast path costs no extra click; the
+          chevron is for the case the operator already knows the work is
+          something else. One control, so the two halves share a rim. */}
+      <div className="flex items-stretch">
+        <Button
+          type="button"
+          variant={spent ? 'outline' : 'default'}
+          size="sm"
+          data-testid="task-primary-action"
+          data-action="start-work"
+          className={cn('min-w-0 flex-1', fork && 'rounded-r-none')}
+          disabled={busy}
+          onClick={() => commands.startWork()}
+        >
+          {starting ? 'Starting…' : 'Start work'}
+        </Button>
+        {fork}
+      </div>
     </div>
   )
 }
