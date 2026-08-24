@@ -180,9 +180,10 @@ export interface FakeAppServer {
   /**
    * Hold the NEXT `thread/resume` unanswered until `releaseResume()`.
    *
-   * The fine upgrade awaits the resume and COMMITS on the next statement, so
-   * this is the second window in which a viewer can leave — and the only one a
-   * connect gate cannot reach, because by then the connection is already open.
+   * Kept for `resume()`/`adopt()`, which are the paths that still speak
+   * `thread/resume`. It used to exist for the fine upgrade's commit window as
+   * well; that upgrade is gone (POD-2745), so this no longer has anything to do
+   * with watch levels.
    */
   gateNextResume(): void
   releaseResume(): void
@@ -403,9 +404,12 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       }
     },
     emitDelta(itemId, delta) {
-      // THE SERVER HONOURS ITS OWN OPT-OUT. A fake that sent deltas anyway would
-      // let a driver pass the coarse watch level by filtering, which is exactly
-      // the behaviour the negotiated knob exists to replace.
+      // THE SERVER HONOURS ITS OWN OPT-OUT, and that is what makes a fragment
+      // ARRIVING mean something. The driver no longer expresses the watch level
+      // through the mute (POD-2745), so this is not modelling the level any
+      // more — it is modelling the wire, so that a test which sees a fragment
+      // knows the notification really crossed and the driver really chose to
+      // emit it, rather than the fake having decided for it.
       if (server.optedOutOfDeltas) return
       notify('item/agentMessage/delta', {
         threadId: server.threadId,

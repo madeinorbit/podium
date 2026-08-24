@@ -125,7 +125,19 @@ export interface CodexServerEndpoint {
   transport: CodexClientConfig['transport']
   /** The per-session address Codex's stock TUI connects to. */
   clientAddress: string
-  /** Open another protocol client on the SAME app-server, when supported. */
+  /**
+   * Open another protocol client on the SAME app-server, when supported.
+   *
+   * CURRENTLY IMPLEMENTED AND NOT CALLED, which is stated rather than quietly
+   * true. Its only caller was the fine-watch upgrade's candidate connection,
+   * deleted in POD-2745. A review of that deletion proposed removing this port
+   * as dead, and I nearly did — but the daemon really does implement it
+   * (`apps/daemon/src/runtime/codex-app-server.ts`, the Unix-socket endpoint),
+   * so deleting the declaration breaks the daemon's typecheck. Kept because a
+   * second client on one app-server is a real capability of this transport that
+   * a future caller would otherwise have to rebuild; delete BOTH halves together
+   * if it is still unused when someone next looks.
+   */
   reconnect?(): Promise<CodexClientConfig['transport']>
   /** What a rebind matches on. Opaque and EXACT. */
   process: ProcessIdentity

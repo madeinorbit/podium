@@ -31,21 +31,17 @@ import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-
 interface World {
   handle: AgentSessionHandle
   server: FakeAppServer
-  /** Children/connections the host was asked to start, and children stopped. */
-  counts(): { launches: number; reconnects: number; stopped: number; detached: number }
-  /** Hold the NEXT connection open until `releaseConnect()` is called, so a test can
-   *  act INSIDE the window between "an upgrade started" and "it finished". */
+  /** Children the host was asked to start, and children stopped. A fine watch
+   *  costs neither now, which is what `launches: 1, stopped: 0` pins. */
+  counts(): { launches: number; stopped: number; detached: number }
+  /** Hold the NEXT connection open until `releaseConnect()` is called, so a test
+   *  can act inside the window while a session is being built. */
   gateNextConnect(): void
   releaseConnect(): void
-  /** Hold the `thread/resume` of the NEXT candidate connection, so a test can act
-   *  in the window between a fine upgrade connecting and committing. */
-  gateNextResume(): void
-  releaseResume(): void
   attachedAddresses: string[]
-  /** The fake serving the session's CURRENT connection. A fine upgrade opens a
-   *  second connection to the same logical child, and the fake speaks
-   *  per-connection state — so a test that kept the original would be pushing
-   *  frames at a transport the driver has stopped reading. */
+  /** The fake serving the session's connection. There is only ever one now —
+   *  nothing re-handshakes a session after it is built — but tests reach for it
+   *  through here so a future second connection cannot silently strand them. */
   liveServer(): FakeAppServer
   authReports: { authMethod: string | undefined; subscription: boolean }[]
   /** Every `onQueueAbandoned` the driver raised, in order (POD-2297). */
@@ -67,12 +63,10 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
   const attachedAddresses: string[] = []
   let seq = 0
   let launches = 0
-  let reconnects = 0
   let stopped = 0
   let detached = 0
   let gate: Promise<void> | undefined
   let openGate: (() => void) | undefined
-  let armResumeGate = false
   const journal: CodexJournal = {
     read: (id) => entries.get(id),
     write: (entry) => {
@@ -111,27 +105,6 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
       return {
         transport: server.transport,
         clientAddress: `unix:///tmp/${input.sessionId}.sock`,
-        reconnect: async () => {
-          reconnects += 1
-          if (gate) {
-            const waiting = gate
-            gate = undefined
-            await waiting
-          }
-          // A distinct protocol connection to the same logical child. The fake
-          // speaks per-connection handshake state, just as Codex's listener does.
-          const client = startFakeAppServer()
-          // ARMED FOR THE CANDIDATE, not for the connection being replaced: the
-          // resume the upgrade awaits is spoken by THIS new client, and a gate
-          // set on the outgoing one would hold nothing.
-          if (armResumeGate) {
-            armResumeGate = false
-            client.gateNextResume()
-          }
-          clients.push(client)
-          servers.set(input.sessionId, client)
-          return client.transport
-        },
         process: { key: `podium-cx-${input.sessionId}`, pid: 1000 + seq },
         stop: async () => {
           stopped += 1
@@ -188,17 +161,13 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
   return {
     handle,
     server,
-    counts: () => ({ launches, reconnects, stopped, detached }),
+    counts: () => ({ launches, stopped, detached }),
     gateNextConnect: () => {
       gate = new Promise<void>((resolve) => {
         openGate = resolve
       })
     },
     releaseConnect: () => openGate?.(),
-    gateNextResume: () => {
-      armResumeGate = true
-    },
-    releaseResume: () => servers.get(handle.binding.sessionId)?.releaseResume(),
     attachedAddresses,
     authReports,
     abandonments,
@@ -605,8 +574,9 @@ describe('the fine watch, which takes effect where the viewer is', () => {
     expect(fragments(w.events())).toHaveLength(1)
 
     // And the child was never remade to get here, which is the other half of
-    // the fix: the in-flight turn is not abandoned because nothing reconnects.
-    expect(w.counts()).toMatchObject({ launches: 1, reconnects: 0, stopped: 0 })
+    // the fix: one launch, nothing stopped, so the in-flight turn cannot have
+    // been abandoned — there was no second connection to abandon it for.
+    expect(w.counts()).toMatchObject({ launches: 1, stopped: 0 })
     release()
     w.dispose()
   })
@@ -1060,10 +1030,6 @@ describe('in-progress tool calls on the fine plane', () => {
   it('publishes a started command to a fine watcher, and retires it on the result', async () => {
     const w = await world()
     const release = await w.handle.watch('fine')
-    // The upgrade is a reconnect and a handshake; `watch` deliberately does not
-    // await it (see `upgradeToFine`), so the test must.
-    await settle()
-    await settle()
     await w.handle.send({ text: 'run it' }, { origin: 'human', delivery: 'when-ready' })
     await settle()
     const run = w.liveServer().emitCommandExecution('sleep 120', 'done\n')
@@ -1105,10 +1071,6 @@ describe('in-progress tool calls on the fine plane', () => {
   it('opens NO partial for the messages a viewer can already see', async () => {
     const w = await world()
     const release = await w.handle.watch('fine')
-    // The upgrade is a reconnect and a handshake; `watch` deliberately does not
-    // await it (see `upgradeToFine`), so the test must.
-    await settle()
-    await settle()
     await w.handle.send({ text: 'say something' }, { origin: 'human', delivery: 'when-ready' })
     await settle()
     // The user's own message. Codex announces it back with `item/started`, and
