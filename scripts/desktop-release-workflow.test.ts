@@ -13,6 +13,10 @@ const publishedHeadlessSmoke = readFileSync(
   join(repoRoot, 'scripts/verify-published-headless-update.sh'),
   'utf8',
 )
+const verifyLinuxAppImage = readFileSync(
+  join(repoRoot, 'apps/desktop/scripts/verify-linux-appimage.sh'),
+  'utf8',
+)
 
 describe('desktop release workflow', () => {
   it('parses as a GitHub workflow triggered by version tags and dispatch', () => {
@@ -102,6 +106,11 @@ describe('desktop release workflow', () => {
       'PODIUM_DESKTOP_RELEASE_CHANNEL: ${{ needs.validate.outputs.channel }}',
     )
     expect(desktopWorkflow).toContain('libwebkit2gtk-4.1-dev')
+    expect(desktopWorkflow).toContain('gstreamer1.0-plugins-base')
+    expect(desktopWorkflow).toContain('gstreamer1.0-plugins-good')
+    expect(desktopWorkflow).toContain('gstreamer1.0-gl')
+    expect(desktopWorkflow).toContain('gstreamer1.0-libav')
+    expect(desktopWorkflow).toContain('gstreamer1.0-plugins-bad')
     expect(desktopWorkflow).toContain('blacksmith-6vcpu-macos-15')
     expect(desktopWorkflow).toContain('target: darwin-aarch64')
     expect(desktopWorkflow).toContain('--target aarch64-apple-darwin')
@@ -124,6 +133,7 @@ describe('desktop release workflow', () => {
     expect(desktopWorkflow).toContain('actions/download-artifact@v4')
     const validation = desktopWorkflow.indexOf('--validate-only')
     const build = desktopWorkflow.indexOf('bun run --cwd apps/desktop build')
+    const verifyLinux = desktopWorkflow.indexOf('verify-linux-appimage.sh')
     const collect = desktopWorkflow.indexOf('actions/download-artifact@v4')
     // The prepare step is the one reading the collected bundles; the script is also invoked
     // for --validate-only earlier and --list-stale pruning later.
@@ -141,10 +151,20 @@ describe('desktop release workflow', () => {
     expect(stage).toBeGreaterThan(verify)
     expect(validation).toBeGreaterThan(0)
     expect(build).toBeGreaterThan(validation)
+    expect(verifyLinux).toBeGreaterThan(build)
+    expect(stage).toBeGreaterThan(verifyLinux)
     expect(collect).toBeGreaterThan(build)
     expect(prepare).toBeGreaterThan(collect)
     expect(prepare).toBeGreaterThan(0)
     expect(upload).toBeGreaterThan(prepare)
+  })
+
+  it('gates Linux upload on the media plugins WebKit needs', () => {
+    expect(desktopWorkflow).toContain('name: Verify Linux AppImage media plugins')
+    expect(desktopWorkflow).toContain("if: matrix.target == 'linux-x86_64'")
+    expect(verifyLinuxAppImage).toContain('--appimage-extract')
+    expect(verifyLinuxAppImage).toContain('libgstapp.so')
+    expect(verifyLinuxAppImage).toContain('libgstopengl.so')
   })
 
   it('publishes both channels from version tags, and edge from dispatch', () => {

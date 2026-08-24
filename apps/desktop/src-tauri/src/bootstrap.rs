@@ -27,6 +27,54 @@ fn validate_instance_id(value: &str) -> Result<&str, String> {
     Ok(id)
 }
 
+fn resolve_instance_id_from(value: Option<&str>) -> Result<String, String> {
+    let value = value.unwrap_or(DEFAULT_INSTANCE_ID);
+    if value.trim().is_empty() {
+        return Ok(DEFAULT_INSTANCE_ID.to_string());
+    }
+    Ok(validate_instance_id(value)?.to_string())
+}
+
+fn resolve_instance_id() -> Result<String, String> {
+    resolve_instance_id_from(std::env::var("PODIUM_INSTANCE").ok().as_deref())
+}
+
+fn instance_state_dir_at(
+    instance_id: &str,
+    state_dir: Option<&str>,
+    xdg_state_home: Option<&str>,
+    home: &Path,
+) -> PathBuf {
+    if let Some(state_dir) = state_dir.filter(|value| !value.is_empty()) {
+        return PathBuf::from(state_dir);
+    }
+    if instance_id == DEFAULT_INSTANCE_ID {
+        return home.join(".podium");
+    }
+    let state_home = xdg_state_home
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/state"));
+    state_home.join("podium").join(instance_id)
+}
+
+fn state_dir_for_instance(instance_id: &str) -> PathBuf {
+    let state_dir = std::env::var("PODIUM_STATE_DIR").ok();
+    let xdg_state_home = std::env::var("XDG_STATE_HOME").ok();
+    let home = std::env::var("HOME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    instance_state_dir_at(
+        instance_id,
+        state_dir.as_deref(),
+        xdg_state_home.as_deref(),
+        &home,
+    )
+}
+
 fn read_instance_state_identity(dir: &Path) -> Result<Option<InstanceStateIdentity>, String> {
     let path = dir.join("instance.json");
     let raw = match std::fs::read_to_string(&path) {
@@ -45,13 +93,19 @@ fn read_instance_state_identity(dir: &Path) -> Result<Option<InstanceStateIdenti
             path.display()
         )
     })?;
-    if marker.version != 1 || validate_instance_id(&marker.instance_id).is_err() {
+    if marker.version != 1 {
         return Err(format!(
             "invalid Podium instance marker at {}",
             path.display()
         ));
     }
-    Ok(Some(marker))
+    let instance_id = validate_instance_id(&marker.instance_id)
+        .map(str::to_string)
+        .map_err(|_| format!("invalid Podium instance marker at {}", path.display()))?;
+    Ok(Some(InstanceStateIdentity {
+        version: marker.version,
+        instance_id,
+    }))
 }
 
 fn assert_instance_state_identity(
@@ -82,31 +136,8 @@ fn create_state_dir(dir: &Path) -> Result<(), String> {
         .map_err(|error| format!("cannot create {}: {error}", dir.display()))
 }
 
-fn ensure_instance_state_identity_at(
-    instance_id: &str,
-    dir: &Path,
-    adopt_state: bool,
-) -> Result<(), String> {
+fn write_instance_state_identity(instance_id: &str, dir: &Path) -> Result<(), String> {
     let instance_id = validate_instance_id(instance_id)?;
-    if let Some(marker) = read_instance_state_identity(dir)? {
-        return assert_instance_state_identity(instance_id, dir, &marker);
-    }
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            create_state_dir(dir)?;
-            std::fs::read_dir(dir)
-                .map_err(|error| format!("cannot read {}: {error}", dir.display()))?
-        }
-        Err(error) => return Err(format!("cannot read {}: {error}", dir.display())),
-    };
-    if entries.count() > 0 && instance_id != DEFAULT_INSTANCE_ID && !adopt_state {
-        return Err(format!(
-            "refusing to adopt non-empty state directory {} for instance '{instance_id}'; choose an empty root or set PODIUM_ADOPT_STATE=1 for an intentional migration",
-            dir.display()
-        ));
-    }
-    create_state_dir(dir)?;
     let path = dir.join("instance.json");
     let marker = InstanceStateIdentity {
         version: 1,
@@ -137,13 +168,41 @@ fn ensure_instance_state_identity_at(
     }
 }
 
+fn ensure_instance_state_identity_at(
+    instance_id: &str,
+    dir: &Path,
+    adopt_state: bool,
+) -> Result<(), String> {
+    let instance_id = validate_instance_id(instance_id)?;
+    if let Some(marker) = read_instance_state_identity(dir)? {
+        return assert_instance_state_identity(instance_id, dir, &marker);
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            create_state_dir(dir)?;
+            std::fs::read_dir(dir)
+                .map_err(|error| format!("cannot read {}: {error}", dir.display()))?
+        }
+        Err(error) => return Err(format!("cannot read {}: {error}", dir.display())),
+    };
+    if entries.count() > 0 && instance_id != DEFAULT_INSTANCE_ID && !adopt_state {
+        return Err(format!(
+            "refusing to adopt non-empty state directory {} for instance '{instance_id}'; choose an empty root or set PODIUM_ADOPT_STATE=1 for an intentional migration",
+            dir.display()
+        ));
+    }
+    create_state_dir(dir)?;
+    write_instance_state_identity(instance_id, dir)
+}
+
 /// Claim the desktop shell's state root before any logger, updater, or sidecar write.
 /// The bundled TypeScript runtime enforces the same marker contract when it starts.
 pub fn ensure_instance_state_identity() -> Result<(), String> {
-    let instance_id =
-        std::env::var("PODIUM_INSTANCE").unwrap_or_else(|_| DEFAULT_INSTANCE_ID.to_string());
+    let instance_id = resolve_instance_id()?;
     let adopt_state = std::env::var("PODIUM_ADOPT_STATE").is_ok_and(|value| !value.is_empty());
-    ensure_instance_state_identity_at(&instance_id, &state_dir(), adopt_state)
+    let state_dir = state_dir_for_instance(&instance_id);
+    ensure_instance_state_identity_at(&instance_id, &state_dir, adopt_state)
 }
 
 /// Bind an ephemeral loopback port and return it (best-effort; falls back to 18787).
@@ -194,7 +253,7 @@ pub fn build_update_channel() -> UpdateChannel {
     }
 }
 
-/// The desktop-relevant slice of ~/.podium/config.json. Other fields are ignored.
+/// The desktop-relevant slice of `<instance state dir>/config.json`. Other fields are ignored.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct DesktopConfig {
     pub mode: Option<String>,
@@ -279,15 +338,11 @@ fn is_local_host(action: &LaunchAction) -> bool {
     )
 }
 
-/// Read `$PODIUM_STATE_DIR/config.json` else `~/.podium/config.json`, extracting `mode`,
+/// Read `<instance state dir>/config.json`, extracting `mode`,
 /// `serverUrl`, and `updateChannel`. A missing or corrupt file yields an empty config; the updater
 /// resolves the missing channel against the build stamp rather than inventing a persisted choice.
 pub fn read_config() -> DesktopConfig {
-    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.podium")
-    });
-    let path = std::path::Path::new(&base).join("config.json");
+    let path = state_dir().join("config.json");
     let text = match std::fs::read_to_string(&path) {
         Ok(t) => t,
         Err(_) => return DesktopConfig::default(),
@@ -313,15 +368,13 @@ pub fn read_config() -> DesktopConfig {
     }
 }
 
-/// Config-file base dir: `$PODIUM_STATE_DIR` else `~/.podium` (same resolution as `read_config`).
+/// Config-file base dir. `$PODIUM_STATE_DIR` wins; the default instance keeps `~/.podium`,
+/// and named instances use `$XDG_STATE_HOME/podium/<id>` (or `~/.local/state/podium/<id>`).
 /// `pub` because the native log sink writes under the SAME state dir the server
 /// family logs to — one resolution rule, not two that can drift apart.
 pub fn state_dir() -> PathBuf {
-    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.podium")
-    });
-    PathBuf::from(base)
+    let instance_id = resolve_instance_id().unwrap_or_else(|_| DEFAULT_INSTANCE_ID.to_string());
+    state_dir_for_instance(&instance_id)
 }
 
 fn remote_http_url(server_url: &str) -> Result<Url, String> {
@@ -462,7 +515,7 @@ pub fn backend_exit_decision(initial_action: &LaunchAction) -> BackendExitDecisi
 }
 
 /// [spec:SP-3701] This device's machine identity from a previous pairing
-/// (`~/.podium/daemon.json`), if any — lets the web UI mark "this machine" in the
+/// (`<instance state dir>/daemon.json`), if any — lets the web UI mark "this machine" in the
 /// machines list and skip the standalone hosting card for already-paired devices.
 pub fn read_daemon_machine_id() -> Option<String> {
     let text = std::fs::read_to_string(state_dir().join("daemon.json")).ok()?;
@@ -834,8 +887,7 @@ fn ensure_executable_into(src: &Path, cache_dir: &Path) -> std::io::Result<PathB
 /// copy the binary to a writable cache dir and chmod it there.  We re-copy when
 /// the cache is missing, the source size differs, or the source is newer than the cache.
 ///
-/// Cache location: `$PODIUM_STATE_DIR/bin/podium-sidecar` if set,
-/// otherwise `~/.podium/bin/podium-sidecar`.
+/// Cache location: `<instance state dir>/bin/podium-sidecar`.
 ///
 /// macOS is exempt: the sidecar runs from inside the .app, never a copy. Copying it out is what
 /// produced `"podium-sidecar" is damaged and can't be opened` on the first notarized build, for
@@ -852,11 +904,7 @@ pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
     if cfg!(target_os = "macos") {
         return Ok(path.to_path_buf());
     }
-    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.podium")
-    });
-    ensure_executable_into(path, &std::path::Path::new(&base).join("bin"))
+    ensure_executable_into(path, &state_dir().join("bin"))
 }
 
 #[cfg(test)]
@@ -898,6 +946,84 @@ mod tests {
                 0o700
             );
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn desktop_resolves_the_same_default_and_named_state_roots_as_the_runtime() {
+        let home = Path::new("/home/podium-test");
+        assert_eq!(
+            instance_state_dir_at("default", None, None, home),
+            home.join(".podium")
+        );
+        assert_eq!(
+            instance_state_dir_at("blue", None, None, home),
+            home.join(".local/state/podium/blue")
+        );
+        assert_eq!(
+            instance_state_dir_at("blue", None, Some("/var/state"), home),
+            PathBuf::from("/var/state/podium/blue")
+        );
+        assert_eq!(
+            instance_state_dir_at("blue", Some("/explicit/state"), Some("/var/state"), home),
+            PathBuf::from("/explicit/state")
+        );
+    }
+
+    #[test]
+    fn desktop_treats_an_empty_instance_environment_value_as_default() {
+        assert_eq!(resolve_instance_id_from(Some("  \t")).unwrap(), "default");
+    }
+
+    #[test]
+    fn desktop_adopts_populated_unmarked_default_state_for_compatibility() {
+        let dir = std::env::temp_dir().join(format!(
+            "podium-desktop-instance-default-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create state");
+        std::fs::write(dir.join("config.json"), "{}\n").expect("seed state");
+        ensure_instance_state_identity_at("default", &dir, false)
+            .expect("default state remains backward compatible");
+        let marker = read_instance_state_identity(&dir)
+            .expect("read marker")
+            .expect("marker exists");
+        assert_eq!(marker.instance_id, "default");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn desktop_accepts_a_matching_exclusive_marker_race() {
+        let dir = std::env::temp_dir().join(format!(
+            "podium-desktop-instance-race-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        create_state_dir(&dir).expect("create state");
+        write_instance_state_identity("blue", &dir).expect("first writer");
+        write_instance_state_identity("blue", &dir).expect("matching raced writer");
+        let error = write_instance_state_identity("green", &dir)
+            .expect_err("mismatched raced writer must fail");
+        assert!(error.contains("belongs to instance 'blue'"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn desktop_normalizes_a_valid_marker_id_before_comparison() {
+        let dir = std::env::temp_dir().join(format!(
+            "podium-desktop-instance-normalized-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create state");
+        std::fs::write(
+            dir.join("instance.json"),
+            "{\"version\":1,\"instanceId\":\" blue \"}\n",
+        )
+        .expect("seed marker");
+        ensure_instance_state_identity_at("blue", &dir, false)
+            .expect("marker normalization matches the runtime");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

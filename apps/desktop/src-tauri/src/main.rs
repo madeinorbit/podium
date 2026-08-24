@@ -492,20 +492,34 @@ fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Resu
     Ok(())
 }
 
+fn show_bootstrap_error(error: &str) {
+    eprintln!("[podium] ERROR desktop:shell {error}");
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        return;
+    }
+    let _ = rfd::MessageDialog::new()
+        .set_title("Podium could not start")
+        .set_description(format!(
+            "Podium could not use its state directory.\n\n{error}\n\nCheck the state directory configured for this instance, then try again."
+        ))
+        .set_level(rfd::MessageLevel::Error)
+        .set_buttons(rfd::MessageButtons::Ok)
+        .show();
+}
+
 fn main() {
     // Claim the selected instance's state root before logging, plugins, or setup can write to it.
     // Otherwise the desktop shell itself makes an empty named root non-empty, and the bundled
     // runtime correctly refuses to adopt it, leaving the shell in an endless respawn loop.
     if let Err(error) = bootstrap::ensure_instance_state_identity() {
-        eprintln!("[podium] ERROR desktop:shell {error}");
+        show_bootstrap_error(&error);
         std::process::exit(1);
     }
-    // FIRST STATEMENT IN THE PROCESS, and that placement is the point: the panic
-    // hook installed here is what turns a panic during plugin registration or
-    // window setup — the failures that leave a user with a shell that never
-    // appeared — into a durable record instead of a line on a stderr nobody is
-    // reading. `CARGO_PKG_VERSION` rather than `app.package_info()` because the
-    // app does not exist yet; they are the same string.
+    // Install native logging immediately after the state root is safe to write. The panic hook
+    // then records failures during plugin registration or window setup, before a window exists.
+    // `CARGO_PKG_VERSION` rather than `app.package_info()` because the app does not exist yet;
+    // they are the same string.
     logging::init(env!("CARGO_PKG_VERSION"));
     let mut builder = tauri::Builder::default();
     // FIX 1: single-instance guard — if a 2nd instance is launched, focus the existing
@@ -643,7 +657,8 @@ fn main() {
                         .resolve("resources/mobile", BaseDirectory::Resource)?;
 
                     // Ensure the binary is on a writable, executable filesystem.
-                    // AppImage mounts are read-only; ensure_executable copies it to ~/.podium/bin/.
+                    // AppImage mounts are read-only; ensure_executable copies it into the
+                    // selected instance's writable state root.
                     let runnable = bootstrap::ensure_executable(&podium_res).map_err(|e| {
                         log::error!("ensure_executable failed: {e}");
                         e
