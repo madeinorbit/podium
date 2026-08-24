@@ -638,6 +638,8 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
   })
 
   it('changes a proposed issue from its status icon without opening the row', async () => {
+    const openPanel = vi.fn()
+    window.addEventListener('podium:open-right-panel', openPanel)
     deck()
 
     fireEvent.click(screen.getByLabelText('Status: Proposed'))
@@ -645,7 +647,8 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     settle()
 
     expect(harness.updateIssue).toHaveBeenCalledWith('p1', { stage: 'backlog' })
-    expect(harness.setSelectedIssueId).not.toHaveBeenCalled()
+    expect(openPanel).not.toHaveBeenCalled()
+    window.removeEventListener('podium:open-right-panel', openPanel)
   })
 })
 
