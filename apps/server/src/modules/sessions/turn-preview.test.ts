@@ -181,6 +181,35 @@ describe('turn preview — the three rules', () => {
     expect(w.sent.at(-1)).toMatchObject({ done: true, items: [] })
   })
 
+  /**
+   * THE SAME RULE, WITH NOTHING ON SCREEN — the state the test below never
+   * reaches (POD-2701, found by this issue's adversarial reviewer).
+   *
+   * `never reopens a fenced epoch` fences AFTER a delta, so a preview always
+   * exists by the time the terminal lands and `fence` has something to clear.
+   * The case that was broken is the opposite one: a turn that completed without
+   * ever having published a preview left NO state, `fence` returned early
+   * treating absence as nothing-to-do, and a late fragment for that finished
+   * epoch then built a preview from scratch with `fencedThrough: -1`.
+   *
+   * WHAT THE VIEWER SEES when it goes wrong: the durable reply is already
+   * sitting complete in the transcript, and underneath it the agent appears to
+   * start typing again — until the staleness timer eventually clears it. A
+   * dropped or delayed first fragment is all it takes, which is exactly the
+   * loss the live-only plane is designed to tolerate.
+   */
+  it('opens nothing for an epoch that finished before any preview existed', () => {
+    const w = world()
+    // The turn ends having never streamed a fragment — no state, nothing on
+    // screen, and nothing for the terminal to clear.
+    w.fold.record(SESSION, turnEnd(1))
+    const after = w.sent.length
+    w.fold.record(SESSION, delta(1, 'a', 'late'))
+    w.tick(1000)
+    expect(w.sent).toHaveLength(after)
+    expect(w.fold.retained(SESSION)).toBeUndefined()
+  })
+
   it('never reopens a fenced epoch', () => {
     const w = world()
     w.fold.record(SESSION, delta(1, 'a', 'first'))

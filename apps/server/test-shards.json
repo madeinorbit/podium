@@ -63,6 +63,7 @@
         "apps/server/src/modules/sessions/instructions.test.ts",
         "apps/server/src/modules/sessions/publication/broadcast.slice.test.ts",
         "apps/server/src/modules/sessions/session-control-policy.test.ts",
+        "apps/server/src/modules/sessions/turn-preview.test.ts",
         "apps/server/src/modules/settings/secret-fingerprint.test.ts",
         "apps/server/src/modules/settings/superagent-default.test.ts",
         "apps/server/src/modules/shipping/queue.test.ts",
@@ -102,6 +103,7 @@
         "apps/server/src/web-bundle-stamp.test.ts"
       ],
       "inputs": [
+        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -243,6 +245,8 @@
         "src/modules/sessions/publication/broadcast.ts",
         "src/modules/sessions/session-control-policy.test.ts",
         "src/modules/sessions/session-control-policy.ts",
+        "src/modules/sessions/turn-preview.test.ts",
+        "src/modules/sessions/turn-preview.ts",
         "src/modules/settings/secret-fingerprint.test.ts",
         "src/modules/settings/secret-fingerprint.ts",
         "src/modules/settings/superagent-default.test.ts",
@@ -379,6 +383,7 @@
         "apps/server/src/store/user-read-position.test.ts"
       ],
       "inputs": [
+        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -622,6 +627,8 @@
         "src/modules/sessions/session.ts",
         "src/modules/sessions/terminal-proof.ts",
         "src/modules/sessions/terminal.ts",
+        "src/modules/sessions/turn-preview-flag.ts",
+        "src/modules/sessions/turn-preview.ts",
         "src/modules/sessions/view.ts",
         "src/modules/sessions/workspace.ts",
         "src/modules/settings/audit.test.ts",
@@ -850,6 +857,7 @@
       ],
       "inputs": [
         "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -1220,6 +1228,8 @@
         "src/modules/sessions/terminal-proof.ts",
         "src/modules/sessions/terminal.ts",
         "src/modules/sessions/trpc.ts",
+        "src/modules/sessions/turn-preview-flag.ts",
+        "src/modules/sessions/turn-preview.ts",
         "src/modules/sessions/view.narrow.test.ts",
         "src/modules/sessions/view.ts",
         "src/modules/sessions/workspace.ensure-worktree.test.ts",
@@ -1462,6 +1472,7 @@
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
         "$TURBO_ROOT$/apps/web/src/**",
+        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
@@ -1811,6 +1822,8 @@
         "src/modules/sessions/terminal-proof.ts",
         "src/modules/sessions/terminal.ts",
         "src/modules/sessions/trpc.ts",
+        "src/modules/sessions/turn-preview-flag.ts",
+        "src/modules/sessions/turn-preview.ts",
         "src/modules/sessions/view.ts",
         "src/modules/sessions/workspace.ts",
         "src/modules/settings/audit.ts",
@@ -2021,6 +2034,7 @@
         "apps/server/src/issues.normalized-wire.test.ts"
       ],
       "inputs": [
+        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -2235,6 +2249,8 @@
         "src/modules/sessions/session.ts",
         "src/modules/sessions/terminal-proof.ts",
         "src/modules/sessions/terminal.ts",
+        "src/modules/sessions/turn-preview-flag.ts",
+        "src/modules/sessions/turn-preview.ts",
         "src/modules/sessions/view.ts",
         "src/modules/sessions/workspace.ts",
         "src/modules/settings/audit.ts",

@@ -1,8 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": [
-    "//"
-  ],
+  "extends": ["//"],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -22,6 +20,7 @@
     "test:contracts": {
       "dependsOn": [],
       "inputs": [
+        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -163,6 +162,8 @@
         "src/modules/sessions/publication/broadcast.ts",
         "src/modules/sessions/session-control-policy.test.ts",
         "src/modules/sessions/session-control-policy.ts",
+        "src/modules/sessions/turn-preview.test.ts",
+        "src/modules/sessions/turn-preview.ts",
         "src/modules/settings/secret-fingerprint.test.ts",
         "src/modules/settings/secret-fingerprint.ts",
         "src/modules/settings/superagent-default.test.ts",
@@ -253,6 +254,7 @@
     "test:store": {
       "dependsOn": [],
       "inputs": [
+        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -496,6 +498,8 @@
         "src/modules/sessions/session.ts",
         "src/modules/sessions/terminal-proof.ts",
         "src/modules/sessions/terminal.ts",
+        "src/modules/sessions/turn-preview-flag.ts",
+        "src/modules/sessions/turn-preview.ts",
         "src/modules/sessions/view.ts",
         "src/modules/sessions/workspace.ts",
         "src/modules/settings/audit.test.ts",
@@ -619,6 +623,7 @@
       "dependsOn": [],
       "inputs": [
         "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -989,6 +994,8 @@
         "src/modules/sessions/terminal-proof.ts",
         "src/modules/sessions/terminal.ts",
         "src/modules/sessions/trpc.ts",
+        "src/modules/sessions/turn-preview-flag.ts",
+        "src/modules/sessions/turn-preview.ts",
         "src/modules/sessions/view.narrow.test.ts",
         "src/modules/sessions/view.ts",
         "src/modules/sessions/workspace.ensure-worktree.test.ts",
@@ -1122,6 +1129,7 @@
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
         "$TURBO_ROOT$/apps/web/src/**",
+        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
@@ -1471,6 +1479,8 @@
         "src/modules/sessions/terminal-proof.ts",
         "src/modules/sessions/terminal.ts",
         "src/modules/sessions/trpc.ts",
+        "src/modules/sessions/turn-preview-flag.ts",
+        "src/modules/sessions/turn-preview.ts",
         "src/modules/sessions/view.ts",
         "src/modules/sessions/workspace.ts",
         "src/modules/settings/audit.ts",
@@ -1677,6 +1687,7 @@
     "test:normalized-wire": {
       "dependsOn": [],
       "inputs": [
+        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -1891,6 +1902,8 @@
         "src/modules/sessions/session.ts",
         "src/modules/sessions/terminal-proof.ts",
         "src/modules/sessions/terminal.ts",
+        "src/modules/sessions/turn-preview-flag.ts",
+        "src/modules/sessions/turn-preview.ts",
         "src/modules/sessions/view.ts",
         "src/modules/sessions/workspace.ts",
         "src/modules/settings/audit.ts",

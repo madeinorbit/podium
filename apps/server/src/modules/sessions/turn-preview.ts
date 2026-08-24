@@ -191,9 +191,42 @@ export class TurnPreviewAccumulator {
     state.order = state.order.filter((id) => id !== itemId)
   }
 
+  /**
+   * A turn ended. Clear its preview — and REMEMBER THAT IT ENDED even when there
+   * was no preview to clear (POD-2701).
+   *
+   * The early return here used to be `if (!state) return`, on the reading that a
+   * session with nothing on screen has nothing to fence. That treats ABSENCE as
+   * nothing-to-do when absence is precisely the case that needed handling: the
+   * fence is not only a clear, it is the record that says which epochs are over,
+   * and `open()` refuses late fragments by reading it. With no state there was
+   * no record, so a fragment arriving after the turn completed built a preview
+   * from scratch for an epoch that had already finished — the durable reply
+   * sitting complete in the transcript with the agent apparently typing beneath
+   * it until the staleness timer gave up.
+   *
+   * Reaching it needs only a first fragment that was dropped or delayed, which
+   * a live-only lossy plane is explicitly built to tolerate.
+   *
+   * SO A FENCE WITH NO PREVIEW STILL WRITES ITS RECORD, and the entry it leaves
+   * is empty — no rows, no timer, and no published frame, because there is
+   * nothing to tell a viewer to clear. It is bounded the same way every other
+   * entry is: `forget()` drops it with the session.
+   */
   private fence(sessionId: SessionId, event: RuntimeEvent): void {
     const state = this.sessions.get(sessionId)
-    if (!state) return
+    if (!state) {
+      this.sessions.set(sessionId, {
+        turnEpoch: event.turnEpoch,
+        seq: event.cursor.components.seq ?? 0,
+        order: [],
+        rows: new Map(),
+        fencedThrough: event.turnEpoch,
+        dirty: false,
+        lastSentAt: 0,
+      })
+      return
+    }
     if (event.turnEpoch < state.turnEpoch) return
     state.fencedThrough = Math.max(state.fencedThrough, event.turnEpoch)
     state.order = []
