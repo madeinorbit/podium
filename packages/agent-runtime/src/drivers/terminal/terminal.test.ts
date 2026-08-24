@@ -311,6 +311,53 @@ describe('the paste boundary', () => {
     expect(closesPasteEnvelope(pasted(bytes[0] ?? '') ?? '')).toBe(false)
   })
 
+  it('removes exactly the class the renderer removes, character by character', async () => {
+    // THE TWO SIDES OF THIS BOUNDARY MUST STRIP THE SAME CLASS, AND ONLY A TEST
+    // CAN HOLD THEM EQUAL. `apps/server` may not import this package — the
+    // architecture manifest lists agent-runtime's consumers as apps/daemon and
+    // scripts — so the server keeps its own copy of the rule beside `inbox.ts`,
+    // and the claim that the bytes an agent receives do not depend on how many
+    // layers they crossed rests entirely on the two classes being identical. The
+    // server's side is already pinned, by `sanitizeBody`'s own tests. This is the
+    // other pin, and without it the equality is an assertion nobody checks.
+    //
+    // ENUMERATED, not expressed as a range, because the change this exists to
+    // catch is a plausible NARROWING — dropping the C1 block as "dead in UTF-8
+    // anyway", or reducing the class to the ESC and CR the attack literally
+    // needs. A range assertion derived from the same regex would narrow with it;
+    // a list of characters and verdicts cannot. Both edges are named on purpose:
+    // SPACE and NBSP sit immediately outside the class and must survive.
+    const CLASS: readonly (readonly [string, number, 'removed' | 'kept'])[] = [
+      ['NUL', 0x00, 'removed'],
+      ['BEL', 0x07, 'removed'],
+      ['BS', 0x08, 'removed'],
+      ['TAB', 0x09, 'kept'],
+      ['LF', 0x0a, 'kept'],
+      ['VT', 0x0b, 'removed'],
+      ['CR', 0x0d, 'removed'],
+      ['ESC', 0x1b, 'removed'],
+      ['US, the last C0', 0x1f, 'removed'],
+      ['SPACE, the first that is content', 0x20, 'kept'],
+      ['DEL', 0x7f, 'removed'],
+      ['PAD, the C1 block\u2019s low edge', 0x80, 'removed'],
+      ['CSI, the 8-bit paste introducer', 0x9b, 'removed'],
+      ['APC, the C1 block\u2019s high edge', 0x9f, 'removed'],
+      ['NBSP, just past C1', 0xa0, 'kept'],
+    ]
+    for (const [name, code, verdict] of CLASS) {
+      const char = String.fromCharCode(code)
+      const { ports, written } = terminal()
+      await createTerminalInjection(ports).deliver(`a${char}b`, {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
+      // Through `deliver`, like everything else here: the class that matters is
+      // the one applied to the bytes the PTY is handed, not the one a directly
+      // called sanitizer happens to implement.
+      expect(pasted(written[0] ?? ''), name).toBe(verdict === 'kept' ? `a${char}b` : 'ab')
+    }
+  })
+
   it('delivers ordinary text byte for byte', async () => {
     // THE OTHER HALF OF THE BAR, and the half a careless strip fails. A guard
     // that mangled normal prompts would corrupt every turn instead of the crafted

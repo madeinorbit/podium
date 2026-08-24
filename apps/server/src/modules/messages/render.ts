@@ -71,7 +71,11 @@ export const principalOfRow = (m: MessageRow): MailSenderPrincipal =>
  *
  * IT STILL EARNS ITS CALL SITE. The rendered body is also what is STORED and
  * shown, so stripping here keeps control characters out of a transcript, a
- * client and a log — a display concern the injection point cannot serve. And
+ * client and a log — a display concern the injection point cannot serve. FOR THE
+ * BODIES THAT REACH IT: `renderFor` returns an operator body before this call, so
+ * an operator's control characters are stored and displayed as typed and are
+ * removed only where the envelope is applied. That is a gap in the display
+ * concern, not in the safety one — nothing below depends on this call. And
  * because it is literally the same idempotent function, doing it twice produces
  * exactly the bytes doing it once produces.
  */
@@ -198,7 +202,10 @@ export class MessageRenderer {
     // The ONE exception is a question [spec:SP-34d7 read-toolkit tier 4]: the ask
     // round-trip needs the reply frame (message id + `podium mail reply`) or
     // the target can never ack and awaitAck always times out — so operator
-    // questions render the frame around the still-byte-faithful body.
+    // questions render the frame around the operator's own body. That body is NOT
+    // byte-faithful by the time a CLI sees it, and this comment used to say it
+    // was: what the operator path preserves is the absence of a frame, not the
+    // bytes — the injection point strips this body like any other.
     if (message.fromKind === 'operator') {
       if (message.kind !== 'question') return message.body
       return renderEnvelope(message, 'the operator', this.toLabel(message))

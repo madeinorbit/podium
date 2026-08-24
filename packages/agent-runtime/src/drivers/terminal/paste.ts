@@ -43,6 +43,15 @@
  * byte-faithful road is the interactive PTY input stream, which does not come
  * through here.
  *
+ * WHAT THE PROMISE COVERS, STATED NARROWLY BECAUSE IT IS A SECURITY CLAIM: this
+ * driver's `send()` and the server's `SessionInbox.typeText` — the two builders
+ * of a paste envelope on the live write path. It is NOT a claim about every byte
+ * that can reach a PTY. `packages/composer` exports these markers publicly and
+ * assembles an envelope with no strip (POD-2733), and the free-text answer to an
+ * ask arrives as raw keystrokes having crossed no boundary at all (POD-2734).
+ * Both are filed, neither is fixed here, and a reader deciding whether some new
+ * path is covered should assume it is not until it comes through this function.
+ *
  * THE CONVERSE HALF OF THE PROMISE MATTERS AS MUCH. Text that is ordinary
  * content arrives byte-for-byte: unicode, emoji, tabs, newlines, code fences,
  * JSON, box drawing, anything a person or an agent would actually write. A
@@ -69,6 +78,14 @@
  *
  * NEWLINE AND TAB SURVIVE because they are the two control characters that are
  * ordinary content inside a paste, and a prompt is routinely full of both.
+ *
+ * LF IS SAFE WHERE CR IS NOT, and the asymmetry is the point rather than an
+ * oversight: SUBMISSION IS CR. A key parser reads 0x0d as Enter and leaves 0x0a
+ * as text — this repository's own model of a keyboard says so, `tests/keyecho`'s
+ * parser mapping 13 to enter and 9 to tab and declining to map 10 — so a newline
+ * inside a prompt adds a line while a carriage return sends half of one. Keeping
+ * LF is what makes a multi-line prompt arrive whole, and it matters most on the
+ * envelope-less raw first turn, where the key parser is all there is.
  *
  * THE CLASS IS EXACTLY `sanitizeBody`'S. The renderer's strip stays where it is
  * — it has display reasons of its own — and picking the same class makes this
