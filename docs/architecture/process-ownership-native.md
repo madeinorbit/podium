@@ -1,9 +1,5 @@
 # Process ownership: the platform's service manager is the authority
 
-Status: design proposal (POD-2694). Implementation: POD-2691. Companion to the
-agent-runtime architecture proposal (§9 phase 4: process supervision) and the
-resource-isolation spec (`pod-2413-resource-isolation.md`).
-
 ## §1 The problem, measured
 
 When Podium runs an agent it starts real programs on the machine — an
