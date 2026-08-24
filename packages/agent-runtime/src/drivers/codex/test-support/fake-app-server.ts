@@ -127,8 +127,23 @@ export interface FakeAppServer {
   answers: Map<number, unknown>
   /** Drive the open turn to completion with a verdict Codex would report. */
   completeTurn(status?: 'completed' | 'interrupted' | 'failed'): void
-  /** Emit an agent-message item, as `item/started` then `item/completed`. */
-  emitAgentMessage(text: string, itemId?: string): void
+  /**
+   * Announce the user's own message back, as codex does: `item/started` then
+   * `item/completed` for a `userMessage`. Its started half is the one the
+   * viewer least needs previewed — they typed it.
+   */
+  emitUserMessage(text: string, itemId?: string): void
+  /**
+   * Emit an agent-message item, as `item/started` then `item/completed`.
+   *
+   * `startedText` is what the STARTED half carries, and it defaults to empty
+   * because that is the cheap case. The real server does not promise empty: it
+   * has been observed publishing the prefix it has so far, and an
+   * `agentMessage` whose started half carries text is the one shape that maps
+   * to a real transcript item — an empty one maps to nothing, so a fixture that
+   * only ever emits empty cannot exercise the started path at all.
+   */
+  emitAgentMessage(text: string, itemId?: string, startedText?: string): void
   /** Emit a token fragment. Suppressed when the handshake opted out, exactly as
    *  the real server suppresses it. */
   /** Start a command execution and hand back the closer for it — the in-place
@@ -264,9 +279,33 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       })
       notify('turn/completed', { threadId: server.threadId, turn })
     },
-    emitAgentMessage(text, itemId) {
+    emitUserMessage(text, itemId) {
+      const id = itemId ?? `usr_${++itemSeq}`
+      // `content` parts, which is the shape `map.ts` reads — a bare `text`
+      // field maps to nothing and would make this fixture prove nothing.
+      const item = { type: 'userMessage', id, content: [{ type: 'text', text }] }
+      notify('item/started', {
+        threadId: server.threadId,
+        turnId: openTurn,
+        item,
+        startedAtMs: 1_786_700_069_000,
+      })
+      notify('item/completed', {
+        threadId: server.threadId,
+        turnId: openTurn,
+        item,
+        completedAtMs: 1_786_700_069_500,
+      })
+    },
+    emitAgentMessage(text, itemId, startedText) {
       const id = itemId ?? `msg_${++itemSeq}`
-      const item = { type: 'agentMessage', id, text: '', phase: 'commentary', memoryCitation: null }
+      const item = {
+        type: 'agentMessage',
+        id,
+        text: startedText ?? '',
+        phase: 'commentary',
+        memoryCitation: null,
+      }
       notify('item/started', {
         threadId: server.threadId,
         turnId: openTurn,

@@ -54,13 +54,8 @@
  */
 
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
-import type {
-  ObservationProvenance,
-  ProviderCursor,
-} from '@podium/protocol'
-import type {
-  QueueDrainAbandonedReason,
-} from '@podium/protocol/daemon'
+import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ProcessIdentity,
@@ -540,7 +535,34 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
            */
           if (session.watchers.fine <= 0) break
           if (session.openTurnId === undefined) break
+          /**
+           * TOOL-ISH ITEMS ONLY, AND THE FILTER IS ON THE MAPPED ROLE RATHER
+           * THAN ON CODEX'S TYPE NAMES (POD-2701, found by driving it).
+           *
+           * `item/started` fires for EVERY arm of the vocabulary. Two of them
+           * are things the viewer can already see, and letting either through
+           * opens a preview row for something that needs none:
+           *
+           *   - `userMessage` — the viewer typed it a moment ago and it is on
+           *     screen above the composer.
+           *   - `agentMessage` — `item/agentMessage/delta` is streaming that
+           *     very message on this same plane, fragment by fragment.
+           *
+           * Both map to a TranscriptItem with no `toolName`, so the preview drew
+           * them with the renderer's last-resort label: a bare "tool" line
+           * sitting above the answer as it was written. That is what the drive
+           * saw, on every single turn.
+           *
+           * The hole this partial exists to fill is the OTHER arms. Codex
+           * updates one item in place, so a command execution, a file change,
+           * an MCP call or a web search is invisible until it completes — none
+           * has a delta stream, and each maps to `role: 'tool'`. Filtering on
+           * the mapped role rather than on a list of type names means an arm
+           * `map.ts` learns to render later is classified by what it turns into,
+           * not by whether someone remembered to add it here.
+           */
           for (const item of threadItemToItems(note.params.item, at)) {
+            if (item.role !== 'tool') continue
             emit(session, { t: 'item', item: { kind: 'partial', item } }, at)
           }
           break
@@ -848,6 +870,31 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     // A steer that was waiting for this turn to open will never get it now.
     for (const wake of [...session.turnOpenWaiters]) wake()
     session.turnOpenWaiters.clear()
+    /**
+     * THE SAFE BOUNDARY THE DEFERRED UPGRADE WAS WAITING FOR (POD-2701).
+     *
+     * `watch()` starts the upgrade, and `upgradeToFine` refuses while a turn is
+     * open or an ask is outstanding — correctly, because the upgrade IS a
+     * reconnect and a reconnect abandons both. Its own comment says the demand
+     * "is recorded and applied at the next safe boundary", and the recording was
+     * real: `watchers.fine` outlives the refusal. What was missing is the
+     * APPLYING. `watch()` was the only caller, and a watcher already counted
+     * does not call it again — so a viewer who opened the chat while the agent
+     * was working never reached `fine` for the life of that connection, and
+     * every later turn in that session streamed nothing.
+     *
+     * That is the common case rather than an edge: a session started with an
+     * initial prompt is busy from its first moment, and opening its chat to
+     * watch is exactly what a person does next.
+     *
+     * A turn closing is the boundary. There is no ordering hazard in running it
+     * here: `openTurnId`/`pendingTurnId` are already cleared above, the queue
+     * drain below is what could make the session busy again, and `upgradeToFine`
+     * re-reads both after every await for precisely that reason.
+     */
+    if (session.watchers.fine > 0 && session.connectedLevel === 'coarse') {
+      void upgradeToFine(session)
+    }
     void drainQueue(session)
   }
 

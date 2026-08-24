@@ -559,6 +559,9 @@ describe('the human take-over lease', () => {
 })
 
 describe('the fine-watch upgrade, which reconnects', () => {
+  const fragments = (events: RuntimeEvent[]): RuntimeEvent[] =>
+    events.filter((e) => e.t === 'item' && e.item.kind === 'delta')
+
   it('opens ONE new client and keeps the same child when two viewers ask at once', async () => {
     /**
      * `watch()` cannot await the upgrade — it owes a viewer its release function
@@ -609,6 +612,57 @@ describe('the fine-watch upgrade, which reconnects', () => {
     w.server.completeTurn('completed')
     await settle()
     expect((await w.handle.state()).phase).toBe('idle')
+    release()
+    w.dispose()
+  })
+
+  /**
+   * THE OTHER HALF OF THE REFUSAL ABOVE, AND THE ONE THAT WAS MISSING
+   * (POD-2701, found by driving it).
+   *
+   * `upgradeToFine` refusing while a turn is open is correct — the upgrade is a
+   * reconnect and a reconnect abandons the turn. But the refusal was terminal:
+   * `watch()` was its only caller, and a viewer already counted in
+   * `watchers.fine` never calls it again. So a chat opened while the agent was
+   * working stayed at `coarse` for the life of the connection, and every later
+   * turn in that session streamed nothing.
+   *
+   * That ordering is the NORMAL one, not an edge: a session started with an
+   * initial prompt is busy from its first moment, and opening its chat is
+   * exactly what someone does next. The drive found it that way.
+   *
+   * THE FAKE'S OPT-OUT IS WHAT MAKES THIS ASSERTABLE. `emitDelta` is a no-op on
+   * a connection whose handshake opted out of the delta notifications, exactly
+   * as the real app-server suppresses them — so a fragment arriving is proof the
+   * connection reached `fine`, not merely that a counter moved.
+   */
+  it('lands the deferred upgrade at the next turn boundary', async () => {
+    const w = await world()
+    // BUSY FIRST, then the viewer — the ordering that broke.
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    const release = await w.handle.watch('fine')
+    await settle()
+    await settle()
+
+    // Refused, and honestly so: the connection is still coarse, so the server
+    // suppresses the fragment at its own end.
+    w.liveServer().emitDelta('msg_1', 'nope')
+    await settle()
+    expect(fragments(w.events())).toEqual([])
+
+    // The boundary. Nothing else changes — no new viewer, no new watch call.
+    w.liveServer().completeTurn('completed')
+    await settle()
+    await settle()
+    await settle()
+
+    // And now the same viewer, still holding the same watch, gets fragments.
+    await w.handle.send({ text: 'again' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    w.liveServer().emitDelta('msg_2', 'now it streams')
+    await settle()
+    expect(fragments(w.events())).toHaveLength(1)
     release()
     w.dispose()
   })
@@ -884,7 +938,6 @@ describe('a throwing report does not leak the child — POD-2297 review, 2', () 
   })
 })
 
-
 /**
  * THE IN-PROGRESS TOOL CALL (POD-2293).
  *
@@ -932,6 +985,46 @@ describe('in-progress tool calls on the fine plane', () => {
     expect(streamItemIdOf(landed.item.item)).toBe(streamItemIdOf(startedItem.item.item))
     // And no second partial was invented for the completion.
     expect(partials(w.events())).toHaveLength(1)
+    release()
+    w.dispose()
+  })
+
+  /**
+   * THE ROW THAT WOULD SIT ABOVE THE ANSWER.
+   *
+   * Found by driving it, not by reading it: `item/started` fires for every arm
+   * of codex's vocabulary, so before this guard an agent message opened a
+   * `partial` of its own ALONGSIDE the fragments streaming the same message.
+   * The two carry different identities, so the preview showed two rows for one
+   * reply — and the second, having no text and no tool, rendered as a bare
+   * "tool" line above the answer as it was written.
+   */
+  it('opens NO partial for the messages a viewer can already see', async () => {
+    const w = await world()
+    const release = await w.handle.watch('fine')
+    // The upgrade is a reconnect and a handshake; `watch` deliberately does not
+    // await it (see `upgradeToFine`), so the test must.
+    await settle()
+    await settle()
+    await w.handle.send({ text: 'say something' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    // The user's own message. Codex announces it back with `item/started`, and
+    // it is already on screen above the composer.
+    w.liveServer().emitUserMessage('say something')
+    await settle()
+    // The agent's message. The started half carries the prefix codex has so far
+    // — the shape that maps to a real assistant item, and therefore the only one
+    // that could open a second row beside the fragments.
+    w.liveServer().emitAgentMessage('the answer', undefined, 'the ans')
+    await settle()
+
+    // Neither opens a preview row: one is visible already, the other is being
+    // streamed by the fragments on this same plane.
+    expect(partials(w.events())).toEqual([])
+    // And the durable half is untouched: the message still lands complete.
+    const landed = completes(w.events()).at(-1)
+    if (landed?.t !== 'item' || landed.item.kind !== 'complete') throw new Error('shape')
+    expect(landed.item.item.text).toBe('the answer')
     release()
     w.dispose()
   })
