@@ -36,7 +36,7 @@
 import type { AgentSessionHandle, DriverCapabilities } from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
-import type { RuntimeWatchLevel } from '@podium/protocol'
+import type { RuntimeWatchLevel } from '@podium/protocol/daemon'
 
 const log = createLogger('daemon:runtime-watch')
 

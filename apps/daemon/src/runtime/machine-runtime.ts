@@ -10,25 +10,25 @@ import {
   type AgentRuntimeDriverSource,
   type AgentSessionHandle,
   createAgentRuntime,
-  type DriverId,
   type DriverCapabilities,
+  type DriverId,
   type MachineAgentRuntime,
   type RuntimeDriver,
   type SessionBinding,
   type SessionSpec,
 } from '@podium/agent-runtime'
 import type { AgentKind, SessionId } from '@podium/model'
-import type { RuntimeContractRequest, RuntimeWatchLevel } from '@podium/protocol'
-import type { DaemonMessage } from '@podium/protocol/daemon'
+import type { RuntimeContractRequest } from '@podium/protocol'
+import type { DaemonMessage, RuntimeWatchLevel } from '@podium/protocol/daemon'
+import type { DaemonCodexRuntime } from './codex-driver'
+import type { DaemonGrokRuntime } from './grok-driver'
+import type { DaemonOpencodeRuntime } from './opencode-driver'
+import { type DriverResolution, resolveRuntimeDriver, terminalProfileFor } from './registry'
 import type {
   TerminalHarnessProfile,
   TerminalRuntime,
   TerminalSessionRegistration,
 } from './terminal-driver'
-import { resolveRuntimeDriver, terminalProfileFor, type DriverResolution } from './registry'
-import type { DaemonCodexRuntime } from './codex-driver'
-import type { DaemonGrokRuntime } from './grok-driver'
-import type { DaemonOpencodeRuntime } from './opencode-driver'
 import { createRuntimeWatchLifecycle } from './watch'
 
 export interface JournalledServerProcess {

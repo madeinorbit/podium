@@ -9,7 +9,8 @@
  */
 
 import type { SessionId, TranscriptItem } from '@podium/model'
-import type { RuntimeEvent, TurnPreviewMessage } from '@podium/protocol'
+import type { TurnPreviewMessage } from '@podium/protocol'
+import type { RuntimeEvent } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { TurnPreviewAccumulator } from './turn-preview'
 

@@ -51,8 +51,8 @@ import type {
   ActingPrincipal,
   AgentSessionHandle,
   AttachEndpoint,
-  AttachRequest,
   AttachmentStager,
+  AttachRequest,
   ConfigureRequest,
   DriverCapabilities,
   DriverId,
@@ -104,13 +104,8 @@ import type {
   TranscriptItem,
 } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import {
-  type AgentObservation,
-  isRuntimeFineEvent,
-  type ObservationProvenance,
-  type ProviderCursor,
-} from '@podium/protocol'
-import type { DaemonMessage } from '@podium/protocol/daemon'
+import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import type { SpawnControl } from '../session-observers'
 
 const log = createLogger('daemon:terminal-driver')

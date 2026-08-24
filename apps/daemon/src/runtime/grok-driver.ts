@@ -11,8 +11,7 @@ import {
 } from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
-import { isRuntimeFineEvent } from '@podium/protocol'
-import type { DaemonMessage } from '@podium/protocol/daemon'
+import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { grokAcpProcessKey } from './grok-acp-server.js'
 import { reportQueueAbandonment } from './queue-abandonment'
 
