@@ -35,8 +35,14 @@ interface Fleet {
   /** Listing rows for fleet-a, then fleet-b, as abduco would print them. */
   readonly before: readonly [string, string]
   readonly after: readonly [string, string]
-  /** Make `kill -0` on a listed master report it dead. */
-  readonly mastersDead?: boolean
+  /**
+   * Make `kill -0` report the listed masters dead AFTER the baseline is taken.
+   *
+   * Not before: failing the capture too would refuse survival for the missing
+   * baseline and never reach the liveness check, which is a test that passes
+   * without exercising what it names. Mutating that check away proved it.
+   */
+  readonly mastersDieAfterCapture?: boolean
   /** Skip the capture entirely, leaving the survival check with no baseline. */
   readonly skipCapture?: boolean
 }
@@ -62,7 +68,7 @@ declare -A BEFORE=(${listing(fleet.before)})
 declare -A AFTER=(${listing(fleet.after)})
 declare -A NOW=()
 abduco_listing() { printf 'Active sessions\\n'; [[ -n "\${NOW[$1]}" ]] && printf "\${NOW[$1]}\\n"; return 0; }
-docker() { ${fleet.mastersDead ? 'return 1' : 'return 0'}; }
+docker() { [[ -e "$WORK/masters-dead" ]] && return 1; return 0; }
 for k in fa fb; do NOW[$k]="\${BEFORE[$k]}"; done
 ${
   fleet.skipCapture
@@ -75,6 +81,7 @@ else
   echo "baseline: none"
 fi
 for k in fa fb; do NOW[$k]="\${AFTER[$k]}"; done
+${fleet.mastersDieAfterCapture ? 'touch "$WORK/masters-dead"' : ''}
 if abduco_sessions_survived "$IDS"; then echo "survived: yes"; else echo "survived: no"; fi
 `
   try {
@@ -142,7 +149,11 @@ describe('abduco master survival across a self-handover', () => {
   })
 
   it('refuses survival when a listed master is not actually alive', async () => {
-    const run = await cycle({ before: LIVE, after: LIVE, mastersDead: true })
+    // abduco's listing is a socket-directory read: it can still name a master
+    // whose process is gone. The baseline must be captured first, or this
+    // refuses for the missing baseline and never checks liveness at all.
+    const run = await cycle({ before: LIVE, after: LIVE, mastersDieAfterCapture: true })
+    expect(run.stdout).toContain('baseline: fa s1 709;fb s2 439;')
     expect(run.stdout).toContain('survived: no')
   })
 })
