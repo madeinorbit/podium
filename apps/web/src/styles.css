@@ -7038,6 +7038,12 @@ a.ref-link--issue[data-issue-stage="review"] {
 a.ref-link--issue[data-issue-stage="review"]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20fill='none'%20stroke='black'%20stroke-width='1.6'/%3E%3Cpath%20d='M7%207L7%203.8A3.2%203.2%200%201%201%204.23%208.6Z'/%3E%3C/svg%3E");
 }
+a.ref-link--issue[data-issue-stage="shipping"] {
+  --ref-stage-color: rgb(139 92 246);
+}
+a.ref-link--issue[data-issue-stage="shipping"]::before {
+  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20fill='none'%20stroke='black'%20stroke-width='1.6'/%3E%3Cpath%20d='M7%207L7%203.8A3.2%203.2%200%201%201%204.23%205.4Z'/%3E%3C/svg%3E");
+}
 a.ref-link--issue[data-issue-stage="done"] {
   --ref-stage-color: var(--success);
 }
@@ -7062,6 +7068,18 @@ a.ref-link--issue[data-issue-stage=""] {
 a.ref-link--issue:not([data-issue-stage])::before,
 a.ref-link--issue[data-issue-stage=""]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%20fill='none'%20stroke='black'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20stroke-width='1.6'/%3E%3Cpath%20d='M5.3%205.0a1.75%201.75%200%200%201%203.4%200.58c0%201.17-1.75%201.75-1.75%201.75'%20stroke-width='1.5'/%3E%3Ccircle%20cx='7'%20cy='9.7'%20r='0.85'%20fill='black'%20stroke='none'/%3E%3C/svg%3E");
+}
+/* Availability is independent of workflow stage. Archived refs retain their
+   stage glyph but quiet the chip; deleted and unavailable refs use the unknown
+   glyph above, with deletion carrying a restrained destructive tint. */
+a.ref-link--issue[data-issue-availability="archived"] {
+  --ref-accent: var(--muted-foreground);
+}
+a.ref-link--issue[data-issue-availability="deleted"] {
+  --ref-accent: color-mix(in srgb, var(--destructive) 65%, var(--muted-foreground));
+}
+a.ref-link--issue[data-issue-availability="unavailable"] {
+  --ref-accent: var(--muted-foreground);
 }
 /* Session refs (POD-13-A / POD-DRAFT-3): lucide terminal. */
 a.ref-link--session::before {

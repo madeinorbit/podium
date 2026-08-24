@@ -14,6 +14,7 @@ import { ChatComposer } from './ChatComposer'
 import { ChatRail } from './ChatRail'
 import { isChatInteractable } from './chat-interactable'
 import { ImageLightbox } from './ImageLightbox'
+import { IssueChipLiveness } from './IssueChipLiveness'
 import { PinnedBrief } from './PinnedBrief'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatSurface } from './use-chat-surface'
@@ -183,15 +184,10 @@ export function ChatView({
       : { initialPendingText: undefined }),
   })
   const quoteDraftRef = useRef<((markdown: string) => void) | null>(null)
+  const [issueLivenessRoot, setIssueLivenessRoot] = useState<HTMLDivElement | null>(null)
   const quoteIntoDraft = useCallback((markdown: string) => {
     quoteDraftRef.current?.(markdown)
   }, [])
-  // Alpha boundary: issue refs remain clickable, but their stage/availability
-  // decoration is intentionally disconnected from the live issue store. This
-  // makes transcript DOM identity independent of fleet updates while the new
-  // feed architecture is evaluated; live decoration can return as a separately
-  // measured enhancement once selection and scroll remain stable.
-
   // Leave once, quietly. Not a toast and not an animation — see the header.
   useEffect(() => {
     if (chat.gone) onLeave?.(sessionId)
@@ -296,7 +292,7 @@ export function ChatView({
       {/* `offer-lift-region`: an opened offer fold pushes the whole transcript
           up under the panel header instead of resizing it — the feed keeps its
           box, so nothing here re-renders or loses its scroll (POD-1068). */}
-      <div className="offer-lift-region relative flex min-h-0 flex-1">
+      <div ref={setIssueLivenessRoot} className="offer-lift-region relative flex min-h-0 flex-1">
         <Suspense fallback={null}>
           <TranscriptFeedBoundary
             setScrollerRef={chat.scroll.setScrollerRef}
@@ -396,6 +392,9 @@ export function ChatView({
           </button>
         )}
       </div>
+      {/* Host attachment is state so this leaf re-arms wherever it sits in the
+          tree; issue deltas still render only the leaf and mutate attributes. */}
+      <IssueChipLiveness root={issueLivenessRoot} />
       <ScopedChatComposer
         sessionId={sessionId}
         superThread={superThread}
