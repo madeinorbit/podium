@@ -29,12 +29,27 @@ export const TURN_PREVIEW_ENV = 'PODIUM_CHAT_STREAMING'
  * real instance against a real codex agent (POD-2701), and the reply was
  * observed growing in steps in the chat pane rather than landing whole.
  *
- * WHAT TURNING THIS ON ACTUALLY WIDENS is narrower than it looks. The plane only
- * exists for sessions already on the contract path, and `PODIUM_RUNTIME_CONTRACT`
- * is itself off by default — so this flips streaming on for operators who have
- * already opted into the parallel runtime, and changes nothing at all for anyone
- * else. The off switch keeps working, which is the state an operator most needs
- * it in once the default has moved.
+ * WHAT TURNING THIS ON ACTUALLY WIDENS — corrected, because the first version of
+ * this paragraph was wrong and the correction is the point (POD-2745).
+ *
+ * It said the plane "only exists for sessions already on the contract path" and
+ * therefore "changes nothing at all for anyone else". The second half did not
+ * hold. `SessionTerminal.reconcileWatchLevel` is gated on THIS flag and nothing
+ * else — deliberately, because only the daemon can see a session's family (see
+ * its comment) — so flipping the default reached every session, contract or PTY.
+ * A test asserting the exact daemon traffic of an ordinary native-renderer
+ * detach caught it: an unheralded `runtimeWatch coarse` on a session nobody had
+ * ever opened a chat on.
+ *
+ * WHAT ACTUALLY BOUNDS IT IS THE VIEWER, not the family. A session nobody opens
+ * a chat on never crosses a level and sends nothing; a watched session sends one
+ * frame when the first viewer arrives and one when the last leaves, whatever it
+ * is running, and the daemon drops the ask for a driver that declares no `fine`.
+ * That is a real bound and it is worth stating accurately, because "changes
+ * nothing for anyone else" is the kind of claim a later reader stops re-checking.
+ *
+ * The off switch keeps working, which is the state an operator most needs it in
+ * once the default has moved.
  */
 export const TURN_PREVIEW_DEFAULT = true
 

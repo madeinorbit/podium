@@ -259,6 +259,11 @@ export class SessionDaemonLifecycle {
           // Absent from an older daemon means the legacy path, which is both the
           // truth and the safe default.
           s.runtimeContract = msg.runtimeContract ?? false
+          // A BIND IS ALSO A REATTACH (POD-2745). Whatever level the previous
+          // daemon was told died with it — its watch registry is per-process —
+          // so anything this session's viewers still need has to be asked for
+          // again. Says nothing when nobody is watching.
+          s.terminal.resetWatchLevel()
           // The resolved driver comes from the daemon's live handle binding, not
           // from the requested override. Older daemons and legacy sessions omit it.
           s.driverId = msg.driverId

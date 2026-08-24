@@ -122,9 +122,24 @@ export class SessionTerminal {
   private shellBusyTimer: ReturnType<typeof setTimeout> | undefined
   private shellCommandRunning = false
   private nextSeq = 0
-  /** The level last sent to the daemon, so a crossing sends one frame and a
-   *  no-op sends none. */
-  private watchLevelSent: 'coarse' | 'fine' | undefined
+  /**
+   * What the DAEMON currently believes this session's level is.
+   *
+   * INITIALISED TO `coarse` BECAUSE THAT IS ALREADY TRUE (POD-2745), not as a
+   * guess. A daemon holds no watch for a session until asked, and `coarse` is
+   * the name for holding none — so starting this `undefined` made the first
+   * reconcile treat "still coarse" as a crossing and send a frame telling the
+   * daemon to be what it already was. That fired for EVERY session on any
+   * transcript-subscription lifecycle event, including plain `detachClient` on a
+   * session nobody had ever opened a chat on, which is how a PTY session with no
+   * viewer ended up producing runtime traffic the moment this plane's default
+   * flipped on.
+   *
+   * The field's meaning is what makes {@link resetWatchLevel} necessary: it is a
+   * claim about ANOTHER PROCESS's state, so anything that resets that process
+   * has to reset this with it.
+   */
+  private watchLevelSent: 'coarse' | 'fine' = 'coarse'
   private readonly clients = new Map<string, ClientConn>()
   private readonly outputLog: { seq: number; data: string }[] = []
   private outputLogBytes = 0
@@ -330,7 +345,9 @@ export class SessionTerminal {
    * Sent for EVERY session, contract or not. Deciding whether a fine watch means
    * anything is the daemon's job — it holds the driver and its capability
    * declaration — and a server that guessed would be wrong for exactly the
-   * sessions whose family it could not see.
+   * sessions whose family it could not see. What bounds the blast radius is not
+   * the family but the VIEWER: a session nobody opens a chat on never crosses,
+   * so it sends nothing at all, whatever it is running (POD-2745).
    */
   private reconcileWatchLevel(): void {
     if (!this.init.turnPreviewEnabled) return
@@ -338,6 +355,27 @@ export class SessionTerminal {
     if (wanted === this.watchLevelSent) return
     this.watchLevelSent = wanted
     this.init.toDaemon({ type: 'runtimeWatch', sessionId: this.init.sessionId, level: wanted })
+  }
+
+  /**
+   * A daemon just (re)bound this session — forget what the old one was told.
+   *
+   * A DAEMON THAT RESTARTED HOLDS NO WATCHES (POD-2745). Its watch registry is
+   * per-process and its release functions belonged to handles that no longer
+   * exist, so a reattached daemon is at `coarse` for everything by definition.
+   * `watchLevelSent` is a claim about that process, and it outlived it: a viewer
+   * who had a chat open across a daemon restart left this reading `fine`, every
+   * later reconcile agreed with itself, and no frame was ever sent again. The
+   * viewer's stream stopped and nothing said so — the same "a watcher gets
+   * nothing" failure this issue is about, reached by a different road.
+   *
+   * Resetting and re-reconciling in one step is what makes it self-healing: the
+   * re-ask happens only if a viewer is still there, and a session nobody is
+   * watching goes back to sending nothing.
+   */
+  resetWatchLevel(): void {
+    this.watchLevelSent = 'coarse'
+    this.reconcileWatchLevel()
   }
 
   /** Fan one preview frame out, and retain it for whoever subscribes next. A

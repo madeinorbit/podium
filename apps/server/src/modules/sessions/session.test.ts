@@ -1372,6 +1372,64 @@ describe('Session turn preview', () => {
     })
   })
 
+  /**
+   * THE OTHER DIRECTION, AND IT IS THE ONE THE PLANE'S CONTAINMENT CLAIM RESTED
+   * ON (POD-2745). "Fine is only taken for a session someone is watching" cannot
+   * be shown by any number of subscribe-then-assert-fine tests: they would all
+   * pass just as well if the level were always on. What shows it is a session
+   * with a full client lifecycle and NO chat ever opened, producing no runtime
+   * traffic whatsoever.
+   *
+   * This failed before the fix, and not in a way anyone would have looked for:
+   * the very first reconcile compared `coarse` against an UNSET field, called
+   * that a crossing, and told the daemon to be what it already was. A plain
+   * detach on an ordinary PTY session was enough to fire it.
+   */
+  it('says nothing about a session nobody ever opened a chat on', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon, { turnPreviewEnabled: true })
+    const desktop = makeClient('desktop')
+    const phone = makeClient('phone')
+    s.terminal.attachClient(desktop)
+    s.terminal.attachClient(phone)
+    s.terminal.detachClient('desktop')
+    s.terminal.detachAll()
+    expect(toDaemon.mock.calls.filter(([m]) => m.type === 'runtimeWatch')).toEqual([])
+  })
+
+  /**
+   * A BIND IS A NEW DAEMON, AND A NEW DAEMON HOLDS NO WATCHES.
+   *
+   * `watchLevelSent` is a claim about another process's state. When that process
+   * restarts the claim is stale in the one direction that fails silently: it
+   * still reads `fine`, so every later reconcile agrees with itself and no frame
+   * is ever sent again. The viewer keeps their chat open and the fragments just
+   * stop.
+   */
+  it('re-asks for fine when a daemon rebinds under a viewer who never left', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon, { turnPreviewEnabled: true })
+    s.terminal.subscribeTranscript(makeClient('a'))
+    toDaemon.mockClear()
+
+    s.terminal.resetWatchLevel()
+
+    expect(toDaemon.mock.calls.filter(([m]) => m.type === 'runtimeWatch')).toEqual([
+      [{ type: 'runtimeWatch', sessionId: asSessionId('s1'), level: 'fine' }],
+    ])
+  })
+
+  it('re-asks for nothing when a daemon rebinds with no viewer', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon, { turnPreviewEnabled: true })
+    s.terminal.attachClient(makeClient('a'))
+    toDaemon.mockClear()
+
+    s.terminal.resetWatchLevel()
+
+    expect(toDaemon.mock.calls.filter(([m]) => m.type === 'runtimeWatch')).toEqual([])
+  })
+
   it('asks for nothing at all while the switch is off', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon, { turnPreviewEnabled: false })
