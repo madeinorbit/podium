@@ -61,9 +61,10 @@ export interface InstalledRestartDeps {
 /**
  * Is there a supervising parent to hand this work to?
  *
- * `PODIUM_UNDER_PARENT=1` is set by the parent on every child it spawns, so it
- * is the direct answer. The run-registry lookup is the second reading, for a
- * server that was started beside a parent rather than by it.
+ * The live run-registry record is the contract. `PODIUM_UNDER_PARENT=1` only
+ * says how this server was spawned; it cannot prove that the parent is still
+ * discoverable, and treating it as proof advertises an update that the later
+ * parent-control request must refuse.
  *
  * The legacy installed markers (`INVOCATION_ID`, `PODIUM_RUN_MODE=detached`) are
  * deliberately NOT enough any more: a section-4 migration host has
@@ -71,8 +72,7 @@ export interface InstalledRestartDeps {
  * treating that as "can restart" is what advertised a capability whose only
  * behaviour was to throw.
  */
-export function parentAvailable(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.PODIUM_UNDER_PARENT === '1') return true
+export function parentAvailable(): boolean {
   try {
     return liveRecord('parent') !== undefined
   } catch {
@@ -88,8 +88,7 @@ export function parentAvailable(env: NodeJS.ProcessEnv = process.env): boolean {
 export function createInstalledCoordinatorUpdate(
   deps: InstalledUpdateDeps = {},
 ): ((target: UpdateTarget) => Promise<void>) | undefined {
-  const env = deps.env ?? process.env
-  const hasParent = deps.hasParent ?? (() => parentAvailable(env))
+  const hasParent = deps.hasParent ?? parentAvailable
   if (!hasParent()) return undefined
   const requestSwap =
     deps.requestSwap ??
@@ -129,7 +128,7 @@ export function createInstalledCoordinatorRestart(
   deps: InstalledRestartDeps,
 ): (() => void) | undefined {
   const env = deps.env ?? process.env
-  const hasParent = deps.hasParent ?? (() => parentAvailable(env))
+  const hasParent = deps.hasParent ?? parentAvailable
   if (!hasParent()) return undefined
 
   const requestHandover =

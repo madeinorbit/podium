@@ -503,6 +503,15 @@ coordinator_healthy() {
 }
 coordinator_down() { ! curl -fsS "http://127.0.0.1:$SOURCE_PORT/health" >/dev/null 2>&1; }
 
+coordinator_parent_registered() {
+  container_exec "$SOURCE" bash -lc '
+    record="$1/run/parent.pid"
+    pid="$(jq -er '\''select(.role == "parent") | .pid'\'' "$record")"
+    kill -0 "$pid"
+    tr "\0" " " <"/proc/$pid/cmdline" | grep -Eq "(^| )parent( |$)"
+  ' _ "$(state_path)"
+}
+
 coordinator_is_installed_build() {
   curl -fsS "http://127.0.0.1:$SOURCE_PORT/version" |
     jq -e --arg id "$INSTANCE" --arg version "$BOOTSTRAP_VERSION" \
@@ -558,6 +567,7 @@ restart_coordinator() {
   wait_for 30 "coordinator to stop" coordinator_down
   launch_coordinator_parent
   wait_for 120 "coordinator to restart" coordinator_healthy
+  wait_for 30 "restarted coordinator parent registry" coordinator_parent_registered
   coordinator_is_installed_build
 }
 
@@ -1416,6 +1426,7 @@ main() {
   wait_for 30 "coordinator setup server to stop" coordinator_down
   launch_coordinator_parent
   wait_for 120 "installed coordinator" coordinator_healthy
+  wait_for 30 "installed coordinator parent registry" coordinator_parent_registered
   curl -fsS "http://127.0.0.1:$SOURCE_PORT/version" \
     >"$WORK/logs/coordinator-version.json"
   wait_for 120 "server-only coordinator participant" coordinator_participant_ready "$BOOTSTRAP_VERSION"

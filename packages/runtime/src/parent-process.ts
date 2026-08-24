@@ -8,12 +8,9 @@
  *
  *  1. NO ORPHANS, EVER, INCLUDING DURING BOOT. Termination signals are handled
  *     from before the first child is spawned until after the last one is reaped.
- *     `registerProcess` installs a SIGTERM listener of its own that only unlinks
- *     a pidfile — and a listener EXISTING is what suppresses the default
- *     terminate action. So a parent that installed its real handler after boot
- *     did not die on SIGTERM, it IGNORED it, was SIGKILLed by whoever was
- *     waiting, and SIGKILL cannot run `stopChildren()`. Server and daemon were
- *     re-parented to init, still holding the port and the SQLite file.
+ *     The default terminate action cannot run `stopChildren()`. A parent killed
+ *     before installing its real handler cannot reap anything; server and daemon
+ *     are re-parented to init, still holding the port and the SQLite file.
  *  2. THE OLD PARENT OWNS THE EXIT DECISION. The successor never reclaims its
  *     predecessor. This parent spawns the successor, watches it over HTTP, and
  *     exits only once the successor is serving the new version with its daemon

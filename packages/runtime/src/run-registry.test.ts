@@ -143,6 +143,21 @@ describe('reclaim', () => {
 })
 
 describe('registerProcess', () => {
+  it('stays registered until actual exit or explicit cleanup, not signal delivery', async () => {
+    const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+    const listenerCounts = new Map(signals.map((signal) => [signal, process.listenerCount(signal)]))
+
+    const cleanup = await registerProcess('parent', { kill: fakeKill(new Set()) })
+
+    for (const signal of signals) {
+      expect(process.listenerCount(signal)).toBe(listenerCounts.get(signal))
+    }
+    expect(readRecord('parent')?.pid).toBe(process.pid)
+
+    cleanup()
+    expect(readRecord('parent')).toBeUndefined()
+  })
+
   it('reclaims a stale holder and writes our own record', async () => {
     writeRecord({ role: 'server', pid: 111, startedAt: 'T0' }) // stale (dead)
     const cleanup = await registerProcess('server', {

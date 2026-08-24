@@ -15,13 +15,25 @@ import {
 } from './installed-restart'
 
 describe('parentAvailable', () => {
-  it('is true under a parent and false for a legacy installed shape', () => {
-    expect(parentAvailable({ PODIUM_UNDER_PARENT: '1' })).toBe(true)
-    // A section-4 migration host: an old server unit sets INVOCATION_ID and
-    // there is no parent anywhere. Advertising "can restart" here is what
-    // produced a capability whose only behaviour was to throw.
-    expect(parentAvailable({ INVOCATION_ID: 'legacy-server-unit' })).toBe(false)
-    expect(parentAvailable({ PODIUM_RUN_MODE: 'detached' })).toBe(false)
+  it('does not treat child or legacy process markers as a registered parent', () => {
+    const prior = {
+      underParent: process.env.PODIUM_UNDER_PARENT,
+      invocationId: process.env.INVOCATION_ID,
+      runMode: process.env.PODIUM_RUN_MODE,
+    }
+    process.env.PODIUM_UNDER_PARENT = '1'
+    process.env.INVOCATION_ID = 'legacy-server-unit'
+    process.env.PODIUM_RUN_MODE = 'detached'
+    try {
+      expect(parentAvailable()).toBe(false)
+    } finally {
+      if (prior.underParent === undefined) delete process.env.PODIUM_UNDER_PARENT
+      else process.env.PODIUM_UNDER_PARENT = prior.underParent
+      if (prior.invocationId === undefined) delete process.env.INVOCATION_ID
+      else process.env.INVOCATION_ID = prior.invocationId
+      if (prior.runMode === undefined) delete process.env.PODIUM_RUN_MODE
+      else process.env.PODIUM_RUN_MODE = prior.runMode
+    }
   })
 })
 

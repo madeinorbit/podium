@@ -32,6 +32,12 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { parentAvailable } from '../apps/server/src/modules/updates/installed-restart'
+import {
+  ensureInstanceStateIdentity,
+  instanceInstallDir,
+  instanceStateDir,
+} from '../packages/runtime/src/instance'
 import { openDatabase } from '../packages/runtime/src/sqlite'
 
 const ROOT = join(import.meta.dirname, '..')
@@ -138,19 +144,28 @@ afterEach(async () => {
 interface Stack {
   parent: ChildProcess
   parentPid: number
+  home: string
+  instanceId: string
+  installDir: string
   stateDir: string
   port: number
   version: string
   output: () => string
 }
 
-async function bootStack(extraEnv: Record<string, string> = {}): Promise<Stack> {
-  const stateDir = await mkdtemp(join(tmpdir(), 'podium-parent-stack-'))
-  roots.push(stateDir)
+async function bootStack(takeover: boolean, extraEnv: Record<string, string> = {}): Promise<Stack> {
+  const root = await mkdtemp(join(tmpdir(), 'podium-parent-stack-'))
+  roots.push(root)
+  const home = join(root, 'home')
+  const instanceId = takeover ? 'supervised-takeover' : 'supervised-normal'
+  const instanceEnv = { HOME: home, PODIUM_INSTANCE: instanceId }
+  const stateDir = instanceStateDir(instanceId, instanceEnv)
+  const installDir = instanceInstallDir(instanceId, instanceEnv)
+  ensureInstanceStateIdentity({ instanceId, dir: stateDir, env: instanceEnv })
   const port = await freePort()
   const version = '0.1.0-parent-stack-proof'
   for (const site of ['web', 'mobile']) {
-    const dir = join(stateDir, site)
+    const dir = join(installDir, site)
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'index.html'), `<!doctype html><title>${site}</title>`)
     await writeFile(
@@ -162,20 +177,23 @@ async function bootStack(extraEnv: Record<string, string> = {}): Promise<Stack> 
     join(stateDir, 'config.json'),
     JSON.stringify({ mode: 'all-in-one', port, persistence: 'detached' }),
   )
-  await writeFile(join(stateDir, 'VERSION'), `${version}\n`)
+  await writeFile(join(installDir, 'VERSION'), `${version}\n`)
 
   const inherited = { ...process.env }
   delete inherited.PODIUM_AGENT_RELAY
+  delete inherited.PODIUM_STATE_DIR
   delete inherited.NOTIFY_SOCKET
-  const child = spawn('bun', ['--conditions=@podium/source', CLI, 'parent', '--takeover'], {
+  const args = ['--conditions=@podium/source', CLI, 'parent', ...(takeover ? ['--takeover'] : [])]
+  const child = spawn('bun', args, {
     cwd: ROOT,
     env: {
       ...inherited,
-      PODIUM_STATE_DIR: stateDir,
+      HOME: home,
+      PODIUM_INSTANCE: instanceId,
       PODIUM_PORT: String(port),
-      PODIUM_HOME: stateDir,
-      PODIUM_WEB_DIR: join(stateDir, 'web'),
-      PODIUM_MOBILE_WEB_DIR: join(stateDir, 'mobile'),
+      PODIUM_HOME: installDir,
+      PODIUM_WEB_DIR: join(installDir, 'web'),
+      PODIUM_MOBILE_WEB_DIR: join(installDir, 'mobile'),
       PODIUM_APP_VERSION: version,
       PODIUM_PARENT_BIN: process.execPath,
       PODIUM_PARENT_CLI: CLI,
@@ -189,7 +207,17 @@ async function bootStack(extraEnv: Record<string, string> = {}): Promise<Stack> 
   let output = ''
   child.stdout?.on('data', (chunk) => (output += String(chunk)))
   child.stderr?.on('data', (chunk) => (output += String(chunk)))
-  return { parent: child, parentPid, stateDir, port, version, output: () => output }
+  return {
+    parent: child,
+    parentPid,
+    home,
+    instanceId,
+    installDir,
+    stateDir,
+    port,
+    version,
+    output: () => output,
+  }
 }
 
 interface VersionBody {
@@ -211,13 +239,44 @@ async function readVersion(port: number): Promise<VersionBody | undefined> {
 async function waitHealthy(stack: Stack): Promise<VersionBody> {
   return await waitFor(async () => {
     const body = await readVersion(stack.port)
-    return body?.daemonConnected === true ? body : undefined
+    return body?.daemonConnected === true &&
+      body.components?.daemon?.state === 'connected' &&
+      body.components?.janitor?.state === 'running'
+      ? body
+      : undefined
   }, `stack healthy; log:\n${stack.output()}`)
 }
 
+/** Run the server participant's real capability probe against this named instance. */
+function participantCanResolveParent(stack: Stack): boolean {
+  const prior = {
+    home: process.env.HOME,
+    instance: process.env.PODIUM_INSTANCE,
+    stateDir: process.env.PODIUM_STATE_DIR,
+  }
+  process.env.HOME = stack.home
+  process.env.PODIUM_INSTANCE = stack.instanceId
+  delete process.env.PODIUM_STATE_DIR
+  try {
+    return parentAvailable()
+  } finally {
+    if (prior.home === undefined) delete process.env.HOME
+    else process.env.HOME = prior.home
+    if (prior.instance === undefined) delete process.env.PODIUM_INSTANCE
+    else process.env.PODIUM_INSTANCE = prior.instance
+    if (prior.stateDir === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = prior.stateDir
+  }
+}
+
 describe('parent-supervised stack', () => {
-  it('boots parent → server → daemon with janitor lease and /version components', async () => {
-    const stack = await bootStack()
+  it.each([
+    { label: 'normal', takeover: false },
+    { label: 'takeover', takeover: true },
+  ])('discovers every supervised role after a $label boot', { retry: 0, timeout: 60_000 }, async ({
+    takeover,
+  }) => {
+    const stack = await bootStack(takeover)
 
     const serverVersion = await waitFor(
       async () => await readVersion(stack.port),
@@ -225,33 +284,53 @@ describe('parent-supervised stack', () => {
     )
     expect(serverVersion.appVersion).toBe(stack.version)
 
-    const observed = await waitFor(async () => {
-      const dbPath = join(stack.stateDir, 'podium.db')
-      await readFile(dbPath)
-      const db = openDatabase(dbPath, { readOnly: true })
-      try {
-        const lease = db
-          .prepare(
-            'SELECT generation_id, protocol_version, schema_version FROM maintenance_leases WHERE name = ?',
+    const observed = await waitFor(
+      async () => {
+        const dbPath = join(stack.stateDir, 'podium.db')
+        await readFile(dbPath)
+        const db = openDatabase(dbPath, { readOnly: true })
+        try {
+          const lease = db
+            .prepare(
+              'SELECT generation_id, protocol_version, schema_version FROM maintenance_leases WHERE name = ?',
+            )
+            .get('janitor') as { generation_id: string } | undefined
+          const parentRec = await readFile(join(stack.stateDir, 'run', 'parent.pid'), 'utf8').catch(
+            () => undefined,
           )
-          .get('janitor') as { generation_id: string } | undefined
-        const parentRec = await readFile(join(stack.stateDir, 'run', 'parent.pid'), 'utf8').catch(
-          () => undefined,
-        )
-        const serverRec = await readFile(join(stack.stateDir, 'run', 'server.pid'), 'utf8').catch(
-          () => undefined,
-        )
-        return lease && parentRec && serverRec ? { lease, parentRec, serverRec } : undefined
-      } finally {
-        db.close()
-      }
-    }, 'parent+server pidfiles and janitor lease')
+          const serverRec = await readFile(join(stack.stateDir, 'run', 'server.pid'), 'utf8').catch(
+            () => undefined,
+          )
+          const daemonRec = await readFile(join(stack.stateDir, 'run', 'daemon.pid'), 'utf8').catch(
+            () => undefined,
+          )
+          if (lease && parentRec && serverRec && daemonRec) {
+            return { lease, parentRec, serverRec, daemonRec }
+          }
+          throw new Error(
+            `missing lease=${!lease} parent=${!parentRec} server=${!serverRec} daemon=${!daemonRec}; ` +
+              `log:\n${stack.output()}`,
+          )
+        } finally {
+          db.close()
+        }
+      },
+      'parent+server+daemon pidfiles and janitor lease',
+      15_000,
+    )
 
     expect(observed.lease.generation_id).toMatch(/^janitor_/)
-    expect(JSON.parse(observed.parentRec).role).toBe('parent')
-    expect(JSON.parse(observed.serverRec).role).toBe('server')
+    const records = [observed.parentRec, observed.serverRec, observed.daemonRec].map((record) =>
+      JSON.parse(record),
+    ) as Array<{ role: string; pid: number }>
+    expect(records.map((record) => record.role)).toEqual(['parent', 'server', 'daemon'])
+    expect(records.every((record) => alive(record.pid))).toBe(true)
     // The parent owns the record; the janitor has NO OS role of its own any more.
-    expect(JSON.parse(observed.parentRec).pid).toBe(stack.parentPid)
+    expect(records[0]?.pid).toBe(stack.parentPid)
+    expect(
+      await readFile(join(stack.stateDir, 'run', 'janitor.pid'), 'utf8').catch(() => undefined),
+    ).toBeUndefined()
+    expect(participantCanResolveParent(stack)).toBe(true)
 
     const healthy = await waitHealthy(stack)
     expect(healthy.components?.janitor?.state).toBe('running')
@@ -263,10 +342,10 @@ describe('parent-supervised stack', () => {
     expect(stack.parent.exitCode, stack.output()).toBeNull()
     // Two OS children, no more: the janitor is inside the server.
     expect(childrenOf(stack.parentPid)).toHaveLength(2)
-  }, 90_000)
+  })
 
   it('hands over on the real stack, and the successor finishes an in-flight update operation', async () => {
-    const stack = await bootStack()
+    const stack = await bootStack(true)
     await waitHealthy(stack)
     const oldServerPid = Number(
       JSON.parse(await readFile(join(stack.stateDir, 'run', 'server.pid'), 'utf8')).pid,

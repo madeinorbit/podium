@@ -161,8 +161,12 @@ export interface RegisterOptions {
 
 /**
  * Claim a role for THIS process: reclaim any stale/live holder, write our pidfile, and install
- * cleanup so the pidfile is removed on exit. Returns a cleanup fn (idempotent) the caller may also
- * invoke explicitly. Call this once, at component boot, before binding the port.
+ * cleanup so the pidfile is removed on actual process exit. Returns a cleanup fn (idempotent) the
+ * caller may also invoke explicitly. Call this once, at component boot, before binding the port.
+ *
+ * A delivered signal is not an exit: components can install asynchronous signal handlers and stay
+ * alive while they drain children. Removing the record on signal delivery makes a still-running
+ * supervisor undiscoverable during that interval, so signal handlers must never unregister it.
  */
 export async function registerProcess(
   role: RunRole,
@@ -194,6 +198,5 @@ export async function registerProcess(
     if (cur?.pid === process.pid) removeRecord(role)
   }
   process.once('exit', cleanup)
-  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.once(sig, cleanup)
   return cleanup
 }

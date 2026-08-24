@@ -1596,11 +1596,8 @@ export async function main(
       })
       /**
        * BEFORE anything else that can block, and long before the first child
-       * exists. `registerProcess` below installs a SIGTERM listener that only
-       * unlinks a pidfile, and a listener EXISTING suppresses the default
-       * terminate action — so without this line a SIGTERM arriving during the
-       * up-to-60-second boot was absorbed and ignored, the sender escalated to
-       * SIGKILL, and SIGKILL cannot reap children (review finding 18).
+       * exists. Graceful termination must drain every child; the default signal
+       * action cannot do that, and SIGKILL cannot reap children (review finding 18).
        */
       parent.installSignalHandlers()
       if (!isSuccessor) {
