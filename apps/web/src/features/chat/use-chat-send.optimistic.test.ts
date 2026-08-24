@@ -21,10 +21,15 @@ import type { Store } from '@/app/store'
 import { type UseChatSendOptions, useChatSend } from './use-chat-send'
 
 const sendText = vi.fn(async () => ({ ok: true, disposition: 'accepted' }) as never)
+const REFUSED = new Error('offline')
 const ledger = vi.fn(async () => [] as never)
 
 /** The one field these tests vary; everything else is inert scaffolding. */
-function opts(since: string | undefined): UseChatSendOptions {
+function opts(
+  since: string | undefined,
+  offer?: { createdAt: string },
+  phase = 'idle',
+): UseChatSendOptions {
   return {
     sessionId: asSessionId('s-1'),
     trpc: {
@@ -45,7 +50,7 @@ function opts(since: string | undefined): UseChatSendOptions {
     composer: { sendable: true, canResume: false },
     ownThreadIds: undefined,
     blocks: [],
-    session: { agentState: { phase: 'idle', since } },
+    session: { agentState: { phase, since }, ...(offer ? { offer } : {}) },
     headlessTurn: { sendTurn: vi.fn(async () => false) },
     pinToBottom: () => {},
     initialPendingText: undefined,
@@ -116,6 +121,99 @@ describe('useChatSend optimistic window', () => {
         ...asked,
         session: { agentState: { phase: 'needs_user', since: '2026-08-24T10:00:03.000Z' } },
       })
+    })
+    expect(result.current.justSent).toBe(false)
+  })
+
+  /** POD-1595 review. Each of these was a real defect in the first cut. */
+  it('closes when the send is REFUSED — a red bubble must not sit under "Sending"', async () => {
+    sendText.mockRejectedValueOnce(REFUSED)
+    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(IDLE_SINCE),
+    })
+    await act(async () => {
+      await result.current.send('hello')
+    })
+    // The window used to stay open for the full 30s, suppressing the session's
+    // own error and attention lines the whole time.
+    expect(result.current.justSent).toBe(false)
+    expect(result.current.pending.at(-1)?.state).toBe('failed')
+  })
+
+  it('re-arms the ceiling on a SECOND send instead of inheriting the first timer', async () => {
+    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(IDLE_SINCE),
+    })
+    await act(async () => {
+      await result.current.send('first')
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(25_000)
+    })
+    await act(async () => {
+      await result.current.send('second')
+    })
+    // 5s after the first send's 30s would have fired. The second send is only
+    // 6s old, so the row is still its own.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000)
+    })
+    expect(result.current.justSent).toBe(true)
+  })
+
+  it('leaves an offer answered by its own button hidden when a LATER send fails', async () => {
+    const OFFER = '2026-08-24T09:59:00.000Z'
+    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(IDLE_SINCE, { createdAt: OFFER }),
+    })
+    await act(async () => {
+      await result.current.sendOfferPrompt('merge it', OFFER)
+    })
+    expect(result.current.dismissedOfferAt).toBe(OFFER)
+    // A follow-up the operator types while the accept's clear is still in
+    // flight. It is refused — but it did not hide that offer, so it has no
+    // business putting an already-answered decision back on the screen.
+    sendText.mockRejectedValueOnce(REFUSED)
+    await act(async () => {
+      await result.current.send('and rebase it too')
+    })
+    expect(result.current.dismissedOfferAt).toBe(OFFER)
+  })
+
+  it('restores an offer that THIS send hid when the send is refused', async () => {
+    const OFFER = '2026-08-24T09:59:00.000Z'
+    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(IDLE_SINCE, { createdAt: OFFER }),
+    })
+    sendText.mockRejectedValueOnce(REFUSED)
+    await act(async () => {
+      await result.current.send('ignore the buttons, do this instead')
+    })
+    // The turn never reached the server, so it answered nothing and the offer
+    // is still open. (The first cut never restored it: the "did I hide this?"
+    // flag was read out of a React updater that had not run yet.)
+    expect(result.current.dismissedOfferAt).toBeNull()
+  })
+
+  it('holds through the turn boundary when the send was QUEUED behind a running turn', async () => {
+    const WORKING = '2026-08-24T10:00:00.000Z'
+    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(WORKING, undefined, 'working'),
+    })
+    await act(async () => {
+      await result.current.send('do this next')
+    })
+    expect(result.current.justSent).toBe(true)
+    // Turn 1 ends. That phase change is about the turn that just finished, not
+    // about the message still waiting behind it — closing here put the finished
+    // turn's parting verdict back under the operator's pending prompt.
+    await act(async () => {
+      rerender(opts('2026-08-24T10:00:20.000Z', undefined, 'idle'))
+    })
+    expect(result.current.justSent).toBe(true)
+    // The NEXT move is the daemon picking our turn up.
+    await act(async () => {
+      rerender(opts('2026-08-24T10:00:21.000Z', undefined, 'working'))
     })
     expect(result.current.justSent).toBe(false)
   })

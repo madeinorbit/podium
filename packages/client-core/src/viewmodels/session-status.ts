@@ -148,6 +148,20 @@ export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | n
   }
 }
 
+/**
+ * How long an optimistic "Sending" claim may stand with NO word from the daemon
+ * about the turn it belongs to.
+ *
+ * It lives beside {@link chatActivity} because it is half of that function's
+ * contract, not a detail of either client. `chatActivity` ranks `justSent` above
+ * every verdict the previous turn left behind, and that is only honest while the
+ * claim is still the newest thing anyone knows — so each caller must end its own
+ * window as soon as `agentState.since` moves, and use this purely as a backstop
+ * for a session that reports nothing at all. Web and mobile both got that wrong
+ * independently before it was written down here (POD-1595).
+ */
+export const OPTIMISTIC_SEND_CEILING_MS = 30_000
+
 export interface ChatActivity {
   label: string
   tone: AgentBadge['tone']
@@ -214,6 +228,13 @@ export function sessionWaking(meta: SessionMeta | undefined, justSent = false): 
  * claim this is about. Freshness is the caller's job: `justSent` stays true only
  * while the daemon has said nothing about the new turn (see `useChatSend`), so
  * an ask raised three seconds into the turn still reaches the tail at once.
+ *
+ * NOTE THE SHAPE OF THE PTY BRANCH. It is asked TWICE rather than hoisted, and
+ * that is deliberate: `busy` outranks the optimistic send, but it does NOT
+ * outrank an attention badge, and it never did. Hoisting it to the top of the
+ * list to get the first of those would have bought the second by accident — an
+ * uninstrumented session with an offer and a live PTY would have read "Working…"
+ * and dropped the offer line entirely, with no send anywhere in sight.
  */
 export function chatActivity(
   meta: SessionMeta | undefined,
@@ -226,8 +247,14 @@ export function chatActivity(
   if (badge?.tone === 'working' && !parked) {
     return { label: badge.label === 'compacting' ? 'Compacting…' : 'Working…', tone: 'working' }
   }
-  if (!meta.agentState && meta.busy && !parked) return { label: 'Working…', tone: 'working' }
-  if (justSent) return { label: 'Sending', tone: 'idle', transient: 'just-sent' }
+  const ptyWorking = !meta.agentState && meta.busy && !parked
+  // A live PTY beats the optimistic row — it is an observation of now — but the
+  // send still beats everything the last turn left behind.
+  if (justSent) {
+    return ptyWorking
+      ? { label: 'Working…', tone: 'working' }
+      : { label: 'Sending', tone: 'idle', transient: 'just-sent' }
+  }
   if (badge?.tone === 'attention') return { label: badge.label, tone: 'attention' }
   // Errors and meaningful passive stops belong at the end of the transcript,
   // too. They used to disappear here even though `agentBadge` had already
@@ -237,6 +264,7 @@ export function chatActivity(
   if (badge?.tone === 'idle' && (badge.label === 'interrupted' || badge.label === 'todos open')) {
     return { label: badge.label, tone: 'idle' }
   }
+  if (ptyWorking) return { label: 'Working…', tone: 'working' }
   return null
 }
 

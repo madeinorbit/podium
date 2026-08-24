@@ -219,12 +219,6 @@ function drag(el: Element, type: 'dragover' | 'drop'): void {
   })
 }
 
-const surface = (): HTMLElement => {
-  const el = container.firstElementChild
-  if (!(el instanceof HTMLElement)) throw new Error('no chat surface')
-  return el
-}
-
 describe('ChatView file drop', () => {
   /** Deep inside the transcript — the end of the feed, as far from the composer
    *  dock as anything the operator can aim at. */

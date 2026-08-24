@@ -747,6 +747,28 @@ describe('chatActivity', () => {
       })
     })
 
+    it('does NOT reorder anything when there is no send in flight', () => {
+      // POD-1595 review. Getting `busy` above the optimistic row must not also
+      // put it above the attention badge: `agentBadge` answers from `meta.offer`
+      // BEFORE it looks at `agentState`, so an uninstrumented session with an
+      // offer and a live PTY would have read "Working…" and lost the offer line
+      // entirely — with no send anywhere in sight.
+      expect(
+        chatActivity(
+          base({
+            agentKind: 'shell',
+            busy: true,
+            offer: {
+              message: 'Pick one',
+              actions: [{ label: 'Merge', prompt: 'merge it' }],
+              createdAt: '2026-08-24T10:00:00.000Z',
+            },
+          }),
+          false,
+        ),
+      ).toEqual({ label: 'waiting on decision', tone: 'attention' })
+    })
+
     it('still yields to waking on a parked session', () => {
       expect(sent({ status: 'hibernated', agentState: undefined })).toEqual({
         label: 'Waking the agent…',

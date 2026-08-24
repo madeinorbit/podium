@@ -5,7 +5,7 @@ import type {
   ComposerState,
   SuperThreadRef,
 } from '@podium/client-core/viewmodels'
-import { chatSendRoute } from '@podium/client-core/viewmodels'
+import { chatSendRoute, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/viewmodels'
 import { asMutationId } from '@podium/model'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -49,11 +49,6 @@ import type { UseHeadlessTurnResult } from './use-headless-turn'
  * a client that asserted them would be asserting an identity it does not hold.
  * `mutationId` is idempotency, not identity.
  */
-
-/** How long the optimistic row survives with no word at all from the daemon.
- *  Matches the pending bubble's settle-to-'sent' grace below, so the tail and
- *  the bubble never disagree about whether a message is still going. */
-const OPTIMISTIC_SEND_CEILING_MS = 30_000
 
 export interface UseChatSendOptions {
   sessionId: SessionId
@@ -157,23 +152,50 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   )
   const [pending, setPending] = useState<PendingItem[]>(initialPending)
   const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
-  const [justSent, setJustSent] = useState(false)
+  /**
+   * THE OPEN SEND, AS STATE RATHER THAN A FLAG (POD-1595 review).
+   *
+   * `seq` is what makes a second send a genuinely NEW value. A bare boolean set
+   * to `true` while already `true` is a no-op — React bails on the identical
+   * value, the ceiling effect's deps never change, and its cleanup never runs —
+   * so send B inherited send A's timer and the working row expired early, timed
+   * from a send the operator had already followed with another. `since` is the
+   * daemon observation the row is optimistic AGAINST; see the effect below.
+   */
+  const [openSend, setOpenSend] = useState<{
+    seq: number
+    since: string | null
+    /** True when the send went into a turn that was ALREADY running. */
+    queuedBehindTurn: boolean
+  } | null>(null)
+  const justSent = openSend !== null
   const [ctxSeq, setCtxSeq] = useState<number | null>(null)
   const [dismissedOfferAt, setDismissedOfferAt] = useState<string | null>(null)
+  /** Mirrors {@link dismissedOfferAt} so a send can read it synchronously. Every
+   *  write goes through {@link applyDismissedOfferAt}, including the one this
+   *  hook hands out, so the two can never drift. */
+  const dismissedOfferAtRef = useRef<string | null>(null)
+  const applyDismissedOfferAt = useCallback((at: string | null) => {
+    dismissedOfferAtRef.current = at
+    setDismissedOfferAt(at)
+  }, [])
   const pendingSeq = useRef(0)
-  /** The `agentState.since` the last send was made against — the watermark the
-   *  optimistic row is held until the daemon moves. `null` when the session
-   *  reports no agent state at all, which is itself a value that can change. */
-  const sentAgainstSince = useRef<string | null>(null)
+  const sendSeq = useRef(0)
   // Block ids seen on the previous render — lets us detect *newly arrived* user
   // blocks so a freshly-echoed prompt reconciles its optimistic bubble.
   const seenUserIds = useRef<Set<string>>(new Set())
   // Read at send time rather than closed over: putting `session` in `send`'s
-  // deps would rebuild the callback on every meta tick for one string.
+  // deps would rebuild the callback on every meta tick for two strings. Written
+  // in an effect and not during render — a render may be thrown away under
+  // concurrent rendering, and these must describe what is on screen.
   const latestSince = useRef<string | undefined>(undefined)
-  latestSince.current = session?.agentState?.since
   const latestOfferAt = useRef<string | undefined>(undefined)
-  latestOfferAt.current = session?.offer?.createdAt
+  const latestPhase = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    latestSince.current = session?.agentState?.since
+    latestPhase.current = session?.agentState?.phase
+    latestOfferAt.current = session?.offer?.createdAt
+  }, [session?.agentState?.since, session?.agentState?.phase, session?.offer?.createdAt])
   const seenUserTailId = useRef<string | null>(null)
   const userBaselineReady = useRef(false)
 
@@ -218,7 +240,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   useEffect(() => {
     setPending(initialPending())
     setQueuedMessages([])
-    setJustSent(false)
+    setOpenSend(null)
     seenUserIds.current = new Set()
     seenUserTailId.current = null
     userBaselineReady.current = false
@@ -293,20 +315,41 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
    */
   const agentSince = session?.agentState?.since
   useEffect(() => {
-    if (!justSent) return
-    if ((agentSince ?? null) !== sentAgainstSince.current) {
-      setJustSent(false)
+    if (openSend === null) return
+    if ((agentSince ?? null) !== openSend.since) {
+      // A SEND MADE INTO A RUNNING TURN IS A QUEUED ONE, and the first phase
+      // change it sees is that turn ENDING — not the daemon saying anything
+      // about the message still waiting behind it. Closing on it dropped the
+      // tail back onto the finished turn's parting verdict ("todos open", or a
+      // question the queued prompt is about to answer) underneath a prompt that
+      // had not been picked up yet: precisely the stale frame this issue is
+      // about, one turn boundary further along. So re-arm against the new
+      // observation and spend the flag; the NEXT move is the one about us.
+      if (openSend.queuedBehindTurn) {
+        setOpenSend({ ...openSend, since: agentSince ?? null, queuedBehindTurn: false })
+        return
+      }
+      setOpenSend(null)
       return
     }
-    const t = setTimeout(() => setJustSent(false), OPTIMISTIC_SEND_CEILING_MS)
+    const t = setTimeout(() => setOpenSend(null), OPTIMISTIC_SEND_CEILING_MS)
     return () => clearTimeout(t)
-  }, [justSent, agentSince])
+  }, [openSend, agentSince])
 
-  /** Open the optimistic window, and record what the tail is optimistic AGAINST. */
+  /** Open the optimistic window, and record what the tail is optimistic AGAINST.
+   *  Always a fresh value, so a second send re-arms the ceiling rather than
+   *  inheriting the first one's. */
   const markSent = useCallback(() => {
-    sentAgainstSince.current = latestSince.current ?? null
-    setJustSent(true)
+    setOpenSend({
+      seq: ++sendSeq.current,
+      since: latestSince.current ?? null,
+      queuedBehindTurn: latestPhase.current === 'working' || latestPhase.current === 'compacting',
+    })
   }, [])
+
+  /** Close it. A send that was REFUSED is not in flight, and must not go on
+   *  claiming the row — the refusal's own error line is what belongs there. */
+  const clearSent = useCallback(() => setOpenSend(null), [])
 
   /**
    * TYPING PAST AN OFFER ANSWERS IT (POD-1595).
@@ -324,9 +367,23 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   const retireOfferOptimistically = useCallback((): string | null => {
     const at = latestOfferAt.current
     if (at === undefined) return null
-    setDismissedOfferAt(at)
-    return at
-  }, [])
+    // Claim it only if THIS send is what hid it. An offer already dismissed —
+    // by its own button a moment ago, say — is not ours to un-hide, and
+    // reporting it as ours meant a later failure put an offer the operator had
+    // already answered back on the screen.
+    //
+    // READ THROUGH THE REF, NOT THROUGH AN UPDATER. The first cut of this asked
+    // `setDismissedOfferAt((current) => …)` and read a flag the updater set.
+    // React only runs an updater eagerly when the fiber has no queued work, and
+    // here it always does — `setPending` and `markSent` fire first — so the flag
+    // was read before the updater ran and was false on EVERY send. Nothing was
+    // ever claimed, so no failure ever restored an offer, which is the opposite
+    // of the bug this was written to fix. (A side-effecting updater is also
+    // impure, and StrictMode double-invokes it.)
+    const claimed = dismissedOfferAtRef.current !== at
+    applyDismissedOfferAt(at)
+    return claimed ? at : null
+  }, [applyDismissedOfferAt])
 
   const route = useMemo<ChatSendRoute>(
     () =>
@@ -461,12 +518,15 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         )
       } catch {
         setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
+        clearSent()
         // Only un-hide the offer THIS send hid: a dismissal made in between is
         // the operator's own and must not be undone by a failure over here.
-        if (retired !== null) setDismissedOfferAt((at) => (at === retired ? null : at))
+        if (retired !== null && dismissedOfferAtRef.current === retired) {
+          applyDismissedOfferAt(null)
+        }
       }
     },
-    [deliver, markSent, pinToBottom, retireOfferOptimistically],
+    [applyDismissedOfferAt, clearSent, deliver, markSent, pinToBottom, retireOfferOptimistically],
   )
 
   // Agent action offer [spec:SP-c7f1]: clicking an offer button sends its
@@ -474,7 +534,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   // server auto-clears the offer). Optimistically hide the bar immediately.
   const sendOfferPrompt = useCallback(
     async (prompt: string, offerAt: string) => {
-      setDismissedOfferAt(offerAt)
+      applyDismissedOfferAt(offerAt)
       const id = `pending-${++pendingSeq.current}`
       const deliveryId = `msg_${randomUUID()}`
       setPending((p) => [...p, { id, deliveryId, text: prompt, at: Date.now(), state: 'sending' }])
@@ -486,11 +546,12 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         )
       } catch (cause) {
         setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
-        setDismissedOfferAt(null) // send failed — let the offer reappear
+        clearSent()
+        applyDismissedOfferAt(null) // send failed — let the offer reappear
         throw cause
       }
     },
-    [deliver, markSent, pinToBottom],
+    [applyDismissedOfferAt, clearSent, deliver, markSent, pinToBottom],
   )
 
   /**
@@ -561,6 +622,6 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     dismissOffer,
     retractQueuedMessage,
     dismissedOfferAt,
-    setDismissedOfferAt,
+    setDismissedOfferAt: applyDismissedOfferAt,
   }
 }

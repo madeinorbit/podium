@@ -304,7 +304,12 @@ export function ChatView({
      */
     <div
       className={cn('relative flex min-h-0 flex-1 flex-col', compact && 'chat-compact')}
-      {...chat.attachments.dropHandlers}
+      // NOT WHILE THE LIGHTBOX IS UP. It is a child of this surface, so a drag
+      // over it bubbles here — and the veil (z-20) would draw UNDERNEATH the
+      // lightbox (z-100), so releasing a file over a full-screen image attached
+      // it silently, with nothing on screen having offered to. Standing down
+      // hands the drag to `useFileDropGuard`, which swallows it harmlessly.
+      {...(chat.lightbox === null ? chat.attachments.dropHandlers : {})}
     >
       {/* `offer-lift-region`: an opened offer fold pushes the whole transcript
           up under the panel header instead of resizing it — the feed keeps its
@@ -425,7 +430,7 @@ export function ChatView({
           keeps it out of the drag's own hit-testing: a veil that took the events
           would fire dragleave against itself the moment it appeared and flicker
           for the rest of the drag. */}
-      {chat.attachments.dragOver && (
+      {chat.attachments.dragOver && chat.lightbox === null && (
         <div className="chat-drop-veil" data-testid="chat-drop-veil" aria-hidden="true">
           <span className="chat-drop-veil-label">
             <Paperclip size={15} aria-hidden="true" />
