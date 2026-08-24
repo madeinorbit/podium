@@ -1080,15 +1080,17 @@ function SessionRow({
         // against. The list is the query container, so every nesting depth
         // switches to the two-line composition at the same panel width.
         'deck-agent-row group/srow relative',
-        // The mission's own lead is the one agent row in the spine with a fill.
-        // It owns the whole mission, so it is allowed to be the loudest thing
-        // in the roster — and being the only one, the fill means exactly that.
+        // The mission's own lead. A FILL, and since POD-1480 no longer the only
+        // one an agent row can take — the session you are in takes a second,
+        // stronger tier of the same tint below. Two grounds, and they are two
+        // statements only because the doses are far enough apart to read as
+        // two; the arithmetic is on `.deck-agent-active` in styles.css.
         role?.kind === 'coordinator' && 'deck-lead-fill',
         // THE SESSION YOU ARE IN owns a ground, not just a tick (POD-1480).
         // Without one the pointed row — which takes the row's own hover wash —
         // was the loudest mark in the column, so pointing at any tab visibly
-        // demoted the session you were actually working in. See the dose note
-        // on `.deck-agent-active` in styles.css.
+        // demoted the session you were actually working in. The row answers the
+        // pointer in the same tint rather than in `--muted`; see styles.css.
         active && !flat && 'deck-agent-active',
         flat && 'rounded-md',
       )}
@@ -1161,16 +1163,23 @@ function SessionRow({
           data-pressable
           type="button"
           className={cn(
-            // The ONLY fill an agent ever gets is transient: hover, and nothing
-            // else. No left padding — the row opens onto its rail.
-            'deck-agent group/session shell-type-secondary grid min-h-7 w-full items-center gap-x-1.5 py-1 pr-2 text-left text-muted-foreground hover:bg-muted hover:text-foreground',
+            // No left padding — the row opens onto its rail.
+            'deck-agent group/session shell-type-secondary grid min-h-7 w-full items-center gap-x-1.5 py-1 pr-2 text-left text-muted-foreground hover:text-foreground',
+            // The neutral wash is for rows that have no ground of their own.
+            // The ACTIVE row does, and `--muted` is less extreme than that
+            // ground in both appearances — so letting it through would make the
+            // one row you are in step BACK under the pointer while every other
+            // row steps forward. It answers in its own tint instead, on the
+            // wrapper (`.deck-agent-active:hover`), which is why the hover fill
+            // is spent here rather than in the base string.
+            !active && 'hover:bg-muted',
             active && 'text-foreground',
             // The pointer is on the tab, so the row takes the fill it would
             // have taken under the pointer itself. Borrowing the row's OWN
             // hover rather than inventing a second wash is what keeps this
             // legible without being loud: the strip is simply reaching in and
             // hovering the row on the operator's behalf.
-            pointed && 'bg-muted text-foreground',
+            pointed && !active && 'bg-muted text-foreground',
             // Settled agents dim one tier rather than leaving. Removing them is
             // the view bar's job, not the row's.
             (retired || phase === 'done') && 'opacity-60',

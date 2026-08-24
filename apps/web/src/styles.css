@@ -9073,24 +9073,53 @@ a.ref-link--session::before {
 /* THE ACTIVE ROW GETS A GROUND. Not decoration — it is what stops a hover from
    outranking the session you are actually in.
 
-   The dose is the issue-row channel's UPPER step (11 × --issue-row-tint-scale,
-   the sidebar's own hover value), and 11 rather than the resting 7 is
-   arithmetic rather than taste. The wash it has to out-weigh is `--muted`,
-   which on paper is L 0.945 against the column's `--bar` at L 0.968. The
-   7-step lands the active row at L 0.950 — LIGHTER than the hover wash, so
-   the pointer would still have been the louder mark and the fix would have
-   fixed nothing. The 11-step lands it at L 0.935, on the correct side of that
-   line. It also clears `.deck-lead-fill`'s 8%, so an active row and a
-   coordinator row are not the same statement.
+   THE FILL NOW HAS TWO TIERS, which is a change to the rule above: the lead
+   fill is no longer the only ground an agent row can take. 8% is the mission's
+   lead, 14% is the session you are in, and the two have to be far enough apart
+   to read as two statements rather than one. Measured over `--bar` in the deck
+   harness, as OKLab L:
 
-   Declared after the lead fill so an active coordinator resolves to the
-   stronger of the two rather than fighting over one `background`. It sits on
-   the row WRAPPER, so the button's own `bg-muted` — the wash a pointed or
-   hovered row takes — still paints over it as a transient layer. */
+                   --bar   --muted   lead 8%    14%      18%
+       paper       0.976    0.951     0.946    0.924    0.909
+       dark        0.230    0.243     0.260    0.283    0.298
+
+   14, not the sidebar's resting 7 or its hover 11. Two constraints set it. It
+   has to out-weigh `--muted`, the wash every other row takes under the pointer
+   — at 7 the active row lands on the WRONG side of that line (paper L 0.950 vs
+   the wash's 0.951) and the pointer keeps winning, which is the whole defect.
+   And it has to separate from the lead fill: 11 clears it by ΔL 0.011, half a
+   hover step and not a difference anyone reads, while 14 clears it by 0.022 —
+   the size of the bar→muted step this column already uses to mean "state
+   changed". Note the tint moves the same way the hover wash does in each
+   appearance (down on paper, up on dark), so one dose ordering holds for both.
+
+   RESOLVED BY SPECIFICITY, NOT ORDER. `.deck-agent-row.deck-agent-active` is
+   0-2-0 against `.deck-lead-fill`'s 0-1-0, so an active coordinator takes the
+   active ground wherever these rules sit in the file. Worth knowing before
+   qualifying `.deck-lead-fill` to match its neighbour's shape: at 0-2-0 it
+   would win on order instead, and the ground this whole rule exists to add
+   would vanish on exactly the rows that already had one. */
 .deck-agent-row.deck-agent-active {
   background: color-mix(
     in oklab,
-    var(--issue) calc(11 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))),
+    var(--issue) calc(14 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))),
+    var(--bar)
+  );
+}
+
+/* THE ACTIVE ROW ANSWERS THE POINTER IN ITS OWN CHANNEL. It may not take the
+   neutral `--muted` wash the other rows take: that wash is LESS extreme than
+   the active ground in both appearances, so borrowing it would make the row
+   step back under the pointer while every other row steps forward — the
+   defect this rule exists to fix, moved to the self-hover case. The next tint
+   step up (18) moves it the same way, by about one hover step. Both the real
+   pointer and the tab strip's `data-pointed` land here, so the row cannot tell
+   which one reached it — and should not. */
+.deck-agent-row.deck-agent-active:hover,
+.deck-agent-row.deck-agent-active[data-pointed='true'] {
+  background: color-mix(
+    in oklab,
+    var(--issue) calc(18 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))),
     var(--bar)
   );
 }

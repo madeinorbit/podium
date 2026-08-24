@@ -1313,7 +1313,9 @@ describe('flight deck spine geometry (POD-1226)', () => {
     // pointed marks split hues (POD-1480); its geometry — what this test is
     // about — is still inline.
     const tick = row.querySelector<HTMLElement>('span[aria-hidden].deck-mark-active')
-    expect(tick).toBeDefined()
+    // `not.toBeNull`, not `toBeDefined`: `querySelector` misses with null, and
+    // `expect(null).toBeDefined()` passes — the guard has to actually guard.
+    expect(tick).not.toBeNull()
     // The row's own left edge is `AGENT_INDENT` from its block; the tick sits on
     // the rail at `AGENT_RAIL`, so it stops well short of the tile.
     const left = Number.parseFloat(tick?.style.left ?? 'NaN')
@@ -1473,6 +1475,37 @@ describe('flight deck tab-strip hover link', () => {
 
     act(() => setHoveredSession('s2'))
     expect(row?.className).toContain('deck-agent-active')
+  })
+
+  /**
+   * The active row may not borrow the neutral wash. `--muted` is LESS extreme
+   * than the active ground in both appearances, so a row that took it would
+   * step back under the pointer while every other row stepped forward — the
+   * defect this whole change exists to fix, relocated to the self-hover case.
+   */
+  it('does not let the neutral wash paint over the active row', () => {
+    harness.paneA = 's1'
+    deck()
+    const button = document.querySelector('[data-flight-session="s1"] button.deck-agent')
+    if (!button) throw new Error('no agent button')
+
+    // Not even at rest: the hover utility itself is withheld, because a real
+    // pointer on the row would otherwise do what the tab strip is stopped from.
+    expect(button.className).not.toContain('hover:bg-muted')
+
+    act(() => setHoveredSession('s1'))
+    expect(button.className).not.toContain('bg-muted')
+  })
+
+  /** The rows that have no ground of their own still take it, unchanged. */
+  it('still washes a pointed row that is not the active one', () => {
+    harness.paneA = 's1'
+    deck()
+    const button = document.querySelector('[data-flight-session="s2"] button.deck-agent')
+    if (!button) throw new Error('no agent button')
+
+    act(() => setHoveredSession('s2'))
+    expect(button.className).toContain('bg-muted')
   })
 })
 
