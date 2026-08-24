@@ -531,9 +531,23 @@ coordinator_parent_registered() {
   ' _ "$(state_path)"
 }
 
+# THE COORDINATOR DOES NOT STAY ON THE BOOTSTRAP VERSION (POD-2747).
+#
+# The coordinator updates itself in the wave like any other machine: after
+# `rollout`, `source` reports the rolled-out version alongside fleet-a and
+# fleet-b. Pinning this to $BOOTSTRAP_VERSION was therefore a precondition with
+# an expiry date, and `restart_coordinator` carried it into every caller. It
+# survived because the only caller downstream of a successful update is
+# `rollback`, and `rollback` aborted at its version-grammar assertion long
+# before reaching it — so the stale pin was never once executed.
+#
+# The version is a parameter and the caller names it. What stays unconditional
+# is the part that has no expiry: the coordinator answered as an INSTALLED
+# build and did not fall back to running from the checkout.
 coordinator_is_installed_build() {
+  local expected=${1:-$BOOTSTRAP_VERSION}
   http_request GET "http://127.0.0.1:$SOURCE_PORT/version" || return 1
-  jq -e --arg id "$INSTANCE" --arg version "$BOOTSTRAP_VERSION" \
+  jq -e --arg id "$INSTANCE" --arg version "$expected" \
     '.instanceId==$id and .appVersion==$version and
       (.appVersion|startswith("dev+")|not)' >/dev/null <<<"$HTTP_BODY"
 }
@@ -584,12 +598,16 @@ launch_coordinator_parent() {
 }
 
 restart_coordinator() {
+  # The version the coordinator is expected to come back on. Defaults to the
+  # bootstrap build, which is right for every caller that runs before the wave;
+  # `rollback` runs after it and names the rolled-out version instead.
+  local expected=${1:-$BOOTSTRAP_VERSION}
   container_exec "$SOURCE" pkill -f 'podium-cli parent --takeover' >/dev/null 2>&1 || true
   wait_for 30 "coordinator to stop" coordinator_down
   launch_coordinator_parent
   wait_for 120 "coordinator to restart" coordinator_healthy
   wait_for 30 "restarted coordinator parent registry" coordinator_parent_registered
-  coordinator_is_installed_build
+  coordinator_is_installed_build "$expected"
 }
 
 unsigned_unavailable() {
@@ -765,6 +783,32 @@ proposal_ready() {
 proposal_for() {
   rpc GET updates.proposal |
     jq -e --arg head "$1" '.state=="pending" and .headSha==$head' >/dev/null
+}
+
+# THE HEAD/VERSION IDENTITY CONTRACT, WRITTEN ONCE (POD-2747).
+#
+# Publisher mints are the flat `X.Y.Z-dev.N+sha` form. Grammar alone is not the
+# safety contract: the build metadata must still name this exact HEAD.
+#
+# This lived as two copies, and they drifted — one tested the version against
+# `\.dev\.`, a DOT before `dev`, where the mint has a HYPHEN. The correct copy
+# was fixed 37 minutes after both were written and the other was missed, which
+# is the expensive shape of a half-applied change: the surviving copy looks
+# deliberate. Two rows assert this contract, so it gets one implementation.
+#
+# `expected` is optional. Omitted, the proposal is checked for internal
+# consistency — the version names the headSha the proposal itself reports.
+# Given, the headSha must also equal that value, which is how a caller pins the
+# proposal to a commit it just made. It is compared whole: a truncating slice
+# hides which half of the comparison is wrong, and `rev-parse --short=7` can
+# return MORE than seven characters when the prefix is ambiguous.
+proposal_identity_holds() {
+  local proposal=$1 expected=${2:-}
+  jq -e --arg expected "$expected" '.headSha as $head |
+    .state=="pending" and ($head|test("^[0-9a-f]{7}$")) and
+    (.version|test("^[0-9]+\\.[0-9]+\\.[0-9]+-dev\\.[1-9][0-9]*\\+[0-9a-f]{7}$")) and
+    (.version|endswith("+\($head)")) and
+    ($expected=="" or $head==$expected)' <<<"$proposal" >/dev/null
 }
 approve_release() {
   local proposal_log=$1 response_log=$2 proposal response
@@ -1273,20 +1317,9 @@ rollback() {
   approve_release "$WORK/logs/release-proposal-rollback.json" \
     "$WORK/logs/release-approval-rollback.json"
   proposal="$(<"$WORK/logs/release-proposal-rollback.json")"
-  # ONE MINT, ONE GRAMMAR (POD-2747).
-  #
-  # This is the same HEAD/version identity contract `dev-release` asserts, and it
-  # must stay written the same way. It was not: this copy tested the version
-  # against `\.dev\.` — a DOT before `dev` — while the publisher mints the flat
-  # semver form `X.Y.Z-dev.N+sha`, with a HYPHEN. The `dev-release` copy was
-  # corrected 37 minutes after both were written and this one was missed, so the
-  # row could not pass on any build, and the truncating `.headSha[0:7]` slice hid
-  # which half of the comparison was actually wrong. Comparing the full field to
-  # a full-field `$head` needs no slice: shape both, then compare them whole.
-  jq -e --arg head "$head" '.state=="pending" and .headSha==$head and
-    ($head|test("^[0-9a-f]{7}$")) and
-    (.version|test("^[0-9]+\\.[0-9]+\\.[0-9]+-dev\\.[1-9][0-9]*\\+[0-9a-f]{7}$")) and
-    (.version|endswith("+\($head)"))' <<<"$proposal" >/dev/null
+  # The same contract `dev-release` asserts, pinned additionally to the commit
+  # this row just made. One implementation, so the two cannot drift again.
+  proposal_identity_holds "$proposal" "$head"
   copy_manifest_out "$manifest"
   jq -e --slurpfile previous "$prior_manifest" '.schema == $previous[0].schema' \
     "$manifest" >/dev/null
@@ -1296,7 +1329,10 @@ rollback() {
   artifact="$(artifact_for "$target")"
   crash_artifact "$manifest" "$artifact"
   copy_manifest_in "$manifest"
-  restart_coordinator
+  # $prior, not the bootstrap build: the wave already moved the coordinator onto
+  # it, which is the same expectation the fleet-reconnect wait below asserts for
+  # `source` two lines down.
+  restart_coordinator "$prior"
   wait_for 30 "crashing target offer" target_is "$target"
   wait_for 60 "rollback fleet reconnect" reported_versions_are "$prior"
   verify_served_crash_artifact "$manifest" "$FLEET_A"
@@ -1732,12 +1768,7 @@ main() {
   local proposal response detail proposal_log="$WORK/logs/release-proposal-initial.json"
   proposal="$(rpc GET updates.proposal)"
   printf "%s\n" "$proposal" >"$proposal_log"
-  # Publisher mints are the flat `X.Y.Z-dev.N+sha` form. Grammar alone is not
-  # the safety contract: the build metadata must still name this exact HEAD.
-  if ! jq -e '.headSha as $head |
-    .state=="pending" and ($head|test("^[0-9a-f]{7}$")) and
-    (.version|test("^[0-9]+\\.[0-9]+\\.[0-9]+-dev\\.[1-9][0-9]*\\+[0-9a-f]{7}$")) and
-    (.version|endswith("+\($head)"))' <<<"$proposal" >/dev/null; then
+  if ! proposal_identity_holds "$proposal"; then
     fail dev-release "proposal did not satisfy the HEAD/version identity contract; raw payload: logs/release-proposal-initial.json"
     exit 1
   fi
