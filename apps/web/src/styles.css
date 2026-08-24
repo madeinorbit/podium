@@ -6186,6 +6186,19 @@ html[data-density="compact"] .brief-shelf {
      holds, so the right value is 12px smaller than the 40px it replaces. */
   padding: 2px 28px 15px 31px;
 }
+/* A URL an agent wrote into the offer body. Same info tint and underline as a
+   transcript link (`.chat-md a`) so the two read as one kind of thing; the
+   anchor itself is what routes the click to the OS browser in the desktop
+   shell (apps/desktop/src-tauri/src/bootstrap.rs, opener_shim_script). */
+.offer-fold-link {
+  color: var(--info);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  /* The fold's detail sits in a compact bar; a long URL has to be allowed to
+     break rather than push the body into a horizontal scroll. */
+  overflow-wrap: anywhere;
+}
+
 .offer-fold-undo {
   min-height: 42px;
   display: flex;

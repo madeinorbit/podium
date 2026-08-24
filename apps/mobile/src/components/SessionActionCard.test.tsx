@@ -25,6 +25,26 @@ const offer = {
 }
 
 describe('SessionActionCard', () => {
+  it('opens a URL in the body with the phone browser', async () => {
+    const { Linking } = await import('react-native')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    render(
+      <SessionActionCard
+        offer={{ ...offer, message: 'Preview is up\nOpen https://preview.example.com/login.' }}
+        onAction={async () => {}}
+      />,
+    )
+
+    const link = screen.getByText('https://preview.example.com/login')
+    fireEvent.click(link)
+    await waitFor(() => expect(openURL).toHaveBeenCalledWith('https://preview.example.com/login'))
+    // The trailing period stays in the prose rather than riding along in the URL.
+    expect(screen.getByTestId('session-action-card').textContent).toContain(
+      'Open https://preview.example.com/login.',
+    )
+    openURL.mockRestore()
+  })
+
   it('keeps direct and feedback actions executable in the session flow', async () => {
     const onAction = vi.fn(async () => {})
     const onOpenEvidence = vi.fn()
