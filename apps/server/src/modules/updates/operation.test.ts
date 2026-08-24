@@ -600,6 +600,33 @@ describe('reconcileUpdateOperation', () => {
     expect(next.steps?.[0]?.state).toBe('failed')
   })
 
+  /**
+   * The sandbox topology has NO server step at all — the coordinator converges
+   * as a place in the machines step, which settled done while the successor was
+   * briefly live at the target. The rollback evidence must fail the operation
+   * whichever step carried the host.
+   */
+  it('a rollback report fails an operation whose host converged through the machines step', () => {
+    const next = reconcileUpdateOperation(
+      operation([
+        {
+          id: UPDATE_STEP_MACHINES,
+          state: 'done',
+          finishedAt: 500,
+          places: [{ id: 'source', state: 'current' }],
+        },
+      ]),
+      reality({
+        appVersion: '0.4.1',
+        parentReport:
+          'the update was rolled back because the successor parent never became healthy on dev+abc1234; the machine is running 0.4.1 again',
+      }),
+    )
+    expect(next.state).toBe('failed')
+    expect(next.error?.code).toBe('server-did-not-reach-target')
+    expect(next.error?.message).toContain('rolled back')
+  })
+
   /** The reopen needs BOTH facts: a machine actually on the target keeps its blessing. */
   it('a stale parent report does not reopen a server genuinely on the target', () => {
     const next = reconcileUpdateOperation(

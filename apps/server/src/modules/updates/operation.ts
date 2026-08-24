@@ -979,12 +979,14 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
       }
     }
     // `pending` and still behind: nothing happened yet, the step stands.
-  } else if (server?.state === 'done' && reality.parentReport && reality.appVersion !== targetVersion) {
+  } else if (reality.parentReport && reality.appVersion !== targetVersion) {
     // A successor that boots mid-handover adopts this operation, observes
-    // itself on the target, and blesses the step — legitimately, on the happy
-    // path. When its health gate then fails and the parent rolls the machine
-    // back, the NEXT boot arrives here holding the parent's own rollback
-    // sentence while the step still says done. The blessing must not outrank
+    // itself on the target, and blesses its own progress — the server step on
+    // one topology, its place in the machines wave on another (a coordinator
+    // is a fleet machine of its own wave, and may have no server step at all).
+    // When its health gate then fails and the parent rolls the machine back,
+    // the NEXT boot arrives here holding the parent's own rollback sentence
+    // while the finished step still stands. The blessing must not outrank
     // that evidence: an update that was attempted and reverted settling as
     // clean success is exactly the lie this operation exists to not tell.
     const error = describeUpdateOperationFailure({
@@ -994,13 +996,15 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
       parentReport: reality.parentReport,
     })
     return {
-      ...patchStep(next, UPDATE_STEP_SERVER, (step) => ({
-        ...step,
-        state: 'failed',
-        finishedAt: reality.now,
-        lastProgressAt: reality.now,
-        error,
-      })),
+      ...(server
+        ? patchStep(next, UPDATE_STEP_SERVER, (step) => ({
+            ...step,
+            state: 'failed',
+            finishedAt: reality.now,
+            lastProgressAt: reality.now,
+            error,
+          }))
+        : next),
       state: 'failed',
       finishedAt: reality.now,
       updatedAt: reality.now,
