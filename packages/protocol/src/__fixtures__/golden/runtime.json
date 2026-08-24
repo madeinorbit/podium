@@ -2640,7 +2640,7 @@
     },
     {
       "schema": "RuntimeFineEvent",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "at": "2026-01-02T03:04:05.000Z",
         "provenance": "bootstrap",
@@ -2668,6 +2668,59 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"item.itemId\",\"textDelta\":\"item.textDelta\"}}"
+    },
+    {
+      "schema": "RuntimeFineEvent",
+      "variant": "full/arm1",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "live",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 2
+          }
+        },
+        "observerGeneration": 2,
+        "turnEpoch": 2,
+        "t": "item",
+        "item": {
+          "kind": "partial",
+          "item": {
+            "id": "item.item.id",
+            "cursor": "item.item.cursor",
+            "role": "assistant",
+            "ts": "item.item.ts",
+            "text": "item.item.text",
+            "toolName": "item.item.toolName",
+            "toolInput": "item.item.toolInput",
+            "toolTitle": "item.item.toolTitle",
+            "toolInputJson": "item.item.toolInputJson",
+            "toolResult": "item.item.toolResult",
+            "toolUseId": "item.item.toolUseId",
+            "tags": [
+              {
+                "kind": "file",
+                "label": "item.item.tags[0].label"
+              }
+            ],
+            "toolPaths": ["item.item.toolPaths[0]"],
+            "event": "interrupt",
+            "answer": false,
+            "systemKind": "duration",
+            "durationMs": 2
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"assistant\",\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}}"
     },
     {
       "schema": "RuntimeFineEventMessage",
@@ -2699,7 +2752,7 @@
     },
     {
       "schema": "RuntimeFineEventMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "runtimeFineEvent",
         "sessionId": "sessionId",
@@ -2731,6 +2784,63 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"event.item.itemId\",\"textDelta\":\"event.item.textDelta\"}}}"
+    },
+    {
+      "schema": "RuntimeFineEventMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeFineEvent",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "live",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 2
+            }
+          },
+          "observerGeneration": 2,
+          "turnEpoch": 2,
+          "t": "item",
+          "item": {
+            "kind": "partial",
+            "item": {
+              "id": "event.item.item.id",
+              "cursor": "event.item.item.cursor",
+              "role": "assistant",
+              "ts": "event.item.item.ts",
+              "text": "event.item.item.text",
+              "toolName": "event.item.item.toolName",
+              "toolInput": "event.item.item.toolInput",
+              "toolTitle": "event.item.item.toolTitle",
+              "toolInputJson": "event.item.item.toolInputJson",
+              "toolResult": "event.item.item.toolResult",
+              "toolUseId": "event.item.item.toolUseId",
+              "tags": [
+                {
+                  "kind": "file",
+                  "label": "event.item.item.tags[0].label"
+                }
+              ],
+              "toolPaths": ["event.item.item.toolPaths[0]"],
+              "event": "interrupt",
+              "answer": false,
+              "systemKind": "duration",
+              "durationMs": 2
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"assistant\",\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}}}"
     },
     {
       "schema": "RuntimeInteractionAskedMessage",
@@ -3749,6 +3859,50 @@
       "encoded": "{\"type\":\"runtimeStageAttachmentResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\"}}"
     },
     {
+      "schema": "RuntimeWatchLevel",
+      "variant": "minimal",
+      "wire": "coarse",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"coarse\""
+    },
+    {
+      "schema": "RuntimeWatchLevel",
+      "variant": "full",
+      "wire": "coarse",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"coarse\""
+    },
+    {
+      "schema": "RuntimeWatchMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeWatch",
+        "sessionId": "sessionId",
+        "level": "coarse"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeWatch\",\"sessionId\":\"sessionId\",\"level\":\"coarse\"}"
+    },
+    {
+      "schema": "RuntimeWatchMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeWatch",
+        "sessionId": "sessionId",
+        "level": "coarse"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeWatch\",\"sessionId\":\"sessionId\",\"level\":\"coarse\"}"
+    },
+    {
       "schema": "SendProof",
       "variant": "minimal",
       "wire": "protocol-ack",
@@ -4323,6 +4477,41 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"kind\":\"delta\",\"itemId\":\"itemId\",\"textDelta\":\"textDelta\"}"
+    },
+    {
+      "schema": "TranscriptItemDelta",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "partial",
+        "item": {
+          "id": "item.id",
+          "cursor": "item.cursor",
+          "role": "tool",
+          "ts": "item.ts",
+          "text": "item.text",
+          "toolName": "item.toolName",
+          "toolInput": "item.toolInput",
+          "toolTitle": "item.toolTitle",
+          "toolInputJson": "item.toolInputJson",
+          "toolResult": "item.toolResult",
+          "toolUseId": "item.toolUseId",
+          "tags": [
+            {
+              "kind": "file",
+              "label": "item.tags[0].label"
+            }
+          ],
+          "toolPaths": ["item.toolPaths[0]"],
+          "event": "interrupt",
+          "answer": true,
+          "systemKind": "duration",
+          "durationMs": 3
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"partial\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"tool\",\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}}"
     },
     {
       "schema": "TurnDelivery",
