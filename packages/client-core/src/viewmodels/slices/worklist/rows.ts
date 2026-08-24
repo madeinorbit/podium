@@ -29,16 +29,20 @@ import {
 import type { SidebarSections, WorktreeNavView } from './nav'
 import { compareManualOrder, sortUnifiedWorkRows } from './row-order'
 import { rowSessions, type UnifiedIssueRow, type UnifiedWorkRow } from './row-types'
-import { issueVisibleInSidebar, sessionVisibleInLiveRoster } from './visibility'
+import {
+  issueVisibleInSidebar,
+  sessionRetainsWorklistRow,
+  sessionVisibleInLiveRoster,
+} from './visibility'
 
 /**
  * Build the unified WORK LIST rows (unsorted). Contents:
- *   - non-archived human-origin issues (drafts included) that have ≥1 live
+ *   - non-archived human-origin issues (drafts included) that have ≥1 recent
  *     (non-archived, non-shell) member session — a worktree or a non-backlog
- *     stage alone is NOT enough; the unified list is live work, not a tree;
- *   - nav worktrees with ≥1 (non-shell) session that is not already rendered
- *     under a visible issue row. These are the fallback route for plain repo
- *     sessions and for sessions whose issue has gone away.
+ *     stage alone is NOT enough; the unified list is current work, not a tree;
+ *   - nav worktrees with ≥1 recent (non-shell) session that is not already
+ *     represented by a visible issue row. These are the fallback route for
+ *     plain repo sessions and for sessions whose issue has gone away.
  * Sessions attached to a live issue only render under that issue's row, so an
  * agent-created worktree whose issue never stamped worktreePath won't show twice.
  * After the flat pass, top-level agent-started issues nest under the starter
@@ -53,6 +57,7 @@ function buildUnifiedRows(
   ownership?: SessionOwnershipIndex,
 ): UnifiedWorkRow[] {
   const rows: UnifiedWorkRow[] = []
+  const retainedSessionsByIssue = new Map<string, SessionMeta[]>()
   for (const issue of issues) {
     if (
       issue.archived ||
@@ -61,11 +66,16 @@ function buildUnifiedRows(
       isSystemOwnedIssueStage(issue.stage)
     )
       continue
+    const retainedSessions = sessionsForIssueNav(
+      issue,
+      sessions,
+      allWorktreePaths,
+      {},
+      ownership,
+    ).filter((session) => sessionRetainsWorklistRow(session, now, issue))
     const mine = elevateCoordinatorSession(
       sortSessionsForSidebar(
-        sessionsForIssueNav(issue, sessions, allWorktreePaths, {}, ownership).filter((s) =>
-          sessionVisibleInLiveRoster(s, now, issue),
-        ),
+        retainedSessions.filter((session) => sessionVisibleInLiveRoster(session, now, issue)),
         now,
       ),
       issue.coordinatorSessionId,
@@ -76,7 +86,7 @@ function buildUnifiedRows(
     // lifecycle independently of any particular session. Finished milestone
     // children, awaiting-merge work, and explicitly closed top-level issues use
     // their existing completion visibility rules. [spec:SP-6144]
-    if (mine.length === 0) {
+    if (retainedSessions.length === 0) {
       const finished = issue.stage === 'done' || issue.closedReason != null
       const activeHumanIssue =
         issue.audience === 'human' &&
@@ -93,7 +103,11 @@ function buildUnifiedRows(
         if (!issueVisibleInSidebar(issue, now)) continue
       }
     }
-    const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
+    retainedSessionsByIssue.set(issue.id, retainedSessions)
+    const lastSession = retainedSessions.reduce(
+      (max, session) => Math.max(max, Date.parse(session.lastActiveAt) || 0),
+      0,
+    )
     rows.push({
       kind: 'issue',
       issue,
@@ -158,7 +172,9 @@ function buildUnifiedRows(
   const collectIssueSessions = (issueRows: readonly UnifiedWorkRow[]): void => {
     for (const row of issueRows) {
       if (row.kind !== 'issue') continue
-      for (const session of row.sessions) issueSessionIds.add(session.sessionId)
+      for (const session of retainedSessionsByIssue.get(row.issue.id) ?? []) {
+        issueSessionIds.add(session.sessionId)
+      }
       collectIssueSessions(row.startedByChildren ?? [])
     }
   }
@@ -167,7 +183,7 @@ function buildUnifiedRows(
   const issueByIdForSession = new Map(issues.map((issue) => [issue.id, issue]))
   const worktreeRows: UnifiedWorkRow[] = []
   for (const worktree of sidebarWorktrees(sections)) {
-    const guests = worktree.sessions.filter((session) => {
+    const retainedGuests = worktree.sessions.filter((session) => {
       if (issueSessionIds.has(session.sessionId)) return false
       const issue = session.issueId ? issueByIdForSession.get(session.issueId) : undefined
       // A missing issue in this replica is intentionally treated as an orphan;
@@ -180,13 +196,17 @@ function buildUnifiedRows(
           isSystemOwnedIssueStage(issue.stage))
       )
         return false
+      return sessionRetainsWorklistRow(session, now, issue)
+    })
+    if (retainedGuests.length === 0) continue
+    const guests = retainedGuests.filter((session) => {
+      const issue = session.issueId ? issueByIdForSession.get(session.issueId) : undefined
       return sessionVisibleInLiveRoster(session, now, issue)
     })
-    if (guests.length === 0) continue
     worktreeRows.push({
       kind: 'worktree',
       worktree: { ...worktree, sessions: guests },
-      activityAt: guests.reduce(
+      activityAt: retainedGuests.reduce(
         (max, session) => Math.max(max, Date.parse(session.lastActiveAt) || 0),
         0,
       ),

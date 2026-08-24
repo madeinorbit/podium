@@ -40,16 +40,13 @@ export function issueVisibleInSidebar(issue: IssueNavigationModel, now: number):
   return now - anchor <= SIDEBAR_FINISHED_GRACE_MS
 }
 
-/** The shared eligibility rule for sessions shown on current-work rosters. */
-export function sessionVisibleInLiveRoster(
+/** Whether a session still earns its issue/worktree a current-work row. */
+export function sessionRetainsWorklistRow(
   s: SessionMeta,
   now: number,
   issue?: IssueWire,
 ): boolean {
-  // Assignment presence is lifecycle state, not acknowledgment state. An
-  // exited agent is gone even when its final turn is unread; a hibernated agent
-  // remains eligible until the completion-decay rules below retire it.
-  if (s.archived || s.status === 'exited') return false
+  if (s.archived) return false
   const issueFinished =
     issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
   const agentState = s.agentState
@@ -70,4 +67,16 @@ export function sessionVisibleInLiveRoster(
   }
   const anchor = Math.max(finishedAtMs, Date.parse(s.readAt) || 0)
   return now - anchor <= SIDEBAR_FINISHED_GRACE_MS
+}
+
+/** The shared eligibility rule for agent membership on current-work rosters. */
+export function sessionVisibleInLiveRoster(
+  s: SessionMeta,
+  now: number,
+  issue?: IssueWire,
+): boolean {
+  // Process exit ends roster membership immediately. Row existence is a
+  // separate acknowledgment/decay question answered above: an unread final
+  // turn may keep its task or worktree row without showing a retired agent.
+  return s.status !== 'exited' && sessionRetainsWorklistRow(s, now, issue)
 }
