@@ -1,4 +1,4 @@
-import { issueIsActionable } from '@podium/client-core/viewmodels'
+import { filterBoardScope, issueIsActionable } from '@podium/client-core/viewmodels'
 import {
   ISSUE_STATUS_LABELS,
   type IssueStage,
@@ -16,6 +16,9 @@ import type { IssueViewModel } from '@/app/store'
  * reach the task you are not working on. At this repo's scale that is several
  * hundred rows, so the stage tabs are not a filter convenience, they are what
  * stops the surface being one endless scroll.
+ *
+ * "Every task" means every task the BOARD would show (see `inScope`), not every
+ * row in the replica.
  */
 
 /**
@@ -90,6 +93,26 @@ function listable(issue: IssueViewModel): boolean {
   return !issue.archived && !issue.deletedAt
 }
 
+/**
+ * The population every tab, count and search runs over: the SAME scope gate the
+ * task board uses (POD-1581).
+ *
+ * The explorer used to take the raw replica, so the two things the board has
+ * always held back surfaced here and nowhere else — draft vessels (the issue
+ * auto-minted to hold an agent started without a task, still carrying its
+ * placeholder title) and top-level agent-internal decomposition. Vessels can
+ * dominate a bucket: they outlive the session that made them, and every one of
+ * them rendered as a row reading `Draft` with nothing under it, because the
+ * sidebar labels a vessel by its session and the explorer prints `issue.title`.
+ *
+ * `showAgentTasks: false` is deliberate rather than plumbed: the dock has no
+ * display menu to expose the toggle, and the board is where someone who wants
+ * to see internal work goes.
+ */
+function inScope(issues: readonly IssueViewModel[]): IssueViewModel[] {
+  return filterBoardScope(issues, false)
+}
+
 /** Newest activity first — the order that makes "the task I just touched" the
  *  first thing in every tab. */
 function byRecency(a: IssueViewModel, b: IssueViewModel): number {
@@ -117,7 +140,8 @@ export function explorerRows(
   sessions: readonly SessionMeta[],
   opts: { tab: ExplorerTab; query: string },
 ): IssueViewModel[] {
-  const open = issues.filter(listable)
+  const scoped = inScope(issues)
+  const open = scoped.filter(listable)
   const query = opts.query.trim()
   if (query) {
     const normalized = query.toLowerCase()
@@ -125,18 +149,16 @@ export function explorerRows(
     // supplies the whole ref already knows which task they want, so let that
     // one archived row cross it. Partial refs and title prose still run over
     // `open` only; typing "minimap" must not turn search into an archive dump.
-    const archivedExactRefs = issues.filter(
+    const archivedExactRefs = scoped.filter(
       (issue) =>
-        issue.archived &&
-        !issue.deletedAt &&
-        issueDisplayRef(issue).toLowerCase() === normalized,
+        issue.archived && !issue.deletedAt && issueDisplayRef(issue).toLowerCase() === normalized,
     )
     return [...open.filter((issue) => matchesQuery(issue, query)), ...archivedExactRefs].sort(
       byRecency,
     )
   }
   if (opts.tab === 'needs') {
-    const byIssue = sessionsByIssue(issues, sessions)
+    const byIssue = sessionsByIssue(scoped, sessions)
     return open
       .filter((issue) => issueIsActionable(issue, byIssue.get(issue.id) ?? []))
       .sort(byRecency)
@@ -144,13 +166,22 @@ export function explorerRows(
   return open.filter((issue) => explorerTabOf(issue) === opts.tab).sort(byRecency)
 }
 
-/** The count beside each tab. `needs` runs the SAME predicate as the rail's
- *  portfolio badge, so the two numbers can never disagree. */
+/** The count beside each tab, over the same scoped population the rows come
+ *  from — a tab whose number counted rows the list refuses to show is worse
+ *  than no number.
+ *
+ *  `needs` runs the same predicate as every other attention count
+ *  (`issueIsActionable`), but now over board scope, so it is deliberately NOT
+ *  `portfolioActionableCount` over the raw replica: a draft vessel whose agent
+ *  is waiting no longer lands here. That agent is not lost — the sidebar row IS
+ *  the agent, and it carries the `Needs you` pill. The explorer answers "which
+ *  TASK needs me", and a bare session is not one. */
 export function explorerCounts(
   issues: readonly IssueViewModel[],
   sessions: readonly SessionMeta[],
 ): Record<ExplorerTab, number> {
-  const byIssue = sessionsByIssue(issues, sessions)
+  const scoped = inScope(issues)
+  const byIssue = sessionsByIssue(scoped, sessions)
   const counts: Record<ExplorerTab, number> = {
     needs: 0,
     proposed: 0,
@@ -161,7 +192,7 @@ export function explorerCounts(
     done: 0,
     cancelled: 0,
   }
-  for (const issue of issues) {
+  for (const issue of scoped) {
     if (!listable(issue)) continue
     const tab = explorerTabOf(issue)
     if (tab) counts[tab] += 1
