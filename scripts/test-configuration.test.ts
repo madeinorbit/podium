@@ -36,6 +36,7 @@ import { REAL_AGENT_CLIS } from './agent-smoke-reporter'
 import { QUARANTINE } from './browser-quarantine'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
 import { runWithHeavyTestLease } from './test-heavy'
+import { footer, LEAN_GATE_FILES, otherLanes, resolveLaneAgainst, vitestCommand } from './test-lean'
 import scriptsConfig from './vitest.config'
 import rearchConfig from './vitest.rearch.config'
 
@@ -403,7 +404,6 @@ describe('test lane configuration', () => {
     expect(pkg.scripts['test:agent']).toBe('bun run test')
     expect(pkg.scripts['test:full']).toBe('bun run typecheck && bun scripts/test.ts')
     expect(pkg.scripts['test:unit']).toBe('bun scripts/test.ts')
-    expect(pkg.scripts.test).toContain('vitest.unit.config.ts')
     expect(pkg.scripts.test).not.toContain('test:web')
     expect(pkg.scripts.test).not.toContain('test:bun:unit')
     expect(pkg.scripts.test).not.toContain('test:integration')
@@ -427,15 +427,115 @@ describe('test lane configuration', () => {
     }
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
-    expect(pkg.scripts.test).toContain('bun run typecheck &&')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
-    expect(pkg.scripts.test).toContain('--maxWorkers=1')
     expect(pkg.scripts.test).not.toContain('validation-admission.ts')
-    expect(pkg.scripts.test).toContain('packages/runtime/src/boot.test.ts')
-    expect(pkg.scripts.test).toContain('apps/server/src/router.setup.test.ts')
-    expect(pkg.scripts.test).toContain('apps/daemon/src/connection-state.test.ts')
-    expect(pkg.scripts.test).toContain('scripts/test-configuration.test.ts')
+    // The four files moved out of this command line and into LEAN_GATE_FILES, so the
+    // scope is now asserted against the value the gate actually runs rather than
+    // against substrings of a string (POD-2728). What stays asserted HERE is that the
+    // command still routes through the lean runner: point `test` back at a bare
+    // `vitest run` and the footer, the resolution check and this guard all vanish
+    // together, which is precisely the state POD-2728 was filed about.
+    expect(pkg.scripts.test).toBe('bun run typecheck && bun scripts/test-lean.ts')
     expect(pkg.scripts.test).not.toContain('scripts/test.ts')
+  })
+
+  /**
+   * The lean gate must never be able to shrink quietly [POD-2728].
+   *
+   * Its scope was four POSITIONAL paths passed to `vitest run --passWithNoTests`, which
+   * made it the one explicit file list in the repository exempt from the rule the server
+   * shards are held to a few tests up ("an explicit file list that collects nothing means
+   * the manifest and the filesystem disagree"). Renaming one of the four dropped it from
+   * the gate and still exited 0; renaming all four printed "No test files found, exiting
+   * with code 0". Both were demonstrated, not reasoned about.
+   *
+   * Two independent things are pinned here, because either alone still allows the failure:
+   * the runner must refuse rather than narrow when a named file is not collected, and the
+   * command must not carry `--passWithNoTests` back in.
+   */
+  it('refuses to run a lean gate that has silently lost a file', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    expect(pkg.scripts.test, 'the lean gate would pass empty').not.toContain('--passWithNoTests')
+    expect(LEAN_GATE_FILES.length).toBeGreaterThan(0)
+
+    // Present in the collection: run exactly those, and report the lane's real size.
+    const collected = [...LEAN_GATE_FILES, 'packages/model/src/entities/agent.test.ts']
+    const resolved = resolveLaneAgainst(collected)
+    expect(resolved.ok).toBe(true)
+    if (resolved.ok) {
+      expect(resolved.files).toEqual([...LEAN_GATE_FILES])
+      expect(resolved.collected).toBe(collected.length)
+    }
+
+    // One file renamed out from under it — the case that used to exit 0 on three files.
+    const shrunk = collected.filter((file) => file !== LEAN_GATE_FILES[0])
+    const narrowed = resolveLaneAgainst(shrunk)
+    expect(narrowed.ok, 'a gate reduced to three files still passed').toBe(false)
+    if (!narrowed.ok) expect(narrowed.missing).toEqual([LEAN_GATE_FILES[0]])
+
+    // Everything gone — the case that used to print "No test files found" and exit 0.
+    const empty = resolveLaneAgainst([])
+    expect(empty.ok, 'an empty gate still passed').toBe(false)
+    if (!empty.ok) expect(empty.missing).toEqual([...LEAN_GATE_FILES])
+  })
+
+  /**
+   * The footer is the whole point of POD-2728, so it is asserted rather than trusted:
+   * the last thing a `bun run test` leaves on screen has to deny being a suite run and
+   * has to carry the ratio it actually ran. A green that reads like a suite is what
+   * taught the fleet that green means shipped.
+   */
+  it('ends the lean gate with output that cannot be read as a suite', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const lanes = otherLanes(pkg.scripts)
+    const passed = footer('PASSED', LEAN_GATE_FILES.length, 955, lanes)
+    expect(passed).toContain('NOT the test suite')
+    expect(passed).toContain(`Ran ${LEAN_GATE_FILES.length} of the 955 files`)
+    expect(passed).toContain('0.4%')
+    expect(passed).toContain('bun run test:full')
+    for (const file of LEAN_GATE_FILES) expect(passed).toContain(file)
+
+    // A red lean gate must not borrow the reassuring half of that copy.
+    const failed = footer('FAILED', LEAN_GATE_FILES.length, 955, lanes)
+    expect(failed).toContain('LEAN GATE FAILED')
+    expect(failed).not.toContain('lean gate green')
+  })
+
+  /**
+   * The footer's roster of skipped lanes is READ OFF package.json, not written down
+   * [POD-2728]. A hand-kept roster would be the same bug one level up: add a lane,
+   * forget the footer, and the output starts asserting a set that is no longer true —
+   * which is exactly how this repository ended up with a command called `test` that
+   * did not say it ran four files. So what is pinned here is the derivation, not a
+   * list: every `test*` script must appear except this gate and its aliases.
+   */
+  it('derives the skipped-lane roster from package.json rather than restating it', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const lanes = otherLanes(pkg.scripts)
+
+    // The gate itself, and anything that is only an alias for it, are not "other lanes".
+    expect(lanes).not.toContain('test')
+    expect(lanes).not.toContain('test:agent')
+    expect(pkg.scripts['test:agent'], 'test:agent stopped being a pure alias').toBe('bun run test')
+
+    // Everything else that calls itself a test lane is in, including the ones a reader
+    // is most likely to assume the default covers.
+    for (const lane of ['test:full', 'test:unit', 'test:integration', 'test:e2e', 'test:rust']) {
+      expect(lanes, `${lane} vanished from the footer's roster`).toContain(lane)
+    }
+
+    // package.json's `//name` comment convention is documentation, not a lane.
+    expect(lanes.filter((lane) => lane.startsWith('//'))).toEqual([])
+
+    // And the derivation must actually be reading the object it was handed — a
+    // hardcoded roster would ignore a lane that only exists in this fixture.
+    expect(otherLanes({ test: 'x', 'test:invented-lane': 'y' })).toEqual(['test:invented-lane'])
   })
 
   it('keeps rewrite migration tests out of routine package validation', () => {
@@ -797,6 +897,9 @@ describe('test lane configuration', () => {
       scripts: Record<string, string>
     }
     for (const [name, script] of Object.entries(pkg.scripts)) {
+      // `//name` entries are package.json's comment convention — prose about a lane, not
+      // a command. Sweeping them for `vitest` reads a doc-string as an invocation.
+      if (name.startsWith('//')) continue
       for (const match of script.matchAll(/(?:^|&&|\|\|)\s*([^&|]*\bvitest\b[^&|]*)/g)) {
         const invocation = match[1]
         if (invocation === undefined) {
@@ -808,5 +911,14 @@ describe('test lane configuration', () => {
         ).toBe(true)
       }
     }
+
+    // The lean gate's invocation moved OUT of package.json and into scripts/test-lean.ts
+    // (POD-2728), so the sweep above can no longer see it. Follow it there rather than
+    // letting the repository's most-typed command fall out of this doctrine unnoticed —
+    // `bun --bun vitest` (the bin) silently comes up on real Node (POD-195), which is the
+    // whole reason the entry module is named explicitly.
+    const lean = vitestCommand(['run'])
+    expect(lean.slice(0, 2)).toEqual(['bun', '--bun'])
+    expect(lean[2]).toMatch(/node_modules\/vitest\/vitest\.mjs$/)
   })
 })

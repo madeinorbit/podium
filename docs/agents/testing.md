@@ -23,6 +23,27 @@ boot/configuration files with one worker:
 It does not run the package sweep, repository rewrite audits, real processes, PTYs,
 ports, browsers, performance probes, or agent CLIs. It deliberately does not take `test:heavy`: this bounded one-worker probe neither waits behind
 nor delays heavyweight suites.
+
+**Read the footer, and cite it as what it is** [POD-2728]. The lane runs through
+`scripts/test-lean.ts`, which measures `vitest.unit.config.ts` at the start of every run
+and closes with the ratio it actually covered:
+
+    ────────────────────────────────────────────────
+    LEAN GATE PASSED — this is NOT the test suite.
+
+    Ran 4 of the 955 files vitest.unit.config.ts collects in its `node` project (0.4%).
+    ...
+
+(955 is illustrative — the denominator is resolved from the runner on every run, so it
+tracks the tree rather than this page.)
+
+That footer exists because agents were reporting `bun run test` green — correctly, in good
+faith — as though the trailing `Tests 76 passed (76)` were a suite result. It is not. Report
+a green here as **“lean gate green”**, never as “tests pass”; if a change needs suite-level
+evidence, the sweep is `bun run test:full` and the lane map is below. The same runner
+**refuses to start** when any of its four files is no longer collected by that config — a
+gate that had silently narrowed to three files used to exit 0, and one that had lost all
+four printed `No test files found, exiting with code 0`.
 Docs, copy, fonts, formatting, and generated artifacts may skip it when they cannot affect
 runtime; say so in the handoff.
 
@@ -37,7 +58,7 @@ is not a reason to add a lane.
 
 | Command | Tests live in / selection rule | Also executed by | Run when |
 | --- | --- | --- | --- |
-| `bun run test` | Cached lock-free workspace typecheck, then the four exact files above via the `node` project in `vitest.unit.config.ts` | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
+| `bun run test` | Cached lock-free workspace typecheck, then `scripts/test-lean.ts`: the four exact files above via the `node` project in `vitest.unit.config.ts`, with a scope footer and a refusal if any of the four is no longer collected | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
 | `bun run test:agent` | Exactly the same command and scope as `test` | Alias only | Compatibility only; prefer the conventional `bun run test` |
 | `bun run test:full` | Cached lock-free typecheck, then package-owned `*.test.*` / `*.spec.*` under `apps/*`, `packages/*`, and `scripts/*`; one Turbo `test` task per owner; server expands to five shards; exclusions come from `vitest.unit.config.ts` | `oracle` as its `unit` component; CI `unit-tests` | Scheduled CI, merge batches, release validation, or explicit request—not ordinary agent work |
 | `bun run test:unit` | The exhaustive package sweep without the leading typecheck | `test:full` tail | Compatibility/diagnosis only; prefer `test:full` when a full sweep is intentionally required |
@@ -242,6 +263,12 @@ hermetic setup, lane exclusions, and exit-status safeguards.
 
 ## Invariants
 
+- **No lane may pass empty** [POD-2728]: every explicit file list in this repository has
+  to fail when it collects nothing, because a list that disagrees with the filesystem is
+  a manifest bug, not a green. `scripts/test-configuration.test.ts` pins
+  `passWithNoTests === false` on all five server shards and pins the lean gate's
+  refusal-and-footer behaviour in `scripts/test-lean.ts`. The lean gate was the one
+  exception until POD-2728; do not reintroduce `--passWithNoTests` there.
 - **Lane membership is guarded**: `scripts/test-configuration.test.ts` asserts the
   package-owned scopes, normalized-wire serialization, hermetic setup, worker caps,
   heavy-lane split, and package.json script shape. Every new package test needs a real

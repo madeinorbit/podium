@@ -61,6 +61,12 @@ bun run test
 It runs cached, lock-free typecheck followed by a tiny, hermetic, one-worker boot-wiring and lane-configuration probe. It is designed to
 answer “is this candidate internally coherent and are the basic runtime pieces still wired?”
 without traversing every package, starting browsers, or taking the whole-host heavy-test lease.
+
+It is **four files out of everything the unit config collects**, and the footer on every run
+states the exact ratio — resolved from the runner at that moment, not written down here, so
+it stays true as the tree grows. Read it, and report a green as “lean gate green” rather than
+“tests pass” [POD-2728]. `Tests 76 passed (76)` above that footer is the four files’ own test count, not a
+suite result. When a change needs suite-level evidence, `bun run test:full` is the sweep.
 Docs, copy, fonts, formatting, generated artifacts, and other changes that cannot affect runtime
 may skip even this gate; state why in the handoff.
 
