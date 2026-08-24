@@ -82,7 +82,6 @@ declare -A DETAIL=()
 declare -A PARENT_PID=()
 declare -A PARENT_INVOCATION=()
 declare -A PARENT_RESTARTS=()
-declare -A ABDUCO_PID=()
 
 say() { printf '[update-e2e] %s\n' "$*"; }
 die() { say "FATAL: $*" >&2; exit 1; }
@@ -1100,39 +1099,74 @@ abduco_listing() {
     >>"$WORK/logs/abduco-state.log"
   printf %s "$listing"
 }
+# THE BASELINE IS A FILE BECAUSE A SUBSHELL CANNOT DISCARD A FILE (POD-2747).
+#
+# `wait_for` runs its predicate as `last="$("$@" 2>&1)"`, so everything the
+# predicate assigns belongs to a command-substitution subshell that exits one
+# line later. `capture_abduco_state` is the ONE predicate that records state, and
+# two of its three call sites go through `wait_for` — including the re-capture
+# before the handover, which is the one that runs whenever the shells had to be
+# re-created. So the recorded masters were thrown away, `abduco_sessions_survived`
+# found no PID to compare against, counted nothing, and reported the survival
+# lost while the journal showed both masters still attached on their original
+# PIDs straight through the successor swap. The row was red for the harness's own
+# bookkeeping, never for the product.
+#
+# The same reason the array failed is the reason the guards below say `|| return
+# 1` out loud: with the function called as an `if`/`wait_for` condition, errexit
+# is suppressed for its whole body, so a bare `[[ … ]]` decides nothing and
+# execution simply walks on to the next line.
+abduco_baseline() { printf %s "$WORK/logs/abduco-baseline.tsv"; }
 capture_abduco_state() {
-  local ids=$1 container listing id line pid found=0 expected
+  local ids=$1 container listing id line pid found=0 expected baseline
+  baseline="$(abduco_baseline)"
   expected="$(jq length <<<"$ids")"
-  for container in "$FLEET_A" "$FLEET_B"; do
-    listing="$(abduco_listing "$container")"
-    for id in $(jq -r ".[]" <<<"$ids"); do
-      line="$(grep -F -- "-$id" <<<"$listing" | head -1 || true)"
-      [[ -n "$line" ]] || continue
-      [[ "$line" == \** ]]
-      pid="$(cut -f3 <<<"$line" | xargs)"
-      [[ "$pid" =~ ^[1-9][0-9]*$ ]]
-      docker exec "$container" kill -0 "$pid"
-      ABDUCO_PID["$container:$id"]="$pid"
-      (( found += 1 ))
-    done
-  done
-  [[ "$found" == "$expected" ]]
-}
-abduco_sessions_survived() {
-  local ids=$1 container listing id line pid old found=0 expected
-  expected="$(jq length <<<"$ids")"
+  : >"$baseline.new"
   for container in "$FLEET_A" "$FLEET_B"; do
     listing="$(abduco_listing "$container")" || return 1
     for id in $(jq -r ".[]" <<<"$ids"); do
-      old="${ABDUCO_PID[$container:$id]:-}"
-      [[ -n "$old" ]] || continue
+      line="$(grep -F -- "-$id" <<<"$listing" | head -1 || true)"
+      [[ -n "$line" ]] || continue
+      [[ "$line" == \** ]] || return 1
+      pid="$(cut -f3 <<<"$line" | xargs)"
+      [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+      docker exec "$container" kill -0 "$pid" || return 1
+      printf '%s\t%s\t%s\n' "$container" "$id" "$pid" >>"$baseline.new"
+      (( found += 1 ))
+    done
+  done
+  # Publish only a COMPLETE baseline: a half-captured file would let the survival
+  # check compare the masters it happened to see and call that a survival.
+  [[ "$found" == "$expected" ]] || return 1
+  mv "$baseline.new" "$baseline"
+}
+abduco_sessions_survived() {
+  local ids=$1 container listing id line pid old recorded found=0 expected baseline
+  baseline="$(abduco_baseline)"
+  expected="$(jq length <<<"$ids")"
+  # A missing baseline is a failure to REPORT, not a comparison to skip. The row
+  # claims these EXACT masters survived; with nothing recorded there is no claim
+  # to make, and reading that as "nothing to check" is precisely how the lost
+  # baseline came out looking like lost sessions.
+  if [[ ! -s "$baseline" ]]; then
+    say "no abduco master baseline was captured, so survival cannot be judged" >&2
+    return 1
+  fi
+  if [[ "$(wc -l <"$baseline")" != "$expected" ]]; then
+    say "abduco baseline holds $(wc -l <"$baseline") masters, expected $expected" >&2
+    return 1
+  fi
+  for container in "$FLEET_A" "$FLEET_B"; do
+    listing="$(abduco_listing "$container")" || return 1
+    while IFS=$'\t' read -r recorded id old; do
+      [[ "$recorded" == "$container" ]] || continue
       line="$(grep -F -- "-$id" <<<"$listing" | head -1 || true)"
       [[ -n "$line" && "$line" == \** ]] || return 1
       pid="$(cut -f3 <<<"$line" | xargs)"
       [[ "$pid" == "$old" ]] || return 1
       docker exec "$container" kill -0 "$pid" || return 1
       (( found += 1 ))
-    done
+    done <"$baseline"
   done
   [[ "$found" == "$expected" ]]
 }
@@ -1239,10 +1273,20 @@ rollback() {
   approve_release "$WORK/logs/release-proposal-rollback.json" \
     "$WORK/logs/release-approval-rollback.json"
   proposal="$(<"$WORK/logs/release-proposal-rollback.json")"
-  jq -e --arg head "$head" '(.headSha[0:7]) as $short |
-    .state=="pending" and .headSha==$head and
-    (.version|test("\\.dev\\.[1-9][0-9]*\\+[0-9a-f]{7}$")) and
-    (.version|endswith("+\($short)"))' <<<"$proposal" >/dev/null
+  # ONE MINT, ONE GRAMMAR (POD-2747).
+  #
+  # This is the same HEAD/version identity contract `dev-release` asserts, and it
+  # must stay written the same way. It was not: this copy tested the version
+  # against `\.dev\.` — a DOT before `dev` — while the publisher mints the flat
+  # semver form `X.Y.Z-dev.N+sha`, with a HYPHEN. The `dev-release` copy was
+  # corrected 37 minutes after both were written and this one was missed, so the
+  # row could not pass on any build, and the truncating `.headSha[0:7]` slice hid
+  # which half of the comparison was actually wrong. Comparing the full field to
+  # a full-field `$head` needs no slice: shape both, then compare them whole.
+  jq -e --arg head "$head" '.state=="pending" and .headSha==$head and
+    ($head|test("^[0-9a-f]{7}$")) and
+    (.version|test("^[0-9]+\\.[0-9]+\\.[0-9]+-dev\\.[1-9][0-9]*\\+[0-9a-f]{7}$")) and
+    (.version|endswith("+\($head)"))' <<<"$proposal" >/dev/null
   copy_manifest_out "$manifest"
   jq -e --slurpfile previous "$prior_manifest" '.schema == $previous[0].schema' \
     "$manifest" >/dev/null
