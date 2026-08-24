@@ -29,6 +29,7 @@
 import { supported, unsupported } from '@podium/harness'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { ProviderCursor } from '@podium/protocol'
+import { DriverRefusalError } from '../errors.js'
 import type {
   AgentSessionHandle,
   AttachEndpoint,
@@ -81,10 +82,36 @@ import type {
  */
 const SURVIVORS = new Map<string, SessionCore>()
 
-/** Clears the survivor registry. Test-support only: a suite that leaks a
- *  survivor into the next case gets a passing adopt it did not earn. */
+/**
+ * THE HARNESS'S OWN CONVERSATION STORE, KEYED BY RESUME REF (POD-2703, review 1).
+ *
+ * ---------------------------------------------------------------------------
+ * THE FAKE MODELLED THE DEFECT IT IS SUPPOSED TO BE THE REFERENCE AGAINST
+ * ---------------------------------------------------------------------------
+ *
+ * `resume()` built a fresh `newCore` with the requested ref and transferred
+ * NOTHING — no items, no log, no state. The returned handle reported the right
+ * ref, answered `health()`, took a turn and streamed events, and its
+ * conversation was empty. That is precisely the failure the corpus exists to
+ * catch, shipped in the corpus's own reference driver, and it went unseen
+ * because every resume assertion watched the REF rather than the payload.
+ *
+ * WHY IT IS SEPARATE FROM {@link SURVIVORS}, and the distinction is the whole
+ * adopt/resume split. `SURVIVORS` holds live PROCESSES: a supervisor restart
+ * drops the handles and the entries stay, so `adopt()` has something to rebind.
+ * This holds the CONVERSATION, which outlives the process entirely — it is the
+ * Codex rollout file on disk, opencode's sqlite rows, the Claude project JSONL.
+ * `kill()` empties a survivor and must not touch a transcript; that is the
+ * difference between a crashed session and a deleted one.
+ */
+const CONVERSATIONS = new Map<string, TranscriptItem[]>()
+
+/** Clears the survivor registry and the conversation store. Test-support only:
+ *  a suite that leaks a survivor into the next case gets a passing adopt it did
+ *  not earn, and one that leaks a conversation gets a passing resume. */
 export function resetFakeRuntime(): void {
   SURVIVORS.clear()
+  CONVERSATIONS.clear()
 }
 
 // ---------------------------------------------------------------------------
@@ -492,12 +519,29 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
    */
   function recordDelivery(core: SessionCore, text: string): void {
     core.textDeliveries += 1
-    core.items.push({
+    const item: TranscriptItem = {
       id: `item-${core.sessionId}-${core.nextId++}`,
       role: 'user',
       text,
       ts: stamp(),
-    })
+    }
+    core.items.push(item)
+    // AND INTO THE STORE THE REF NAMES, which is what survives the process. A
+    // harness writes its transcript file as the turn happens, not at shutdown —
+    // so a session killed mid-conversation is still resumable, which is the
+    // whole scenario `resume()` exists for.
+    writeThrough(core, item)
+  }
+
+  /** Mirror one item into the ref-keyed store, where a later `resume()` finds
+   *  it. A session with no ref yet has nowhere to write, and correctly loses
+   *  nothing: it was not resumable in the first place. */
+  function writeThrough(core: SessionCore, item: TranscriptItem): void {
+    const ref = core.binding.resume
+    if (!ref) return
+    const stored = CONVERSATIONS.get(ref.value) ?? []
+    stored.push(item)
+    CONVERSATIONS.set(ref.value, stored)
   }
 
   function closeTurn(core: SessionCore, ev: TurnEvent): void {
@@ -626,7 +670,29 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       },
 
       async export(): Promise<SessionArchive> {
-        if (!core.binding.resume) throw new Error('fake: export before a resume ref exists')
+        /**
+         * THE DECLARATION IS CHECKED FIRST, and the order is the answer rather
+         * than a formality. "This harness has no archive" is PERMANENT and
+         * "no ref yet" is NOT YET; a caller retries one and never the other. A
+         * driver that reports the temporary reason for a permanent gap sends an
+         * archive scheduler round a loop it can never leave.
+         */
+        if (!capabilities().archive.supported) {
+          const declared = capabilities().archive
+          throw new DriverRefusalError(
+            {
+              reason: 'unsupported',
+              ...(declared.supported ? {} : { detail: declared.reason }),
+            },
+            `${id} export`,
+          )
+        }
+        if (!core.binding.resume) {
+          // TYPED, not a bare throw: `export()` has no refusal arm in its return
+          // type, so this class IS the refusal channel. A caller must be able to
+          // tell "this session cannot be archived yet" from "the driver broke".
+          throw new DriverRefusalError({ reason: 'no_resume_ref' }, `${id} export`)
+        }
         return {
           harness,
           formatVersion: 1,
@@ -976,6 +1042,13 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       handleGeneration: 0,
       nextId: 1,
     }
+    /**
+     * A RESUMED CORE INHERITS THE CONVERSATION THE REF NAMES. This is the line
+     * that makes `resume()` mean anything: without it the handle is a fresh
+     * session wearing an old name. `create()` passes a ref nothing has written
+     * under yet and correctly starts empty.
+     */
+    if (resume) core.items = [...(CONVERSATIONS.get(resume.value) ?? [])]
     SURVIVORS.set(processKey, core)
     push(core, { t: 'state', change: { kind: 'session_started' } })
     core.state = { ...core.state, phase: 'idle', since: stamp() }
@@ -1081,6 +1154,8 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     emitItem(sessionId, item) {
       const core = coreFor(sessionId)
       core.items.push(item)
+      // The PROVIDER writing to its own store, same as a delivered turn.
+      writeThrough(core, item)
       push(core, { t: 'item', item: { kind: 'complete', item } })
     },
     streamAssistantText(sessionId, chunks) {
@@ -1132,7 +1207,10 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       // conversation that came back empty — which reads as lost work rather than
       // as a driver that never had the verb.
       if (!resumable) {
-        throw new Error(`${id}: this harness has no resume; ${ref.kind} cannot be reopened`)
+        throw new DriverRefusalError(
+          { reason: 'unsupported', detail: `this harness cannot reopen a ${ref.kind}` },
+          `${id} resume`,
+        )
       }
       return makeHandle(newCore(mintSessionId(), spec, ref))
     },

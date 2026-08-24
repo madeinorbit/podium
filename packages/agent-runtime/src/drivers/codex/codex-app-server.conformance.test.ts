@@ -79,6 +79,9 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
   let seq = 0
   /** World-wide thread minting — see `launch`. */
   let mintedThreads = 0
+  /** Codex's rollout files, per WORLD rather than per app-server: the child dies
+   *  with the daemon, the JSONL on disk does not. */
+  const rollouts = new Map<string, Record<string, unknown>[]>()
   const servers = new Map<SessionId, FakeAppServer>()
   /** Servers a relaunch superseded. The driver stops them through the endpoint;
    *  `reset` closes any the property left standing. */
@@ -130,7 +133,10 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
        * whose ids collide cannot tell a resumed conversation from a fresh one —
        * which is the single thing that property exists to tell.
        */
-      const server = startFakeAppServer({ threadIds: [`thr-w${++mintedThreads}`] })
+      const server = startFakeAppServer({
+        threadIds: [`thr-w${++mintedThreads}`],
+        rollouts,
+      })
       /**
        * A RELAUNCH REPLACES THE SERVER FOR THIS SESSION under the same
        * session-derived identity — but it does NOT kill the outgoing one, and
@@ -187,10 +193,21 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
       return { streamId: `cx-attach-${input.sessionId}`, warmTtlMs: 300_000 }
     },
 
-    async readRollout() {
-      // The archive's bytes. Real on the daemon host; here it only has to prove
-      // the driver ships the rollout rather than a re-serialization.
-      return new TextEncoder().encode('{"type":"session_meta"}\n')
+    async readRollout(path: string) {
+      /**
+       * THE THREAD'S ACTUAL ROLLOUT, not a constant (POD-2703, review 1).
+       *
+       * This returned the same 24 bytes for every session, which made every
+       * export assertion above it metadata-only — the reviewer replaced each
+       * driver's payload with one garbage byte and the suite stayed green, and
+       * here the payload already WAS a constant. The rollout path names a
+       * thread; that thread's items are what `export()` has to ship, or the
+       * archive is a backup of nothing.
+       */
+      // `rollout-<threadId>.jsonl`, the name `threadPayload` reports.
+      const threadId = /rollout-(.+)\.jsonl$/.exec(path.split('/').at(-1) ?? '')?.[1] ?? ''
+      const lines = (rollouts.get(threadId) ?? []).map((item) => JSON.stringify(item))
+      return new TextEncoder().encode(`${['{"type":"session_meta"}', ...lines].join('\n')}\n`)
     },
   }
 
@@ -344,6 +361,8 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
         retired.length = 0
         servers.clear()
         entries.clear()
+        // Per-WORLD, but a property must not inherit a previous one's thread.
+        rollouts.clear()
         seq = 0
         mintedThreads = 0
       },

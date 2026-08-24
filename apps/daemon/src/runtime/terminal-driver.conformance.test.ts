@@ -148,6 +148,54 @@ function makeWorld(options: WorldOptions = {}): {
    */
   const resumeRefs = new Map<SessionId, ResumeRef>()
   const storeWritten = new Set<SessionId>()
+  /**
+   * THE HARNESS'S TRANSCRIPT FILES, KEYED BY RESUME REF (POD-2703, review 1).
+   *
+   * `readTranscript` returned `[]` and `readFileBytes` returned a constant, so
+   * this fixture had no conversation at all: a resumed session's history was
+   * empty, its archive carried a fixed string, and both were identical to a
+   * fresh session's. Every corpus property that asked only about the REF was
+   * satisfied by that, which is exactly the hole the review found — a mutant
+   * whose `resume()` took the fresh-create path passed all four resume tests.
+   *
+   * KEYED BY RESUME VALUE, not by session id, and that is the point: the file
+   * is what outlives the process. `resume()` mints a NEW podium session id and
+   * points the relaunched CLI at the same store, so a fixture keyed by session
+   * id would lose the conversation at exactly the moment it is meant to prove it
+   * survived.
+   */
+  const transcripts = new Map<string, TranscriptItem[]>()
+
+  /**
+   * WHICH FILE THIS CLI IS ACTUALLY READING — decided at LAUNCH, never by what
+   * the driver claims (POD-2703, review 1 follow-up).
+   *
+   * I WAS STILL TRUSTING A CLAIM INSTEAD OF THE THING. That is the whole rule,
+   * and this is the second time in one issue it caught me. The review's finding
+   * was that the corpus asserted on the resume REF rather than on the
+   * conversation the ref addresses; the first repair fixed the properties and
+   * then keyed THIS lookup on `session.resume` — the ref the DRIVER reports.
+   * Same mistake, one level down, and it kept the review's own mutant alive on
+   * this family: a `resume()` that relaunches the CLI FRESH, with no `--resume`,
+   * while still reporting the requested ref was handed back the old
+   * conversation, because the fixture answered the ref rather than the process.
+   * Green suite, and an agent with no context at all.
+   *
+   * A CLI READS THE STORE IT WAS POINTED AT when it started. `resumeRefs` is
+   * exactly that record: the ref a resuming launch carried, or the fresh id a
+   * plain launch minted for itself. Keyed here, a fixture cannot hand back a
+   * conversation the process it models never opened — which is the entire
+   * difference between "the session came back" and "a new session is wearing
+   * its name".
+   *
+   * DO NOT KEY THIS ON `session.resume`. It will look equivalent, every test
+   * will pass, and the one property this fixture exists to make falsifiable
+   * will stop being able to fail.
+   */
+  const transcriptFor = (sessionId: SessionId): TranscriptItem[] => {
+    const launched = resumeRefs.get(sessionId)
+    return launched ? (transcripts.get(launched.value) ?? []) : []
+  }
 
   const postResumeRef = (sessionId: SessionId): void => {
     if (storeWritten.has(sessionId)) return
@@ -204,6 +252,15 @@ function makeWorld(options: WorldOptions = {}): {
       role: 'user',
       ts: iso(),
       text,
+    }
+    // THE CLI WROTE ITS TRANSCRIPT FILE. Same moment the turn is echoed on the
+    // screen, because that is when a real harness appends — which is why a
+    // session killed mid-conversation is still resumable.
+    const resume = resumeRefs.get(sessionId)
+    if (resume) {
+      const file = transcripts.get(resume.value) ?? []
+      file.push(item)
+      transcripts.set(resume.value, file)
     }
     runtime?.observe({ type: 'transcriptDelta', sessionId, items: [item] })
     // The harness has now written its store. `first-turn` is that moment.
@@ -339,7 +396,12 @@ function makeWorld(options: WorldOptions = {}): {
         },
       })
     },
-    readTranscript: async () => [],
+    readTranscript: async (session, range) =>
+      // The harness's own file, read back — the one THIS process opened, not the
+      // one the driver says it is on; see `transcriptFor`. Anchors are not
+      // modelled: no corpus property pages this, and inventing an anchor scheme
+      // here would be fixture behaviour nothing verifies against the real reader.
+      transcriptFor(session.sessionId).slice(-range.limit),
     archiveTranscript: async ({ resumeValue }) => {
       // A HARNESS WITH NO LOCATOR CANNOT BE ASKED, and the driver is required to
       // stop at its own capability check before it gets here — this throw is the
@@ -353,13 +415,18 @@ function makeWorld(options: WorldOptions = {}): {
         relativeDir: 'fixture/sessions',
       }
     },
-    readFileBytes: async (path) =>
-      // The harness's own store, byte for byte. An empty answer here is what an
-      // archive that shipped nothing looks like from the driver's side, and the
-      // corpus refuses it — so the fixture must not be the one producing it.
-      profile.archivable
-        ? new TextEncoder().encode(`{"transcript":"${path}"}\n`)
-        : new Uint8Array(),
+    readFileBytes: async (path) => {
+      /**
+       * THE SESSION'S OWN TRANSCRIPT, byte for byte — not a constant naming the
+       * path (POD-2703, review 1). The constant made every export assertion
+       * above it metadata-only: the reviewer swapped each driver's payload for
+       * one garbage byte and the suite stayed green, and here the payload
+       * already was one.
+       */
+      const value = /\/([^/]+)\.jsonl$/.exec(path)?.[1] ?? ''
+      const items = transcripts.get(value) ?? []
+      return new TextEncoder().encode(items.map((item) => JSON.stringify(item)).join('\n') + '\n')
+    },
     resources: () => undefined,
     now: () => clock,
     setTimer: (fn, delayMs) => {
@@ -459,6 +526,7 @@ function makeWorld(options: WorldOptions = {}): {
         deliveries.clear()
         resumeRefs.clear()
         storeWritten.clear()
+        transcripts.clear()
       },
       spec: () => ({
         harness: 'grok',
@@ -523,14 +591,18 @@ describe('generic-pty on a harness that DOES declare a handoff transcript', () =
 
     // `resumeRefTiming: 'first-turn'` for this family, and `export()` refuses
     // without a ref — so the archive arm is only reachable through a real turn.
-    await session.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
+    // THE TURN'S TEXT IS THE WITNESS the archive must carry: metadata alone
+    // stayed green against a payload replaced by one garbage byte (POD-2703
+    // review 1), so this world plants a string and looks for it in the bytes.
+    const witness = 'podium-witness-terminal-archivable'
+    await session.send({ text: witness }, { origin: 'human', delivery: 'when-ready' })
     await control.completeTurn(session.binding.sessionId)
     for (let i = 0; i < 200 && !session.binding.resume; i++) {
       await new Promise((resolve) => setTimeout(resolve, 5))
     }
     expect(session.binding.resume).not.toBeNull()
 
-    await assertArchiveHonoursItsDeclaration(session, driver)
+    await assertArchiveHonoursItsDeclaration(session, driver, witness)
     world.target.reset()
   })
 
@@ -547,7 +619,9 @@ describe('generic-pty on a harness that DOES declare a handoff transcript', () =
     // different reason and cannot tell a fabricated ref from an absent one.
     expect(driver.capabilities().archive.supported).toBe(true)
     expect(session.binding.resume).toBeNull()
-    await assertArchiveHonoursItsDeclaration(session, driver)
+    // No conversation yet, so no witness to look for — only the refusal arm is
+    // reachable here, and it does not read one.
+    await assertArchiveHonoursItsDeclaration(session, driver, null)
     world.target.reset()
   })
 })

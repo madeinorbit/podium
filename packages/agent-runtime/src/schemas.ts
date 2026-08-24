@@ -48,6 +48,7 @@
  */
 
 import type { z } from 'zod'
+import { REFUSAL_REASONS } from './errors.js'
 import type {
   ExitClassification,
   FailureDisposition,
@@ -167,6 +168,17 @@ exact<z.infer<typeof TurnDeliveryWire>, TurnDelivery>(true)
 exact<z.infer<typeof ObservationInputOrigin>, InputOrigin>(true)
 exact<z.infer<typeof SendProofWire>, SendProof>(true)
 exact<z.infer<typeof RefusalReasonWire>, RefusalReason>(true)
+/**
+ * THE REASON UNION, AND THE REASON *LIST*, PINNED TOGETHER (POD-2703).
+ *
+ * `REFUSAL_REASONS` exists because `isDriverRefusal` has to check a value at
+ * RUNTIME, and a union is not a value. A hand-kept list beside a union is the
+ * classic drift pair: a reason added to the type is simply missing from the
+ * list, and every refusal carrying it is silently reclassified as a crash. The
+ * `satisfies` where it is declared stops it holding a reason that is not one;
+ * this stops it MISSING one.
+ */
+exact<(typeof REFUSAL_REASONS)[number], RefusalReason>(true)
 exact<z.infer<typeof RefusalWire>, Refusal>(true)
 exact<z.infer<typeof InteractionKindWire>, InteractionKind>(true)
 exact<z.infer<typeof InteractionSourceWire>, InteractionSource>(true)

@@ -1,12 +1,12 @@
 import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { AgentSessionHandle } from '../../driver.js'
+import type { RuntimeEvent } from '../../events.js'
 import { PERMITTED_FAILURES } from '../../permitted-failures.js'
 // The assertion, not a copy of it: the refusal worlds below are judged by the
 // same corpus function the run judges its endpoint arm with. From the module
 // rather than the `testing/` barrel, which is the corpus's surface to curate.
 import { assertAttachHonoursOneControlLease } from '../../testing/conformance/suite.js'
-import type { AgentSessionHandle } from '../../driver.js'
-import type { RuntimeEvent } from '../../events.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
 import { runConformance } from '../../testing/index.js'
 import { createGrokAcpClient } from './client.js'
@@ -51,6 +51,8 @@ function makeWorld(options: WorldOptions = {}): {
   let runtime: GrokAcpRuntime | undefined
   let replayPromptSettlement: (() => void) | undefined
   let seq = 0
+  /** Grok's own session store, per WORLD rather than per agent process. */
+  const conversations = new Map<string, Record<string, unknown>[]>()
   const servers = new Map<SessionId, FakeGrokAcpServer>()
   const entries = new Map<SessionId, GrokAcpJournalEntry>()
   const journal: GrokAcpJournal = {
@@ -99,6 +101,11 @@ function makeWorld(options: WorldOptions = {}): {
       replayPromptSettlement = undefined
       const server = startFakeGrokAcpServer(nativeId, {
         onReplayedPromptResult: () => replayPromptSettlement?.(),
+        // ONE store across every server this world starts: Grok's conversation
+        // outlives the agent process, which is the whole premise of
+        // `session/load`. See the option's own doc for what a private map per
+        // server made unfalsifiable.
+        store: conversations,
       })
       servers.get(input.sessionId)?.crash()
       servers.set(input.sessionId, server)
@@ -119,7 +126,27 @@ function makeWorld(options: WorldOptions = {}): {
       }
       return endpoint
     },
-    readArchive: async () => [{ path: 'updates.jsonl', bytes: new TextEncoder().encode('{}\n') }],
+    /**
+     * THE ARCHIVE IS THE SESSION'S OWN UPDATES, not a constant (POD-2703,
+     * review 1).
+     *
+     * This returned the same two bytes for every session, which made every
+     * export assertion above it metadata-only: the reviewer replaced each
+     * driver's payload with one garbage byte and the suite stayed green, and on
+     * this family the payload ALREADY WAS a garbage byte. An archive that
+     * carries nothing of the conversation is a backup that reports success and
+     * restores nothing.
+     */
+    readArchive: async ({ grokSessionId }) => [
+      {
+        path: `grok/${grokSessionId}/updates.jsonl`,
+        bytes: new TextEncoder().encode(
+          (conversations.get(grokSessionId) ?? [])
+            .map((update) => JSON.stringify(update))
+            .join('\n') + '\n',
+        ),
+      },
+    ],
     // `mode` HAS ALWAYS BEEN ON THE HOST CONTRACT — a real host needs it to
     // decide what to spawn — and a machine that hands a watcher a read-only
     // stream while refusing to seat a controller is what makes the corpus's
@@ -201,6 +228,9 @@ function makeWorld(options: WorldOptions = {}): {
         for (const server of servers.values()) server.crash()
         servers.clear()
         entries.clear()
+        // The store is per-WORLD, not per-server, but a property must not
+        // inherit a previous property's conversation.
+        conversations.clear()
         replayPromptSettlement = undefined
         seq = 0
       },
@@ -306,9 +336,7 @@ describe('grok-acp provider failure detail', () => {
         detail,
       })
 
-      const turnFailure = observed.find(
-        (entry) => entry.t === 'turn' && entry.ev.ev === 'failed',
-      )
+      const turnFailure = observed.find((entry) => entry.t === 'turn' && entry.ev.ev === 'failed')
       if (!turnFailure || turnFailure.t !== 'turn') {
         throw new Error('missing immediate rejection turn failure')
       }

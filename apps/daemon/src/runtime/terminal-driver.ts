@@ -85,6 +85,7 @@ import type {
 } from '@podium/agent-runtime'
 import {
   createTerminalInjection,
+  DriverRefusalError,
   driverLocalCursor,
   ESC,
   RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
@@ -1249,11 +1250,30 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       },
 
       async export(): Promise<SessionArchive> {
-        if (!session.resume) {
-          throw new Error('terminal driver: export before the harness minted a resume ref')
-        }
+        /**
+         * THE DECLARATION IS CHECKED FIRST (POD-2703, review 1), and the order
+         * is the answer rather than a formality. "This harness declares no
+         * handoff transcript" is PERMANENT and "the store is not written yet" is
+         * NOT YET; a caller retries one and never the other. Reporting
+         * `no_resume_ref` for a harness that will never have an archive sends an
+         * archive scheduler round a loop it cannot leave.
+         */
         if (!profile?.archivable) {
-          throw new Error(`terminal driver: ${session.agentKind} declares no handoff transcript`)
+          throw new DriverRefusalError(
+            {
+              reason: 'unsupported',
+              detail: `${session.agentKind} declares no handoff transcript locator`,
+            },
+            'terminal driver export',
+          )
+        }
+        if (!session.resume) {
+          // TYPED, not a bare throw: `export()` has no refusal arm in its return
+          // type, so `DriverRefusalError` IS the refusal channel here. An
+          // archive scheduler must be able to tell "not yet — this harness
+          // writes its store at the first turn" from "the driver broke", and a
+          // message string is not something a caller may branch on.
+          throw new DriverRefusalError({ reason: 'no_resume_ref' }, 'terminal driver export')
         }
         const located = await host.archiveTranscript({
           agentKind: session.agentKind,

@@ -9,6 +9,26 @@ export interface FakeGrokAcpServerOptions {
   /** Test-only bridge from a replayed wire result to the runtime settlement
    *  callback whose absorbing epoch guard the conformance corpus exercises. */
   onReplayedPromptResult?(): void
+  /**
+   * THE CONVERSATION STORE, WHICH OUTLIVES THE AGENT PROCESS (POD-2703,
+   * review 1).
+   *
+   * Grok keeps its sessions in its own store, which is why `session/load`
+   * exists at all: a fresh `grok --acp` is told a session id and REPLAYS that
+   * conversation to the client as `session/update` notifications. This fixture
+   * replayed nothing, so a loaded session came back with an empty
+   * `transcriptItems` and the driver's own `'replay'` provenance branch — which
+   * it has, at runtime.ts's ingest — was dead code no test ever entered.
+   *
+   * That made the corpus's resume properties unfalsifiable on this family: a
+   * resumed session was byte-identical to a fresh one, so a mutant that
+   * discarded the ref passed. Pass ONE map across every server a world starts
+   * and the fixture describes the harness Grok actually is.
+   *
+   * Omitted, the server keeps its own — right for the many tests that start
+   * exactly one and never load.
+   */
+  store?: Map<string, Record<string, unknown>[]>
 }
 
 export interface FakeGrokAcpServer {
@@ -46,6 +66,8 @@ export function startFakeGrokAcpServer(
   let failNext = false
   let failNextDetail = 'fixture prompt failure'
   let eventSeq = 0
+  const store = options.store ?? new Map<string, Record<string, unknown>[]>()
+  const recorded = (id: string): Record<string, unknown>[] => store.get(id) ?? []
 
   const push = (frame: unknown): void => {
     const line = JSON.stringify(frame)
@@ -54,7 +76,13 @@ export function startFakeGrokAcpServer(
   }
   const response = (id: string | number, result: unknown): void =>
     push({ jsonrpc: '2.0', id, result })
+  /** Everything the client is told about a session is also what a later
+   *  `session/load` must be able to replay — so recording happens here, at the
+   *  one place updates leave the server. */
   const notifyUpdate = (update: Record<string, unknown>): void => {
+    const log = store.get(sessionId) ?? []
+    log.push(update)
+    store.set(sessionId, log)
     eventSeq += 1
     push({
       jsonrpc: '2.0',
@@ -113,6 +141,38 @@ export function startFakeGrokAcpServer(
               if (typeof requested === 'string' && requested.length > 0) {
                 sessionId = requested
                 server.sessionId = requested
+              }
+              /**
+               * AND IT REPLAYS THE CONVERSATION, WHICH IS WHAT A LOAD IS FOR
+               * (POD-2703, review 1).
+               *
+               * ACP's `session/load` streams the session's history back as
+               * `session/update` notifications before it answers, and the driver
+               * ingests them under `'replay'` provenance — a branch it has had
+               * since W-grok and that no test ever entered, because this fixture
+               * answered the call and sent nothing. A loaded session therefore
+               * came back EMPTY, and every corpus property that asked only about
+               * the ref was happy with it.
+               *
+               * The replay goes out BEFORE the response, which is both the
+               * protocol's order and the one the driver depends on: it holds
+               * `session.loading` across the call, so an update arriving after
+               * the response would be mis-stamped `live`.
+               */
+              for (const update of recorded(sessionId)) {
+                eventSeq += 1
+                push({
+                  jsonrpc: '2.0',
+                  method: 'session/update',
+                  params: {
+                    sessionId,
+                    update,
+                    _meta: {
+                      eventId: `${sessionId}-replay-${eventSeq}`,
+                      agentTimestampMs: 1_786_700_000_000 + eventSeq,
+                    },
+                  },
+                })
               }
               response(frame.id, { sessionId })
               return

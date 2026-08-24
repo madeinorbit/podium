@@ -36,6 +36,7 @@ import type {
   UsageSnapshot,
 } from '../../capabilities.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
+import { DriverRefusalError } from '../../errors.js'
 import type { EventStreamStart, RuntimeEvent, RuntimeEventBody, WatchLevel } from '../../events.js'
 import { sessionHealth } from '../../health.js'
 import type {
@@ -1178,7 +1179,17 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
           grokSessionId: session.grokSessionId,
           workdir: session.spec.workdir,
         })
-        if (!files) throw new Error('Grok native session files are unavailable for export')
+        if (!files) {
+          // A DECLARED archive whose bytes this machine cannot read. Typed so a
+          // scheduler can tell it from a driver that crashed — and `unsupported`
+          // rather than a fabricated empty archive, because a backup that
+          // reports success carrying nothing is the failure this refusal exists
+          // to make visible.
+          throw new DriverRefusalError(
+            { reason: 'unsupported', detail: 'Grok native session files are unavailable' },
+            'grok-acp export',
+          )
+        }
         const resume: ResumeRef = { kind: 'grok-session', value: session.grokSessionId }
         return {
           harness: 'grok',

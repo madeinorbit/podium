@@ -316,6 +316,23 @@ export async function startFakeOpencodeServer(options: {
       readBody((body) => {
         prompts.set(sessionId, (prompts.get(sessionId) ?? 0) + 1)
         promptBodies.set(sessionId, body as unknown as OpencodePromptBody)
+        /**
+         * THE PROMPT BECOMES A USER MESSAGE IN THE STORE (POD-2703, review 1).
+         *
+         * It did not, and that made two whole promises unfalsifiable here.
+         * `GET /session/:id/message` answered `[]` after any number of accepted
+         * prompts, so `transcript.history()` could not show a conversation and
+         * `export()` — which is built from exactly that call — shipped an empty
+         * message list for every session. A resumed session and a fresh one were
+         * byte-identical, which is why a mutant that discarded the resume ref
+         * passed every property.
+         *
+         * opencode writes the user message as part of accepting the prompt; the
+         * rows are what outlive the process and what `resume()` addresses. A
+         * fixture that acked without writing was modelling a server with no
+         * database.
+         */
+        appendUserMessage(sessionId, body)
         // 204 IS THE ACK, with no body — the exact shape recorded from 1.18.16.
         res.writeHead(204)
         res.end()
@@ -350,6 +367,37 @@ export async function startFakeOpencodeServer(options: {
 
     json(404, { error: `unrouted ${req.method} ${path}` })
   })
+
+  /** Record the caller's prompt the way opencode records it: one `user` message
+   *  carrying one `text` part, in the shape `__fixtures__/messages-*.json` was
+   *  recorded in. `partToItems` reads exactly these fields. */
+  function appendUserMessage(sessionId: string, body: Record<string, unknown>): void {
+    const session = sessions.get(sessionId)
+    if (!session) return
+    const parts = Array.isArray(body.parts) ? (body.parts as Record<string, unknown>[]) : []
+    const text = parts
+      .filter((part) => part.type === 'text' && typeof part.text === 'string')
+      .map((part) => String(part.text))
+      .join('\n')
+    const messageId = id('msg')
+    session.messages.push({
+      info: {
+        id: messageId,
+        sessionID: sessionId,
+        role: 'user',
+        time: { created: session.messages.length + 1 },
+      },
+      parts: [
+        {
+          id: id('prt'),
+          sessionID: sessionId,
+          messageID: messageId,
+          type: 'text',
+          text,
+        },
+      ],
+    })
+  }
 
   function sessionSummary(session: FakeOpencodeSession): Record<string, unknown> {
     return {

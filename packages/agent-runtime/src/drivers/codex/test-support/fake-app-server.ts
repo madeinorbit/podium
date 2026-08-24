@@ -78,6 +78,20 @@ function makePipe(): Pipe {
 export interface FakeAppServerOptions {
   /** Thread ids to mint, in order. Deterministic so a test can name them. */
   threadIds?: readonly string[]
+  /**
+   * THE ROLLOUT FILES, WHICH OUTLIVE THE app-server (POD-2703, review 1).
+   *
+   * Codex writes each thread to its own rollout JSONL on disk, and that file is
+   * the entire reason `thread/resume` and a byte-faithful `export()` are
+   * possible: the child dies with the daemon, the file does not. This fixture
+   * kept nothing, so `thread/read` answered `{ turns: [] }` for every thread and
+   * a resumed session came back EMPTY — indistinguishable from a fresh one, and
+   * therefore unable to fail any property that asked only about the ref.
+   *
+   * Keyed by thread id, so passing ONE map across every server a world starts
+   * models the disk rather than the process. Omitted, the server keeps its own.
+   */
+  rollouts?: Map<string, Record<string, unknown>[]>
 }
 
 export interface FakeAppServer {
@@ -166,6 +180,16 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
   const toClient = makePipe()
   const threadIds = [...(options.threadIds ?? ['thr-1', 'thr-2', 'thr-3', 'thr-4', 'thr-5'])]
   let mintedThreads = 0
+  const rollouts = options.rollouts ?? new Map<string, Record<string, unknown>[]>()
+  /** Append one item to the thread's rollout — the on-disk record every later
+   *  `thread/read` and `export()` is built from. */
+  const record = (item: Record<string, unknown>): void => {
+    const threadId = server.threadId
+    if (!threadId) return
+    const log = rollouts.get(threadId) ?? []
+    log.push(item)
+    rollouts.set(threadId, log)
+  }
   let ready = false
   let failNext = false
   let stallNext = false
@@ -312,12 +336,17 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         item,
         startedAtMs: 1_786_700_070_000,
       })
+      const completed = { ...item, text, phase: 'final_answer' }
       notify('item/completed', {
         threadId: server.threadId,
         turnId: openTurn,
-        item: { ...item, text, phase: 'final_answer' },
+        item: completed,
         completedAtMs: 1_786_700_071_000,
       })
+      // Written to the rollout as well: what the client is told and what the
+      // file holds must be the same conversation, or a resume reads a different
+      // history than the live stream showed.
+      record(completed)
     },
     emitCommandExecution(command, output, itemId) {
       const id = itemId ?? `cmd_${++itemSeq}`
@@ -502,9 +531,14 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         server.threadNames.push(String(params.name))
         respond(id, {})
         return
-      case 'thread/read':
-        respond(id, { thread: { turns: [] } })
+      case 'thread/read': {
+        // ONE TURN CARRYING THE THREAD'S ITEMS, which is the shape
+        // `readThreadItems` walks. It answered `{ turns: [] }` unconditionally —
+        // see {@link FakeAppServerOptions.rollouts} for what that hid.
+        const items = rollouts.get(String(params.threadId ?? server.threadId ?? '')) ?? []
+        respond(id, { thread: { turns: [{ items }] } })
         return
+      }
       case 'turn/start': {
         if (failNext) {
           failNext = false
@@ -516,6 +550,14 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         }
         server.turnStarts += 1
         server.lastTurnInput = Array.isArray(params.input) ? params.input : undefined
+        // THE PROMPT LANDS IN THE ROLLOUT, as Codex writes it when the turn
+        // opens. `userMessage` with `content: [{type:'text'}]` is the shape
+        // `threadItemToItems` reads.
+        record({
+          id: `item-user-${++itemSeq}`,
+          type: 'userMessage',
+          content: Array.isArray(params.input) ? params.input : [],
+        })
         const turnId = `turn-${++turnSeq}`
         pendingTurn = turnId
         /**

@@ -45,11 +45,13 @@ import {
   type DriverCapabilities,
   type DriverFamily,
   type DriverId,
+  isDriverRefusal,
   NO_NATIVE_STEER_DRIVERS,
   PERMITTED_FAILURES,
   type PendingInteraction,
   permits,
   permitsNoNativeSteer,
+  type RefusalReason,
   type ResumeRefTiming,
   type RuntimeDriver,
   type RuntimeEvent,
@@ -271,6 +273,81 @@ const attachmentSourceFor = (kind: AttachmentKind): AttachmentSource =>
         filename: 'probe.txt',
         mediaType: 'text/plain',
       }
+
+/**
+ * A UNIQUE, GREPPABLE STRING PLANTED IN THE HARNESS'S OWN STORE (POD-2703,
+ * review 1).
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THE CORPUS NEEDED THIS AND WHY IT IS NOT OPTIONAL
+ * ---------------------------------------------------------------------------
+ *
+ * The first version of the resume and export properties asserted on the RESUME
+ * REF: the resumed binding carries the ref that was asked for, the archive names
+ * the same conversation. Every one of those assertions is about an IDENTIFIER,
+ * and the review measured what that buys. A mutant whose `resume()` takes the
+ * fresh-create path while still reporting the requested ref passed ALL FOUR
+ * resume properties on all four families. An export whose payload was replaced
+ * by a single garbage byte passed every export property on all four. A ref that
+ * round-trips proves the plumbing and never the payload.
+ *
+ * What the user loses in that world is the only thing that matters: after a
+ * crash or a hibernate they get a HEALTHY BLANK SESSION carrying the old ref,
+ * and lost work is reported as a successful revival.
+ *
+ * So every property that claims a conversation survived now names a specific
+ * string that was in it, and looks for that string on the far side. The witness
+ * is the TURN'S OWN TEXT — no control verb was invented for it, because the
+ * caller's words are exactly what a harness writes to its native store.
+ *
+ * IT IS UNIQUE PER PROPERTY, not per suite: two properties that planted the
+ * same string could pass on a fixture that leaked one conversation's store into
+ * another's, which is the neighbouring bug and not one worth being blind to.
+ */
+let witnessSeq = 0
+const mintWitness = (targetName: string): string => `podium-witness-${targetName}-${++witnessSeq}`
+
+/**
+ * A REFUSAL, NOT MERELY A THROW (POD-2703, review 1).
+ *
+ * `resume()` and `export()` have no refusal arm in their return types, so the
+ * corpus enforced refuse-not-degrade with `rejects.toThrow()`. That accepts ANY
+ * exception: a driver that refused correctly and a driver that dereferenced
+ * undefined were indistinguishable, and "typed and honest" was only half
+ * enforced — the `Declared` reason was checked, the runtime answer was not.
+ *
+ * `DriverRefusalError` is the refusal channel for those two verbs, and this is
+ * what makes a driver use it. The reason is pinned too: a caller branches on
+ * `unsupported` versus `no_resume_ref` differently — one is permanent, the other
+ * says "not yet" — so a refusal carrying the wrong one misroutes exactly the
+ * decision the type exists to inform.
+ */
+async function expectTypedRefusal(
+  attempt: Promise<unknown>,
+  reason: RefusalReason,
+  what: string,
+): Promise<void> {
+  const outcome = await attempt.then(
+    (value) => ({ refused: false as const, value }),
+    (error: unknown) => ({ refused: true as const, error }),
+  )
+  expect(outcome.refused, `${what} RESOLVED instead of refusing`).toBe(true)
+  if (!outcome.refused) return
+  const { error } = outcome
+  expect(
+    isDriverRefusal(error),
+    `${what} threw ${error instanceof Error ? `a bare ${error.name}: ${error.message}` : String(error)} rather than a typed DriverRefusalError — a caller cannot branch on that`,
+  ).toBe(true)
+  if (!isDriverRefusal(error)) return
+  expect(error.refusal.reason, `${what} refused with the wrong reason`).toBe(reason)
+}
+
+/** One conversation the corpus planted, and how to recognise it afterwards. */
+interface Conversation {
+  /** `null` only for a driver declaring `resumeRefTiming: 'never'`. */
+  ref: ResumeRef | null
+  witness: string
+}
 
 export function describeDriverConformance(target: ConformanceTarget): void {
   describe(`driver conformance — ${target.name} (${target.family})`, () => {
@@ -1312,12 +1389,17 @@ export function describeDriverConformance(target: ConformanceTarget): void {
       session: AgentSessionHandle,
       control: ConformanceControl,
       timing: ResumeRefTiming,
-    ): Promise<ResumeRef | null> => {
-      await session.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
+    ): Promise<Conversation> => {
+      const witness = mintWitness(target.name)
+      // THE TURN'S TEXT IS THE WITNESS. Nothing extra is planted and no control
+      // verb is invented: the caller's own words are what a harness writes to
+      // its native store, so anything that claims to carry the conversation —
+      // the resumed transcript, the archive's files — must carry these bytes.
+      await session.send({ text: witness }, { origin: 'human', delivery: 'when-ready' })
       await control.completeTurn(session.binding.sessionId)
-      if (timing === 'never') return null
+      if (timing === 'never') return { ref: null, witness }
       await waitUntil(() => session.binding.resume !== null)
-      return session.binding.resume
+      return { ref: session.binding.resume, witness }
     }
 
     describe('resume — the path where the process is GONE', () => {
@@ -1354,7 +1436,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const { handle, control, driver, spec } = setup()
         const session = await handle
         const timing = driver.capabilities().resumeRefTiming
-        const ref = await afterOneTurn(session, control, timing)
+        const { ref } = await afterOneTurn(session, control, timing)
         if (!ref) {
           // Stated rather than skipped: the refusal is asserted below, in the
           // property that exists for exactly this driver.
@@ -1394,11 +1476,57 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         }
       })
 
+      it('brings the CONVERSATION back, not just the ref', async () => {
+        const { handle, control, driver, spec } = setup()
+        const session = await handle
+        const timing = driver.capabilities().resumeRefTiming
+        const { ref, witness } = await afterOneTurn(session, control, timing)
+        if (!ref) {
+          expect(timing).toBe('never')
+          return
+        }
+        await session.kill()
+        const resumed = await driver.resume(ref, spec)
+
+        /**
+         * THE PROPERTY EVERY OTHER RESUME ASSERTION TURNED OUT NOT TO IMPLY
+         * (POD-2703, review 1).
+         *
+         * Its siblings watch the REF: the resumed binding names the
+         * conversation, the handle is alive, the stream is fenced. A mutant
+         * whose `resume()` takes the fresh-create path while still reporting the
+         * requested ref satisfies every one of them, on every family — measured,
+         * not predicted. What the user sees in that world is a healthy BLANK
+         * session wearing the old ref, and lost work reported as a successful
+         * revival.
+         *
+         * `transcript.history()` is the contract's own answer to "what is in
+         * this conversation", and it is what the chat above the session renders.
+         * The witness went into the harness's store as the caller's turn; if it
+         * is not here, the conversation did not come back, whatever the binding
+         * says.
+         */
+        const declared = driver.capabilities().transcript
+        if (!declared.supported || !declared.value.history) {
+          // A driver that declines transcript history has no contract-level way
+          // to show its conversation survived. That is a REAL GAP rather than an
+          // exemption — say so here, so it is a finding a reader trips over and
+          // not a silent skip. No driver under this corpus declines today.
+          expect(declared.supported && declared.value.history).toBe(false)
+          return
+        }
+        const items = await resumed.transcript.history({ limit: 100 })
+        expect(
+          items.some((item) => item.text.includes(witness)),
+          `resume() returned a session whose transcript does not contain the turn that was in it before the kill (${witness}) — the ref came back, the conversation did not`,
+        ).toBe(true)
+      })
+
       it('comes back as a working OBSERVATION source, not just a handle', async () => {
         const { handle, control, driver, spec } = setup()
         const session = await handle
         const timing = driver.capabilities().resumeRefTiming
-        const ref = await afterOneTurn(session, control, timing)
+        const { ref } = await afterOneTurn(session, control, timing)
         if (!ref) {
           expect(timing).toBe('never')
           return
@@ -1443,10 +1571,11 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // reject. Returning a fresh session here is the silent degradation this
         // milestone's test bar exists to catch: the caller believes the
         // conversation came back, and it did not.
-        await expect(
+        await expectTypedRefusal(
           driver.resume({ kind: 'fabricated', value: 'no-such-conversation' }, spec),
-          'a driver declaring `resumeRefTiming: never` must reject resume(), not start a fresh session',
-        ).rejects.toThrow()
+          'unsupported',
+          'resume() on a driver declaring `resumeRefTiming: never`',
+        )
       })
     })
 
@@ -1477,7 +1606,11 @@ export function describeDriverConformance(target: ConformanceTarget): void {
       it('produces the archive its capability DECLARES, or refuses to produce one', async () => {
         const { handle, control, driver } = setup()
         const session = await handle
-        await afterOneTurn(session, control, driver.capabilities().resumeRefTiming)
+        const { witness } = await afterOneTurn(
+          session,
+          control,
+          driver.capabilities().resumeRefTiming,
+        )
         // The judgement lives in an exported function for the same reason
         // `assertAttachHonoursOneControlLease` does: a driver whose capability
         // varies with a HOST fact — the terminal family's `archivable` is one,
@@ -1485,7 +1618,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // one of the two arms under its own `runConformance` pass. Its fixture
         // builds the other world and is judged by this same function rather than
         // by a copy of it.
-        await assertArchiveHonoursItsDeclaration(session, driver)
+        await assertArchiveHonoursItsDeclaration(session, driver, witness)
       })
 
       it('REFUSES before the harness has minted a resume ref', async () => {
@@ -1510,7 +1643,11 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           }
           return
         }
-        await assertArchiveHonoursItsDeclaration(session, driver)
+        // NO CONVERSATION EXISTS on a session that has not spoken, so there is
+        // no witness to look for — and this property only ever reaches the
+        // REFUSAL arms, which do not read one. The branch above is what keeps a
+        // conversation-less session off the full judgement's path.
+        await assertArchiveHonoursItsDeclaration(session, driver, null)
       })
 
       it('EXPORT → RESUME: the half of the guarantee that needs no import', async () => {
@@ -1799,21 +1936,34 @@ export function runConformance(
  * REFUSE, DO NOT DEGRADE. `export()` returns `Promise<SessionArchive>` with no
  * refusal channel in its type, so an honest decline has two halves and they must
  * agree: the capability carries a `Declared` reason a human can act on, and the
- * verb REJECTS. A driver that declares no archive and then hands back an empty
- * one has told a caller their backup succeeded.
+ * verb rejects with a `DriverRefusalError` carrying the matching typed reason. A
+ * bare throw is not enough — see {@link expectTypedRefusal} — and a driver that
+ * declares no archive and hands back an empty one has told a caller their backup
+ * succeeded.
  */
 export async function assertArchiveHonoursItsDeclaration(
   session: AgentSessionHandle,
   driver: Pick<RuntimeDriver, 'id' | 'harness' | 'family' | 'capabilities'>,
+  /**
+   * A string the caller put INTO this conversation, which the archive must
+   * therefore carry — or `null` for a session that has not spoken, where only
+   * the refusal arms are reachable and there is nothing to look for.
+   *
+   * NOT OPTIONAL, deliberately. An optional witness is one a caller forgets, and
+   * a forgotten witness turns this function back into the metadata-only check
+   * the review broke: garbage bytes and an empty file list both passed it.
+   */
+  witness: string | null,
 ): Promise<void> {
   const declared = driver.capabilities().archive
   if (!declared.supported) {
-    // The declaration IS the typed refusal; the throw is what enforces it.
+    // The declaration IS the typed refusal, and the verb must AGREE with it.
     expect(declared.reason.length).toBeGreaterThan(0)
-    await expect(
+    await expectTypedRefusal(
       session.export(),
-      'this driver declares no archive, so export() must reject rather than return a hollow one',
-    ).rejects.toThrow()
+      'unsupported',
+      'export() on a driver that declares no archive',
+    )
     return
   }
 
@@ -1826,10 +1976,11 @@ export async function assertArchiveHonoursItsDeclaration(
    * and the failure surfaces on the destination machine rather than here.
    */
   if (!session.binding.resume) {
-    await expect(
+    await expectTypedRefusal(
       session.export(),
-      'export() before a resume ref must reject: an archive that cannot be resumed is not an archive',
-    ).rejects.toThrow()
+      'no_resume_ref',
+      'export() before the harness has minted a resume ref',
+    )
     return
   }
 
@@ -1852,23 +2003,50 @@ export async function assertArchiveHonoursItsDeclaration(
   // names a different conversation restores somebody else's work under this
   // session's name, and nothing downstream can detect it: both refs are
   // well-formed.
-  if (session.binding.resume) expect(archive.resume).toEqual(session.binding.resume)
+  expect(archive.resume).toEqual(session.binding.resume)
   expect(archive.binding.resume).toEqual(archive.resume)
 
-  // ---- it carries the bytes its byte-faithful claim promises ------------
-  if (declared.value.byteFaithful) {
-    // BYTE-FAITHFUL IS A CLAIM ABOUT FILES, so an empty file list refutes it —
-    // and this is a live failure mode rather than a hypothetical: the server
-    // drivers build `files` from a host read that can answer `undefined`, and
-    // the fallback is `[]`. That is an archive silently shipping zero bytes
-    // while still declaring byte fidelity.
-    expect(
-      archive.files.length,
-      'archive declares byteFaithful but shipped no files',
-    ).toBeGreaterThan(0)
-  }
+  /**
+   * ---- IT CARRIES THE CONVERSATION, NOT JUST A POINTER TO ONE -------------
+   *
+   * THE ASSERTION THE REVIEW ADDED, AND WHY EVERYTHING ABOVE IT WAS NOT ENOUGH
+   * (POD-2703, review 1). Every check to this point is METADATA: the version,
+   * the harness, the binding fields, the ref. The reviewer replaced each
+   * driver's export payload with ONE GARBAGE BYTE, left the metadata and the ref
+   * intact, and the export properties stayed green on all four families. A
+   * backup can therefore report success carrying nothing that resembles the
+   * session, and the defect surfaces only when somebody tries to import it —
+   * months later, at the moment with the least tolerance for a driver bug.
+   *
+   * AT LEAST ONE FILE, FOR EVERY SUPPORTED ARCHIVE. This used to be conditional
+   * on `byteFaithful`, which let opencode return `files: []` and stay green on
+   * all three export properties for want of the one assertion it bypassed. The
+   * condition was wrong on its own terms: `byteFaithful` is a claim about
+   * FIDELITY — whether these are the harness's own bytes — and an archive with
+   * no files at all fails a more basic promise than fidelity. A resume ref
+   * without files is a pointer into a store the destination machine does not
+   * have.
+   *
+   * AND WHAT `byteFaithful: true` ADDS, stated plainly rather than dressed up:
+   * no extra runtime check here. Whether a payload is the harness's own bytes
+   * or a faithful-looking re-serialization cannot be decided by the machine that
+   * wrote it; it is decided by an importer, and `runtime.import()` throws on the
+   * daemon today (POD-2415). Claiming to test fidelity here would be the same
+   * shape of overclaim this whole review was about.
+   */
+  expect(
+    archive.files.length,
+    'a supported archive with no files cannot continue a conversation anywhere',
+  ).toBeGreaterThan(0)
   for (const file of archive.files) {
     expect(file.bytes.byteLength, `archive file ${file.path} is empty`).toBeGreaterThan(0)
+  }
+  if (witness !== null) {
+    const payload = archive.files.map((file) => new TextDecoder().decode(file.bytes)).join('\n')
+    expect(
+      payload.includes(witness),
+      `the archive's ${archive.files.length} file(s) do not contain the turn that is in this conversation (${witness}) — the metadata is right and the payload is not`,
+    ).toBe(true)
   }
 
   // ---- it is MACHINE-INDEPENDENT ----------------------------------------
