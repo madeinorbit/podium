@@ -2418,6 +2418,12 @@ html[data-density="balanced"] .header-quota-pools {
     inset 0 3px 0 var(--issue),
     0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
 }
+/* The mission chrome remains visually fixed while the column itself owns the
+   scrollport. Inheriting the column's issue wash keeps rows moving beneath an
+   opaque continuation of the same surface rather than behind clear glass. */
+.deck-chrome {
+  background: inherit;
+}
 /* The no-colour flow runs the same mechanics quieter (handoff 1b). */
 [data-issue-colored="false"] .engraved-column {
   background: linear-gradient(

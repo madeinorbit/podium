@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { selectedMissionRoot } from '@podium/client-core/viewmodels'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
@@ -323,6 +324,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   const closeOverlay = (): void => setView(baseView)
   const workspaceActive = baseView === 'workspace'
   const sessions = useStoreSelector((s) => s.sessions)
+  const flightDeckMissionId = selectedMissionRoot(issues, sessions, selectedIssueId)?.id ?? 'empty'
   const trpc = useStoreSelector((s) => s.trpc)
   const {
     state: activationState,
@@ -814,7 +816,10 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
                     className="max-w-[45vw]"
                   >
                     <Suspense fallback={<RouteFallback />}>
-                      <FlightDeck onCollapse={collapseFlightDeck} />
+                      {/* The arrival latch and the scrolling node both belong
+                          to one mission; carrying either into the next one
+                          turns its existing sessions into late arrivals. */}
+                      <FlightDeck key={flightDeckMissionId} onCollapse={collapseFlightDeck} />
                     </Suspense>
                   </ResizableColumn>
                 )}

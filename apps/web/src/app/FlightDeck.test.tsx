@@ -14,6 +14,7 @@ import {
 } from './FlightDeck'
 import { OperatorFocusProvider } from './operator-focus'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
+import { REVEAL_IN_DECK_EVENT } from './shell-state'
 
 /**
  * The deck's own click grammar and fold defaults (POD-710 §4.1–4.4).
@@ -979,6 +980,34 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     )
     const tree = document.querySelector('[data-flight-issue="t1"]')
     expect(tree?.getAttribute('data-depth')).toBe('1')
+  })
+
+  it('keeps one fixed scrollport around sticky mission chrome and growing rows', () => {
+    deck()
+
+    const scroller = screen.getByTestId('flight-deck-scroller')
+    const rows = screen.getByTestId('flight-deck-rows')
+    const chrome = scroller.querySelector('.deck-chrome')
+
+    expect(scroller.className).toContain('overflow-y-auto')
+    expect(chrome?.classList.contains('sticky')).toBe(true)
+    expect(scroller.contains(rows)).toBe(true)
+    expect(rows.className).toContain('flex-none')
+    expect(rows.className).not.toContain('overflow-y-auto')
+  })
+
+  it('reveals a session below the sticky mission chrome', () => {
+    deck()
+    const row = document.querySelector<HTMLElement>('[data-flight-session="s1"]')
+    if (!row) throw new Error('no agent row')
+    row.scrollIntoView = vi.fn()
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(REVEAL_IN_DECK_EVENT, { detail: 's1' }))
+      vi.advanceTimersByTime(20)
+    })
+
+    expect(row.scrollIntoView).toHaveBeenCalledWith({ block: 'end' })
   })
 
   it('surfaces the archived sessions the tab strip dropped', () => {
