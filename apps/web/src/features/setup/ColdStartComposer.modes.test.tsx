@@ -243,6 +243,7 @@ describe('the launch box unfolds', () => {
 describe('the seed a sidebar button writes', () => {
   it('reaches a composer that is already on screen', async () => {
     render(<ColdStartComposer first={false} />)
+    fireEvent.focus(field())
     fireEvent.change(field(), { target: { value: 'Half a thought' } })
     expect(field().value).toBe('Half a thought')
 
@@ -251,7 +252,22 @@ describe('the seed a sidebar button writes', () => {
     for (const listener of uiListeners) listener()
 
     await waitFor(() => expect(field().value).toBe(''))
-    expect(box().getAttribute('data-expanded')).toBe('false')
+    // The PROSE is what a new task discards. The fold is the operator's own
+    // gesture and is left where they put it — a box that snapped shut under a
+    // caret they had just placed would be the composer arguing with them.
+    expect(box().getAttribute('data-expanded')).toBe('true')
+  })
+
+  it('carries the project the button named', async () => {
+    render(<ColdStartComposer first={false} />)
+    seedDraft({ repoPath: '/work/podium', title: '' })
+    for (const listener of uiListeners) listener()
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /^Project: / }).getAttribute('aria-label'),
+      ).toContain('podium'),
+    )
   })
 })
 

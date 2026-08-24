@@ -20,6 +20,18 @@ type Selector<T> = (store: unknown) => T
 const rows = new Map<string, string>()
 const listeners = new Set<() => void>()
 
+/** The harness's own handle on ui-state, so a browser probe can write the draft
+ *  key from OUTSIDE the box — which is what `New task` does in the real shell,
+ *  under a composer that is already mounted (POD-1469). */
+;(globalThis as { __harnessUi?: unknown }).__harnessUi = {
+  get: (key: string): string | null => rows.get(key) ?? null,
+  set: (key: string, value: string | null): void => {
+    if (value === null) rows.delete(key)
+    else rows.set(key, value)
+    for (const listener of listeners) listener()
+  },
+}
+
 const harness = new URLSearchParams(location.search).get('agent') ?? 'claude-code'
 
 const machine = {
