@@ -43,9 +43,9 @@ import {
 } from 'lucide-react'
 import {
   type JSX,
+  lazy,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
-  lazy,
   Suspense,
   useEffect,
   useRef,
@@ -53,7 +53,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
-import { AgentPanel } from '@/features/terminal/AgentPanel'
+import { AgentPanel } from '@/features/terminal/AgentPanelLazy'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { AgentStatusGlyph } from '@/lib/motion'
@@ -391,7 +391,9 @@ export function Workspace(): JSX.Element {
     if (orphan)
       return (
         <div className="flex min-w-0 flex-1">
-          <AgentPanel sessionId={orphan.sessionId} active />
+          <Suspense fallback={null}>
+            <AgentPanel sessionId={orphan.sessionId} active />
+          </Suspense>
         </div>
       )
     return (

@@ -48,19 +48,34 @@ afterEach(() => {
 
 const FULL_BOX = { paneId: 'p1', left: 0, top: 0, width: 1, height: 1 }
 
-function renderDeck(opts: {
+/**
+ * ASYNC BECAUSE THE PANEL BODY IS LAZY (POD-2730), and for no other reason.
+ *
+ * `PanelDeck` takes `AgentPanel` from `AgentPanelLazy`, so the FIRST render in
+ * this file suspends while the stub module below resolves. An async `act` flushes
+ * that; every assertion after it is unchanged, and the mount/unmount ledger those
+ * assertions read is exactly as strict as it was — which is the point, because
+ * what it guards (a warm panel must not remount, or the xterm/WebGL instance and
+ * the POD-725 transcript window are disposed) is the property a lazy boundary
+ * could plausibly have broken.
+ *
+ * Do not "fix" a suspension here by importing `AgentPanel` directly again: that
+ * puts 1.2 MB back on the first paint. See DEFERRED_FIRST_PAINT_MODULES in
+ * scripts/web-bundle-budget.ts, which fails the build if it happens.
+ */
+async function renderDeck(opts: {
   tabs: DeckTab[]
   warm: Set<string>
   known: Set<string>
   paneA: string | null
-}): void {
+}): Promise<void> {
   const items = composeDeck({
     tabs: opts.tabs,
     warm: opts.warm,
     knownSessionIds: opts.known,
     panes: [{ id: 'p1', activeTabId: opts.paneA }],
   })
-  act(() => {
+  await act(async () => {
     root.render(<PanelDeck items={items} panes={[FULL_BOX]} onCloseFile={() => {}} />)
   })
 }
@@ -70,9 +85,9 @@ function panelEl(id: string): HTMLElement | null {
 }
 
 describe('PanelDeck across issue switches', () => {
-  it('(a,b) keeps s1 mounted through A→B→A without a remount, revealing it warm', () => {
+  it('(a,b) keeps s1 mounted through A→B→A without a remount, revealing it warm', async () => {
     // Issue A: only s1, active.
-    renderDeck({
+    await renderDeck({
       tabs: [sessionTab('s1')],
       warm: new Set(['s1']),
       known: new Set(['s1']),
@@ -83,7 +98,7 @@ describe('PanelDeck across issue switches', () => {
 
     // Switch to issue B: s2 mounts and becomes active; s1 rides along as a hidden
     // foreign warm panel — it must STAY MOUNTED.
-    renderDeck({
+    await renderDeck({
       tabs: [sessionTab('s2')],
       warm: new Set(['s1', 's2']),
       known: new Set(['s1', 's2']),
@@ -99,7 +114,7 @@ describe('PanelDeck across issue switches', () => {
 
     // Back to issue A: s1 is revealed WITHOUT a fresh mount (identity preserved),
     // s2 becomes the hidden foreign panel.
-    renderDeck({
+    await renderDeck({
       tabs: [sessionTab('s1')],
       warm: new Set(['s1', 's2']),
       known: new Set(['s1', 's2']),
@@ -111,9 +126,9 @@ describe('PanelDeck across issue switches', () => {
     expect(panelEl('s2')?.getAttribute('data-active')).toBe('false')
   })
 
-  it('(d) unmounts a foreign panel whose session is archived/killed', () => {
+  it('(d) unmounts a foreign panel whose session is archived/killed', async () => {
     // s1 warm-foreign while viewing s2.
-    renderDeck({
+    await renderDeck({
       tabs: [sessionTab('s2')],
       warm: new Set(['s1', 's2']),
       known: new Set(['s1', 's2']),
@@ -123,7 +138,7 @@ describe('PanelDeck across issue switches', () => {
     expect(panelEl('s1')).not.toBeNull()
 
     // s1 archived/killed → leaves the known live set → its foreign panel drops.
-    renderDeck({
+    await renderDeck({
       tabs: [sessionTab('s2')],
       warm: new Set(['s1', 's2']),
       known: new Set(['s2']),
@@ -135,9 +150,9 @@ describe('PanelDeck across issue switches', () => {
     expect(events.filter((e) => e === 'unmount:s2')).toHaveLength(0)
   })
 
-  it('a cold local tab (not visible, not warm) renders nothing', () => {
+  it('a cold local tab (not visible, not warm) renders nothing', async () => {
     // s2 is a current tab but neither visible nor warm — it must not mount.
-    renderDeck({
+    await renderDeck({
       tabs: [sessionTab('s1'), sessionTab('s2')],
       warm: new Set(['s1']),
       known: new Set(['s1', 's2']),
@@ -147,18 +162,18 @@ describe('PanelDeck across issue switches', () => {
     expect(panelEl('s2')).toBeNull()
   })
 
-  it('evicts through unmount and uses the existing cold remount route on reselect', () => {
+  it('evicts through unmount and uses the existing cold remount route on reselect', async () => {
     const tabs = [sessionTab('s1'), sessionTab('s2')]
-    renderDeck({ tabs, warm: new Set(['s1']), known: new Set(['s1', 's2']), paneA: 's1' })
-    renderDeck({ tabs, warm: new Set(['s2']), known: new Set(['s1', 's2']), paneA: 's2' })
+    await renderDeck({ tabs, warm: new Set(['s1']), known: new Set(['s1', 's2']), paneA: 's1' })
+    await renderDeck({ tabs, warm: new Set(['s2']), known: new Set(['s1', 's2']), paneA: 's2' })
     expect(events).toEqual(['mount:s1', 'unmount:s1', 'mount:s2'])
 
-    renderDeck({ tabs, warm: new Set(['s1']), known: new Set(['s1', 's2']), paneA: 's1' })
+    await renderDeck({ tabs, warm: new Set(['s1']), known: new Set(['s1', 's2']), paneA: 's1' })
     expect(events.filter((event) => event === 'mount:s1')).toHaveLength(2)
     expect(panelEl('s1')?.getAttribute('data-active')).toBe('true')
   })
 
-  it('balances heavy-panel cleanup under StrictMode eviction', () => {
+  it('balances heavy-panel cleanup under StrictMode eviction', async () => {
     const tabs = [sessionTab('s1')]
     const items = composeDeck({
       tabs,
@@ -166,7 +181,9 @@ describe('PanelDeck across issue switches', () => {
       knownSessionIds: new Set(['s1']),
       panes: [{ id: 'p1', activeTabId: 's1' }],
     })
-    act(() => {
+    // Async for the same reason renderDeck is: the panel body is lazy, and this
+    // test is only safe run alone if it flushes that first render itself.
+    await act(async () => {
       root.render(
         <StrictMode>
           <PanelDeck items={items} panes={[FULL_BOX]} onCloseFile={() => {}} />
@@ -179,7 +196,7 @@ describe('PanelDeck across issue switches', () => {
       knownSessionIds: new Set(['s1']),
       panes: [{ id: 'p1', activeTabId: null }],
     })
-    act(() => {
+    await act(async () => {
       root.render(
         <StrictMode>
           <PanelDeck items={cold} panes={[]} onCloseFile={() => {}} />

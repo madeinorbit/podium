@@ -20,8 +20,9 @@
  * difference is that what is already on disk can be named.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
 import { duplicateReport } from './web-bundle-duplicates'
 
@@ -39,7 +40,28 @@ interface Bytes {
 interface ChunkReport extends Bytes {
   readonly file: string
   readonly sources: readonly string[]
+  /** `[source, bytes of original text]`, in map order. See bytesByOwner. */
+  readonly sourceSizes: readonly (readonly [string, number])[]
   readonly sourceBytes: number
+}
+
+/**
+ * THE PREVIOUS BUILD, ON DISK, SO A BREACH CAN SAY WHAT CHANGED (POD-2730).
+ *
+ * `scripts/web-bundle-baseline.json`, refreshed by hand with `--write-baseline`.
+ * A committed file rather than a cache: the point is that moving the reference
+ * point is a diff somebody reads, and that a CI box with no previous `dist` can
+ * still answer "what grew" on the first build it ever runs.
+ *
+ * It is NOT a gate and nothing fails because it is out of date — the ceilings
+ * below are the gate. It only decides how useful the failure is, which is why
+ * `label` is recorded next to the numbers: a delta against a baseline six weeks
+ * old is still worth printing, as long as the reader knows that is what it is.
+ */
+interface Baseline {
+  readonly label: string
+  readonly eager: Bytes & { readonly sourceBytes: number }
+  readonly eagerBytesByOwner: Record<string, number>
 }
 
 interface SourcesReport {
@@ -95,7 +117,28 @@ const INTERACTION_ONLY_MODULES = [
   'SessionContextMenu.tsx',
 ] as const
 
-/** Heavy leaf renderers whose callers deliberately load them after the shell. */
+/**
+ * Heavy leaf renderers whose callers deliberately load them after the shell.
+ *
+ * THE LAST THREE ARE THE PANEL BODIES (POD-2730), and they are a different size
+ * of claim from the rest of this list. `AgentPanel` is the session surface —
+ * the terminal and the chat view and everything they render — and it was
+ * imported statically by both of its call sites, so first paint carried xterm
+ * plus its WebGL addon (390,297 bytes), `marked`, `dompurify` and the whole chat
+ * block vocabulary. `DockShellPanel` was the second door into xterm, static in a
+ * dock whose other six panels were all already lazy. `RefMiniview` renders
+ * `null` until a ref is HOVERED and brought `@base-ui/react`'s select with it.
+ *
+ * None of the three can paint until something arrives that first paint does not
+ * have: a synced replica naming a session, a click on the shell tab, a hover.
+ * Deferring them took the eager graph from 7,722,192 bytes to 6,189,048.
+ *
+ * If this fires, an eager module imported one of them directly instead of
+ * through `lazy(() => import(...))`. For the panel bodies the shared lazy
+ * binding is `src/features/terminal/AgentPanelLazy.tsx` — import from there, not
+ * from `AgentPanel` itself, or two call sites become two component identities
+ * and a tab moving between them remounts its terminal.
+ */
 const DEFERRED_FIRST_PAINT_MODULES = [
   'packages/model/src/predicates/machine-capability.ts',
   'packages/model/src/predicates/machine-handoff.ts',
@@ -103,6 +146,34 @@ const DEFERRED_FIRST_PAINT_MODULES = [
   'src/lib/machine-version-skew.ts',
   'src/features/mobile-handoff/MobileHandoffQr.tsx',
   'src/features/chat/TranscriptFeed.tsx',
+  'src/features/terminal/AgentPanel.tsx',
+  'src/features/terminal/DockShellPanel.tsx',
+  'src/components/RefMiniview.tsx',
+] as const
+
+/**
+ * VENDOR CODE THAT MUST NOT BE ON THE FIRST PAINT (POD-2730) — named by PACKAGE,
+ * because the module above it is not the thing that is expensive.
+ *
+ * The list above is a list of OUR modules, and it holds as long as nobody adds a
+ * new door. These four are the doors themselves: 390,297 bytes of terminal
+ * renderer that cannot draw before a PTY exists, and 144,014 bytes of markdown
+ * pipeline that cannot run before there is a message to render. A guard on
+ * `AgentPanel.tsx` says nothing if a NEW eager module imports `@xterm/xterm`
+ * directly, and that is exactly how both of them got in: not through one
+ * decision, but through a second import edge added later, under a byte ceiling
+ * that could only answer in totals.
+ *
+ * So this is checked against the package a source was installed from rather
+ * than against any file we control. Each entry names something whose whole job
+ * begins AFTER the first frame.
+ */
+const POST_PAINT_VENDOR_PACKAGES = [
+  '@xterm/xterm',
+  '@xterm/addon-webgl',
+  '@xterm/addon-fit',
+  'dompurify',
+  'marked',
 ] as const
 
 /**
@@ -149,8 +220,15 @@ const BROWSER_HOSTILE_EXCEPTIONS = ['packages/harness/src/browser.ts'] as const
  */
 const args = process.argv.slice(2)
 const checkBudget = args.includes('--check')
+const writeBaseline = args.includes('--write-baseline')
 const dist = resolve(args.find((arg) => !arg.startsWith('--')) ?? 'apps/web/dist')
+/** `apps/web/dist` → the checkout root, with the trailing slash ownerOf strips. */
+const repoRoot = `${resolve(dist, '..', '..', '..')}/`
 const indexHtml = readFileSync(join(dist, 'index.html'), 'utf8')
+const baselinePath = fileURLToPath(new URL('./web-bundle-baseline.json', import.meta.url))
+const baseline: Baseline | null = existsSync(baselinePath)
+  ? (JSON.parse(readFileSync(baselinePath, 'utf8')) as Baseline)
+  : null
 
 function compressedBytes(path: string): Bytes {
   const contents = readFileSync(path)
@@ -179,16 +257,74 @@ function sourceMapFor(jsFile: string): SourceMap {
 
 function chunkReport(jsFile: string): ChunkReport {
   const map = sourceMapFor(jsFile)
+  const sourceSizes = map.sources.map(
+    (source, index) =>
+      [source, Buffer.byteLength(map.sourcesContent?.[index] ?? '', 'utf8')] as const,
+  )
   return {
     file: jsFile,
     ...compressedBytes(join(dist, jsFile)),
     sources: map.sources,
-    sourceBytes: map.sources.reduce(
-      (total, _source, index) =>
-        total + Buffer.byteLength(map.sourcesContent?.[index] ?? '', 'utf8'),
-      0,
-    ),
+    sourceSizes,
+    sourceBytes: sourceSizes.reduce((total, [, bytes]) => total + bytes, 0),
   }
+}
+
+/**
+ * WHO OWNS A SOURCE — the unit a person can actually act on.
+ *
+ * A breach used to name one number, and a number names no cause and suggests no
+ * fix (POD-2730: the build said `7722192 exceeds 7700000` and it took a whole
+ * issue to learn that the 24,320 bytes were nine files of an unrelated reload
+ * fix, with nothing in them to defer). Per-MODULE is too fine to read — the
+ * eager graph is over a thousand of them — and a total is too coarse. The owner
+ * is the right grain: an npm package, a workspace package, or a feature
+ * directory. That is the thing you either defer or accept.
+ */
+function ownerOf(source: string): string {
+  const absolute = resolve(join(dist, 'assets'), source)
+  const at = absolute.lastIndexOf('/node_modules/')
+  if (at >= 0) {
+    const parts = absolute.slice(at + '/node_modules/'.length).split('/')
+    return `npm:${parts[0]?.startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0]}`
+  }
+  const parts = absolute.replace(repoRoot, '').split('/')
+  if (parts[0] === 'packages') return `pkg:${parts[1]}`
+  if (parts[0] === 'apps' && parts[1] === 'web') return `web:${parts.slice(2, 5).join('/')}`
+  return parts.join('/')
+}
+
+function bytesByOwner(chunks: readonly ChunkReport[]): Record<string, number> {
+  const totals = new Map<string, number>()
+  for (const chunk of chunks)
+    for (const [source, bytes] of chunk.sourceSizes) {
+      const owner = ownerOf(source)
+      totals.set(owner, (totals.get(owner) ?? 0) + bytes)
+    }
+  return Object.fromEntries([...totals].sort((left, right) => right[1] - left[1]))
+}
+
+/** `1,493,244` — these numbers are read by people, next to each other. */
+function withThousands(value: number): string {
+  return value.toLocaleString('en-US')
+}
+
+function ownerLines(owners: Record<string, number>, limit: number, sign = false): string[] {
+  return Object.entries(owners)
+    .slice(0, limit)
+    .map(([owner, bytes]) => {
+      const value = (sign && bytes > 0 ? '+' : '') + withThousands(bytes)
+      return `    ${value.padStart(12)}  ${owner}`
+    })
+}
+
+/** `@xterm/xterm/lib/xterm.js` — a bundled source named the way a person would
+ *  name it, not as the `../../../../node_modules/.bun/@xterm+xterm@5.5.0/…`
+ *  spelling a source map records relative to whichever directory the build ran
+ *  in. Error text is read; it is not a path anyone pastes. */
+function readableSource(source: string): string {
+  const at = source.lastIndexOf('/node_modules/')
+  return at >= 0 ? source.slice(at + '/node_modules/'.length) : source.replace(/^(\.\.\/)+/, '')
 }
 
 function htmlJsReferences(html: string): string[] {
@@ -282,6 +418,11 @@ const report = {
     deferredFirstPaintSources: DEFERRED_FIRST_PAINT_MODULES.flatMap((module) =>
       matchingSources(eagerChunks, module),
     ),
+    postPaintVendorSources: POST_PAINT_VENDOR_PACKAGES.flatMap((pkg) =>
+      matchingSources(eagerChunks, `node_modules/${pkg}/`),
+    ),
+    /** Every eager byte, attributed. See ownerOf — this is what a breach prints. */
+    bytesByOwner: bytesByOwner(eagerChunks),
   },
   settings: {
     file: basename(settings.file),
@@ -308,10 +449,48 @@ const report = {
 
 console.log(JSON.stringify(report, null, 2))
 
+if (writeBaseline) {
+  const next: Baseline = {
+    label: process.env.PODIUM_BUNDLE_BASELINE_LABEL ?? 'unlabelled',
+    eager: {
+      raw: report.eager.raw,
+      gzip: report.eager.gzip,
+      brotli: report.eager.brotli,
+      sourceBytes: report.eager.sourceBytes,
+    },
+    eagerBytesByOwner: report.eager.bytesByOwner,
+  }
+  writeFileSync(baselinePath, `${JSON.stringify(next, null, 2)}\n`)
+  console.error(`[web-bundle-budget] wrote ${basename(baselinePath)} (${next.label})`)
+}
+
 if (checkBudget) {
   const errors: string[] = []
+  /**
+   * A BYTE BREACH PRINTS WHAT IS IN THE GRAPH, NOT JUST HOW MUCH (POD-2730).
+   *
+   * The failure this replaces read `eager parsed source bytes: 7722192 exceeds
+   * 7700000` and stopped there. That sentence is true and useless: it blocks
+   * packaging, which blocks every sandbox and every gate run, and the person it
+   * blocks has no way to tell 22 KB of one deferrable module from 22 KB spread
+   * over nine files of the bugfix they were landing. Both had happened in the
+   * same week. Working out which cost a whole issue each time.
+   *
+   * So a breach now says three things. WHAT IS BIG — the largest owners in the
+   * eager graph, which is where the paydown would come from. WHAT MOVED — the
+   * same owners diffed against the recorded baseline, which usually names the
+   * commit's own footprint in one line. And WHICH — with more than one budget
+   * red, they are printed as one block rather than one line each, because they
+   * are one fact about one graph.
+   *
+   * Only on breach. A passing build stays quiet; the full owner map is in the
+   * JSON on stdout for anyone who wants it without failing first.
+   */
+  const breached: string[] = []
   const atMost = (label: string, actual: number, budget: number) => {
-    if (actual > budget) errors.push(`${label}: ${actual} exceeds ${budget}`)
+    if (actual <= budget) return
+    errors.push(`${label}: ${actual} exceeds ${budget} (over by ${withThousands(actual - budget)})`)
+    breached.push(label)
   }
 
   // THE PAYLOAD BUDGETS GO UP, AND THIS IS THE RAISE THE NOTE BELOW WARNED ABOUT
@@ -341,9 +520,25 @@ if (checkBudget) {
   // budget going red means the browser downloads more, which is a real cost to
   // every session on open, and three of these four are payload. This raise buys
   // nothing but room to keep working; the next one needs a paydown, not a note.
-  atMost('eager raw bytes', report.eager.raw, 2_260_000)
-  atMost('eager gzip bytes', report.eager.gzip, 680_000)
-  atMost('eager Brotli bytes', report.eager.brotli, 566_000)
+  // ALL FOUR CEILINGS COME DOWN (2026-08-24, POD-2730), and they come down
+  // together because the paydown below is one move that paid all four.
+  //
+  //                    was          measured after      new ceiling   headroom
+  //     raw            2,260,000        1,458,334         1,650,000    191,666
+  //     gzip             680,000          460,501           520,000     59,499
+  //     Brotli           566,000          395,176           447,000     51,824
+  //     source         7,700,000        6,189,048         7,000,000    810,952
+  //
+  // Three payload budgets that had gone thin — the note above measured 3,736 /
+  // 1,880 / 3,231 bytes of headroom in August and said the next feature of any
+  // size would turn one red — now have ~13%, which is the same fraction the
+  // source budget gets. One fraction rather than four judgements: they measure
+  // the same graph through four lenses, so a paydown that moves one moves all
+  // four, and a proportional rule means the four go red at roughly the same
+  // point instead of one becoming the sentinel by accident.
+  atMost('eager raw bytes', report.eager.raw, 1_650_000)
+  atMost('eager gzip bytes', report.eager.gzip, 520_000)
+  atMost('eager Brotli bytes', report.eager.brotli, 447_000)
   // 7_400_000 → 7_450_000 (2026-08-14) → 7_500_000 (2026-08-15) → 7_650_000
   // (2026-08-16; see the measured split above) → 7_700_000 (2026-08-17, on the
   // release line; the first 0.1.0 edge build measured 7,689,167 while every
@@ -419,11 +614,60 @@ if (checkBudget) {
   // next feature of any size turns one of those red, and a payload budget going
   // red means shipping more to the browser. That is not this argument, and it does
   // not get this raise.
-  // TEMPORARY, NOT A PAYDOWN AND NOT AN ARGUMENT FOR A RAISE. Lifted only so the
-  // human can drive the update loop in a sandbox while POD-2730 works out where
-  // the real headroom is. Revert with the commit that follows this one; if you
-  // find this line still here, POD-2730 did not land and this is a bug.
-  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_800_000)
+  //
+  // 7_700_000 → 7_000_000 (2026-08-24, POD-2730). DOWN 700,000, against a graph
+  // that came down 1,533,144 — and the gap between those two numbers is the
+  // whole point of this entry.
+  //
+  // WHAT WENT WRONG WAS NOT A NUMBER, IT WAS THE ABSENCE OF ROOM. POD-2718 paid
+  // this ceiling down and landed at 7,697,872 — 2,128 bytes under, 0.03%. The
+  // very next commit to touch apps/web was POD-2721, a reload fix, and it added
+  // 24,320 bytes across nine files (protocol +5,995, features/setup +5,276,
+  // ErrorBoundary +3,866, served-website +2,338, chunk-load-failure +2,064, and
+  // four smaller). Every one of those is the bugfix doing its job. There was
+  // nothing in it to defer and nothing in it to blame, and it broke packaging —
+  // which blocks every sandbox and every gate run in the repo. A ratchet whose
+  // clearance is smaller than one ordinary commit is not a ratchet. It is a
+  // tripwire on unrelated work, and this file's own history is a record of
+  // paying for that: five raises, each one landing back within ~57k, each note
+  // saying the next move had to be a paydown.
+  //
+  // WHERE THE 1,533,144 CAME FROM. Not from features, and not from a second copy
+  // of anything — the duplicate report was empty and an independent pass over
+  // the eager source maps found zero bytes double-counted, so this was placement
+  // and only placement. Three surfaces that first paint cannot reach stopped
+  // being eager, all three the shape POD-1239 and POD-2190 established:
+  //
+  //   AgentPanel (both call sites, through AgentPanelLazy)  — the session body:
+  //     the terminal, the chat view, xterm + its WebGL addon (390,297), marked,
+  //     dompurify. Cannot render before the replica names a session.
+  //   DockShellPanel (RightDock)                            — the second door to
+  //     xterm, and the one static import among that dock's seven panels.
+  //   RefMiniview (AppShell)                                — renders null until
+  //     a ref is hovered; brought @base-ui/react's select (~90k) with it.
+  //
+  // Each is guarded by name in DEFERRED_FIRST_PAINT_MODULES, and the four vendor
+  // packages behind them by POST_PAINT_VENDOR_PACKAGES, so the boundary is a
+  // build failure rather than a convention. The bytes were checked out of the
+  // graph rollup actually built, not inferred from the import shape.
+  //
+  // WHY 7_000_000 AND NOT 6_250_000. 810,952 bytes of clearance, 13.1%. Measured
+  // against what this file has recorded of ordinary drift — 53,497 bytes over
+  // ~20 commits of shell work, 24,320 for one bugfix — that is somewhere between
+  // 30 and 300 commits, i.e. months. Tighter would re-create the defect this
+  // entry exists to fix; looser would hand the paydown straight back, and the
+  // eager graph would grow into it without anyone deciding to spend it. 700,000
+  // is banked as a real reduction and 810,952 is lent to whoever works here next.
+  //
+  // AND THE NEXT PAYDOWN DOES NOT START FROM A BLANK PAGE. Measured in the same
+  // graph after this move, still eager: @dnd-kit 133,557 across four packages (a
+  // drag cannot precede a pointer down, but Workspace's DndContext wraps the
+  // pane area structurally, so that one is a refactor rather than a `lazy()`),
+  // tailwind-merge 105,606 (reached by `cn()`, so genuinely everywhere), and
+  // sonner 65,887. None of it is needed to keep this gate honest for months, and
+  // the owner table a breach now prints is how the next person finds the list
+  // without re-deriving it.
+  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_000_000)
   atMost('settings raw bytes', report.settings.raw, 105_000)
   atMost('settings gzip bytes', report.settings.gzip, 30_000)
   atMost('settings Brotli bytes', report.settings.brotli, 26_000)
@@ -528,8 +772,20 @@ if (checkBudget) {
 
   if (report.eager.deferredFirstPaintSources.length > 0)
     errors.push(
-      `deferred first-paint module is back in first paint: ${report.eager.deferredFirstPaintSources.join(', ')}`,
+      `deferred first-paint module is back in first paint: ${report.eager.deferredFirstPaintSources.map(readableSource).join(', ')}`,
     )
+
+  if (report.eager.postPaintVendorSources.length > 0) {
+    const { postPaintVendorSources: vendor } = report.eager
+    errors.push(
+      `${vendor.length} source(s) from a package whose work begins AFTER the first frame are ` +
+        `eager — the terminal renderer cannot draw before a PTY exists and the markdown ` +
+        `pipeline cannot run before there is a message (POD-2730). Find the import edge that ` +
+        `reaches them from the app shell and put it behind lazy(() => import(...)): ` +
+        `${vendor.slice(0, 5).map(readableSource).join(', ')}` +
+        (vendor.length > 5 ? `, and ${vendor.length - 5} more` : ''),
+    )
+  }
 
   const allowedSettingsCommandSources = new Set([
     'packages/commands/src/settings/write-plan.ts',
@@ -543,6 +799,53 @@ if (checkBudget) {
 
   if (errors.length > 0) {
     for (const error of errors) console.error(`[web-bundle-budget] ${error}`)
+    if (breached.length > 0) {
+      const note = (line: string) => console.error(`[web-bundle-budget] ${line}`)
+      note('')
+      note(`WHAT IS IN THE EAGER GRAPH (${withThousands(report.eager.sourceBytes)} bytes of`)
+      note('original source, largest owners first — this is where a paydown comes from):')
+      for (const line of ownerLines(report.eager.bytesByOwner, 12)) note(line)
+      if (baseline) {
+        const owners = new Set([
+          ...Object.keys(baseline.eagerBytesByOwner),
+          ...Object.keys(report.eager.bytesByOwner),
+        ])
+        const moved = Object.fromEntries(
+          [...owners]
+            .map(
+              (owner) =>
+                [
+                  owner,
+                  (report.eager.bytesByOwner[owner] ?? 0) -
+                    (baseline.eagerBytesByOwner[owner] ?? 0),
+                ] as const,
+            )
+            .filter(([, delta]) => delta !== 0)
+            .sort((left, right) => Math.abs(right[1]) - Math.abs(left[1])),
+        )
+        const total = report.eager.sourceBytes - baseline.eager.sourceBytes
+        note('')
+        note(
+          `SINCE THE RECORDED BASELINE (${baseline.label}): ` +
+            `${total > 0 ? '+' : ''}${withThousands(total)} bytes eager source.`,
+        )
+        if (Object.keys(moved).length > 0)
+          for (const line of ownerLines(moved, 10, true)) note(line)
+        else note('    nothing moved — this build matches the baseline owner for owner.')
+        note('')
+        note(
+          'A diff spread thinly over the owners you were editing is drift, not a module to ' +
+            'defer: the ceiling is what is wrong, and raising it needs the reasoning and the ' +
+            'headroom written into this file, not just a bigger number.',
+        )
+      } else {
+        note('')
+        note(
+          `no ${basename(baselinePath)} on disk, so this cannot say what GREW — only what is ` +
+            'big. Record one with `bun scripts/web-bundle-budget.ts <dist> --write-baseline`.',
+        )
+      }
+    }
     process.exitCode = 1
   }
 }

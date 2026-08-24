@@ -5,7 +5,6 @@ import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
-import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
@@ -19,6 +18,7 @@ import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
 import { checkServedAssets, recoverFromWireSkew } from '@/features/setup/version-guard'
 import { vpsIntroState } from '@/features/setup/vps-activation'
+import { loadAgentPanel } from '@/features/terminal/AgentPanelLazy'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
@@ -29,6 +29,7 @@ import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { onReconnect } from '@/lib/on-reconnect'
+import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
 import { useKernelReplica } from '@/lib/use-kernel-replica'
@@ -92,6 +93,29 @@ const ApprovalDialog = lazy(() =>
 )
 const AutoContinueDialog = lazy(() =>
   import('./AutoContinueDialog').then((module) => ({ default: module.AutoContinueDialog })),
+)
+/**
+ * THE HOVER PREVIEW IS A GESTURE SURFACE, and it was the eager graph's single
+ * largest leaf that no first paint can reach (POD-2730).
+ *
+ * `RefMiniviewHost` renders `null` until a ref is hovered — its own call site
+ * below says so — and `RefPrefixSync` renders `null` always. Neither can put a
+ * pixel on the first frame. Between them they were dragging 134,542 bytes of
+ * eager source in, and only 34,904 of that is this app's code: the card mounts
+ * a `<Select>`, and `@base-ui/react`'s select is 27 modules and ~90 KB that
+ * nothing else on the first paint uses.
+ *
+ * Deferred the way every other gesture surface here is (see
+ * INTERACTION_ONLY_MODULES in scripts/web-bundle-budget.ts, which now fails the
+ * build by name if this comes back eager). The first hover pays one chunk
+ * fetch; `prefetchAfterFirstPaint` below spends the idle time after the shell
+ * mounts so that in practice it has already arrived.
+ */
+const RefMiniviewHost = lazy(() =>
+  import('@/components/RefMiniview').then((module) => ({ default: module.RefMiniviewHost })),
+)
+const RefPrefixSync = lazy(() =>
+  import('@/components/RefMiniview').then((module) => ({ default: module.RefPrefixSync })),
 )
 function RouteFallback(): JSX.Element {
   return <div className="flex min-h-0 min-w-0 flex-1" aria-hidden="true" />
@@ -585,6 +609,22 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   useEffect(() => {
     if (rightPanel === 'superagent') setSuperOpen(true)
   }, [])
+  /**
+   * The two surfaces POD-2730 moved out of the eager graph that the operator is
+   * LIKELY to reach, warmed on the first idle after the shell paints. Deferring
+   * them is about what the browser must parse before it can render; it is not an
+   * argument for making the operator wait for a chunk later. See
+   * prefetchAfterFirstPaint.
+   */
+  useEffect(() => {
+    const cancels = [
+      prefetchAfterFirstPaint(loadAgentPanel),
+      prefetchAfterFirstPaint(() => import('@/components/RefMiniview')),
+    ]
+    return () => {
+      for (const cancel of cancels) cancel()
+    }
+  }, [])
   useEffect(() => {
     if (superOpen === lastSuperOpen.current) return
     lastSuperOpen.current = superOpen
@@ -863,9 +903,13 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
         </Suspense>
         {commandPaletteEnabled && <CommandPaletteBoundary />}
         {/* Ref linkify (#474): keep the known-prefix set fresh and host the single
-          floating miniview. Both render nothing until there's something to show. */}
-        <RefPrefixSync />
-        <RefMiniviewHost />
+          floating miniview. Both render nothing until there's something to show —
+          which is why both are lazy (POD-2730). `fallback={null}` is the same
+          nothing they render once loaded, so the boundary is invisible. */}
+        <Suspense fallback={null}>
+          <RefPrefixSync />
+          <RefMiniviewHost />
+        </Suspense>
       </IssueExplorerProvider>
     </OperatorFocusProvider>
   )
