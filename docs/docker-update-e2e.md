@@ -100,6 +100,29 @@ update-only rehearsal, use the printed diagnostic entry URL and press **Finish s
 URL selects the same final activation route used by the automated updater probe; it bypasses
 agent selection and therefore proves nothing about agent installation or onboarding.
 
+## Reading a failing request
+
+Every request the gate makes goes through the helpers in
+`scripts/docker-update-e2e/http.sh`, so a refusal names its own subject:
+
+```
+[update-e2e] REQUEST FAILED: POST http://127.0.0.1:32772/trpc/repos.add
+[update-e2e]   status: 400
+[update-e2e]   request body: {"path":"/work/source"}
+[update-e2e]   response body:
+[update-e2e]   | {"error":{"json":{"message":"machine \"source\" runs no daemon..."}}}
+[update-e2e]   refusal: machine "source" runs no daemon and cannot host a repo
+```
+
+No request may use `curl -f`. That flag is why a 400 once surfaced only as
+`curl: (22) The requested URL returned error: 400`: it names no URL, and it
+discards the response body, which is where a tRPC refusal explains itself.
+`scripts/docker-update-e2e-http.test.ts` enforces both halves.
+
+Readiness polling uses `http_probe` instead, which is silent on purpose — a
+non-2xx is the expected answer while a service is still coming up, and `wait_for`
+already names the label and the last output when it gives up.
+
 ## Prove the gate can fail
 
 The negative-control modes deliberately leave a production input broken and then run the

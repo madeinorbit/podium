@@ -9,35 +9,33 @@
 SERVER_ROLLBACK_FAILURE=""
 
 server_rpc() {
-  local verb=$1 proc=$2 input=${3:-} response url body
+  local verb=$1 proc=$2 input=${3:-} url body=""
   url="http://127.0.0.1:$SERVER_PORT/trpc/$proc"
   if [[ "$verb" == GET ]]; then
-    if [[ -n "$input" ]]; then
-      response="$(curl -fsS "$url?input=$(printf %s "$input" | jq -sRr @uri)")"
-    else
-      response="$(curl -fsS "$url")"
-    fi
+    [[ -z "$input" ]] || url="$url?input=$(printf %s "$input" | jq -sRr @uri)"
+    http_request GET "$url" || return 1
   else
     body=${input:-'{}'}
-    response="$(curl -fsS -H 'content-type: application/json' -d "$body" "$url")"
+    http_request POST "$url" "$body" || return 1
   fi
-  if jq -e '.error' >/dev/null 2>&1 <<<"$response"; then
-    jq -r '.error.json.message // .error.message // .' <<<"$response" >&2
+  # A 2xx carrying a tRPC error is a refusal too, and names itself the same way.
+  if jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"; then
+    report_http_failure "$verb" "$url" "$body" "$HTTP_STATUS" "$HTTP_BODY"
     return 1
   fi
-  jq -c '.result.data' <<<"$response"
+  jq -c '.result.data' <<<"$HTTP_BODY"
 }
 
 server_healthy() {
-  curl -fsS "http://127.0.0.1:$SERVER_PORT/version" |
-    jq -e --arg id "$INSTANCE" '.instanceId==$id' >/dev/null
+  http_probe GET "http://127.0.0.1:$SERVER_PORT/version" || return 1
+  jq -e --arg id "$INSTANCE" '.instanceId==$id' >/dev/null <<<"$HTTP_BODY"
 }
 
 server_version_is() {
-  curl -fsS "http://127.0.0.1:$SERVER_PORT/version" |
-    jq -e --arg version "$1" '.appVersion==$version and
+  http_probe GET "http://127.0.0.1:$SERVER_PORT/version" || return 1
+  jq -e --arg version "$1" '.appVersion==$version and
       .components.daemon.state=="connected" and
-      .components.janitor.state=="running"' >/dev/null
+      .components.janitor.state=="running"' >/dev/null <<<"$HTTP_BODY"
 }
 
 server_target_is() {
@@ -125,7 +123,17 @@ start_server_edge_feed() {
     nohup /home/podium/.local/bin/bun /work/source/scripts/docker-update-e2e/edge-feed.ts >>/tmp/server-edge.log 2>&1 </dev/null &
     echo $! >/tmp/server-edge.pid
   '
-  wait_for 30 "run-local edge feed" docker exec "$SOURCE" curl -kfsS https://127.0.0.1/health >/dev/null
+  wait_for 30 "run-local edge feed" edge_feed_healthy
+}
+
+edge_feed_healthy() {
+  # The run-local origin serves a self-signed cert, so this probe alone needs -k.
+  # An array cannot be an assignment prefix, so set it around the call.
+  local status=0
+  HTTP_EXTRA_ARGS=(-k)
+  container_http_probe "$SOURCE" GET https://127.0.0.1/health || status=$?
+  HTTP_EXTRA_ARGS=()
+  return "$status"
 }
 
 configure_server_edge_feed() {
@@ -197,8 +205,10 @@ server_abduco_pid() {
 server_assets_match() {
   local version="$1" current_web="$WORK/logs/server-current-web.json"
   local current_mobile="$WORK/logs/server-current-mobile.json"
-  curl -fsS "http://127.0.0.1:$SERVER_PORT/podium-build.json" >"$current_web" || return 1
-  curl -fsS "http://127.0.0.1:$SERVER_PORT/mobile/podium-build.json" >"$current_mobile" || return 1
+  http_probe GET "http://127.0.0.1:$SERVER_PORT/podium-build.json" || return 1
+  printf '%s\n' "$HTTP_BODY" >"$current_web"
+  http_probe GET "http://127.0.0.1:$SERVER_PORT/mobile/podium-build.json" || return 1
+  printf '%s\n' "$HTTP_BODY" >"$current_mobile"
   jq -e --arg version "$version" '.appVersion==$version and (.sourceSha|length)>0' "$current_web" >/dev/null || return 1
   jq -e --arg version "$version" '.appVersion==$version and (.sourceSha|length)>0' "$current_mobile" >/dev/null || return 1
   [[ "$(jq -r .sourceSha "$current_web")" == "$(jq -r .sourceSha "$current_mobile")" ]] || return 1
@@ -241,7 +251,7 @@ arm_server_failure() {
   case "$PROVE_FAILURE" in
     server-assets)
       container_exec "$SERVER_CONSUMER" bash -lc     "printf '{\"appVersion\":\"broken\"}\n' >'$(install_path)/web/podium-build.json'"
-      curl -fsS "http://127.0.0.1:$SERVER_PORT/podium-build.json" >"$WORK/logs/server-assets-armed.json"
+      http_get "http://127.0.0.1:$SERVER_PORT/podium-build.json" >"$WORK/logs/server-assets-armed.json"
       jq -e '.appVersion=="broken"' "$WORK/logs/server-assets-armed.json" >/dev/null
       ;;
     server-migration)

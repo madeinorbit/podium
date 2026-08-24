@@ -4,6 +4,9 @@ set -Eeuo pipefail
 shopt -s inherit_errexit
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Every request in this gate goes through these helpers so a refusal names its
+# URL and echoes its body. See the file header for why (POD-2731).
+source "$ROOT/scripts/docker-update-e2e/http.sh"
 INSTANCE="${PODIUM_UPDATE_E2E_INSTANCE:-update-e2e}"
 MIN_FREE_GB="${PODIUM_UPDATE_E2E_MIN_FREE_GB:-10}"
 PROVE_FAILURE="${PODIUM_UPDATE_E2E_PROVE_FAILURE:-}"
@@ -273,24 +276,22 @@ wait_for() {
 }
 
 rpc() {
-  local verb=$1 proc=$2 input=${3:-} response url body
+  local verb=$1 proc=$2 input=${3:-} url body=""
   url="http://127.0.0.1:$SOURCE_PORT/trpc/$proc"
   if [[ "$verb" == GET ]]; then
-    if [[ -n "$input" ]]; then
-      response="$(curl -fsS "$url?input=$(printf %s "$input" | jq -sRr @uri)")"
-    else
-      response="$(curl -fsS "$url")"
-    fi
+    [[ -z "$input" ]] || url="$url?input=$(printf %s "$input" | jq -sRr @uri)"
+    http_request GET "$url" || return 1
   else
     body="$input"
     [[ -n "$body" ]] || body='{}'
-    response="$(curl -fsS -H 'content-type: application/json' -d "$body" "$url")"
+    http_request POST "$url" "$body" || return 1
   fi
-  if jq -e '.error' >/dev/null 2>&1 <<<"$response"; then
-    jq -r '.error.json.message // .error.message // .' <<<"$response" >&2
+  # A 2xx carrying a tRPC error is a refusal too, and names itself the same way.
+  if jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"; then
+    report_http_failure "$verb" "$url" "$body" "$HTTP_STATUS" "$HTTP_BODY"
     return 1
   fi
-  jq -c '.result.data' <<<"$response"
+  jq -c '.result.data' <<<"$HTTP_BODY"
 }
 
 start_container() {
@@ -340,38 +341,39 @@ install_podium() {
   fi
 }
 packaged_components_healthy() {
-  container_exec "$1" curl -fsS http://127.0.0.1:18787/version |
-    jq -e '.components.janitor.state=="running" and
-      (.components.janitor.progressVersion|type=="number") and
-      .components.daemon.state=="connected"' >/dev/null
+  container_http_probe "$1" GET http://127.0.0.1:18787/version || return 1
+  jq -e '.components.janitor.state=="running" and
+    (.components.janitor.progressVersion|type=="number") and
+    .components.daemon.state=="connected"' >/dev/null <<<"$HTTP_BODY"
 }
 
 all_in_one_participant_ready() {
   local container=$1 expected=$2
-  container_exec "$container" curl -fsS \
-    http://127.0.0.1:18787/trpc/updates.fleet |
-    jq -e --arg expected "$expected" '
+  container_http_probe "$container" GET http://127.0.0.1:18787/trpc/updates.fleet ||
+    return 1
+  jq -e --arg expected "$expected" '
       (.result.data.json // .result.data) as $fleet |
       [$fleet.allMachines[] | select(.online == true and
-        .installKind == "installed" and .version == $expected)] | length == 1' >/dev/null
+        .installKind == "installed" and .version == $expected)] | length == 1' \
+    >/dev/null <<<"$HTTP_BODY"
 }
 
 fresh_install() {
   local container=${1:-$FLEET_A}
   install_podium "$container"
-  local command unit response main_pid children roles units
+  local command unit main_pid children roles units
   command="$(command_path)"
   unit="$(unit_name)"
   docker exec -d --user podium --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env "PODIUM_INSTANCE=$INSTANCE" \
     --env PODIUM_PORT=18787 --env PODIUM_HOST=0.0.0.0 \
     "$container" bash -lc "exec '$command' setup >>/tmp/podium-source.log 2>&1"
-  wait_for 60 "fresh setup server" container_exec "$container" \
-    curl -fsS http://127.0.0.1:18787/health >/dev/null
-  response="$(container_exec "$container" curl -fsS -H 'content-type: application/json' \
-    -d '{"publicUrl":"http://127.0.0.1:18787","mode":"all-in-one","port":18787,"acknowledgeNoPassword":true}' \
-    http://127.0.0.1:18787/trpc/setup.complete)"
-  ! jq -e '.error' >/dev/null 2>&1 <<<"$response"
+  wait_for 60 "fresh setup server" \
+    container_http_probe "$container" GET http://127.0.0.1:18787/health
+  container_http_request "$container" POST \
+    http://127.0.0.1:18787/trpc/setup.complete \
+    '{"publicUrl":"http://127.0.0.1:18787","mode":"all-in-one","port":18787,"acknowledgeNoPassword":true}'
+  ! jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"
   container_exec "$container" pkill -f 'podium-cli setup' >/dev/null 2>&1 || true
   sleep 1
   container_exec "$container" "$command" >/dev/null
@@ -464,7 +466,7 @@ legacy_migration() {
       "podium-$INSTANCE-$role.service"
     container_exec "$container" test -L "$wants/podium-$INSTANCE-$role.service"
   done
-  if ! container_exec "$container" curl -fsS http://127.0.0.1:18787/health >/dev/null; then
+  if ! container_http_request "$container" GET http://127.0.0.1:18787/health; then
     fail legacy-migration "legacy packaged server did not stay on configured port 18787 while the new parent was unhealthy"
     return 1
   fi
@@ -490,18 +492,18 @@ prepare_legacy_machine() {
 }
 
 setup_source() {
-  local response
-  response="$(container_exec "$SOURCE" curl -fsS -H 'content-type: application/json' \
-    -d '{"publicUrl":"http://source:18787","mode":"server","port":18787,"acknowledgeNoPassword":true}' \
-    http://127.0.0.1:18787/trpc/setup.complete)"
-  ! jq -e '.error' >/dev/null 2>&1 <<<"$response"
+  container_http_request "$SOURCE" POST \
+    http://127.0.0.1:18787/trpc/setup.complete \
+    '{"publicUrl":"http://source:18787","mode":"server","port":18787,"acknowledgeNoPassword":true}' ||
+    return 1
+  ! jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"
 }
 
 coordinator_healthy() {
-  curl -fsS "http://127.0.0.1:$SOURCE_PORT/version" |
-    jq -e --arg id "$INSTANCE" '.instanceId==$id' >/dev/null
+  http_probe GET "http://127.0.0.1:$SOURCE_PORT/version" || return 1
+  jq -e --arg id "$INSTANCE" '.instanceId==$id' >/dev/null <<<"$HTTP_BODY"
 }
-coordinator_down() { ! curl -fsS "http://127.0.0.1:$SOURCE_PORT/health" >/dev/null 2>&1; }
+coordinator_down() { ! http_probe GET "http://127.0.0.1:$SOURCE_PORT/health"; }
 
 coordinator_parent_registered() {
   container_exec "$SOURCE" bash -lc '
@@ -513,10 +515,10 @@ coordinator_parent_registered() {
 }
 
 coordinator_is_installed_build() {
-  curl -fsS "http://127.0.0.1:$SOURCE_PORT/version" |
-    jq -e --arg id "$INSTANCE" --arg version "$BOOTSTRAP_VERSION" \
-      '.instanceId==$id and .appVersion==$version and
-        (.appVersion|startswith("dev+")|not)' >/dev/null
+  http_request GET "http://127.0.0.1:$SOURCE_PORT/version" || return 1
+  jq -e --arg id "$INSTANCE" --arg version "$BOOTSTRAP_VERSION" \
+    '.instanceId==$id and .appVersion==$version and
+      (.appVersion|startswith("dev+")|not)' >/dev/null <<<"$HTTP_BODY"
 }
 
 coordinator_participant_ready() {
@@ -528,8 +530,8 @@ coordinator_participant_ready() {
 }
 
 coordinator_version_is() {
-  curl -fsS "http://127.0.0.1:$SOURCE_PORT/version" |
-    jq -e --arg expected "$1" '.appVersion == $expected' >/dev/null
+  http_probe GET "http://127.0.0.1:$SOURCE_PORT/version" || return 1
+  jq -e --arg expected "$1" '.appVersion == $expected' >/dev/null <<<"$HTTP_BODY"
 }
 
 launch_coordinator_setup() {
@@ -627,7 +629,7 @@ packaged_daemon_only() {
   ! grep -Eq '(^|[[:space:]])(server|janitor)([[:space:]]|$)' <<<"$roles"
   container_exec "$container" jq -e '.mode == "daemon" and (.serverUrl | type == "string" and length > 0)' \
     "$(state_path)/config.json" >/dev/null
-  ! container_exec "$container" curl -fsS http://127.0.0.1:18787/health >/dev/null 2>&1
+  ! container_http_probe "$container" GET http://127.0.0.1:18787/health
 }
 
 join_fleet() {
@@ -1120,7 +1122,7 @@ verify_served_crash_artifact() {
   local manifest=$1 container=$2 archive="$WORK/served-crash.tar.gz"
   local script="$WORK/logs/rollback-served-podium.sh" url
   url="$(jq -r '.artifacts.headless.platforms["linux-x86_64"].url' "$manifest")"
-  container_exec "$container" curl -fsSL "$url" >"$archive"
+  download_from_container "$container" "$url" "$archive"
   verify_signed_manifest "$manifest" "$archive"
   tar -xOf "$archive" headless/podium >"$script"
   grep -Fq 'intentional update-e2e successor crash' "$script"
@@ -1427,7 +1429,7 @@ main() {
   launch_coordinator_parent
   wait_for 120 "installed coordinator" coordinator_healthy
   wait_for 30 "installed coordinator parent registry" coordinator_parent_registered
-  curl -fsS "http://127.0.0.1:$SOURCE_PORT/version" \
+  http_get "http://127.0.0.1:$SOURCE_PORT/version" \
     >"$WORK/logs/coordinator-version.json"
   wait_for 120 "server-only coordinator participant" coordinator_participant_ready "$BOOTSTRAP_VERSION"
   if coordinator_is_installed_build; then
@@ -1557,7 +1559,7 @@ main() {
   [[ -n "$artifact" ]]
   docker cp "$SOURCE:$artifact" "$artifact_copy"
   verify_signed_manifest "$original" "$artifact_copy"
-  curl -fsS "http://127.0.0.1:$SOURCE_PORT/version" \
+  http_get "http://127.0.0.1:$SOURCE_PORT/version" \
     >"$WORK/logs/version-after-release.json"
   rpc GET updates.fleet >"$WORK/logs/fleet-after-release.json"
   require_disk_margin "development release build"
@@ -1747,4 +1749,9 @@ main() {
 }
 
 source "$ROOT/scripts/docker-update-e2e/server-lane.sh"
-main "$@"
+
+# Run only when executed, so the helpers above can be sourced and tested on their
+# own. When this file IS the program, BASH_SOURCE[0] and $0 are the same path.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
