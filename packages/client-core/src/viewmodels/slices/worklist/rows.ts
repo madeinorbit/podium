@@ -29,7 +29,7 @@ import {
 import type { SidebarSections, WorktreeNavView } from './nav'
 import { compareManualOrder, sortUnifiedWorkRows } from './row-order'
 import { rowSessions, type UnifiedIssueRow, type UnifiedWorkRow } from './row-types'
-import { issueVisibleInSidebar, sessionVisibleInSidebar } from './visibility'
+import { issueVisibleInSidebar, sessionVisibleInLiveRoster } from './visibility'
 
 /**
  * Build the unified WORK LIST rows (unsorted). Contents:
@@ -64,7 +64,7 @@ function buildUnifiedRows(
     const mine = elevateCoordinatorSession(
       sortSessionsForSidebar(
         sessionsForIssueNav(issue, sessions, allWorktreePaths, {}, ownership).filter((s) =>
-          sessionVisibleInSidebar(s, now, issue),
+          sessionVisibleInLiveRoster(s, now, issue),
         ),
         now,
       ),
@@ -180,7 +180,7 @@ function buildUnifiedRows(
           isSystemOwnedIssueStage(issue.stage))
       )
         return false
-      return sessionVisibleInSidebar(session, now, issue)
+      return sessionVisibleInLiveRoster(session, now, issue)
     })
     if (guests.length === 0) continue
     worktreeRows.push({

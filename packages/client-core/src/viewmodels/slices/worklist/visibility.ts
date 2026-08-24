@@ -1,10 +1,11 @@
 /**
- * POD-330/POD-1496 — worklist VISIBILITY: does a finished issue or session
- * still belong on the live list, or has it decayed into history?
+ * POD-330/POD-1496 — live-roster VISIBILITY: does a finished issue or session
+ * still belong on a current-work surface, or has it decayed into history?
  *
  * Recorded as a non-finding in the ownership map (§3.2) and re-affirmed here:
- * these read like shared worklist/issues state, but every consumer is a
- * worklist row-placement decision, so they stay in worklist.
+ * Issue visibility remains a worklist row-placement decision. Session
+ * visibility is shared with the Flight Deck's unassigned roster so two current-
+ * work surfaces cannot disagree about whether the same agent is still present.
  */
 import { idleVerdictFinishedTurn, type IssueWire, type SessionMeta } from '@podium/model'
 import {
@@ -39,7 +40,16 @@ export function issueVisibleInSidebar(issue: IssueNavigationModel, now: number):
   return now - anchor <= SIDEBAR_FINISHED_GRACE_MS
 }
 
-export function sessionVisibleInSidebar(s: SessionMeta, now: number, issue?: IssueWire): boolean {
+/** The shared eligibility rule for sessions shown on current-work rosters. */
+export function sessionVisibleInLiveRoster(
+  s: SessionMeta,
+  now: number,
+  issue?: IssueWire,
+): boolean {
+  // Assignment presence is lifecycle state, not acknowledgment state. An
+  // exited agent is gone even when its final turn is unread; a hibernated agent
+  // remains eligible until the completion-decay rules below retire it.
+  if (s.archived || s.status === 'exited') return false
   const issueFinished =
     issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
   const agentState = s.agentState

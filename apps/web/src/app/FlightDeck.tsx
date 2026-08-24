@@ -46,6 +46,7 @@ import {
   sessionRole,
   sessionSettled,
   sessionUnreadEmphasized,
+  sessionVisibleInLiveRoster,
   subtreeUnread,
   treeGuides,
   writeFlightDeckFolds,
@@ -2540,7 +2541,7 @@ function UnassignedDeck({
           Agents without tasks
         </h2>
         <p className="mt-2 text-[13px] leading-[1.55] text-muted-foreground text-pretty">
-          These agents are live in the repository but are not attached to a task yet.
+          These agents belong to the repository but are not attached to a task yet.
         </p>
       </div>
       <div
@@ -2693,13 +2694,12 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
         .filter(
           (session) =>
             !session.issueId &&
-            !session.archived &&
-            session.status !== 'exited' &&
+            sessionVisibleInLiveRoster(session, coarseNow) &&
             session.agentKind !== 'shell' &&
             session.headless !== true,
         )
         .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt)),
-    [sessions],
+    [sessions, coarseNow],
   )
   // Resolved against the UNFILTERED mission membership, exactly as RightDock
   // does: resolving against the mode-filtered rows let a switch to "Needs you"

@@ -1342,6 +1342,31 @@ describe('flight deck without a mission', () => {
     expect(screen.queryByText('Every agent, in one tree')).toBeNull()
   })
 
+  it('uses the live-roster lifecycle and decay rule for unassigned agents', () => {
+    harness.sessions = [
+      session('current', { issueId: null }),
+      session('stale-parked', {
+        issueId: null,
+        status: 'hibernated',
+        stoppedAt: '2025-12-28T00:00:00.000Z',
+        readAt: '2025-12-28T01:00:00.000Z',
+        unread: false,
+      }),
+      session('unread-exited', {
+        issueId: null,
+        status: 'exited',
+        stoppedAt: '2026-01-01T00:05:00.000Z',
+        readAt: null,
+        unread: true,
+      }),
+    ]
+    deck()
+    expect(document.querySelector('[data-flight-session="current"]')).toBeTruthy()
+    expect(document.querySelector('[data-flight-session="stale-parked"]')).toBeNull()
+    expect(document.querySelector('[data-flight-session="unread-exited"]')).toBeNull()
+    expect(screen.getByText(/belong to the repository/)).toBeTruthy()
+  })
+
   // The composer's spawn paints the vessel and the session together, so the
   // session knows its task before the selection does. That gap is a load.
   it('ghosts, wordlessly, while a spawned session waits for its selection', () => {
