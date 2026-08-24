@@ -24,6 +24,14 @@
  * caller in the same change that introduces the mechanism, which is the change
  * nobody can review.
  *
+ * ONE THING IS DELIBERATELY *NOT* A FAITHFUL PORT (POD-2708). The mechanics came
+ * across verbatim; the TRUST BOUNDARY did not, because carrying it over verbatim
+ * meant carrying over its absence. `inbox.ts` wrapped caller text in a bracketed
+ * paste and stripped nothing, leaving the only defense in the message RENDERER,
+ * which is a layer several callers of this machine never touch. `deliver` below
+ * now crosses the boundary itself, through `./paste.ts` — read that file for what
+ * the promise is and why it is the same promise for every origin.
+ *
  * ---------------------------------------------------------------------------
  * WHAT MAKES A RECEIPT HONEST
  * ---------------------------------------------------------------------------
@@ -51,10 +59,9 @@
  * outcome.
  */
 
-import type {
-  QueueDrainAbandonedReason as WireQueueDrainAbandonedReason,
-} from '@podium/protocol/daemon'
+import type { QueueDrainAbandonedReason as WireQueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { ActingPrincipal, InputOrigin, TurnDelivery, TurnReceipt } from '../../turns.js'
+import { injectionPayload } from './paste.js'
 
 // ---------------------------------------------------------------------------
 // The constants, carried over verbatim from apps/server/src/modules/sessions/inbox.ts
@@ -88,9 +95,14 @@ export const QUEUE_MESSAGE_SPACING_MS = 400
  */
 export const VERIFICATION_WINDOW_MS = SUBMIT_VERIFY_DELAY_MS * (SUBMIT_MAX_RETRIES + 1)
 
-/** The bracketed-paste envelope every harness but a cold grok TUI understands. */
-const PASTE_START = '\x1b[200~'
-const PASTE_END = '\x1b[201~'
+/**
+ * The ESC this module is allowed to write.
+ *
+ * NOT AN EXCEPTION TO THE PASTE BOUNDARY — the distinction the boundary draws is
+ * between control bytes the DRIVER mints and text the CALLER supplied. `interrupt`
+ * requesting a fence is the driver saying ESC in its own voice; caller text is
+ * content and never gets a voice. See `./paste.ts`.
+ */
 export const ESC = '\x1b'
 
 // ---------------------------------------------------------------------------
@@ -373,13 +385,27 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
       }
     }
 
+    // THE TRUST BOUNDARY, AND IT IS CROSSED EXACTLY HERE (POD-2708).
+    //
+    // Everything below this line is about bytes that are already content. The
+    // caller's text may be anything at all — it reached `send()` from a human, a
+    // controller, the steward, mail, an auto-continue or the system, and the
+    // promise this driver makes about it does not vary by which — so the payload
+    // is built by the one constructor that cannot produce an envelope without
+    // applying the boundary first. `./paste.ts` carries the argument for why
+    // dropping the ESC class is a proof rather than a pattern match.
+    //
+    // BUILT BEFORE THE WATCHES ARE ARMED, not just before the write. The proofs
+    // below are matched against what the CLI RECEIVED — `payload.body` — and a
+    // watcher armed with the pre-boundary text would fail to recognise its own
+    // accept and report `unverified` for a turn that landed.
+    const payload = injectionPayload(text, { rawFirstTurn: ports.rawFirstTurn() })
     const baseline = ports.userTurnCount()
     // Started BEFORE the write: a fast CLI can fire `UserPromptSubmit` before we
     // would otherwise be listening, and a proof we missed reads as `unverified`.
-    const hookWatch = ports.hookAccept?.watch(text)
+    const hookWatch = ports.hookAccept?.watch(payload.body)
     try {
-      const payload = ports.rawFirstTurn() ? text : `${PASTE_START}${text}${PASTE_END}`
-      ports.write(payload)
+      ports.write(payload.bytes)
       setTimer(() => {
         if (ports.running()) ports.write('\r')
       }, SUBMIT_CR_DELAY_MS)

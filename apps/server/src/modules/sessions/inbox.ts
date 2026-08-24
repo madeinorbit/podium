@@ -40,6 +40,7 @@ import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
 import type { HarnessInterrupt } from '../../harness-manifest'
+import { injectionPayload } from './paste'
 import type { Session } from './session'
 
 const SUBMIT_CR_DELAY_MS = 90
@@ -1535,10 +1536,18 @@ export class SessionInbox {
     const baseline = session.terminal
       .transcriptItems()
       .filter((item) => item.role === 'user').length
-    // Grok's fresh TUI ignores bracketed paste until a native first turn
-    // (POD-549). Type the first prompt as raw keystrokes so chat-view send
-    // matches what works in the native composer (POD-901).
-    const payload = this.isRawFirstTurn(session) ? input.text : `\x1b[200~${input.text}\x1b[201~`
+    // THE TRUST BOUNDARY, AND IT IS CROSSED EXACTLY HERE (POD-2708).
+    //
+    // `injectionPayload` is the only thing on this side that puts caller text
+    // inside a bracketed paste, and it cannot do so without first removing every
+    // byte a CLI's key parser would read as control — so no text arriving at this
+    // line can close the envelope it is about to be wrapped in, whoever sent it.
+    // It used to be true only of text that had passed through the message
+    // RENDERER's `sanitizeBody`, which the steward's nudges and the automations
+    // drain never touch. Grok's fresh TUI ignores bracketed paste until a native
+    // first turn (POD-549), so its first prompt goes as raw keystrokes (POD-901) —
+    // guarded identically, because a raw ESC there is simply an interrupt.
+    const payload = injectionPayload(input.text, { rawFirstTurn: this.isRawFirstTurn(session) })
     this.sendInput(session, payload, input.inputOrigin ?? 'controller', principal.attribution)
     setTimeout(
       () => this.sendInput(session, '\r', input.inputOrigin ?? 'controller', principal.attribution),

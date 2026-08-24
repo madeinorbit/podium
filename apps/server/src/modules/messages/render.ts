@@ -20,6 +20,7 @@ import { deliversUnwrapped, type MailSenderPrincipal } from '@podium/commands'
 import type { SessionMeta, SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
+import { sanitizeForInjection } from '../sessions/paste'
 import { findSessionById } from '../sessions/session-by-id'
 
 /** Bodies past this render as a pointer, not inline (issue-addressed only —
@@ -55,19 +56,26 @@ export const principalOfRow = (m: MessageRow): MailSenderPrincipal =>
   }) as MailSenderPrincipal
 
 /**
- * SUBSTRATE-boundary body sanitizer: message bodies are typed into the target
- * agent's PTY inside a bracketed paste (ESC[200~ … ESC[201~), so a body
- * containing the paste-END marker would terminate the paste early and
- * everything after it would run as raw keystrokes — command injection into
- * another agent session. Strip every C0/C1 control character except newline
- * and tab (killing ESC neutralizes ESC[201~ and all other escape sequences).
- * Applied at rendering/delivery ONLY — typeText itself stays byte-faithful for
- * operator/UI direct typing.
+ * The rendered body's control-character strip — the SAME rule the injection
+ * point applies, borrowed rather than restated (POD-2708).
+ *
+ * IT USED TO BE THE ONLY DEFENSE, and that was the defect. A body containing
+ * the paste-END marker (ESC[201~) terminates the bracketed paste it is typed
+ * inside and everything after it runs as raw keystrokes — command injection into
+ * another agent session — and this function, in a RENDERING layer, was the one
+ * thing standing in the way. Every caller that reached the PTY by another road
+ * (the steward's nudges, the automations drain, the driver's own `send`) got no
+ * protection at all. The rule now lives where the envelope is applied, in
+ * `../sessions/paste.ts` and in the driver's `paste.ts` beside it, and both
+ * apply it unconditionally.
+ *
+ * IT STILL EARNS ITS CALL SITE. The rendered body is also what is STORED and
+ * shown, so stripping here keeps control characters out of a transcript, a
+ * client and a log — a display concern the injection point cannot serve. And
+ * because it is literally the same idempotent function, doing it twice produces
+ * exactly the bytes doing it once produces.
  */
-export function sanitizeBody(body: string): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars is the point
-  return body.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u0080-\u009f]/g, '')
-}
+export const sanitizeBody = sanitizeForInjection
 
 /**
  * How a mail-handling turn must END [POD-604].
@@ -173,10 +181,21 @@ export class MessageRenderer {
     if (message.toKind === 'issue' && message.body.length > INLINE_BODY_MAX) {
       return this.pointerText([message])
     }
-    // Operator bodies are BYTE-FAITHFUL: the human's bytes are their own —
-    // they can already type anything directly into their own terminal, so
-    // there is no escalation to prevent. Unwrapped AND unsanitized. The ONE
-    // exception is a question [spec:SP-34d7 read-toolkit tier 4]: the ask
+    // Operator bodies are UNWRAPPED and rendered verbatim: the human's own words
+    // land as their own words, with no envelope and no id around them.
+    //
+    // "AND UNSANITIZED" USED TO BE PART OF THAT SENTENCE, and it is not any more
+    // (POD-2708). The old argument — the human can already type anything into
+    // their own terminal, so there is no escalation to prevent — did not survive
+    // the boundary moving: this body is typed into an ARBITRARY session, not the
+    // sender's own, and it reaches the PTY through a bracketed paste rather than
+    // through a key parser, so the exemption was a cross-session escalation
+    // wearing a byte-faithfulness argument. The injection point now applies the
+    // same rule to every origin (`../sessions/paste.ts`), which is what makes it
+    // a boundary rather than a habit. What is preserved here is what the operator
+    // path was actually for: no envelope, no id, no frame.
+    //
+    // The ONE exception is a question [spec:SP-34d7 read-toolkit tier 4]: the ask
     // round-trip needs the reply frame (message id + `podium mail reply`) or
     // the target can never ack and awaitAck always times out — so operator
     // questions render the frame around the still-byte-faithful body.

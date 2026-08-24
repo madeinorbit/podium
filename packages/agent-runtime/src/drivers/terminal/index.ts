@@ -54,6 +54,13 @@ export {
   VERIFICATION_WINDOW_MS,
 } from './injection.js'
 export {
+  closesPasteEnvelope,
+  type InjectionPayload,
+  injectionPayload,
+  PASTE_ENVELOPE,
+  sanitizeForInjection,
+} from './paste.js'
+export {
   TERMINAL_EXEMPTION_NAMES,
   TERMINAL_PERMITTED_FAILURES,
 } from './permitted-failures.js'
