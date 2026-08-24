@@ -102,6 +102,7 @@ export function createRuntimeWatchLifecycle(
     if (release) {
       try {
         release()
+        log.debug('fine watch released', { sessionId })
       } catch (err) {
         // A release that throws must not take the daemon with it. The refcount
         // is the driver's, and a driver that failed to decrement it has a bug
@@ -168,6 +169,12 @@ export function createRuntimeWatchLifecycle(
             return
           }
           live.release = release
+          // THE INVARIANT'S ONE OBSERVABLE. "Fine must not stay on with nobody
+          // watching" is not checkable from outside this file otherwise: the
+          // frames it gates are the driver's, and their absence looks exactly
+          // like an idle agent. Debug rather than info — one pair per chat
+          // open/close is noise on a busy machine and evidence on a quiet one.
+          log.debug('fine watch acquired', { sessionId })
         })
         .catch((err: unknown) => {
           const live = entries.get(sessionId)

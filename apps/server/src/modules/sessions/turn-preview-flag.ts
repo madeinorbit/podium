@@ -24,8 +24,19 @@
 
 export const TURN_PREVIEW_ENV = 'PODIUM_CHAT_STREAMING'
 
-/** Off until the soak in slice 5 says otherwise. */
-export const TURN_PREVIEW_DEFAULT = false
+/**
+ * ON. The soak slice 5 waited for is done: the plane was driven end to end on a
+ * real instance against a real codex agent (POD-2701), and the reply was
+ * observed growing in steps in the chat pane rather than landing whole.
+ *
+ * WHAT TURNING THIS ON ACTUALLY WIDENS is narrower than it looks. The plane only
+ * exists for sessions already on the contract path, and `PODIUM_RUNTIME_CONTRACT`
+ * is itself off by default — so this flips streaming on for operators who have
+ * already opted into the parallel runtime, and changes nothing at all for anyone
+ * else. The off switch keeps working, which is the state an operator most needs
+ * it in once the default has moved.
+ */
+export const TURN_PREVIEW_DEFAULT = true
 
 /**
  * Truthy for `1`/`true`, falsy for `0`/`false`, default otherwise.
