@@ -8,6 +8,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import {
   type PeerBuild,
@@ -20,6 +21,8 @@ import { resolveInstallDir } from '@podium/runtime/config'
 import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
 import { createGrantRunner } from '@podium/runtime/update-participant'
 import { writePendingGrant } from '@podium/runtime/update-pending'
+
+const log = createLogger('server:updates')
 
 export interface LocalUpdateParticipantDeps {
   machineId: MachineId
@@ -106,10 +109,31 @@ export function startLocalUpdateParticipant(deps: LocalUpdateParticipantDeps): {
     installTarget,
     writePending: deps.writePending ?? ((pending) => writePendingGrant(deps.runtimeDir, pending)),
     restart,
-    report: (status) => deps.updates.onStatus(deps.machineId, status),
+    report: (status) => {
+      // Every convergence decision, INCLUDING the ones that do nothing. Four
+      // days of a coordinator silently judged already-current is what made this
+      // line a requirement, not a nicety (POD-2732): a skipped machine that
+      // logs nothing is indistinguishable from a machine that never got the
+      // grant.
+      log.info('local update participant status', {
+        grantId: status.grantId,
+        state: status.state,
+        version: status.version,
+        ...(status.detail ? { detail: status.detail } : {}),
+      })
+      deps.updates.onStatus(deps.machineId, status)
+    },
     now,
   })
   const receive = (message: Extract<ControlMessage, { type: 'updateGrant' }>): void => {
+    log.info('local update participant received grant', {
+      grantId: message.grantId,
+      targetVersion: message.target.version,
+      // The version convergence will judge against — the installed fact, with
+      // the process identity beside it so a divergence is visible in one line.
+      currentVersion: installedVersion(),
+      processVersion: deps.appVersion,
+    })
     void runner.apply(message)
   }
 
