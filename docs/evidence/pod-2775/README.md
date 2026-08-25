@@ -516,15 +516,67 @@ does omit the field — `session-revival.ts` never sets it — but the wake work
 with and without it), and a race between the park's teardown and an immediate
 wake.
 
-### Grok is not drivable on this host, and that is stated rather than glossed
+### What a HEALTHY wake looks like as a series — the control for the disagreement
 
-The grok arm refuses at CREATE, before any park:
-`grok ACP session/new failed (-32000): Authentication required`, even with
-`~/.grok/auth.json` seeded into the isolated agent home. So its wake is pinned
-in the conformance corpus (`park and come back — hibernate, then adopt`, which
-grok passes) and is NOT driven live here. Its `adopt` was already
-resume-not-rebind — `loadSession` on the journalled id — which is the shape this
-issue moved opencode to.
+Offered as the control for the acceptance drive's re-measurement rather than as
+an argument. Both verbs, on parked opencode sessions, at `a7c7be922`:
+
+```
+resurrect      returned in    25 ms  -> {"ok": true}
+                t+0s=starting  t+1s=starting  t+2s=starting  t+5s=starting  t+10s=live  t+15s=live  t+20s=live
+resumeAndSend  returned in   232 ms  -> {"ok": true, "queued": true, "disposition": "queued"}
+                t+0s=starting  t+1s=starting  t+2s=starting  t+5s=starting  t+10s=live  t+15s=live  t+20s=live
+```
+
+Two things follow, and the second one cuts AGAINST the comfortable reading:
+
+- **Neither verb blocks.** `resurrect` returns in 25ms and `resumeAndSend` in
+  232ms; both settle the row asynchronously about ten seconds later. So a
+  reported "live after 6217 ms" is the reporter's own poll loop, not a call that
+  waited — and "resumeAndSend blocks while resurrect returns immediately" is not
+  the difference between them.
+- **A healthy wake never passes through `exited`.** The intermediate state is
+  `starting`. `exited` is terminal and the working path does not visit it. So an
+  observation window that is too early shows `starting`, NOT `exited` — which
+  means a drive that read `exited` read a genuine failure, and the
+  observation-window explanation does not account for it.
+
+Which leaves the disagreement open rather than closed, on purpose. If the
+acceptance drive's poll series shows `starting` before `live`, its original
+reading was a sampling artefact. If it shows `exited` at any point, its finding
+stands and something on that rig differs from this one — and these numbers are
+what to diff against.
+
+### GROK CANNOT BE MEASURED LIVE ON THIS HOST — TWO INDEPENDENT BLOCKERS
+
+Stated at length because "grok is corpus-pinned only" otherwise reads as a
+choice. It is not a choice. There are **two separate reasons**, either of which
+alone would be enough, and they were hit by two different rigs:
+
+1. **Authentication.** This rig's grok arm refuses at CREATE, before any park
+   and before anything this issue changed can run:
+   `grok ACP session/new failed (-32000): Authentication required` — with
+   `~/.grok/auth.json` seeded into the isolated agent home exactly as the codex
+   and opencode credentials are.
+2. **Balance.** The epic's streaming drive hit `402 Payment Required` on the
+   same family: the account's balance is exhausted, which no rig configuration
+   fixes.
+
+So no live drive on this host can currently reach a grok turn, let alone park
+and wake one. What IS true about grok's wake, and where:
+
+- it passes the conformance corpus's `park and come back — hibernate, then
+  adopt`, which parks a session with `hibernate()` and adopts it back;
+- its `adopt` was already resume-not-rebind — `loadSession` on the journalled
+  `grokSessionId` — which is the shape this issue moved opencode to, so it is
+  the family least likely to carry the defect;
+- and it is the one family whose wake has **no live measurement anywhere on this
+  epic**. That is a real gap in the evidence, not a shape claim like the
+  terminal family's skip, and it should be closed by whoever gets a funded,
+  authenticated grok account rather than by argument.
+
+`drive-resurrect.sh grok` exists and is wired, so it becomes a one-command check
+the moment either blocker lifts.
 
 ## What a screenshot would not have shown
 
