@@ -2,6 +2,7 @@
 import type { SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import {
   continuationPresenceLine,
@@ -14,7 +15,7 @@ import {
 } from './FlightDeck'
 import { OperatorFocusProvider } from './operator-focus'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
-import { REVEAL_IN_DECK_EVENT } from './shell-state'
+import { REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY } from './shell-state'
 
 /**
  * The deck's own click grammar and fold defaults (POD-710 §4.1–4.4).
@@ -161,7 +162,12 @@ const deck = (): void => {
     // app-wide dialog (POD-1077), exactly as AppShell supplies it in the app.
     <ConfirmProvider>
       <OperatorFocusProvider missionId="root">
-        <FlightDeck onCollapse={vi.fn()} />
+        {/* The explorer's stack lives above the dock in the app, and the deck
+            reads it to know which task the dock is already showing — so the
+            harness supplies the real provider rather than the default context. */}
+        <IssueExplorerProvider>
+          <FlightDeck onCollapse={vi.fn()} />
+        </IssueExplorerProvider>
       </OperatorFocusProvider>
     </ConfirmProvider>,
   )
@@ -211,7 +217,11 @@ beforeEach(() => {
   ]
 })
 
+/** Torn down after each test — a window listener outlives the render. */
+const afterEachListeners: Array<() => void> = []
+
 afterEach(() => {
+  for (const off of afterEachListeners.splice(0)) off()
   cleanup()
   vi.useRealTimers()
 })
@@ -603,6 +613,70 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
 
     expect(openPanel).toHaveBeenCalledTimes(1)
     expect((openPanel.mock.calls[0]?.[0] as CustomEvent).detail).toBe('issue')
+  })
+
+  /** Every `podium:open-right-panel` detail the deck asked for, in order. */
+  const panelRequests = (): string[] => {
+    const details: string[] = []
+    const listener = (event: Event): void => {
+      details.push(String((event as CustomEvent).detail))
+    }
+    window.addEventListener('podium:open-right-panel', listener)
+    afterEachListeners.push(() => window.removeEventListener('podium:open-right-panel', listener))
+    return details
+  }
+
+  it('closes the dock on a second click on the task it is already showing (POD-1639)', () => {
+    // The dock is open on the Task panel, exactly as it is after the first pick.
+    harness.ui.set(RIGHT_PANEL_KEY, 'issue')
+    const details = panelRequests()
+    deck()
+
+    fireEvent.click(taskRow('t2'))
+    settle()
+    fireEvent.click(taskRow('t2'))
+    settle()
+
+    expect(details).toEqual(['issue', 'close'])
+  })
+
+  it('opens rather than closes when the dock is showing another task', () => {
+    harness.ui.set(RIGHT_PANEL_KEY, 'issue')
+    const details = panelRequests()
+    deck()
+
+    fireEvent.click(taskRow('t2'))
+    settle()
+    fireEvent.click(taskRow('t3'))
+    settle()
+
+    expect(details).toEqual(['issue', 'issue'])
+  })
+
+  it('never closes the dock on a promotion, which is an unambiguous open', () => {
+    harness.ui.set(RIGHT_PANEL_KEY, 'issue')
+    const details = panelRequests()
+    deck()
+
+    fireEvent.click(taskRow('t2'))
+    settle()
+    fireEvent.click(taskRow('t2'))
+    fireEvent.click(taskRow('t2'))
+    settle()
+
+    expect(details).toEqual(['issue', 'issue'])
+  })
+
+  it('opens the dock when it is closed, whatever the row it lands on', () => {
+    const details = panelRequests()
+    deck()
+
+    fireEvent.click(taskRow('t2'))
+    settle()
+    fireEvent.click(taskRow('t2'))
+    settle()
+
+    expect(details).toEqual(['issue', 'issue'])
   })
 
   it('promotes on the second click and never fires the single as well', () => {

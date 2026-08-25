@@ -84,6 +84,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
@@ -101,14 +102,20 @@ import { renderReadoutMarkdown } from '@/lib/markdown'
 import { PhaseTimer, useArrivals, WorkingMark } from '@/lib/motion'
 import { SessionContextMenu } from '@/lib/SessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
-import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
+import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { useClickIntent } from './click-intent'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import { useSessionHovered } from './session-hover'
-import { OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT } from './shell-state'
+import {
+  CLOSE_RIGHT_PANEL,
+  OPEN_RIGHT_PANEL_EVENT,
+  REVEAL_IN_DECK_EVENT,
+  RIGHT_PANEL_KEY,
+  readRightPanel,
+} from './shell-state'
 import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
 
 /**
@@ -2716,6 +2723,21 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     [repos],
   )
   const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
+  // WHAT THE TASK DOCK IS ACTUALLY SHOWING, so a row can answer for it. The
+  // explorer's own stack top — not this column's focus — because the operator
+  // may have walked the explorer somewhere else since, and a row that claims to
+  // already be open there has to mean the level on screen.
+  //
+  // THROUGH REFS, read when the click resolves rather than when the row
+  // rendered. `TaskRow`'s memo deliberately ignores its handler props, so a
+  // strip goes on holding the closure from the render BEFORE the explorer
+  // followed the focus — which is exactly the render whose answer is stale.
+  const { current: explorerIssueId } = useIssueExplorer()
+  const rightPanel = usePersistedUiValue(RIGHT_PANEL_KEY, readRightPanel)
+  const explorerIssueRef = useRef(explorerIssueId)
+  explorerIssueRef.current = explorerIssueId
+  const dockPanelRef = useRef(rightPanel)
+  dockPanelRef.current = rightPanel
   // Device-local DISPLAY preference, subscribed rather than seeded (POD-540):
   // which view you left the deck in and which branches you folded survive a
   // remount. Neither ever touches issue stage or agent state.
@@ -3134,12 +3156,27 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   }, [sessions, issues, rows, folds, setFolds, setSelectedIssueId, setFocusedIssueId])
 
   const selectIssue = (row: FlightDeckRow, permanent: boolean): void => {
+    // THE SAME ROW CLOSES WHAT IT OPENED (POD-1639). A single click whose task
+    // is the one the dock is already showing is the operator asking for the
+    // stage back — the first click was the request to see this task, so the
+    // second can only be about the panel. The explorer keeps its stack above
+    // the dock, so this costs nothing: the next click returns to this level.
+    //
+    // The PREVIEW click only. A promotion (double click, or the strip menu's
+    // Open) is an unambiguous "show me this task" and must never end with the
+    // inspector shut.
+    const dockShowsThisIssue =
+      dockPanelRef.current === 'issue' && explorerIssueRef.current === row.issue.id
     setFocusedIssueId(row.issue.id)
     // A deliberate task pick asks to SEE its inspector, not merely retarget an
     // inspector that happens to be open. Reopen the Task dock even when the
     // operator previously dismissed it; the provider follows the focus update
     // above and retargets the explorer to this issue.
-    window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'issue' }))
+    window.dispatchEvent(
+      new CustomEvent(OPEN_RIGHT_PANEL_EVENT, {
+        detail: !permanent && dockShowsThisIssue ? CLOSE_RIGHT_PANEL : 'issue',
+      }),
+    )
     void markIssueRead(row.issue.id)
     if (row.issue.worktreePath) setSelectedWorktree(row.issue.worktreePath)
     const active = row.sessions.filter(
