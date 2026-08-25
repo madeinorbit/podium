@@ -24,6 +24,9 @@ export interface GrokAcpServerRequest {
 
 export interface GrokAcpClientConfig {
   transport: GrokAcpTransport
+  /** Every parsed inbound frame, before dispatching it to a request/update
+   * consumer. Kept optional so ordinary hosts pay no diagnostic cost. */
+  onFrame?(frame: GrokAcpFrame): void
   onNotification(frame: GrokAcpFrame): void
   onServerRequest(request: GrokAcpServerRequest): void
   onClose?(): void
@@ -88,6 +91,7 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
     const parsed = GrokAcpFrameSchema.safeParse(raw)
     if (!parsed.success) return
     const frame = parsed.data
+    config.onFrame?.(frame)
     if (frame.id !== undefined && frame.method !== undefined) {
       config.onServerRequest({ id: frame.id, method: frame.method, params: frame.params })
       return

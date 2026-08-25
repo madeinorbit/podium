@@ -1,6 +1,7 @@
 import { createLogger } from '@podium/logger'
+import type { AgentStateEvent } from '@podium/harness'
 import { compareProviderCursor } from '@podium/harness/metadata'
-import type { SessionId } from '@podium/model'
+import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { InteractionEvent } from '@podium/protocol'
 import { isRuntimeFineEvent, type RuntimeEvent, type TurnEvent } from '@podium/protocol/daemon'
 import {
@@ -41,6 +42,14 @@ export interface RuntimeEventSessionProjection {
   recordOomKill(at: string): void
 }
 
+/** The state transition made by an accepted causal state event. The mutation
+ * happens inside the session-ledger transaction; publication happens only
+ * after that transaction commits. */
+export interface RuntimeStateProjection {
+  prev: AgentRuntimeState | undefined
+  next: AgentRuntimeState
+}
+
 export interface RuntimeEventGatePorts {
   events: Pick<
     EventsRepository,
@@ -55,6 +64,15 @@ export interface RuntimeEventGatePorts {
   >
   session(sessionId: SessionId): RuntimeEventSessionProjection | undefined
   persist(sessionId: SessionId, additionalWrite: () => void): void
+  /** Apply the normalized state event atomically with its runtime-event row. */
+  state?(input: {
+    sessionId: SessionId
+    change: AgentStateEvent
+    at: string
+  }): RuntimeStateProjection | undefined
+  /** Publish the committed state to the same consumers as the compatibility
+   * agentState frame. This is deliberately downstream of {@link state}. */
+  stateChanged?(input: RuntimeStateProjection & { sessionId: SessionId }): void
   /**
    * COARSE TURN BOUNDARIES, for the failure→interaction gate (POD-2414).
    *
@@ -180,7 +198,15 @@ export class RuntimeEventGate {
      */
     if (event.t === 'process' && event.ev.ev === 'oomKilled') session.recordOomKill(event.at)
     let eventId = 0
+    let stateProjection: RuntimeStateProjection | undefined
     this.ports.persist(sessionId, () => {
+      if (event.t === 'state') {
+        stateProjection = this.ports.state?.({
+          sessionId,
+          change: event.change as AgentStateEvent,
+          at: event.at,
+        })
+      }
       eventId = this.ports.events.appendEvent(
         {
           ts: event.at,
@@ -193,6 +219,9 @@ export class RuntimeEventGate {
       this.ports.events.saveRuntimeEventCheckpoint(next)
     })
     this.ports.events.announceEvent(eventId)
+    if (stateProjection) {
+      this.ports.stateChanged?.({ sessionId, ...stateProjection })
+    }
     this.scheduleBoardProjection()
     return { kind: 'accepted', eventId }
   }

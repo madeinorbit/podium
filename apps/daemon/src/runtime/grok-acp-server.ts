@@ -226,6 +226,12 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
     journal,
     now: deps.now ?? (() => Date.now()),
     mintSessionId: () => asSessionId(crypto.randomUUID()),
+    onRawFrame:
+      process.env.PODIUM_GROK_ACP_TRACE === '1'
+        ? (sessionId, frame) => {
+            log.info('Grok ACP inbound frame', { sessionId, frame })
+          }
+        : undefined,
 
     async launch(input) {
       const verdict = await grokAcpVersionProbe()

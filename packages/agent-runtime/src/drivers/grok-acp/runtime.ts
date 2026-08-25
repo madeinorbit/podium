@@ -107,6 +107,9 @@ export interface GrokAcpRuntimeHost {
    * abandonment either way.
    */
   onQueueAbandoned?: OnQueueAbandoned
+  /** Opt-in wire evidence for a provider failure. The client has already
+   * parsed the JSON-RPC frame, but no classification or projection has run. */
+  onRawFrame?(sessionId: SessionId, frame: GrokAcpFrame): void
   journal: GrokAcpJournal
   now(): number
   mintSessionId(): SessionId
@@ -570,7 +573,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     }
   }
 
-  function connect(endpoint: GrokAcpEndpoint): BufferedConnection {
+  function connect(endpoint: GrokAcpEndpoint, sessionId: SessionId): BufferedConnection {
     const notifications: GrokAcpFrame[] = []
     const requests: GrokAcpServerRequest[] = []
     let sawClose = false
@@ -584,6 +587,9 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     const make = host.makeClient ?? createGrokAcpClient
     const client = make({
       transport: endpoint.transport,
+      onFrame(frame) {
+        host.onRawFrame?.(sessionId, frame)
+      },
       onNotification(frame) {
         if (handlers) handlers.notification(frame)
         else notifications.push(frame)
@@ -1528,8 +1534,11 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     }
   }
 
-  async function initializedConnection(endpoint: GrokAcpEndpoint): Promise<BufferedConnection> {
-    const connection = connect(endpoint)
+  async function initializedConnection(
+    endpoint: GrokAcpEndpoint,
+    sessionId: SessionId,
+  ): Promise<BufferedConnection> {
+    const connection = connect(endpoint, sessionId)
     const initialized = await connection.client.initialize()
     if (initialized.agentCapabilities?.loadSession === false) {
       throw new Error('Grok ACP initialize declined session/load')
@@ -1560,7 +1569,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       workdir: spec.workdir,
       ...(spec.env ? { env: spec.env } : {}),
     })
-    const connection = await initializedConnection(endpoint)
+    const connection = await initializedConnection(endpoint, sessionId)
     const created = GrokAcpSessionResult.parse(
       await connection.client.call(GROK_ACP_METHODS.sessionNew, {
         cwd: spec.workdir,
@@ -1599,7 +1608,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       workdir: input.spec.workdir,
       ...(input.spec.env ? { env: input.spec.env } : {}),
     })
-    const connection = await initializedConnection(endpoint)
+    const connection = await initializedConnection(endpoint, input.sessionId)
     const handle = attachSession({
       ...input,
       endpoint,

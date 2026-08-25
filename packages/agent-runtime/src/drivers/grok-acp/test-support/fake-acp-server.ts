@@ -187,7 +187,7 @@ export function startFakeGrokAcpServer(
                 push({
                   jsonrpc: '2.0',
                   id: frame.id,
-                  error: { code: -32000, message: failNextDetail },
+                  error: { code: 402, message: failNextDetail },
                 })
                 return
               }

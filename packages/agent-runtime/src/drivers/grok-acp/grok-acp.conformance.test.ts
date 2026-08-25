@@ -65,6 +65,7 @@ function makeWorld(options: WorldOptions = {}): {
   target: ConformanceTarget
   failProviderTurn(sessionId: SessionId, detail: string): void
   failNextPrompt(sessionId: SessionId, detail?: string): void
+  rawFrames: unknown[]
 } {
   const hostsClientTerminals = options.hostsClientTerminals ?? true
   const archiveReader = options.archiveReader ?? 'ready'
@@ -75,6 +76,7 @@ function makeWorld(options: WorldOptions = {}): {
   const conversations = new Map<string, Record<string, unknown>[]>()
   const servers = new Map<SessionId, FakeGrokAcpServer>()
   const entries = new Map<SessionId, GrokAcpJournalEntry>()
+  const rawFrames: unknown[] = []
   const journal: GrokAcpJournal = {
     read: (id) => entries.get(id),
     write: (entry) => entries.set(entry.sessionId, entry),
@@ -87,6 +89,7 @@ function makeWorld(options: WorldOptions = {}): {
     journal,
     now: () => Date.UTC(2026, 7, 16) + ++seq * 1000,
     mintSessionId: () => `gk-session-${++seq}` as SessionId,
+    onRawFrame: (_sessionId, frame) => rawFrames.push(frame),
     makeClient(config) {
       const client = createGrokAcpClient(config)
       return new Proxy(client, {
@@ -245,6 +248,7 @@ function makeWorld(options: WorldOptions = {}): {
   return {
     failProviderTurn: (sessionId, detail) => serverFor(sessionId).failProviderTurn(detail),
     failNextPrompt: (sessionId, detail) => serverFor(sessionId).failNextPrompt(detail),
+    rawFrames,
     target: {
       name: 'grok-acp',
       family: 'server',
@@ -352,6 +356,18 @@ describe('grok-acp provider failure detail', () => {
       world.failNextPrompt(handle.binding.sessionId, detail)
       await handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
       const observed = await eventsThroughTurnFailure(handle)
+      const rawError = world.rawFrames.find(
+        (frame) =>
+          typeof frame === 'object' &&
+          frame !== null &&
+          'error' in frame &&
+          typeof frame.error === 'object' &&
+          frame.error !== null,
+      )
+      expect(rawError).toMatchObject({
+        error: { code: 402, message: detail },
+      })
+      const classifiedDetail = `status 402: ${detail}`
 
       const stateFailure = observed.find(
         (entry) => entry.t === 'state' && entry.change.kind === 'turn_failed',
@@ -363,7 +379,7 @@ describe('grok-acp provider failure detail', () => {
         kind: 'turn_failed',
         errorClass: 'usage_limit',
         retryable: false,
-        detail,
+        detail: classifiedDetail,
       })
 
       const turnFailure = observed.find((entry) => entry.t === 'turn' && entry.ev.ev === 'failed')
@@ -373,11 +389,11 @@ describe('grok-acp provider failure detail', () => {
       expect(turnFailure.ev).toMatchObject({
         ev: 'failed',
         disposition: 'needs-human',
-        detail,
+        detail: classifiedDetail,
       })
       await expect(handle.state()).resolves.toMatchObject({
         phase: 'errored',
-        error: { class: 'usage_limit', retryable: false, detail },
+        error: { class: 'usage_limit', retryable: false, detail: classifiedDetail },
       })
     } finally {
       world.target.reset()

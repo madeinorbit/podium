@@ -14,6 +14,7 @@
  * (activityFlushTimer stays a field initializer on SessionLifecycle).
  */
 
+import { initialAgentState, reduceAgentState, type AgentStateEvent } from '@podium/harness'
 import { asUserId, computePriorities, type SessionId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import type { RuntimeEvent } from '@podium/protocol/daemon'
@@ -617,6 +618,39 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // server is serving.
     turn: (input) => bag.interactionTurn?.(input),
     interaction: (input) => bag.interactionResolved?.(input),
+    state: ({ sessionId, change, at }) => {
+      const session = bag.sessions.get(sessionId)
+      if (!session) return undefined
+      const prev = session.agentState
+      const base = prev ?? initialAgentState(at)
+      const next = reduceAgentState(base, change as AgentStateEvent, at)
+      if (next === base) return undefined
+      // Keep the legacy accumulator rules for workingMsTotal, but do not let
+      // this causal projection advance recency: recordRuntimeActivity already
+      // owns that fact for the same event envelope.
+      session.setAgentState(next, false)
+      return { prev, next: session.agentState ?? next }
+    },
+    stateChanged: ({ sessionId, prev, next }) => {
+      const session = bag.sessions.get(sessionId)
+      if (!session) return
+      bag.autoContinue.onStateChange(sessionId, next)
+      bag.broadcastToClients({
+        type: 'sessionAgentStateChanged',
+        sessionId,
+        state: next,
+      })
+      // These are the same unmigrated consumers fed by a compatibility
+      // agentState frame. The causal event gate remains the single ingress;
+      // this callback only publishes its committed projection.
+      bag.bus.emit('issue.sessionDerived', { kind: 'activity', sessionId })
+      bag.inbox.stateChanged({ sessionId, prev, next })
+      if (prev?.phase === 'needs_user' || prev?.phase === 'errored') {
+        if (next.phase !== 'needs_user' && next.phase !== 'errored') {
+          bag.state.clearAllSnoozes(sessionId)
+        }
+      }
+    },
     now: () => bag.now(),
   })
   bag.runtimeGateway = new SessionRuntimeGateway({

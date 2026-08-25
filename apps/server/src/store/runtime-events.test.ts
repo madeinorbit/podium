@@ -17,10 +17,11 @@ function stateEvent(input: {
   provenance?: RuntimeEvent['provenance']
   segmentId?: string
   predecessorSegmentId?: string
+  change?: Record<string, unknown>
 }): RuntimeEvent {
   return {
     t: 'state',
-    change: { kind: 'activity' },
+    change: input.change ?? { kind: 'activity' },
     at: input.at,
     provenance: input.provenance ?? 'live',
     cursor: {
@@ -82,6 +83,76 @@ function bindContract(registry: SessionRegistry, store: SessionStore) {
 }
 
 describe('durable runtime observation gate', () => {
+  it('projects causal failure detail into SessionMeta, beside the turn event', () => {
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const sessionId = bindContract(registry, store)
+    const detail = 'API error (status 402 Payment Required): Grok Build usage balance exhausted'
+
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'bootstrap-state',
+      sessionId,
+      event: stateEvent({
+        at: '2026-08-23T00:00:00.000Z',
+        seq: 1,
+        observerGeneration: 1,
+        provenance: 'bootstrap',
+        change: { kind: 'session_started' },
+      }),
+    })
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'failure-state',
+      sessionId,
+      event: stateEvent({
+        at: '2026-08-23T00:00:01.000Z',
+        seq: 2,
+        observerGeneration: 1,
+        change: {
+          kind: 'turn_failed',
+          errorClass: 'usage_limit',
+          retryable: false,
+          detail,
+        },
+      }),
+    })
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'failure-turn',
+      sessionId,
+      event: {
+        t: 'turn',
+        ev: {
+          ev: 'failed',
+          turnEpoch: 1,
+          reason: 'provider-error',
+          disposition: 'needs-human',
+          detail,
+        },
+        at: '2026-08-23T00:00:01.000Z',
+        provenance: 'live',
+        cursor: { segmentId: 'runtime-segment', components: { seq: 3 } },
+        observerGeneration: 1,
+        turnEpoch: 1,
+      },
+    })
+
+    expect(registry.modules.sessions.sessionById(sessionId)?.agentState).toMatchObject({
+      phase: 'errored',
+      error: { class: 'usage_limit', retryable: false, detail },
+    })
+    expect(store.events.listRuntimeEvents(sessionId)).toContainEqual(
+      expect.objectContaining({
+        t: 'turn',
+        ev: expect.objectContaining({ ev: 'failed', detail }),
+      }),
+    )
+
+    registry.dispose()
+    store.close()
+  })
+
   it('owns recency/board after readiness and enforces restart, segment, epoch, and terminal fences', async () => {
     const store = new SessionStore(':memory:')
     const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
