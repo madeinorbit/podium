@@ -25,7 +25,8 @@
  * and the report records the task count that shows it did not.
  *
  * The whole lane runs under ONE heavy-test lease, taken by the public
- * `deps:global-store-cache-admission` script rather than by any probe — see `probeEnv`.
+ * `deps:global-store-cache-admission` script rather than by any probe. Running this file
+ * directly is REFUSED rather than silently unadmitted — see `unleasedRefusal`.
  */
 import {
   existsSync,
@@ -161,19 +162,50 @@ export function validateAdmissionOptions(options: AdmissionOptions): void {
 }
 
 /**
+ * This lane may not run unless something outside it is already holding `test:heavy`.
+ *
+ * It installs three worktrees and runs several cold full-graph typechecks and package
+ * suites, so an unadmitted run is a real load on a shared host — and it is exactly the
+ * run that is easiest to start by accident, because `bun scripts/global-store-cache-
+ * admission.ts` is the obvious thing to type and looks identical to the safe path from
+ * the outside. The public `deps:global-store-cache-admission` script routes through
+ * `scripts/validation-admission.ts heavy`, which takes the lease and marks the child
+ * environment; entering without that mark means nothing took it.
+ *
+ * The lane deliberately cannot mark itself. A self-set marker is not evidence of a
+ * lease, it is a forgery of one — and it would be a worse outcome than no check at all,
+ * because every later probe and every reader of the environment would then see an
+ * unleased run wearing an admitted run's badge.
+ *
+ * The named escape is for the case validation-admission itself supports: an operator
+ * holding `test:heavy` manually across several commands. That is a deliberate outer
+ * scope stated out loud, not the accident this guard exists for.
+ */
+export function unleasedRefusal(env: NodeJS.ProcessEnv): string | null {
+  if (env[VALIDATION_HELD_ENV] === 'heavy') return null
+  return (
+    'refusing to run outside a heavy-test lease: this lane installs three worktrees and ' +
+    'runs several cold full-graph typechecks, and nothing is holding test:heavy. Use ' +
+    '`bun run deps:global-store-cache-admission -- ...`, which leases the whole lane. If ' +
+    `you are already holding test:heavy yourself, say so with ${VALIDATION_HELD_ENV}=heavy.`
+  )
+}
+
+/**
  * The environment every probe runs under.
  *
- * The heavy-test lease is taken ONCE, around the whole lane, by the public
- * `deps:global-store-cache-admission` script. Two things keep it that way, and both are
- * asserted rather than assumed, because a probe that queued for a second lease would
- * queue behind the lane's own holder and never start.
+ * The heavy-test lease is taken ONCE, around the whole lane, and no probe may take a
+ * second one — a probe that queued for it would queue behind the lane's own holder and
+ * never start. `PODIUM_SESSION_ID` is unset because the probes run in DETACHED
+ * worktrees, where `podium lock` cannot resolve a repository to name a holder in, so an
+ * inner acquire would fail rather than wait.
  *
- * `PODIUM_SESSION_ID` is unset because the probes run in DETACHED worktrees, where
- * `podium lock` cannot resolve a repository to name a holder in — so an inner acquire
- * would fail rather than wait. That alone already suppresses nesting, and it is a
- * side-effect of where the probes run rather than a statement about admission. The held
- * marker says the thing directly: this command is already inside a heavy lane. Turbo
- * carries it as a pass-through variable, not a global one, so it reaches the tasks
+ * The held marker is INHERITED, never minted here: `unleasedRefusal` has already
+ * established that the environment carries it, and `runtimeEnv` copies it through. Do
+ * not set it in this function. Writing it here would make the lane able to manufacture
+ * the proof it is checked against, which is the whole reason the check is at the entry
+ * point and not in this file's own environment. Turbo carries the marker as a
+ * pass-through variable rather than a global one, so forwarding it reaches the tasks
  * without entering any cache key.
  */
 export function probeEnv(bun: string, xdgCacheHome: string): NodeJS.ProcessEnv {
@@ -183,7 +215,6 @@ export function probeEnv(bun: string, xdgCacheHome: string): NodeJS.ProcessEnv {
     // would prove nothing about how sibling worktrees find each other's results.
     TURBO_CACHE_DIR: undefined,
     PODIUM_SESSION_ID: undefined,
-    [VALIDATION_HELD_ENV]: 'heavy',
   })
 }
 
@@ -263,6 +294,11 @@ export function breakableEntry(entries: string[]): string | null {
 }
 
 async function main(): Promise<void> {
+  // First, before argv, before git, and long before anything is installed: an unleased
+  // run must not get as far as doing work it would then have to be stopped in the
+  // middle of.
+  const refusal = unleasedRefusal(process.env)
+  if (refusal) throw new Error(refusal)
   const sourceRoot = realpathSync(fileURLToPath(new URL('..', import.meta.url)))
   const options = parseAdmissionArgs(process.argv.slice(2), sourceRoot)
   const startedAt = new Date().toISOString()

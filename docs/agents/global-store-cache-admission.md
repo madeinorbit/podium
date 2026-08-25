@@ -157,13 +157,30 @@ routine agent invocation would run several cold full-graph typechecks and a pack
 suite with nothing admitting them. That was the state before this lane was leased, and the
 host had no way to know it was busy.
 
-`probeEnv` makes the no-nesting half of that intrinsic rather than incidental. It unsets
-`PODIUM_SESSION_ID` (no identity, no lease) and sets `PODIUM_VALIDATION_RESOURCE_HELD=heavy`
-(this command is already inside a heavy lane), which are the two conditions
-`runWithValidationAdmission` branches on. The marker is a Turbo `globalPassThroughEnv`
-rather than a `globalEnv`, so it reaches the tasks without entering any cache key. Both are
-covered by `scripts/global-store-cache-admission.test.ts`, and the lease itself by the
-package.json regression in `scripts/test-configuration.test.ts`.
+**Running the script directly is refused, not merely unleased.** `bun scripts/global-store-
+cache-admission.ts ...` is the obvious thing to type and is indistinguishable from the safe
+path from the outside, so the entry point checks, before argv and long before anything is
+installed, that the environment already carries `PODIUM_VALIDATION_RESOURCE_HELD=heavy` —
+the mark `scripts/validation-admission.ts` puts on the child of a lease it took. Nothing
+was created by the time it refuses, so there is no half-installed worktree to reason about.
 
-Running `bun scripts/global-store-cache-admission.ts` directly still works and takes no
-lease. Use the package script on a shared host.
+The lane deliberately **cannot mark itself**. `probeEnv` forwards an inherited marker to
+the probes so none of them takes a second lease — a probe that queued for `test:heavy`
+would queue behind the lane's own holder and never start — but it must never set one. A
+self-set marker is not evidence of a lease, it is a forgery of one, and it would be worse
+than no check at all: every probe and every reader of that environment downstream would
+then see an unleased run wearing an admitted run's badge. `probeEnv` also unsets
+`PODIUM_SESSION_ID`, because the probes run in detached worktrees where `podium lock`
+cannot resolve a repository to name a holder in. Those two are the conditions
+`runWithValidationAdmission` actually branches on. The marker is a Turbo
+`globalPassThroughEnv` rather than a `globalEnv`, so forwarding it reaches the tasks
+without entering any cache key.
+
+The one named way past the gate is `PODIUM_VALIDATION_RESOURCE_HELD=heavy` set by hand,
+which is the case `validation-admission` already supports: an operator holding `test:heavy`
+across several commands. That is a deliberate outer scope stated out loud, not the accident
+the gate exists for.
+
+Covered by `scripts/global-store-cache-admission.test.ts`, including three cases that run
+the real entry point — an exported guard `main` never called would pass a unit test — and
+by the package.json regression in `scripts/test-configuration.test.ts`.
