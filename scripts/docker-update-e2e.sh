@@ -661,6 +661,13 @@ prepare_legacy_machine() {
 #    shell and the reload handshake exist AT ALL (POD-2762), and the only one the
 #    macOS desktop webview will accept. The plain-HTTP rungs below are not a
 #    slightly worse URL for the same product; they are a different product.
+#    A TRAP WORTH KNOWING BEFORE IT COSTS AN HOUR: probe this front's `/daemon`
+#    with plain `curl` and it answers 502, which reads as "websockets do not
+#    survive the proxy" and would condemn this rung. They do. `serve` negotiates
+#    h2, and an HTTP/1.1 Upgrade sent over h2 is what gets refused; `curl
+#    --http1.1` against the same URL returns `101 Switching Protocols`. Every
+#    client that matters here — the daemon's `ws`, and a browser opening a
+#    WebSocket — handshakes over HTTP/1.1, so the join is unaffected.
 # 2. The host's tailnet address. Still reachable from every device on the
 #    tailnet, just without the secure context. This is where a host that has
 #    Tailscale but no working `serve` lands.
