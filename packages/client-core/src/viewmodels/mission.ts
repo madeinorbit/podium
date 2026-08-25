@@ -461,6 +461,90 @@ export function hasLeftMission(issue: IssueNavigationModel): boolean {
 }
 
 /**
+ * THE SESSION SLICE, INDEXED BY THE ISSUE EACH SESSION IS ON.
+ *
+ * Every derivation in this file used to ask the same question by scanning:
+ * `sessions.filter((s) => s.issueId === issue.id)`, once PER MEMBER ISSUE. On
+ * the live corpus (1,642 issues, 1,311 sessions) one `missionProgress` call
+ * therefore walked the whole session slice once per unit of the mission, every
+ * visible row asked for its own `missionProgress`, and every replica publish
+ * renewed both array identities — so the profile put this module at ~22% of
+ * main-thread self time on the feed with the operator touching nothing.
+ *
+ * Keyed on the ARRAY'S IDENTITY, which is the same contract {@link
+ * missionIssueIndex} already rests on and adds no assumption of its own: the
+ * kernel facade documents that a kind whose contents did not change keeps the
+ * identical `rows` reference, and its reconcile builds a NEW array for any
+ * change rather than mutating in place. A changed slice is a different array,
+ * so a stale index is not reachable.
+ *
+ * A `WeakMap`, so a superseded slice's index dies with the array that named it.
+ */
+interface MissionSessionIndex {
+  /**
+   * Every session carrying this `issueId`, in SLICE ORDER, archived included —
+   * exactly what `sessions.filter((s) => s.issueId === id)` returned, because
+   * that is what the callers were reading and some of them pass the result on
+   * to helpers that draw their own archived/open lines.
+   */
+  byIssue: Map<string, SessionMeta[]>
+  /** Issue ids carrying at least one {@link openSession} — the `some(...)`
+   *  presence test the staffing rules ask, precomputed. */
+  openIssues: Set<string>
+  /** Issue id → the latest `lastActiveAt` among its NON-ARCHIVED sessions, the
+   *  session half of {@link lastActiveAt}'s max. Absent when it has none. */
+  lastActive: Map<string, string>
+}
+
+/** A stable empty slice, so the `sessions = []` defaults below do not hand the
+ *  memos a fresh array identity on every call and miss every time. */
+const NO_SESSIONS: readonly SessionMeta[] = Object.freeze([])
+
+const sessionIndexes = new WeakMap<readonly SessionMeta[], MissionSessionIndex>()
+let sessionIndexBuilds = 0
+
+function missionSessionIndex(sessions: readonly SessionMeta[]): MissionSessionIndex {
+  const cached = sessionIndexes.get(sessions)
+  if (cached) return cached
+  sessionIndexBuilds += 1
+  const byIssue = new Map<string, SessionMeta[]>()
+  const openIssues = new Set<string>()
+  const lastActive = new Map<string, string>()
+  for (const session of sessions) {
+    const issueId = session.issueId
+    if (issueId === undefined) continue
+    const existing = byIssue.get(issueId)
+    if (existing) existing.push(session)
+    else byIssue.set(issueId, [session])
+    if (openSession(session)) openIssues.add(issueId)
+    if (session.archived) continue
+    const seen = lastActive.get(issueId)
+    if (seen === undefined || session.lastActiveAt > seen) {
+      lastActive.set(issueId, session.lastActiveAt)
+    }
+  }
+  const index: MissionSessionIndex = { byIssue, openIssues, lastActive }
+  sessionIndexes.set(sessions, index)
+  return index
+}
+
+/** The sessions attached to one issue, in slice order — the O(1) replacement
+ *  for `sessions.filter((s) => s.issueId === issue.id)`. The array is SHARED
+ *  and must not be mutated; every caller in this file either reads it or copies
+ *  it before sorting. */
+function sessionsOnIssue(
+  sessions: readonly SessionMeta[],
+  issueId: string,
+): readonly SessionMeta[] {
+  return missionSessionIndex(sessions).byIssue.get(issueId) ?? NO_SESSIONS
+}
+
+/** Is anybody {@link openSession} on this issue? */
+function issueStaffed(sessions: readonly SessionMeta[], issueId: string): boolean {
+  return missionSessionIndex(sessions).openIssues.has(issueId)
+}
+
+/**
  * A spin-off an AGENT IS SITTING ON. Started, whatever its stage says.
  *
  * `attach --spinoff` files the new issue in `backlog` and re-homes the session
@@ -479,24 +563,56 @@ export function hasLeftMission(issue: IssueNavigationModel): boolean {
  * for triage — that half of the rule is untouched.
  */
 function staffedSpinOff(issue: IssueNavigationModel, sessions: readonly SessionMeta[]): boolean {
-  return (
-    spinOffOriginId(issue) !== null &&
-    sessions.some((session) => session.issueId === issue.id && openSession(session))
-  )
+  return spinOffOriginId(issue) !== null && issueStaffed(sessions, issue.id)
+}
+
+/**
+ * `discovered-from` adjacency for one issue map: origin id → the live issues
+ * that name it as their origin, in the map's own iteration order.
+ *
+ * The walk below used to scan EVERY issue for every node it popped, so one
+ * `missionDepartures` (which asks for a mission's tips once per member) was
+ * quadratic in the slice — and `spinOffOriginId` scans `deps`, which is why the
+ * profile named both functions. Keyed on the MAP's identity for the same reason
+ * the other memos here are keyed on the array's: `missionIssueIndex` now owns
+ * the one `byId` the callers in this file share, so it is rebuilt exactly when
+ * the issue slice is.
+ */
+const spinOffChildIndexes = new WeakMap<
+  ReadonlyMap<string, IssueNavigationModel>,
+  Map<string, IssueNavigationModel[]>
+>()
+
+function spinOffChildren(
+  byId: ReadonlyMap<string, IssueNavigationModel>,
+): Map<string, IssueNavigationModel[]> {
+  const cached = spinOffChildIndexes.get(byId)
+  if (cached) return cached
+  const children = new Map<string, IssueNavigationModel[]>()
+  for (const issue of byId.values()) {
+    if (issue.archived || issue.deletedAt) continue
+    const origin = spinOffOriginId(issue)
+    if (origin === null) continue
+    const siblings = children.get(origin)
+    if (siblings) siblings.push(issue)
+    else children.set(origin, [issue])
+  }
+  spinOffChildIndexes.set(byId, children)
+  return children
 }
 
 function spinOffDescendants(
   originId: string,
   byId: ReadonlyMap<string, IssueNavigationModel>,
 ): IssueNavigationModel[] {
+  const children = spinOffChildren(byId)
   const out: IssueNavigationModel[] = []
   const seen = new Set<string>()
   const stack = [originId]
   while (stack.length > 0) {
     const id = stack.pop() as string
-    for (const issue of byId.values()) {
-      if (seen.has(issue.id) || issue.archived || issue.deletedAt) continue
-      if (spinOffOriginId(issue) !== id) continue
+    for (const issue of children.get(id) ?? []) {
+      if (seen.has(issue.id)) continue
       seen.add(issue.id)
       out.push(issue)
       stack.push(issue.id)
@@ -506,12 +622,11 @@ function spinOffDescendants(
 }
 
 function lastActiveAt(issue: IssueNavigationModel, sessions: readonly SessionMeta[]): string {
-  let latest = issue.updatedAt ?? ''
-  for (const session of sessions) {
-    if (session.issueId !== issue.id || session.archived) continue
-    if (session.lastActiveAt > latest) latest = session.lastActiveAt
-  }
-  return latest
+  const latest = issue.updatedAt ?? ''
+  // The same max over the same sessions, folded once per slice instead of once
+  // per comparison: `preferredSpinOffTip` sorts with this as its key.
+  const seen = missionSessionIndex(sessions).lastActive.get(issue.id)
+  return seen !== undefined && seen > latest ? seen : latest
 }
 
 function preferredSpinOffTip(
@@ -519,9 +634,7 @@ function preferredSpinOffTip(
   sessions: readonly SessionMeta[],
 ): IssueNavigationModel | null {
   if (candidates.length === 0) return null
-  const staffed = candidates.filter((issue) =>
-    sessions.some((session) => session.issueId === issue.id && openSession(session)),
-  )
+  const staffed = candidates.filter((issue) => issueStaffed(sessions, issue.id))
   const pool =
     staffed.length > 0
       ? staffed
@@ -542,7 +655,7 @@ function preferredSpinOffTip(
 function liveSpinOffTips(
   origin: Pick<IssueNavigationModel, 'id'>,
   byId: ReadonlyMap<string, IssueNavigationModel> | undefined,
-  sessions: readonly SessionMeta[] = [],
+  sessions: readonly SessionMeta[] = NO_SESSIONS,
 ): IssueNavigationModel[] {
   if (!byId) return []
   const descendants = spinOffDescendants(origin.id, byId)
@@ -581,7 +694,7 @@ function liveSpinOffTips(
 export function liveSpinOffTip(
   origin: Pick<IssueNavigationModel, 'id'>,
   byId: ReadonlyMap<string, IssueNavigationModel> | undefined,
-  sessions: readonly SessionMeta[] = [],
+  sessions: readonly SessionMeta[] = NO_SESSIONS,
 ): IssueNavigationModel | null {
   return preferredSpinOffTip(liveSpinOffTips(origin, byId, sessions), sessions)
 }
@@ -592,6 +705,12 @@ export function isVacatedOrigin(
   sessions: readonly SessionMeta[],
   byId?: ReadonlyMap<string, IssueNavigationModel>,
 ): boolean {
+  // A PLAIN SCAN, DELIBERATELY. This is exported, and its `sessions` argument is
+  // whatever the caller narrowed to — `missionProgress` passes the issue's own
+  // sessions, which is a handful. Indexing an argument that small would build a
+  // throwaway index per unit to answer a question the scan answers in a few
+  // comparisons; the callers that hold the WHOLE slice come through
+  // {@link issueStaffed} above them instead.
   if (sessions.some((session) => session.issueId === issue.id && openSession(session))) return false
   if (liveSpinOffTip(issue, byId, sessions)) return true
   return (issue.dependents ?? []).some((dep) => dep.type === 'discovered-from')
@@ -626,6 +745,17 @@ interface MissionIssueIndex {
    *  and rebuilding it per call would undo exactly what this index is for —
    *  `SidebarRail` asks for `missionProgress` once per visible row. */
   parents: Map<string, string>
+  /**
+   * EVERY issue by id — archived and deleted included, exactly as the per-call
+   * `new Map(issues.map(...))` that {@link missionProgress} and {@link
+   * missionDepartures} each rebuilt on entry did.
+   *
+   * Hoisted here for two reasons. It is O(issues) per call and both callers are
+   * asked once per visible row. And it is the key {@link spinOffChildren} memoises
+   * on, so sharing one map is what lets the `discovered-from` adjacency survive
+   * from one caller to the next within a publish.
+   */
+  byId: Map<string, IssueNavigationModel>
 }
 
 let missionIndexBuilds = 0
@@ -663,8 +793,10 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
   missionIndexBuilds += 1
   const children = new Map<string, IssueNavigationModel[]>()
   const parents = new Map<string, string>()
+  const byId = new Map<string, IssueNavigationModel>()
   const startedCandidates: Array<{ id: string; startedBySession: SessionId }> = []
   for (const issue of issues) {
+    byId.set(issue.id, issue)
     if (issue.startedBySession && !hasLeftMission(issue)) {
       startedCandidates.push({ id: issue.id, startedBySession: issue.startedBySession })
     }
@@ -674,17 +806,79 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
     children.set(issue.parentId, siblings)
     parents.set(issue.id, issue.parentId)
   }
-  const index: MissionIssueIndex = { children, parents, startedCandidates }
+  const index: MissionIssueIndex = { children, parents, byId, startedCandidates }
   missionIndexes.set(issues, index)
   return index
 }
 
-/** How many times the shared mission index has been built — the seam the
- *  regression test uses to assert it is once per issue slice rather than once
- *  per caller. Same shape as `issueViewModelProjectionStats`. */
-export function missionIndexStats(): { builds: number } {
-  return { builds: missionIndexBuilds }
+/**
+ * The memo seam the regression tests assert on. Same shape as
+ * `issueViewModelProjectionStats`.
+ *
+ * - `builds`          shared ISSUE index builds — once per issue slice.
+ * - `sessionBuilds`   shared SESSION index builds — once per session slice.
+ * - `memberComputes`  {@link missionIssueIds} bodies run — once per
+ *                     (issue slice, session slice, root), however many surfaces ask.
+ * - `progressComputes` {@link missionProgress} bodies run, same key.
+ * - `staffedComputes` {@link staffedSubtreeIds} bodies run — once per
+ *                     (issue slice, session slice).
+ */
+export function missionIndexStats(): {
+  builds: number
+  sessionBuilds: number
+  memberComputes: number
+  progressComputes: number
+  staffedComputes: number
+} {
+  return {
+    builds: missionIndexBuilds,
+    sessionBuilds: sessionIndexBuilds,
+    memberComputes: missionMemberComputes,
+    progressComputes: missionProgressComputes,
+    staffedComputes: staffedSubtreeComputes,
+  }
 }
+
+/**
+ * A memo table keyed on the two slices that decide EVERY answer in this file,
+ * then on the mission root.
+ *
+ * The outer two levels are `WeakMap`s on the array identities the replica
+ * already guarantees (see {@link missionIssueIndex} for the contract and why it
+ * adds no assumption); the innermost is a plain `Map` because a root id is a
+ * string. The whole table for a superseded publish dies with its issue array.
+ *
+ * WHAT THIS BUYS. `SidebarRail` asks for `missionProgress` once per visible
+ * root, `UnifiedIssueRow` once per visible row, and `FlightDeck` and
+ * `FoldedFlightDeckBar` once each for the open mission — all inside the same
+ * publish, all with the identical slices. Without this each of those recomputed
+ * the whole derivation; with it the first one computes and the rest read.
+ */
+function memoBySlices<T>(
+  table: WeakMap<readonly IssueNavigationModel[], WeakMap<readonly SessionMeta[], Map<string, T>>>,
+  issues: readonly IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+  key: string,
+  compute: () => T,
+): T {
+  let bySessions = table.get(issues)
+  if (!bySessions) {
+    bySessions = new WeakMap()
+    table.set(issues, bySessions)
+  }
+  let byKey = bySessions.get(sessions)
+  if (!byKey) {
+    byKey = new Map()
+    bySessions.set(sessions, byKey)
+  }
+  const cached = byKey.get(key)
+  if (cached !== undefined) return cached
+  const value = compute()
+  byKey.set(key, value)
+  return value
+}
+
+const formalMemberSets = new WeakMap<readonly IssueNavigationModel[], Map<string, Set<string>>>()
 
 /**
  * THE FORMAL SUBTREE — what the mission is actually MADE OF.
@@ -709,6 +903,14 @@ export function missionIndexStats(): { builds: number } {
  * top-level task its session had filed and someone had since cancelled.
  */
 function formalMemberIds(issues: readonly IssueNavigationModel[], rootId: string): Set<string> {
+  // Depends on the ISSUE slice and the root alone, so it needs no session level.
+  let byRoot = formalMemberSets.get(issues)
+  if (!byRoot) {
+    byRoot = new Map()
+    formalMemberSets.set(issues, byRoot)
+  }
+  const memo = byRoot.get(rootId)
+  if (memo) return memo
   const { children } = missionIssueIndex(issues)
   const ids = new Set<string>()
   const stack = [rootId]
@@ -719,14 +921,42 @@ function formalMemberIds(issues: readonly IssueNavigationModel[], rootId: string
     for (const child of children.get(id) ?? []) stack.push(child.id)
   }
   ids.delete(rootId)
+  byRoot.set(rootId, ids)
   return ids
 }
 
+const missionMemberSets = new WeakMap<
+  readonly IssueNavigationModel[],
+  WeakMap<readonly SessionMeta[], Map<string, Set<string>>>
+>()
+let missionMemberComputes = 0
+
+/**
+ * THE SET IS SHARED, AND IT IS READ-ONLY BY CONTRACT.
+ *
+ * Every caller in the app asks it `has`, iterates it, or hands it to
+ * `resolveFocus`; none of them adds or deletes (verified across `apps/web`,
+ * `apps/mobile` and `engine/state.ts`). The return type stays `Set<string>`
+ * rather than `ReadonlySet` only because narrowing it would ripple through the
+ * app's `useMemo` fallbacks; mutating it would now corrupt every other surface
+ * asking about the same mission in the same publish.
+ */
 export function missionIssueIds(
   issues: readonly IssueNavigationModel[],
   rootId: string,
-  sessions: readonly SessionMeta[] = [],
+  sessions: readonly SessionMeta[] = NO_SESSIONS,
 ): Set<string> {
+  return memoBySlices(missionMemberSets, issues, sessions, rootId, () =>
+    computeMissionIssueIds(issues, rootId, sessions),
+  )
+}
+
+function computeMissionIssueIds(
+  issues: readonly IssueNavigationModel[],
+  rootId: string,
+  sessions: readonly SessionMeta[],
+): Set<string> {
+  missionMemberComputes += 1
   const { children, startedCandidates } = missionIssueIndex(issues)
   const ids = new Set<string>()
   const stack = [rootId]
@@ -746,14 +976,27 @@ export function missionIssueIds(
   // otherwise the fixpoint it always was, walked in `issues` order: the set's
   // ITERATION ORDER is the provenance walk, and `buildFlightDeckRows` grafts
   // rows in that order before sorting them.
-  let changed = startedCandidates.length > 0
+  //
+  // The mission's session ids are ACCUMULATED rather than re-derived: the old
+  // body rebuilt them by filtering the whole slice at the top of every round,
+  // which is the one line a mission with a deep provenance chain paid for over
+  // and over. Absorbing only the ids admitted BEFORE this round starts keeps the
+  // rounds — and so the set's insertion order — exactly as they were.
+  if (startedCandidates.length === 0) return ids
+  const { byIssue } = missionSessionIndex(sessions)
+  const absorbed = new Set<string>()
+  const missionSessions = new Set<SessionId>()
+  const absorb = (): void => {
+    for (const id of ids) {
+      if (absorbed.has(id)) continue
+      absorbed.add(id)
+      for (const session of byIssue.get(id) ?? []) missionSessions.add(session.sessionId)
+    }
+  }
+  let changed = true
   while (changed) {
     changed = false
-    const missionSessions = new Set(
-      sessions
-        .filter((session) => ids.has(session.issueId ?? ''))
-        .map((session) => session.sessionId),
-    )
+    absorb()
     for (const candidate of startedCandidates) {
       if (!ids.has(candidate.id) && missionSessions.has(candidate.startedBySession)) {
         ids.add(candidate.id)
@@ -783,12 +1026,13 @@ export function missionSessions(
   )
 }
 
-/** `sessionsForIssueNav` takes mutable arrays; the callers here hold readonly
- *  store slices, so the copy happens once per build rather than per issue. */
+/** `sessionsForIssueNav` reads the store slices directly now: it indexes them on
+ *  the array identity, and copying them here handed it a fresh array — and so a
+ *  cold index — on every build. */
 function sessionsForIssue(
   issue: IssueNavigationModel,
-  sessions: SessionMeta[],
-  allWorktreePaths: string[],
+  sessions: readonly SessionMeta[],
+  allWorktreePaths: readonly string[],
 ): SessionMeta[] {
   return sessionsForIssueNav(issue, sessions, allWorktreePaths, { includeShells: true })
 }
@@ -825,6 +1069,22 @@ export function deckSessionOrder(
     return byStart !== 0 ? byStart : a.sessionId.localeCompare(b.sessionId)
   })
 }
+
+const EMPTY_PROGRESS: MissionProgress = Object.freeze({
+  total: 0,
+  done: 0,
+  run: 0,
+  review: 0,
+  stall: 0,
+  block: 0,
+  wait: 0,
+})
+
+const missionProgressCache = new WeakMap<
+  readonly IssueNavigationModel[],
+  WeakMap<readonly SessionMeta[], Map<string, MissionProgress>>
+>()
+let missionProgressComputes = 0
 
 /**
  * Mission progress over the WHOLE mission, never the filtered spine.
@@ -908,8 +1168,22 @@ export function missionProgress(
   sessions: readonly SessionMeta[],
   rootId: string | null | undefined,
 ): MissionProgress {
-  const empty = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
-  if (!rootId) return empty
+  if (!rootId) return EMPTY_PROGRESS
+  // FROZEN, AND SHARED. Four surfaces ask this about the same root inside one
+  // publish (`UnifiedIssueRow` per row, `SidebarRail` per root, the deck and its
+  // folded bar); they all read the six counts and none writes, and the freeze is
+  // what keeps it that way now that they read the same object.
+  return memoBySlices(missionProgressCache, issues, sessions, rootId, () =>
+    Object.freeze(computeMissionProgress(issues, sessions, rootId)),
+  )
+}
+
+function computeMissionProgress(
+  issues: readonly IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+  rootId: string,
+): MissionProgress {
+  missionProgressComputes += 1
   const ids = missionIssueIds(issues, rootId, sessions)
   const scope = issues.filter((issue) => ids.has(issue.id) && !issue.archived && !issue.deletedAt)
   // The units are the accepted members; the root only becomes one when it has
@@ -917,7 +1191,7 @@ export function missionProgress(
   // remaining — leaving it in `members` is how a working parent with three
   // discoveries read as "3 to go". A root that is itself archived is already
   // out of `scope`, so the fallback never resurrects it.
-  const byId = new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue]))
+  const { byId } = missionIssueIndex(issues)
   const formal = formalMemberIds(issues, rootId)
   const members = scope.filter(
     (issue) => formal.has(issue.id) && issue.stage !== 'proposed' && !issueAbandoned(issue),
@@ -928,7 +1202,12 @@ export function missionProgress(
     members.length > 0 ? members : scope.filter((issue) => issue.id === rootId)
   ).filter((issue) => {
     if (issueAbandoned(issue)) return false
-    const own = sessions.filter((session) => session.issueId === issue.id)
+    // `isVacatedOrigin` is deliberately still asked about the issue's OWN
+    // sessions and nothing else — that is what decides which spin-off tips it
+    // can see, and widening it here would change the answer. The subset is now
+    // a lookup rather than a scan of the whole slice per unit, which is the line
+    // the profile named.
+    const own = sessionsOnIssue(sessions, issue.id)
     return !isVacatedOrigin(issue, own, byId)
   })
   const staffed = staffedSubtreeIds(issues, sessions)
@@ -959,6 +1238,12 @@ export function missionProgress(
   }
 }
 
+const staffedSubtrees = new WeakMap<
+  readonly IssueNavigationModel[],
+  WeakMap<readonly SessionMeta[], Map<string, Set<string>>>
+>()
+let staffedSubtreeComputes = 0
+
 /**
  * Every issue that has an open session ON it or ANYWHERE BENEATH it.
  *
@@ -975,6 +1260,17 @@ function staffedSubtreeIds(
   issues: readonly IssueNavigationModel[],
   sessions: readonly SessionMeta[],
 ): Set<string> {
+  // Root-independent: one set per pair of slices serves every mission asking.
+  return memoBySlices(staffedSubtrees, issues, sessions, '', () =>
+    computeStaffedSubtreeIds(issues, sessions),
+  )
+}
+
+function computeStaffedSubtreeIds(
+  issues: readonly IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+): Set<string> {
+  staffedSubtreeComputes += 1
   const { parents } = missionIssueIndex(issues)
   const staffed = new Set<string>()
   for (const session of sessions) {
@@ -1035,14 +1331,12 @@ export function missionDepartures(
 ): MissionDeparture[] {
   if (!rootId) return []
   const ids = missionIssueIds(issues, rootId, sessions)
-  const sessionList = [...sessions]
-  const worktreePaths = [...allWorktreePaths]
-  const byId = new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue]))
+  const { byId } = missionIssueIndex(issues)
   const out: MissionDeparture[] = []
   const seen = new Set<string>()
   for (const origin of issues) {
     if (!ids.has(origin.id) || origin.archived || origin.deletedAt) continue
-    const originSessions = sessionsForIssue(origin, sessionList, worktreePaths)
+    const originSessions = sessionsForIssue(origin, sessions, allWorktreePaths)
     const originEmpty = !originSessions.some(openSession)
     for (const tip of liveSpinOffTips(origin, byId, sessions)) {
       if (ids.has(tip.id) || seen.has(tip.id)) continue
@@ -1051,7 +1345,7 @@ export function missionDepartures(
       out.push({
         issue: tip,
         originId: origin.id,
-        state: deckIssueState(tip, sessionsForIssue(tip, sessionList, worktreePaths), byId),
+        state: deckIssueState(tip, sessionsForIssue(tip, sessions, allWorktreePaths), byId),
       })
     }
   }
@@ -1137,12 +1431,10 @@ export function buildFlightDeckRows(
     descendantMemo.set(id, out)
     return out
   }
-  const sessionList = [...sessions]
-  const worktreePaths = [...allWorktreePaths]
   const sessionsByIssue = new Map<string, SessionMeta[]>(
     visibleIssues.map((issue) => [
       issue.id,
-      deckSessionOrder(issue, sessionsForIssue(issue, sessionList, worktreePaths)),
+      deckSessionOrder(issue, sessionsForIssue(issue, sessions, allWorktreePaths)),
     ]),
   )
   /**
