@@ -73,6 +73,14 @@ export function score(outcome: ProbeOutcome, control: ControlReading): ProbeOutc
       'arrive, so a result here cannot be told apart from a dead rig. The',
       "probe's own reading was: " + `${outcome.verdict} — ${outcome.summary}`,
       'REFUSING to report it, including as a failure.',
+      // THE PROBE'S OWN EVIDENCE IS KEPT, not discarded. A refusal that throws
+      // the diagnostic away tells you only that something was withheld; these
+      // lines are how you find out WHY — the last TUI screen, the frame types
+      // seen, what the send returned. Withholding the VERDICT is the point;
+      // withholding the evidence just makes the refusal useless.
+      ...(outcome.evidence.length > 0
+        ? ['', '--- what the probe saw anyway (diagnostic, not a result) ---', ...outcome.evidence]
+        : []),
     ],
     data: { ...(outcome.data ?? {}), refusedProbeVerdict: outcome.verdict },
   }

@@ -118,6 +118,37 @@ Raw output per probe is in `readings/`.
 | **provider error surfaced honestly** | n/a | probe 1 PASSED, so a failure would be attributable to the injected fault | the bad model was **ignored** — the harness answered *"Hello!"*. The fault never fired, so nothing about error surfacing was measured |
 | **model / effort switch** | n/a | the session readable, reporting its model | no product surface exists on either arm (see below) |
 
+### What the three `n/a` cells mean, so they are not read as "untested"
+
+An `n/a` is a measured statement about why a behaviour could not be driven, not a
+cell nobody looked at. Each has a different reason.
+
+**`interaction` — the posture, not the ask plane.** The probe asked the agent to
+write to a path OUTSIDE its working directory, the case that normally raises a
+permission ask, and the harness **ran the tool without asking anyone**. The
+product was never handed an ask to surface. That is a fact about this rig's
+permission posture, not about the product's ask plane, and a FAIL here would
+blame the product for a decision the harness made. When an ask IS raised the
+probe drives it fully — and caught a real defect doing so: one permission
+arriving as TWO open asks, a protocol-structured one and a screen-classifier copy
+carrying the path glob in its `toolName`, where answering one leaves the session
+blocked on the other.
+
+**`model / effort switch` — nothing to drive on either arm.** `capabilities.ts`
+declares configure unsupported for codex, opencode and terminal; grok declares
+`permissionMode` only; and no server or daemon code calls `handle.configure()`.
+Declaration and behaviour agree. (This corrected the capability catalogue, which
+had the row as `declared` on all four drivers.)
+
+**`provider-error` — a fault that did not fire.** The first version named a
+nonsense model; opencode ignored it and answered "Hello!", so nothing about error
+surfacing was measured. Scored `n/a` rather than FAIL, because a fault that never
+fires measures nothing. The real one is `opencode/laguna-s-2.1-free`, retired
+from opencode's gateway — binds, marked live, send ACCEPTED with a turnEpoch,
+then never settles (POD-2604) — and that is what the probe now uses on opencode.
+Where no equivalent is known for a harness, the cell stays `n/a` with that
+reason.
+
 ### The two reds, and what they are worth
 
 **`interrupt` is a product defect.** The call answers `{ok:true}` and the turn

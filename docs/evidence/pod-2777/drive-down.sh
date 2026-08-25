@@ -32,18 +32,57 @@ done
 # this box run their own opencode, codex and grok servers out of $HOME and out
 # of other instances' state roots, and a bare `pkill -f opencode` would take all
 # of them down with it.
-# SELF-SAFE, and that is not paranoia: a `pkill -f <path>` run from a shell
-# whose OWN command line contains that path kills the shell issuing it. That
-# happened repeatedly while building this rig — exit 144, no output, and the
-# drive it was supposed to protect gone with it. pgrep + an explicit self/parent
-# filter is the form that cannot do that.
+# MATCH ON THE ENVIRONMENT, NOT ON argv — and this correction cost 3.4GB.
+#
+# `pgrep -f <path>` searches the COMMAND LINE, and a harness server's command
+# line does not contain the state root: opencode's is literally
+# `opencode serve --port 39377 --hostname 127.0.0.1`. The path lives only in its
+# ENVIRONMENT, as HOME. So the old reap matched almost nothing, six opencode
+# servers from this rig's own runs accumulated to ~3.4GB on a 12GB box that has
+# fallen over for memory before, and the teardown printed nothing and looked like
+# it had worked. An evening was spent blaming host load this rig was creating.
+#
+# Reading /proc/<pid>/environ is also what makes this SAFE: other instances on
+# this box run their own servers under their own agent homes, and matching the
+# exact state root leaves theirs alone.
+#
+# `cat`, not a shell redirect: `< /proc/1/environ` fails in the SHELL, and under
+# `set -e` that aborts the loop before it reaps anything — which is how the same
+# leak went unnoticed a SECOND time, for a completely different reason, printing
+# one permission error to say so.
 reaped=0
-for pid in $(pgrep -f "$PODIUM_STATE_DIR/agent-home" 2>/dev/null || true); do
+for pid in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
   [ "$pid" = "$$" ] && continue
   [ "$pid" = "$PPID" ] && continue
-  kill "$pid" 2>/dev/null && reaped=$((reaped + 1))
+  env_of="$(cat "/proc/$pid/environ" 2>/dev/null | tr '\0' '\n' || true)"
+  home="$(printf '%s' "$env_of" | sed -n 's/^HOME=//p' | tail -1)"
+  root="$(printf '%s' "$env_of" | sed -n 's/^PODIUM_STATE_DIR=//p' | tail -1)"
+  case "$home:$root" in
+    "$PODIUM_STATE_DIR/agent-home":*|*:"$PODIUM_STATE_DIR")
+      kill "$pid" 2>/dev/null && reaped=$((reaped + 1)) ;;
+  esac
 done
-[ "$reaped" -gt 0 ] && echo "reaped $reaped harness server(s) spawned from $PODIUM_STATE_DIR/agent-home"
+[ "$reaped" -gt 0 ] && echo "reaped $reaped process(es) belonging to $PODIUM_STATE_DIR"
+
+# SYSTEMD SCOPES, REAPED BY STATE ROOT — the shape that held ~2GB for five and a
+# half hours after a FINISHED rig. A harness child sits in a
+# `podium-<xx>-<uuid>.scope`; when the daemon dies the scope is reparented to
+# systemd and survives every process-level teardown. Matched on the state root of
+# the scope's OWN processes, never on the scope name: other instances run scopes
+# with identical names and `systemctl --user stop 'podium-oc-*'` would take the
+# operator's sessions down with mine.
+for unit in $(systemctl --user list-units --type=scope --no-legend 2>/dev/null \
+                | grep -oE 'podium-[a-z]+-[0-9a-f-]+\.scope' || true); do
+  mine=no
+  for pid in $(systemctl --user show -p ControlGroup --value "$unit" 2>/dev/null \
+                 | sed 's#^#/sys/fs/cgroup#' | xargs -r -I{} cat {}/cgroup.procs 2>/dev/null); do
+    home="$(cat "/proc/$pid/environ" 2>/dev/null | tr '\0' '\n' | sed -n 's/^HOME=//p' | tail -1 || true)"
+    [ "$home" = "$PODIUM_STATE_DIR/agent-home" ] && mine=yes
+  done
+  if [ "$mine" = yes ]; then
+    systemctl --user stop "$unit" 2>/dev/null && echo "stopped orphan scope $unit"
+  fi
+done
 pkill -f "podium-oc-attach" 2>/dev/null && echo "reaped stray opencode clients" || true
 pkill -f "podium-gk-attach" 2>/dev/null && echo "reaped stray grok clients" || true
 pkill -f "podium-cx-attach" 2>/dev/null && echo "reaped stray codex clients" || true

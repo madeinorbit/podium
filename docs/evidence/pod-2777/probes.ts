@@ -1155,7 +1155,47 @@ export function providerError(harness: string): Probe {
         return { control, outcome: { verdict: 'FAIL', summary: 'no working baseline to attribute an error to', evidence: [], data: {} } }
       }
 
-      const bogus = 'podium-2777-no-such-model'
+      /**
+       * A FAULT THAT ACTUALLY FIRES, from POD-2772 via POD-2604.
+       *
+       * The first version named a nonsense model and opencode simply IGNORED the
+       * string and answered "Hello!" — no provider ever refused, so there was no
+       * error to surface and the cell measured nothing.
+       *
+       * `opencode/laguna-s-2.1-free` is RETIRED from opencode's gateway, and the
+       * failure shape is exactly what this row exists for: the session BINDS, is
+       * marked LIVE, `gateway.send` returns ACCEPTED with a protocol-ack and a
+       * turnEpoch — and then agentState never leaves its initial phase, no error
+       * ever arrives, and the only signal is a timeout. Accepted at the boundary,
+       * then silence. No quota to exhaust, no credential to revoke, reproduces on
+       * demand.
+       *
+       * PER HARNESS: that id is an OPENCODE gateway model, so it is only a fault
+       * on opencode. Where no equivalent accepted-then-never-settles fault is
+       * known, this reports n/a with the reason rather than firing one that does
+       * not fire — a fixture must produce the thing it claims to test.
+       */
+      const RETIRED: Record<string, string> = { opencode: 'opencode/laguna-s-2.1-free' }
+      const bogus = RETIRED[harness]
+      if (!bogus) {
+        return {
+          control,
+          outcome: {
+            verdict: 'BLOCKED',
+            summary: `no accepted-then-never-settles fault is known for ${harness}`,
+            evidence: [
+              `HARNESS           ${harness}`,
+              'This cell needs a fault the provider ACCEPTS and then never settles.',
+              'opencode/laguna-s-2.1-free does that on opencode (retired from the',
+              'gateway: binds, marked live, ACCEPTED with a turnEpoch, then silence —',
+              'POD-2604). No equivalent is known for this harness, and a nonsense',
+              'model string is NOT one: opencode ignored it entirely and answered',
+              'normally, which measures nothing about error surfacing.',
+            ],
+            data: { faultAvailable: false },
+          },
+        }
+      }
       const created = await mutate('sessions.create', {
         cwd: REPO,
         agentKind: AGENT_KIND[harness] ?? harness,
@@ -1246,7 +1286,9 @@ export function providerError(harness: string): Probe {
             ? `surfaced as ${cls ?? row?.agentState?.phase ?? row?.status}`
             : `no error surfaced in ${180}s — the session reads phase=${row?.agentState?.phase} status=${row?.status}`,
           evidence: [
-            `INJECTED FAULT    model="${bogus}" on a ${harness} session`,
+            `INJECTED FAULT    model="${bogus}" — RETIRED from opencode's gateway: the`,
+            '                  session binds, is marked live, the send is ACCEPTED with a',
+            '                  turnEpoch, and then nothing ever settles (POD-2604).',
             `SESSION           ${sid}`,
             `ERROR CLASS       ${cls ?? '(none)'}`,
             `ERROR DETAIL      ${row?.agentState?.error?.detail ?? '(none)'}`,

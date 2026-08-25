@@ -132,13 +132,29 @@ const arm: 'headless' | 'terminal' = pin.driver === 'generic-pty' ? 'terminal' :
  *  degrades to a generic PTY, and every headless probe then measures the
  *  terminal path while reporting the headless column. That is the exact false
  *  negative POD-2773's rig hit twice, so a wrong binding refuses the whole run. */
-const EXPECTED: Record<string, string> = {
+/**
+ * WHAT THE ARM IS ENTITLED TO BIND.
+ *
+ * The headless arm names an exact server driver per harness. The terminal arm
+ * names a FAMILY, not an id, and that distinction cost the most important column
+ * in the matrix: claude's terminal driver is `claude-pty`, not `generic-pty`, so
+ * a hardcoded `generic-pty` refused all nine claude cells on both arms. The
+ * refusals were correct — the session did not bind what the arm claimed — but
+ * what the arm claimed was wrong, and a guard cannot tell my mistake from the
+ * product's.
+ *
+ * CLAUDE HAS NO HEADLESS DRIVER, so on the headless arm it legitimately binds a
+ * terminal-family driver too. That is allowed and RECORDED rather than refused:
+ * claude runs ONE path, and the headless arm simply confirms the policy does not
+ * move it.
+ */
+const EXPECTED_SERVER: Record<string, string> = {
   codex: 'codex-app-server',
   grok: 'grok-acp',
   opencode: 'opencode-server',
-  claude: 'generic-pty',
 }
-const wantDriver = arm === 'terminal' ? 'generic-pty' : (EXPECTED[harness] ?? 'generic-pty')
+const wantServer = EXPECTED_SERVER[harness]
+const wantDriver = arm === 'terminal' || !wantServer ? 'a terminal-family driver' : wantServer
 
 log('')
 log('='.repeat(78))
@@ -229,20 +245,43 @@ if (!sid) {
 log(`session ${sid} created; giving the harness ${READY_MS}ms to come up`)
 await wait(READY_MS)
 
-const row0 = await sessionRow(sid)
+/**
+ * WAIT FOR THE BINDING, DO NOT SAMPLE IT ONCE.
+ *
+ * A driver id is not published the instant a session exists. Reading it once at
+ * READY_MS reported `(unknown)` for claude and refused all nine of its cells —
+ * the most important column in this matrix — because claude binds lazily: the
+ * catalogue records that the terminal family mints its ref at the FIRST TURN,
+ * and claude fires no SessionStart at interactive boot at all.
+ *
+ * So the binding is WAITED for, and only a binding that never arrives refuses.
+ */
+const bound = await until(sid, (r) => Boolean(r?.driverId), 90_000, 1_000)
+if (!bound.ok) log(`no driver bound after ${Math.round(bound.ms / 1000)}s`)
+const row0 = bound.row ?? (await sessionRow(sid))
 const boundDriver = row0?.driverId ?? '(unknown)'
 log(`BOUND DRIVER       ${boundDriver} (family ${row0?.driverFamily ?? '?'})`)
 
-if (boundDriver !== wantDriver) {
+const boundFamily = row0?.driverFamily ?? '?'
+const bindingOk =
+  arm === 'terminal' || !wantServer ? boundFamily === 'terminal' : boundDriver === wantServer
+if (!bindingOk) {
   log('')
-  log(`WRONG BINDING — this arm asked for '${wantDriver}' and the session bound '${boundDriver}'.`)
+  log(`WRONG BINDING — this arm asked for ${wantDriver} and the session bound '${boundDriver}' (family ${boundFamily}).`)
   log('A headless arm that quietly degraded to a PTY measures the terminal path and')
   log('reports it in the headless column. REFUSING every probe in this run.')
   refuseAll(
-    `the session binding the driver this arm claims ('${wantDriver}')`,
-    `bound '${boundDriver}' instead — likely a missing credential in the isolated agent home`,
+    `the session binding the driver this arm claims (${wantDriver})`,
+    `bound '${boundDriver}' (family ${boundFamily}) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use`,
   )
 } else {
+  if (!wantServer && arm === 'headless') {
+    log('')
+    log(`NOTE: ${harness} has no headless driver. It bound '${boundDriver}' (family ${boundFamily})`)
+    log('on the headless arm too — this harness runs ONE path and the driver preference')
+    log('does not move it. Its column is the terminal path.')
+  }
+
   const chat = new Chat(sid)
   await chat.open()
 
