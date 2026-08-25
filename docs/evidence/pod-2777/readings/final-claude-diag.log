@@ -1,0 +1,11 @@
+session 083cc10d-d6c4-4a70-b524-0dd2bbc59727
+primed: nothing
+driver: claude-pty status: live phase: undefined
+send: {"ok":true,"disposition":"delivered"}
+  +15s phase=idle chars=17 bytes=11743 nonceOnScreen=true
+  +30s phase=idle chars=17 bytes=11743 nonceOnScreen=true
+  +45s phase=idle chars=17 bytes=11743 nonceOnScreen=true
+  +60s phase=idle chars=17 bytes=11743 nonceOnScreen=true
+  +75s phase=idle chars=17 bytes=11743 nonceOnScreen=true
+  +90s phase=idle chars=17 bytes=11743 nonceOnScreen=true
+EXIT=143

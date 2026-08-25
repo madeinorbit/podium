@@ -99,6 +99,55 @@ measures the easy ordering and would have passed on the broken build. The delay
 is 8.5 s because that is what POD-2745's codex drive and POD-2773's used, kept
 identical so three drives' numbers stay comparable.
 
+## THE MATRIX
+
+Rendered by `report.ts` from the results files, per-cell pinned. Full output in
+`readings/FINAL-REPORT.txt`.
+
+```
+                                  codex         opencode      claude
+behaviour                         H     T       H     T       H     T
+send a turn, get a reply          PASS  PASS    PASS  PASS    —     PASS
+streaming deltas arrive           PASS  FAIL    PASS  n/a     —     n/a
+interrupt a running turn          REF   FAIL    REF   FAIL    —     REF
+stop                              PASS  PASS    PASS  PASS    —     PASS
+resume after a kill               PASS  REF     PASS  FAIL    —     PASS
+attach a file                     FAIL  PASS    PASS  FAIL    —     FAIL
+pending interaction               n/a   n/a     n/a   n/a     —     REF
+provider error surfaced honestly  n/a   n/a     n/a   FAIL    —     n/a
+model / effort switch             n/a   n/a     n/a   n/a     —     n/a
+```
+
+**Headless better in 3 scored cells, worse in 1.** Better: codex streams to a
+late joiner where its PTY cannot; opencode resumes a parked session where its PTY
+does not; opencode's attachments reach the agent where the PTY's do not. Worse:
+**codex attach** — the headless driver declares image-only and refuses a text
+file (correctly, per its declaration), and then the image it DOES declare was not
+read back either, while codex on the PTY read the text file fine.
+
+**claude runs ONE path** and it is the path the epic promises not to make worse.
+It binds `claude-pty` whatever the driver preference says: forcing
+`generic-pty` produced NO BINDING AT ALL in 91 seconds, because that preference
+names a driver claude does not have. Its column: **reply, stop and resume PASS**;
+**attach FAIL**; streaming n/a (coarse-only family); interrupt, interaction and
+provider-error REFUSED for want of a control.
+
+### What REF means here, and why there are so many
+
+`REF` is a withheld number, not a failure. Every one of them is a cell where the
+probe's positive control did not fire, so a reading could not be told apart from
+a dead rig. Interrupt is REF on both headless arms for the same reason: the
+control requires the turn to be observed IN FLIGHT immediately before the call —
+because interrupting nothing always looks like success — and on opencode a long
+turn now stalls under Podium (23 preview frames, then `phase=working` with zero
+durable chars, while the identical prompt completes 200 lines OUTSIDE Podium).
+
+The rig refused far more often than it failed, and every refusal traced to
+something real: a stalled turn, a modal nobody had cleared, a driver that never
+bound, an arm that named a driver the harness does not have. That is the
+machinery working. It is also why each refusal needed a diagnosis before it could
+become a report — a guard cannot tell the rig's fault from the product's.
+
 ## THE FIRST MEASURED COLUMN — opencode, headless driver
 
 Driven at commit **e28013a8526ee454ca6b49296b9902daa6bbe1e2**, bound driver

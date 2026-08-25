@@ -4,17 +4,17 @@
   "driverId": "claude-pty",
   "driverFamily": "terminal",
   "pin": {
-    "want": "f90c53804924e0b365bd0893d39ad545ccfce89f",
-    "short": "f90c538",
-    "spawnedSha": "f90c53804924e0b365bd0893d39ad545ccfce89f",
-    "serverPid": 918481,
-    "daemonPid": 918543,
-    "webSourceSha": "f90c538",
+    "want": "9d7ca3c12838975972c3c58733eaedaac5dc5be8",
+    "short": "9d7ca3c",
+    "spawnedSha": "9d7ca3c12838975972c3c58733eaedaac5dc5be8",
+    "serverPid": 1034161,
+    "daemonPid": 1034230,
+    "webSourceSha": "9d7ca3c",
     "contract": "1",
     "streaming": "1",
     "driver": ""
   },
-  "at": "2026-08-25T22:10:48.711Z",
+  "at": "2026-08-25T23:28:24.830Z",
   "results": [
     {
       "id": "reply",
@@ -25,51 +25,57 @@
         "what": "our own prompt landing on the durable transcript plane (transcriptDelta)",
         "detail": "2 transcriptDelta frame(s); prompt echoed on transcript: yes"
       },
-      "ms": 180246,
-      "verdict": "FAIL",
-      "summary": "no reply carrying the nonce within 180s",
+      "ms": 3443,
+      "verdict": "PASS",
+      "summary": "replied with the nonce in 3.2s",
       "evidence": [
-        "SENT              Reply with exactly this word and nothing else: PODIUM-R0IJ9M. Do not use any tools.",
+        "SENT              Reply with exactly this word and nothing else: PODIUM-NA8TBM. Do not use any tools.",
         "SEND ACCEPTED     {\"ok\":true,\"disposition\":\"delivered\"}",
-        "NONCE             PODIUM-R0IJ9M — a blank session cannot produce this by luck",
-        "REPLY             never arrived",
-        "ASSISTANT TEXT    71 chars: \"Please run /login · API Error: 401 OAuth access token has been revoked.\"",
-        "ELAPSED           180244ms",
-        "LAST TUI SCREEN   \"t.Tellingitwhichreposyou\\ntrustandwhatdataissensitivegivesitclearerguardrailsonwhat'ssafe\\ntorun.Claudewillexploreyourrepoandrecentsessions,thenreviewthe\\nsettingsitsuggestswithyou.\\n1.Setitup\\n2.Notnow\\n3.Don'tshowagain\\nEntertoconfirmEsctocancel\""
+        "NONCE             PODIUM-NA8TBM — a blank session cannot produce this by luck",
+        "REPLY             arrived after 3230ms",
+        "ASSISTANT TEXT    13 chars: \"PODIUM-NA8TBM\"",
+        "ELAPSED           3441ms"
       ],
       "data": {
-        "nonce": "PODIUM-R0IJ9M",
-        "replyMs": null,
-        "chars": 71
+        "nonce": "PODIUM-NA8TBM",
+        "replyMs": 3230,
+        "chars": 13
       },
-      "pin": "f90c538",
-      "at": "2026-08-25T22:10:48.711Z"
+      "pin": "9d7ca3c",
+      "at": "2026-08-25T23:28:24.829Z"
     },
     {
       "id": "attach",
       "title": "attach a file",
       "catalogRow": "§5 promptForm declared — both halves or unsupported (DECLARED on all four)",
       "control": {
-        "fired": false,
+        "fired": true,
         "what": "a plain send on this same session having already produced a reply (probe 1)",
-        "detail": "probe 1 did not pass, so a refusal here could not be attributed to attachments"
+        "detail": "probe 1 PASSED here, so this session can send and answer"
       },
-      "ms": 1,
-      "verdict": "REFUSED",
-      "summary": "control did not fire — refusing to report this measurement",
+      "ms": 180617,
+      "verdict": "FAIL",
+      "summary": "the file was staged and sent, but its contents never came back",
       "evidence": [
-        "CONTROL WATCHED   a plain send on this same session having already produced a reply (probe 1)",
-        "CONTROL SAW       probe 1 did not pass, so a refusal here could not be attributed to attachments",
-        "The signal that must arrive whether or not this behaviour works did not",
-        "arrive, so a result here cannot be told apart from a dead rig. The",
-        "probe's own reading was: FAIL — no working send to compare against",
-        "REFUSING to report it, including as a failure."
+        "STAGED            path=/tmp/pod-2777/state/uploads/2e601682-94f3-4d3f-9dbf-9cef79381283/31c4ecea-9bf1-4727-a451-f3659f94ada1.txt ref={\"id\":\"31c4ecea-9bf1-4727-a451-f3659f94ada1\",\"path\":\"/tmp/pod-2777/state/uploads/2e601682-94f3-4d3f-9dbf-9cef79381283/31c4ecea-9bf1-4727-a451-f3659f94ada1.txt\",\"filename\":\"podium-2777-secret.txt\",\"med",
+        "SECRET IN FILE    FILESECRET-Z50F6W — present in the bytes and nowhere else",
+        "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+        "                  (a 'queued' disposition here would mean the session was still busy)",
+        "ECHOED BACK       no",
+        "APPROVALS NEEDED  0 — the staging dir is OUTSIDE the repo, so reading the",
+        "                  attachment raises an external_directory permission ask. A drive that",
+        "                  did not answer it would time out and report \"never read the file\".",
+        "WHY A NONCE       an agent can agree that it sees a file without reading one;",
+        "                  it cannot produce these bytes without having read them."
       ],
       "data": {
-        "refusedProbeVerdict": "FAIL"
+        "secret": "FILESECRET-Z50F6W",
+        "staged": true,
+        "echoed": false,
+        "echoMs": null
       },
-      "pin": "f90c538",
-      "at": "2026-08-25T22:10:48.711Z"
+      "pin": "9d7ca3c",
+      "at": "2026-08-25T23:28:24.829Z"
     },
     {
       "id": "interaction",
@@ -80,7 +86,7 @@
         "what": "the turn producing durable transcript items at all (transcriptDelta on the same socket)",
         "detail": "0 new transcript item(s) after the prompt; 2 delta frame(s) total"
       },
-      "ms": 20704,
+      "ms": 20595,
       "verdict": "REFUSED",
       "summary": "control did not fire — refusing to report this measurement",
       "evidence": [
@@ -101,8 +107,8 @@
         "toolRan": false,
         "refusedProbeVerdict": "FAIL"
       },
-      "pin": "f90c538",
-      "at": "2026-08-25T22:10:48.711Z"
+      "pin": "9d7ca3c",
+      "at": "2026-08-25T23:28:24.829Z"
     },
     {
       "id": "model-switch",
@@ -111,15 +117,15 @@
       "control": {
         "fired": true,
         "what": "the session readable at all, reporting the model it was asked for",
-        "detail": "model=(unset) observedModel=(none)"
+        "detail": "model=(unset) observedModel=claude-opus-5"
       },
-      "ms": 36,
+      "ms": 35,
       "verdict": "BLOCKED",
       "summary": "no product surface exists to switch model or effort mid-session",
       "evidence": [
         "REQUESTED MODEL   (session default)",
-        "OBSERVED MODEL    (none — renders \"requested, not yet observed\")",
-        "OBSERVED EFFORT   (none)",
+        "OBSERVED MODEL    claude-opus-5",
+        "OBSERVED EFFORT   high",
         "DECLARATION       codex: configure unsupported (\"model and effort are set at",
         "                  thread start and per turn\"); opencode: unsupported; terminal:",
         "                  unsupported (\"a TUI takes its model at launch\"); grok: supported",
@@ -133,12 +139,12 @@
       ],
       "data": {
         "requested": null,
-        "observed": null,
-        "observedEffort": null,
+        "observed": "claude-opus-5",
+        "observedEffort": "high",
         "productSurface": false
       },
-      "pin": "f90c538",
-      "at": "2026-08-25T22:10:48.711Z"
+      "pin": "9d7ca3c",
+      "at": "2026-08-25T23:28:24.829Z"
     },
     {
       "id": "stream",
@@ -147,13 +153,13 @@
       "control": {
         "fired": true,
         "what": "transcriptDelta — the DURABLE plane, on the same socket and the same subscription",
-        "detail": "1 frame(s), first at +30ms"
+        "detail": "1 frame(s), first at +12ms"
       },
-      "ms": 36,
+      "ms": 3,
       "verdict": "BLOCKED",
       "summary": "the turn had already finished when the chat opened (phase=idle)",
       "evidence": [
-        "JOINED            8623ms after the send, and the session was already phase=idle",
+        "JOINED            8559ms after the send, and the session was already phase=idle",
         "The ordering under test is a viewer arriving DURING a turn. This agent",
         "answered inside the join delay, so there was no in-flight turn to watch",
         "and a preview count of zero is a fact about the timing, not the plane.",
@@ -162,49 +168,41 @@
       ],
       "data": {
         "previewFrames": 0,
-        "joinedMs": 8623,
+        "joinedMs": 8559,
         "phaseAtJoin": "idle",
         "turnAlreadyOver": true
       },
-      "pin": "f90c538",
-      "at": "2026-08-25T22:10:48.711Z"
+      "pin": "9d7ca3c",
+      "at": "2026-08-25T23:28:24.829Z"
     },
     {
       "id": "interrupt",
       "title": "interrupt a running turn",
       "catalogRow": "§1 interrupt a running turn (WIRED — declared capability, no conformance property)",
       "control": {
-        "fired": true,
+        "fired": false,
         "what": "the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)",
-        "detail": "terminal output bytes growing (+23213 since the send); phase=idle, 0 preview frame(s), 71 new transcript chars, 23213 new terminal bytes"
+        "detail": "none; phase=idle, 0 preview frame(s), 13 new transcript chars, 20356 new terminal bytes"
       },
-      "ms": 12730,
-      "verdict": "FAIL",
-      "summary": "still working 120s after interrupt",
+      "ms": 90434,
+      "verdict": "REFUSED",
+      "summary": "control did not fire — refusing to report this measurement",
       "evidence": [
-        "WAS RUNNING       terminal output bytes growing (+23213 since the send); phase=idle, 0 preview frame(s), 71 new transcript chars, 23213 new terminal bytes",
-        "INTERRUPT SENT    {\"ok\":true,\"requested\":\"keystroke\"}",
-        "SETTLED           NEVER — phase=idle",
-        "TRANSCRIPT MARK   no item carries event:'interrupt'",
-        "TEXT              71 chars at the call -> 71 chars at settle",
-        "FRAMES AFTER      0 preview frame(s) arrived AFTER the call",
-        "TERMINAL BYTES    23213 at the call -> +254 after 6s -> +4680 after 12s",
-        "AFTER THE CALL    phase=errored status=live error=unknown",
-        "SCORED ON         output stopping — this arm never publishes phase=working, so \"left working\" would be vacuously true",
-        "READING           the agent KEPT GENERATING after the call. The interrupt did",
-        "                  not reach the turn, and the call still returned ok — the",
-        "                  product reported a success that did not happen.",
-        "                  evidence: +4680 terminal bytes and 0 preview frame(s) AFTER the interrupt."
+        "CONTROL WATCHED   the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)",
+        "CONTROL SAW       none; phase=idle, 0 preview frame(s), 13 new transcript chars, 20356 new terminal bytes",
+        "The signal that must arrive whether or not this behaviour works did not",
+        "arrive, so a result here cannot be told apart from a dead rig. The",
+        "probe's own reading was: FAIL — could not get a running turn to interrupt",
+        "REFUSING to report it, including as a failure.",
+        "",
+        "--- what the probe saw anyway (diagnostic, not a result) ---",
+        "WATCHED           none; phase=idle, 0 preview frame(s), 13 new transcript chars, 20356 new terminal bytes"
       ],
       "data": {
-        "settledMs": null,
-        "marked": false,
-        "charsBefore": 71,
-        "charsAfter": 71,
-        "framesAfterInterrupt": 0
+        "refusedProbeVerdict": "FAIL"
       },
-      "pin": "f90c538",
-      "at": "2026-08-25T22:10:48.711Z"
+      "pin": "9d7ca3c",
+      "at": "2026-08-25T23:28:24.829Z"
     },
     {
       "id": "stop",
@@ -213,79 +211,101 @@
       "control": {
         "fired": true,
         "what": "the session present and readable in sessions.list immediately before the stop",
-        "detail": "present, status=live phase=errored"
+        "detail": "present, status=live phase=idle"
       },
-      "ms": 196,
+      "ms": 147,
       "verdict": "PASS",
-      "summary": "session left its running state 31ms after stop (status=hibernated)",
+      "summary": "session left its running state 55ms after stop (status=hibernated)",
       "evidence": [
-        "BEFORE            status=live phase=errored",
+        "BEFORE            status=live phase=idle",
         "STOP RETURNED     {\"ok\":true,\"worktreeFreed\":false,\"deferredKill\":false}",
-        "AFTER             status=hibernated phase=errored",
-        "VERIFIED IN       31ms",
+        "AFTER             status=hibernated phase=idle",
+        "VERIFIED IN       55ms",
         "NOTE              this is sessions.stop (the SESSION). The catalogue records",
         "                  \"stop this turn, keep the session\" as ABSENT from the contract",
         "                  on all four drivers; this drive does not pretend otherwise."
       ],
       "data": {
-        "stoppedMs": 31,
+        "stoppedMs": 55,
         "statusAfter": "hibernated",
-        "elapsed": 169
+        "elapsed": 122
       },
-      "pin": "f90c538",
-      "at": "2026-08-25T22:10:48.711Z"
+      "pin": "9d7ca3c",
+      "at": "2026-08-25T23:28:24.829Z"
     },
     {
       "id": "resume",
       "title": "resume after a kill",
       "catalogRow": "§4 resume() brings the CONVERSATION back, not just the ref (proven)",
       "control": {
-        "fired": false,
+        "fired": true,
         "what": "a conversation existing to restore — the pre-park turn answered with the secret",
-        "detail": "the pre-park turn never produced the secret, so there is nothing whose return could be measured"
+        "detail": "the session repeated REMEMBER-LHNN7J before it was parked"
       },
-      "ms": 3,
-      "verdict": "REFUSED",
-      "summary": "control did not fire — refusing to report this measurement",
+      "ms": 7552,
+      "verdict": "PASS",
+      "summary": "THIS conversation came back — REMEMBER-LHNN7J recalled, original exchange intact, same pointer",
       "evidence": [
-        "CONTROL WATCHED   a conversation existing to restore — the pre-park turn answered with the secret",
-        "CONTROL SAW       the pre-park turn never produced the secret, so there is nothing whose return could be measured",
-        "The signal that must arrive whether or not this behaviour works did not",
-        "arrive, so a result here cannot be told apart from a dead rig. The",
-        "probe's own reading was: FAIL — no pre-park conversation",
-        "REFUSING to report it, including as a failure."
+        "SECRET            REMEMBER-LHNN7J — spoken only in the pre-kill conversation",
+        "HIBERNATE         {\"ok\":true}; PARKED after 48ms (status=hibernated)",
+        "RESURRECT         {\"ok\":true}",
+        "  → back live?    YES after 1063ms",
+        "RESUMEANDSEND     {\"ok\":true,\"disposition\":\"delivered\"}",
+        "  → back live?    YES after 44ms",
+        "TWO VERBS         POD-2775 fixed resumeAndSend, not resurrect. A probe that drove",
+        "                  only resurrect would report that landed fix as broken.",
+        "RECALL            the secret came back after 3064ms",
+        "SAME CONVERSATION YES — pointer conv_1c9eb99c-d5fd-47b1- unchanged across the park",
+        "ORIGINAL EXCHANGE present — the transcript still carries the prompt that planted the secret",
+        "WHY THREE CHECKS  a resume mutated to a STRANGER'S thread id passed 269 tests,",
+        "                  partly because the drive-level check was \"both strings appear\".",
+        "                  Containing the word is not being the conversation.",
+        "WHY THIS SHAPE    a healthy BLANK session carrying the old ref passes any",
+        "                  check that only asks whether resume returned ok.",
+        "NOT COVERED       recovery from an UNCLEAN death. sessions.kill REMOVES the row",
+        "                  (resurrect then answers 'unknown session'), so this drives the",
+        "                  hibernate/resurrect round trip a person actually performs."
       ],
       "data": {
-        "refusedProbeVerdict": "FAIL"
+        "secret": "REMEMBER-LHNN7J",
+        "recalled": true,
+        "recallMs": 3064,
+        "backLiveAfterResurrect": true,
+        "backLiveAfterResumeAndSend": true,
+        "sameConversation": true,
+        "carriesOriginal": true,
+        "conversationBefore": "conv_1c9eb99c-d5fd-47b1-b79d-8555983145b2",
+        "conversationAfter": "conv_1c9eb99c-d5fd-47b1-b79d-8555983145b2"
       },
-      "pin": "f90c538",
-      "at": "2026-08-25T22:10:48.711Z"
+      "pin": "9d7ca3c",
+      "at": "2026-08-25T23:28:24.829Z"
     },
     {
       "id": "provider-error",
       "title": "a provider error surfaced honestly",
       "catalogRow": "§6 provider overloaded / rate limit (pinned in the drivers; product surfacing is POD-2604)",
       "control": {
-        "fired": false,
+        "fired": true,
         "what": "this harness answering a normal question on this arm (probe 1)",
-        "detail": "probe 1 did not pass, so an error here cannot be told apart from a harness that never worked"
+        "detail": "probe 1 PASSED, so a failure in this probe is attributable to the injected fault"
       },
-      "ms": 1,
-      "verdict": "REFUSED",
-      "summary": "control did not fire — refusing to report this measurement",
+      "ms": 4,
+      "verdict": "BLOCKED",
+      "summary": "no accepted-then-never-settles fault is known for claude",
       "evidence": [
-        "CONTROL WATCHED   this harness answering a normal question on this arm (probe 1)",
-        "CONTROL SAW       probe 1 did not pass, so an error here cannot be told apart from a harness that never worked",
-        "The signal that must arrive whether or not this behaviour works did not",
-        "arrive, so a result here cannot be told apart from a dead rig. The",
-        "probe's own reading was: FAIL — no working baseline to attribute an error to",
-        "REFUSING to report it, including as a failure."
+        "HARNESS           claude",
+        "This cell needs a fault the provider ACCEPTS and then never settles.",
+        "opencode/laguna-s-2.1-free does that on opencode (retired from the",
+        "gateway: binds, marked live, ACCEPTED with a turnEpoch, then silence —",
+        "POD-2604). No equivalent is known for this harness, and a nonsense",
+        "model string is NOT one: opencode ignored it entirely and answered",
+        "normally, which measures nothing about error surfacing."
       ],
       "data": {
-        "refusedProbeVerdict": "FAIL"
+        "faultAvailable": false
       },
-      "pin": "f90c538",
-      "at": "2026-08-25T22:10:48.711Z"
+      "pin": "9d7ca3c",
+      "at": "2026-08-25T23:28:24.829Z"
     }
   ]
 }

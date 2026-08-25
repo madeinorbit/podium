@@ -100,6 +100,9 @@ const PROBE_TITLE: Record<string, string> = {
  */
 const TERMINAL_NEVER_CLAIMED = new Set(['stream'])
 
+/** Harnesses with no headless driver: one real path, so one column. */
+const SINGLE_PATH = new Set(['claude'])
+
 const find = (h: string, arm: string) => runs.find((r) => r.harness === h && r.arm === arm)
 const cellOf = (h: string, arm: string, probe: string) =>
   find(h, arm)?.results.find((p) => p.id === probe)
@@ -159,7 +162,18 @@ line(`${pad('behaviour', 34)}${HARNESSES.map(() => pad('H     T', 14)).join('')}
 line('-'.repeat(96))
 for (const probe of PROBE_ORDER) {
   const cells = HARNESSES.map((h) => {
-    const hd = h === 'claude' ? '—' : mark(cellOf(h, 'headless', probe))
+    /**
+     * CLAUDE HAS ONE PATH, so it gets one column rather than a blank and a
+     * column. It binds `claude-pty` whatever the driver preference says — the
+     * forced-`generic-pty` arm produced NO BINDING AT ALL in 91s, because that
+     * preference names a driver claude does not have — so the honest rendering
+     * is a single cell under T, the path it actually runs.
+     */
+    if (SINGLE_PATH.has(h)) {
+      const only = cellOf(h, 'headless', probe) ?? cellOf(h, 'terminal', probe)
+      return pad(`${pad('—', 6)}${mark(only)}`, 14)
+    }
+    const hd = mark(cellOf(h, 'headless', probe))
     const tm = mark(cellOf(h, 'terminal', probe))
     return pad(`${pad(hd, 6)}${tm}`, 14)
   }).join('')
@@ -217,7 +231,7 @@ line('='.repeat(96))
 line('THE OTHER HALF — are the harnesses still on the terminal driver any worse?')
 line('='.repeat(96))
 line()
-const claudeRun = find('claude', 'terminal')
+const claudeRun = find('claude', 'headless') ?? find('claude', 'terminal')
 if (claudeRun) {
   const scoredAll = claudeRun.results.filter((r) => r.verdict === 'PASS' || r.verdict === 'FAIL')
   const scored = scoredAll.filter((r) => !TERMINAL_NEVER_CLAIMED.has(r.id))
