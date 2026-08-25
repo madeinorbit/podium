@@ -68,6 +68,18 @@ RCODESIGN_BIN=""
 SOURCE_PORT=""
 TAILNET_IP=""
 TAILNET_PORT=""
+# THE ONLY ORIGIN THIS SANDBOX CAN BE HONESTLY TESTED FROM (POD-2762).
+#
+# A service worker exists only in a secure context. Held sandboxes were reached
+# over `http://100.x.y.z:<port>`, where `navigator.serviceWorker` is undefined —
+# so every hands-on run of the update path had NO precache, and the offline-first
+# layer the product actually ships was never once exercised. The crash that
+# opened POD-2762 (four chunks refused mid-handover) is what that looks like from
+# the outside. `scripts/sandbox-https.sh` fronts the published port with the
+# node's real tailnet certificate; these two hold the entry it created so the
+# footer can name the teardown and cleanup can take it back down.
+TAILNET_HTTPS_PORT=""
+TAILNET_HTTPS_URL=""
 SERVER_PORT=""
 START_FREE=0
 CLEANED=0
@@ -262,6 +274,10 @@ cleanup() {
     return 0
   fi
   set +e
+  # A run that is NOT holding leaves nothing behind, and the serve entry is the
+  # one object here that is not a container: it is machine-wide config that
+  # would otherwise survive as a proxy onto a port nothing listens on.
+  stop_https_front
   capture_logs
   if (( status != 0 )); then
     local log
@@ -1547,17 +1563,66 @@ verify_served_crash_artifact() {
   grep -Fq 'exit 97' "$script"
 }
 
+# THE HOLD URL DECIDED WHICH PRODUCT GOT TESTED (POD-2762).
+#
+# Everything a held sandbox is for — the update path, the handover, the reload —
+# runs differently depending on whether the page has a service worker, and a
+# service worker exists ONLY in a secure context. Handing out
+# `http://100.x.y.z:<port>` therefore did not merely look shabbier than HTTPS;
+# it silently removed the precache, so every lazy chunk went to the network and
+# a handover could refuse one mid-flight. Nobody chose that configuration and
+# nobody was told they were in it.
+#
+# So the hold now brings its own HTTPS front up, and this is a best-effort step
+# on purpose: a host with no tailnet, or one where `serve` is unavailable, still
+# gets a usable sandbox. What it must never do is fail silently — if the front
+# does not come up, the access block says so and says what is missing from the
+# run, rather than printing a plain URL as though it were equivalent.
+start_https_front() {
+  [[ -n "$SOURCE_PORT" ]] || return 0
+  local line
+  if ! line="$("$ROOT/scripts/sandbox-https.sh" up "$SOURCE_PORT" 2>&1)"; then
+    say "https front unavailable: $(tail -n 1 <<<"$line")"
+    return 0
+  fi
+  TAILNET_HTTPS_URL="$(sed -n 's/^HTTPS front: //p' <<<"$line")"
+  TAILNET_HTTPS_PORT="${TAILNET_HTTPS_URL##*:}"
+  say "https front: $TAILNET_HTTPS_URL -> 127.0.0.1:$SOURCE_PORT"
+}
+
+stop_https_front() {
+  [[ -n "$TAILNET_HTTPS_PORT" ]] || return 0
+  "$ROOT/scripts/sandbox-https.sh" down "$TAILNET_HTTPS_PORT" >/dev/null 2>&1 || true
+  TAILNET_HTTPS_PORT=""
+  TAILNET_HTTPS_URL=""
+}
+
 print_hold_access() {
-  local tailnet
+  local tailnet secure
   if [[ -n "$TAILNET_IP" && -n "$TAILNET_PORT" ]]; then
-    tailnet="Tailnet UI: http://$TAILNET_IP:$TAILNET_PORT"
+    tailnet="Plain-HTTP tailnet UI: http://$TAILNET_IP:$TAILNET_PORT"
   else
-    tailnet="Tailnet UI: unavailable; Tailscale did not expose an IPv4 address when this hold started"
+    tailnet="Plain-HTTP tailnet UI: unavailable; Tailscale did not expose an IPv4 address when this hold started"
+  fi
+  if [[ -n "$TAILNET_HTTPS_URL" ]]; then
+    secure="Secure UI (USE THIS): $TAILNET_HTTPS_URL
+  The only origin where the service worker registers, so it is the only one
+  where the precache, the offline shell and the reload handshake are under
+  test at all. The plain-HTTP URLs below are a DIFFERENT configuration: no
+  service worker, no precache, every lazy chunk straight to the network.
+  Remove this front when you tear the run down: scripts/sandbox-https.sh down $TAILNET_HTTPS_PORT"
+  else
+    secure="Secure UI: NONE — this hold has no HTTPS front, so navigator.serviceWorker
+  is undefined on every URL below and nothing offline-first is being exercised.
+  Bring one up with: scripts/sandbox-https.sh up $SOURCE_PORT"
   fi
   cat <<EOF
+$secure
 Host-only UI: http://127.0.0.1:$SOURCE_PORT
 $tailnet
-Diagnostic entry: $(if [[ -n "$TAILNET_IP" && -n "$TAILNET_PORT" ]]; then
+Diagnostic entry: $(if [[ -n "$TAILNET_HTTPS_URL" ]]; then
+  printf '%s/?e2e=1&activation=first-task' "$TAILNET_HTTPS_URL"
+elif [[ -n "$TAILNET_IP" && -n "$TAILNET_PORT" ]]; then
   printf 'http://%s:%s/?e2e=1&activation=first-task' "$TAILNET_IP" "$TAILNET_PORT"
 else
   printf 'http://127.0.0.1:%s/?e2e=1&activation=first-task' "$SOURCE_PORT"
@@ -1589,7 +1654,10 @@ Container shells:
   docker exec -it $FLEET_B bash
 
 One-line teardown (only this run's labeled containers, exact network, image, and scratch):
-  docker ps -aq --filter 'label=$LABEL' | xargs -r docker rm -f && docker network rm '$NETWORK' && docker image rm '$IMAGE' && rm -rf -- '$WORK'
+  docker ps -aq --filter 'label=$LABEL' | xargs -r docker rm -f && docker network rm '$NETWORK' && docker image rm '$IMAGE' && rm -rf -- '$WORK'$(
+  if [[ -n "$TAILNET_HTTPS_PORT" ]]; then
+    printf '\n\nThe HTTPS front is machine-wide config and OUTLIVES the containers, so it is a\nseparate line — and it names one port, never a reset, because this host serves\nother things (the live instance among them) on the same mechanism:\n  scripts/sandbox-https.sh down %s' "$TAILNET_HTTPS_PORT"
+  fi)
 
 These objects deliberately remain running and consume disk until that teardown command succeeds.
 Hold mode is diagnostic and never substitutes for the full matrix or deliberate-red controls.
@@ -1970,6 +2038,7 @@ main() {
       exit 1
     fi
     require_disk_margin "held pending release proposal"
+    start_https_front
     print_proposal_hold_instructions "$proposal" "$candidate"
     CURRENT_SCENARIO=""
     HOLD_READY=1
@@ -2006,6 +2075,7 @@ main() {
     wait_for 60 "held fleet online" fleet_online
     installed_versions_are "$BOOTSTRAP_VERSION"
     require_disk_margin "held development release"
+    start_https_front
     print_published_hold_instructions "$target" "$candidate"
     CURRENT_SCENARIO=""
     HOLD_READY=1
