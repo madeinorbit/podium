@@ -208,6 +208,26 @@ describe('the Claude Agent SDK does not run in the daemon process', () => {
     expect(viaReExport.externals.get(SDK)).toBeTruthy()
   })
 
+  it("keeps the compiled binary's dispatch dynamic, because all-in-one shares a process", () => {
+    // ONE BINARY SHIPS, and `podium all-in-one` runs the daemon INSIDE the CLI's
+    // own process. So scripts/cli-compiled.ts is a daemon entry point whenever
+    // that mode is used, and a STATIC `import '../apps/daemon/src/claude-sdk-host.js'`
+    // there would load the SDK into the very process this whole change exists to
+    // keep it out of — while every assertion above still passed, because the
+    // daemon's own modules would be clean.
+    //
+    // The dispatch must therefore be a dynamic import behind the sentinel: present
+    // in the image, evaluated only in a process that was launched to be the host.
+    const cli = readFileSync(join(repoRoot, 'scripts/cli-compiled.ts'), 'utf8')
+    expect(cli).toContain('claude-sdk-host')
+    const refs = extractImports(cli).filter((r) => r.specifier.includes('claude-sdk-host'))
+    expect(refs.length, 'cli-compiled.ts must reference the host exactly once').toBe(1)
+    // A static import statement would be `import ... from '...claude-sdk-host.js'`
+    // or a bare `import '...'`; the dynamic form is `await import('...')`.
+    expect(cli).toMatch(/await import\(\s*['"][^'"]*claude-sdk-host\.js['"]\s*\)/)
+    expect(cli).not.toMatch(/^\s*import\s+(?:[^'"\n]*\s+from\s+)?['"][^'"]*claude-sdk-host/m)
+  })
+
   it('never lets the daemon import the host module directly', () => {
     // The host is reached by SPAWNING it, never by importing it. An import would
     // put the SDK back in the process by the back door while every other
