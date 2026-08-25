@@ -1,11 +1,7 @@
 import { asAccountId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  buildClaudeSdkOptions,
-  buildHeadlessExec,
-  headlessChildEnv,
-  runHeadlessTurn,
-} from './headless-drivers.js'
+import { buildClaudeSdkOptions } from './claude-sdk-host.js'
+import { buildHeadlessExec, headlessChildEnv, runHeadlessTurn } from './headless-drivers.js'
 import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
 
 const snapshot = testHarnessSnapshot()
@@ -205,7 +201,11 @@ describe('buildHeadlessExec argv shapes', () => {
   })
 
   it('cursor: pins Auto unless a named model overrides it', () => {
-    const { cmd, args } = buildHeadlessExec('cursor', { prompt: 'hi', sessionId: 'chat-1' }, snapshot)
+    const { cmd, args } = buildHeadlessExec(
+      'cursor',
+      { prompt: 'hi', sessionId: 'chat-1' },
+      snapshot,
+    )
     expect(cmd).toBe('/opt/cursor-agent')
     expect(args).toEqual(['-p', '--resume', 'chat-1', '--model', 'auto', 'hi'])
     const named = buildHeadlessExec(
@@ -246,7 +246,11 @@ describe('buildHeadlessExec argv shapes', () => {
   })
 
   it("model 'auto' means no model flag", () => {
-    const { args } = buildHeadlessExec('grok', { prompt: 'p', sessionId: 'u', model: 'auto' }, snapshot)
+    const { args } = buildHeadlessExec(
+      'grok',
+      { prompt: 'p', sessionId: 'u', model: 'auto' },
+      snapshot,
+    )
     expect(args).not.toContain('--model')
   })
 })

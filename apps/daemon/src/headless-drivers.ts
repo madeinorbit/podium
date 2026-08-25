@@ -2,22 +2,17 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import {
-  type McpServerConfig,
-  type Options,
-  type PermissionMode,
-  query,
-} from '@anthropic-ai/claude-agent-sdk'
-import {
   bindHarnessExec,
   declaredValue,
   type HarnessHeadless,
   type HeadlessExecOptions,
   harnessAdapterFor,
-  resolvedHarnessPath,
   type ResolvedHarnessInventory,
+  resolvedHarnessPath,
 } from '@podium/harness'
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
+import { runClaudeSdkChildTurn } from './claude-sdk-client.js'
 import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
 
 const DEFAULT_TURN_TIMEOUT_MS = 600_000
@@ -114,174 +109,6 @@ export function headlessChildEnv(
   } as Record<string, string>
   for (const key of harnessChildStripEnv(agent, explicit)) delete env[key]
   return env
-}
-
-const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
-const PERMISSION_MODES = new Set([
-  'default',
-  'acceptEdits',
-  'auto',
-  'bypassPermissions',
-  'plan',
-  'dontAsk',
-])
-
-/** Parse the Claude-shaped MCP config JSON into SDK mcpServers. Servers without
- *  a `type` are treated as streamable-HTTP (the shape the server composes). */
-function sdkMcpServers(mcpConfig: string | undefined): Record<string, McpServerConfig> | undefined {
-  if (!mcpConfig) return undefined
-  let servers: Record<string, { type?: string; url?: string; headers?: Record<string, string> }>
-  try {
-    servers = (JSON.parse(mcpConfig) as { mcpServers?: typeof servers }).mcpServers ?? {}
-  } catch {
-    throw new Error('malformed MCP config — refusing a tool-less headless turn')
-  }
-  const out: Record<string, McpServerConfig> = {}
-  for (const [name, srv] of Object.entries(servers)) {
-    if (!srv.url) continue
-    out[name] = {
-      type: 'http',
-      url: srv.url,
-      ...(srv.headers ? { headers: srv.headers } : {}),
-    }
-  }
-  return Object.keys(out).length > 0 ? out : undefined
-}
-
-/**
- * One turn through the Claude Agent SDK. Process-per-turn: `resume` reloads the
- * whole conversation from the harness's own JSONL, so context persists with no
- * long-lived process. First turn mints the session id via `sessionId` (must be
- * a UUID) so the thread ↔ transcript binding is deterministic.
- */
-export function buildClaudeSdkOptions(spec: HeadlessTurnSpec): Options {
-  const mode: PermissionMode =
-    spec.permissionMode && PERMISSION_MODES.has(spec.permissionMode)
-      ? (spec.permissionMode as PermissionMode)
-      : 'auto'
-  const options: Options = {
-    cwd: spec.cwd,
-    includePartialMessages: true,
-    permissionMode: mode,
-    ...(mode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
-    // The CLI refuses --dangerously-skip-permissions as root unless IS_SANDBOX=1;
-    // without it every headless turn on a root-run daemon dies with exit code 1.
-    // Options.env REPLACES the subprocess env, so process.env must be spread in.
-    env: {
-      ...headlessChildEnv(spec.agent, spec.env),
-      ...(mode === 'bypassPermissions' && process.getuid?.() === 0 ? { IS_SANDBOX: '1' } : {}),
-    } as Record<string, string>,
-    ...(spec.model && spec.model !== 'auto' ? { model: spec.model } : {}),
-    ...(spec.executablePath ? { pathToClaudeCodeExecutable: spec.executablePath } : {}),
-    ...(spec.effort && EFFORT_LEVELS.has(spec.effort)
-      ? { effort: spec.effort as Options['effort'] }
-      : {}),
-    ...(spec.allowedTools && spec.allowedTools.length > 0
-      ? { allowedTools: spec.allowedTools }
-      : {}),
-    ...(spec.toolPolicy === 'none' ? { tools: [] as string[], allowedTools: [] } : {}),
-    // An empty settings-source list prevents user/project/local hooks, plugins,
-    // and permissions from being inherited by a bounded repair turn.
-    ...(spec.toolPolicy === 'none' ? { settingSources: [] } : {}),
-    // The orchestrator prompt APPENDS to the claude_code preset — same posture
-    // as harness-exec's --append-system-prompt.
-    ...([spec.systemPrompt, spec.contextPrompt].filter(Boolean).join('\n\n').trim()
-      ? {
-          systemPrompt: {
-            type: 'preset',
-            preset: 'claude_code',
-            append: [spec.systemPrompt, spec.contextPrompt].filter(Boolean).join('\n\n').trim(),
-          },
-        }
-      : {}),
-    ...(spec.resumeValue
-      ? { resume: spec.resumeValue }
-      : spec.sessionUuid
-        ? { sessionId: spec.sessionUuid }
-        : {}),
-  }
-  const mcpServers = sdkMcpServers(spec.mcpConfig)
-  if (mcpServers && spec.toolPolicy !== 'none') options.mcpServers = mcpServers
-  return options
-}
-
-function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnHandle {
-  const options = buildClaudeSdkOptions(spec)
-  const q = query({ prompt: spec.prompt, options })
-  let interrupted = false
-  const timer = setTimeout(() => {
-    interrupted = true
-    void q.interrupt().catch(() => {})
-  }, spec.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS)
-  timer.unref?.()
-
-  const done = (async (): Promise<HeadlessTurnOutcome> => {
-    let sessionId = spec.resumeValue ?? spec.sessionUuid ?? ''
-    let output = ''
-    let partial = ''
-    let partialUuid = ''
-    emit({ kind: 'status', status: 'starting' })
-    // Every throw below happens with `sessionId` possibly already learned from the
-    // SDK's init message — carry it out so the thread keeps its conversation.
-    const fail = (message: string): never => {
-      throw new HeadlessTurnError(message, sessionId || undefined)
-    }
-    try {
-      for await (const msg of q) {
-        switch (msg.type) {
-          case 'system':
-            if (msg.subtype === 'init') {
-              sessionId = msg.session_id
-              emit({ kind: 'status', status: 'running' })
-            }
-            break
-          case 'stream_event': {
-            const ev = msg.event as { type?: string; delta?: { type?: string; text?: string } }
-            if (ev.type === 'message_start') {
-              partial = ''
-              partialUuid = msg.uuid
-            } else if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
-              partial += ev.delta.text ?? ''
-              emit({ kind: 'partial-text', text: partial, itemHint: partialUuid })
-            }
-            break
-          }
-          case 'assistant':
-            for (const block of msg.message.content) {
-              if (block.type === 'tool_use') {
-                emit({ kind: 'status', status: 'tool', label: block.name })
-              }
-            }
-            break
-          case 'result':
-            if (msg.subtype === 'success') output = msg.result
-            else fail(`claude turn failed: ${msg.subtype}`)
-            break
-          default:
-            break
-        }
-      }
-    } catch (err) {
-      // An SDK-thrown error (transport, tool crash) gets the same treatment.
-      if (err instanceof HeadlessTurnError) throw err
-      throw new HeadlessTurnError(
-        err instanceof Error ? err.message : String(err),
-        sessionId || undefined,
-      )
-    } finally {
-      clearTimeout(timer)
-    }
-    if (interrupted) fail('turn timed out')
-    if (!sessionId) throw new Error('claude turn ended without reporting a session id')
-    return { harnessSessionId: sessionId, output }
-  })()
-
-  return {
-    done,
-    interrupt: () => {
-      void q.interrupt().catch(() => {})
-    },
-  }
 }
 
 /** Pure argv builder for the child-process drivers (codex/grok/opencode/cursor)
@@ -590,8 +417,13 @@ const resumeExecDriver: HeadlessDriver = runResumeExecTurn
  *  registry, so a new agent picks its driver in its adapter file (and the
  *  registry's exhaustive Record still fails typecheck until it exists). */
 const DRIVER_IMPLS: Record<HarnessHeadless['driver'], HeadlessDriver> = {
+  // OUT OF PROCESS BY DESIGN. The Claude Agent SDK is third-party code driving a
+  // long-running agent, and it used to run right here — inside the process that
+  // supervises every session on this machine, where its crashes and its memory
+  // were the daemon's crashes and the daemon's memory. It now runs in a child
+  // (claude-sdk-host.ts) that the daemon can lose without losing anything else.
   'claude-sdk': (spec, emit, snapshot) =>
-    runClaudeTurn(
+    runClaudeSdkChildTurn(
       { ...spec, executablePath: resolvedHarnessPath(snapshot, 'claude-code') },
       emit,
     ),
