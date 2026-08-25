@@ -46,6 +46,14 @@ const priorChannel = process.env.PODIUM_UPDATE_CHANNEL
 interface HarnessOptions {
   store?: SessionStore
   serverInstallKind?: 'installed' | 'source'
+  /**
+   * THIS MACHINE'S OWN UPDATE RECEIVER (POD-2668): the host daemon on an
+   * all-in-one, the parent-backed local participant on a server-only box. Either
+   * one makes the coordinator's machine a rollout target like any other, and
+   * `false` is the coordinator that has neither — the only shape whose plan
+   * still carries a `server` step.
+   */
+  hostUpdateReceiver?: false | ((message: unknown) => void)
   requestCoordinatorRestart?: () => void
   requestWebRebuild?: () => void
   requestDestBundle?: () => Promise<unknown>
@@ -79,7 +87,8 @@ function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
       : (requestCoordinatorRestart ?? {})
   const registry = new SessionRegistry(opts.store, undefined, { instanceId: 'updates-test' })
   const hostMachineId = registry.sessionStore.hostMachineId
-  registry.gateway.attachDaemon(hostMachineId, () => {})
+  const hostUpdateReceiver = opts.hostUpdateReceiver ?? (() => {})
+  if (hostUpdateReceiver !== false) registry.gateway.attachDaemon(hostMachineId, hostUpdateReceiver)
   registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
@@ -988,7 +997,30 @@ describe('updates tRPC', () => {
     registry.dispose()
   })
 
-  it('does not dest-redeploy immediately while dest packaging is still running', async () => {
+  /**
+   * WHO REPLACES THE COORDINATOR — the one question these two tests split
+   * between them (POD-2738).
+   *
+   * They were one test, written when the coordinator's own process was always
+   * replaced by `requestCoordinatorRestart`, and it kept its fixture while the
+   * design underneath it changed. POD-2668 made the coordinator's machine an
+   * ordinary update receiver — a host daemon on an all-in-one, a parent-backed
+   * local participant on a server-only box — and the planner now refuses to
+   * plan a `server` step for a machine the fleet is already going to swap
+   * (`hostUpdatesThroughFleet`): one receiver per machine, never two.
+   *
+   * So the old test's fixture — a host registered with `setMachineBuild`, hence
+   * a participant — stopped being able to observe the callback it asserted, and
+   * would have gone green again for a coordinator swapped TWICE. Each half is
+   * now pinned where it is real:
+   *
+   * - `restarts the coordinator only after the machine wave finishes` keeps the
+   *   ordering promise, in the topology that still has a `server` step.
+   * - `converges the coordinator through its own fleet grant…` pins the new
+   *   path, where the restart arrives as a grant and the callback must not fire
+   *   at all.
+   */
+  it('restarts the coordinator only after the machine wave finishes', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+aaaaaaa'
     const requestCoordinatorRestart = vi.fn()
     let finish: (() => void) | undefined
@@ -999,18 +1031,32 @@ describe('updates tRPC', () => {
         }),
     )
     const store = fileBackedStore()
+    const grants: unknown[] = []
+    // A coordinator with no update receiver of its own: no host daemon, no
+    // local participant. Nothing in the fleet will swap this machine, so the
+    // operation owns its replacement and the `server` step is planned.
     const { registry, caller } = harness({
       store,
+      hostUpdateReceiver: false,
       requestCoordinatorRestart,
       requestDestBundle,
       servedWebDigest: '47a01e3',
     })
+    registry.sessionStore.machines.upsertMachine({
+      id: 'installed-edge',
+      name: 'Installed',
+      hostname: 'installed',
+      tokenHash: 'installed-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
     registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
       [],
       '2026-08-13T00:00:00.000Z',
     )
+    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
     registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
@@ -1022,8 +1068,16 @@ describe('updates tRPC', () => {
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
 
+    // THE ORDER IS THE PLAN'S, not a poll loop's: the step that replaces this
+    // process is last, because it is what ends the process driving the wave.
+    const planned = (await caller.operations.active()) as {
+      steps?: { id: string }[]
+    } | null
+    expect(planned?.steps?.map((step) => step.id)).toEqual(['prepare', 'machines', 'server'])
+
     /**
-     * THE PACK RESOLVES, AND THE SERVER STILL DOES NOT RESTART YET.
+     * THE PACK RESOLVES, THE MACHINE IS GRANTED — AND THE SERVER STILL DOES NOT
+     * RESTART YET.
      *
      * This is the step ordering the old 250 ms poll loop
      * (`restartCoordinatorAfterDevelopmentFleet`) used to express: the machines
@@ -1043,11 +1097,85 @@ describe('updates tRPC', () => {
       },
     })
     finish?.()
-    await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
+    await vi.waitFor(() =>
+      expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })]),
+    )
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
 
-    // The one machine reports the target, so the wave is done and the plan
-    // reaches the step that replaces this process.
+    // The one waved machine reports the target, so the wave is done and the
+    // plan reaches the step that replaces this process.
+    registry.modules.machines.setMachineBuild(
+      asMachineId('installed-edge'),
+      { appVersion: 'dev+47a01e3' },
+      [],
+      '2026-08-13T00:00:01.000Z',
+    )
+    registry.bus.emit('machine.connected', { machineId: asMachineId('installed-edge') })
+    await vi.waitFor(() => expect(requestCoordinatorRestart).toHaveBeenCalledOnce())
+    registry.dispose()
+  })
+
+  it('converges the coordinator through its own fleet grant, never the restart callback', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+aaaaaaa'
+    const requestCoordinatorRestart = vi.fn()
+    let finish: (() => void) | undefined
+    const requestDestBundle = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const store = fileBackedStore()
+    const hostControl: unknown[] = []
+    // The all-in-one / server-only shape after POD-2668: this machine has an
+    // update receiver, so it is a rollout target like any other.
+    const { registry, caller } = harness({
+      store,
+      hostUpdateReceiver: (message) => hostControl.push(message),
+      requestCoordinatorRestart,
+      requestDestBundle,
+      servedWebDigest: '47a01e3',
+    })
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+aaaaaaa' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    })
+
+    await caller.updates.converge()
+    await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
+
+    // NO `server` STEP AT ALL. The coordinator is in the wave, and a machine the
+    // wave will swap must not also be swapped from underneath it.
+    const planned = (await caller.operations.active()) as {
+      steps?: { id: string }[]
+    } | null
+    expect(planned?.steps?.map((step) => step.id)).toEqual(['prepare', 'machines'])
+
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: {
+        web: { digest: '47a01e3' },
+        headless: {
+          delivery: 'feed',
+          platforms: { 'linux-x64': { url: 'http://bundle', digest: 'd', signature: 's' } },
+        },
+      },
+    })
+    finish?.()
+
+    // The replacement arrives as this machine's own grant — the parent applies
+    // it and hands the process over — so the callback is never reached.
+    await vi.waitFor(() =>
+      expect(hostControl).toEqual([expect.objectContaining({ type: 'updateGrant' })]),
+    )
     registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
@@ -1055,7 +1183,16 @@ describe('updates tRPC', () => {
       '2026-08-13T00:00:01.000Z',
     )
     registry.bus.emit('machine.connected', { machineId: registry.sessionStore.hostMachineId })
-    await vi.waitFor(() => expect(requestCoordinatorRestart).toHaveBeenCalledOnce())
+    await vi.waitFor(async () =>
+      expect((await caller.operations.history({ kind: 'update' }))[0]).toMatchObject({
+        state: 'done',
+        steps: [
+          expect.objectContaining({ id: 'prepare', state: 'done' }),
+          expect.objectContaining({ id: 'machines', state: 'done' }),
+        ],
+      }),
+    )
+    expect(requestCoordinatorRestart).not.toHaveBeenCalled()
     registry.dispose()
   })
 
