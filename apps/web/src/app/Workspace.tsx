@@ -1,18 +1,3 @@
-import {
-  type CollisionDetection,
-  closestCenter,
-  DndContext,
-  type DragEndEvent,
-  DragOverlay,
-  type DragStartEvent,
-  PointerSensor,
-  pointerWithin,
-  useDroppable,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core'
-import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import type { Pane, WorktreeView } from '@podium/client-core/viewmodels'
@@ -20,14 +5,12 @@ import {
   allTabIds,
   emptyWorkspace,
   isCoordinatorSession,
-  leafPaneIds,
   missionIssueIds,
   missionRootFor,
   orphanSessionFor,
   reposToViews,
   resizeSplit,
   type SplitAxis,
-  type SplitNode,
   selectedMissionRoot,
 } from '@podium/client-core/viewmodels'
 import { asSessionId, type IssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
@@ -42,12 +25,15 @@ import {
   X,
 } from 'lucide-react'
 import {
+  type ComponentType,
   type JSX,
   lazy,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   Suspense,
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react'
@@ -59,7 +45,6 @@ import { throughRestarts } from '@/lib/chunk-recovery'
 import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { AgentStatusGlyph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
-import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { NewPanelMenu } from './NewPanelMenu'
@@ -84,6 +69,14 @@ import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { REVEAL_IN_DECK_EVENT } from './shell-state'
 import { type FileTab, useReplicaIssues, useStoreSelector } from './store'
 import { closeActiveWorkspaceTab } from './workspace-close'
+import type {
+  PendingTabDragActivation,
+  TabDragComponents,
+  TabDragItemBindings,
+  TabDragKeyboardEventSnapshot,
+  TabDragPointerEventSnapshot,
+  WorkspaceTabDragRuntimeProps,
+} from './workspace-tab-drag'
 
 // The cold-start composer only renders in the empty pane (no issue selected),
 // and it fronts the whole first-run setup graph — loading it on demand keeps
@@ -93,6 +86,127 @@ const ColdStartComposer = lazy(() =>
     default: module.ColdStartComposer,
   })),
 )
+
+// dnd-kit is interaction infrastructure, not first-paint UI. A post-paint load
+// makes the provider ready for the first drag, while pointer or keyboard intent
+// can start the same import sooner. The live panel deck stays outside the async
+// provider and never remounts when it arrives.
+const loadWorkspaceTabDrag = () => import('./workspace-tab-drag')
+type WorkspaceTabDragModule = Awaited<ReturnType<typeof loadWorkspaceTabDrag>>
+type LoadWorkspaceTabDrag = () => Promise<WorkspaceTabDragModule>
+
+interface TabDomTarget {
+  tabId: string
+  path: number[]
+}
+
+interface FixedStripControlTarget {
+  paneId: string
+  label: string
+}
+
+const tabDomTarget = (target: EventTarget | null, pressable = false): TabDomTarget | null => {
+  if (!(target instanceof Element)) return null
+  const tab = target.closest<HTMLElement>('[data-tab-drag-id]')
+  const tabId = tab?.dataset.tabDragId
+  if (!tab || !tabId) return null
+  const element = pressable
+    ? (target.closest<HTMLElement>('[data-pressable]') ?? tab)
+    : target instanceof HTMLElement
+      ? target
+      : (target.parentElement ?? tab)
+  if (!tab.contains(element)) return null
+
+  const path: number[] = []
+  let current: Element = element
+  while (current !== tab) {
+    const parent = current.parentElement
+    if (!parent) return null
+    const index = [...parent.children].indexOf(current)
+    if (index < 0) return null
+    path.push(index)
+    current = parent
+  }
+  path.reverse()
+  return { tabId, path }
+}
+
+const resolveTabDomTarget = (
+  workspace: HTMLElement | null,
+  target: TabDomTarget,
+): HTMLElement | null => {
+  const tab = [...(workspace?.querySelectorAll<HTMLElement>('[data-tab-drag-id]') ?? [])].find(
+    (candidate) => candidate.dataset.tabDragId === target.tabId,
+  )
+  if (!tab) return null
+  let current: Element = tab
+  for (const index of target.path) {
+    const child = current.children.item(index)
+    if (!child) return null
+    current = child
+  }
+  return current instanceof HTMLElement ? current : null
+}
+
+const sameTabDomTarget = (left: TabDomTarget, right: TabDomTarget): boolean =>
+  left.tabId === right.tabId &&
+  left.path.length === right.path.length &&
+  left.path.every((part, index) => part === right.path[index])
+
+const fixedStripControlTarget = (
+  target: EventTarget | null,
+): { element: HTMLElement; locator: FixedStripControlTarget } | null => {
+  if (!(target instanceof Element)) return null
+  const element = target.closest<HTMLElement>('[data-pressable]')
+  const strip = element?.closest<HTMLElement>('[data-testid="native-tab-strip"]')
+  const paneId = strip?.dataset.pane
+  const label = element?.getAttribute('aria-label')
+  if (!element || !paneId || !label || element.closest('[data-tab-drag-id]')) return null
+  return { element, locator: { paneId, label } }
+}
+
+const resolveFixedStripControlTarget = (
+  workspace: HTMLElement | null,
+  target: FixedStripControlTarget,
+): HTMLElement | null => {
+  const strips =
+    workspace?.querySelectorAll<HTMLElement>('[data-testid="native-tab-strip"]') ?? []
+  const strip = [...strips].find((candidate) => candidate.dataset.pane === target.paneId)
+  return (
+    [...(strip?.querySelectorAll<HTMLElement>('[data-pressable]') ?? [])].find(
+      (candidate) => candidate.getAttribute('aria-label') === target.label,
+    ) ?? null
+  )
+}
+
+const pointerSnapshot = (event: PointerEvent): TabDragPointerEventSnapshot => ({
+  pointerId: event.pointerId,
+  pointerType: event.pointerType,
+  isPrimary: event.isPrimary,
+  button: event.button,
+  buttons: event.buttons,
+  clientX: event.clientX,
+  clientY: event.clientY,
+  ctrlKey: event.ctrlKey,
+  shiftKey: event.shiftKey,
+  altKey: event.altKey,
+  metaKey: event.metaKey,
+})
+
+const passedTabDragThreshold = (
+  start: TabDragPointerEventSnapshot,
+  current: TabDragPointerEventSnapshot,
+): boolean => Math.hypot(current.clientX - start.clientX, current.clientY - start.clientY) > 5
+
+const keyboardSnapshot = (event: KeyboardEvent): TabDragKeyboardEventSnapshot => ({
+  key: event.key,
+  code: event.code,
+  ctrlKey: event.ctrlKey,
+  shiftKey: event.shiftKey,
+  altKey: event.altKey,
+  metaKey: event.metaKey,
+  repeat: event.repeat,
+})
 
 // A tab in the strip is either an agent/shell session or an open file editor. Both
 // are first-class VIEWS (POD-710): the strip renders the current workspace's
@@ -112,7 +226,11 @@ const RESIZE_STEP = 0.02
 /** Keyboard resize floor when there is no measured box to convert px against. */
 const MIN_PANE_FRACTION = 0.12
 
-export function Workspace(): JSX.Element {
+export function Workspace({
+  loadDragRuntime = loadWorkspaceTabDrag,
+}: {
+  loadDragRuntime?: LoadWorkspaceTabDrag
+} = {}): JSX.Element {
   const {
     sessions,
     selectedWorktree,
@@ -125,7 +243,6 @@ export function Workspace(): JSX.Element {
     dockShells,
     workspaces,
     workspaceKey,
-    setSplitEnabled,
     openSessionTab,
     promoteWorkspaceTab,
     activateWorkspaceTab,
@@ -149,7 +266,6 @@ export function Workspace(): JSX.Element {
       workspaces: s.workspaces,
       // The engine's own resolver, not a second spelling of it (POD-710).
       workspaceKey: s.workspaceKey(),
-      setSplitEnabled: s.setSplitEnabled,
       openSessionTab: s.openSessionTab,
       promoteWorkspaceTab: s.promoteWorkspaceTab,
       activateWorkspaceTab: s.activateWorkspaceTab,
@@ -164,18 +280,487 @@ export function Workspace(): JSX.Element {
   )
   const issues = useReplicaIssues()
   const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
-  const tabSplittingEnabled = useFeature('tab-splitting')
   // The tab being dragged, for the overlay and for mounting the drop zones only
   // while a drag is in flight.
   const [dragTabId, setDragTabId] = useState<string | null>(null)
+  const [DragRuntime, setDragRuntime] =
+    useState<ComponentType<WorkspaceTabDragRuntimeProps> | null>(null)
+  const dragRuntimeRequested = useRef(false)
+  const dragFocusToRestore = useRef<TabDomTarget | null>(null)
+  // A tab can start the import before focus reaches a fixed strip action. Keep
+  // the resolved module unpublished until the next tab intent so wrapping the
+  // chrome in DndContext cannot drop its click, focus, or newly opened menu.
+  const fixedStripFocusToRestore = useRef<FixedStripControlTarget | null>(null)
+  const fixedStripPress = useRef(false)
+  const dragRuntimeDeferredUntilIntent = useRef(false)
+  const deferredDragRuntime = useRef<ComponentType<WorkspaceTabDragRuntimeProps> | null>(null)
+  const clearFixedStripPressListeners = useRef<(() => void) | null>(null)
+  const fixedStripPressTimer = useRef<number | null>(null)
+  const pendingDragActivation = useRef<
+    | {
+        kind: 'pointer'
+        tabId: string
+        pressTarget: HTMLElement
+        pressTargetLocator: TabDomTarget
+        start: TabDragPointerEventSnapshot
+        latestMove: TabDragPointerEventSnapshot | null
+        end: TabDragPointerEventSnapshot | null
+        dragThresholdCrossed: boolean
+      }
+    | { kind: 'keyboard'; tabId: string; events: TabDragKeyboardEventSnapshot[] }
+    | null
+  >(null)
+  const clearPendingDragListeners = useRef<(() => void) | null>(null)
+  const clearColdDragClickListener = useRef<(() => void) | null>(null)
+  const coldDragClickTimer = useRef<number | null>(null)
+  const clearColdPressFallback = useRef<(() => void) | null>(null)
+  const workspaceRef = useRef<HTMLElement | null>(null)
   // Sizes being dragged on a pane divider, held locally until the pointer is
   // released — the same shape as the shell's ResizableColumn, which tracks the
   // width in React and persists once on pointerup rather than writing storage
   // on every frame.
   const [dragSizes, setDragSizes] = useState<{ path: number[]; sizes: number[] } | null>(null)
-  // A small drag threshold keeps plain clicks (select/close) working — the drag
-  // only starts once the pointer has actually moved.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+
+  const cancelColdPressFallback = useCallback((): void => {
+    clearColdPressFallback.current?.()
+    clearColdPressFallback.current = null
+  }, [])
+
+  const clearColdDragClickSuppression = useCallback((): void => {
+    if (coldDragClickTimer.current !== null) {
+      window.clearTimeout(coldDragClickTimer.current)
+      coldDragClickTimer.current = null
+    }
+    clearColdDragClickListener.current?.()
+    clearColdDragClickListener.current = null
+  }, [])
+
+  const deferColdDragClickCleanup = useCallback((): void => {
+    if (!clearColdDragClickListener.current || coldDragClickTimer.current !== null) return
+    coldDragClickTimer.current = window.setTimeout(clearColdDragClickSuppression, 0)
+  }, [clearColdDragClickSuppression])
+
+  const suppressNextColdDragClick = useCallback(
+    (tabId: string): void => {
+      if (clearColdDragClickListener.current) return
+      const ownerDocument = workspaceRef.current?.ownerDocument
+      if (!ownerDocument) return
+      const suppressClick = (click: MouseEvent): void => {
+        const target = click.target
+        const clickedTab =
+          target instanceof Element
+            ? target.closest<HTMLElement>('[data-tab-drag-id]')?.dataset.tabDragId
+            : undefined
+        if (clickedTab !== tabId) return
+        click.preventDefault()
+        click.stopPropagation()
+        clearColdDragClickSuppression()
+      }
+      ownerDocument.addEventListener('click', suppressClick, true)
+      clearColdDragClickListener.current = () =>
+        ownerDocument.removeEventListener('click', suppressClick, true)
+    },
+    [clearColdDragClickSuppression],
+  )
+
+  const clearPendingDragActivation = useCallback((): void => {
+    clearPendingDragListeners.current?.()
+    clearPendingDragListeners.current = null
+    pendingDragActivation.current = null
+    clearColdDragClickSuppression()
+    cancelColdPressFallback()
+  }, [cancelColdPressFallback, clearColdDragClickSuppression])
+
+  const clearFixedStripPress = useCallback((): void => {
+    if (fixedStripPressTimer.current !== null) {
+      window.clearTimeout(fixedStripPressTimer.current)
+      fixedStripPressTimer.current = null
+    }
+    clearFixedStripPressListeners.current?.()
+    clearFixedStripPressListeners.current = null
+    fixedStripPress.current = false
+    dragRuntimeDeferredUntilIntent.current = false
+    deferredDragRuntime.current = null
+  }, [])
+
+  const finishFixedStripPress = useCallback((): void => {
+    fixedStripPressTimer.current = null
+    clearFixedStripPressListeners.current?.()
+    clearFixedStripPressListeners.current = null
+    fixedStripPress.current = false
+  }, [])
+
+  const captureColdFixedStripPress = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>): boolean => {
+      const fixedTarget = fixedStripControlTarget(event.target)
+      if (!fixedTarget) return false
+      if (fixedStripPress.current) return true
+
+      clearPendingDragActivation()
+      dragFocusToRestore.current = null
+      fixedStripPress.current = true
+      if (dragRuntimeRequested.current) dragRuntimeDeferredUntilIntent.current = true
+      const pointerId = event.pointerId
+      const ownerDocument = fixedTarget.element.ownerDocument
+      const ownerWindow = ownerDocument.defaultView
+      const finishAfterLostBoundary = (): void => {
+        if (fixedStripPressTimer.current !== null) return
+        clearFixedStripPressListeners.current?.()
+        clearFixedStripPressListeners.current = null
+        fixedStripPressTimer.current = window.setTimeout(finishFixedStripPress, 0)
+      }
+      const finishAfterClick = (end: PointerEvent): void => {
+        if (end.pointerId === pointerId) finishAfterLostBoundary()
+      }
+      const finishAfterLostCapture = (end: PointerEvent): void => {
+        if (end.pointerId === pointerId) finishAfterLostBoundary()
+      }
+      const finishWhenHidden = (): void => {
+        if (ownerDocument.visibilityState === 'hidden') finishAfterLostBoundary()
+      }
+      ownerDocument.addEventListener('pointerup', finishAfterClick, true)
+      ownerDocument.addEventListener('pointercancel', finishAfterClick, true)
+      ownerDocument.addEventListener('visibilitychange', finishWhenHidden, true)
+      ownerWindow?.addEventListener('blur', finishAfterLostBoundary, true)
+      fixedTarget.element.addEventListener('lostpointercapture', finishAfterLostCapture)
+      clearFixedStripPressListeners.current = () => {
+        ownerDocument.removeEventListener('pointerup', finishAfterClick, true)
+        ownerDocument.removeEventListener('pointercancel', finishAfterClick, true)
+        ownerDocument.removeEventListener('visibilitychange', finishWhenHidden, true)
+        ownerWindow?.removeEventListener('blur', finishAfterLostBoundary, true)
+        fixedTarget.element.removeEventListener('lostpointercapture', finishAfterLostCapture)
+      }
+      return true
+    },
+    [clearPendingDragActivation, finishFixedStripPress],
+  )
+
+  const captureColdFixedStripKeyPress = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>): boolean => {
+      if (!dragRuntimeRequested.current) return false
+      const fixedTarget = fixedStripControlTarget(event.target)
+      if (!fixedTarget) return false
+      if (fixedStripPress.current) return true
+
+      clearPendingDragActivation()
+      dragFocusToRestore.current = null
+      fixedStripPress.current = true
+      dragRuntimeDeferredUntilIntent.current = true
+      const code = event.code
+      const ownerDocument = fixedTarget.element.ownerDocument
+      const ownerWindow = ownerDocument.defaultView
+      const finishAfterLostBoundary = (): void => {
+        if (fixedStripPressTimer.current !== null) return
+        clearFixedStripPressListeners.current?.()
+        clearFixedStripPressListeners.current = null
+        fixedStripPressTimer.current = window.setTimeout(finishFixedStripPress, 0)
+      }
+      const finishAfterClick = (end: KeyboardEvent): void => {
+        if (end.code === code) finishAfterLostBoundary()
+      }
+      const finishWhenHidden = (): void => {
+        if (ownerDocument.visibilityState === 'hidden') finishAfterLostBoundary()
+      }
+      ownerDocument.addEventListener('keyup', finishAfterClick, true)
+      ownerDocument.addEventListener('visibilitychange', finishWhenHidden, true)
+      ownerWindow?.addEventListener('blur', finishAfterLostBoundary, true)
+      clearFixedStripPressListeners.current = () => {
+        ownerDocument.removeEventListener('keyup', finishAfterClick, true)
+        ownerDocument.removeEventListener('visibilitychange', finishWhenHidden, true)
+        ownerWindow?.removeEventListener('blur', finishAfterLostBoundary, true)
+      }
+      return true
+    },
+    [clearPendingDragActivation, finishFixedStripPress],
+  )
+
+  const preloadDragRuntime = useCallback(
+    (intentTarget: EventTarget | null, restoreFocus = false): void => {
+      if (restoreFocus && !DragRuntime) {
+        const fixedTarget = fixedStripControlTarget(intentTarget)
+        if (fixedTarget) {
+          clearPendingDragActivation()
+          dragFocusToRestore.current = null
+          fixedStripFocusToRestore.current = fixedTarget.locator
+          return
+        }
+      }
+      const target = tabDomTarget(intentTarget)
+      if (!target) return
+      if (restoreFocus && !DragRuntime) dragFocusToRestore.current = target
+      if (dragRuntimeDeferredUntilIntent.current && !fixedStripPress.current) {
+        dragRuntimeDeferredUntilIntent.current = false
+        const deferred = deferredDragRuntime.current
+        if (deferred) {
+          deferredDragRuntime.current = null
+          fixedStripFocusToRestore.current =
+            fixedStripControlTarget(workspaceRef.current?.ownerDocument.activeElement ?? null)
+              ?.locator ?? null
+          setDragRuntime(() => deferred)
+          return
+        }
+      }
+      if (dragRuntimeRequested.current) return
+      if (fixedStripPress.current) dragRuntimeDeferredUntilIntent.current = true
+      dragRuntimeRequested.current = true
+      void loadDragRuntime().then(
+        (module) => {
+          if (fixedStripPress.current || dragRuntimeDeferredUntilIntent.current) {
+            deferredDragRuntime.current = module.WorkspaceTabDragRuntime
+            return
+          }
+          fixedStripFocusToRestore.current =
+            fixedStripControlTarget(workspaceRef.current?.ownerDocument.activeElement ?? null)
+              ?.locator ?? null
+          setDragRuntime(() => module.WorkspaceTabDragRuntime)
+        },
+        () => {
+          clearPendingDragActivation()
+          clearFixedStripPress()
+          dragFocusToRestore.current = null
+          fixedStripFocusToRestore.current = null
+          dragRuntimeRequested.current = false
+        },
+      )
+    },
+    [DragRuntime, clearFixedStripPress, clearPendingDragActivation, loadDragRuntime],
+  )
+
+  useEffect(() => clearPendingDragActivation, [clearPendingDragActivation])
+  useEffect(() => clearFixedStripPress, [clearFixedStripPress])
+
+  // The plain strip is keyboard-focusable while its runtime is loading. If the
+  // provider's arrival replaces that focused node, put focus back on the same
+  // tab so Space and the arrow keys work without another trip through the tab
+  // order.
+  const restoreDragFocus = useCallback((): void => {
+    const target = dragFocusToRestore.current
+    if (!target) return
+    dragFocusToRestore.current = null
+    const current = document.activeElement
+    const replacement = resolveTabDomTarget(workspaceRef.current, target)
+    if (current !== null && current === replacement && current.isConnected) return
+    if (current instanceof HTMLElement && current !== document.body && current.isConnected) return
+    replacement?.focus()
+  }, [])
+
+  const restoreFixedStripFocus = useCallback((): void => {
+    const target = fixedStripFocusToRestore.current
+    if (!target) return
+    fixedStripFocusToRestore.current = null
+    const current = document.activeElement
+    const replacement = resolveFixedStripControlTarget(workspaceRef.current, target)
+    if (current !== null && current === replacement && current.isConnected) return
+    if (current instanceof HTMLElement && current !== document.body && current.isConnected) return
+    replacement?.focus()
+  }, [])
+
+  const replayColdPressIfLost = useCallback(
+    (original: HTMLElement, target: TabDomTarget): void => {
+      cancelColdPressFallback()
+      const ownerDocument = workspaceRef.current?.ownerDocument
+      if (!ownerDocument) return
+      if (!original.isConnected) {
+        resolveTabDomTarget(workspaceRef.current, target)?.click()
+        return
+      }
+
+      let clickArrived = false
+      const onClick = (event: MouseEvent): void => {
+        const clicked = tabDomTarget(event.target, true)
+        if (!clicked || !sameTabDomTarget(clicked, target)) return
+        clickArrived = true
+      }
+      ownerDocument.addEventListener('click', onClick, true)
+      const timer = window.setTimeout(() => {
+        ownerDocument.removeEventListener('click', onClick, true)
+        clearColdPressFallback.current = null
+        if (!clickArrived && !original.isConnected) {
+          resolveTabDomTarget(workspaceRef.current, target)?.click()
+        }
+      }, 0)
+      clearColdPressFallback.current = () => {
+        window.clearTimeout(timer)
+        ownerDocument.removeEventListener('click', onClick, true)
+      }
+    },
+    [cancelColdPressFallback],
+  )
+
+  // Restore focus in the commit that replaces the plain tabs. Waiting for the
+  // runtime's passive replay effect leaves a painted, observable frame on body
+  // when a cold keyboard pickup was cancelled before the import resolved.
+  useLayoutEffect(() => {
+    if (!DragRuntime) return
+    restoreFixedStripFocus()
+    restoreDragFocus()
+  }, [DragRuntime, restoreDragFocus, restoreFixedStripFocus])
+
+  const captureColdPointerActivation = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>): void => {
+      if (DragRuntime || !event.isPrimary || event.button !== 0) return
+      if (captureColdFixedStripPress(event)) return
+      const target = event.target
+      const tabNode =
+        target instanceof Element ? target.closest<HTMLElement>('[data-tab-drag-id]') : null
+      const tabId = tabNode?.dataset.tabDragId
+      if (!tabId) return
+      const pressTargetLocator = tabDomTarget(target, true)
+      const pressTarget = pressTargetLocator
+        ? resolveTabDomTarget(workspaceRef.current, pressTargetLocator)
+        : null
+      if (!pressTargetLocator || !pressTarget) return
+
+      clearPendingDragActivation()
+      const pending: {
+        kind: 'pointer'
+        tabId: string
+        pressTarget: HTMLElement
+        pressTargetLocator: TabDomTarget
+        start: TabDragPointerEventSnapshot
+        latestMove: TabDragPointerEventSnapshot | null
+        end: TabDragPointerEventSnapshot | null
+        dragThresholdCrossed: boolean
+      } = {
+        kind: 'pointer' as const,
+        tabId,
+        pressTarget,
+        pressTargetLocator,
+        start: pointerSnapshot(event.nativeEvent),
+        latestMove: null,
+        end: null,
+        dragThresholdCrossed: false,
+      }
+      pendingDragActivation.current = pending
+      const onMove = (move: PointerEvent): void => {
+        if (move.pointerId !== pending.start.pointerId) return
+        pending.latestMove = pointerSnapshot(move)
+        if (
+          !pending.dragThresholdCrossed &&
+          passedTabDragThreshold(pending.start, pending.latestMove)
+        ) {
+          pending.dragThresholdCrossed = true
+          suppressNextColdDragClick(tabId)
+        }
+      }
+      const stopListening = (): void => {
+        clearPendingDragListeners.current?.()
+        clearPendingDragListeners.current = null
+      }
+      const onUp = (end: PointerEvent): void => {
+        if (end.pointerId !== pending.start.pointerId) return
+        const finish = pointerSnapshot(end)
+        const latest = pending.latestMove ?? finish
+        if (!pending.dragThresholdCrossed && passedTabDragThreshold(pending.start, latest)) {
+          pending.dragThresholdCrossed = true
+          suppressNextColdDragClick(tabId)
+        }
+        if (!pending.dragThresholdCrossed) {
+          stopListening()
+          pendingDragActivation.current = null
+          clearColdDragClickSuppression()
+          replayColdPressIfLost(pending.pressTarget, pending.pressTargetLocator)
+          return
+        }
+        pending.latestMove = latest
+        pending.end = finish
+        stopListening()
+        deferColdDragClickCleanup()
+      }
+      const onCancel = (cancel: PointerEvent): void => {
+        if (cancel.pointerId === pending.start.pointerId) clearPendingDragActivation()
+      }
+      document.addEventListener('pointermove', onMove, true)
+      document.addEventListener('pointerup', onUp, true)
+      document.addEventListener('pointercancel', onCancel, true)
+      clearPendingDragListeners.current = () => {
+        document.removeEventListener('pointermove', onMove, true)
+        document.removeEventListener('pointerup', onUp, true)
+        document.removeEventListener('pointercancel', onCancel, true)
+      }
+      preloadDragRuntime(target)
+    },
+    [
+      DragRuntime,
+      captureColdFixedStripPress,
+      clearPendingDragActivation,
+      clearColdDragClickSuppression,
+      deferColdDragClickCleanup,
+      preloadDragRuntime,
+      replayColdPressIfLost,
+      suppressNextColdDragClick,
+    ],
+  )
+
+  const captureColdKeyboardActivation = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+      if (DragRuntime || (event.code !== 'Space' && event.code !== 'Enter')) return
+      if (captureColdFixedStripKeyPress(event)) return
+      const target = event.target
+      if (!(target instanceof HTMLElement) || !target.matches('[data-tab-drag-id]')) return
+      const tabId = target.dataset.tabDragId
+      if (!tabId) return
+
+      event.preventDefault()
+      clearPendingDragActivation()
+      dragFocusToRestore.current = tabDomTarget(target)
+      const pending = {
+        kind: 'keyboard' as const,
+        tabId,
+        events: [keyboardSnapshot(event.nativeEvent)],
+      }
+      pendingDragActivation.current = pending
+      const onKeyDown = (followup: KeyboardEvent): void => {
+        if (followup.code === 'Escape') {
+          followup.preventDefault()
+          clearPendingDragActivation()
+          return
+        }
+        if (
+          !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'Enter', 'Tab'].includes(
+            followup.code,
+          )
+        )
+          return
+        followup.preventDefault()
+        pending.events.push(keyboardSnapshot(followup))
+      }
+      document.addEventListener('keydown', onKeyDown, true)
+      clearPendingDragListeners.current = () =>
+        document.removeEventListener('keydown', onKeyDown, true)
+      preloadDragRuntime(target, true)
+    },
+    [
+      DragRuntime,
+      captureColdFixedStripKeyPress,
+      clearPendingDragActivation,
+      preloadDragRuntime,
+    ],
+  )
+
+  const preparePendingDragActivation = useCallback((): PendingTabDragActivation | null => {
+    restoreDragFocus()
+    const pending = pendingDragActivation.current
+    if (!pending) return null
+    const target = [
+      ...(workspaceRef.current?.querySelectorAll<HTMLElement>('[data-tab-drag-id]') ?? []),
+    ].find((candidate) => candidate.dataset.tabDragId === pending.tabId)
+    if (pending.kind === 'keyboard') {
+      clearPendingDragListeners.current?.()
+      clearPendingDragListeners.current = null
+    }
+    pendingDragActivation.current = null
+    if (!target) return null
+    return pending.kind === 'pointer'
+      ? {
+          kind: 'pointer',
+          target,
+          start: pending.start,
+          latestMove: pending.latestMove,
+          end: pending.end,
+        }
+      : { kind: 'keyboard', target, events: pending.events }
+  }, [restoreDragFocus])
 
   const allWorktrees = reposToViews(repos).flatMap((r) => r.worktrees)
   const worktree: WorktreeView | undefined = allWorktrees.find((w) => w.path === selectedWorktree)
@@ -224,51 +809,22 @@ export function Workspace(): JSX.Element {
   const layout = workspaces[workspaceKey] ?? emptyWorkspace(workspaceKey)
   const previewTabId = layout.previewTabId
 
-  // THE FLAG BOUNDARY (POD-710 wave 2). Splitting is behind `tab-splitting`, and
-  // "off" means the layout renders its FIRST leaf only — the tree itself is left
-  // exactly as it is. A workspace split with the flag on, then hidden by turning
-  // the flag off, comes back whole when it is turned on again; nothing collapses
-  // panes on the operator's behalf.
+  // Splitting is ordinary now (POD-1649): every leaf of the tree is on screen,
+  // so the geometry is the layout's own root. There is no second, narrower
+  // notion of "shown" for anything downstream to disagree with.
   const shownLayout = dragSizes ? resizeSplit(layout, dragSizes.path, dragSizes.sizes) : layout
-  const allLeafIds = leafPaneIds(shownLayout.root)
-  const visibleRoot: SplitNode = tabSplittingEnabled
-    ? shownLayout.root
-    : { kind: 'leaf', paneId: allLeafIds[0] as string }
-  const geometry = deckGeometry(visibleRoot)
+  const geometry = deckGeometry(shownLayout.root)
   const visiblePanes: Pane[] = geometry.panes.flatMap((rect) => {
     const found = layout.panes[rect.paneId]
     return found ? [found] : []
   })
   // The pane every pane-less gesture lands in: the focused one when it is on
-  // screen, else the first (the flag can hide the focused pane).
+  // screen, else the first — `focusedPaneId` can outlive the pane it names.
   const activePane =
     visiblePanes.find((candidate) => candidate.id === layout.focusedPaneId) ?? visiblePanes[0]
   const focusPane = (paneId: string): void => {
     if (paneId !== layout.focusedPaneId) focusWorkspacePane(paneId)
   }
-
-  // TELL THE ENGINE WHAT IS ON SCREEN. The engine may not read a feature flag,
-  // and it may not assume every leaf of a preserved split layout is rendered —
-  // with the flag off it is not, and reporting those panes as visible gives the
-  // hidden session PTY-relay priority and clears its unread badge. This is the
-  // one place that knows, so this is the place that says so.
-  useEffect(() => {
-    setSplitEnabled(tabSplittingEnabled)
-  }, [tabSplittingEnabled, setSplitEnabled])
-
-  // FOCUS FOLLOWS THE SCREEN. Turning the flag off can leave `focusedPaneId`
-  // naming a pane that is no longer rendered, so the pane the operator was
-  // typing in is not the pane they are looking at. The engine no longer trusts
-  // that field blindly (it clamps focus to a VISIBLE pane), but the layout
-  // should still record where the operator actually is. The tree, its tabs and
-  // its sizes are untouched, so turning the flag back on restores the
-  // arrangement.
-  const firstLeafId = allLeafIds[0]
-  useEffect(() => {
-    if (tabSplittingEnabled || !firstLeafId) return
-    if (layout.focusedPaneId === firstLeafId) return
-    focusWorkspacePane(firstLeafId)
-  }, [tabSplittingEnabled, firstLeafId, layout.focusedPaneId, focusWorkspacePane])
 
   // Dock-owned shells (#23) live in the right dock's Shell panel, never as tabs.
   const dockShellIds = new Set<string>(Object.values(dockShells))
@@ -291,6 +847,7 @@ export function Workspace(): JSX.Element {
   const deckTabs = resolveAll(allTabIds(layout))
   const byId = new Map(deckTabs.map((t) => [t.id, t]))
   const activeTabId = activePane?.activeTabId ?? null
+
   // M6: the issue's designated coordinator sessions, resolved once for every
   // pane's strip rather than per tab.
   const coordinatorIds = new Set(
@@ -416,18 +973,17 @@ export function Workspace(): JSX.Element {
    *      the plain reorder this always did; pane order IS the tab order now, so
    *      the server-side `tabOrders` overlay has no job here).
    */
-  const onDragEnd = (event: DragEndEvent) => {
+  const onDragEnd = (activeId: string, overId: string | null): void => {
+    deferColdDragClickCleanup()
     setDragTabId(null)
-    const { active, over } = event
-    if (!over) return
-    const drop = resolveTabDrop(layout, String(active.id), String(over.id))
+    if (!overId) return
+    const drop = resolveTabDrop(layout, activeId, overId)
     if (!drop) return
     if (drop.kind === 'split') splitWorkspacePane(drop.paneId, drop.axis, { tabId: drop.tabId })
     else if (drop.kind === 'move') moveWorkspaceTab(drop.tabId, drop.paneId, drop.index)
     else activateWorkspaceTab(drop.tabId)
   }
 
-  const onDragStart = (event: DragStartEvent) => setDragTabId(String(event.active.id))
   const dragTab = dragTabId === null ? undefined : byId.get(dragTabId)
 
   // A divider drag previews locally and lands in the LAYOUT — split proportions
@@ -470,111 +1026,106 @@ export function Workspace(): JSX.Element {
     activateWorkspaceTab(t.id)
   }
 
+  const renderChrome = (drag?: TabDragComponents): JSX.Element => (
+    <>
+      {geometry.panes.map((rect) => {
+        const paneOf = layout.panes[rect.paneId]
+        if (!paneOf) return null
+        return (
+          <PaneChrome
+            key={rect.paneId}
+            rect={rect}
+            pane={paneOf}
+            tabs={resolveAll(paneOf.tabs)}
+            otherTabs={deckTabs.filter((t) => !paneOf.tabs.includes(t.id))}
+            focused={paneOf.id === activePane?.id}
+            alone={geometry.panes.length === 1}
+            previewTabId={previewTabId}
+            coordinatorIds={coordinatorIds}
+            drag={drag}
+            onDragIntent={preloadDragRuntime}
+            onColdPointerDown={captureColdPointerActivation}
+            onColdKeyDown={captureColdKeyboardActivation}
+            // biome-ignore lint/style/noNonNullAssertion: the early return above guarantees worktree or issue (which makes panelTarget defined)
+            panelTarget={panelTarget!}
+            issueId={issue?.id}
+            onFocus={() => focusPane(paneOf.id)}
+            onSelectTab={selectTab}
+            onCloseTab={closeTab}
+            onKeepOpen={promoteWorkspaceTab}
+            onSplit={(axis, tabId) => splitWorkspacePane(paneOf.id, axis, { tabId })}
+            onClosePane={() => closeWorkspacePane(paneOf.id)}
+            onOpened={(sid) => openSessionTab(sid, { permanent: true, paneId: paneOf.id })}
+            onAdopt={(id) => {
+              // Filling an empty pane marks the session read too (#126).
+              if (byId.get(id)?.kind === 'session') void markSessionRead(asSessionId(id))
+              moveWorkspaceTab(id, paneOf.id, 0)
+            }}
+          />
+        )
+      })}
+      {/* Drop targets exist only DURING a drag: a pane's body is not a click
+        target the rest of the time, and mounting them permanently would put
+        four inert overlays over every terminal. */}
+      {drag &&
+        dragTabId !== null &&
+        geometry.panes.map((rect) => <PaneDropZones key={rect.paneId} rect={rect} drag={drag} />)}
+    </>
+  )
+
   return (
     // THE SHEET (POD-725). The stage used to be a column like the others; it is
     // now a sheet lying in a gutter, with the app ground visible around it and
     // the window's one real drop shadow under it. The pane region, its strips
     // and its seams are unchanged — the sheet only clips and lifts them.
-    <section className="native-agents-pane relative">
+    <section ref={workspaceRef} className="native-agents-pane relative">
       <div className="workspace-sheet relative">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={paneCollision}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onDragCancel={() => setDragTabId(null)}
-        >
-          {/* THE DECK BOX. Panes are rectangles inside it rather than nested
-            containers, so the panel list underneath stays FLAT (see panel-deck.ts):
-            splitting, resizing and dragging a tab across panes are pure layout
-            changes and never reparent — so never remount — a live terminal. */}
-          <div className="relative min-h-0 min-w-0 flex-1">
-            {/* The panel deck [POD-782] [spec:SP-0b2e]: the current workspace's tabs
+        {/* THE DECK BOX. Panes are rectangles inside it rather than nested
+          containers, so the panel list underneath stays FLAT (see panel-deck.ts):
+          splitting, resizing and dragging a tab across panes are pure layout
+          changes and never reparent — so never remount — a live terminal. */}
+        <div className="relative min-h-0 min-w-0 flex-1">
+          {/* The panel deck [POD-782] [spec:SP-0b2e]: the current workspace's tabs
               plus the foreign warm sessions carried over from previously-viewed
               issues — all mounted, only the on-screen panes visible (display:none
               for the rest). */}
-            <PanelDeck
-              items={composeDeck({
-                tabs: deckTabs,
-                warm,
-                knownSessionIds,
-                panes: visiblePanes,
-              })}
-              panes={geometry.panes}
-              onCloseFile={closeTab}
-              previewTabId={previewTabId}
-              onPromote={promoteWorkspaceTab}
-              onFocusPane={focusPane}
-              focusedTabId={activeTabId}
-            />
-            {geometry.panes.map((rect) => {
-              const paneOf = layout.panes[rect.paneId]
-              if (!paneOf) return null
-              return (
-                <PaneChrome
-                  key={rect.paneId}
-                  rect={rect}
-                  pane={paneOf}
-                  tabs={resolveAll(paneOf.tabs)}
-                  otherTabs={deckTabs.filter((t) => !paneOf.tabs.includes(t.id))}
-                  focused={paneOf.id === activePane?.id}
-                  alone={geometry.panes.length === 1}
-                  previewTabId={previewTabId}
-                  splitting={tabSplittingEnabled}
-                  coordinatorIds={coordinatorIds}
-                  // biome-ignore lint/style/noNonNullAssertion: the early return above guarantees worktree or issue (which makes panelTarget defined)
-                  panelTarget={panelTarget!}
-                  issueId={issue?.id}
-                  onFocus={() => focusPane(paneOf.id)}
-                  onSelectTab={selectTab}
-                  onCloseTab={closeTab}
-                  onKeepOpen={promoteWorkspaceTab}
-                  onSplit={(axis, tabId) => splitWorkspacePane(paneOf.id, axis, { tabId })}
-                  onClosePane={() => closeWorkspacePane(paneOf.id)}
-                  onOpened={(sid) => openSessionTab(sid, { permanent: true, paneId: paneOf.id })}
-                  onAdopt={(id) => {
-                    // Filling an empty pane marks the session read too (#126).
-                    if (byId.get(id)?.kind === 'session') void markSessionRead(asSessionId(id))
-                    moveWorkspaceTab(id, paneOf.id, 0)
-                  }}
-                />
-              )
+          <PanelDeck
+            items={composeDeck({
+              tabs: deckTabs,
+              warm,
+              knownSessionIds,
+              panes: visiblePanes,
             })}
-            {geometry.seams.map((seam) => (
-              <PaneSeam key={seam.id} seam={seam} onResize={onSeamResize} />
-            ))}
-            {/* Drop targets exist only DURING a drag: a pane's body is not a click
-              target the rest of the time, and mounting them permanently would put
-              four inert overlays over every terminal. */}
-            {dragTabId !== null &&
-              geometry.panes.map((rect) => <PaneDropZones key={rect.paneId} rect={rect} />)}
-          </div>
-          {/* The dragged tab rides in an overlay so it is not clipped by the strip
-            it is leaving — a cross-pane drag whose tab vanishes at the edge of
-            its own strip does not read as a drag at all. */}
-          <DragOverlay dropAnimation={null}>
-            {dragTab ? <TabGhost tab={dragTab} /> : null}
-          </DragOverlay>
-        </DndContext>
+            panes={geometry.panes}
+            onCloseFile={closeTab}
+            previewTabId={previewTabId}
+            onPromote={promoteWorkspaceTab}
+            onFocusPane={focusPane}
+            focusedTabId={activeTabId}
+          />
+          {DragRuntime ? (
+            <DragRuntime
+              overlay={dragTab ? <TabGhost tab={dragTab} /> : null}
+              onDragStart={setDragTabId}
+              onDragEnd={onDragEnd}
+              onDragCancel={() => {
+                clearColdDragClickSuppression()
+                setDragTabId(null)
+              }}
+              onReady={preparePendingDragActivation}
+            >
+              {renderChrome}
+            </DragRuntime>
+          ) : (
+            renderChrome()
+          )}
+          {geometry.seams.map((seam) => (
+            <PaneSeam key={seam.id} seam={seam} onResize={onSeamResize} />
+          ))}
+        </div>
       </div>
     </section>
   )
-}
-
-/**
- * Collision detection for a workspace full of panes.
- *
- * `pointerWithin` first, because the targets NEST — a tab sits inside a strip,
- * a split zone sits inside a pane body — and it resolves nesting the way the
- * operator reads it: of the containers actually under the pointer, the one whose
- * centre is nearest wins, so the small precise target beats the large one it is
- * drawn on. `closestCenter` is the fallback for a pointer that is over nothing
- * at all (dragged past the edge of the deck), which would otherwise cancel a
- * drag that clearly meant *somewhere*.
- */
-const paneCollision: CollisionDetection = (args) => {
-  const inside = pointerWithin(args)
-  return inside.length > 0 ? inside : closestCenter(args)
 }
 
 /**
@@ -594,8 +1145,11 @@ function PaneChrome({
   focused,
   alone,
   previewTabId,
-  splitting,
   coordinatorIds,
+  drag,
+  onDragIntent,
+  onColdPointerDown,
+  onColdKeyDown,
   panelTarget,
   issueId,
   onFocus,
@@ -617,8 +1171,11 @@ function PaneChrome({
    *  empty state shows — `otherTabs` does (POD-1058). */
   alone: boolean
   previewTabId: string | null
-  splitting: boolean
   coordinatorIds: ReadonlySet<string>
+  drag?: TabDragComponents
+  onDragIntent: (target: EventTarget | null, restoreFocus?: boolean) => void
+  onColdPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
+  onColdKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   panelTarget: WorktreeView
   issueId?: IssueId
   onFocus: () => void
@@ -630,10 +1187,52 @@ function PaneChrome({
   onOpened: (sessionId: SessionId) => void
   onAdopt: (tabId: string) => void
 }): JSX.Element {
-  const { setNodeRef, isOver } = useDroppable({ id: stripDropId(pane.id) })
   const activeTabId = pane.activeTabId
   const hasPanel = activeTabId !== null && tabs.some((t) => t.id === activeTabId)
-  return (
+  const tabItems = tabs.map((t) =>
+    drag ? (
+      <drag.Item key={t.id} id={t.id}>
+        {(bindings) => (
+          <SortableTab
+            tab={t}
+            active={t.id === activeTabId}
+            preview={t.id === previewTabId}
+            coordinator={coordinatorIds.has(t.id)}
+            drag={bindings}
+            onSelect={() => onSelectTab(t)}
+            onClose={() => onCloseTab(t.id)}
+            onCloseOthers={() => {
+              for (const other of tabs) if (other.id !== t.id) onCloseTab(other.id)
+            }}
+            onCloseAll={() => {
+              for (const other of tabs) onCloseTab(other.id)
+            }}
+            onKeepOpen={() => onKeepOpen(t.id)}
+            onSplit={(axis: SplitAxis) => onSplit(axis, t.id)}
+          />
+        )}
+      </drag.Item>
+    ) : (
+      <SortableTab
+        key={t.id}
+        tab={t}
+        active={t.id === activeTabId}
+        preview={t.id === previewTabId}
+        coordinator={coordinatorIds.has(t.id)}
+        onSelect={() => onSelectTab(t)}
+        onClose={() => onCloseTab(t.id)}
+        onCloseOthers={() => {
+          for (const other of tabs) if (other.id !== t.id) onCloseTab(other.id)
+        }}
+        onCloseAll={() => {
+          for (const other of tabs) onCloseTab(other.id)
+        }}
+        onKeepOpen={() => onKeepOpen(t.id)}
+        onSplit={(axis: SplitAxis) => onSplit(axis, t.id)}
+      />
+    ),
+  )
+  const strip = (setNodeRef?: (node: HTMLElement | null) => void, isOver = false): JSX.Element => (
     <div className="pointer-events-none absolute flex flex-col" style={paneBoxStyle(rect)}>
       {/* Tab strip (POD-725): 38px, the tabstrip surface, a soft bottom hairline,
           and tabs that are PILLS centred in it rather than browser tabs stretched
@@ -657,7 +1256,17 @@ function PaneChrome({
         data-testid="native-tab-strip"
         data-pane={pane.id}
         data-focused={focused ? 'true' : undefined}
-        onPointerDownCapture={onFocus}
+        data-drag-runtime={drag ? 'ready' : undefined}
+        onPointerEnter={(event) => onDragIntent(event.target)}
+        onPointerDownCapture={(event) => {
+          onFocus()
+          onColdPointerDown(event)
+        }}
+        onPointerMoveCapture={(event) => onDragIntent(event.target)}
+        onFocusCapture={(event) => {
+          onDragIntent(event.target, true)
+        }}
+        onKeyDownCapture={onColdKeyDown}
         className={cn(
           'pointer-events-auto relative flex h-[38px] flex-none items-center gap-[4px] border-b border-hairline-soft issue-base-tabstrip px-[10px]',
           isOver
@@ -667,31 +1276,19 @@ function PaneChrome({
               : 'issue-mix-1 issue-mix-slate-0',
         )}
       >
-        <SortableContext items={tabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
+        {drag ? (
+          <drag.List items={tabs.map((t) => t.id)}>
+            <div className="flex min-w-0 flex-1 items-stretch gap-[2px] overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {tabs.length === 0 && <GhostTabs />}
+              {tabItems}
+            </div>
+          </drag.List>
+        ) : (
           <div className="flex min-w-0 flex-1 items-stretch gap-[2px] overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {tabs.length === 0 && <GhostTabs />}
-            {tabs.map((t) => (
-              <SortableTab
-                key={t.id}
-                tab={t}
-                active={t.id === activeTabId}
-                preview={t.id === previewTabId}
-                splitting={splitting}
-                coordinator={coordinatorIds.has(t.id)}
-                onSelect={() => onSelectTab(t)}
-                onClose={() => onCloseTab(t.id)}
-                onCloseOthers={() => {
-                  for (const other of tabs) if (other.id !== t.id) onCloseTab(other.id)
-                }}
-                onCloseAll={() => {
-                  for (const other of tabs) onCloseTab(other.id)
-                }}
-                onKeepOpen={() => onKeepOpen(t.id)}
-                onSplit={(axis: SplitAxis) => onSplit(axis, t.id)}
-              />
-            ))}
+            {tabItems}
           </div>
-        </SortableContext>
+        )}
         <div className="flex flex-none items-center gap-0.5">
           {/* NewPanelMenu owns the portalled dropdown; the strip supplies a
               quiet inline "+" trigger (untinted per §2.2). Split keeps its
@@ -714,22 +1311,20 @@ function PaneChrome({
               </button>
             }
           />
-          {splitting && (
-            <button
-              data-pressable
-              type="button"
-              className="flex size-[26px] cursor-pointer items-center justify-center rounded-lg text-text-dim hover:bg-secondary hover:text-foreground"
-              title="Split Right"
-              aria-label="Split Right"
-              onClick={() => onSplit('row')}
-            >
-              <Columns2 size={13} aria-hidden="true" />
-            </button>
-          )}
+          <button
+            data-pressable
+            type="button"
+            className="flex size-[26px] cursor-pointer items-center justify-center rounded-lg text-text-dim hover:bg-secondary hover:text-foreground"
+            title="Split Right"
+            aria-label="Split Right"
+            onClick={() => onSplit('row')}
+          >
+            <Columns2 size={13} aria-hidden="true" />
+          </button>
           {/* A pane emptied by closing its tabs collapses on its own; this is the
               way out of a pane that never had one — the empty half a split of a
               single-tab pane leaves behind. */}
-          {splitting && !alone && (
+          {!alone && (
             <button
               data-pressable
               type="button"
@@ -759,6 +1354,13 @@ function PaneChrome({
         </div>
       )}
     </div>
+  )
+  return drag ? (
+    <drag.Strip id={stripDropId(pane.id)}>
+      {({ setNodeRef, isOver }) => strip(setNodeRef, isOver)}
+    </drag.Strip>
+  ) : (
+    strip()
   )
 }
 
@@ -860,31 +1462,44 @@ function PaneSeam({
  * a leading-edge zone would promise a placement the model does not have; two
  * honest zones beat four where half of them land somewhere else.
  */
-function PaneDropZones({ rect }: { rect: PaneRect }): JSX.Element {
+function PaneDropZones({ rect, drag }: { rect: PaneRect; drag: TabDragComponents }): JSX.Element {
   return (
     <div className="pointer-events-none absolute" style={panelBoxStyle(rect)}>
-      <DropZone id={paneDropId(rect.paneId)} className="absolute inset-0" />
+      <DropZone id={paneDropId(rect.paneId)} className="absolute inset-0" drag={drag} />
       <DropZone
         id={splitDropId('row', rect.paneId)}
         className="absolute inset-y-0 right-0 w-[26%]"
+        drag={drag}
       />
       <DropZone
         id={splitDropId('column', rect.paneId)}
         className="absolute inset-x-0 bottom-0 h-[26%]"
+        drag={drag}
       />
     </div>
   )
 }
 
-function DropZone({ id, className }: { id: string; className: string }): JSX.Element {
-  const { setNodeRef, isOver } = useDroppable({ id })
+function DropZone({
+  id,
+  className,
+  drag,
+}: {
+  id: string
+  className: string
+  drag: TabDragComponents
+}): JSX.Element {
   return (
-    <div
-      ref={setNodeRef}
-      data-dropzone={id}
-      data-over={isOver ? 'true' : undefined}
-      className={cn(className, isOver && 'bg-primary/15 outline outline-1 outline-primary/45')}
-    />
+    <drag.DropZone id={id}>
+      {({ setNodeRef, isOver }) => (
+        <div
+          ref={setNodeRef}
+          data-dropzone={id}
+          data-over={isOver ? 'true' : undefined}
+          className={cn(className, isOver && 'bg-primary/15 outline outline-1 outline-primary/45')}
+        />
+      )}
+    </drag.DropZone>
   )
 }
 
@@ -908,8 +1523,8 @@ function SortableTab({
   tab,
   active,
   preview,
-  splitting,
   coordinator = false,
+  drag,
   onSelect,
   onClose,
   onCloseOthers,
@@ -921,10 +1536,9 @@ function SortableTab({
   active: boolean
   /** The workspace's ONE temporary tab — italic, replaced by the next preview. */
   preview: boolean
-  /** `tab-splitting` is on, so the menu offers Split Right / Split Down. */
-  splitting: boolean
   /** M6: issue's designated coordinator session — elevated marker on the tab. */
   coordinator?: boolean
+  drag?: TabDragItemBindings
   onSelect: () => void
   onClose: () => void
   onCloseOthers: () => void
@@ -935,9 +1549,7 @@ function SortableTab({
   const renameSession = useStoreSelector((s) => s.renameSession)
   const [editing, setEditing] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: tab.id,
-  })
+  const isDragging = drag?.isDragging === true
   const node = useRef<HTMLDivElement | null>(null)
   // The strip scrolls when crowded — keep the active tab visible in it.
   useEffect(() => {
@@ -976,8 +1588,9 @@ function SortableTab({
     <div
       ref={(el) => {
         node.current = el
-        setNodeRef(el)
+        drag?.setNodeRef(el)
       }}
+      data-tab-drag-id={tab.id}
       // A PILL, NOT A BROWSER TAB (POD-725). Tabs used to share the strip evenly
       // and shrink as more opened, which is the file-editor idiom — but an editor
       // tab is a filename and ours is a running agent with a state dot, a name
@@ -1007,9 +1620,14 @@ function SortableTab({
           : undefined
       }
       onPointerLeave={isSessionTab ? () => clearHoveredSession(tab.id) : undefined}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      {...attributes}
-      {...listeners}
+      style={drag?.style}
+      {...(drag?.attributes ?? {
+        role: 'button',
+        tabIndex: 0,
+        'aria-disabled': false,
+        'aria-roledescription': 'sortable',
+      })}
+      {...drag?.listeners}
     >
       {tab.kind === 'session' && editing ? (
         <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1">
@@ -1093,7 +1711,6 @@ function SortableTab({
         <TabContextMenu
           anchor={menuAnchor}
           preview={preview}
-          splitting={splitting}
           {...(tab.kind === 'session' ? { sessionId: tab.session.sessionId } : {})}
           onClose={() => setMenuAnchor(null)}
           onCloseTab={onClose}
@@ -1125,7 +1742,6 @@ function SortableTab({
 function TabContextMenu({
   anchor,
   preview,
-  splitting,
   sessionId,
   onClose,
   onCloseTab,
@@ -1136,7 +1752,6 @@ function TabContextMenu({
 }: {
   anchor: ContextMenuAnchor
   preview: boolean
-  splitting: boolean
   /** Set when this tab is a SESSION view — file tabs have no row to reveal. */
   sessionId?: SessionId
   onClose: () => void
@@ -1234,7 +1849,7 @@ function TabContextMenu({
       >
         Keep Open
       </button>
-      {splitting && onSplit && (
+      {onSplit && (
         <>
           <hr className={MENU_RULE} />
           <button

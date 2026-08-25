@@ -61,6 +61,7 @@ import type { PodiumClientApi } from '../api'
 import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts'
 import type { OnlineEvents, OutboxEntry } from '../outbox'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
+import { hasDomWindow } from '../platform-globals'
 import type { ClientPrincipal } from '../principal'
 import { createReadPositionClient, type ReadPositionPort } from '../read-position'
 import type { Replica } from '../replica/replica'
@@ -116,7 +117,6 @@ import {
   type StoreServerConfig,
   type UserFocus,
 } from './types'
-import { hasDomWindow } from '../platform-globals'
 import { domVisibility, type VisibilitySource } from './visibility'
 import {
   type CreateEngineOutbox,
@@ -907,23 +907,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // State→URL mirror — the single URL writer.
     if (any('selectedWorktree', 'paneA'))
       this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
-    // View-state report to the server. `workspaces`/`splitEnabled` are triggers
-    // in their own right: a third pane's active tab, or the flag hiding a pane,
-    // changes what is on screen without moving `paneA`/`paneB`.
-    if (
-      any(
-        'paneA',
-        'paneB',
-        'split',
-        'focusedPane',
-        'workspaces',
-        'splitEnabled',
-        'dockVisibleSession',
-      )
-    )
+    // View-state report to the server. `workspaces` is a trigger in its own
+    // right: a third pane's active tab changes what is on screen without moving
+    // `paneA`/`paneB`.
+    if (any('paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'dockVisibleSession'))
       this.reactions.reportViewState()
     // Mark-the-viewed-session-read reaction.
-    if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'splitEnabled'))
+    if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces'))
       this.reactions.updateMarkReadTimer()
     // …and the same for the issue the operator has in the foreground (POD-272).
     if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
@@ -1185,9 +1175,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const snapshot = this.draftLedger.snapshot()
     const entries = Object.entries(snapshot)
     if (entries.length > DRAFT_KEEP_LIMIT) {
-      const doomed = entries
-        .sort((a, b) => b[1].editedAt - a[1].editedAt)
-        .slice(DRAFT_KEEP_LIMIT)
+      const doomed = entries.sort((a, b) => b[1].editedAt - a[1].editedAt).slice(DRAFT_KEEP_LIMIT)
       for (const [sessionId] of doomed) {
         this.draftLedger.remove(sessionId as SessionId)
         delete snapshot[sessionId]

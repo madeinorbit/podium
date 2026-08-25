@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
+import '@/test-support/model-catalog-mock'
 import { IssuePage } from './IssuePage'
 
 const update = vi.fn(async (_input: unknown) => ({}))
@@ -41,6 +42,7 @@ vi.mock('@/app/store', () => {
       },
       hub: { onIssues: () => () => {} },
       httpOrigin: 'http://podium.test',
+      repos: [],
       machines: [],
       issues: [],
       openFileInWorktree,

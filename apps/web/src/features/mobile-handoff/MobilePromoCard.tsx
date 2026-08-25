@@ -37,6 +37,7 @@ export function MobilePromoCard(): JSX.Element | null {
       </div>
       <button
         type="button"
+        data-pressable
         className="mobile-promo-dismiss"
         onClick={() => setDismissed(true)}
         aria-label="Dismiss"

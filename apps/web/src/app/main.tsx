@@ -2,7 +2,6 @@ import type { JSX } from 'react'
 import { lazy, StrictMode, Suspense, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
-import { SetupGate } from '@/features/setup/SetupGate'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { startWebLogging } from '@/lib/logging'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -12,6 +11,7 @@ import { BootScreen } from './BootScreen'
 import '@/index.css'
 import '@/styles.css'
 import { redirectPhoneToMobileApp } from './mobile-entry-redirect'
+import { installVitePreloadErrorRecovery } from './preload-error-recovery'
 import { ThemeProvider } from './theme'
 import { WireSkewBanner } from './WireSkewBanner'
 
@@ -85,6 +85,7 @@ function PayloadUnavailablePage({ reason }: { reason?: string }): JSX.Element {
 // FIRST, before anything can throw: the global handlers and the flight recorder
 // are what turn a crash during boot into a report on the user's own server
 // [spec: 2026-08-11-logging-strategy-design, "Crash capture (end-to-end)"].
+installVitePreloadErrorRecovery()
 startWebLogging()
 
 const root = document.getElementById('root')
@@ -126,11 +127,7 @@ if (!redirectPhoneToMobileApp()) {
                 <MotionDemo />
               </Suspense>
             ) : (
-              <LoginGate>
-                <SetupGate>
-                  <AppShell />
-                </SetupGate>
-              </LoginGate>
+              <LoginGate>{(auth) => <AppShell auth={auth} />}</LoginGate>
             )}
           </>
         )}

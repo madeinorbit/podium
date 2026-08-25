@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { GITHUB_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { MachineWire } from '@podium/model'
 import type { GitHubCliStatusWire, GitHubRepositoryWire } from '@podium/protocol'
@@ -42,7 +43,10 @@ export function GitHubProjectIntake({
   homePath: string | undefined
   onClone: (repository: string, destination: string) => Promise<void>
 }): JSX.Element {
-  const { trpc, uiState } = useStoreSelector((s) => ({ trpc: s.trpc, uiState: s.uiState }))
+  const { trpc, uiState } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, uiState: s.uiState }),
+    shallowEqual,
+  )
   const [draft, setDraftState] = useState<Draft>(() =>
     readDraft(uiState?.get(GITHUB_PROJECT_INTAKE_DRAFT_KEY) ?? null),
   )

@@ -68,6 +68,77 @@ export interface ResolveReplicaPrincipalOptions {
   readonly inspectNamespaces?: () => readonly string[]
 }
 
+/** LoginGate's auth probe handoff to the private-replica gate. */
+export type AuthBootstrap =
+  | { readonly kind: 'principal'; readonly principal: string }
+  /** The first status request failed without an authoritative auth answer. The
+   * replica gate must re-probe before it fails or retained data chooses an owner. */
+  | { readonly kind: 'provisional-failure' }
+  | {
+      readonly kind: 'failure'
+      readonly message: string
+      readonly failure: ReplicaFailure
+    }
+
+function offlineReplicaPrincipal(inspectNamespaces?: () => readonly string[]): string {
+  const inspect =
+    inspectNamespaces ??
+    (() =>
+      inspectPrincipalNamespaces({
+        storage: globalThis.localStorage,
+        enumerateKeys: () => Object.keys(globalThis.localStorage),
+        basePrefix: KERNEL_SIDE_CACHE_PREFIX,
+      }))
+  const identities = [...new Set(inspect())]
+  if (identities.length === 1 && identities[0] !== undefined) return identities[0]
+  throw identities.length === 0
+    ? new ReplicaGateError('offline replica has no authenticated principal namespace', {
+        kind: 'offline-unknown',
+      })
+    : new ReplicaGateError('offline replica principal is ambiguous on this shared device', {
+        kind: 'offline-ambiguous',
+        count: identities.length,
+      })
+}
+
+function principalFromAuthBootstrap(
+  auth: Exclude<AuthBootstrap, { readonly kind: 'provisional-failure' }>,
+): string {
+  if (auth.kind === 'principal') return auth.principal
+  throw new ReplicaGateError(auth.message, auth.failure)
+}
+
+function replicaFailureSemantics(failure: ReplicaFailure): readonly (string | number | null)[] {
+  switch (failure.kind) {
+    case 'server-starting':
+      return [
+        failure.kind,
+        failure.readiness.state,
+        failure.readiness.reason,
+        failure.readiness.dataPlane,
+      ]
+    case 'auth-refused':
+      return [failure.kind, failure.status]
+    case 'offline-ambiguous':
+      return [failure.kind, failure.count]
+    case 'signed-out':
+    case 'account-missing':
+    case 'auth-insecure':
+    case 'auth-intercepted':
+    case 'offline-unknown':
+    case 'replica-blocked':
+    case 'unknown':
+      return [failure.kind]
+  }
+}
+
+/** The primitive meaning of the LoginGate handoff, independent of object identity. */
+function authBootstrapSemantics(auth: AuthBootstrap | undefined): string {
+  if (auth === undefined || auth.kind === 'provisional-failure') return '["resolve"]'
+  if (auth.kind === 'principal') return JSON.stringify(['principal', auth.principal])
+  return JSON.stringify(['failure', auth.message, ...replicaFailureSemantics(auth.failure)])
+}
+
 /**
  * Resolve the slice owner without creating a raw "last user" key.
  *
@@ -81,29 +152,13 @@ export async function resolveReplicaPrincipal(
   options: ResolveReplicaPrincipalOptions = {},
 ): Promise<string> {
   const fetchStatus =
-    options.fetchStatus ?? (() => fetch(`${options.httpOrigin ?? ''}/auth/status`))
+    options.fetchStatus ??
+    (() => fetch(`${options.httpOrigin ?? ''}/auth/status`, { credentials: 'include' }))
   let response: Response
   try {
     response = await fetchStatus()
   } catch {
-    const inspect =
-      options.inspectNamespaces ??
-      (() =>
-        inspectPrincipalNamespaces({
-          storage: globalThis.localStorage,
-          enumerateKeys: () => Object.keys(globalThis.localStorage),
-          basePrefix: KERNEL_SIDE_CACHE_PREFIX,
-        }))
-    const identities = [...new Set(inspect())]
-    if (identities.length === 1 && identities[0] !== undefined) return identities[0]
-    throw identities.length === 0
-      ? new ReplicaGateError('offline replica has no authenticated principal namespace', {
-          kind: 'offline-unknown',
-        })
-      : new ReplicaGateError('offline replica principal is ambiguous on this shared device', {
-          kind: 'offline-ambiguous',
-          count: identities.length,
-        })
+    return offlineReplicaPrincipal(options.inspectNamespaces)
   }
 
   // A refusal is authoritative, and its SHAPE is information the operator needs:
@@ -157,6 +212,8 @@ declare global {
 
 export function useKernelReplica(args: {
   trpc: Trpc
+  /** Result of LoginGate's auth-first probe. Supplying it removes the second auth request. */
+  auth?: AuthBootstrap
   /** The server origin every gate request targets — see ResolveReplicaPrincipalOptions. */
   httpOrigin: string
   resolvePrincipal?: typeof resolveReplicaPrincipal
@@ -164,19 +221,28 @@ export function useKernelReplica(args: {
 }): KernelReplicaGate {
   const {
     trpc,
+    auth,
     httpOrigin,
     resolvePrincipal = resolveReplicaPrincipal,
     openAssembly = openKernelAssembly,
   } = args
   const [gate, setGate] = useState<KernelReplicaGate>({ status: 'resolving' })
+  const authSemantics = authBootstrapSemantics(auth)
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: authSemantics includes every auth field read below and excludes throwaway object identity.
   useEffect(() => {
     let alive = true
     let opened: KernelAssembly | undefined
     void (async () => {
       if (!alive) return
       try {
-        const principal = await resolvePrincipal({ httpOrigin })
+        // A successful LoginGate answer remains the one-request fast path. A
+        // provisional first answer gets one retry with the cookie before a
+        // network failure may authorize retained offline data.
+        const principal =
+          auth === undefined || auth.kind === 'provisional-failure'
+            ? await resolvePrincipal({ httpOrigin })
+            : principalFromAuthBootstrap(auth)
         // Captured DURING the open: the migration runs inside `openKernelAssembly`
         // and reports through `onDegraded`, which is the only channel that exists
         // before the store (and its toasts) are mounted.
@@ -230,7 +296,7 @@ export function useKernelReplica(args: {
       alive = false
       if (opened) void opened.dispose()
     }
-  }, [httpOrigin, openAssembly, resolvePrincipal, trpc])
+  }, [authSemantics, httpOrigin, openAssembly, resolvePrincipal, trpc])
 
   return gate
 }

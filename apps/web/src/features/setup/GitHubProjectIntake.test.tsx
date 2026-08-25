@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { GITHUB_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { asMachineId } from '@podium/model'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { Profiler, useRef, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GitHubProjectIntake } from './GitHubProjectIntake'
 
@@ -14,10 +15,50 @@ const uiState = {
   }),
 }
 const githubList = vi.fn()
-const store = { trpc: { repos: { githubList: { query: githubList } } }, uiState }
+let publication = 0
+const storeListeners = new Set<() => void>()
+let storeSnapshot = {
+  trpc: { repos: { githubList: { query: githubList } } },
+  uiState,
+  publication,
+}
+
+function useTestStoreSelector<T>(
+  selector: (store: typeof storeSnapshot) => T,
+  isEqual: (left: T, right: T) => boolean = Object.is,
+): T {
+  const selectorRef = useRef(selector)
+  selectorRef.current = selector
+  const equalityRef = useRef(isEqual)
+  equalityRef.current = isEqual
+  const cache = useRef<{ snapshot: typeof storeSnapshot; selected: T } | null>(null)
+
+  return useSyncExternalStore(
+    (listener) => {
+      storeListeners.add(listener)
+      return () => storeListeners.delete(listener)
+    },
+    () => {
+      if (cache.current?.snapshot === storeSnapshot) return cache.current.selected
+      const next = selectorRef.current(storeSnapshot)
+      const selected =
+        cache.current && equalityRef.current(cache.current.selected, next)
+          ? cache.current.selected
+          : next
+      cache.current = { snapshot: storeSnapshot, selected }
+      return selected
+    },
+  )
+}
+
+function publishUnchangedSelection(): void {
+  publication++
+  storeSnapshot = { ...storeSnapshot, publication }
+  for (const listener of storeListeners) listener()
+}
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (state: typeof store) => unknown) => select(store),
+  useStoreSelector: useTestStoreSelector,
 }))
 
 const machine = {
@@ -31,9 +72,37 @@ afterEach(() => {
   cleanup()
   values.clear()
   vi.clearAllMocks()
+  publication = 0
+  storeSnapshot = {
+    trpc: { repos: { githubList: { query: githubList } } },
+    uiState,
+    publication,
+  }
 })
 
 describe('GitHub project intake', () => {
+  it('does not rerender when a store publication leaves its selected fields unchanged', async () => {
+    githubList.mockResolvedValue({ status: { state: 'ready', login: 'octocat' }, repositories: [] })
+    let updates = 0
+    render(
+      <Profiler
+        id="github-project-intake"
+        onRender={(_id, phase) => {
+          if (phase === 'update') updates++
+        }}
+      >
+        <GitHubProjectIntake machine={machine} homePath="/Users/me" onClone={vi.fn()} />
+      </Profiler>,
+    )
+    expect(await screen.findByText('Signed in as octocat')).toBeTruthy()
+    const updatesBeforePublication = updates
+
+    act(() => publishUnchangedSelection())
+
+    expect(updates).toBe(updatesBeforePublication)
+    expect(githubList).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps missing-CLI controls focusable and offers install plus check-again recovery', async () => {
     const missing = {
       ...machine,

@@ -14,12 +14,32 @@ export type MemoryBreakdown = Omit<
   'type' | 'requestId'
 >
 
+type ReclaimDiskEstimateReply = Omit<
+  Extract<DaemonMessage, { type: 'reclaimDiskEstimateResult' }>,
+  'type' | 'requestId'
+>
+
+export type ReclaimDiskEstimateState =
+  | { status: 'unknown'; recoverableBytes: null; measuredAt: null; error?: string }
+  | { status: 'measuring'; recoverableBytes: null; measuredAt: null }
+  | { status: 'ready'; recoverableBytes: number; measuredAt: string }
+
+interface ReclaimDiskEstimateCacheEntry {
+  fingerprint: string
+  state: ReclaimDiskEstimateState
+  validUntilMs: number
+}
+
 const MEMORY_BREAKDOWN_TIMEOUT_MS = 10_000
 
 /** The host memory-probe request family (POD-318) — `undefined` is the timeout
  *  answer, so the result type is deliberately nullable. */
 const MEMORY_BREAKDOWN = daemonRequestKind<MemoryBreakdown | undefined>('mb')
 const MEMORY_HIBERNATE_COOLDOWN_MS = 60_000
+const RECLAIM_DISK_ESTIMATE = daemonRequestKind<ReclaimDiskEstimateReply>('rd')
+const RECLAIM_DISK_ESTIMATE_TIMEOUT_MS = 11 * 60_000
+const RECLAIM_DISK_ESTIMATE_CACHE_MS = 5 * 60_000
+const RECLAIM_DISK_ESTIMATE_ERROR_RETRY_MS = 30_000
 const OUTPUT_QUIET_MS = 60_000
 // Four immediately, then four/minute: conservative enough to avoid a kill
 // cascade, but a 49-session overage converges in about 12 minutes rather than an hour.
@@ -120,6 +140,7 @@ export class HostsService {
   private readonly lastUnobservedCountByMachine = new Map<string, number>()
   private readonly missingProofLogged = new Set<string>()
 
+  private readonly reclaimDiskEstimateByMachine = new Map<string, ReclaimDiskEstimateCacheEntry>()
   constructor(
     private readonly deps: HostsDeps,
     bus: EventBus,
@@ -691,5 +712,82 @@ export class HostsService {
   ): void {
     const { type: _type, requestId: _requestId, ...breakdown } = msg
     this.deps.daemonRequest.settle(MEMORY_BREAKDOWN, msg.requestId, machineId, breakdown)
+  }
+  /**
+   * Return the cached hardlink-aware estimate immediately and start a fresh
+   * daemon worker measurement when the exact all/free path sets have changed.
+   * A previous set's bytes are never relabelled as the current answer.
+   */
+  reclaimDiskEstimate(
+    roots: string[],
+    reclaimRoots: string[],
+    machineId?: MachineId,
+  ): ReclaimDiskEstimateState {
+    if (roots.length === 0 || reclaimRoots.length === 0) {
+      return { status: 'unknown', recoverableBytes: null, measuredAt: null }
+    }
+    const stableRoots = [...new Set(roots)].sort()
+    const stableReclaimRoots = [...new Set(reclaimRoots)].sort()
+    const fingerprint = JSON.stringify([stableRoots, stableReclaimRoots])
+    const key = machineId ?? '__default__'
+    const cached = this.reclaimDiskEstimateByMachine.get(key)
+    if (cached?.fingerprint === fingerprint && cached.validUntilMs > Date.now()) {
+      return cached.state
+    }
+
+    const measuring = {
+      status: 'measuring',
+      recoverableBytes: null,
+      measuredAt: null,
+    } as const
+    this.reclaimDiskEstimateByMachine.set(key, {
+      fingerprint,
+      state: measuring,
+      validUntilMs: Date.now() + RECLAIM_DISK_ESTIMATE_TIMEOUT_MS,
+    })
+    void this.deps.daemonRequest
+      .request({
+        kind: RECLAIM_DISK_ESTIMATE,
+        timeoutMs: RECLAIM_DISK_ESTIMATE_TIMEOUT_MS,
+        onTimeout: () => ({ error: 'disk reclaim measurement timed out' }),
+        build: (requestId) => ({
+          type: 'reclaimDiskEstimateRequest',
+          requestId,
+          roots: stableRoots,
+          reclaimRoots: stableReclaimRoots,
+        }),
+        machineId,
+      })
+      .then((result) => {
+        const current = this.reclaimDiskEstimateByMachine.get(key)
+        if (current?.fingerprint !== fingerprint) return
+        current.state =
+          result.recoverableBytes === undefined || result.measuredAt === undefined
+            ? {
+                status: 'unknown',
+                recoverableBytes: null,
+                measuredAt: null,
+                ...(result.error ? { error: result.error } : {}),
+              }
+            : {
+                status: 'ready',
+                recoverableBytes: result.recoverableBytes,
+                measuredAt: result.measuredAt,
+              }
+        current.validUntilMs =
+          Date.now() +
+          (current.state.status === 'ready'
+            ? RECLAIM_DISK_ESTIMATE_CACHE_MS
+            : RECLAIM_DISK_ESTIMATE_ERROR_RETRY_MS)
+      })
+    return measuring
+  }
+
+  onReclaimDiskEstimateResult(
+    machineId: MachineId,
+    msg: Extract<DaemonMessage, { type: 'reclaimDiskEstimateResult' }>,
+  ): void {
+    const { type: _type, requestId: _requestId, ...result } = msg
+    this.deps.daemonRequest.settle(RECLAIM_DISK_ESTIMATE, msg.requestId, machineId, result)
   }
 }

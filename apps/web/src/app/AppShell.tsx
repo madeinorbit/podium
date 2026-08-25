@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { selectedMissionRoot } from '@podium/client-core/viewmodels'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
@@ -15,6 +15,7 @@ import {
   shouldStartRemoteClientAtHandoff,
 } from '@/features/setup/activation-route'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
+import { SetupGate } from '@/features/setup/SetupGate'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
 import { checkServedAssets, recoverFromWireSkew } from '@/features/setup/version-guard'
@@ -24,7 +25,18 @@ import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
-import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
+import {
+  COLLAPSE_EASE,
+  COLLAPSE_MS,
+  ResizableAside,
+  ResizableColumn,
+  SIDEBAR_RAIL_WIDTH,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_KEY,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+} from '@/features/worklist/sidebar-common'
+import { useColumnFold } from '@/features/worklist/use-column-fold'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
@@ -34,8 +46,9 @@ import { onReconnect } from '@/lib/on-reconnect'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
-import { useKernelReplica } from '@/lib/use-kernel-replica'
+import { type AuthBootstrap, useKernelReplica } from '@/lib/use-kernel-replica'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { AppErrorPage } from './AppErrorPage'
 import { AppSheet } from './AppSheet'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
@@ -229,13 +242,17 @@ function KernelHubAttach({
   return null
 }
 
-export function AppShell(): JSX.Element {
+export function AppShell({ auth }: { auth: AuthBootstrap }): JSX.Element {
   const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
   // One tRPC client for the gate, memoized on the origin so the gate's effect
   // does not re-run (and re-open IndexedDB) on every render.
   const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
-  const kernel = useKernelReplica({ trpc: gateTrpc, httpOrigin: config.httpOrigin })
+  const kernel = useKernelReplica({
+    trpc: gateTrpc,
+    auth,
+    httpOrigin: config.httpOrigin,
+  })
 
   // Queued offline writes the boot migration could not simply carry across
   // (POD-1232). Shown once, as a toast rather than a console line, because the
@@ -248,19 +265,18 @@ export function AppShell(): JSX.Element {
 
   // The store must not mount until its private replica is open. The engine reads
   // rows synchronously at construction, so there is no usable fallback assembly.
+  let shell: JSX.Element
   if (kernel.status === 'resolving') {
-    return (
+    shell = (
       <TooltipProvider>
         <LoadingScreen />
       </TooltipProvider>
     )
-  }
-
-  // Not one screen: the gate's failure is a category, and a browser with no
-  // session gets the sign-in screen rather than an error about a replica it was
-  // never going to be allowed to open (POD-1304).
-  if (kernel.status === 'failed') {
-    return (
+  } else if (kernel.status === 'failed') {
+    // Not one screen: the gate's failure is a category, and a browser with no
+    // session gets the sign-in screen rather than an error about a replica it was
+    // never going to be allowed to open (POD-1304).
+    shell = (
       <TooltipProvider>
         <ReplicaFailureScreen
           cause={kernel.cause}
@@ -269,68 +285,74 @@ export function AppShell(): JSX.Element {
         />
       </TooltipProvider>
     )
-  }
-
-  return (
-    <TooltipProvider>
-      {/* The update surface wraps the whole shell (POD-2102): its panel renders
+  } else {
+    shell = (
+      <TooltipProvider>
+        {/* The update surface wraps the whole shell (POD-2102): its panel renders
           here in the corner, and its indicator renders far below in the status
           strip. One provider so the two are the same state, never two pictures
           of one update. */}
-      <UpdatesProvider httpOrigin={config.httpOrigin}>
-        {appError ? (
-          <AppErrorPage
-            title={'Podium lost its\nline to the server.'}
-            eyebrow="Connection / dropped"
-            message="Your board is open on the host and your agents are still running there; this window just cannot reach it. The exact fault is below."
-            detail={appError}
-            trace={{ from: 'this browser', to: 'server' }}
-            fields={[{ label: 'Server', value: config.httpOrigin }]}
-            retryLabel="Reconnect"
-            onRetry={() => setAppError(null)}
-          />
-        ) : (
-          <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
-            <StoreProvider
-              // The principal the boot gate resolved from the authenticated
-              // transport — the runtime, its socket, its replica and its outbox
-              // are all bound to it, and a change to it rebuilds all three
-              // (POD-404). Never read from the URL or a raw storage key.
-              principal={kernel.principal}
-              config={config}
-              onFatalError={setAppError}
-              createReplicaFn={kernel.assembly.createReplicaFn}
-              feed={kernel.assembly.feed}
-              createOutboxFn={kernel.assembly.createOutboxFn}
-            >
-              <KernelHubAttach assembly={kernel.assembly} httpOrigin={config.httpOrigin} />
-              <RoutedDensityProvider>
-                <ThemeUiStateMirror />
-                <BrowserOpenOverlay />
-                <ConfirmProvider>
-                  {/* Above both TopBar and the view outlet: the command bar's centre
+        <UpdatesProvider httpOrigin={config.httpOrigin}>
+          {appError ? (
+            <AppErrorPage
+              title={'Podium lost its\nline to the server.'}
+              eyebrow="Connection / dropped"
+              message="Your board is open on the host and your agents are still running there; this window just cannot reach it. The exact fault is below."
+              detail={appError}
+              trace={{ from: 'this browser', to: 'server' }}
+              fields={[{ label: 'Server', value: config.httpOrigin }]}
+              retryLabel="Reconnect"
+              onRetry={() => setAppError(null)}
+            />
+          ) : (
+            <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
+              <StoreProvider
+                // The principal the boot gate resolved from the authenticated
+                // transport — the runtime, its socket, its replica and its outbox
+                // are all bound to it, and a change to it rebuilds all three
+                // (POD-404). Never read from the URL or a raw storage key.
+                principal={kernel.principal}
+                config={config}
+                onFatalError={setAppError}
+                createReplicaFn={kernel.assembly.createReplicaFn}
+                feed={kernel.assembly.feed}
+                createOutboxFn={kernel.assembly.createOutboxFn}
+              >
+                <KernelHubAttach assembly={kernel.assembly} httpOrigin={config.httpOrigin} />
+                <RoutedDensityProvider>
+                  <ThemeUiStateMirror />
+                  <BrowserOpenOverlay />
+                  <ConfirmProvider>
+                    {/* Above both TopBar and the view outlet: the command bar's centre
                     is a portal target the active mode fills (POD-365). */}
-                  <ToolbarSlotProvider>
-                    <AppBody syncProgress={kernel.assembly.progress} />
-                  </ToolbarSlotProvider>
-                </ConfirmProvider>
-              </RoutedDensityProvider>
-            </StoreProvider>
-          </ErrorBoundary>
-        )}
-      </UpdatesProvider>
-      {/* Clear of the command bar, not through it: 24px put a two-line toast
+                    <ToolbarSlotProvider>
+                      <AppBody syncProgress={kernel.assembly.progress} />
+                    </ToolbarSlotProvider>
+                  </ConfirmProvider>
+                </RoutedDensityProvider>
+              </StoreProvider>
+            </ErrorBoundary>
+          )}
+        </UpdatesProvider>
+        {/* Clear of the command bar, not through it: 24px put a two-line toast
           straight across the bar's controls, which is where the operator is
           working. --topbar-h plus the bar's own 10px rhythm gap (POD-1159).
           The safe-area term stays — it is what makes the toast tappable in
           standalone PWA mode on a notched phone. */}
-      <Toaster
-        position="top-center"
-        offset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 10px)' }}
-        mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 8px)' }}
-      />
-    </TooltipProvider>
-  )
+        <Toaster
+          position="top-center"
+          offset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 10px)' }}
+          mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 8px)' }}
+        />
+      </TooltipProvider>
+    )
+  }
+
+  // Setup/version and the private replica both depend on auth, but not on each
+  // other. Mount the setup gate beside the replica effect and keep the shell
+  // itself behind the setup decision. An unreachable auth bootstrap is also
+  // recovered inside the replica effect, so that check stays parallel too.
+  return <SetupGate>{shell}</SetupGate>
 }
 
 function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {
@@ -388,6 +410,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   const closeOverlay = (): void => setView(baseView)
   const workspaceActive = baseView === 'workspace'
   const sessions = useStoreSelector((s) => s.sessions)
+  const flightDeckMissionId = selectedMissionRoot(issues, sessions, selectedIssueId)?.id ?? 'empty'
   const trpc = useStoreSelector((s) => s.trpc)
   const {
     state: activationState,
@@ -560,8 +583,8 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     }
     flightDeckAnimation.current?.cancel()
     const animation = shell.animate([{ width: `${from}px` }, { width: `${to}px` }], {
-      duration: 280,
-      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+      duration: COLLAPSE_MS,
+      easing: COLLAPSE_EASE,
       fill: 'both',
     })
     flightDeckAnimation.current = animation
@@ -608,6 +631,27 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     })
     animateFlightDeckWidth(44, target, () => setFlightDeckWidth(null))
   }
+
+  // THE LEFT FOLD (POD-1584). The work list and the identity rail are separate
+  // subtrees, so flipping `sidebarCollapsed` swapped one for the other in a
+  // single frame and ~250px of window arrived or vanished with no gesture
+  // attached to it. Every other column in this shell folds; the left one — the
+  // one an operator opens and shuts most — read as a glitch.
+  //
+  // The mechanics are the flight deck's above, lifted into a hook so the
+  // gesture has somewhere to be tested and the harness can drive the shipping
+  // code rather than a copy of it. See `use-column-fold.ts`.
+  const persistedSidebarWidth = (): number => {
+    const stored = Number(uiState.get(SIDEBAR_WIDTH_KEY))
+    return Number.isFinite(stored) && stored >= SIDEBAR_WIDTH_MIN && stored <= SIDEBAR_WIDTH_MAX
+      ? stored
+      : SIDEBAR_WIDTH_DEFAULT
+  }
+  const sidebarFold = useColumnFold({
+    foldedWidth: SIDEBAR_RAIL_WIDTH,
+    openWidth: persistedSidebarWidth,
+    onFold: setSidebarCollapsed,
+  })
   const setRightPanel = (panel: RightPanelTab | null): void => {
     if (!panelAllowed(panel)) return
     setRightPanelStored(panel)
@@ -615,7 +659,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   }
   const lastRightPanel = useRef<RightPanelTab>('issue')
   if (visibleRightPanel) lastRightPanel.current = visibleRightPanel
-  const toggleLeftSidebar = (): void => setSidebarCollapsed(!sidebarCollapsed)
+  const toggleLeftSidebar = (): void => sidebarFold.fold(!sidebarCollapsed)
   const toggleFlightDeck = (): void => {
     if (flightDeckCollapsed) expandFlightDeck()
     else collapseFlightDeck()
@@ -819,40 +863,56 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
               so switching modes swaps the CONTENT REGION rather than the window
               (POD-365). The engraved column, dock and rail are workspace
               instruments and stay with the workspace. */}
-            {sidebarCollapsed ? (
-              <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
-                <button
-                  data-pressable
-                  type="button"
-                  className="collapsed-sidebar-expand"
-                  aria-label="Expand sidebar"
-                  title="Expand sidebar"
-                  onClick={() => setSidebarCollapsed(false)}
-                >
-                  {/* 15px, not 13: the control is the column's whole header
-                      band now (POD-1178), and a 13px glyph read as a speck
-                      parked in the middle of it. */}
-                  <ChevronRight size={15} aria-hidden="true" />
-                </button>
-                <SidebarRail />
-              </aside>
-            ) : (
-              <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
-                <ResizableAside>
-                  <SidebarUnified />
-                </ResizableAside>
-                <button
-                  data-pressable
-                  type="button"
-                  className="sidebar-collapse-control"
-                  aria-label="Collapse sidebar"
-                  title="Collapse sidebar"
-                  onClick={() => setSidebarCollapsed(true)}
-                >
-                  <ChevronLeft size={12} aria-hidden="true" />
-                </button>
-              </div>
-            )}
+            {/* THE OPEN COLUMN STAYS MOUNTED FOR THE WHOLE FOLD, both ways
+                (POD-1584). Swapping the rail in on the press instead would
+                leave a 58px rail sitting in a wrapper still 300px wide, with a
+                quarter of the window's worth of empty ground closing beside it
+                — the fold has to CLIP a column, not slide a gap shut. Clipping
+                this one ends the collapse on its leftmost 58px, which is the
+                identity-tile gutter the rail already is, so the cut at the end
+                lands on matching pixels. */}
+            <div
+              ref={sidebarFold.ref}
+              className="sidebar-shell"
+              data-sidebar-shell={sidebarCollapsed ? 'folded' : 'open'}
+              data-sidebar-folding={sidebarFold.folding ? 'true' : undefined}
+              style={{ width: sidebarFold.width ?? undefined }}
+            >
+              {sidebarCollapsed && !sidebarFold.folding ? (
+                <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
+                  <button
+                    data-pressable
+                    type="button"
+                    className="collapsed-sidebar-expand"
+                    aria-label="Expand sidebar"
+                    title="Expand sidebar"
+                    onClick={() => sidebarFold.fold(false)}
+                  >
+                    {/* 15px, not 13: the control is the column's whole header
+                        band now (POD-1178), and a 13px glyph read as a speck
+                        parked in the middle of it. */}
+                    <ChevronRight size={15} aria-hidden="true" />
+                  </button>
+                  <SidebarRail />
+                </aside>
+              ) : (
+                <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
+                  <ResizableAside>
+                    <SidebarUnified />
+                  </ResizableAside>
+                  <button
+                    data-pressable
+                    type="button"
+                    className="sidebar-collapse-control"
+                    aria-label="Collapse sidebar"
+                    title="Collapse sidebar"
+                    onClick={() => sidebarFold.fold(true)}
+                  >
+                    <ChevronLeft size={12} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+            </div>
             {workspaceActive && (
               <div
                 ref={flightDeckShellRef}
@@ -872,7 +932,10 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
                     className="max-w-[45vw]"
                   >
                     <Suspense fallback={<RouteFallback />}>
-                      <FlightDeck onCollapse={collapseFlightDeck} />
+                      {/* The arrival latch and the scrolling node both belong
+                          to one mission; carrying either into the next one
+                          turns its existing sessions into late arrivals. */}
+                      <FlightDeck key={flightDeckMissionId} onCollapse={collapseFlightDeck} />
                     </Suspense>
                   </ResizableColumn>
                 )}

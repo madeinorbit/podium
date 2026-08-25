@@ -65,8 +65,10 @@ describe('issueMenuEligibility', () => {
     expect(Object.values(e).every((v) => v === false)).toBe(true)
   })
 
+  // The PALETTE's set, because it is the only surface that is not a list and so
+  // the only one that still carries priority and labels (POD-1470).
   it('enables the full single-issue set for one open issue', () => {
-    const e = issueMenuEligibility([makeIssue()])
+    const e = issueMenuEligibility([makeIssue()], 'palette')
     expect(e).toEqual({
       canOpen: true,
       canRename: true,
@@ -197,6 +199,36 @@ describe('issueMenuEligibility', () => {
     expect({ ...dock, canOpen: true }).toEqual(sidebar)
   })
 
+  // POD-1470: a row in a LIST shows neither value back, so a menu offering to
+  // change them was writing into the dark. They are set where the field is — the
+  // task page, and on the board the `p` / `l` property menus and the bulk bar.
+  it('drops priority, labels and the agent entry from every list', () => {
+    for (const surface of ['sidebar', 'dock', 'board', 'deck'] as const) {
+      const e = issueMenuEligibility([makeIssue()], surface)
+      expect(e.canSetPriority).toBe(false)
+      expect(e.canSetLabels).toBe(false)
+      expect(e.canAssignAgent).toBe(false)
+    }
+    const palette = issueMenuEligibility([makeIssue()], 'palette')
+    expect(palette.canSetPriority).toBe(true)
+    expect(palette.canSetLabels).toBe(true)
+    expect(palette.canAssignAgent).toBe(true)
+  })
+
+  // The palette borrowed `board` until POD-1470 and must keep everything that
+  // came with it — "Duplicate of…" is the one board-only entry.
+  it('leaves the palette everything the board offered it', () => {
+    const board = issueMenuEligibility([makeIssue()], 'board')
+    const palette = issueMenuEligibility([makeIssue()], 'palette')
+    expect(palette.canDuplicate).toBe(true)
+    expect({
+      ...palette,
+      canSetPriority: false,
+      canSetLabels: false,
+      canAssignAgent: false,
+    }).toEqual(board)
+  })
+
   it('offers only open and restore for deleted issues', () => {
     const e = issueMenuEligibility([makeIssue({ deletedAt: '2026-07-13T10:00:00.000Z' })])
     expect(e.canOpen).toBe(true)
@@ -222,9 +254,11 @@ describe('issueMenuEligibility', () => {
       makeIssue({ id: asIssueId('b') }),
     ])
     expect(e.canSetStage).toBe(true)
-    expect(e.canSetPriority).toBe(true)
-    expect(e.canSetLabels).toBe(true)
     expect(e.canDelete).toBe(true)
+    // Priority and labels are bulk-capable and STILL off a list (POD-1470) —
+    // the board bulk-edits them from its own bar, not from this menu.
+    expect(e.canSetPriority).toBe(false)
+    expect(e.canSetLabels).toBe(false)
     expect(e.canOpen).toBe(false)
     // Rename is single-target (#170).
     expect(e.canRename).toBe(false)

@@ -1536,7 +1536,7 @@ html[data-density="balanced"] .header-quota-pools {
 .mobile-handoff-sheet-title {
   flex: 1;
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -2275,6 +2275,37 @@ html[data-density="balanced"] .header-quota-pools {
   flex: none;
 }
 
+/* THE LEFT COLUMN'S FOLD (POD-1584). The wrapper is the only part of this
+   column that survives the swap between the work list and the identity rail,
+   so it is what carries the width — AppShell drives it with WAAPI, exactly as
+   it drives the flight deck's.
+   At rest it is transparent to layout: `0 1 auto` + `min-width: 0` is what the
+   open column itself used to declare here, so a narrow window still squeezes
+   the sidebar the way it always did. */
+.sidebar-shell {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 0 1 auto;
+}
+/* Folded, the rail is rigid — it was a `0 0 58px` child of the row before this
+   wrapper existed, and a rail that can be squeezed to 40px is not a rail. */
+.sidebar-shell[data-sidebar-shell="folded"] {
+  flex: none;
+}
+/* CLIP, DON'T SQUEEZE. While the width is being driven, the column inside must
+   hold the width it has and let the wrapper's edge sweep across it. Left to
+   flex, a 300px sidebar would REFLOW through every width down to 58 — thirty
+   rows re-truncating their titles for 280ms, which reads as a resize, not a
+   fold. `styles.css` is unlayered, so this beats the `flex-[0_1_auto]` utility
+   on the column (same mechanism as `.shell-spawn-chip:hover` above). */
+.sidebar-shell[data-sidebar-folding="true"] {
+  overflow: hidden;
+  flex: none;
+}
+.sidebar-shell[data-sidebar-folding="true"] > * {
+  flex: none;
+}
 .sidebar-collapse-control {
   position: absolute;
   z-index: 20;
@@ -2290,6 +2321,13 @@ html[data-density="balanced"] .header-quota-pools {
   border-radius: 6px;
   background: var(--card);
   color: var(--text-dim);
+  /* It straddles the column's edge by half its width, so the clip above would
+     otherwise saw it in half for the length of the fold and pop the missing
+     half back at the end. It leaves with the column and returns with it. */
+  transition: opacity 120ms ease;
+}
+.sidebar-shell[data-sidebar-folding="true"] .sidebar-collapse-control {
+  opacity: 0;
 }
 .sidebar-collapse-control:hover,
 .collapsed-sidebar-expand:hover,
@@ -2379,6 +2417,12 @@ html[data-density="balanced"] .header-quota-pools {
   box-shadow:
     inset 0 3px 0 var(--issue),
     0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
+}
+/* The mission chrome remains visually fixed while the column itself owns the
+   scrollport. Inheriting the column's issue wash keeps rows moving beneath an
+   opaque continuation of the same surface rather than behind clear glass. */
+.deck-chrome {
+  background: inherit;
 }
 /* The no-colour flow runs the same mechanics quieter (handoff 1b). */
 [data-issue-colored="false"] .engraved-column {
@@ -3069,7 +3113,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   gap: 8px;
   margin-top: 20px;
   font-family: var(--font-mono, ui-monospace, Menlo, monospace);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   line-height: 1.5;
   letter-spacing: 0.04em;
   color: var(--muted-foreground);
@@ -6186,6 +6230,19 @@ html[data-density="compact"] .brief-shelf {
      holds, so the right value is 12px smaller than the 40px it replaces. */
   padding: 2px 28px 15px 31px;
 }
+/* A URL an agent wrote into the offer body. Same info tint and underline as a
+   transcript link (`.chat-md a`) so the two read as one kind of thing; the
+   anchor itself is what routes the click to the OS browser in the desktop
+   shell (apps/desktop/src-tauri/src/bootstrap.rs, opener_shim_script). */
+.offer-fold-link {
+  color: var(--info);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  /* The fold's detail sits in a compact bar; a long URL has to be allowed to
+     break rather than push the body into a horizontal scroll. */
+  overflow-wrap: anywhere;
+}
+
 .offer-fold-undo {
   min-height: 42px;
   display: flex;
@@ -8985,6 +9042,92 @@ a.ref-link--session::before {
    own paper in both themes. */
 .deck-lead-fill {
   background: color-mix(in oklab, var(--issue) 8%, var(--bar));
+}
+
+/* ── WHERE YOU ARE vs WHERE YOU ARE POINTING (POD-1480) ─────────────────────
+   A tab and a deck row are the same session drawn twice, and the column now
+   answers two questions at once: which row is the tab you are IN, and which
+   row is the tab you are POINTING at. One device — the gutter tick — carries
+   both, and HUE is what separates them.
+
+   The split was previously one hue at two strengths (100% / 45%), which failed
+   twice over: 45% of a 3px tick is not a difference you catch peripherally,
+   and only the POINTED row took a ground, so the state that vanishes when the
+   mouse moves was the loudest mark in the column.
+
+   Active takes `--issue` — the identity channel, which is what "this is the
+   one you are working in" deserves. Pointed takes `--flow`, the no-colour
+   neutral, which is what that token already means everywhere else in the
+   shell: traceable, transient, not a selection.
+
+   THE UNCOLOURED CASE IS NOT AN EDGE CASE. `--issue` is scoped once on the
+   shell root from the SELECTED issue (AppShell) and falls back to `--flow`
+   whenever nothing coloured is selected — so on the default the two ticks
+   would be the identical grey. The active mark therefore falls back to the ink
+   the sidebar already uses for its selected-row spine, which keeps the two
+   marks a full ramp apart in both appearances. */
+.deck-mark-active {
+  background: var(--issue);
+}
+[data-issue-colored='false'] .deck-mark-active {
+  background: var(--text-strong);
+}
+.deck-mark-pointed {
+  background: var(--flow);
+}
+
+/* THE ACTIVE ROW GETS A GROUND. Not decoration — it is what stops a hover from
+   outranking the session you are actually in.
+
+   THE FILL NOW HAS TWO TIERS, which is a change to the rule above: the lead
+   fill is no longer the only ground an agent row can take. 8% is the mission's
+   lead, 14% is the session you are in, and the two have to be far enough apart
+   to read as two statements rather than one. Measured over `--bar` in the deck
+   harness, as OKLab L:
+
+                   --bar   --muted   lead 8%    14%      18%
+       paper       0.976    0.951     0.946    0.924    0.909
+       dark        0.230    0.243     0.260    0.283    0.298
+
+   14, not the sidebar's resting 7 or its hover 11. Two constraints set it. It
+   has to out-weigh `--muted`, the wash every other row takes under the pointer
+   — at 7 the active row lands on the WRONG side of that line (paper L 0.950 vs
+   the wash's 0.951) and the pointer keeps winning, which is the whole defect.
+   And it has to separate from the lead fill: 11 clears it by ΔL 0.011, half a
+   hover step and not a difference anyone reads, while 14 clears it by 0.022 —
+   the size of the bar→muted step this column already uses to mean "state
+   changed". Note the tint moves the same way the hover wash does in each
+   appearance (down on paper, up on dark), so one dose ordering holds for both.
+
+   RESOLVED BY SPECIFICITY, NOT ORDER. `.deck-agent-row.deck-agent-active` is
+   0-2-0 against `.deck-lead-fill`'s 0-1-0, so an active coordinator takes the
+   active ground wherever these rules sit in the file. Worth knowing before
+   qualifying `.deck-lead-fill` to match its neighbour's shape: at 0-2-0 it
+   would win on order instead, and the ground this whole rule exists to add
+   would vanish on exactly the rows that already had one. */
+.deck-agent-row.deck-agent-active {
+  background: color-mix(
+    in oklab,
+    var(--issue) calc(14 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))),
+    var(--bar)
+  );
+}
+
+/* THE ACTIVE ROW ANSWERS THE POINTER IN ITS OWN CHANNEL. It may not take the
+   neutral `--muted` wash the other rows take: that wash is LESS extreme than
+   the active ground in both appearances, so borrowing it would make the row
+   step back under the pointer while every other row steps forward — the
+   defect this rule exists to fix, moved to the self-hover case. The next tint
+   step up (18) moves it the same way, by about one hover step. Both the real
+   pointer and the tab strip's `data-pointed` land here, so the row cannot tell
+   which one reached it — and should not. */
+.deck-agent-row.deck-agent-active:hover,
+.deck-agent-row.deck-agent-active[data-pointed='true'] {
+  background: color-mix(
+    in oklab,
+    var(--issue) calc(18 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))),
+    var(--bar)
+  );
 }
 
 /* ── THE DROP ORDER — how a strip gives way (POD-758) ────────────────────────

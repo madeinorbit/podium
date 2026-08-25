@@ -51,8 +51,8 @@
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import type { MachinePrincipal } from '@podium/protocol'
-import type { DaemonMessage } from '@podium/protocol/daemon'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import {
   type DaemonPortId,
   daemonPlaneClassFor,
@@ -150,6 +150,8 @@ const DISPATCH: Dispatcher = {
   },
   memoryBreakdownResult: (ports, principal, msg) =>
     ports.hosts.onMemoryBreakdownResult(principal.machine, msg),
+  reclaimDiskEstimateResult: (ports, principal, msg) =>
+    ports.hosts.onReclaimDiskEstimateResult(principal.machine, msg),
 
   // ---- conversations: discovery is per-machine ----
   conversationsChanged: (ports, principal, msg) =>

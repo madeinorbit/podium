@@ -10,17 +10,18 @@ import {
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, type IssueId, isIssueDeferred } from '@podium/model/browser'
-import { LayoutGroup, MotionConfig, motion, useReducedMotion } from 'motion/react'
+import * as m from 'motion/react-m'
 import type {
   CSSProperties,
   JSX,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { type SidebarDerivation, useSidebarDerivation } from './derivation'
@@ -34,7 +35,8 @@ import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import { useUnifiedWork } from './use-unified-work'
 import { useRowDrag } from './useRowDrag'
 import { WorkListEmpty } from './WorkListEmpty'
-import { matchesWorkQuery, normalizeWorkQuery } from './work-filter'
+import { WorklistMotion } from './worklist-motion'
+import { indexWorkRows, matchesIndexedWorkQuery, normalizeWorkQuery } from './work-filter'
 import {
   ClosedIssueFold,
   FoldedWorkRow,
@@ -99,7 +101,7 @@ export function SidebarUnified(): JSX.Element {
         data-testid="work-scroll"
         className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5"
       >
-        <WorkSections derivation={derivation} query={filter.query} />
+        <ResponsiveWorkSections derivation={derivation} query={filter.deferredQuery} />
       </div>
       {/* The phone pitch stands on the column's FLOOR, outside the scroller and
           directly over the tools row — the last thing you pass on the way out,
@@ -517,7 +519,8 @@ export function WorkSections({
   // exiting machinery — thirty rows flying out on `w`, back in on backspace.
   // Read HERE, above the row renderer, because the grip consults it too — see
   // `draggable`.
-  const filtering = normalizeWorkQuery(query).length > 0
+  const normalizedQuery = useMemo(() => normalizeWorkQuery(query), [query])
+  const filtering = normalizedQuery.length > 0
 
   const renderWorkRow = (item: TransitionWorkRow, animate = true) => {
     const { row, lane } = item.value
@@ -603,7 +606,7 @@ export function WorkSections({
         />
       )
     return (
-      <motion.div
+      <m.div
         key={`${item.key}:${item.placement}`}
         layout="position"
         layoutDependency={layoutRevision}
@@ -634,7 +637,7 @@ export function WorkSections({
         }
         data-transition-phase={item.phase}
       >
-        <motion.div
+        <m.div
           initial={arriving && !shouldReduceMotion ? { opacity: 0, y: -8 } : false}
           animate={exiting ? { opacity: 0, y: -6 } : { opacity: 1, y: 0 }}
           // ARMED ONLY WHILE THE ROW IS ACTUALLY EXITING. `quickArchiveExit`
@@ -674,48 +677,72 @@ export function WorkSections({
           }
         >
           {inner}
-        </motion.div>
-      </motion.div>
+        </m.div>
+      </m.div>
     )
   }
 
-  const survives = (item: TransitionWorkRow): boolean =>
-    !filtering || matchesWorkQuery(item.value.row, query, now)
-  // The haystack the footnote names: the same live pool the field counts over.
-  const filterTotal = transitionRows.filter(
-    (item) => item.value.lane === 'pinned' || item.value.lane === 'open',
-  ).length
-  const renderedPinned = transitionRows.filter((item) => item.value.lane === 'pinned')
-  const renderedGroupKeys = targetGroups.map((group) => group.key)
-  for (const item of transitionRows) {
-    if (item.value.lane !== 'pinned' && !renderedGroupKeys.includes(item.value.groupKey))
-      renderedGroupKeys.push(item.value.groupKey)
-  }
-  const renderedGroups = renderedGroupKeys
-    .map((groupKey) => {
-      const target = targetGroups.find((group) => group.key === groupKey)
-      const fallback = transitionRows.find((item) => item.value.groupKey === groupKey)
-      const inGroup = (lane: WorkPlacement['lane']) =>
-        transitionRows.filter(
-          (item) => item.value.groupKey === groupKey && item.value.lane === lane,
-        )
-      return {
-        key: groupKey,
-        label: target?.label ?? fallback?.value.groupLabel ?? groupKey,
-        rows: inGroup('open').filter(survives),
-        // THE TAIL FOLDS CLOSE FOR THE DURATION OF A QUERY. They are archives
-        // with their own counts, shut by default, and a `12 closed` line under
-        // two matching rows says nothing about the query — the count is of the
-        // fold, not of the hits, and opening it would answer a question the
-        // filter was not asked. The band's count stays the hit count.
-        snoozedRows: filtering ? [] : inGroup('snoozed'),
-        closedRows: filtering ? [] : inGroup('closed'),
+  const searchIndex = useMemo(
+    () =>
+      indexWorkRows(
+        transitionRows.map((item) => item.value.row),
+        now,
+      ),
+    [transitionRows, now],
+  )
+  const { filterTotal, filteredPinned, renderedGroups } = useMemo(() => {
+    type RenderedGroup = {
+      key: string
+      label: string
+      rows: TransitionWorkRow[]
+      snoozedRows: TransitionWorkRow[]
+      closedRows: TransitionWorkRow[]
+    }
+    const groups = new Map<string, RenderedGroup>()
+    for (const group of targetGroups) {
+      groups.set(group.key, {
+        key: group.key,
+        label: group.label,
+        rows: [],
+        snoozedRows: [],
+        closedRows: [],
+      })
+    }
+    const filteredPinned: TransitionWorkRow[] = []
+    let filterTotal = 0
+    for (const item of transitionRows) {
+      const { lane, groupKey, groupLabel, row } = item.value
+      if (lane === 'pinned' || lane === 'open') filterTotal++
+      const survives = matchesIndexedWorkQuery(searchIndex, row, normalizedQuery)
+      if (lane === 'pinned') {
+        if (survives) filteredPinned.push(item)
+        continue
       }
-    })
-    // A project with no hit leaves entirely, band and all: an empty band under a
-    // filter is a row of chrome claiming a group that has nothing to show.
-    .filter((group) => !filtering || group.rows.length > 0)
-  const filteredPinned = renderedPinned.filter(survives)
+      let group = groups.get(groupKey)
+      if (!group) {
+        group = {
+          key: groupKey,
+          label: groupLabel,
+          rows: [],
+          snoozedRows: [],
+          closedRows: [],
+        }
+        groups.set(groupKey, group)
+      }
+      if (lane === 'open' && survives) group.rows.push(item)
+      // THE TAIL FOLDS CLOSE FOR THE DURATION OF A QUERY. They are archives
+      // with their own counts, shut by default, and a `12 closed` line under
+      // two matching rows says nothing about the query.
+      if (!filtering && lane === 'snoozed') group.snoozedRows.push(item)
+      if (!filtering && lane === 'closed') group.closedRows.push(item)
+    }
+    return {
+      filterTotal,
+      filteredPinned,
+      // A project with no hit leaves entirely, band and all.
+      renderedGroups: [...groups.values()].filter((group) => !filtering || group.rows.length > 0),
+    }
+  }, [filtering, normalizedQuery, searchIndex, targetGroups, transitionRows])
   // The folded menu's subject, looked up rather than carried in the state above.
   const foldedMenuRow = foldedMenu
     ? work.find((row) => row.kind === 'issue' && row.issue.id === foldedMenu.issueId)
@@ -734,118 +761,123 @@ export function WorkSections({
   // Pinned issues MOVE above all project groups (POD-166, R3) — they leave
   // their group entirely; unpinning returns them to its banded order.
   return (
-    <MotionConfig reducedMotion="user">
-      <LayoutGroup id={layoutGroupId}>
-        {filteredPinned.length > 0 && (
-          <motion.div
+    <WorklistMotion layoutGroupId={layoutGroupId}>
+      {filteredPinned.length > 0 && (
+        <m.div
+          layout="position"
+          layoutDependency={layoutRevision}
+          transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
+          className="flex min-w-0 flex-col"
+          data-testid="pinned-section"
+          data-drag-section
+        >
+          <PinnedSectionLabel
+            count={filteredPinned.length}
+            collapsed={pinnedCollapsed}
+            onToggle={() => toggleBand(PINNED_FOLD_KEY)}
+          />
+          <FoldPanel open={!pinnedCollapsed} testId="pinned-section-rows" dragScope="pinned">
+            {filteredPinned.map((item) => renderWorkRow(item))}
+          </FoldPanel>
+        </m.div>
+      )}
+      {renderedGroups.map((group, index) => {
+        // A shut band takes the WHOLE group with it — its live rows and both
+        // of its tail folds. Half a collapsed project (a band with a Closed
+        // fold still hanging under it) would be the worst of both readings.
+        const collapsed = groupCollapsed(group.key)
+        return (
+          <m.div
             layout="position"
             layoutDependency={layoutRevision}
             transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
-            className="flex min-w-0 flex-col"
-            data-testid="pinned-section"
+            key={group.key}
+            // Every section but the FIRST one on screen takes the 14px gap:
+            // pinned opens the column when it is there, this group when it is
+            // not, and the opening band sits flush under the search field.
+            className={cn(
+              'flex min-w-0 flex-col',
+              (index > 0 || filteredPinned.length > 0) && SECTION_GAP_CLASS,
+            )}
+            data-testid="project-group"
+            data-collapsed={collapsed ? 'true' : 'false'}
             data-drag-section
           >
-            <PinnedSectionLabel
-              count={filteredPinned.length}
-              collapsed={pinnedCollapsed}
-              onToggle={() => toggleBand(PINNED_FOLD_KEY)}
+            <ProjectGroupLabel
+              label={group.label}
+              count={group.rows.length}
+              collapsed={collapsed}
+              onToggle={() => toggleBand(projectFoldKey(group.key))}
             />
-            <FoldPanel open={!pinnedCollapsed} testId="pinned-section-rows" dragScope="pinned">
-              {filteredPinned.map((item) => renderWorkRow(item))}
-            </FoldPanel>
-          </motion.div>
-        )}
-        {renderedGroups.map((group, index) => {
-          // A shut band takes the WHOLE group with it — its live rows and both
-          // of its tail folds. Half a collapsed project (a band with a Closed
-          // fold still hanging under it) would be the worst of both readings.
-          const collapsed = groupCollapsed(group.key)
-          return (
-            <motion.div
-              layout="position"
-              layoutDependency={layoutRevision}
-              transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
-              key={group.key}
-              // Every section but the FIRST one on screen takes the 14px gap:
-              // pinned opens the column when it is there, this group when it is
-              // not, and the opening band sits flush under the search field.
-              className={cn(
-                'flex min-w-0 flex-col',
-                (index > 0 || filteredPinned.length > 0) && SECTION_GAP_CLASS,
-              )}
-              data-testid="project-group"
-              data-collapsed={collapsed ? 'true' : 'false'}
-              data-drag-section
-            >
-              <ProjectGroupLabel
-                label={group.label}
-                count={group.rows.length}
-                collapsed={collapsed}
-                onToggle={() => toggleBand(projectFoldKey(group.key))}
-              />
-              {/* ONE PANEL FOR THE WHOLE GROUP (POD-1253). A shut band takes its
+            {/* ONE PANEL FOR THE WHOLE GROUP (POD-1253). A shut band takes its
                   live rows and both tail folds with it — see `collapsed` above —
                   so the three of them fold as one surface rather than as three
                   clips racing each other down the column. */}
-              <FoldPanel
-                open={!collapsed}
-                testId="project-group-rows"
-                dragScope={`group:${group.key}`}
-              >
-                {group.rows.map((item) => renderWorkRow(item))}
-                {group.snoozedRows.length > 0 && (
-                  <motion.div
-                    layout="position"
-                    layoutDependency={layoutRevision}
-                    transition={
-                      shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
-                    }
-                  >
-                    <SnoozedIssueFold
-                      groupKey={group.key}
-                      rows={group.snoozedRows}
-                      renderRow={renderWorkRow}
-                      settleTransition={settle}
-                    />
-                  </motion.div>
-                )}
-                {/* The column's one tail fold. Suspended work folds above it. */}
-                {group.closedRows.length > 0 && (
-                  <motion.div
-                    layout="position"
-                    layoutDependency={layoutRevision}
-                    transition={
-                      shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
-                    }
-                  >
-                    <ClosedIssueFold
-                      groupKey={group.key}
-                      rows={group.closedRows}
-                      renderRow={renderWorkRow}
-                      issueForRow={(item) => item.value.row as UnifiedIssueRowView}
-                      onArchive={archiveClosedIssue}
-                    />
-                  </motion.div>
-                )}
-              </FoldPanel>
-            </motion.div>
-          )
-        })}
-        {/* How big the haystack was, under the last hit — the answer to the
+            <FoldPanel
+              open={!collapsed}
+              testId="project-group-rows"
+              dragScope={`group:${group.key}`}
+            >
+              {group.rows.map((item) => renderWorkRow(item))}
+              {group.snoozedRows.length > 0 && (
+                <m.div
+                  layout="position"
+                  layoutDependency={layoutRevision}
+                  transition={
+                    shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                  }
+                >
+                  <SnoozedIssueFold
+                    groupKey={group.key}
+                    rows={group.snoozedRows}
+                    renderRow={renderWorkRow}
+                    settleTransition={settle}
+                  />
+                </m.div>
+              )}
+              {/* The column's one tail fold. Suspended work folds above it. */}
+              {group.closedRows.length > 0 && (
+                <m.div
+                  layout="position"
+                  layoutDependency={layoutRevision}
+                  transition={
+                    shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                  }
+                >
+                  <ClosedIssueFold
+                    groupKey={group.key}
+                    rows={group.closedRows}
+                    renderRow={renderWorkRow}
+                    issueForRow={(item) => item.value.row as UnifiedIssueRowView}
+                    onArchive={archiveClosedIssue}
+                  />
+                </m.div>
+              )}
+            </FoldPanel>
+          </m.div>
+        )
+      })}
+      {/* How big the haystack was, under the last hit — the answer to the
             question a suddenly-short column raises. */}
-        {filtering && <WorkFilterFootnote total={filterTotal} />}
-        {/* One menu for the whole column, portalled to the cursor — see the
+      {filtering && <WorkFilterFootnote total={filterTotal} />}
+      {/* One menu for the whole column, portalled to the cursor — see the
             `foldedMenu` state for why it is not per row. */}
-        {foldedMenu && foldedMenuRow?.kind === 'issue' && (
-          <FoldedRowMenu
-            issue={foldedMenuRow.issue}
-            canBringBack={rowCanBringBack(foldedMenuRow, now)}
-            anchor={foldedMenu.anchor}
-            onClose={closeFoldedMenu}
-            onBringBack={() => bringBack(foldedMenuRow.issue.id)}
-          />
-        )}
-      </LayoutGroup>
-    </MotionConfig>
+      {foldedMenu && foldedMenuRow?.kind === 'issue' && (
+        <FoldedRowMenu
+          issue={foldedMenuRow.issue}
+          canBringBack={rowCanBringBack(foldedMenuRow, now)}
+          anchor={foldedMenu.anchor}
+          onClose={closeFoldedMenu}
+          onBringBack={() => bringBack(foldedMenuRow.issue.id)}
+        />
+      )}
+    </WorklistMotion>
   )
 }
+
+/**
+ * The urgent field update keeps passing the previous deferred query. This memo
+ * boundary lets React commit that input without rebuilding hundreds of row
+ * elements; the list renders again only when the deferred query advances.
+ */
+const ResponsiveWorkSections = memo(WorkSections)

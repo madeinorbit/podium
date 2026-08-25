@@ -158,7 +158,9 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
     return [{ id: uuid ?? `sys-${ts ?? Math.random()}`, role: 'system', ts, text }]
   }
   if (r.type === 'attachment') {
-    const att = (r as { attachment?: { type?: string; filename?: string } }).attachment
+    const att = (r as { attachment?: Record<string, unknown> }).attachment
+    // A prompt the human sent MID-TURN is here and nowhere else (POD-1468).
+    if (att?.type === 'queued_command') return queuedCommandItems(uuid, ts, att)
     // ONLY WHAT THE HUMAN ATTACHED (POD-1171). Claude Code writes many
     // `attachment` subtypes and all of them are context bookkeeping except one:
     // 'file' is a path the operator named in the composer (@mention), so it
@@ -172,15 +174,16 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
     // makes for `promptSource: 'system'`: drop it rather than render a lie.
     // Their paths need no allow-listing either — the tool_use that touched the
     // file already contributed it (see knownPathsFor).
-    if (att?.type === 'file' && att.filename) {
+    if (att?.type === 'file' && typeof att.filename === 'string') {
+      const filename = att.filename
       return [
         {
-          id: freshId(`att-${att.filename}`),
+          id: freshId(`att-${filename}`),
           role: 'user',
           ts,
           text: '',
-          toolPaths: [att.filename],
-          tags: [{ kind: 'file', label: att.filename.split('/').pop() ?? att.filename }],
+          toolPaths: [filename],
+          tags: [{ kind: 'file', label: filename.split('/').pop() ?? filename }],
         },
       ]
     }
@@ -222,6 +225,23 @@ export function isClaudeInterruptMarker(text: string): boolean {
 // out, and the cleaned text matches the optimistic-bubble draft for reconciliation.
 function stripSystemReminders(text: string): string {
   return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+}
+
+// Pasted/uploaded images ride in as an image block plus a text marker
+// `[Image: source: /abs/path.png]` (numbered `[Image #N: …]` when several).
+// Harvest the paths into toolPaths — the web renders them as inline thumbnails
+// and the server's file-relay policy allow-lists exactly the paths a transcript
+// references — and strip the raw markers from the shown text.
+function harvestImageMarkers(raw: string): { text: string; paths: string[] } {
+  const paths: string[] = []
+  const text = stripSystemReminders(raw)
+    .replace(/\[Image(?: #\d+)?: source: ([^\]\n]+)\]/g, (_, p: string) => {
+      paths.push(p.trim())
+      return ''
+    })
+    .replace(/[ \t]+\n/g, '\n')
+    .trim()
+  return { text, paths }
 }
 
 function userItems(
@@ -280,22 +300,9 @@ function userItems(
       })
     }
   }
-  let text = stripSystemReminders(textParts.join('\n'))
-  // Pasted/uploaded images ride in as an image block plus a text marker
-  // `[Image: source: /abs/path.png]` (numbered `[Image #N: …]` when several).
-  // Harvest the paths into toolPaths — the web renders them as inline
-  // thumbnails and the server's file-relay policy allow-lists exactly the
-  // paths a transcript references — and strip the raw markers from the shown
-  // text. Paths label the image tags in order (uploads and markers are
-  // emitted pairwise).
-  const imagePaths: string[] = []
-  text = text
-    .replace(/\[Image(?: #\d+)?: source: ([^\]\n]+)\]/g, (_, p: string) => {
-      imagePaths.push(p.trim())
-      return ''
-    })
-    .replace(/[ \t]+\n/g, '\n')
-    .trim()
+  // Paths label the image tags in order (uploads and markers are emitted
+  // pairwise).
+  const { text, paths: imagePaths } = harvestImageMarkers(textParts.join('\n'))
   const imageTags = tags.filter((t) => t.kind === 'image')
   imagePaths.forEach((p, i) => {
     const tag = imageTags[i]
@@ -314,6 +321,65 @@ function userItems(
     })
   }
   return items
+}
+
+/**
+ * THE PROMPT SENT WHILE THE AGENT WAS BUSY (POD-1468). Claude Code takes a
+ * prompt typed mid-turn as QUEUED INPUT and folds it into the turn already in
+ * flight, so it never becomes a `type:'user'` record. It is written once, at the
+ * moment the turn swallows it, as `attachment: { type: 'queued_command' }` —
+ * and this parser dropped every attachment subtype but 'file', so the message
+ * had no row in the feed at all.
+ *
+ * Two things went wrong downstream, and both are this record. The reader saw an
+ * answer with no question above it. And the chat's optimistic bubble, which
+ * retires only when a matching user item lands, never retired — it sat in the
+ * feed's tail slot, BELOW the answers it had prompted, for as long as the turn
+ * ran. A 38-minute turn left the question 38 minutes out of place.
+ *
+ * Only a real prompt qualifies:
+ *   commandMode  'prompt' is the human's. The same record carries the harness's
+ *                own background-task wakeups ('task-notification' — nine in ten
+ *                of them), the queued-input twin of the `promptSource:'system'`
+ *                turns `userItems` already drops for exactly this reason.
+ *   origin       'human' is the operator (podium types their bytes into the PTY,
+ *                so their mail arrives this way too). A 'peer' origin is another
+ *                session's cross-session message: real, but not the operator, and
+ *                a "You" bubble would claim it was. Absent origin is treated as
+ *                human — older transcripts wrote none, and commandMode has
+ *                already excluded the injected kinds by then.
+ *
+ * The item takes the attachment's own timestamp: the ENQUEUE moment, when the
+ * human pressed send, not the later moment the turn consumed it. That is what
+ * sorts the prompt back above the reply it caused.
+ */
+function queuedCommandItems(
+  uuid: string | undefined,
+  ts: string | undefined,
+  att: Record<string, unknown>,
+): TranscriptItem[] {
+  if (att.commandMode !== 'prompt' || att.isMeta === true) return []
+  const origin = att.origin as Record<string, unknown> | undefined
+  if (origin?.kind !== undefined && origin.kind !== 'human') return []
+  const { text, paths } = harvestImageMarkers(typeof att.prompt === 'string' ? att.prompt : '')
+  if (!text && paths.length === 0) return []
+  return [
+    {
+      id: uuid ?? freshId('u'),
+      role: 'user',
+      ts: typeof att.timestamp === 'string' ? att.timestamp : ts,
+      text,
+      ...(paths.length > 0
+        ? {
+            toolPaths: paths,
+            tags: paths.map((path) => ({
+              kind: 'image' as const,
+              ...(path.split('/').pop() ? { label: path.split('/').pop() as string } : {}),
+            })),
+          }
+        : {}),
+    },
+  ]
 }
 
 function assistantItems(

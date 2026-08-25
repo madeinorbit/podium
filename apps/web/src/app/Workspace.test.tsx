@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { REVEAL_IN_DECK_EVENT } from './shell-state'
@@ -18,17 +18,27 @@ vi.mock('@/features/terminal/use-warm-set', () => ({
   useWarmSet: (all: string[]) => new Set(all),
 }))
 
-vi.mock('./NewPanelMenu', () => ({
-  NewPanelMenu: ({ trigger }: { trigger: JSX.Element }): JSX.Element => trigger,
-}))
+vi.mock('./NewPanelMenu', async () => {
+  const { cloneElement, useState } = await import('react')
+  return {
+    NewPanelMenu: ({ trigger }: { trigger: JSX.Element }): JSX.Element => {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          {cloneElement(trigger, { onClick: () => setOpen(true) })}
+          {open ? <div role="menu" aria-label="New panel menu" /> : null}
+        </>
+      )
+    },
+  }
+})
 
 vi.mock('./operator-focus', () => ({
   useOperatorFocus: () => ({ focusedIssueId: null, setFocusedIssueId: vi.fn() }),
 }))
 
-const featureEnabled = { 'tab-splitting': false } as Record<string, boolean>
 vi.mock('@/lib/use-feature', () => ({
-  useFeature: (id: string) => featureEnabled[id] === true,
+  useFeature: () => false,
 }))
 
 const task = {
@@ -84,7 +94,6 @@ const makeSplitLayout = () => ({
 const actions = {
   setPane: vi.fn(),
   toggleSplit: vi.fn(),
-  setSplitEnabled: vi.fn(),
   closeFileTab: vi.fn(),
   markSessionRead: vi.fn(),
   renameSession: vi.fn(),
@@ -115,8 +124,28 @@ const { Workspace } = await import('./Workspace')
 const { DesktopCloseTab } = await import('./use-desktop-close-tab')
 const { getHoveredSession, setHoveredSession } = await import('./session-hover')
 
+const delayedDragRuntime = () => {
+  type DragRuntimeModule = typeof import('./workspace-tab-drag')
+  let resolve!: (module: DragRuntimeModule) => void
+  let reject!: (reason: Error) => void
+  const load = vi.fn(
+    () =>
+      new Promise<DragRuntimeModule>((done, fail) => {
+        resolve = done
+        reject = fail
+      }),
+  )
+  return {
+    load,
+    release: async (): Promise<void> => resolve(await import('./workspace-tab-drag')),
+    reject: async (reason = new Error('chunk request failed')): Promise<void> => {
+      reject(reason)
+      await Promise.resolve()
+    },
+  }
+}
+
 beforeEach(() => {
-  featureEnabled['tab-splitting'] = false
   replicaIssues = [task]
   state = {
     sessions: [session('s1'), session('s2'), session('s3')],
@@ -162,6 +191,267 @@ const label = (id: string): HTMLElement => {
 }
 
 describe('Workspace tab strip', () => {
+  it('keeps dnd-kit cold through startup and loads it on the first draggable-tab intent', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+
+    expect(strip().getAttribute('data-drag-runtime')).toBeNull()
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+    expect(runtime.load).not.toHaveBeenCalled()
+
+    fireEvent.pointerEnter(tab('s1'))
+    expect(runtime.load).toHaveBeenCalledTimes(1)
+    await runtime.release()
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+  })
+
+  it('retries the drag runtime on the next intent after a rejected request', async () => {
+    const runtime = delayedDragRuntime()
+    let rejectFirstRequest!: (reason: Error) => void
+    const load = vi
+      .fn<() => ReturnType<typeof runtime.load>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectFirstRequest = reject
+          }),
+      )
+      .mockImplementation(runtime.load)
+    render(<Workspace loadDragRuntime={load} />)
+
+    fireEvent.pointerEnter(tab('s1'))
+    expect(load).toHaveBeenCalledTimes(1)
+    rejectFirstRequest(new Error('chunk request failed'))
+    await Promise.resolve()
+
+    fireEvent.pointerEnter(tab('s1'))
+    expect(load).toHaveBeenCalledTimes(2)
+    await runtime.release()
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+  })
+
+  it('cancels a threshold-crossed cold pointer drag when the runtime request rejects', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const source = document.querySelector<HTMLElement>('[data-tab-drag-id="s1"]')
+    if (!source) throw new Error('no source tab')
+
+    fireEvent.pointerDown(source, {
+      pointerId: 2,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: 10,
+      clientY: 10,
+    })
+    fireEvent.pointerMove(document, {
+      pointerId: 2,
+      pointerType: 'mouse',
+      isPrimary: true,
+      buttons: 1,
+      clientX: 16,
+      clientY: 10,
+    })
+    await runtime.reject()
+
+    fireEvent.click(label('s1'))
+    expect(actions.activateWorkspaceTab).toHaveBeenCalledWith('s1')
+
+    fireEvent.pointerEnter(tab('s1'))
+    expect(runtime.load).toHaveBeenCalledTimes(2)
+    await runtime.release()
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
+  })
+
+  it('cancels a cold keyboard pickup when the runtime request rejects', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const sortable = tab('s1')
+    sortable.focus()
+
+    fireEvent.keyDown(sortable, { key: ' ', code: 'Space' })
+    await runtime.reject()
+
+    const arrow = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      code: 'ArrowRight',
+      bubbles: true,
+      cancelable: true,
+    })
+    document.dispatchEvent(arrow)
+    expect(arrow.defaultPrevented).toBe(false)
+
+    fireEvent.pointerEnter(tab('s1'))
+    expect(runtime.load).toHaveBeenCalledTimes(2)
+    await runtime.release()
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
+  })
+
+  it.each([
+    'mouse',
+    'touch',
+  ])('replays the first cold %s drag after a delayed runtime import', async (pointerType) => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const source = document.querySelector<HTMLElement>('[data-tab-drag-id="s1"]')
+    if (!source) throw new Error('no source tab')
+
+    fireEvent.pointerDown(source, {
+      pointerId: 1,
+      pointerType,
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: 10,
+      clientY: 10,
+    })
+    fireEvent.pointerMove(document, {
+      pointerId: 1,
+      pointerType,
+      isPrimary: true,
+      buttons: 1,
+      clientX: 16,
+      clientY: 10,
+    })
+
+    expect(runtime.load).toHaveBeenCalledTimes(1)
+    expect(strip().getAttribute('data-drag-runtime')).toBeNull()
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
+
+    await runtime.release()
+    await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeTruthy())
+    fireEvent.pointerCancel(document, { pointerId: 1, pointerType, isPrimary: true })
+    await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeNull())
+  })
+
+  it.each([
+    { pointerType: 'mouse', control: 'label' },
+    { pointerType: 'mouse', control: 'close' },
+    { pointerType: 'touch', control: 'label' },
+    { pointerType: 'touch', control: 'close' },
+  ] as const)(
+    'keeps a cold $pointerType $control press at five pixels when the runtime arrives before release',
+    async ({ pointerType, control }) => {
+      const runtime = delayedDragRuntime()
+      render(<Workspace loadDragRuntime={runtime.load} />)
+      const original =
+        control === 'label'
+          ? label('s1')
+          : within(tab('s1')).getByRole('button', { name: 'Close tab' })
+      original.focus()
+
+      fireEvent.pointerDown(original, {
+        pointerId: 3,
+        pointerType,
+        isPrimary: true,
+        button: 0,
+        buttons: 1,
+        clientX: 10,
+        clientY: 10,
+      })
+      fireEvent.pointerMove(document, {
+        pointerId: 3,
+        pointerType,
+        isPrimary: true,
+        buttons: 1,
+        clientX: 15,
+        clientY: 10,
+      })
+
+      await runtime.release()
+      await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+      const replacement =
+        control === 'label'
+          ? label('s1')
+          : within(tab('s1')).getByRole('button', { name: 'Close tab' })
+      expect(original.isConnected).toBe(false)
+      expect(document.activeElement).toBe(replacement)
+
+      fireEvent.pointerUp(document, {
+        pointerId: 3,
+        pointerType,
+        isPrimary: true,
+        button: 0,
+        buttons: 0,
+        clientX: 15,
+        clientY: 10,
+      })
+
+      if (control === 'label') {
+        await waitFor(() => expect(actions.activateWorkspaceTab).toHaveBeenCalledWith('s1'))
+        expect(actions.closeWorkspaceTab).not.toHaveBeenCalled()
+      } else {
+        await waitFor(() => expect(actions.closeWorkspaceTab).toHaveBeenCalledWith('s1'))
+        expect(actions.activateWorkspaceTab).not.toHaveBeenCalled()
+      }
+      expect(document.querySelector('[data-dropzone]')).toBeNull()
+    },
+  )
+
+  it('drops a pointer activation cancelled before readiness', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+
+    fireEvent.pointerDown(tab('s1'), {
+      pointerId: 7,
+      pointerType: 'touch',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: 10,
+      clientY: 10,
+    })
+    fireEvent.pointerMove(document, {
+      pointerId: 7,
+      pointerType: 'touch',
+      isPrimary: true,
+      buttons: 1,
+      clientX: 30,
+      clientY: 10,
+    })
+    fireEvent.pointerCancel(document, { pointerId: 7, pointerType: 'touch', isPrimary: true })
+    await runtime.release()
+
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
+  })
+
+  it('replays the first cold Space pickup, restores focus, and cancels with Escape', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const sortable = tab('s1')
+    sortable.focus()
+
+    fireEvent.keyDown(sortable, { key: ' ', code: 'Space' })
+    expect(strip().getAttribute('data-drag-runtime')).toBeNull()
+    await runtime.release()
+    await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeTruthy())
+    expect(document.activeElement?.getAttribute('data-tab-drag-id')).toBe('s1')
+
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' })
+    await waitFor(() => expect(document.querySelector('[data-dropzone]')).toBeNull())
+    expect(document.activeElement?.getAttribute('data-tab-drag-id')).toBe('s1')
+  })
+
+  it('drops a cold Space pickup cancelled before readiness and restores focus', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const sortable = tab('s1')
+    sortable.focus()
+
+    fireEvent.keyDown(sortable, { key: ' ', code: 'Space' })
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' })
+    await runtime.release()
+
+    await waitFor(() => expect(strip().getAttribute('data-drag-runtime')).toBe('ready'))
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
+    expect(sortable.isConnected).toBe(false)
+    expect(document.activeElement).toBe(tab('s1'))
+  })
+
   // The decoupling: membership comes from the workspace layout, not from "every
   // session in the mission". s3 is live and in this task — and has no tab.
   it('renders the focused pane, not the mission session list', () => {
@@ -316,6 +606,8 @@ describe('Workspace tab closing', () => {
       'Close Others',
       'Close All',
       'Keep Open',
+      'Split Right',
+      'Split Down',
       'Reveal in flight deck',
     ])
     // The POD-710 invariant this test exists for, asserted directly rather than
@@ -346,8 +638,7 @@ describe('Workspace tab closing', () => {
     window.removeEventListener(REVEAL_IN_DECK_EVENT, revealed)
   })
 
-  it('offers the split items only under the tab-splitting flag', () => {
-    featureEnabled['tab-splitting'] = true
+  it('offers the split items in the tab menu', () => {
     render(<Workspace />)
 
     fireEvent.contextMenu(label('s2'))
@@ -417,8 +708,434 @@ describe('Workspace splitting', () => {
     state.workspaces = { 'mission:task-1': makeSplitLayout() }
   })
 
-  it('renders every pane with its own strip when the flag is on', () => {
-    featureEnabled['tab-splitting'] = true
+  it.each([
+    { name: 'New panel', pane: 0, action: 'new' },
+    { name: 'Split Right', pane: 0, action: 'split' },
+    { name: 'Close pane', pane: 1, action: 'close' },
+  ] as const)(
+    'keeps the cold $name action connected through focus and click',
+    ({ name, pane, action }) => {
+      const runtime = delayedDragRuntime()
+      render(<Workspace loadDragRuntime={runtime.load} />)
+      const control = within(strips()[pane] as HTMLElement).getByRole('button', { name })
+      const clicked = vi.fn()
+      control.addEventListener('click', clicked)
+
+      control.focus()
+      fireEvent.pointerEnter(control, { pointerType: 'mouse' })
+      fireEvent.pointerMove(control, { pointerType: 'mouse' })
+      fireEvent.pointerDown(control, {
+        pointerId: 11,
+        pointerType: 'mouse',
+        isPrimary: true,
+        button: 0,
+        buttons: 1,
+      })
+
+      expect(runtime.load).not.toHaveBeenCalled()
+      expect(control.isConnected).toBe(true)
+      expect(document.activeElement).toBe(control)
+
+      fireEvent.pointerUp(control, {
+        pointerId: 11,
+        pointerType: 'mouse',
+        isPrimary: true,
+        button: 0,
+        buttons: 0,
+      })
+      fireEvent.click(control)
+
+      expect(clicked).toHaveBeenCalledTimes(1)
+      if (action === 'split') {
+        expect(actions.splitWorkspacePane).toHaveBeenCalledWith('p1', 'row', { tabId: undefined })
+      } else if (action === 'close') {
+        expect(actions.closeWorkspacePane).toHaveBeenCalledWith('p2')
+      }
+    },
+  )
+
+  it.each([
+    { name: 'New panel', pane: 0, action: 'new' },
+    { name: 'Split Right', pane: 0, action: 'split' },
+    { name: 'Close pane', pane: 1, action: 'close' },
+  ] as const)(
+    'holds an in-flight drag runtime through the $name press',
+    async ({ name, pane, action }) => {
+      const runtime = delayedDragRuntime()
+      render(<Workspace loadDragRuntime={runtime.load} />)
+
+      const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+      if (!intentTab) throw new Error('no source tab')
+      fireEvent.pointerEnter(intentTab)
+      expect(runtime.load).toHaveBeenCalledTimes(1)
+
+      const original = within(strips()[pane] as HTMLElement).getByRole('button', { name })
+      const clicked = vi.fn()
+      original.addEventListener('click', clicked)
+      original.focus()
+      fireEvent.pointerDown(original, {
+        pointerId: 12,
+        pointerType: 'mouse',
+        isPrimary: true,
+        button: 0,
+        buttons: 1,
+      })
+
+      await runtime.release()
+      expect(original.isConnected).toBe(true)
+      expect(document.activeElement).toBe(original)
+      expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+
+      fireEvent.pointerUp(original, {
+        pointerId: 12,
+        pointerType: 'mouse',
+        isPrimary: true,
+        button: 0,
+        buttons: 0,
+      })
+      fireEvent.click(original)
+
+      expect(clicked).toHaveBeenCalledTimes(1)
+      if (action === 'split') {
+        expect(actions.splitWorkspacePane).toHaveBeenCalledWith('p1', 'row', { tabId: undefined })
+      } else if (action === 'close') {
+        expect(actions.closeWorkspacePane).toHaveBeenCalledWith('p2')
+      }
+
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+      expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+      expect(original.isConnected).toBe(true)
+      expect(document.activeElement).toBe(original)
+
+      fireEvent.pointerEnter(intentTab)
+      await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+      const replacement = within(strips()[pane] as HTMLElement).getByRole('button', { name })
+      expect(original.isConnected).toBe(false)
+      expect(document.activeElement).toBe(replacement)
+    },
+  )
+
+  it('keeps New panel open when the pending runtime resolves after its click', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    fireEvent.pointerEnter(intentTab)
+
+    const original = within(strips()[0] as HTMLElement).getByRole('button', { name: 'New panel' })
+    original.focus()
+    fireEvent.pointerDown(original, {
+      pointerId: 13,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+    })
+    fireEvent.pointerUp(original, {
+      pointerId: 13,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 0,
+    })
+    fireEvent.click(original)
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+
+    expect(screen.getByRole('menu', { name: 'New panel menu' })).toBeTruthy()
+    expect(original.isConnected).toBe(true)
+    expect(document.activeElement).toBe(original)
+
+    await runtime.release()
+    await Promise.resolve()
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+    expect(screen.getByRole('menu', { name: 'New panel menu' })).toBeTruthy()
+    expect(original.isConnected).toBe(true)
+
+    fireEvent.pointerEnter(intentTab)
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+    expect(original.isConnected).toBe(false)
+    expect(screen.queryByRole('menu', { name: 'New panel menu' })).toBeNull()
+  })
+
+  it('holds an in-flight drag runtime through a fixed action keyboard activation', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    fireEvent.pointerEnter(intentTab)
+
+    const original = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    original.focus()
+    fireEvent.keyDown(original, { key: ' ', code: 'Space' })
+    await runtime.release()
+
+    expect(original.isConnected).toBe(true)
+    expect(document.activeElement).toBe(original)
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+
+    fireEvent.keyUp(original, { key: ' ', code: 'Space' })
+    fireEvent.click(original)
+    expect(actions.splitWorkspacePane).toHaveBeenCalledWith('p1', 'row', { tabId: undefined })
+
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+    expect(original.isConnected).toBe(true)
+
+    fireEvent.pointerEnter(intentTab)
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+    const replacement = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    expect(original.isConnected).toBe(false)
+    expect(document.activeElement).toBe(replacement)
+  })
+
+  it('does not replay a cold Space pickup after a fixed action takes ownership', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    intentTab.focus()
+
+    fireEvent.keyDown(intentTab, { key: ' ', code: 'Space' })
+    expect(runtime.load).toHaveBeenCalledTimes(1)
+
+    const action = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    action.focus()
+    const fixedKeyDown = new KeyboardEvent('keydown', {
+      key: ' ',
+      code: 'Space',
+      bubbles: true,
+      cancelable: true,
+    })
+    action.dispatchEvent(fixedKeyDown)
+    expect(fixedKeyDown.defaultPrevented).toBe(false)
+    await runtime.release()
+
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+    fireEvent.keyUp(action, { key: ' ', code: 'Space' })
+    fireEvent.click(action)
+    expect(actions.splitWorkspacePane).toHaveBeenCalledWith('p1', 'row', { tabId: undefined })
+
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+    fireEvent.pointerEnter(intentTab)
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+    expect(document.querySelector('[data-dropzone]')).toBeNull()
+  })
+
+  it('keeps fixed-control focus when the runtime resolves before keydown', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    intentTab.focus()
+    expect(runtime.load).toHaveBeenCalledTimes(1)
+
+    const original = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    original.focus()
+    await runtime.release()
+
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+    const replacement = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    expect(original.isConnected).toBe(false)
+    expect(document.activeElement).toBe(replacement)
+  })
+
+  it('releases a fixed pointer hold when pointer capture is lost', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    fireEvent.pointerEnter(intentTab)
+
+    const control = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    fireEvent.pointerDown(control, {
+      pointerId: 14,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+    })
+    await runtime.release()
+    control.dispatchEvent(
+      new PointerEvent('lostpointercapture', { bubbles: true, pointerId: 14, pointerType: 'mouse' }),
+    )
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+    fireEvent.pointerEnter(intentTab)
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+  })
+
+  it('releases a fixed keyboard hold when the window loses focus', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    fireEvent.pointerEnter(intentTab)
+
+    const control = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    control.focus()
+    fireEvent.keyDown(control, { key: ' ', code: 'Space' })
+    await runtime.release()
+    window.dispatchEvent(new Event('blur'))
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+    fireEvent.pointerEnter(intentTab)
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+  })
+
+  it('clears a fixed pointer hold when the runtime request rejects', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+    fireEvent.pointerEnter(intentTab)
+
+    const control = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    fireEvent.pointerDown(control, {
+      pointerId: 15,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+    })
+    await runtime.reject()
+
+    fireEvent.pointerEnter(intentTab)
+    expect(runtime.load).toHaveBeenCalledTimes(2)
+    await runtime.release()
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+  })
+
+  it('publishes a runtime requested during an existing fixed pointer hold', async () => {
+    const runtime = delayedDragRuntime()
+    render(<Workspace loadDragRuntime={runtime.load} />)
+    const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
+    if (!intentTab) throw new Error('no source tab')
+
+    const control = within(strips()[0] as HTMLElement).getByRole('button', {
+      name: 'Split Right',
+    })
+    fireEvent.pointerDown(control, {
+      pointerId: 16,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+    })
+    expect(runtime.load).not.toHaveBeenCalled()
+
+    fireEvent.pointerMove(intentTab, {
+      pointerId: 16,
+      pointerType: 'mouse',
+      isPrimary: true,
+      buttons: 1,
+    })
+    expect(runtime.load).toHaveBeenCalledTimes(1)
+    await runtime.release()
+    fireEvent.pointerUp(intentTab, {
+      pointerId: 16,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 0,
+    })
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+
+    expect(strips()[0]?.getAttribute('data-drag-runtime')).toBeNull()
+    fireEvent.pointerEnter(intentTab)
+    await waitFor(() => expect(strips()[0]?.getAttribute('data-drag-runtime')).toBe('ready'))
+  })
+
+  it.each(['label', 'close'] as const)(
+    'finishes a cold drag without dispatching its browser click to the source %s control',
+    async (control) => {
+      const rect = vi
+        .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+        .mockImplementation(function (this: HTMLElement) {
+          const tabId = this.dataset.tabDragId
+          if (tabId === 's1') return new DOMRect(10, 5, 80, 28)
+          if (tabId === 's2') return new DOMRect(270, 5, 80, 28)
+          if (tabId === 's3') return new DOMRect(355, 5, 80, 28)
+          if (this.dataset.testid === 'native-tab-strip') {
+            return this.dataset.pane === 'p1'
+              ? new DOMRect(0, 0, 250, 38)
+              : new DOMRect(250, 0, 250, 38)
+          }
+          return new DOMRect()
+        })
+      const runtime = delayedDragRuntime()
+      render(<Workspace loadDragRuntime={runtime.load} />)
+      const source = document.querySelector<HTMLElement>('[data-tab-drag-id="s1"]')
+      if (!source) throw new Error('no source tab')
+      const clickTarget =
+        control === 'label'
+          ? source.querySelector<HTMLElement>('button')
+          : within(source).getByRole('button', { name: 'Close tab' })
+      if (!clickTarget) throw new Error(`no source ${control} control`)
+
+      fireEvent.pointerDown(clickTarget, {
+        pointerId: 9,
+        pointerType: 'mouse',
+        isPrimary: true,
+        button: 0,
+        buttons: 1,
+        clientX: 20,
+        clientY: 15,
+      })
+      fireEvent.pointerMove(document, {
+        pointerId: 9,
+        pointerType: 'mouse',
+        isPrimary: true,
+        buttons: 1,
+        clientX: 480,
+        clientY: 15,
+      })
+      fireEvent.pointerUp(document, {
+        pointerId: 9,
+        pointerType: 'mouse',
+        isPrimary: true,
+        button: 0,
+        buttons: 0,
+        clientX: 480,
+        clientY: 15,
+      })
+      expect(actions.moveWorkspaceTab).not.toHaveBeenCalled()
+
+      // Browsers dispatch this click from the physical pointerdown/pointerup pair.
+      // The deferred runtime has not mounted dnd-kit's own click blocker yet.
+      expect(fireEvent.click(clickTarget)).toBe(false)
+      expect(actions.activateWorkspaceTab).not.toHaveBeenCalled()
+      expect(actions.closeWorkspaceTab).not.toHaveBeenCalled()
+
+      await runtime.release()
+      await waitFor(() => expect(actions.moveWorkspaceTab).toHaveBeenCalledWith('s1', 'p2', 2))
+      expect(document.querySelector('[data-dropzone]')).toBeNull()
+      // PointerSensor keeps its click blocker for 50ms after a completed drag so
+      // the release cannot select the tab underneath. Let that documented guard
+      // detach before the next test clicks a pane control.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 60))
+      rect.mockRestore()
+    },
+  )
+
+  it('renders every pane with its own strip', () => {
     render(<Workspace />)
 
     expect(strips().map((s) => s.getAttribute('data-pane'))).toEqual(['p1', 'p2'])
@@ -429,50 +1146,16 @@ describe('Workspace splitting', () => {
     expect(visiblePane('s3')).toBe('p2')
   })
 
-  // The flag boundary: the layout is PRESERVED and only its first leaf is drawn.
-  // Nothing collapses panes, and the hidden pane's panel stays mounted so
-  // turning the flag back on is a reveal rather than a remount.
-  it('renders the first leaf only when the flag is off, without touching the layout', () => {
-    featureEnabled['tab-splitting'] = false
+  // A pane that is off screen keeps its panel MOUNTED but hidden, so the tabs
+  // of a pane the operator is not looking at cost no remount when it comes back.
+  it('keeps a non-active tab mounted but off screen', () => {
     render(<Workspace />)
 
-    expect(strips()).toHaveLength(1)
-    expect(strips()[0]?.getAttribute('data-pane')).toBe('p1')
-    expect(visiblePane('s1')).toBe('p1')
-    expect(visiblePane('s3')).toBeNull()
-    expect(panel('s3')?.className).toContain('hidden')
-    expect(actions.closeWorkspacePane).not.toHaveBeenCalled()
-    expect(actions.moveWorkspaceTab).not.toHaveBeenCalled()
-    expect(actions.splitWorkspacePane).not.toHaveBeenCalled()
-  })
-
-  // An off-screen focused pane would have the client report a session the
-  // operator cannot see as focused — clearing its unread badge and claiming PTY
-  // relay for it. Focus follows the screen instead.
-  it('moves focus onto the visible pane when the flag hides the focused one', () => {
-    featureEnabled['tab-splitting'] = false
-    render(<Workspace />)
-
-    expect(actions.focusWorkspacePane).toHaveBeenCalledWith('p1')
-  })
-
-  // The engine may not read a feature flag, and it may not assume a preserved
-  // split layout is all on screen — so the surface that owns the flag tells it.
-  // Without this the hidden pane's session took PTY-relay priority and had its
-  // unread badge cleared by the mark-read reaction.
-  it('tells the engine whether the second pane is on screen', () => {
-    featureEnabled['tab-splitting'] = false
-    const { unmount } = render(<Workspace />)
-    expect(actions.setSplitEnabled).toHaveBeenLastCalledWith(false)
-
-    unmount()
-    featureEnabled['tab-splitting'] = true
-    render(<Workspace />)
-    expect(actions.setSplitEnabled).toHaveBeenLastCalledWith(true)
+    expect(visiblePane('s2')).toBeNull()
+    expect(panel('s2')?.className).toContain('hidden')
   })
 
   it('focuses a pane when the operator points into its strip', () => {
-    featureEnabled['tab-splitting'] = true
     render(<Workspace />)
 
     fireEvent.pointerDown(strips()[0] as HTMLElement)
@@ -481,7 +1164,6 @@ describe('Workspace splitting', () => {
   })
 
   it('splits and closes the pane whose strip the control belongs to', () => {
-    featureEnabled['tab-splitting'] = true
     render(<Workspace />)
 
     fireEvent.click(within(strips()[0] as HTMLElement).getByRole('button', { name: 'Split Right' }))
@@ -491,17 +1173,7 @@ describe('Workspace splitting', () => {
     expect(actions.closeWorkspacePane).toHaveBeenCalledWith('p2')
   })
 
-  it('offers no split controls at all with the flag off', () => {
-    featureEnabled['tab-splitting'] = false
-    render(<Workspace />)
-
-    expect(screen.queryByRole('button', { name: 'Split Right' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Close pane' })).toBeNull()
-    expect(screen.queryByRole('separator', { name: 'Resize panes' })).toBeNull()
-  })
-
   it('resizes the split from the keyboard, into the layout', () => {
-    featureEnabled['tab-splitting'] = true
     render(<Workspace />)
 
     fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize panes' }), {

@@ -68,12 +68,18 @@ describe('web shell structure', () => {
   })
 
   it('workspace tabs keep the fixed actions outside the sortable scrolling strip', () => {
-    const src = read('app/Workspace.tsx')
+    const workspace = read('app/Workspace.tsx')
+    const dragRuntime = read('app/workspace-tab-drag.tsx')
     // The fixed actions (new-panel menu, split) render OUTSIDE the sortable
-    // scrolling strip — after the DndContext closes — so they never scroll away.
-    expect(src.indexOf('<NewPanelMenu')).toBeGreaterThan(src.indexOf('</DndContext>'))
+    // scrolling strip, so they never scroll away with the tabs.
+    const sortableStripStart = workspace.indexOf('<drag.List')
+    const sortableStripEnd = workspace.indexOf('</drag.List>')
+    expect(sortableStripStart).toBeGreaterThan(-1)
+    expect(sortableStripEnd).toBeGreaterThan(sortableStripStart)
+    expect(workspace.indexOf('<NewPanelMenu')).toBeGreaterThan(sortableStripEnd)
+    expect(workspace.indexOf("onClick={() => onSplit('row')}")).toBeGreaterThan(sortableStripEnd)
     // Clicks must keep working: drags only start after the pointer moves.
-    expect(src).toContain('activationConstraint')
+    expect(dragRuntime).toContain('activationConstraint: { distance: 5 }')
   })
 
   it('repo add flow uses the scan flow (#227)', () => {

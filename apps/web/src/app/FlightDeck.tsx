@@ -46,6 +46,7 @@ import {
   sessionSettled,
   sessionUnreadEmphasized,
   continuationPresenceLine as sharedContinuationPresenceLine,
+  spawnIssueAgent,
   subtreeUnread,
   treeGuides,
   writeFlightDeckFolds,
@@ -1079,10 +1080,18 @@ function SessionRow({
         // against. The list is the query container, so every nesting depth
         // switches to the two-line composition at the same panel width.
         'deck-agent-row group/srow relative',
-        // The mission's own lead is the one agent row in the spine with a fill.
-        // It owns the whole mission, so it is allowed to be the loudest thing
-        // in the roster — and being the only one, the fill means exactly that.
+        // The mission's own lead. A FILL, and since POD-1480 no longer the only
+        // one an agent row can take — the session you are in takes a second,
+        // stronger tier of the same tint below. Two grounds, and they are two
+        // statements only because the doses are far enough apart to read as
+        // two; the arithmetic is on `.deck-agent-active` in styles.css.
         role?.kind === 'coordinator' && 'deck-lead-fill',
+        // THE SESSION YOU ARE IN owns a ground, not just a tick (POD-1480).
+        // Without one the pointed row — which takes the row's own hover wash —
+        // was the loudest mark in the column, so pointing at any tab visibly
+        // demoted the session you were actually working in. The row answers the
+        // pointer in the same tint rather than in `--muted`; see styles.css.
+        active && !flat && 'deck-agent-active',
         flat && 'rounded-md',
       )}
       style={{ marginLeft: flat ? 0 : AGENT_INDENT }}
@@ -1095,23 +1104,28 @@ function SessionRow({
           task takes, in the row's own gutter. Extending the mark rather than
           reaching for a fill is the whole point of the tick: "this one" is one
           device in this column, whatever kind of row it lands on.
-          A row the pointer is on FROM THE TAB STRIP takes the same tick held
-          lightly — the rail's own 45% (`.deck-rail-mission`), which is the dose
-          this column already uses for "traceable, not a selection". One device
-          at two strengths: the strong one is where you ARE, the faint one is
-          where you are POINTING, and a pointed row that is also the active one
-          simply keeps the strong mark. */}
+          A row the pointer is on FROM THE TAB STRIP takes the SAME tick in a
+          DIFFERENT HUE (POD-1480): one device, two colours, both at full
+          strength. The issue accent is where you ARE, the no-colour `--flow`
+          is where you are POINTING — a distinction the palette already draws,
+          rather than a third mark this column would have to teach. Two
+          strengths of one hue was the earlier attempt and 45% of a 3px tick is
+          not a difference you catch peripherally, which is the whole job.
+          A pointed row that is also the active one keeps the active mark: you
+          are already there, so pointing at it says nothing new. The colours and
+          the uncoloured-issue fallback live on `.deck-mark-*` in styles.css. */}
       {(active || pointed) && !flat && (
         <span
           aria-hidden
-          className="pointer-events-none absolute"
+          className={cn(
+            'pointer-events-none absolute',
+            active ? 'deck-mark-active' : 'deck-mark-pointed',
+          )}
           style={{
             left: AGENT_RAIL - AGENT_INDENT + TICK_SELECTED_X,
             top: HUNG_MID - TICK_HEIGHT / 2,
             width: TICK_WIDTH,
             height: TICK_HEIGHT,
-            background: 'var(--issue)',
-            opacity: active ? 1 : 0.45,
           }}
         />
       )}
@@ -1149,16 +1163,23 @@ function SessionRow({
           data-pressable
           type="button"
           className={cn(
-            // The ONLY fill an agent ever gets is transient: hover, and nothing
-            // else. No left padding — the row opens onto its rail.
-            'deck-agent group/session shell-type-secondary grid min-h-7 w-full items-center gap-x-1.5 py-1 pr-2 text-left text-muted-foreground hover:bg-muted hover:text-foreground',
+            // No left padding — the row opens onto its rail.
+            'deck-agent group/session shell-type-secondary grid min-h-7 w-full items-center gap-x-1.5 py-1 pr-2 text-left text-muted-foreground hover:text-foreground',
+            // The neutral wash is for rows that have no ground of their own.
+            // The ACTIVE row does, and `--muted` is less extreme than that
+            // ground in both appearances — so letting it through would make the
+            // one row you are in step BACK under the pointer while every other
+            // row steps forward. It answers in its own tint instead, on the
+            // wrapper (`.deck-agent-active:hover`), which is why the hover fill
+            // is spent here rather than in the base string.
+            !active && 'hover:bg-muted',
             active && 'text-foreground',
             // The pointer is on the tab, so the row takes the fill it would
             // have taken under the pointer itself. Borrowing the row's OWN
             // hover rather than inventing a second wash is what keeps this
             // legible without being loud: the strip is simply reaching in and
             // hovering the row on the operator's behalf.
-            pointed && 'bg-muted text-foreground',
+            pointed && !active && 'bg-muted text-foreground',
             // Settled agents dim one tier rather than leaving. Removing them is
             // the view bar's job, not the row's.
             (retired || phase === 'done') && 'opacity-60',
@@ -1829,6 +1850,7 @@ function ProposalRow({
   selected,
   onSelect,
   onMenu,
+  onStatusPick,
 }: {
   issue: IssueNavigationModel
   /** The display ref of the session that filed it, when the deck can resolve it. */
@@ -1837,6 +1859,8 @@ function ProposalRow({
   onSelect: (permanent: boolean) => void
   /** A proposal is still a task: same right-click menu as a strip. */
   onMenu: (event: ReactMouseEvent) => void
+  /** Match every other issue row in the deck: its status mark opens the picker. */
+  onStatusPick: (value: string) => void
 }): JSX.Element {
   const intent = useClickIntent()
   return (
@@ -1864,7 +1888,7 @@ function ProposalRow({
           intent.commit(() => onSelect(true))
         }}
       >
-        <StageGlyph stage="proposed" size={12} />
+        <IssueStatusPicker issue={issue} onPick={onStatusPick} />
         <span className="shell-type-secondary min-w-0 flex-1 truncate text-muted-foreground">
           <span className="shell-type-micro mr-1.5 font-mono text-fuchsia-500">
             {issueDisplayRef(issue)}
@@ -3097,9 +3121,12 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
         setFolds(open)
       }
       requestAnimationFrame(() => {
+        // The mission chrome is sticky inside the full-height scrollport. End
+        // alignment keeps an explicitly revealed row below that overlay;
+        // `nearest` may place an above-viewport row underneath the header.
         document
           .querySelector(`[data-flight-session="${sessionId}"]`)
-          ?.scrollIntoView({ block: 'nearest' })
+          ?.scrollIntoView({ block: 'end' })
       })
     }
     window.addEventListener(REVEAL_IN_DECK_EVENT, onReveal)
@@ -3256,9 +3283,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     const existingSessionIds = sessions
       .filter((session) => session.issueId === rootIssue.id && !session.archived)
       .map((session) => session.sessionId)
-    await (rootIssue.worktreePath
-      ? trpc.issues.addSession.mutate(input)
-      : trpc.issues.start.mutate(input))
+    await spawnIssueAgent(trpc.issues, input)
     await focusIssueSession(rootIssue.id, { excludeSessionIds: existingSessionIds })
   }
   const selectSession = (
@@ -3351,12 +3376,20 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   )
 
   return (
-    <aside className="engraved-column relative" aria-label="Flight Deck">
+    <aside
+      className={cn('engraved-column relative', root && 'overflow-y-auto')}
+      data-testid={root ? 'flight-deck-scroller' : undefined}
+      aria-label="Flight Deck"
+    >
       {!root && collapseButton(true)}
 
       {root ? (
         <>
-          {/* THE MISSION HEADER IS THE ROOT OF THE TREE (round 3 §2, §4, §10).
+          {/* The mission chrome belongs to the one definite-height scrollport
+              but stays in view while its roster moves underneath. Header
+              growth now changes content height, never the scrollport itself. */}
+          <div className="deck-chrome sticky top-0 z-[1] flex-none">
+            {/* THE MISSION HEADER IS THE ROOT OF THE TREE (round 3 §2, §4, §10).
               Roomy because it is read once where the strips below are scanned.
               It carries NO fill of its own any more (POD-725): the column ITSELF
               now runs the mission's colour, from the 3px inset along its top
@@ -3367,22 +3400,22 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               own top rule rather than to a border here.
               The `1 / 16` that used to sit after the title is gone (§10) — the
               gauge below says it in words. */}
-          {/* The header IS the root's strip (round 3 §4), so it takes the strips'
+            {/* The header IS the root's strip (round 3 §4), so it takes the strips'
               menu as well as their click: right-clicking the mission has to
               reach the mission's own actions, or the one task in the column with
               no strip would be the one task with no menu. */}
-          <div
-            className="deck-header relative flex-none"
-            onContextMenu={(event) => openIssueMenu(root.id, event)}
-          >
-            {/* THE EYEBROW MAY TAKE A SECOND LINE (POD-1146). Nothing in this
+            <div
+              className="deck-header relative flex-none"
+              onContextMenu={(event) => openIssueMenu(root.id, event)}
+            >
+              {/* THE EYEBROW MAY TAKE A SECOND LINE (POD-1146). Nothing in this
                 header could wrap, so a mission with a relation note, a held seat
                 and a long stage word simply collided at the column's 300px
                 floor. Identity and the chevron own line 1 and never shrink; the
                 note and the seat drop underneath them, left-aligned on the same
                 16px datum, where they can never run into the chevron. A flight
                 deck may spend a line to keep a fact. */}
-            {/* AND IT STANDS ON THE SHELL'S ONE HEADER DATUM (POD-1455).
+              {/* AND IT STANDS ON THE SHELL'S ONE HEADER DATUM (POD-1455).
                 It was 32px — four pixels short of `--section-bar-h`, which is
                 the height every other column header in this window spends — so
                 the deck's identity row sat two pixels higher than the sidebar's
@@ -3390,79 +3423,79 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 it against the column's own top edge. At 36px the ink lands on
                 the same datum as its neighbours and the control at the end of
                 the row stops reading as jammed into the corner. */}
-            <div className="shell-type-micro flex min-h-9 flex-wrap items-center gap-x-1.5 py-1.5 pr-2 pl-4 font-mono text-text-dim">
-              {/* Identity NEVER shrinks and never leaves line 1: the glyph, the
+              <div className="shell-type-micro flex min-h-9 flex-wrap items-center gap-x-1.5 py-1.5 pr-2 pl-4 font-mono text-text-dim">
+                {/* Identity NEVER shrinks and never leaves line 1: the glyph, the
                   ref and the stage word are what this row is for. */}
-              {rootIssue ? (
-                <IssueStatusPicker
-                  issue={rootIssue}
-                  onPick={(value) => rowStatus.pick(rootIssue, value)}
-                />
-              ) : (
-                <StageGlyph stage={root.stage} size={12} />
-              )}
-              <span className="flex-none leading-[24px]">{issueDisplayRef(root)}</span>
-              <span className="flex-none leading-[24px]">
-                {STAGE_LABELS[root.stage].toLowerCase()}
-              </span>
-              <span aria-hidden className="min-w-[8px] flex-1" />
-              {/* The mission's own dependency or provenance, and the seat it is
+                {rootIssue ? (
+                  <IssueStatusPicker
+                    issue={rootIssue}
+                    onPick={(value) => rowStatus.pick(rootIssue, value)}
+                  />
+                ) : (
+                  <StageGlyph stage={root.stage} size={12} />
+                )}
+                <span className="flex-none leading-[24px]">{issueDisplayRef(root)}</span>
+                <span className="flex-none leading-[24px]">
+                  {STAGE_LABELS[root.stage].toLowerCase()}
+                </span>
+                <span aria-hidden className="min-w-[8px] flex-1" />
+                {/* The mission's own dependency or provenance, and the seat it is
                   holding if nobody is on it — in the same chips a strip wears.
                   The header IS a node, so it says what a node says, in the same
                   slot: a strip carries these on its right, and so does this. */}
-              {(rootNote || rootSeat) && (
-                <span className="deck-eyebrow-note flex min-w-0 shrink items-center gap-1.5 pl-2">
-                  {rootNote && <IssueNoteChip note={rootNote} />}
-                  {rootSeat && <SeatChip note={rootSeat} />}
-                </span>
-              )}
-              {collapseButton(false)}
-            </div>
-            {/* THE HEADER IS NOT ON THE SPINE (POD-1306) — see the note over
+                {(rootNote || rootSeat) && (
+                  <span className="deck-eyebrow-note flex min-w-0 shrink items-center gap-1.5 pl-2">
+                    {rootNote && <IssueNoteChip note={rootNote} />}
+                    {rootSeat && <SeatChip note={rootSeat} />}
+                  </span>
+                )}
+                {collapseButton(false)}
+              </div>
+              {/* THE HEADER IS NOT ON THE SPINE (POD-1306) — see the note over
                 `spineSegment`. Its 16px padding is ROOT_RAIL's own x, which is
                 exactly why no rail may be drawn under it. */}
-            <div className="px-4 pt-0.5 pb-3.5">
-              <button
-                data-pressable
-                type="button"
-                className="block w-full min-w-0 text-left"
-                // The header IS the root's strip (round 3 §4), so it takes the
-                // strips' gesture: preview once, promote twice.
-                onClick={() =>
-                  rootRow &&
-                  headerIntent.press(
-                    () => selectIssue(rootRow, false),
-                    () => selectIssue(rootRow, true),
-                  )
-                }
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter' || !rootRow) return
-                  event.preventDefault()
-                  headerIntent.commit(() => selectIssue(rootRow, true))
-                }}
-                title={`Focus ${issueDisplayRef(root)}`}
-              >
-                {/* The one title in the column, and the only place in the shell
+              <div className="px-4 pt-0.5 pb-3.5">
+                <button
+                  data-pressable
+                  type="button"
+                  className="block w-full min-w-0 text-left"
+                  // The header IS the root's strip (round 3 §4), so it takes the
+                  // strips' gesture: preview once, promote twice.
+                  onClick={() =>
+                    rootRow &&
+                    headerIntent.press(
+                      () => selectIssue(rootRow, false),
+                      () => selectIssue(rootRow, true),
+                    )
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' || !rootRow) return
+                    event.preventDefault()
+                    headerIntent.commit(() => selectIssue(rootRow, true))
+                  }}
+                  title={`Focus ${issueDisplayRef(root)}`}
+                >
+                  {/* The one title in the column, and the only place in the shell
                     that outgrows the `reading` role: everything under it is a
                     scanned list, so the mission's name is allowed to be read
                     from across the desk. 17px is the artifact's own measure. */}
-                <h2 className="shell-type-column-title font-semibold text-text-strong">
-                  {draftFilling ? sessionDisplayName(rootSession as SessionMeta) : root.title}
-                </h2>
-              </button>
-              {/* THE BRIEF IS THE ONE THING HERE THAT IS READ RATHER THAN
+                  <h2 className="shell-type-column-title font-semibold text-text-strong">
+                    {draftFilling ? sessionDisplayName(rootSession as SessionMeta) : root.title}
+                  </h2>
+                </button>
+                {/* THE BRIEF IS THE ONE THING HERE THAT IS READ RATHER THAN
                   SCANNED — see {@link MissionBrief}. 10px under a 17px title is
                   the title's own half-leading plus a hair: less and the two
                   blocks touch, more and the title stops belonging to the
                   paragraph it names. */}
-              <div className="mt-2.5">
-                {/* The column's own standing sentence is not a brief — it is
+                <div className="mt-2.5">
+                  {/* The column's own standing sentence is not a brief — it is
                     what the deck says when nobody has written one. Same slot,
                     same setting, one step down the ink ramp, so a mission with a
                     real brief is visibly a mission somebody described. */}
-                <MissionBrief html={briefHtml} standing={!authoredBrief} />
-              </div>
-              {/* ONE 26px FAMILY, ON ONE BASELINE (POD-1146). The gauge, the
+                  <MissionBrief html={briefHtml} standing={!authoredBrief} />
+                </div>
+                {/* ONE 26px FAMILY, ON ONE BASELINE (POD-1146). The gauge, the
                   crew chip and the mission's one action were three heights on
                   two alignments; they are one row of 26px radius-8 objects now.
                   The gauge takes all the slack and the action never shrinks —
@@ -3470,122 +3503,124 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   than crushing either. Add agent keeps its word at every width:
                   it is the header's only action, and a bare glyph makes the
                   operator guess. */}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <div className="min-w-[9rem] flex-[1_1_9rem]">
-                  <MissionGauge progress={progress} live={liveCount} working={workingCount} />
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <div className="min-w-[9rem] flex-[1_1_9rem]">
+                    <MissionGauge progress={progress} live={liveCount} working={workingCount} />
+                  </div>
+                  {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
+                    <MissionAgentMenu
+                      key={rootIssue.id}
+                      defaultAgent={rootIssue.defaultAgent}
+                      repoPath={rootIssue.repoPath}
+                      machineId={rootIssue.machineId}
+                      onAdd={addMissionAgent}
+                    />
+                  )}
                 </div>
-                {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
-                  <MissionAgentMenu
-                    defaultAgent={rootIssue.defaultAgent}
-                    repoPath={rootIssue.repoPath}
-                    machineId={rootIssue.machineId}
-                    onAdd={addMissionAgent}
-                  />
-                )}
               </div>
             </div>
-          </div>
-          {/* Rules TOP AND BOTTOM, both in the soft tier: the bar is a band cut
+            {/* Rules TOP AND BOTTOM, both in the soft tier: the bar is a band cut
               through the column, and its top rule is the seam the header no
               longer draws for itself. */}
-          <div
-            className="relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-2"
-            style={{ paddingLeft: GUTTER }}
-          >
-            {MODES.map((option) => (
-              <button
-                data-pressable
-                type="button"
-                key={option.id}
-                aria-pressed={mode === option.id}
-                // THE ACTIVE VIEW IS UNDERLINED IN THE MISSION'S OWN COLOUR, and
-                // the underline runs the bar's full height rather than a pill's.
-                // A filled pill here read as one more raised object competing
-                // with the strips below it; an inset floor rule is the same
-                // device the selected strip wears on its left edge, turned
-                // through ninety degrees, so both say "this one" in one voice.
-                className={cn(
-                  'shell-type-micro inline-flex items-center self-stretch px-2 font-medium text-text-faint hover:text-text-strong',
-                  mode === option.id && 'text-text-strong shadow-[inset_0_-2px_0_var(--issue)]',
-                )}
-                onClick={() => setMode(option.id)}
-              >
-                {option.label}
-              </button>
-            ))}
-            <div className="ml-auto flex flex-none items-center gap-0.5">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="size-6 text-text-faint"
-                aria-pressed={searchOpen}
-                title="Search this mission"
-                onClick={() => {
-                  setSearchOpen((open) => !open)
-                  if (searchOpen) setQuery('')
-                }}
-              >
-                <Search size={13} aria-hidden="true" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="size-6 text-text-faint"
-                title={allFolded ? 'Expand every branch' : 'Fold every branch'}
-                disabled={!anyFoldable}
-                // Both directions write EXPLICIT values for every foldable
-                // branch: "expand everything" that merely cleared the map would
-                // leave the one-session tasks closed by the default rule, which
-                // is not what the control says.
-                onClick={() =>
-                  setFolds(
-                    new Map(
-                      foldable.map((row): [string, FoldState] => [
-                        row.issue.id,
-                        allFolded ? 'open' : 'closed',
-                      ]),
-                    ),
-                  )
-                }
-              >
-                {allFolded ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
-              </Button>
-            </div>
-          </div>
-          {searchOpen && (
             <div
-              className="relative flex h-8 flex-none items-center gap-2 border-b border-hairline-soft pr-2"
+              className="relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-2"
               style={{ paddingLeft: GUTTER }}
             >
-              <Search size={13} aria-hidden="true" className="flex-none text-text-faint" />
-              <input
-                // biome-ignore lint/a11y/noAutofocus: the field exists only while searching
-                autoFocus
-                type="text"
-                value={query}
-                placeholder="Task, session, agent or ref"
-                aria-label="Search this mission"
-                className="shell-type-secondary min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-text-faint"
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Escape') return
-                  setQuery('')
-                  setSearchOpen(false)
-                }}
-              />
-              {query && (
+              {MODES.map((option) => (
                 <button
                   data-pressable
                   type="button"
-                  className="flex-none text-text-faint hover:text-text-strong"
-                  aria-label="Clear search"
-                  onClick={() => setQuery('')}
+                  key={option.id}
+                  aria-pressed={mode === option.id}
+                  // THE ACTIVE VIEW IS UNDERLINED IN THE MISSION'S OWN COLOUR, and
+                  // the underline runs the bar's full height rather than a pill's.
+                  // A filled pill here read as one more raised object competing
+                  // with the strips below it; an inset floor rule is the same
+                  // device the selected strip wears on its left edge, turned
+                  // through ninety degrees, so both say "this one" in one voice.
+                  className={cn(
+                    'shell-type-micro inline-flex items-center self-stretch px-2 font-medium text-text-faint hover:text-text-strong',
+                    mode === option.id && 'text-text-strong shadow-[inset_0_-2px_0_var(--issue)]',
+                  )}
+                  onClick={() => setMode(option.id)}
                 >
-                  <X size={11} />
+                  {option.label}
                 </button>
-              )}
+              ))}
+              <div className="ml-auto flex flex-none items-center gap-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-6 text-text-faint"
+                  aria-pressed={searchOpen}
+                  title="Search this mission"
+                  onClick={() => {
+                    setSearchOpen((open) => !open)
+                    if (searchOpen) setQuery('')
+                  }}
+                >
+                  <Search size={13} aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-6 text-text-faint"
+                  title={allFolded ? 'Expand every branch' : 'Fold every branch'}
+                  disabled={!anyFoldable}
+                  // Both directions write EXPLICIT values for every foldable
+                  // branch: "expand everything" that merely cleared the map would
+                  // leave the one-session tasks closed by the default rule, which
+                  // is not what the control says.
+                  onClick={() =>
+                    setFolds(
+                      new Map(
+                        foldable.map((row): [string, FoldState] => [
+                          row.issue.id,
+                          allFolded ? 'open' : 'closed',
+                        ]),
+                      ),
+                    )
+                  }
+                >
+                  {allFolded ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
+                </Button>
+              </div>
             </div>
-          )}
+            {searchOpen && (
+              <div
+                className="relative flex h-8 flex-none items-center gap-2 border-b border-hairline-soft pr-2"
+                style={{ paddingLeft: GUTTER }}
+              >
+                <Search size={13} aria-hidden="true" className="flex-none text-text-faint" />
+                <input
+                  // biome-ignore lint/a11y/noAutofocus: the field exists only while searching
+                  autoFocus
+                  type="text"
+                  value={query}
+                  placeholder="Task, session, agent or ref"
+                  aria-label="Search this mission"
+                  className="shell-type-secondary min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-text-faint"
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Escape') return
+                    setQuery('')
+                    setSearchOpen(false)
+                  }}
+                />
+                {query && (
+                  <button
+                    data-pressable
+                    type="button"
+                    className="flex-none text-text-faint hover:text-text-strong"
+                    aria-label="Clear search"
+                    onClick={() => setQuery('')}
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           {/* Each task block owns a small trailing gap. Because the guide rails
               cross the whole block, the spacing separates issue groups without
               breaking the tree into disconnected fragments. */}
@@ -3593,10 +3628,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               `deck-rows` is the query container for every agent row, so nested
               rows do not switch early merely because their branch indent made
               them a few pixels narrower. One panel width means one scan rhythm. */}
-          <div
-            className="deck-rows min-h-0 flex-1 overflow-y-auto pb-1.5 pr-2"
-            data-testid="flight-deck-rows"
-          >
+          <div className="deck-rows flex-none pb-1.5 pr-2" data-testid="flight-deck-rows">
             {/* WHERE THE SPINE STARTS (POD-1306). The list's own top padding is
                 the first six pixels of the line, so the tree opens with a rail
                 rather than with an elbow arriving out of nothing. Everything
@@ -3729,6 +3761,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                       selected={focused === row.issue.id}
                       onSelect={(permanent) => selectIssue(row, permanent)}
                       onMenu={(event) => openIssueMenu(row.issue.id, event)}
+                      onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
                     />
                   ))}
                 </div>

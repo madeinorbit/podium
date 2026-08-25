@@ -20,6 +20,7 @@ export default defineConfig({
     environment: 'happy-dom',
     include: [
       'src/perf/large-state.frontend-perf.tsx',
+      'src/perf/responsive-filtering.frontend-perf.tsx',
       'src/perf/scoped-session-render.test.tsx',
       'src/features/issues/IssuesKanban.test.tsx',
     ],

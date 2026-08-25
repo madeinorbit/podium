@@ -15,34 +15,30 @@ vi.mock('@podium/client-core/react', async () =>
   (await import('./test-support/presence-mock')).presenceSeamStub(),
 )
 
-vi.mock('@podium/terminal-client', async (orig) => {
-  const real = (await orig()) as Record<string, unknown>
-  return {
-    ...real,
-    mountSession: () => ({
-      connection: {
-        state: () => ({ role: 'controller' }),
-        sendInput: vi.fn(),
-        requestControl: vi.fn(),
-      },
-      view: {
-        setFileLinks: vi.fn(),
-        setAppearance: vi.fn(),
-        setRefLinks: vi.fn(),
-        onScroll: () => () => {},
-        atBottom: () => true,
-        focus: vi.fn(),
-        screenText: () => '',
-        scrollToBottom: vi.fn(),
-        requestPaste: vi.fn(),
-        fit: () => null,
-      },
-      setActive: vi.fn(),
+vi.mock('@podium/terminal-client/session-mount', () => ({
+  mountSession: () => ({
+    connection: {
+      state: () => ({ role: 'controller' }),
+      sendInput: vi.fn(),
+      requestControl: vi.fn(),
+    },
+    view: {
+      setFileLinks: vi.fn(),
       setAppearance: vi.fn(),
-      dispose: vi.fn(),
-    }),
-  }
-})
+      setRefLinks: vi.fn(),
+      onScroll: () => () => {},
+      atBottom: () => true,
+      focus: vi.fn(),
+      screenText: () => '',
+      scrollToBottom: vi.fn(),
+      requestPaste: vi.fn(),
+      fit: () => null,
+    },
+    setActive: vi.fn(),
+    setAppearance: vi.fn(),
+    dispose: vi.fn(),
+  }),
+}))
 
 vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
@@ -55,7 +51,7 @@ let storeSessions: SessionMeta[] = []
 const fakeHub = { subscribeTranscript: (): (() => void) => () => {} }
 const fakeTrpc = {
   settings: {
-    get: { query: vi.fn(async () => ({ sessionDefaults: { startScreen: 'native' as const } })) },
+    get: { query: vi.fn(async () => ({ roles: { coding: { startScreen: 'native' as const } } })) },
   },
 }
 const stableStoreFns = {

@@ -1,5 +1,5 @@
 <h1 align="center" style="text-align:center">
-  <img src="apps/desktop/src-tauri/icons/128x128@2x.png" alt="Podium ADE logo" width="56" align="middle">&nbsp;Podium ADE
+  <img src="apps/desktop/src-tauri/icons/128x128@2x.png" alt="Podium ADE logo" width="56" align="absmiddle">&nbsp;Podium ADE
 </h1>
 
 <p align="center" style="text-align:center"><strong>Ship more, better.</strong></p>

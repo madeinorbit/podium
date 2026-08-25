@@ -1,5 +1,13 @@
-import { type ArtifactId, asArtifactId, asSessionId, type IssuePanelArtifact, type IssueWire, type SessionMeta, type SessionOffer } from '@podium/model'
-import { act } from 'react'
+import {
+  type ArtifactId,
+  asArtifactId,
+  asSessionId,
+  type IssuePanelArtifact,
+  type IssueWire,
+  type SessionMeta,
+  type SessionOffer,
+} from '@podium/model'
+import { act, Profiler, useRef, useSyncExternalStore } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
@@ -11,11 +19,52 @@ import { OfferArtifactStrip } from './OfferArtifactStrip'
 const openArtifact = vi.fn()
 const openFileInWorktree = vi.fn()
 let issues: IssueWire[] = []
+let publication = 0
+const storeListeners = new Set<() => void>()
+let storeSnapshot = {
+  httpOrigin: 'http://h',
+  openArtifact,
+  openFileInWorktree,
+  publication,
+}
+
+function useTestStoreSelector<T>(
+  selector: (store: typeof storeSnapshot) => T,
+  isEqual: (left: T, right: T) => boolean = Object.is,
+): T {
+  const selectorRef = useRef(selector)
+  selectorRef.current = selector
+  const equalityRef = useRef(isEqual)
+  equalityRef.current = isEqual
+  const cache = useRef<{ snapshot: typeof storeSnapshot; selected: T } | null>(null)
+
+  return useSyncExternalStore(
+    (listener) => {
+      storeListeners.add(listener)
+      return () => storeListeners.delete(listener)
+    },
+    () => {
+      if (cache.current?.snapshot === storeSnapshot) return cache.current.selected
+      const next = selectorRef.current(storeSnapshot)
+      const selected =
+        cache.current && equalityRef.current(cache.current.selected, next)
+          ? cache.current.selected
+          : next
+      cache.current = { snapshot: storeSnapshot, selected }
+      return selected
+    },
+  )
+}
+
+function publishUnchangedSelection(): void {
+  publication++
+  storeSnapshot = { ...storeSnapshot, publication }
+  for (const listener of storeListeners) listener()
+}
 
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => issues,
-  useStoreSelector: (sel: (s: unknown) => unknown) =>
-    sel({ issues, httpOrigin: 'http://h', openArtifact, openFileInWorktree }),
+  useStoreSelector: useTestStoreSelector,
 }))
 
 const art = (path: string, addedAt: string, artifactId?: ArtifactId): IssuePanelArtifact => ({
@@ -51,6 +100,8 @@ beforeEach(() => {
   root = createRoot(container)
   openArtifact.mockClear()
   openFileInWorktree.mockClear()
+  publication = 0
+  storeSnapshot = { httpOrigin: 'http://h', openArtifact, openFileInWorktree, publication }
 })
 
 afterEach(() => {
@@ -59,6 +110,29 @@ afterEach(() => {
 })
 
 describe('OfferArtifactStrip [POD-120]', () => {
+  it('does not rerender when a store publication leaves its selected fields unchanged', () => {
+    issues = [makeIssue([art('shot.png', '2026-07-21T09:00:00.000Z')])]
+    let updates = 0
+    act(() =>
+      root.render(
+        <Profiler
+          id="offer-artifacts"
+          onRender={(_id, phase) => {
+            if (phase === 'update') updates++
+          }}
+        >
+          <OfferArtifactStrip offer={offerWith(['shot.png'])} session={session} />
+        </Profiler>,
+      ),
+    )
+    const updatesBeforePublication = updates
+
+    act(() => publishUnchangedSelection())
+
+    expect(updates).toBe(updatesBeforePublication)
+    expect(container.querySelector('[data-testid="offer-artifacts"]')).not.toBeNull()
+  })
+
   it('shows at most 3 thumbnails plus a +N chip', () => {
     issues = [
       makeIssue(

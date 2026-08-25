@@ -5,12 +5,9 @@ import {
   hostLoadView,
   hostMemoryView,
   idleSessionSplit,
-  listReclaimableWorktreesClient,
-  occupiedRootsFromKey,
   panelLabel,
-  placeReclaimable,
+  reclaimSpaceLabel,
   residencyBreakdown,
-  residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
 import type {
   AgentMemoryWire,
@@ -21,12 +18,13 @@ import type {
 } from '@podium/model/browser'
 import { Loader2 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useMemo, useState } from 'react'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useEffect, useState } from 'react'
+import { useStoreSelector } from '@/app/store'
 import { cn } from '@/lib/utils'
 import { HealthPopoverFooter } from './HealthPopover'
 import { useHostLifecycleSettings } from './host-lifecycle-settings'
 import { SEVERITY, TONE_KEY } from './severity'
+import { useReclaimInventory } from './use-reclaim-inventory'
 
 interface Breakdown {
   hostname: string
@@ -49,7 +47,8 @@ const REFRESH_MS = 5_000
  *
  * The per-process breakdown (a /proc walk) is fetched once the panel opens and
  * refreshed every 5s only while it stays open — same cadence the old modal used.
- * Reclaimable inventory is derived client-side (no du probe; count only).
+ * Reclaim inventory is server-authoritative; its slow hardlink-aware disk walk
+ * is backgrounded and polled until cached bytes arrive.
  */
 export function LoadPanel({
   machineId,
@@ -74,7 +73,6 @@ export function LoadPanel({
     }),
     shallowEqual,
   )
-  const issues = useReplicaIssues()
   const lifecycle = useHostLifecycleSettings()
   const hibernation = lifecycle?.hibernation ?? null
   const worktreeGc = lifecycle?.worktreeGc ?? null
@@ -117,24 +115,10 @@ export function LoadPanel({
       : null
   const load = metric ? hostLoadView(metric, hibernation?.loadPerCore ?? null) : null
   const idleSplit = idleSessionSplit(sessions, machineId)
-  const afterDays = worktreeGc?.afterDays ?? 14
-  // Keyed on live-agent occupancy, not the sessions array — see the same memo in
-  // HeaderHostIndicators. The panel refreshes its /proc breakdown every 5s; the
-  // candidate scan has no reason to follow that cadence.
-  const occupancyKey = residentWorktreeKey(sessions)
-  const soleMachine = hostMetrics.length === 1
-  const reclaimable = useMemo(
-    () =>
-      placeReclaimable(
-        listReclaimableWorktreesClient({
-          issues,
-          occupiedRoots: occupiedRootsFromKey(occupancyKey),
-          afterDays,
-        }),
-        { machineId, soleMachine },
-      ),
-    [issues, occupancyKey, afterDays, machineId, soleMachine],
-  )
+  const { inventory: reclaimable } = useReclaimInventory(trpc, machineId)
+  const reclaimCount = reclaimable?.candidates.length ?? 0
+  const orphanCount = reclaimable?.orphans.length ?? 0
+  const reclaimLabel = reclaimSpaceLabel(reclaimable?.estimate ?? null)
 
   const total = data?.memory.totalBytes ?? 0
   const agentBytes = data?.agents.reduce((sum, a) => sum + a.bytes, 0) ?? 0
@@ -315,10 +299,12 @@ export function LoadPanel({
             <div className="hp-kv">
               <span className="hp-kv-key">Worktrees</span>
               <span className="hp-kv-value">
-                {reclaimable.here.length} checkout{reclaimable.here.length === 1 ? '' : 's'}
-                {reclaimable.unplaceable > 0 ? ` · ${reclaimable.unplaceable} unplaced` : ''}
+                {reclaimable
+                  ? `${reclaimCount} checkout${reclaimCount === 1 ? '' : 's'} · ${reclaimLabel}`
+                  : 'Counting checkouts…'}
+                {orphanCount > 0 ? ` · ${orphanCount} unowned` : ''}
               </span>
-              {onOpenReclaim && reclaimable.here.length > 0 && (
+              {onOpenReclaim && reclaimCount + orphanCount > 0 && (
                 <button data-pressable type="button" className="hp-link" onClick={onOpenReclaim}>
                   Review
                 </button>

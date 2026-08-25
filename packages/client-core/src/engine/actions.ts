@@ -83,7 +83,6 @@ export const UI_LOCAL_ACTIONS = [
   'setSelectedIssueId',
   'setPane',
   'setFocusedPane',
-  'setSplitEnabled',
   'openSessionTab',
   'openTabInWorkspace',
   'promoteWorkspaceTab',
@@ -180,7 +179,6 @@ type ActionState = {
   paneB: SessionId | null
   split: boolean
   focusedPane: 'A' | 'B'
-  splitEnabled: boolean
   panelMode: Record<string, 'chat' | 'native'>
   dockShells: Record<string, SessionId>
   dockVisibleSession: string | null
@@ -597,10 +595,6 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     focusWorkspacePane: (paneId) => editWorkspace((ws) => focusPane(ws, paneId)),
     resizeWorkspaceSplit: (path, sizes) => editWorkspace((ws) => resizeSplit(ws, path, sizes)),
     setFocusedPane: (focusedPane) => rt.apply({ focusedPane }),
-    // The view telling the engine what it renders — see EngineState.splitEnabled.
-    // Explicit and typed on purpose: the engine never reads a feature flag, and
-    // "every leaf is on screen" is an assumption it is not entitled to make.
-    setSplitEnabled: (splitEnabled) => rt.apply({ splitEnabled }),
     navigateToSession,
     /**
      * LAND ON THE SESSION A LAUNCH JUST STARTED (POD-1202).

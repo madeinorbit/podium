@@ -27,6 +27,7 @@ const EXCEPTIONS: Record<string, Record<string, string>> = {
   worklist: {
     issues: 'sidebar composes issue nav inline (context menu, status icon, new-issue, hierarchy)',
     machines: 'sidebar mounts the HostIndicators strip',
+    'mobile-handoff': 'sidebar mounts the earned, dismissible phone handoff card on its floor',
     // `setup` is GONE, not forgotten: 32417dfb8 took the last worklist -> setup
     // import with it, and this list is asserted to match what is actually
     // imported, so a seam that closed has to be struck off here or it reads as
@@ -34,12 +35,13 @@ const EXCEPTIONS: Record<string, Record<string, string>> = {
   },
   chat: { git: 'a file tool-use opens its changes in the git DiffSheet (POD-993)' },
   terminal: { chat: 'agent pane embeds the chat surface' },
-  issues: { chat: 'issue and session rows embed the chat OfferBar' },
   superagent: { chat: 'superagent thread is a chat surface' },
   settings: {
     setup: 'settings reuses the SetupView form',
     terminal: 'appearance section edits the terminal appearance store (dc7e248)',
+    updates: 'settings renders update audit copy from the updater operation view model',
   },
+  setup: { chat: 'the first-task composer reuses chat attachment state and rendering' },
 }
 
 const walk = (dir: string): string[] =>

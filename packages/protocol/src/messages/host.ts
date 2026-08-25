@@ -110,6 +110,24 @@ export const MemoryBreakdownResultMessage = z.object({
   otherBytes: z.number().int().nonnegative(),
 })
 
+// A potentially multi-minute inode walk. The server derives both sets from
+// registered repositories plus git's worktree registry; a web caller cannot
+// point the daemon at an arbitrary path.
+export const ReclaimDiskEstimateRequestMessage = z.object({
+  type: z.literal('reclaimDiskEstimateRequest'),
+  requestId: z.string(),
+  roots: z.array(z.string()),
+  reclaimRoots: z.array(z.string()),
+})
+
+export const ReclaimDiskEstimateResultMessage = z.object({
+  type: z.literal('reclaimDiskEstimateResult'),
+  requestId: z.string(),
+  recoverableBytes: z.number().int().nonnegative().optional(),
+  measuredAt: z.string().optional(),
+  error: z.string().optional(),
+})
+
 // Token-usage harvest from harness transcripts (ccusage-style, in-house so it
 // feeds the same wire). Hourly buckets keep the payload small while supporting
 // 5h/weekly windows and per-day analytics.

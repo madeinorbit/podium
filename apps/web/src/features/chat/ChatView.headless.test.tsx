@@ -10,6 +10,7 @@ import type { HeadlessActivityEvent } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import './test-support/client-core-mock'
 
 // ---------------------------------------------------------------------------
 // ChatView HEADLESS mode (concierge unification, Phase C): overlay row
@@ -193,9 +194,11 @@ describe('ChatView headless mode', () => {
         })
     })
     expect(overlayEl()).toBeNull()
-    // A later status frame mid-turn shows the status overlay…
+    // A later status frame mid-turn shows in the permanent tail…
     push({ kind: 'status', status: 'tool', label: 'Bash' })
-    expect(overlayEl()?.textContent).toContain('running Bash…')
+    expect(container.querySelector('[data-testid="feed-tail"]')?.textContent).toContain(
+      'running Bash',
+    )
     // …and turn-end clears everything.
     push({ kind: 'turn-end' })
     expect(overlayEl()).toBeNull()

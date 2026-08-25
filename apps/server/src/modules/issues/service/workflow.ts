@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import {
   asMachineId,
   asUserId,
@@ -6,14 +7,13 @@ import {
   type IssueWire,
   isIssueStage,
   isSystemOwnedIssueStage,
+  type MachineId,
   type SessionId,
   type SessionMeta,
   spawnedByTag,
-  type MachineId,
 } from '@podium/model'
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import { createLogger } from '@podium/logger'
 import { type CommandPrincipal, systemPrincipal } from '../../../command-principal'
 import { sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
@@ -29,6 +29,7 @@ import { IssueEpicIntegrationModule } from './integration'
 import type { IssueCommentsMailModule } from './mail'
 import type { CreateIssueInput } from './types'
 import { IssueWorktreeGcModule } from './worktree-gc'
+import { parseGitWorktreeList, sameWorktreePath } from './worktree-safety'
 
 const log = createLogger('server:issues')
 
@@ -603,6 +604,90 @@ export class IssueGitWorkflowModule {
    * A caller with a human behind it (CLI stop) has no job to name and keeps
    * `stop`, which is the only path that ever meant it.
    */
+  private isRegisteredRepoRoot(row: IssueRow, path: string): boolean {
+    return this.store.d.store.repos
+      .listRepos(row.machineId ?? undefined)
+      .some((repo) => sameWorktreePath(repo.path, path))
+  }
+
+  private async inspectRemovableWorktree(
+    row: IssueRow,
+    worktreePath: string,
+  ): Promise<
+    { ok: true; branch: string | null; head: string | null } | { ok: false; output: string }
+  > {
+    if (this.isRegisteredRepoRoot(row, worktreePath)) {
+      return {
+        ok: false,
+        output: `refusing removal: ${worktreePath} is a registered repository root`,
+      }
+    }
+    const machineId = row.machineId ?? undefined
+    const listed = await this.store.d.repoOp('worktreeList', row.repoPath, undefined, machineId)
+    if (!listed.ok) {
+      return {
+        ok: false,
+        output: `refusing removal: cannot inspect git worktree registry: ${listed.output}`,
+      }
+    }
+    const worktrees = parseGitWorktreeList(listed.output)
+    const primary = worktrees[0]
+    if (primary && sameWorktreePath(primary.path, worktreePath)) {
+      return {
+        ok: false,
+        output: `refusing removal: ${worktreePath} is git's primary working tree`,
+      }
+    }
+    const registered = worktrees.find((entry) => sameWorktreePath(entry.path, worktreePath))
+    if (!registered) {
+      return {
+        ok: false,
+        output: `refusing removal: ${worktreePath} is not registered as a linked git worktree`,
+      }
+    }
+
+    if (!row.branch && registered.branch) {
+      row.branch = registered.branch
+      this.store.persistRow(row)
+    }
+    if (row.branch) return { ok: true, branch: row.branch, head: registered.head }
+
+    if (!registered.detached || !registered.head) {
+      return {
+        ok: false,
+        output: 'refusing removal: worktree has neither a branch nor a readable detached HEAD',
+      }
+    }
+    const unreachable = await this.store.d.repoOp(
+      'revListUnreachableCount',
+      worktreePath,
+      { head: registered.head },
+      machineId,
+    )
+    if (!unreachable.ok) {
+      return {
+        ok: false,
+        output: `refusing removal: cannot prove detached HEAD is reachable elsewhere: ${unreachable.output}`,
+      }
+    }
+    const count = Number.parseInt(unreachable.output.trim(), 10)
+    if (!Number.isSafeInteger(count) || count < 0) {
+      return {
+        ok: false,
+        output: `refusing removal: invalid unreachable-commit count '${unreachable.output.trim()}'`,
+      }
+    }
+    if (count > 0) {
+      return {
+        ok: false,
+        output:
+          `refusing removal: detached HEAD carries ${count} commit${count === 1 ? '' : 's'} ` +
+          'reachable from no other ref; removing it would strand that work',
+      }
+    }
+    return { ok: true, branch: null, head: registered.head }
+  }
+
   async freeWorktreeKeepBranch(
     id: string,
     principal: CommandPrincipal,
@@ -628,13 +713,12 @@ export class IssueGitWorkflowModule {
         worktreeFreed: false,
       }
     }
-    if (!row.branch) {
-      return refuse('refusing free: worktree recorded but no branch — resolve manually')
-    }
     const worktreePath = row.worktreePath
-    const branch = row.branch
     const machineId = row.machineId ?? undefined
     // Always route git ops to the issue's machine — a remote-owned worktree must
+    if (this.isRegisteredRepoRoot(row, worktreePath)) {
+      return refuse(`refusing free: ${worktreePath} is a registered repository root`)
+    }
     // not be inspected/removed against the hub's local path [spec:SP-9904].
     const st = await this.store.d.repoOp('status', worktreePath, undefined, machineId)
     // Already gone on disk — clear the path of record, keep the branch.
@@ -644,7 +728,9 @@ export class IssueGitWorkflowModule {
       this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
       return {
         ok: true,
-        output: `worktree already gone at ${worktreePath}; branch '${branch}' kept`,
+        output: row.branch
+          ? `worktree already gone at ${worktreePath}; branch '${row.branch}' kept`
+          : `worktree already gone at ${worktreePath}; cleared stale path record`,
         issue: this.store.toWire(row),
         worktreeFreed: true,
       }
@@ -652,6 +738,13 @@ export class IssueGitWorkflowModule {
     if (!st.ok) {
       return refuse(`refusing free: cannot inspect worktree: ${st.output}`)
     }
+    const authority = await this.inspectRemovableWorktree(row, worktreePath)
+    if (!authority.ok) return refuse(`refusing free: ${authority.output}`)
+    const branch = authority.branch
+    const kept = branch
+      ? `branch '${branch}' kept for resume/inspect`
+      : `detached HEAD ${authority.head} already protected by another ref`
+
     const dirty = st.output.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('## '))
     if (dirty.length > 0 && !opts?.force) {
       return refuse(
@@ -674,7 +767,7 @@ export class IssueGitWorkflowModule {
     const issue = this.commentsMail().addComment(
       row.id,
       `system:${job}`,
-      `${job}: freed worktree ${worktreePath}; branch '${branch}' kept for resume/inspect`,
+      `${job}: freed worktree ${worktreePath}; ${kept}`,
       principal,
     )
     this.store.emitEvent('issue.worktree_freed', row.id, {
@@ -686,7 +779,7 @@ export class IssueGitWorkflowModule {
     })
     return {
       ok: true,
-      output: `freed ${worktreePath}; branch '${branch}' kept`,
+      output: `freed ${worktreePath}; ${kept}`,
       issue,
       worktreeFreed: true,
     }
@@ -696,8 +789,8 @@ export class IssueGitWorkflowModule {
     return this.worktreeGc.releaseWorktreeIfIdle(id, principal)
   }
 
-  listReclaimableWorktrees(nowMs: number = Date.now()) {
-    return this.worktreeGc.listReclaimableWorktrees(nowMs)
+  listReclaimableWorktrees(nowMs: number = Date.now(), machineId?: MachineId) {
+    return this.worktreeGc.listReclaimableWorktrees(nowMs, machineId)
   }
 
   releaseReclaimableWorktrees(principal: CommandPrincipal, nowMs: number = Date.now()) {
@@ -821,8 +914,7 @@ export class IssueGitWorkflowModule {
     // this issue's branch (POD-1898): adopt it rather than refusing a resume over a
     // working copy that is right there. Anything else at that path still fails.
     const adopted =
-      !res.ok &&
-      (await this.worktreeAlreadyThere(res.output, path, row.branch, worktreeMachineId))
+      !res.ok && (await this.worktreeAlreadyThere(res.output, path, row.branch, worktreeMachineId))
     if (!res.ok && !adopted) {
       return {
         ok: false,
@@ -883,6 +975,7 @@ export class IssueGitWorkflowModule {
     principal: CommandPrincipal,
   ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
     const row = this.store.rowOrThrow(id)
+    const machineId = row.machineId ?? undefined
     const refuse = (output: string): { ok: boolean; output: string; issue: IssueWire } => ({
       ok: false,
       output,
@@ -901,16 +994,18 @@ export class IssueGitWorkflowModule {
     if (!row.worktreePath && row.branch) {
       // Retry path after a partial cleanup: re-verify ancestry, then delete.
       const branch = row.branch
-      const merged = await this.store.d.repoOp('isMergedInto', row.repoPath, {
-        branch,
-        parentBranch: row.parentBranch,
-      })
+      const merged = await this.store.d.repoOp(
+        'isMergedInto',
+        row.repoPath,
+        { branch, parentBranch: row.parentBranch },
+        machineId,
+      )
       if (!merged.ok) {
         return refuse(
           `refusing cleanup: branch '${branch}' is not fully merged into '${row.parentBranch}'${merged.output ? ` (${merged.output})` : ''}`,
         )
       }
-      const bd = await this.store.d.repoOp('branchDelete', row.repoPath, { branch })
+      const bd = await this.store.d.repoOp('branchDelete', row.repoPath, { branch }, machineId)
       if (!bd.ok) return refuse(this.branchDeleteRefusal(branch, row.parentBranch, bd.output))
       row.branch = null
       this.store.persistRow(row)
@@ -923,33 +1018,32 @@ export class IssueGitWorkflowModule {
       this.store.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath: null, branch })
       return { ok: true, output: `deleted branch ${branch}`, issue }
     }
-    if (!row.branch) {
-      // Worktree recorded but no branch — shouldn't happen via our flows; refuse
-      // rather than guess (removing a worktree whose branch we can't verify).
-      return refuse('refusing cleanup: worktree recorded but no branch — resolve manually')
-    }
     const worktreePath = row.worktreePath as string
-    const branch = row.branch
+    if (this.isRegisteredRepoRoot(row, worktreePath)) {
+      return refuse(`refusing cleanup: ${worktreePath} is a registered repository root`)
+    }
+    const recordedBranch = row.branch
     // (c) worktree gone on disk (deleted out-of-band) → reconcile the columns
     //     and report; nothing destructive to run. STRICT ENOENT match only:
     //     `git -C <missing>` fails "cannot change to '<p>': No such file or
     //     directory". EACCES ("Permission denied") or "not a working tree"
     //     (files still on disk) must REFUSE, not clear a live worktree's columns.
-    const st = await this.store.d.repoOp('status', worktreePath)
+    const st = await this.store.d.repoOp('status', worktreePath, undefined, machineId)
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
       row.worktreePath = null
       row.branch = null
       this.store.persistRow(row)
+      this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
       const issue = this.commentsMail().addComment(
         row.id,
         'system:cleanup',
-        `cleanup: worktree ${worktreePath} already gone; cleared recorded worktree/branch (${branch})`,
+        `cleanup: worktree ${worktreePath} already gone; cleared recorded worktree/branch (${recordedBranch ?? 'none'})`,
         principal,
       )
       this.store.emitEvent('issue.cleaned', row.id, {
         seq: row.seq,
         worktreePath,
-        branch,
+        branch: recordedBranch,
         alreadyGone: true,
       })
       return { ok: true, output: `already gone: ${worktreePath} (columns cleared)`, issue }
@@ -960,17 +1054,25 @@ export class IssueGitWorkflowModule {
         : ''
       return refuse(`refusing cleanup: cannot inspect worktree: ${st.output}${hint}`)
     }
+    const authority = await this.inspectRemovableWorktree(row, worktreePath)
+    if (!authority.ok) return refuse(`refusing cleanup: ${authority.output}`)
+    const branch = authority.branch
+
     // (d) branch must be fully merged into the parent branch. Read-only ancestry
     //     check against the repo ROOT's ref database — exit 1 (not an ancestor)
     //     and any error both refuse.
-    const merged = await this.store.d.repoOp('isMergedInto', row.repoPath, {
-      branch,
-      parentBranch: row.parentBranch,
-    })
-    if (!merged.ok) {
-      return refuse(
-        `refusing cleanup: branch '${branch}' is not fully merged into '${row.parentBranch}'${merged.output ? ` (${merged.output})` : ''}`,
+    if (branch) {
+      const merged = await this.store.d.repoOp(
+        'isMergedInto',
+        row.repoPath,
+        { branch, parentBranch: row.parentBranch },
+        machineId,
       )
+      if (!merged.ok) {
+        return refuse(
+          `refusing cleanup: branch '${branch}' is not fully merged into '${row.parentBranch}'${merged.output ? ` (${merged.output})` : ''}`,
+        )
+      }
     }
     // (e) worktree must be clean (porcelain lines beyond the `## branch` header = dirty).
     const dirty = st.output.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('## '))
@@ -978,12 +1080,37 @@ export class IssueGitWorkflowModule {
       return refuse(`refusing cleanup: worktree has uncommitted changes:\n${dirty.join('\n')}`)
     }
     // Remove the worktree (non-forcing; git may still refuse and we surface it).
-    const wr = await this.store.d.repoOp('worktreeRemove', row.repoPath, { path: worktreePath })
+    const wr = await this.store.d.repoOp(
+      'worktreeRemove',
+      row.repoPath,
+      { path: worktreePath },
+      machineId,
+    )
     if (!wr.ok) return refuse(`worktree remove failed: ${wr.output}`)
     row.worktreePath = null
     this.store.persistRow(row) // columns reflect reality even if branch delete refuses below
+    this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
+    if (!branch) {
+      const issue = this.commentsMail().addComment(
+        row.id,
+        'system:cleanup',
+        `cleanup: removed detached worktree ${worktreePath}; HEAD ${authority.head} remains reachable from another ref`,
+        principal,
+      )
+      this.store.emitEvent('issue.cleaned', row.id, {
+        seq: row.seq,
+        worktreePath,
+        branch: null,
+        detachedHead: authority.head,
+      })
+      return {
+        ok: true,
+        output: `removed detached worktree ${worktreePath}; HEAD remains protected`,
+        issue,
+      }
+    }
     // Delete the branch (-d only; git refuses unmerged as a belt-and-braces guard).
-    const bd = await this.store.d.repoOp('branchDelete', row.repoPath, { branch })
+    const bd = await this.store.d.repoOp('branchDelete', row.repoPath, { branch }, machineId)
     if (!bd.ok) {
       const why = this.branchDeleteRefusal(branch, row.parentBranch, bd.output)
       const issue = this.commentsMail().addComment(

@@ -8,6 +8,7 @@ import {
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import './test-support/client-core-mock'
 
 // ---------------------------------------------------------------------------
 // ChatView offline-copy path (docs/spec/thin-client-replica.md §2.3): a failed

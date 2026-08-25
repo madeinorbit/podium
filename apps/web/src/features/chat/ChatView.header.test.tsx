@@ -8,6 +8,7 @@ import {
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import './test-support/client-core-mock'
 
 /**
  * THE RECLAIMED HEADER (POD-413).
@@ -112,8 +113,8 @@ vi.mock('@/lib/voice', () => ({
 }))
 vi.mock('@/lib/markdown', () => ({
   renderMarkdown: (t: string) => `<p>${t}</p>`,
-  isKnownRefPrefix: () => true,
 }))
+vi.mock('@/lib/markdown-references', () => ({ isKnownRefPrefix: () => true }))
 
 const { ChatView } = await import('./ChatView')
 

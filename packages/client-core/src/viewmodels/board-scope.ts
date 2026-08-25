@@ -1,4 +1,4 @@
-import { isSystemOwnedIssueStage, type IssueWire } from '@podium/model'
+import { type IssueWire, isSystemOwnedIssueStage } from '@podium/model'
 
 /**
  * Board/list scope filter (issue-as-workspace): drafts and internal
@@ -9,18 +9,23 @@ import { isSystemOwnedIssueStage, type IssueWire } from '@podium/model'
  *
  * A DRAFT issue is the vessel a bare session lives in until it is given a real
  * title — a session container, not work. It has always been off the desktop
- * board; the phone board derives from this same function so the two agree
- * (POD-338).
+ * board; the phone board and the right dock's issue explorer derive from this
+ * same function so all three agree (POD-338, POD-1581). The explorer listed the
+ * vessels for a while, and a row reading `Draft` with no description was the one
+ * place in the product where a bare agent posed as a task.
  *
  * Keys on `audience` (who the issue is FOR, #198 [spec:SP-a859]), NOT `origin`:
  * an agent acting for the human can cut a human-audience issue that belongs on the
  * board, and the human's own quick note to an agent can be internal.
  */
-export function filterBoardScope(issues: IssueWire[], showAgentTasks: boolean): IssueWire[] {
+export function filterBoardScope<T extends IssueWire>(
+  issues: readonly T[],
+  showAgentTasks: boolean,
+): T[] {
   const noDrafts = issues.filter((i) => !i.draft || !!i.deletedAt)
   if (showAgentTasks) return noDrafts
   const byId = new Map(noDrafts.map((i) => [i.id, i]))
-  const topLevelVisible = (i: IssueWire): boolean => !!i.deletedAt || i.audience !== 'agent'
+  const topLevelVisible = (i: T): boolean => !!i.deletedAt || i.audience !== 'agent'
   return noDrafts.filter((i) => {
     if (topLevelVisible(i)) return true
     // Internal (audience: agent): keep only when some ancestor chain reaches a

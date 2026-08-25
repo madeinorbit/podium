@@ -153,7 +153,6 @@ const E2E_FEATURES = {
   'command-palette': true,
   'git-panel': true,
   'messages-panel': true,
-  'tab-splitting': true,
   'session-handoff': true,
   workflows: true,
   specs: true,

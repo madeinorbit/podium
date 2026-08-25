@@ -219,6 +219,18 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       if (bad) return { error: bad }
       return { bin: 'git', argv: ['fetch', '--', bundle, ref] }
     }
+    case 'worktreeList':
+      return { bin: 'git', argv: ['worktree', 'list', '--porcelain', '-z'] }
+    case 'revListUnreachableCount': {
+      const { head } = args
+      if (!head) return { error: 'missing args' }
+      const bad = assertSafeRef(head, 'head')
+      if (bad) return { error: bad }
+      return {
+        bin: 'git',
+        argv: ['rev-list', '--count', head, '--not', '--glob=refs/*'],
+      }
+    }
     case 'worktreeAdd': {
       // Options before `--`; path + optional startPoint ride after it as
       // guaranteed positionals. The -b value is an option argument `--` cannot

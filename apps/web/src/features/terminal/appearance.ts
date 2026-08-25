@@ -1,12 +1,9 @@
-// Deep import on purpose: terminal-view depends only on xterm, while the
-// package index drags in the connection/protocol chain this pure module
-// (and its tests) don't need.
 import {
   DEFAULT_FONT_SIZE,
   DEFAULT_LINE_HEIGHT,
   DEFAULT_THEME,
   type TerminalAppearance,
-} from '@podium/terminal-client/terminal-view'
+} from '@podium/terminal-client/appearance'
 import { FLOW_SLATE } from '@/lib/issueColors'
 /**
  * Per-device terminal appearance (font size/family, line height, background)

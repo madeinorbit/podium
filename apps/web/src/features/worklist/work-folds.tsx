@@ -8,10 +8,11 @@ import {
 import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Archive, ChevronRight, Pin } from 'lucide-react'
-import { motion, useReducedMotion } from 'motion/react'
+import * as m from 'motion/react-m'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useId, useRef, useState } from 'react'
 import { type RowTransitionItem, useArrivals } from '@/lib/motion'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import { closedFoldKey, snoozedFoldKey } from './fold-keys'
 import { useCollapsed } from './sidebar-common'
@@ -256,13 +257,13 @@ const FOLD_OUT = {
 
 /**
  * NO `AnimatePresence` (POD-1253). The obvious spelling of this is
- * `<AnimatePresence>{open && <motion.div exit=… />}</AnimatePresence>`, and it
+ * `<AnimatePresence>{open && <m.div exit=… />}</AnimatePresence>`, and it
  * cost 27KB of eager source — enough to push the web bundle through its ratchet
  * (7,613,223 against a 7,600,000 ceiling), for one component's exit. The
  * repository's own precedent is to pay the eager bundle down rather than raise
  * the ratchet, so the presence machinery is replaced by the two lines it is
  * doing here: keep the subtree mounted while it plays its exit, drop it when the
- * exit lands. `motion.div` itself is already in this bundle several times over.
+ * exit lands. The shared lazy Motion boundary already supplies `m.div`.
  */
 export function FoldPanel({
   open,
@@ -295,7 +296,7 @@ export function FoldPanel({
   settled.current = true
   if (!rendered) return null
   return (
-    <motion.div
+    <m.div
       id={id}
       data-testid={testId}
       data-drag-scope={dragScope}
@@ -314,7 +315,7 @@ export function FoldPanel({
       }}
     >
       {children}
-    </motion.div>
+    </m.div>
   )
 }
 

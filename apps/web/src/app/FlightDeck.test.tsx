@@ -14,6 +14,7 @@ import {
 } from './FlightDeck'
 import { OperatorFocusProvider } from './operator-focus'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
+import { REVEAL_IN_DECK_EVENT } from './shell-state'
 
 /**
  * The deck's own click grammar and fold defaults (POD-710 §4.1–4.4).
@@ -39,6 +40,7 @@ const harness = vi.hoisted(() => ({
   setPanelMode: vi.fn(),
   setSelectedIssueId: vi.fn(),
   setIssueTucked: vi.fn(async () => undefined),
+  updateIssue: vi.fn(async (_id: string, _patch: unknown) => undefined),
   closeIssue: vi.fn(async (_id: string, _reason?: string) => undefined),
   ui: new Map<string, string>(),
   listeners: new Set<() => void>(),
@@ -90,7 +92,7 @@ vi.mock('./store', () => ({
       setView: vi.fn(),
       markIssueRead: vi.fn(async () => undefined),
       markIssueUnread: vi.fn(async () => undefined),
-      updateIssue: vi.fn(async () => undefined),
+      updateIssue: harness.updateIssue,
       deleteIssue: vi.fn(async () => undefined),
       closeIssue: harness.closeIssue,
       deferIssue: vi.fn(async () => undefined),
@@ -185,6 +187,7 @@ beforeEach(() => {
   harness.setPanelMode.mockClear()
   harness.setSelectedIssueId.mockClear()
   harness.setIssueTucked.mockClear()
+  harness.updateIssue.mockClear()
   harness.closeIssue.mockClear()
   harness.startIssue.mockClear()
   harness.addSession.mockClear()
@@ -349,6 +352,40 @@ describe('flight deck mission agent action', () => {
     )
     expect(harness.focusIssueSession).toHaveBeenCalledWith('root', { excludeSessionIds: [] })
     expect(harness.startIssue).not.toHaveBeenCalled()
+  })
+
+  it('adds a session even when the replica has not yet painted the worktree', async () => {
+    harness.issues = harness.issues.map((candidate) =>
+      (candidate as Issue).id === 'root'
+        ? { ...(candidate as Issue), defaultAgent: 'claude-code' }
+        : candidate,
+    )
+    deck()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex' }))
+
+    await waitFor(() =>
+      expect(harness.addSession).toHaveBeenCalledWith({ id: 'root', agentKind: 'codex' }),
+    )
+    expect(harness.startIssue).not.toHaveBeenCalled()
+  })
+
+  it('starts only when addSession says the issue has never been started', async () => {
+    harness.addSession.mockRejectedValueOnce(new Error('issue not started'))
+    harness.issues = harness.issues.map((candidate) =>
+      (candidate as Issue).id === 'root'
+        ? { ...(candidate as Issue), defaultAgent: 'claude-code' }
+        : candidate,
+    )
+    deck()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex' }))
+
+    await waitFor(() =>
+      expect(harness.startIssue).toHaveBeenCalledWith({ id: 'root', agentKind: 'codex' }),
+    )
   })
 
   it('opens the newly added agent instead of a session already on the mission', async () => {
@@ -599,6 +636,20 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     settle()
     expect(chevron('Task t2').getAttribute('aria-expanded')).toBe('true')
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: true }]])
+  })
+
+  it('changes a proposed issue from its status icon without opening the row', async () => {
+    const openPanel = vi.fn()
+    window.addEventListener('podium:open-right-panel', openPanel)
+    deck()
+
+    fireEvent.click(screen.getByLabelText('Status: Proposed'))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Backlog' }))
+    settle()
+
+    expect(harness.updateIssue).toHaveBeenCalledWith('p1', { stage: 'backlog' })
+    expect(openPanel).not.toHaveBeenCalled()
+    window.removeEventListener('podium:open-right-panel', openPanel)
   })
 })
 
@@ -931,6 +982,34 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(tree?.getAttribute('data-depth')).toBe('1')
   })
 
+  it('keeps one fixed scrollport around sticky mission chrome and growing rows', () => {
+    deck()
+
+    const scroller = screen.getByTestId('flight-deck-scroller')
+    const rows = screen.getByTestId('flight-deck-rows')
+    const chrome = scroller.querySelector('.deck-chrome')
+
+    expect(scroller.className).toContain('overflow-y-auto')
+    expect(chrome?.classList.contains('sticky')).toBe(true)
+    expect(scroller.contains(rows)).toBe(true)
+    expect(rows.className).toContain('flex-none')
+    expect(rows.className).not.toContain('overflow-y-auto')
+  })
+
+  it('reveals a session below the sticky mission chrome', () => {
+    deck()
+    const row = document.querySelector<HTMLElement>('[data-flight-session="s1"]')
+    if (!row) throw new Error('no agent row')
+    row.scrollIntoView = vi.fn()
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(REVEAL_IN_DECK_EVENT, { detail: 's1' }))
+      vi.advanceTimersByTime(20)
+    })
+
+    expect(row.scrollIntoView).toHaveBeenCalledWith({ block: 'end' })
+  })
+
   it('surfaces the archived sessions the tab strip dropped', () => {
     harness.sessions = [
       ...harness.sessions,
@@ -1259,10 +1338,13 @@ describe('flight deck spine geometry (POD-1226)', () => {
     deck()
     const row = document.querySelector<HTMLElement>('[data-flight-session="s1"]')
     if (!row) throw new Error('no agent row')
-    const tick = [...row.querySelectorAll<HTMLElement>('span[aria-hidden]')].find(
-      (el) => el.style.background === 'var(--issue)',
-    )
-    expect(tick).toBeDefined()
+    // The tick's colour moved to `.deck-mark-active` when the active and
+    // pointed marks split hues (POD-1480); its geometry — what this test is
+    // about — is still inline.
+    const tick = row.querySelector<HTMLElement>('span[aria-hidden].deck-mark-active')
+    // `not.toBeNull`, not `toBeDefined`: `querySelector` misses with null, and
+    // `expect(null).toBeDefined()` passes — the guard has to actually guard.
+    expect(tick).not.toBeNull()
     // The row's own left edge is `AGENT_INDENT` from its block; the tick sits on
     // the rail at `AGENT_RAIL`, so it stops well short of the tile.
     const left = Number.parseFloat(tick?.style.left ?? 'NaN')
@@ -1374,6 +1456,85 @@ describe('flight deck tab-strip hover link', () => {
 
     act(() => clearHoveredSession('s2'))
     expect(pointed('s2')).toBeNull()
+  })
+
+  /**
+   * TWO QUESTIONS, TWO HUES, ONE DEVICE (POD-1480). Where you ARE and where you
+   * are POINTING have to be readable at the same time and told apart at a
+   * glance — the previous 100% / 45% of one hue was neither.
+   */
+  const mark = (id: string): Element | null =>
+    document.querySelector(`[data-flight-session="${id}"] .deck-mark-active`) ??
+    document.querySelector(`[data-flight-session="${id}"] .deck-mark-pointed`)
+
+  it('marks the active row and the pointed row at once, in different hues', () => {
+    harness.paneA = 's1'
+    deck()
+
+    // The active row carries its mark with no pointer involved at all.
+    expect(mark('s1')?.className).toContain('deck-mark-active')
+    expect(mark('s2')).toBeNull()
+
+    act(() => setHoveredSession('s2'))
+
+    // Both marks stand. Neither replaces the other, and they are not the same
+    // colour class — that IS the distinction.
+    expect(mark('s1')?.className).toContain('deck-mark-active')
+    expect(mark('s2')?.className).toContain('deck-mark-pointed')
+  })
+
+  it('keeps the active mark when the pointer lands on the active row', () => {
+    harness.paneA = 's1'
+    deck()
+
+    act(() => setHoveredSession('s1'))
+
+    // You are already there, so pointing at it says nothing new: the row stays
+    // marked as active rather than downgrading to the pointed hue.
+    expect(mark('s1')?.className).toContain('deck-mark-active')
+    expect(pointed('s1')).toBe('true')
+  })
+
+  it('gives the active row a ground, so a hover cannot outrank it', () => {
+    harness.paneA = 's1'
+    deck()
+
+    const row = document.querySelector('[data-flight-session="s1"]')
+    expect(row?.className).toContain('deck-agent-active')
+
+    act(() => setHoveredSession('s2'))
+    expect(row?.className).toContain('deck-agent-active')
+  })
+
+  /**
+   * The active row may not borrow the neutral wash. `--muted` is LESS extreme
+   * than the active ground in both appearances, so a row that took it would
+   * step back under the pointer while every other row stepped forward — the
+   * defect this whole change exists to fix, relocated to the self-hover case.
+   */
+  it('does not let the neutral wash paint over the active row', () => {
+    harness.paneA = 's1'
+    deck()
+    const button = document.querySelector('[data-flight-session="s1"] button.deck-agent')
+    if (!button) throw new Error('no agent button')
+
+    // Not even at rest: the hover utility itself is withheld, because a real
+    // pointer on the row would otherwise do what the tab strip is stopped from.
+    expect(button.className).not.toContain('hover:bg-muted')
+
+    act(() => setHoveredSession('s1'))
+    expect(button.className).not.toContain('bg-muted')
+  })
+
+  /** The rows that have no ground of their own still take it, unchanged. */
+  it('still washes a pointed row that is not the active one', () => {
+    harness.paneA = 's1'
+    deck()
+    const button = document.querySelector('[data-flight-session="s2"] button.deck-agent')
+    if (!button) throw new Error('no agent button')
+
+    act(() => setHoveredSession('s2'))
+    expect(button.className).toContain('bg-muted')
   })
 })
 

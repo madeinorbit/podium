@@ -8,6 +8,7 @@ import {
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import './test-support/client-core-mock'
 
 // ---------------------------------------------------------------------------
 // A controllable fake hub + tRPC, injected via the store mock. The hub records
@@ -128,8 +129,8 @@ vi.mock('@/lib/voice', () => ({
 }))
 vi.mock('@/lib/markdown', () => ({
   renderMarkdown: (t: string) => `<p>${t}</p>`,
-  isKnownRefPrefix: () => true,
 }))
+vi.mock('@/lib/markdown-references', () => ({ isKnownRefPrefix: () => true }))
 
 const { ChatView } = await import('./ChatView')
 
@@ -683,7 +684,11 @@ describe('ChatView sending into a hibernated session', () => {
     await flush()
     await submit()
 
-    expect(storeActions.resumeAndSend).toHaveBeenCalledWith(asSessionId('s1'), 'pick this back up')
+    expect(storeActions.resumeAndSend).toHaveBeenCalledWith(
+      asSessionId('s1'),
+      'pick this back up',
+      expect.any(String),
+    )
     // The live path is not the parked path.
     expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
     // The mode is pinned to chat as part of the send, so the parked→live flip

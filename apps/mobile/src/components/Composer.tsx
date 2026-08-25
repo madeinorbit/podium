@@ -1,5 +1,5 @@
 import { BlurView } from 'expo-blur'
-import { ArrowUp, ClipboardPaste, Paperclip } from 'lucide-react-native'
+import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from 'lucide-react-native'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type {
   LayoutChangeEvent,
@@ -19,6 +19,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import { useReduceMotion } from '../hooks/useReduceMotion'
+import { type VoiceInput, useVoiceInput } from '../hooks/useVoiceInput'
 import { onMediaPaste } from '../lib/composer-media'
 import { alpha } from '../theme/mix'
 import { color, font, leading, radius, sans, space, spring } from '../theme/theme'
@@ -36,8 +37,24 @@ import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import type { ComposerAttachmentsApi, SentAttachment } from './useComposerAttachments'
 
-/** The send target — 32pt of ink, 52pt of thumb once hitSlop is counted. */
-const SEND = 32
+const CONTROL_TARGET = 44
+const SEND_INK = 32
+
+export function appendDictation(current: string, phrase: string): string {
+  const finalized = phrase.trim()
+  if (!finalized) return current
+  if (!current || /\s$/.test(current)) return `${current}${finalized}`
+  return `${current} ${finalized}`
+}
+
+export function composerVoiceStatus(
+  voice: Pick<VoiceInput, 'starting' | 'listening' | 'statusMessage' | 'error'>,
+): string {
+  if (voice.starting) return voice.statusMessage ?? 'Starting dictation…'
+  if (voice.listening) return voice.statusMessage ?? 'Listening…'
+  return voice.error?.message ?? ''
+}
+
 /**
  * Chat composer — one floating rounded surface inset from the screen edges
  * [POD-502].
@@ -115,6 +132,13 @@ export function Composer({
   const [measured, setMeasured] = useState<number | null>(null)
   const [line, setLine] = useState(COMPOSER_LINE)
   const inputRef = useRef<TextInput>(null)
+  const voice = useVoiceInput()
+  const committedText = appendDictation(text, voice.session?.finalText ?? '')
+  const composedText = appendDictation(committedText, voice.session?.interimText ?? '')
+  const committedTextRef = useRef(committedText)
+  committedTextRef.current = committedText
+  const clearVoiceRef = useRef(voice.clear)
+  clearVoiceRef.current = voice.clear
   // Read once per mount rather than per keystroke: `matchMedia` is a layout
   // query, and the answer does not change while a prompt is being typed.
   const hardwareKeyboard = useRef(hasHardwareKeyboard())
@@ -131,7 +155,7 @@ export function Composer({
   const canSend =
     !disabled &&
     !uploading &&
-    (text.trim().length > 0 || attached.some((file) => file.state === 'ready'))
+    (committedText.trim().length > 0 || attached.some((file) => file.state === 'ready'))
 
   const height = composerFieldHeight(measured, line)
   const scrolls = composerScrolls(measured, line)
@@ -142,14 +166,14 @@ export function Composer({
   // Web has to be asked for the content height; native volunteers it through
   // onContentSizeChange below. `fontScale` is a dependency so raising Dynamic
   // Type re-measures instead of leaving the field a stale number of pixels tall.
-  useComposerMeasure(inputRef, text, width * fontScale, setMeasured)
+  useComposerMeasure(inputRef, composedText, width * fontScale, setMeasured)
 
   // An empty field IS one line, so measuring it is how the composer learns what
   // a line costs at the operator's text size — the six-line cap is derived from
   // that rather than from the default-size token.
   useEffect(() => {
-    if (text === '' && measured && measured > 0) setLine(measured)
-  }, [text, measured])
+    if (composedText === '' && measured && measured > 0) setLine(measured)
+  }, [composedText, measured])
 
   // Height is a layout property, so this animation cannot run on the native
   // driver. Reduce Motion takes the same geometry without the transition —
@@ -186,18 +210,22 @@ export function Composer({
 
   useEffect(() => {
     if (!draftInsertion) return
-    setText(
-      (current) =>
-        `${current}${current && !current.endsWith('\n') ? '\n' : ''}${draftInsertion.text}`,
-    )
+    clearVoiceRef.current()
+    const current = committedTextRef.current
+    setText(`${current}${current && !current.endsWith('\n') ? '\n' : ''}${draftInsertion.text}`)
     inputRef.current?.focus()
   }, [draftInsertion])
 
+  useEffect(() => {
+    if (disabled && (voice.starting || voice.listening)) voice.stop()
+  }, [disabled, voice.listening, voice.starting, voice.stop])
+
   const send = () => {
     if (!canSend) return
-    const trimmed = text.trim()
+    const trimmed = committedText.trim()
     const files = attachments?.ready() ?? []
     if (!trimmed && files.length === 0) return
+    voice.clear()
     onSend(trimmed, files.length > 0 ? files : undefined)
     attachments?.clear()
     setText('')
@@ -230,6 +258,19 @@ export function Composer({
   // The keyboard covers the home indicator, so its inset stops existing the
   // moment the keyboard is up; keeping it would float the composer in a gap.
   const chrome = bottomInset > 0 ? bottomInset : keyboardVisible ? 0 : insets.bottom
+  const voiceStatus = composerVoiceStatus(voice)
+
+  const changeText = (next: string) => {
+    if (voice.session || voice.starting || voice.listening || voice.error) voice.clear()
+    setText(next)
+  }
+
+  const startVoice = () => {
+    // A completed session remains visible until the next draft boundary. Move
+    // its finalized text into the typed base before starting the new session.
+    setText(committedText)
+    voice.start()
+  }
 
   return (
     <View
@@ -258,6 +299,17 @@ export function Composer({
         {attachments ? (
           <AttachmentStrip attachments={attached} onRemove={attachments.remove} />
         ) : null}
+        <Text
+          accessibilityLiveRegion="polite"
+          testID="composer-voice-status"
+          style={[
+            styles.voiceStatus,
+            !voiceStatus && styles.voiceStatusEmpty,
+            voice.error && styles.voiceStatusError,
+          ]}
+        >
+          {voiceStatus}
+        </Text>
         <View style={styles.row}>
           {attachments?.pick || attachments?.paste ? (
             <AttachButton
@@ -266,13 +318,24 @@ export function Composer({
               onPress={attachments.pick ?? attachments.paste ?? (() => {})}
             />
           ) : null}
+          {voice.supported ? (
+            <VoiceButton
+              starting={voice.starting}
+              listening={voice.listening}
+              failed={voice.error !== null}
+              disabled={disabled === true}
+              inset={!(attachments?.pick || attachments?.paste)}
+              onStart={startVoice}
+              onStop={voice.stop}
+            />
+          ) : null}
           <Animated.View style={[styles.fieldWrap, { height: animatedHeight }]}>
             <TextInput
               ref={inputRef}
               accessibilityLabel={placeholder}
               style={[styles.input, { maxHeight }]}
-              value={text}
-              onChangeText={setText}
+              value={composedText}
+              onChangeText={changeText}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               placeholder={placeholder}
@@ -299,11 +362,62 @@ export function Composer({
   )
 }
 
+function VoiceButton({
+  starting,
+  listening,
+  failed,
+  disabled,
+  inset,
+  onStart,
+  onStop,
+}: {
+  starting: boolean
+  listening: boolean
+  failed: boolean
+  disabled: boolean
+  inset: boolean
+  onStart: () => void
+  onStop: () => void
+}) {
+  const active = starting || listening
+  const label = starting
+    ? 'Cancel dictation startup'
+    : listening
+      ? 'Stop dictation'
+      : failed
+        ? 'Retry dictation'
+        : 'Start dictation'
+
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ busy: starting, disabled }}
+      testID="composer-voice"
+      disabled={disabled}
+      onPress={active ? onStop : onStart}
+      scaleTo={0.9}
+      style={({ pressed }) => [
+        styles.voice,
+        inset && styles.voiceInset,
+        listening && styles.voiceListening,
+        failed && styles.voiceFailed,
+        pressed && styles.voicePressed,
+      ]}
+    >
+      <Icon
+        as={listening ? Square : failed ? MicOff : Mic}
+        size={listening ? 15 : 19}
+        color={listening ? color.bg : failed ? color.danger : color.textFaint}
+      />
+    </PressableScale>
+  )
+}
+
 /**
  * The attach control — a paperclip where a file dialog exists, a clipboard where
  * the only route is the OS pasteboard (native, whose text field reports no paste
  * event of its own).
- *
  * It sits at the LEFT end of the control row, bottom-aligned with the send
  * target, so the growing field pushes neither of them around. Ink weight, never
  * accent: this is furniture, and the one coloured control in the capsule is the
@@ -326,7 +440,6 @@ function AttachButton({
       disabled={disabled}
       onPress={onPress}
       scaleTo={0.9}
-      hitSlop={10}
       style={({ pressed }) => [styles.attach, pressed && styles.attachPressed]}
     >
       <Icon as={mode === 'pick' ? Paperclip : ClipboardPaste} size={18} color={color.textFaint} />
@@ -373,7 +486,6 @@ function SendButton({
       disabled={!ready}
       onPress={onPress}
       scaleTo={0.9}
-      hitSlop={10}
       style={styles.send}
     >
       <Animated.View
@@ -445,6 +557,23 @@ const styles = StyleSheet.create({
   captionAttention: {
     color: color.needsYouText,
   },
+  voiceStatus: {
+    ...sans(600),
+    color: color.textDim,
+    fontSize: font.micro,
+    lineHeight: leading(font.micro),
+    paddingBottom: space.xs + 1,
+  },
+  voiceStatusError: {
+    color: color.danger,
+  },
+  voiceStatusEmpty: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    overflow: 'hidden',
+    opacity: 0,
+  },
   /**
    * `flex-end` is what makes the control row stable: the field grows upward off
    * the bottom edge and the send control stays exactly where it was.
@@ -463,7 +592,7 @@ const styles = StyleSheet.create({
   fieldWrap: {
     flex: 1,
     minWidth: 0,
-    marginBottom: (SEND - COMPOSER_MIN_HEIGHT) / 2,
+    marginBottom: (CONTROL_TARGET - COMPOSER_MIN_HEIGHT) / 2,
   },
   input: {
     ...sans(400),
@@ -479,8 +608,8 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   attach: {
-    width: SEND,
-    height: SEND,
+    width: CONTROL_TARGET,
+    height: CONTROL_TARGET,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
@@ -491,15 +620,38 @@ const styles = StyleSheet.create({
   attachPressed: {
     opacity: 0.55,
   },
+  voice: {
+    width: CONTROL_TARGET,
+    height: CONTROL_TARGET,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceInset: {
+    marginLeft: -(space.sm + 2),
+  },
+  voiceListening: {
+    backgroundColor: color.text,
+  },
+  voiceFailed: {
+    backgroundColor: alpha(color.danger, 0.12),
+  },
+  voicePressed: {
+    opacity: 0.65,
+  },
   send: {
-    width: SEND,
-    height: SEND,
+    width: CONTROL_TARGET,
+    height: CONTROL_TARGET,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sendDisc: {
-    ...StyleSheet.absoluteFill,
+    position: 'absolute',
+    top: (CONTROL_TARGET - SEND_INK) / 2,
+    left: (CONTROL_TARGET - SEND_INK) / 2,
+    width: SEND_INK,
+    height: SEND_INK,
     borderRadius: radius.full,
     backgroundColor: color.text,
   },

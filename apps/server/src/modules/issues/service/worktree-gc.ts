@@ -1,9 +1,11 @@
-import type { IssueId } from '@podium/model'
+import type { IssueId, MachineId } from '@podium/model'
 import type { WorktreeGcObservation } from '@podium/protocol'
 import type { CommandPrincipal } from '../../../command-principal'
 import { liveSessionsUsingWorktree } from '../../../issue-util'
 import type { IssueRow } from '../../../store'
 import type { IssueStore } from './core'
+
+import { parseGitWorktreeList } from './worktree-safety'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -58,29 +60,109 @@ export class IssueWorktreeGcModule {
   }
 
   /** Reclaimable paths, oldest close first, shared by the panel and manual apply. */
-  listReclaimableWorktrees(nowMs: number = Date.now()) {
+  async listReclaimableWorktrees(nowMs: number = Date.now(), machineId?: MachineId) {
     const { afterDays } = this.store.d.getSettings().worktreeGc
+    const targetMachineId = machineId ?? this.store.d.store.hostMachineId
     const live = this.store.d.listSessions()
-    return [...this.store.rows.values()]
+    const repoRows = this.store.d.store.repos.listRepos(targetMachineId)
+    const discovered = new Map<
+      string,
+      {
+        path: string
+        branch: string | null
+        headSha: string | null
+        machineId: MachineId
+        repoPath: string
+        primary: boolean
+      }
+    >()
+    const diagnostics: Array<{ repoPath: string; machineId: MachineId; reason: string }> = []
+
+    await Promise.all(
+      repoRows.map(async (repo) => {
+        const result = await this.store.d.repoOp(
+          'worktreeList',
+          repo.path,
+          undefined,
+          repo.machineId,
+        )
+        if (!result.ok) {
+          diagnostics.push({
+            repoPath: repo.path,
+            machineId: repo.machineId,
+            reason: result.output,
+          })
+          return
+        }
+        const records = parseGitWorktreeList(result.output)
+        for (const [index, record] of records.entries()) {
+          const key = `${repo.machineId}\0${record.path}`
+          if (discovered.has(key)) continue
+          discovered.set(key, {
+            path: record.path,
+            branch: record.branch,
+            headSha: record.head,
+            machineId: repo.machineId,
+            repoPath: repo.path,
+            primary: index === 0,
+          })
+        }
+      }),
+    )
+
+    const rowMachine = (row: IssueRow): MachineId =>
+      this.store.resolveWorktreeMachine(row.machineId, row.repoPath)
+    const claimed = new Set(
+      [...this.store.rows.values()]
+        .filter((row) => row.worktreePath)
+        .map((row) => `${rowMachine(row)}\0${row.worktreePath}`),
+    )
+    const candidates = [...this.store.rows.values()]
       .filter((row) => this.isCandidate(row, nowMs, afterDays))
+      .filter((row) => rowMachine(row) === targetMachineId)
       .filter((row) => liveSessionsUsingWorktree(row.worktreePath, live).length === 0)
       .sort(
         (a, b) => (a.closedAt ?? '').localeCompare(b.closedAt ?? '') || a.id.localeCompare(b.id),
       )
-      .map((row) => ({
-        issueId: row.id,
-        title: row.title,
-        worktreePath: row.worktreePath as string,
-        closedAt: row.closedAt as string,
-        machineId: row.machineId ?? null,
-      }))
+      .map((row) => {
+        const resolvedMachineId = rowMachine(row)
+        const found = discovered.get(`${resolvedMachineId}\0${row.worktreePath}`)
+        return {
+          issueId: row.id,
+          title: row.title,
+          worktreePath: row.worktreePath as string,
+          closedAt: row.closedAt as string,
+          machineId: resolvedMachineId,
+          present: Boolean(found),
+          protectedReason: found?.primary ? 'repository root' : null,
+        }
+      })
+
+    const orphans = [...discovered.values()]
+      .filter((entry) => !entry.primary)
+      .filter((entry) => !claimed.has(`${entry.machineId}\0${entry.path}`))
+      .sort((a, b) => a.path.localeCompare(b.path))
+      .map(({ primary: _primary, ...entry }) => entry)
+    const allWorktreePaths = [...discovered.values()].map((entry) => entry.path)
+    const reclaimableDiskPaths = candidates
+      .filter((candidate) => candidate.present && !candidate.protectedReason)
+      .map((candidate) => candidate.worktreePath)
+
+    return {
+      candidates,
+      orphans,
+      diagnostics,
+      allWorktreePaths,
+      reclaimableDiskPaths,
+    }
   }
 
   /** Apply the current proposal without enabling standing automatic consent. */
   async releaseReclaimableWorktrees(principal: CommandPrincipal, nowMs: number = Date.now()) {
     const freed: string[] = []
     const refused: Array<{ issueId: IssueId; reason: string }> = []
-    for (const candidate of this.listReclaimableWorktrees(nowMs)) {
+    const { candidates } = await this.listReclaimableWorktrees(nowMs)
+    for (const candidate of candidates) {
       const result = await this.releaseWorktreeIfIdle(candidate.issueId, principal)
       if (result.freed) freed.push(candidate.issueId)
       else refused.push({ issueId: candidate.issueId, reason: result.reason ?? 'not released' })

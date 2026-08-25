@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WIRE_VERSION } from '@podium/protocol'
 
@@ -55,6 +55,68 @@ async function exhaustRetries(): Promise<void> {
 }
 
 describe('SetupGate', () => {
+  it('starts version and setup together, but waits for version before revealing the app', async () => {
+    /**
+     * THREE PROBES, AND `/version` IS ASKED TWICE ON PURPOSE.
+     *
+     * This test was written against a boot that probed twice. The gate now also
+     * starts the served-assets check beside the handshake (POD-2721): the wire
+     * version can match perfectly while the served website has been swapped out
+     * from under this page, and a tab restored from the back-forward cache boots
+     * against whatever the server happens to be serving now. That check asks
+     * `/version` as well, is deliberately unawaited, and only ever raises a
+     * banner — it never reloads and it cannot divert this gate.
+     *
+     * So the two `/version` resolvers are kept APART rather than sharing one
+     * variable. That is the load-bearing part: what un-gates the app must be the
+     * HANDSHAKE answering, not the assets probe. Collapsing them would let this
+     * test pass while the gate revealed the app on the wrong answer.
+     */
+    const versionResolvers: Array<(response: Response) => void> = []
+    let resolveSetup: (response: Response) => void = () => {}
+    const order: string[] = []
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = new URL(String(input), 'http://podium.test').pathname
+      order.push(path)
+      if (path === '/version') {
+        return new Promise<Response>((resolve) => {
+          versionResolvers.push(resolve)
+        })
+      }
+      if (path === '/setup/config') {
+        return new Promise<Response>((resolve) => {
+          resolveSetup = resolve
+        })
+      }
+      throw new Error(`unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<SetupGate>{child}</SetupGate>)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(order).toEqual(['/version', '/setup/config', '/version'])
+
+    resolveSetup(
+      new Response(JSON.stringify({ needsSetup: false }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    await Promise.resolve()
+    expect(screen.queryByText('APP-READY')).toBeNull()
+
+    // The HANDSHAKE's own probe — the first — is what un-gates the app. The
+    // assets probe's copy is left pending deliberately: it is unawaited in the
+    // gate, and nothing here should depend on it answering.
+    versionResolvers[0]!(
+      new Response('<!doctype html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    )
+    expect(await screen.findByText('APP-READY')).toBeTruthy()
+  })
+
   it('trusts only loopback and bundled desktop origins for automatic local setup', () => {
     expect(isTrustedLocalSetupOrigin({ protocol: 'http:', hostname: 'localhost' })).toBe(true)
     expect(isTrustedLocalSetupOrigin({ protocol: 'http:', hostname: '127.0.0.1' })).toBe(true)
@@ -337,6 +399,27 @@ describe('SetupGate', () => {
 
     expect(screen.getByText('APP-READY')).toBeTruthy()
     expect(screen.queryByRole('heading', { name: /too old to open your work/i })).toBeNull()
+  })
+
+  it('does not treat a namespace created during this boot as an offline replica', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    render(<SetupGate>{child}</SetupGate>)
+
+    // The replica open now runs beside this gate and creates its namespace early.
+    // That marker cannot prove the device completed an earlier sync.
+    seedSyncedReplica('user-1')
+    await exhaustRetries()
+
+    expect(screen.getByRole('heading', { name: /the backend went quiet/i })).toBeTruthy()
+    expect(screen.queryByText('APP-READY')).toBeNull()
+
+    // Retrying must keep the mount-time evidence. The new namespace still belongs to this boot.
+    screen.getByRole('button', { name: /retry connection/i }).click()
+    await exhaustRetries()
+
+    expect(screen.getByRole('heading', { name: /the backend went quiet/i })).toBeTruthy()
+    expect(screen.queryByText('APP-READY')).toBeNull()
   })
 
   it('keeps the recovery console when the device holds more than one principal', async () => {

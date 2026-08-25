@@ -72,6 +72,8 @@ export const HOST_EDGE_FRAMES = [
   'hostMetrics',
   'memoryBreakdownRequest',
   'memoryBreakdownResult',
+  'reclaimDiskEstimateRequest',
+  'reclaimDiskEstimateResult',
   // PTY / agent-frame streams.
   'agentFrame',
   'agentFrameBatch',

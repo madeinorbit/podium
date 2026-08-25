@@ -104,23 +104,54 @@ export function issueHasCloseReason(issue: IssueViewModel): boolean {
 }
 
 /**
- * Where the shared issue context menu is hosted — some items are per-surface.
+ * Where the shared issue menu is projected — some items are per-surface.
  *
  * `deck` is the flight deck's spine (POD-1077). It used to pass `sidebar`,
  * which meant a SUB-TASK strip offered the identical menu to a MISSION row —
  * including two entries that mean nothing there. See `canArchive` / `canPin`.
+ *
+ * `dock` is the right dock's task panel. It behaves exactly like `sidebar`
+ * except that it offers no `Open`: the only place Open could land is the Tasks
+ * tool, and the panel does not link there (POD-1457).
+ *
+ * `palette` is the command palette (POD-1470), which projects this same tree
+ * without being a right-click menu at all. It used to claim `board`, which was
+ * harmless while every surface offered the same things and became a lie the
+ * moment one did not.
  */
-/** `dock` is the right dock's task panel. It behaves exactly like `sidebar`
- *  except that it offers no `Open`: the only place Open could land is the Tasks
- *  tool, and the panel does not link there (POD-1457). */
-export type IssueMenuSurface = 'board' | 'sidebar' | 'deck' | 'dock'
+export type IssueMenuSurface = 'board' | 'sidebar' | 'deck' | 'dock' | 'palette'
+
+/**
+ * A LIST OF TASKS — which is every surface that hosts the right-click menu: the
+ * sidebar, the dock's panel, the Tasks board and the deck's spine.
+ *
+ * The distinction earns its name in POD-1470. A task's priority, its labels and
+ * which agent runs it are set where the field itself is — the task page, which
+ * has a control for each and never opens this menu — or, for the board, from the
+ * `p` / `l` property menus and the bulk bar that triage a whole selection at
+ * once. A row in a list shows none of those values back, so a menu that offered
+ * to change them was writing into the dark.
+ *
+ * That includes STARTING the work. A list has its own start controls — the
+ * sidebar row's, the dock's launch box, the flight deck's `Start issue` on a
+ * proposal — each of which shows what it is about to launch. Buried under a
+ * right-click, "Run now" launched an agent from a row that named neither the
+ * harness nor the model it was about to use.
+ *
+ * The palette is not a list: it acts on the ONE task already in focus, by
+ * keyboard, and keeps the full tree.
+ */
+export function isIssueList(surface: IssueMenuSurface): boolean {
+  return surface !== 'palette'
+}
 
 /**
  * Which menu items apply to the current right-click target set. Single-target
  * actions (open, assign agent, close, defer, duplicate, pin) disappear on a
  * multi-selection; bulk-capable ones (stage / priority / labels / delete) match
  * the bulk action bar and stay for any non-empty selection. `surface` gates the
- * per-surface items: "Duplicate of…" stays on the Issues board only (POD-169).
+ * per-surface items: "Duplicate of…" stays on the Issues board only (POD-169),
+ * and priority, labels and the agent entry are off every list (POD-1470).
  */
 export function issueMenuEligibility(
   issues: readonly IssueViewModel[],
@@ -156,9 +187,14 @@ export function issueMenuEligibility(
     // Rename is single-target and applies to any issue, open or closed (#170).
     canRename: single && !hasDeleted,
     canSetStage: activeAny,
-    canSetPriority: activeAny,
-    canAssignAgent: openSingle && !hasDeleted,
-    canSetLabels: activeAny,
+    // PRIORITY AND LABELS ARE BOARD WORK (POD-1470). Both are triage fields —
+    // you set them while looking at the whole backlog, next to every other
+    // task's, which is the Tasks tool. On a sidebar row they were two more
+    // submenus between the operator and the handful of things a row menu is
+    // actually opened for, and neither reads back anywhere in that column.
+    canSetPriority: activeAny && !isIssueList(surface),
+    canAssignAgent: openSingle && !hasDeleted && !isIssueList(surface),
+    canSetLabels: activeAny && !isIssueList(surface),
     // Colour is a per-issue patch like stage/priority, so it bulk-applies to a
     // whole selection; a deleted issue has nothing to recolour.
     //
@@ -176,7 +212,11 @@ export function issueMenuEligibility(
     // "Duplicate" marks the issue a duplicate of a canonical sibling — pointless
     // once it already points at one. Board-only: the sidebar menu dropped it
     // in the POD-100 interaction cleanup (decided 2026-07-21).
-    canDuplicate: surface === 'board' && single && !hasDeleted && first?.duplicateOf == null,
+    canDuplicate:
+      (surface === 'board' || surface === 'palette') &&
+      single &&
+      !hasDeleted &&
+      first?.duplicateOf == null,
     // NOT ON THE DECK (POD-1077). Pinning orders the sidebar's mission list;
     // the deck orders by the spine, so pinning a strip there changes nothing
     // the operator can observe from the column they are looking at.

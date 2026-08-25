@@ -1027,18 +1027,18 @@ function RowMenu({
       style={{ left: pos.x, top: pos.y }}
       className="absolute z-50 min-w-[168px] rounded-[10px] border border-[#3a404a] bg-[#272c34] p-[5px] shadow-[0_18px_40px_-12px_rgba(0,0,0,.8)]"
     >
-      <button type="button" role="menuitem" className={item} onClick={onOpen}>
+      <button data-pressable type="button" role="menuitem" className={item} onClick={onOpen}>
         <ChevronRight size={14} className="flex-none text-[#8a9099]" aria-hidden="true" />
         Open
       </button>
       {onUse && (
-        <button type="button" role="menuitem" className={item} onClick={onUse}>
+        <button data-pressable type="button" role="menuitem" className={item} onClick={onUse}>
           <Check size={14} className="flex-none text-[#8a9099]" aria-hidden="true" />
           Use repository
         </button>
       )}
       <hr className="my-[4px] h-px border-0 bg-[#3a404a]" />
-      <button type="button" role="menuitem" className={item} onClick={onRename}>
+      <button data-pressable type="button" role="menuitem" className={item} onClick={onRename}>
         <Pencil size={14} className="flex-none text-[#8a9099]" aria-hidden="true" />
         Rename…
       </button>

@@ -4,12 +4,15 @@ import { issueMenuEligibility } from './issue-context-menu'
 import { type IssueMenuCommandDeps, runIssueMenuCommand } from './issue-menu-commands'
 import { createIssueMenuData, issueMenuEntries } from './issue-menu-config'
 
+// THE PALETTE'S SURFACE, since `runIssueMenuCommand` is the palette's host and
+// POD-1470 left it the only one carrying priority and labels.
 function menuData() {
   const issue = makeIssue({ labels: ['bug'], worktreePath: null })
   const data = createIssueMenuData({
     issues: [issue],
     allIssues: [issue],
-    eligibility: issueMenuEligibility([issue]),
+    eligibility: issueMenuEligibility([issue], 'palette'),
+    surface: 'palette',
   })
   if (!data) throw new Error('fixture did not produce menu data')
   return data

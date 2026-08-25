@@ -17,5 +17,6 @@ export function presenceSeamStub(): Record<string, unknown> {
   return {
     usePresenceRoom: () => ({ status: 'unknown' as const }),
     useCurrentPrincipal: () => null,
+    useStoreHandle: () => ({ getSnapshot: () => ({ issues: [] }) }),
   }
 }

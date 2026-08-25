@@ -21,6 +21,7 @@ export const hostFamilyProcedures = (): HostProcedures =>
     service: (state) => ({
       hosts: state.modules.hosts,
       rpc: state.modules.rpc,
+      issues: state.modules.issues,
       repos: state.repos,
     }),
     commands: HOST_COMMANDS_TRPC,

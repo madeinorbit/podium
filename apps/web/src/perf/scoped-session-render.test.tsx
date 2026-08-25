@@ -93,6 +93,7 @@ vi.mock('../features/terminal/use-panel-surface', () => ({
       offerDockOffered: false,
     },
     mode: 'chat',
+    modeSettled: true,
     chatCapable: true,
     pickMode: vi.fn(),
     paneActive,

@@ -12,6 +12,7 @@ import {
   missionSessions as missionSessionsOf,
   reposToViews,
   sessionNeedsHuman,
+  spawnIssueAgent,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import {
@@ -44,7 +45,6 @@ import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
 import { useReduceMotion } from '../hooks/useReduceMotion'
-import { agentLaunchProcedure } from '../lib/agent-launch'
 import { issueAgentKind, modelLabel } from '../lib/agent-models'
 import { mostRelevantSession } from '../lib/mission-session'
 import { issueCloseBlockers } from '../lib/issue-close'
@@ -154,13 +154,7 @@ export function MissionScreen() {
     (agentKind?: AgentKind) => {
       if (!root) return
       const input = agentKind ? { id: root.id, agentKind } : { id: root.id }
-      // A preserved branch is not an active checkout. `start` knows how to
-      // reattach it; `addSession` only works while the worktree is live.
-      const call =
-        agentLaunchProcedure(root) === 'addSession'
-          ? store.trpc.issues.addSession.mutate(input)
-          : store.trpc.issues.start.mutate(input)
-      void call.catch(() => {})
+      void spawnIssueAgent(store.trpc.issues, input).catch(() => {})
     },
     [root, store.trpc],
   )

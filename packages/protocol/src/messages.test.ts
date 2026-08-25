@@ -1,9 +1,9 @@
 import {
   AgentKind,
   AgentRuntimeState,
+  asAccountId,
   asAutomationId,
   asAutomationRunId,
-  asAccountId,
   asSessionId,
   asThreadId,
   ConversationSummaryWire,
@@ -17,6 +17,13 @@ import {
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
+  type ControlMessage,
+  type DaemonMessage,
+  encodeDaemonMessage as encode,
+  parseControlMessage,
+  parseDaemonMessage,
+} from './daemon'
+import {
   AgentQuotaResultMessage,
   ApprovalOp,
   ClientMessage,
@@ -29,13 +36,6 @@ import {
   parseServerMessageLenient,
   ServerMessage,
 } from './messages'
-import {
-  type ControlMessage,
-  type DaemonMessage,
-  encodeDaemonMessage as encode,
-  parseControlMessage,
-  parseDaemonMessage,
-} from './daemon'
 
 describe('shared schemas', () => {
   it('round-trips a SessionMeta (spawn origin)', () => {
@@ -1476,5 +1476,33 @@ describe('parseServerMessageLenient (wire v2 feed frames)', () => {
         JSON.stringify({ type: 'feedBootstrap', feedId: 'f', epoch: 'e', changes: [], last: true }),
       ),
     ).toThrow()
+  })
+})
+
+describe('reclaim disk estimate messages', () => {
+  it('round-trips the server-derived root sets', () => {
+    const msg = {
+      type: 'reclaimDiskEstimateRequest' as const,
+      requestId: 'rd1',
+      roots: ['/r', '/r/.worktrees/a'],
+      reclaimRoots: ['/r/.worktrees/a'],
+    }
+    expect(parseControlMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('round-trips measured bytes and an unknown/error result', () => {
+    const ready = {
+      type: 'reclaimDiskEstimateResult' as const,
+      requestId: 'rd1',
+      recoverableBytes: 7 * 1024 ** 3,
+      measuredAt: '2026-08-23T12:00:00.000Z',
+    }
+    expect(parseDaemonMessage(encode(ready))).toEqual(ready)
+    const unknown = {
+      type: 'reclaimDiskEstimateResult' as const,
+      requestId: 'rd2',
+      error: 'timed out',
+    }
+    expect(parseDaemonMessage(encode(unknown))).toEqual(unknown)
   })
 })

@@ -1,4 +1,5 @@
-import { keySequence, type MountedSession, type SpecialKey } from '@podium/terminal-client'
+import type { MountedSession } from '@podium/terminal-client/session-mount'
+import { keySequence, type SpecialKey } from '@podium/terminal-client/keys'
 import type { CSSProperties, ReactNode, RefObject } from 'react'
 import { useEffect, useState } from 'react'
 import { ArrowSwipeKey } from './ArrowSwipeKey'
