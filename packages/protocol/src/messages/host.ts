@@ -1,6 +1,7 @@
 import {
   AgentMemoryWire,
   AgentQuotaWire,
+  HostDiskWire,
   HostMemoryWire,
   HostMetricsWire,
   MachineIdField,
@@ -104,6 +105,10 @@ export const MemoryBreakdownResultMessage = z.object({
   // memory + otherBytes still carry the headline numbers.
   supported: z.boolean(),
   memory: HostMemoryWire,
+  /** Capacity of the volume the daemon's home sits on. Optional: a daemon
+   *  predating the field, or one whose statfs refused, ships the breakdown
+   *  without it and the panel simply has no disk meter to draw. */
+  disk: HostDiskWire.optional(),
   agents: z.array(AgentMemoryWire),
   projects: z.array(ProjectMemoryWire),
   // used − agents − projects: everything on the box we don't control.

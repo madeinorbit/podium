@@ -383,8 +383,10 @@ describe('quota overlay groups by account', () => {
   })
 })
 
-describe('header quota chip does not pin a detailed breakdown', () => {
-  it('opens the hover panel without data-pinned', async () => {
+describe('the quota panel has one tier', () => {
+  // Pinning was retired with POD-1603: no chip stamps `data-pinned`, no panel
+  // grows on click, and nothing anywhere invites a second zoom.
+  it('opens the whole panel on the first gesture', async () => {
     quotaSummary.mockResolvedValue([machineQuota('solo', 'solo', 'solo', 'solo@example.com', 20)])
     render(<QuotaIndicator header />)
     const chip = await screen.findByRole('button', { name: /agent quota/i })

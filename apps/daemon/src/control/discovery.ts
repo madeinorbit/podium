@@ -16,7 +16,7 @@ import type {
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { runDirOp } from '../dir-ops'
-import { sampleHostMemory } from '../host-metrics'
+import { sampleHostDisk, sampleHostMemory } from '../host-metrics'
 import type { MemoryAttribution } from '../memory-breakdown'
 import type { ControlHandlers, DaemonContext } from './context'
 
@@ -273,6 +273,9 @@ async function memoryBreakdown(
   roots: string[],
 ): Promise<void> {
   const memory = sampleHostMemory()
+  // One statfs, unlike the /proc walk below it: cheap enough to take on every
+  // breakdown, and pointless to gate on `supported`, which is about attribution.
+  const disk = sampleHostDisk(process.env.HOME ?? ctx.homeDir ?? undefined)
   const supported = process.platform === 'linux' // the walk needs /proc
   let agents: MemoryAttribution['agents'] = []
   let projects: MemoryAttribution['projects'] = []
@@ -303,6 +306,7 @@ async function memoryBreakdown(
     sampledAt: new Date().toISOString(),
     supported,
     memory,
+    ...(disk === undefined ? {} : { disk }),
     agents,
     projects,
     otherBytes: Math.max(0, usedBytes - attributed),

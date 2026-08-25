@@ -599,13 +599,6 @@ html[data-podium-platform="macos"] .desktop-shell-row {
   background: color-mix(in srgb, var(--accent) 70%, transparent);
   color: var(--text-strong);
 }
-/* Pinned is its own rung, not a repeat of hover: a chip whose panel is held
-   open by a click stays anchored once the pointer leaves it. */
-.header-machine-chip[data-pinned],
-.header-quota-chip[data-pinned] {
-  border-color: var(--border-strong);
-  background: var(--secondary);
-}
 /* The strip clips its overflow, which would eat the global outline-offset ring,
    so the keyboard ring lives inside the chip's own border box. */
 .header-machine-chip:focus-visible,
@@ -926,8 +919,9 @@ html[data-density="balanced"] .header-quota-pools {
 }
 
 /* Health popovers (POD-173): the quota / machine-load chips' anchored panel.
-   Hover shows the preview. Machine load can still pin + widen; quota stays on
-   the hover tier. The only lifted surface tier — popover shadow per the
+   Hover opens it, Esc or a click outside dismisses it — one tier, no pin
+   (POD-1603), so a panel's width is a property of which panel it is rather than
+   of what the pointer did. The only lifted surface tier — popover shadow per the
    carved-elevation rule. */
 .health-popover {
   display: flex;
@@ -946,9 +940,12 @@ html[data-density="balanced"] .header-quota-pools {
   color: var(--popover-foreground);
   box-shadow: var(--shadow-popover);
   font-size: 11px;
-  transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.health-popover-pinned {
+/* The machine panel carries the full breakdown the moment it opens — one row
+   per session and per project — so it is always the wide one. It was 296px on
+   hover and 336px once pinned; with the pin gone there is one width, and the
+   transition on `.health-popover` no longer has anything to animate here. */
+.health-popover-machine {
   width: 336px;
 }
 .health-popover-quota {
@@ -983,11 +980,6 @@ html[data-density="balanced"] .header-quota-pools {
   width: 5px;
   height: 5px;
 }
-@media (prefers-reduced-motion: reduce) {
-  .health-popover {
-    transition: none;
-  }
-}
 .hp-header {
   display: flex;
   flex: none;
@@ -1017,6 +1009,64 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: stretch;
   gap: 5px;
   padding-bottom: 8px;
+}
+/* Hostname on the left, the one control in the panel on the right. A row of its
+   own inside the stacked header so the meters below start at the gutter rather
+   than indenting around a button. */
+.hp-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 15px;
+}
+/* Re-measure now. Ghost at rest — it must not compete with the numbers it sits
+   above — and it takes the chip's own hover ground when reached for, so it reads
+   as the same family of control as the header chip that opened this panel. */
+.hp-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin: -3px -3px -3px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4.8px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+.hp-refresh:hover {
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  color: var(--text-strong);
+}
+.hp-refresh:focus-visible {
+  outline: none;
+  color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ring) 55%, transparent);
+}
+/* In flight. The spin is the one exception to the shell's no-perpetual-motion
+   rule and it keeps the rule's terms — gated on a request that is actually open,
+   stopped the frame it answers. It is not the only signal, because under
+   `prefers-reduced-motion` there is no spin: the button also steps back to the
+   faint rung while it cannot be pressed, and the footer says "re-measuring…" in
+   words. Motion carries this state; it never carries it alone. */
+.hp-refresh[data-busy] {
+  color: var(--text-faint);
+  cursor: default;
+}
+.hp-refresh[data-busy] svg {
+  animation: hp-refresh-spin 900ms linear infinite;
+}
+@keyframes hp-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 /* The key to the chip. A chip meter at balanced density is a bare 36px bar
    whose only variable is hue, and hue there means severity, not which series it
@@ -1288,6 +1338,50 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-seg-other {
   background: var(--input);
+}
+/* THE COLD PANEL (POD-1603) — the breakdown before its first walk answers.
+   Drawn as the shape of what is coming at the real thing's geometry: the
+   composition bar's own empty track, runs at the legend's rhythm, rows at
+   `.hp-prow`'s. Deliberately still, per POD-394 and the cold transcript — a
+   shimmer here would spend the "needs you" signal on a local fetch — and held
+   back 180ms so a warm cache or a fast daemon never blinks it on screen. */
+.hp-cold {
+  animation: hp-cold-in 140ms ease-out 180ms both;
+}
+@keyframes hp-cold-in {
+  from {
+    opacity: 0;
+  }
+}
+/* Each run takes the ink of the thing it stands for, mixed from an inherited
+   `color` rather than named, so both themes are covered by one value. */
+.hp-cold-run {
+  display: block;
+  height: 7px;
+  border-radius: 2.5px;
+  background: color-mix(in oklab, currentColor 22%, transparent);
+}
+/* The bytes column is right-aligned in a real row, so its slot is too. */
+.hp-cold-run-bytes {
+  margin-left: auto;
+}
+/* A row of slots has no text baseline to sit on, and `.hp-prow` aligns on one —
+   left uncorrected the two runs settle on their own bottom edges and the row
+   reads as two half-rows. */
+.hp-cold .hp-prow {
+  align-items: center;
+  padding: 2.5px 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hp-cold {
+    animation: none;
+  }
+  .hp-refresh {
+    transition: none;
+  }
+  .hp-refresh[data-busy] svg {
+    animation: none;
+  }
 }
 .hp-sect-label {
   margin: 10px 0 4px;

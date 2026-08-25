@@ -40,6 +40,12 @@
  * 4. FAILURE KEEPS THE LAST ANSWER. A failed refresh changes the CURRENCY of
  *    what is on screen, not its truth. `failed` says so; `data` stays.
  *
+ * Property 2 has a second half, added for POD-1603: holding the last answer is
+ * only half of not re-asking. A surface that opens on HOVER is re-mounted by the
+ * cheapest gesture in the app, and a cache that repaints instantly and then
+ * re-walks the daemon anyway has saved the flicker and none of the work. See
+ * {@link PolledQueryOptions.freshForMs}.
+ *
  * A cold read (no cached answer yet) reports `pending` only after
  * {@link PENDING_REVEAL_MS}: a progress hairline that appears and vanishes
  * inside 60 ms reads as a fault rather than as work.
@@ -115,6 +121,21 @@ export interface PolledQueryOptions<T> {
    * A disabled query still serves its cached answer.
    */
   enabled?: boolean
+  /**
+   * How long a cached answer stays worth trusting. While it is younger than
+   * this, MOUNTING does not take a new reading — the surface opens on the held
+   * figures and asks the machine for nothing.
+   *
+   * It gates the mount read only. The interval is the caller's stated cadence
+   * for how often this reading should be re-taken and always fires; freshness is
+   * about not re-taking a reading that is still true just because a panel was
+   * opened again. Returning from a hidden tab counts as a mount, which is the
+   * intended reading: the promise there is a FRESH first visible frame, and an
+   * answer inside this window is exactly that.
+   *
+   * `0` (the default) keeps the original behaviour — every mount reads.
+   */
+  freshForMs?: number
 }
 
 /** Subscribe to tab visibility as external state so React re-renders on it. */
@@ -136,6 +157,7 @@ export function usePolledQuery<T>({
   read,
   onData,
   enabled = true,
+  freshForMs = 0,
 }: PolledQueryOptions<T>): PolledQuery<T> {
   const cached = cache.get(key)
   const [answer, setAnswer] = useState<{
@@ -153,7 +175,14 @@ export function usePolledQuery<T>({
   }))
   const [pending, setPending] = useState(false)
   const [attempt, setAttempt] = useState(0)
-  const refresh = useCallback(() => setAttempt((n) => n + 1), [])
+  // An explicit refresh means "I do not care how fresh you think you are", so it
+  // has to reach the effect as more than a re-run — a key change and a tab
+  // returning re-run it too, and both of those SHOULD respect freshness.
+  const forced = useRef(false)
+  const refresh = useCallback(() => {
+    forced.current = true
+    setAttempt((n) => n + 1)
+  }, [])
   const visible = useTabVisible()
 
   // The read is re-created on every render by most callers; holding it in a ref
@@ -185,9 +214,11 @@ export function usePolledQuery<T>({
     let inFlight = false
     let reveal: ReturnType<typeof setTimeout> | undefined
 
-    const load = (): void => {
+    const load = (skipIfFresh: boolean): void => {
       // Property 3: a tick during a slow read is dropped, never queued.
       if (inFlight) return
+      const held = cache.get(key)
+      if (skipIfFresh && held !== undefined && Date.now() - held.fetchedAt < freshForMs) return
       inFlight = true
       // Only a COLD read is worth a progress affordance: a refresh behind
       // figures already on screen is not something to interrupt them for.
@@ -225,14 +256,16 @@ export function usePolledQuery<T>({
       )
     }
 
-    load()
-    const timer = intervalMs > 0 ? setInterval(load, intervalMs) : undefined
+    const wasForced = forced.current
+    forced.current = false
+    load(!wasForced)
+    const timer = intervalMs > 0 ? setInterval(() => load(false), intervalMs) : undefined
     return () => {
       cancelled = true
       if (reveal !== undefined) clearTimeout(reveal)
       if (timer !== undefined) clearInterval(timer)
     }
-  }, [key, intervalMs, enabled, visible, attempt])
+  }, [key, intervalMs, enabled, visible, attempt, freshForMs])
 
   return {
     data: answer.data,

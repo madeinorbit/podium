@@ -311,6 +311,7 @@ export function HeaderHostIndicators(): JSX.Element {
         return (
           <HealthPopover
             key={host.machineId}
+            popupClassName="health-popover-machine"
             trigger={
               <button
                 data-pressable
@@ -384,24 +385,21 @@ export function HeaderHostIndicators(): JSX.Element {
               </button>
             }
           >
-            {(pinned) => (
-              <Suspense fallback={null}>
-                <LoadPanel
-                  machineId={host.machineId}
-                  pinned={pinned}
-                  updateNote={
-                    needsUpdate ? (
-                      <div className="hp-dim-line text-warning">
-                        Update available: {machine?.inventory?.podiumVersion} →{' '}
-                        {updateTargetVersion} — apply it from Settings → Machines
-                      </div>
-                    ) : undefined
-                  }
-                  onOpenConnection={() => setInfo({ tab: 'connection', machineId: host.machineId })}
-                  onOpenReclaim={() => setInfo({ tab: 'reclaim', machineId: host.machineId })}
-                />
-              </Suspense>
-            )}
+            <Suspense fallback={null}>
+              <LoadPanel
+                machineId={host.machineId}
+                updateNote={
+                  needsUpdate ? (
+                    <div className="hp-dim-line text-warning">
+                      Update available: {machine?.inventory?.podiumVersion} → {updateTargetVersion}{' '}
+                      — apply it from Settings → Machines
+                    </div>
+                  ) : undefined
+                }
+                onOpenConnection={() => setInfo({ tab: 'connection', machineId: host.machineId })}
+                onOpenReclaim={() => setInfo({ tab: 'reclaim', machineId: host.machineId })}
+              />
+            </Suspense>
           </HealthPopover>
         )
       })}

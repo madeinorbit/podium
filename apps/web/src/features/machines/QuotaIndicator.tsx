@@ -191,7 +191,6 @@ export function QuotaIndicator({
       .join('; ')
     return (
       <HealthPopover
-        pinOnClick={false}
         popupClassName="health-popover-quota"
         trigger={
           <button
@@ -261,7 +260,7 @@ export function QuotaIndicator({
           </button>
         }
       >
-        {() => <QuotaPanel groups={groups} now={Date.now()} />}
+        <QuotaPanel groups={groups} now={Date.now()} />
       </HealthPopover>
     )
   }

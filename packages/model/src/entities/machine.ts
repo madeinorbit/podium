@@ -183,6 +183,23 @@ export const HostMemoryWire = z.object({
 export type HostMemoryWire = z.infer<typeof HostMemoryWire>
 
 /**
+ * `SEE` — one filesystem's capacity sample, `df`'s three columns and the path
+ * they were read from. Used and available are BOTH carried because they do not
+ * add up to the total: a Linux filesystem keeps a root-only reserve (5% by
+ * default) that is neither in use nor available to the operator, and folding it
+ * into either number would make the panel disagree with `df` on the same box.
+ * The percentage is used ÷ (used + available), which is `df`'s Use% exactly.
+ */
+export const HostDiskWire = z.object({
+  /** The directory sampled — the daemon host's home, where worktrees live. */
+  path: z.string(),
+  totalBytes: byteCount,
+  usedBytes: byteCount,
+  availableBytes: byteCount,
+})
+export type HostDiskWire = z.infer<typeof HostDiskWire>
+
+/**
  * `SEE` — pure health/liveness. Kernel load averages plus logical core count so
  * clients and the server can form load-per-core without a second sample.
  * Optional on the metrics frame: a daemon predating the field must keep parsing.
