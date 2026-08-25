@@ -81,36 +81,43 @@ real_exec() {
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" "$REAL_CONSUMER" "$@"
 }
 
-real_http() {
-  local verb=$1 path=$2 body=${3:-}
-  if [[ "$verb" == GET ]]; then
-    http_request GET "http://127.0.0.1:$REAL_PORT$path"
-  else
-    http_request POST "http://127.0.0.1:$REAL_PORT$path" "${body:-'{}'}"
-  fi
-}
-
+# EVERY REQUEST IN THIS LANE IS MADE INSIDE THE CONTAINER, and that is not a
+# stylistic choice.
+#
+# A released install's units carry no `PODIUM_HOST`, so a unit-started server binds
+# LOOPBACK INSIDE THE CONTAINER and the published port reaches nothing. The gate
+# already knows this: `fresh_install` probes its consumer with
+# `container_http_probe` throughout, and the packaged-server lane only starts
+# talking to the host port after it has added an explicit `PODIUM_HOST=0.0.0.0`
+# drop-in. A lane that reaches in from the host would be testing a machine
+# configured differently from the one a user has — and the first row would fail
+# for a reason that has nothing to do with the upgrade.
+#
+# The published port exists for the HUMAN in hold mode, where the drop-in is
+# present, and for nothing else.
 real_rpc() {
   local verb=$1 proc=$2 input=${3:-} url body=""
-  url="http://127.0.0.1:$REAL_PORT/trpc/$proc"
+  url="http://127.0.0.1:18787/trpc/$proc"
   if [[ "$verb" == GET ]]; then
     [[ -z "$input" ]] || url="$url?input=$(printf %s "$input" | jq -sRr @uri)"
-    http_request GET "$url" || return 1
+    container_http_request "$REAL_CONSUMER" GET "$url" || return 1
   else
     body=${input:-'{}'}
-    http_request POST "$url" "$body" || return 1
+    container_http_request "$REAL_CONSUMER" POST "$url" "$body" || return 1
   fi
   if jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"; then
-    report_http_failure "$verb" "$url" "$body" "$HTTP_STATUS" "$HTTP_BODY"
+    report_http_failure "$verb" "$url" "$body" "$HTTP_STATUS" "$HTTP_BODY" "$REAL_CONSUMER"
     return 1
   fi
   jq -c '.result.data' <<<"$HTTP_BODY"
 }
 
-real_healthy() { http_probe GET "http://127.0.0.1:$REAL_PORT/health"; }
+real_healthy() {
+  container_http_probe "$REAL_CONSUMER" GET "http://127.0.0.1:18787/health"
+}
 
 real_version_is() {
-  http_probe GET "http://127.0.0.1:$REAL_PORT/version" || return 1
+  container_http_probe "$REAL_CONSUMER" GET "http://127.0.0.1:18787/version" || return 1
   jq -e --arg version "$1" '.appVersion==$version' >/dev/null <<<"$HTTP_BODY"
 }
 
@@ -228,7 +235,14 @@ real_release_setup() {
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env PODIUM_HOST=0.0.0.0 \
     "$REAL_CONSUMER" bash -lc "exec '$REAL_COMMAND' setup >>/tmp/podium-source.log 2>&1"
   wait_for 120 "real $REAL_RELEASE_VERSION setup server" real_healthy
-  real_http POST /trpc/setup.complete \
+  # IN-CONTAINER, like every other setup call in this gate (`fresh_install`,
+  # `setup_source`), and not through the published port. Driven from the host the
+  # same mutation answers 503 `server_not_ready` with `dataPlane: blocked` — the
+  # pre-setup data plane does not accept it from off-box. Everything AFTER setup
+  # is answered on the published port, which is how the packaged-server lane
+  # already talks to its consumer.
+  container_http_request "$REAL_CONSUMER" POST \
+    http://127.0.0.1:18787/trpc/setup.complete \
     '{"publicUrl":"http://127.0.0.1:18787","mode":"all-in-one","port":18787,"acknowledgeNoPassword":true}'
   ! jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"
   real_exec pkill -f 'podium-cli setup' >/dev/null 2>&1 || true
@@ -239,9 +253,19 @@ real_release_setup() {
 # WHAT AN INSTALL OF THIS ERA REALLY LOOKS LIKE, asserted rather than assumed.
 real_release_topology() {
   local role units expected=""
+  # NAMED FAILURES. A silent predicate in a gate row costs a whole run to
+  # diagnose: the matrix says the row went red and nothing says which of six
+  # checks did it.
   for role in server daemon janitor; do
-    real_exec systemctl --user is-active --quiet "$(real_legacy_unit "$role")" || return 1
-    real_exec test -f "$REAL_UNIT_DIR/$(real_legacy_unit "$role")" || return 1
+    if ! real_exec test -f "$REAL_UNIT_DIR/$(real_legacy_unit "$role")"; then
+      say "real-release: $(real_legacy_unit "$role") was never written" >&2
+      return 1
+    fi
+    if ! real_exec systemctl --user is-active --quiet "$(real_legacy_unit "$role")"; then
+      say "real-release: $(real_legacy_unit "$role") is not active" >&2
+      real_exec systemctl --user status --no-pager "$(real_legacy_unit "$role")" >&2 2>&1 || true
+      return 1
+    fi
     expected+="$(real_legacy_unit "$role")"$'\n'
   done
   units="$(real_exec bash -lc \
@@ -268,9 +292,12 @@ record_fixture_drift() {
       >/dev/null 2>&1 || continue
     [[ -r "$fixture$role.service" ]] || continue
     # The fixture is rendered for the gate's NAMED instance; this install is the
-    # default one. Normalise only that difference, so the diff shows what the
-    # renderer got wrong rather than which instance each file is for.
-    sed "s/podium-$INSTANCE/podium/g" "$fixture$role.service" >"$rendered"
+    # default one. Normalise ONLY that difference — the unit names and the
+    # instance environment line — so what is left in the diff is what the
+    # renderer got wrong, not which instance each file is for.
+    sed -e "s/podium-$INSTANCE/podium/g" \
+      -e "s/^Environment=PODIUM_INSTANCE=$INSTANCE\$/Environment=PODIUM_INSTANCE=default/" \
+      "$fixture$role.service" >"$rendered"
     printf '=== %s: rendered fixture vs what real %s wrote ===\n' \
       "$role" "$REAL_RELEASE_VERSION" >>"$out"
     diff -u "$rendered" "$installed" >>"$out" || true
@@ -313,11 +340,29 @@ prepare_real_target_release() {
       jq --arg v '$REAL_TARGET_VERSION' '.version=\$v' package.json >package.json.new &&
       mv package.json.new package.json &&
       git add package.json && git commit -m 'update-e2e: real-release target' >/dev/null &&
-      bun scripts/release.ts --channel=stable --tag 'v$REAL_TARGET_VERSION'" \
+      bun scripts/release.ts --channel stable --tag 'v$REAL_TARGET_VERSION'" \
     >"$WORK/logs/real-release-target-build.log" 2>&1
   require_disk_margin "real-release target build"
+  # THE FLAG IS NOT THE EVIDENCE. `scripts/release.ts` parses `--channel` by exact
+  # argv match, so the `--channel=stable` spelling is silently ignored and builds
+  # an EDGE release whose artifacts live under `releases/download/edge/` — which
+  # this lane's feed does not serve, so the old resolver 404s on the artifact HEAD
+  # and refuses a target that looks fine in the manifest. Check the URLs the
+  # manifest actually names, not the flag we thought we passed.
   container_exec "$SOURCE" bash -lc "cd '$release' &&
     jq -e --arg v '$REAL_TARGET_VERSION' '.version==\$v' podium-update.json >/dev/null"
+  container_exec "$SOURCE" bash -lc "cd '$release' &&
+    jq -e --arg base 'https://github.com/madeinorbit/podium/releases/download/v$REAL_TARGET_VERSION/' \
+      '[.artifacts.headless.platforms[].url] | length > 0 and all(startswith(\$base))' \
+      podium-update.json >/dev/null" ||
+    die "the target release did not name artifacts under releases/download/v$REAL_TARGET_VERSION/"
+  # Every artifact the manifest names must exist in the staged dir, because v0.1.0
+  # HEADs all of them and refuses the whole target on any one 404.
+  container_exec "$SOURCE" bash -lc "cd '$release' &&
+    for url in \$(jq -r '.artifacts.headless.platforms[].url' podium-update.json); do
+      test -f \"\$(basename \"\$url\")\" || { echo \"missing \$url\" >&2; exit 1; }
+    done" ||
+    die "the target manifest names a headless artifact this build did not produce"
 }
 
 # The desktop companion, written at a DIVERGENT version on purpose the first
@@ -388,10 +433,16 @@ point_real_release_at_feed() {
 arm_real_release_failure() {
   case "$PROVE_FAILURE" in
     real-release-migration)
-      # BREAK THE MIGRATION AT ITS ONE WRITE. `reconcileSupervision` converges by
-      # writing the parent unit; a directory sitting on that exact path makes the
-      # write fail, the legacy units never retire, and the row must go red saying
-      # so. Nothing else is touched, so a red here can only be the migration.
+      # BREAK THE MIGRATION, AND ONLY THE MIGRATION.
+      #
+      # A directory at the parent unit's exact path. `observeTopology` lists units
+      # with `readdirSync`, which does not care about file type, so the migration
+      # sees a parent that is already PRESENT, skips `write-parent`, and fails at
+      # `enable-parent` when systemd is asked to enable a directory. The throw is
+      # caught where cli.ts kicks the migration off ("topology reconcile failed"),
+      # so the legacy server keeps serving and the units never converge — which is
+      # the distinction that matters: the row must go red because the MIGRATION
+      # failed, not because the machine fell over. Nothing else is touched.
       real_exec mkdir -p "$REAL_UNIT_DIR/$REAL_PARENT_UNIT"
       real_exec test -d "$REAL_UNIT_DIR/$REAL_PARENT_UNIT"
       say "armed: the parent unit path is a directory, so the migration cannot write it"
@@ -428,15 +479,19 @@ run_real_release_lane() {
   install_real_release >"$WORK/logs/real-release-install.log" 2>&1
   real_release_setup >>"$WORK/logs/real-release-install.log" 2>&1
   wait_for 120 "real $REAL_RELEASE_VERSION server" real_healthy
-  if real_release_topology && real_version_is "$REAL_RELEASE_VERSION"; then
-    record_fixture_drift
-    pass real-release-install \
-      "the published $REAL_RELEASE_TAG artifact verified against the PRODUCTION release key, installed through its own installer with one re-anchored trust-root constant ($(jq -r .changedBytes <<<"$REAL_TRUST_PATCH") bytes of $(jq -r .bytes <<<"$REAL_TRUST_PATCH")), and $REAL_RELEASE_VERSION's own code wrote its era's three-unit layout"
-  else
+  if ! real_release_topology; then
     fail real-release-install \
-      "the published $REAL_RELEASE_TAG artifact did not install and stand up its own three-unit layout"
+      "the published $REAL_RELEASE_TAG artifact did not stand up its era's three-unit layout; the named check is in the run output"
     return 1
   fi
+  if ! real_version_is "$REAL_RELEASE_VERSION"; then
+    fail real-release-install \
+      "the installed machine did not report appVersion $REAL_RELEASE_VERSION; body: $HTTP_BODY"
+    return 1
+  fi
+  record_fixture_drift
+  pass real-release-install \
+    "the published $REAL_RELEASE_TAG artifact verified against the PRODUCTION release key, installed through its own installer with one re-anchored trust-root constant ($(jq -r .changedBytes <<<"$REAL_TRUST_PATCH") bytes of $(jq -r .bytes <<<"$REAL_TRUST_PATCH")), and $REAL_RELEASE_VERSION's own code wrote its era's three-unit layout"
 
   CURRENT_SCENARIO=real-release-pairing-refusal
   prepare_real_target_release
@@ -456,14 +511,21 @@ run_real_release_lane() {
 
   CURRENT_SCENARIO=real-release-resolve
   write_real_desktop_manifest "$REAL_TARGET_VERSION"
-  if wait_for 180 "real $REAL_RELEASE_VERSION target" real_target_is "$REAL_TARGET_VERSION"; then
-    pass real-release-resolve \
-      "the real $REAL_RELEASE_VERSION resolver read a paired release through the stable feed URL a released install actually fetches, and offered $REAL_TARGET_VERSION"
-  else
+  if ! wait_for 180 "real $REAL_RELEASE_VERSION target" real_target_is "$REAL_TARGET_VERSION"; then
+    # WHY IT DID NOT ARRIVE, recorded before the row goes red. A timeout with no
+    # captured reason costs a whole gate run to diagnose — this one already did.
+    real_rpc GET updates.fleet >"$WORK/logs/real-release-resolve-fleet.json" 2>&1 || true
+    real_channel_check >"$WORK/logs/real-release-resolve-refusal.txt" 2>&1 || true
+    container_exec "$SOURCE" bash -lc \
+      "cd /work/source/dist-bun/release && jq -c '{version, urls: [.artifacts.headless.platforms[].url]}' podium-update.json; cat latest.json" \
+      >"$WORK/logs/real-release-resolve-served-manifests.json" 2>&1 || true
+    say "the old resolver refused: $(cat "$WORK/logs/real-release-resolve-refusal.txt" 2>/dev/null)" >&2
     fail real-release-resolve \
-      "the real $REAL_RELEASE_VERSION resolver never offered $REAL_TARGET_VERSION from the run-local stable feed"
+      "the real $REAL_RELEASE_VERSION resolver never offered $REAL_TARGET_VERSION; its own refusal is in logs/real-release-resolve-refusal.txt"
     return 1
   fi
+  pass real-release-resolve \
+    "the real $REAL_RELEASE_VERSION resolver read a paired release through the stable feed URL a released install actually fetches, and offered $REAL_TARGET_VERSION"
 
   arm_real_release_failure
 

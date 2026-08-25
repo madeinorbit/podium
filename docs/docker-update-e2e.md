@@ -244,6 +244,109 @@ This focused lane retains the 10 GiB floor. Its measured steady-state footprint 
 1.2 GiB, but the fresh client and packaged release build is the peak-risk boundary; do
 not infer that 1.2 GiB of free disk is sufficient.
 
+## Real-release lane
+
+Every other lane in this gate starts at current source. This one starts at a **real
+published release** and lets that release's own updater perform the first hop:
+
+```bash
+PODIUM_UPDATE_E2E_ONLY=real-release bun run test:update-e2e
+```
+
+It downloads the published `v0.1.0` headless tarball, verifies it against the
+**production** release key — which is what proves these are the published bytes and not a
+rebuild — installs it with the real `v0.1.0` `install.sh`, and lets `v0.1.0`'s own code
+write its own systemd units, database and config. It then serves a release built from this
+checkout at the URL a `stable` install actually fetches, and asserts the machine converges
+onto the single-unit topology with its data intact.
+
+### Why this lane exists
+
+`legacy-migration` looks like it covers this and does not. It renders a three-unit layout
+from today's `cli-systemd` and watches today's binary migrate it, so it proves our *idea*
+of an old install migrates. The component that performs the first hop for every existing
+user — the old updater — never runs in it.
+
+The difference is not theoretical. Diffing what real `0.1.0` wrote against
+`render-legacy-units.ts` shows the fixture adds an `Environment=PODIUM_PORT` line that
+`0.1.0` never wrote, and omits the `--server` arguments it did. `reconcileSupervision`
+renders the new parent unit with `resolvePort()`, which reads `PODIUM_PORT` first — so
+against the fixture it always finds the port in the unit env, while a real install (no
+`PODIUM_PORT`, no `port` in config) falls through to the per-instance default. The fixture
+therefore cannot reach the resolution path a real install takes.
+
+Be precise about how much that currently costs: for the **default** instance both paths
+land on 18787, so today the divergence is latent rather than user-visible. It matters
+because the fixture is silently pinning a value the real thing derives — the next change to
+port resolution would be exercised only on the branch no user is on. Whether a released
+0.1.0 that was set up on a *custom* port keeps it is a separate question this lane does not
+answer; `setup.complete` was observed not to persist `port` at all.
+
+Every run records the diff at `logs/real-release-fixture-drift.diff`.
+
+### The one deviation, and how it is bounded
+
+`v0.1.0` bakes `PODIUM_UPDATE_PUBKEY` as a module constant with no environment override,
+so a real published binary installs only artifacts signed by the production release key.
+No test has that key and none should. The lane substitutes that one 60-character base64
+field inside `podium-cli`, in place:
+
+- refused unless the constant appears **exactly once** (`patch-trust-root.ts`);
+- refused if the replacement is a different length, which would move every offset;
+- the measured byte delta is asserted to fall inside the constant, and the row's evidence
+  string names it.
+
+This is the same isolation the packaged-server lane performs by patching
+`update-delivery.ts` and rebuilding, applied to a real artifact instead of a rebuild. It
+says nothing about migration, topology, schema or units — the four things the lane asserts
+on.
+
+### Why this lane runs the default instance
+
+Every other row runs a named instance for isolation. This one must not, for two reasons
+found by running the real artifact:
+
+- A real `0.1.0` **cannot complete a named-instance install**. It materializes its embedded
+  abduco into the instance state directory before it claims that directory, then refuses to
+  adopt the now non-empty root, so the channel is never persisted and every later command
+  refuses. (Fixed in current code.)
+- A named instance also resolves a different port, because `defaultInstancePorts` hashes the
+  id while a released install carries no `port` in config and no `PODIUM_PORT` in its units.
+  Pinning the port with an environment variable to paper over that would reintroduce the
+  fixture's central untruth into the row written to replace it.
+
+The container is disposable, so the isolation a named instance buys is worth nothing here.
+
+### The pairing refusal is part of the row
+
+Before it proves the upgrade works, the lane proves the old resolver is really the thing
+answering: it first serves a desktop manifest at a **different** version. `v0.1.0` requires
+exact version equality between `podium-update.json` and `latest.json` on every channel,
+including a headless Linux server that will never run a shell, so the real binary refuses
+the whole target and names the pairing. Repairing the manifest to the matching version is
+what makes the target appear.
+
+That refusal is the stranding recorded on POD-2789: a headless-only release, or an edge
+release whose shell has stopped moving in lockstep, is invisible to every `0.1.0` install
+in the field. The row keeps it reproduced by the old code rather than argued from source.
+
+### Prove it can fail
+
+```bash
+PODIUM_UPDATE_E2E_ONLY=real-release PODIUM_UPDATE_E2E_PROVE_FAILURE=real-release-migration bun run test:update-e2e
+```
+
+This makes the parent unit's path a directory, so `reconcileSupervision`'s one write fails,
+the legacy units never retire, and `real-release-converged` must go red. Nothing else is
+touched, so a red can only be the migration.
+
+### Options
+
+| Variable | Meaning |
+| --- | --- |
+| `PODIUM_UPDATE_E2E_REAL_RELEASE=X.Y.Z` | which published release to start from (default `0.1.0`) |
+| `PODIUM_UPDATE_E2E_REAL_RELEASE_CACHE=PATH` | a directory already holding that release's tarball, `.sig` and `install.sh`, so the run does not re-download 54 MiB |
+
 ## What the matrix means
 
 | Row | Programmatic evidence |
@@ -259,6 +362,10 @@ not infer that 1.2 GiB of free disk is sufficient.
 | Agent survival | Real remote shells are created after refusal checks. The harness discovers the packaged bounded socket root, records each abduco listing, captures the exact attached master PID for every full session UUID, and requires the same PIDs after handover. The containers do not install a real coding-agent CLI, so this is abduco session/process survival evidence, not a Codex/Claude harness claim. A setup failure blocks only this row and does not suppress release, refusal, or rollout evidence. |
 | Rollout | Playwright sees the target offer and presses its human action. Polling observes exactly one consumer in-flight while the other is still old and ungranted before widening; both parent PIDs change while the systemd invocation and restart count do not, baseline and post-rollout UI versions match the source and fleet, and both install/fleet versions reach the target. |
 | Legacy migration | Real packaged three-unit files remain live and persistently enabled while an injected packaged parent repeatedly fails, then converge after recovery. |
+| Real-release install | The published `v0.1.0` tarball verifies against the **production** release key before anything touches it; its own `install.sh` installs it with one re-anchored trust-root constant, refused unless that constant appears exactly once and asserted to have changed nothing outside it; `0.1.0`'s own code then writes its era's three-unit layout, and the diff against the rendered fixture is recorded. |
+| Real-release pairing refusal | With the desktop manifest at a different version, the real `0.1.0` resolver refuses the whole target and names the desktop pairing — POD-2789 reproduced by the released code rather than argued from source. Also the proof that the feed is reaching the old resolver at all, so a later green cannot be a row wired to nothing. |
+| Real-release resolve | Repairing the desktop manifest to the matching version makes the same install offer the target, read through the `releases/latest/download/` URL a released `stable` install actually fetches. |
+| Real-release converged | A real published install, upgraded **by its own updater**, ends with exactly the parent unit and no legacy units, active and enabled, at the target version, with its pre-upgrade session row and database row intact. |
 | Legacy SIGKILL | Explicitly red: source-backed migration evidence is rejected, and black-box packaged-process SIGKILL coverage does not yet span every transition state. |
 | Rollback | A second signed manifest proves its schema is identical, then contains an intentionally crashing successor; its canary restores a sentinel available only through `.old`, removes the consumed backup, leaves both installs on the prior version, and reports failure/stuck. |
 | Packaged server | A separate all-in-one install updates its server, database migration, web/phone bytes, browser and local-daemon connections through self-handover while retaining the exact abduco shell master PID; a migration-free crashing successor must restore `.old`. |

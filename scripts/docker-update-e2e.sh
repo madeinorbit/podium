@@ -1746,9 +1746,15 @@ main() {
     "$PROVE_FAILURE" == coordinator-participant ||
     "$PROVE_FAILURE" == server-migration || "$PROVE_FAILURE" == server-client ||
     "$PROVE_FAILURE" == server-handover || "$PROVE_FAILURE" == server-agent ||
-    "$PROVE_FAILURE" == server-rollback ]] || die "unknown deliberate failure control"
-  [[ -z "$ONLY" || "$ONLY" == legacy || "$ONLY" == positive || "$ONLY" == server ]] ||
-    die "focused lane must be legacy, positive, or server"
+    "$PROVE_FAILURE" == server-rollback ||
+    "$PROVE_FAILURE" == real-release-migration ]] || die "unknown deliberate failure control"
+  [[ -z "$ONLY" || "$ONLY" == legacy || "$ONLY" == positive || "$ONLY" == server ||
+    "$ONLY" == real-release ]] ||
+    die "focused lane must be legacy, positive, server, or real-release"
+  # The real-release control only exists inside its own lane; arming it anywhere
+  # else would mutate a host no row is watching and report nothing.
+  [[ "$PROVE_FAILURE" != real-release-migration || "$ONLY" == real-release ]] ||
+    die "PROVE_FAILURE=real-release-migration needs PODIUM_UPDATE_E2E_ONLY=real-release"
   [[ -z "$ONLY" || -z "$PROVE_FAILURE" ||
     ( "$ONLY" == server && "$PROVE_FAILURE" == server-* ) ]] ||
     die "failure controls require the complete matrix"
