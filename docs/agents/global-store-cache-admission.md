@@ -27,8 +27,22 @@ and therefore one cache identity**. Nothing stopped a green produced under one l
 being replayed under the other.
 
 `scripts/install-topology.ts` reads the effective configuration instead — the bunfig files
-Bun would consult, and the tree the installer actually left behind. Every record is
-path-independent by construction: a symlink is recorded by its relative link text where it
+Bun would consult, and the tree the installer actually left behind. The tree is the
+load-bearing half: an install-time `-c/--config` or `--linker=` leaves no trace in the
+checkout, so nothing a later `bun run typecheck` can read will tell it apart except the
+result.
+
+It records only what the INSTALLER wrote. A node_modules root also accumulates scratch
+space — `.cache`, `.vite`, `.vite-temp` appear the first time something builds or tests —
+and folding those in would be self-defeating in both directions: a worktree's own second
+run would miss because its first run created them, and a freshly installed sibling could
+never match a worktree that had already been used. So an entry counts only when it is a
+symlink, one of the installer's own containers (`.bin`, `.bun`, an `@scope` directory), or
+a directory carrying a package.json. A package directory that has lost its package.json is
+skipped by that rule and does not pass silently: nothing there resolves, so the typecheck
+goes red on its own rather than green from the cache.
+
+Every record is path-independent by construction: a symlink is recorded by its relative link text where it
 has one, otherwise only by the class of its target (inside this checkout, or external). That
 is deliberate and load-bearing in both directions. It has to distinguish a hoisted install
 (real directories under the root `node_modules`) from an isolated one (links into `.bun` and
