@@ -135,6 +135,43 @@ else
 fi
 declare -A RESULT=()
 declare -A DETAIL=()
+# WHY A ROW HAS NO RESULT IS PART OF WHAT THE MATRIX REPORTS (POD-2813).
+#
+# `matrix` used to print ONE sentence — "not reached after an earlier failure" —
+# against every row it had no result for, whatever had actually happened. Three
+# unrelated situations therefore printed the same words:
+#
+#   1. the lane selector excluded the row, and nothing went wrong;
+#   2. a row failed and the run stopped before this one;
+#   3. the run was killed part-way through and never got here.
+#
+# A clean `PODIUM_UPDATE_E2E_ONLY=real-release` run and a run that died halfway
+# read IDENTICALLY, and telling them apart meant going to the process table. A
+# summary whose whole job is to say what happened must not need a second source
+# to be believed. So the harness now RECORDS which of the three it is instead of
+# asserting the worst one by default:
+#
+#   - `scope_out` states the exclusion where the lane selector makes it, so an
+#     out-of-scope row carries its own evidence string and never falls through to
+#     a guess;
+#   - `skip_reason` derives the rest from what the run actually did — the signal
+#     that ended it, the row that failed, the row it stopped inside.
+#
+# And a row that is left over with NO explanation at all — the run finished, no
+# row failed, nothing scoped it out — is a defect in this harness, not a skip. It
+# says so, and it reddens the exit code, because that is the only way this
+# distinction stays true as rows are added.
+RUN_INTERRUPT=""
+RUN_STATUS=0
+RUN_STOPPED_AT=""
+RUN_ABORT_REASON=""
+LAST_FAILURE=""
+# The rows `cleanup` records after every lane has already returned. They are
+# legitimately unset while a lane is finishing, so `scope_out_remaining` must not
+# mistake them for rows the selector excluded. Pinned against cleanup() itself by
+# scripts/docker-update-e2e-matrix.test.ts, so a fourth one cannot appear here
+# unnoticed.
+CLEANUP_ROWS=(resource-safety cleanup host-disk)
 declare -A PARENT_PID=()
 declare -A PARENT_INVOCATION=()
 declare -A PARENT_RESTARTS=()
@@ -174,11 +211,99 @@ scripts/topology-migration-live.integration.test.ts, proven armed. This row will
 skip it, delete it, or read it as a defect."
 
 say() { printf '[update-e2e] %s\n' "$*"; }
-die() { say "FATAL: $*" >&2; exit 1; }
+# `die` is the harness stopping itself for a reason no row owns — a missing tool,
+# a breached disk floor, a refusal to run at all. That reason is the honest
+# explanation for every row below it, so it is kept rather than left for the
+# matrix to guess at (POD-2813).
+die() { RUN_ABORT_REASON="$*"; say "FATAL: $*" >&2; exit 1; }
 pass() { RESULT["$1"]=PASS; DETAIL["$1"]="$2"; }
-fail() { RESULT["$1"]=FAIL; DETAIL["$1"]="$2"; }
+fail() { RESULT["$1"]=FAIL; DETAIL["$1"]="$2"; LAST_FAILURE="$1"; }
 blocked() { RESULT["$1"]=BLOCKED; DETAIL["$1"]="$2"; }
 resource() { RESULT["$1"]=RESOURCE; DETAIL["$1"]="$2"; }
+
+# THE ROW THE LANE SELECTOR EXCLUDED, SAYING SO ITSELF (POD-2813).
+#
+# SKIP stays the result — nothing about what the row asserts changes, and it is
+# still not evidence of anything — but the evidence column now names the lane
+# that excluded it rather than blaming a failure that did not happen.
+scope_out() {
+  RESULT["$1"]=SKIP
+  if [[ -n "$ONLY" ]]; then
+    DETAIL["$1"]="out of scope for PODIUM_UPDATE_E2E_ONLY=$ONLY"
+  else
+    DETAIL["$1"]="out of scope for this run"
+  fi
+}
+
+# Called where a focused lane HAS FINISHED and control is going back to cleanup:
+# at that point every row still without a result is one this lane was never going
+# to run. Deriving it here rather than from a hand-kept per-lane list is what
+# keeps it true when rows are added — a new row is scoped out by the lane that
+# does not reach it, with nobody having to remember a second table.
+scope_out_remaining() {
+  local row cleanup_row
+  for row in "${SCENARIOS[@]}"; do
+    [[ -z "${RESULT[$row]:-}" ]] || continue
+    for cleanup_row in "${CLEANUP_ROWS[@]}"; do
+      [[ "$row" != "$cleanup_row" ]] || continue 2
+    done
+    scope_out "$row"
+  done
+}
+
+# The evidence string for a row that reached `matrix` with no result at all.
+# Everything it says is read back out of what the run did: `RUN_INTERRUPT` is set
+# by the signal traps, `RUN_STATUS` and `RUN_STOPPED_AT` are captured by cleanup
+# as the run ends, `LAST_FAILURE` by `fail`. It never guesses.
+skip_reason() {
+  local row=$1 culprit=""
+  if [[ -n "$RUN_INTERRUPT" ]]; then
+    if [[ "$row" == "$RUN_STOPPED_AT" ]]; then
+      printf 'not reached: the run was INTERRUPTED (%s) while this row was running' "$RUN_INTERRUPT"
+    elif [[ -n "$RUN_STOPPED_AT" ]]; then
+      printf 'not reached: the run was INTERRUPTED (%s) during %s' "$RUN_INTERRUPT" "$RUN_STOPPED_AT"
+    else
+      printf 'not reached: the run was INTERRUPTED (%s) before this row' "$RUN_INTERRUPT"
+    fi
+    return 0
+  fi
+  if (( RUN_STATUS != 0 )); then
+    if [[ -n "$RUN_STOPPED_AT" && "${RESULT[$RUN_STOPPED_AT]:-}" == FAIL ]]; then
+      culprit="$RUN_STOPPED_AT"
+    elif [[ -n "$LAST_FAILURE" ]]; then
+      culprit="$LAST_FAILURE"
+    fi
+    if [[ -n "$culprit" ]]; then
+      printf 'not reached after %s failed' "$culprit"
+    elif [[ -n "$RUN_ABORT_REASON" ]]; then
+      printf 'not reached: the run aborted before this row — %s' "$RUN_ABORT_REASON"
+    elif [[ -n "$RUN_STOPPED_AT" ]]; then
+      printf 'not reached: the run stopped inside %s with no row marked failed' "$RUN_STOPPED_AT"
+    else
+      printf 'not reached: the run exited %d before this row with no row marked failed' "$RUN_STATUS"
+    fi
+    return 0
+  fi
+  # Nothing failed, nothing interrupted, nothing excluded it. That is this
+  # harness losing track of its own rows, and it is reported as such — see
+  # `unexplained_rows`, which will not let the run exit 0 on it.
+  printf 'HARNESS BUG: neither run nor declared out of scope, and the run reported no failure'
+}
+
+# The rows `skip_reason` can only call a harness bug. A green exit alongside one
+# is the exact failure mode this issue exists to end, so cleanup consults this
+# before it settles the status.
+unexplained_rows() {
+  local row found=""
+  [[ -z "$RUN_INTERRUPT" ]] || return 1
+  (( RUN_STATUS == 0 )) || return 1
+  for row in "${SCENARIOS[@]}"; do
+    [[ -z "${RESULT[$row]:-}" ]] || continue
+    found="${found:+$found }$row"
+  done
+  [[ -n "$found" ]] || return 1
+  printf '%s' "$found"
+}
 
 on_error() {
   local line=$1 command=$2
@@ -189,11 +314,18 @@ on_error() {
 
 matrix() {
   local row
+  # THE HEADLINE A PARTIAL MATRIX NEEDS BEFORE ITS FIRST ROW (POD-2813). Row
+  # reasons are honest now, but a reader skimming a killed run should not have to
+  # assemble the fact that it WAS killed out of a column.
+  if [[ -n "$RUN_INTERRUPT" ]]; then
+    printf '\n*** INTERRUPTED: this run was ended by %s%s. The matrix below is PARTIAL — rows after that point were never attempted and prove nothing. ***\n' \
+      "$RUN_INTERRUPT" "${RUN_STOPPED_AT:+ during $RUN_STOPPED_AT}"
+  fi
   printf '\n%-21s | %-8s | %s\n' SCENARIO RESULT EVIDENCE
   printf '%-21s-+-%-8s-+-%s\n' --------------------- -------- --------------------------------
   for row in "${SCENARIOS[@]}"; do
     printf '%-21s | %-8s | %s\n' "$row" "${RESULT[$row]:-SKIP}" \
-      "${DETAIL[$row]:-not reached after an earlier failure}"
+      "${DETAIL[$row]:-$(skip_reason "$row")}"
   done
 }
 
@@ -317,6 +449,11 @@ cleanup() {
   local final_free
   (( CLEANED == 0 )) || return "$status"
   CLEANED=1
+  # BEFORE ANY TEARDOWN TOUCHES EITHER (POD-2813). `CURRENT_SCENARIO` is the row
+  # the run was inside when it ended — the one fact that separates "stopped here"
+  # from "never got here" — and cleanup is about to record rows of its own.
+  RUN_STOPPED_AT="$CURRENT_SCENARIO"
+  RUN_STATUS="$status"
   if [[ -n "$CLIENT_PROBE_PID" ]]; then
     kill "$CLIENT_PROBE_PID" >/dev/null 2>&1 || true
     wait "$CLIENT_PROBE_PID" >/dev/null 2>&1 || true
@@ -378,12 +515,30 @@ cleanup() {
     pass host-disk "host free space returned within the 192 MiB observation tolerance"
   fi
   if [[ "${RESULT[cleanup]:-}" == FAIL && "$status" == 0 ]]; then status=1; fi
+  local unexplained
+  if unexplained="$(unexplained_rows)"; then
+    say "HARNESS BUG: $unexplained neither ran nor were declared out of scope, and no row failed. The matrix cannot say why they are blank, so this run is not a pass." >&2
+    status=1
+  fi
+  RUN_STATUS="$status"
   matrix
   if [[ -n "$EVIDENCE_DIR" ]]; then
     matrix >"$EVIDENCE_DIR/matrix.txt"
     say "bounded evidence kept at $EVIDENCE_DIR"
   fi
-  return "$status"
+  # `exit`, not `return` (POD-2813, and MEASURED — see the exit-status group in
+  # scripts/docker-update-e2e-matrix.test.ts, which re-derives this from bash
+  # rather than trusting the sentence).
+  #
+  # `return "$status"` was NOT a bug: bash honours a NONZERO return from an EXIT
+  # trap, so every adjustment above — `fail cleanup`, the harness-bug ratchet —
+  # did reach the caller, and a killed run did exit 143. It works by a quirk,
+  # though. A ZERO return is ignored and the original status stands, so the same
+  # line cannot ever LOWER a status, and the next person who needs it to (a hold
+  # that ends cleanly after a red row, say) would find it silently refusing with
+  # nothing to read. `exit` means what it says in both directions. The trap is
+  # disabled while it runs, so this cannot re-enter.
+  exit "$status"
 }
 
 container_exec() {
@@ -2001,8 +2156,12 @@ main() {
     "$WORK/node-modules/work"
   trap cleanup EXIT
   trap 'on_error "$LINENO" "$BASH_COMMAND"' ERR
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
+  # The signal is recorded, not merely converted into a status, so the matrix can
+  # SAY the run was killed instead of leaving its blank rows to imply a failure
+  # that never happened (POD-2813).
+  trap 'RUN_INTERRUPT=SIGINT; exit 130' INT
+  trap 'RUN_INTERRUPT=SIGTERM; exit 143' TERM
+  trap 'RUN_INTERRUPT=SIGHUP; exit 129' HUP
   say "run=$RUN_ID instance=$INSTANCE label=$LABEL"
 
   prepare_image
@@ -2210,15 +2369,21 @@ main() {
   # (POD-2668), and POD-2700 structurally refuses `repos.add` onto a machine
   # that runs no daemon — a refusal this harness would otherwise trip over.
 
+  # Each focused lane states its own exclusions as it hands back: whatever it did
+  # not run, it was never going to (POD-2813). `real-release` is the lane that
+  # exposed this — it leaves `environment` blank, and the matrix used to report
+  # that blank as fallout from a failure while every substantive row passed.
   if [[ "$ONLY" == server ]]; then
     run_server_lane
     CURRENT_SCENARIO=""
+    scope_out_remaining
     return 0
   fi
 
   if [[ "$ONLY" == real-release ]]; then
     run_real_release_lane
     CURRENT_SCENARIO=""
+    scope_out_remaining
     return 0
   fi
 
@@ -2272,6 +2437,11 @@ main() {
     pass legacy-migration "packaged three-unit layout stayed fully armed through an unhealthy parent and then converged"
     CURRENT_SCENARIO=legacy-sigkill
     fail legacy-sigkill "$LEGACY_SIGKILL_DECIDED_RED"
+    # This lane prints the complete matrix but runs only the legacy rows of it,
+    # and it always ends nonzero on the decided red above. Without this, every row
+    # the lane never intended to run would be attributed to that red — the same
+    # false blame in a different shape (POD-2813).
+    scope_out_remaining
     exit 1
   fi
 
