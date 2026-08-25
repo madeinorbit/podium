@@ -90,9 +90,7 @@ function Harness() {
         </View>
       </View>
       <View style={styles.pair}>
-        <Text style={styles.caseLabel}>
-          typed — the send disc fills, and the row does not move
-        </Text>
+        <Text style={styles.caseLabel}>typed — the send disc fills, and the row does not move</Text>
         <View style={styles.row}>
           <Frame title="before">
             <OldComposer

@@ -1,4 +1,12 @@
-/** The pre-POD-1659 composer, verbatim from 9e6dfbfb4, for side-by-side capture only. */
+/**
+ * The pre-POD-1659 composer — the flanked layout, taken from 9e6dfbfb4 so the
+ * restack can be judged against the thing it replaced rather than a memory of
+ * it. Capture only; nothing ships this.
+ *
+ * Changed from that revision in two ways and no others: the relative imports
+ * are rewritten for this directory, and the export is renamed so both layouts
+ * can stand on one page. The layout, the styles and the geometry are untouched.
+ */
 import { BlurView } from 'expo-blur'
 import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from 'lucide-react-native'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
@@ -18,12 +26,6 @@ import {
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useKeyboardVisible } from '../src/hooks/useKeyboardVisible'
-import { useReduceMotion } from '../src/hooks/useReduceMotion'
-import { type VoiceInput, useVoiceInput } from '../src/hooks/useVoiceInput'
-import { onMediaPaste } from '../src/lib/composer-media'
-import { alpha } from '../src/theme/mix'
-import { color, font, leading, radius, sans, space, spring } from '../src/theme/theme'
 import { AttachmentStrip } from '../src/components/AttachmentStrip'
 import {
   COMPOSER_LINE,
@@ -36,7 +38,16 @@ import { composerKeyAction, hasHardwareKeyboard } from '../src/components/compos
 import { useComposerMeasure } from '../src/components/composer-measure'
 import { Icon } from '../src/components/Icon'
 import { PressableScale } from '../src/components/PressableScale'
-import type { ComposerAttachmentsApi, SentAttachment } from '../src/components/useComposerAttachments'
+import type {
+  ComposerAttachmentsApi,
+  SentAttachment,
+} from '../src/components/useComposerAttachments'
+import { useKeyboardVisible } from '../src/hooks/useKeyboardVisible'
+import { useReduceMotion } from '../src/hooks/useReduceMotion'
+import { useVoiceInput, type VoiceInput } from '../src/hooks/useVoiceInput'
+import { onMediaPaste } from '../src/lib/composer-media'
+import { alpha } from '../src/theme/mix'
+import { color, font, leading, radius, sans, space, spring } from '../src/theme/theme'
 
 const CONTROL_TARGET = 44
 const SEND_INK = 32
