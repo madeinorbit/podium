@@ -1,0 +1,153 @@
+ok  server pid=636948 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 26f99a8
+  ok  daemon pid=637035 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 26f99a8
+  ok  exactly one daemon (pid 637035) on state root /tmp/pod-2777/state
+  ok  worktree at 26f99a8adffffc6e7aceb49cda2ef9c14de0a6ad, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 26f99a8
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='generic-pty', server STREAMING=1
+PINJSON {"want":"26f99a8adffffc6e7aceb49cda2ef9c14de0a6ad","short":"26f99a8","spawnedSha":"26f99a8adffffc6e7aceb49cda2ef9c14de0a6ad","serverPid":636948,"daemonPid":637035,"webSourceSha":"26f99a8","contract":"1","streaming":"1","driver":"generic-pty"}
+VERIFIED: p2777 (server + daemon + web bundle) is running 26f99a8adffffc6e7aceb49cda2ef9c14de0a6ad in arm CONTRACT=1 STREAMING=1 DRIVER='generic-pty'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=opencode  arm=terminal  expecting driver 'generic-pty'
+PIN                26f99a8adffffc6e7aceb49cda2ef9c14de0a6ad (web bundle 26f99a8, server pid 636948, daemon pid 637035)
+==============================================================================
+session 2a043731-e87f-4300-bb47-a34bf7990e85 created; giving the harness 25000ms to come up
+BOUND DRIVER       generic-pty (family terminal)
+TUI PRIMING        nothing to clear
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 11.7s
+   control: FIRED — 2 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-BEZRUZ. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-BEZRUZ — a blank session cannot produce this by luck
+   REPLY             arrived after 11748ms
+   ASSISTANT TEXT    13 chars: "PODIUM-BEZRUZ"
+   ELAPSED           12447ms
+
+── attach — attach a file
+   FAIL  the file was staged and sent, but its contents never came back
+   control: FIRED — probe 1 PASSED here, so this session can send and answer
+   STAGED            path=/tmp/pod-2777/state/uploads/2a043731-e87f-4300-bb47-a34bf7990e85/9f7573d3-3d89-4a22-9ff6-2c999b0a9f0e.txt ref={"id":"9f7573d3-3d89-4a22-9ff6-2c999b0a9f0e","path":"/tmp/pod-2777/state/uploads/2a043731-e87f-4300-bb47-a34bf7990e85/9f7573d3-3d89-4a22-9ff6-2c999b0a9f0e.txt","filename":"podium-2777-secret.txt","med
+   SECRET IN FILE    FILESECRET-BE5YKT — present in the bytes and nowhere else
+   SEND              {"ok":true,"disposition":"delivered"}
+                     (a 'queued' disposition here would mean the session was still busy)
+   ECHOED BACK       no
+   APPROVALS NEEDED  0 — the staging dir is OUTSIDE the repo, so reading the
+                     attachment raises an external_directory permission ask. A drive that
+                     did not answer it would time out and report "never read the file".
+   WHY A NONCE       an agent can agree that it sees a file without reading one;
+                     it cannot produce these bytes without having read them.
+
+── interaction — a pending interaction (permission / approval)
+   BLOCKED  no ask — this harness ran the tool without asking (permissive posture)
+   control: FIRED — 3 new transcript item(s) after the prompt; 6 delta frame(s) total
+   INTERACTIONS.LIST empty for this session after 21s
+   TOOL CALLS SEEN   read, read
+   BLOCKED, NOT FAILED: the harness approved its own tool call, so the
+   product was never handed an ask to surface. That is a fact about this
+   rig's permission posture, not about the product's ask plane.
+
+── model-switch — model / effort switch
+   BLOCKED  no product surface exists to switch model or effort mid-session
+   control: FIRED — model=(unset) observedModel=opencode-go/gpt-5.6-luna
+   REQUESTED MODEL   (session default)
+   OBSERVED MODEL    opencode-go/gpt-5.6-luna
+   OBSERVED EFFORT   (none)
+   DECLARATION       codex: configure unsupported ("model and effort are set at
+                     thread start and per turn"); opencode: unsupported; terminal:
+                     unsupported ("a TUI takes its model at launch"); grok: supported
+                     for permissionMode ONLY, explicitly not model/effort.
+   PRODUCT SURFACE   no server or daemon code calls handle.configure(); sessions.sendText
+                     carries no per-turn model or effort override either.
+   READING           the declaration and the behaviour agree, and the product does
+                     not offer a switch it cannot honour. Nothing is broken and
+                     nothing is proven — the cell is empty on BOTH arms, so this is
+                     not a way in which headless is better or worse.
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── stream — streaming deltas actually arrive
+   BLOCKED  the turn had already finished when the chat opened (phase=idle)
+   control: FIRED — 2 frame(s), first at +69ms
+   JOINED            8717ms after the send, and the session was already phase=idle
+   The ordering under test is a viewer arriving DURING a turn. This agent
+   answered inside the join delay, so there was no in-flight turn to watch
+   and a preview count of zero is a fact about the timing, not the plane.
+   BLOCKED rather than FAIL: re-run with a longer prompt or a shorter join
+   delay (P2777_JOIN_MS) to measure this cell on this harness.
+
+── interrupt — interrupt a running turn
+   REFUSED  control did not fire — refusing to report this measurement
+   control: DID NOT FIRE — phase=idle, 0 preview frame(s), 6401 chars on the transcript
+   CONTROL WATCHED   the turn observed IN FLIGHT (phase=working, output growing) immediately before the interrupt
+   CONTROL SAW       phase=idle, 0 preview frame(s), 6401 chars on the transcript
+   The signal that must arrive whether or not this behaviour works did not
+   arrive, so a result here cannot be told apart from a dead rig. The
+   probe's own reading was: FAIL — no running turn to interrupt
+   REFUSING to report it, including as a failure.
+
+── stop — stop (the session — the turn-scoped stop is absent from the contract)
+   PASS  session left its running state 261ms after stop (status=hibernated)
+   control: FIRED — present, status=live phase=idle
+   BEFORE            status=live phase=idle
+   STOP RETURNED     {"ok":true,"worktreeFreed":false,"deferredKill":false}
+   AFTER             status=hibernated phase=idle
+   VERIFIED IN       261ms
+   NOTE              this is sessions.stop (the SESSION). The catalogue records
+                     "stop this turn, keep the session" as ABSENT from the contract
+                     on all four drivers; this drive does not pretend otherwise.
+
+── resume — resume after a kill
+   FAIL  resumed, but the conversation did not come back
+   control: FIRED — the session repeated REMEMBER-ZC8RLX before it was parked
+   SECRET            REMEMBER-ZC8RLX — spoken only in the pre-kill conversation
+   HIBERNATE         {"ok":true}; PARKED after 121ms (status=hibernated)
+   RESURRECT         {"ok":true}
+     → back live?    YES after 1096ms
+   RESUMEANDSEND     {"ok":true,"disposition":"delivered"}
+     → back live?    YES after 225ms
+   TWO VERBS         POD-2775 fixed resumeAndSend, not resurrect. A probe that drove
+                     only resurrect would report that landed fix as broken.
+   RECALL            the secret never came back
+   SAME CONVERSATION YES — pointer conv_2b4e4e59-cbab-4a2f- unchanged across the park
+   ORIGINAL EXCHANGE present — the transcript still carries the prompt that planted the secret
+   WHY THREE CHECKS  a resume mutated to a STRANGER'S thread id passed 269 tests,
+                     partly because the drive-level check was "both strings appear".
+                     Containing the word is not being the conversation.
+   WHY THIS SHAPE    a healthy BLANK session carrying the old ref passes any
+                     check that only asks whether resume returned ok.
+   NOT COVERED       recovery from an UNCLEAN death. sessions.kill REMOVES the row
+                     (resurrect then answers 'unknown session'), so this drives the
+                     hibernate/resurrect round trip a person actually performs.
+
+── provider-error — a provider error surfaced honestly
+   FAIL  no error surfaced in 180s — the session reads phase=idle status=live
+   control: FIRED — probe 1 PASSED, so a failure in this probe is attributable to the injected fault
+   INJECTED FAULT    model="podium-2777-no-such-model" on a opencode session
+   SESSION           8ae3342c-40d0-45a1-ad36-861759205131
+   ERROR CLASS       (none)
+   ERROR DETAIL      (none)
+   PHASE / STATUS    phase=idle status=live
+   SURFACED AFTER    never
+   The product did NOT say the turn failed — the catalogue names this exact
+   shape: a turn that died rendering as finished, or idle forever.
+
+==============================================================================
+RESULT  opencode / terminal / driver=generic-pty
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 11.7s
+attach          FAIL      fired     the file was staged and sent, but its contents never came back
+interaction     BLOCKED   fired     no ask — this harness ran the tool without asking (permissive posture)
+model-switch    BLOCKED   fired     no product surface exists to switch model or effort mid-session
+stream          BLOCKED   fired     the turn had already finished when the chat opened (phase=idle)
+interrupt       REFUSED   MISSING   control did not fire — refusing to report this measurement
+stop            PASS      fired     session left its running state 261ms after stop (status=hibernated)
+resume          FAIL      fired     resumed, but the conversation did not come back
+provider-error  FAIL      fired     no error surfaced in 180s — the session reads phase=idle status=live
+==============================================================================
+written /tmp/pod-2777/results/opencode.terminal.json
+EXIT=0

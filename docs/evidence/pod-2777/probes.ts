@@ -336,88 +336,189 @@ export function streaming(joinedMs: number, wasRunningAtJoin: boolean, phaseAtJo
  * output — in the moment before the interrupt was sent. Without that reading
  * the measurement is refused rather than scored.
  */
-export function interrupt(observedWorking: boolean, observedDetail: string): Probe {
-  return {
-    id: 'interrupt',
-    title: 'interrupt a running turn',
-    catalogRow: '§1 interrupt a running turn (WIRED — declared capability, no conformance property)',
-    async run(ctx) {
-      const control: ControlReading = {
-        fired: observedWorking,
-        what: 'the turn observed IN FLIGHT (phase=working, output growing) immediately before the interrupt',
-        detail: observedDetail,
-      }
-      if (!observedWorking) {
-        return {
-          control,
-          outcome: { verdict: 'FAIL', summary: 'no running turn to interrupt', evidence: [], data: {} },
-        }
-      }
+/**
+ * THE CONTROL IS UNCHANGED; WHAT CHANGED IS WHO ESTABLISHES IT.
+ *
+ * The predicate is the same one POD-1761 called the sharpest thing on this epic,
+ * and it is not negotiable: the turn must be observed IN FLIGHT — phase
+ * `working` AND output actually growing — in the moment before the interrupt is
+ * sent. Interrupting nothing always looks like success, so without that reading
+ * the cell is refused rather than scored.
+ *
+ * What changed is that this probe now STARTS ITS OWN TURN and waits for that
+ * state, instead of inheriting whatever the streaming probe left running. It had
+ * to: on the terminal arm the shared turn finished inside the join delay (6401
+ * chars in under 8.7s), so the control could not fire and the cell came back
+ * REFUSED — correct, but useless to POD-2792, whose whole question is whether
+ * the TERMINAL driver interrupts. A cell that important must not be hostage to
+ * another probe's timing.
+ *
+ * Refusing is still the outcome when no running turn can be established here
+ * either. The bar did not move; only the responsibility for meeting it.
+ */
+export const interrupt: Probe = {
+  id: 'interrupt',
+  title: 'interrupt a running turn',
+  catalogRow: '§1 interrupt a running turn (WIRED — declared capability, no conformance property)',
+  async run(ctx) {
+    await settle(ctx.sid)
+    const baseline = ctx.chat.assistantText().length
+    const framesBaseline = ctx.chat.previews.length
+    const baselineScreen = ctx.chat.screenBytes
+    await mutate('sessions.sendText', {
+      sessionId: ctx.sid,
+      text:
+        'Count from 1 to 400. Put each number on its own line, and after each number write ' +
+        'one full sentence about it. Do not use any tools. Do not summarise. Write every line.',
+    })
 
-      const before = ctx.chat.assistantText().length
-      // FRAMES ARE THE READING THAT SEPARATES THE TWO FAILURES. A phase stuck at
-      // `working` can mean the agent kept generating (the interrupt did nothing)
-      // or that generation stopped and only the STATE never cleared. Those are
-      // different defects with different owners, and phase alone cannot tell
-      // them apart — so count the preview frames that arrive AFTER the call.
-      const framesAtInterrupt = ctx.chat.previews.length
-      const t0 = now()
-      const res = await mutate('sessions.interrupt', { sessionId: ctx.sid })
-      const settled = await until(ctx.sid, (r) => r?.agentState?.phase !== 'working', IDLE_MS, 500)
-      const after = ctx.chat.assistantText().length
-      const framesAfter = ctx.chat.previews.length - framesAtInterrupt
-      const lastFrameChars = ctx.chat.previews.at(-1)?.chars ?? 0
-      const charsAtInterrupt = ctx.chat.previews[framesAtInterrupt - 1]?.chars ?? 0
-
-      // The transcript's OWN word for it: `event: 'interrupt'` is the item the
-      // parser synthesizes for "[Request interrupted by user]". A driver that
-      // merely went idle looks identical by phase alone; this is the reading
-      // that says the interrupt was an ACTION and not a coincidence.
-      const marked = ctx.chat.items.some((i) => i.event === 'interrupt')
-      const stopped = settled.ok
+    /**
+     * IN FLIGHT, ON AN ARM THAT NEVER SAYS `working`.
+     *
+     * The control's PURPOSE is unchanged and non-negotiable: the turn must be
+     * observed running in the moment before the call, because interrupting
+     * nothing always looks like success. What had to change is the SIGNAL, and
+     * only on the terminal arm, because the signal I was using is not published
+     * there.
+     *
+     * Measured, twice, on `generic-pty`: a session produced 13,250 characters of
+     * output while `agentState.phase` read `idle` at all 60 polls across 60
+     * seconds — `working` never appeared once. (That is a finding in its own
+     * right: the catalogue lists "working vs idle" as `wired` for terminal, and
+     * a busy terminal session renders as idle on the home board for the whole
+     * turn.) A control keyed on `working` can therefore NEVER fire on that arm,
+     * and scoring the cell off it would report a rig limit as a product verdict.
+     *
+     * So flight is established by whichever signal that arm actually publishes,
+     * and the report says which one did it:
+     *   headless — phase `working` AND preview frames arriving;
+     *   terminal — the PTY's OWN OUTPUT BYTES growing between samples, which is
+     *              continuous and real-time (the durable transcript arrives in
+     *              batches, so it is too coarse to catch a turn mid-flight).
+     * Neither is weaker than the other: both are direct evidence that tokens are
+     * being produced right now. Refusal is still the outcome when neither moves.
+     */
+    let working = false
+    let producing = false
+    let phase = 'unknown'
+    let signal = 'none'
+    let screenPrev = ctx.chat.screenBytes
+    const spinUp = now() + 90_000
+    while (now() < spinUp) {
+      const row = await sessionRow(ctx.sid)
+      phase = row?.agentState?.phase ?? 'unknown'
+      working = phase === 'working'
+      const previews = ctx.chat.previews.length > framesBaseline
+      const chars = ctx.chat.assistantText().length > baseline
+      const screenNow = ctx.chat.screenBytes
+      const screenGrew = screenNow > screenPrev + 200
+      screenPrev = screenNow
+      if (working && (previews || chars)) {
+        producing = true
+        signal = `phase=working with ${ctx.chat.previews.length - framesBaseline} preview frame(s)`
+        break
+      }
+      if (screenGrew) {
+        producing = true
+        signal = `terminal output bytes growing (+${screenNow - baselineScreen} since the send)`
+        break
+      }
+      await wait(500)
+    }
+    const observedDetail = `${signal}; phase=${phase}, ${ctx.chat.previews.length - framesBaseline} preview frame(s), ${ctx.chat.assistantText().length - baseline} new transcript chars, ${ctx.chat.screenBytes - baselineScreen} new terminal bytes`
+    const control: ControlReading = {
+      fired: producing,
+      what: 'the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)',
+      detail: observedDetail,
+    }
+    if (!control.fired) {
       return {
         control,
         outcome: {
-          verdict: stopped ? 'PASS' : 'FAIL',
-          summary: stopped
-            ? `turn stopped ${settled.ms}ms after interrupt${marked ? ', transcript marks it' : ''}`
-            : `still working ${IDLE_MS / 1000}s after interrupt`,
-          evidence: [
-            `WAS RUNNING       ${observedDetail}`,
-            `INTERRUPT SENT    ${JSON.stringify(res.result?.data ?? res.error ?? null).slice(0, 200)}`,
-            `SETTLED           ${stopped ? `phase left 'working' after ${settled.ms}ms` : `NEVER — phase=${settled.row?.agentState?.phase}`}`,
-            `TRANSCRIPT MARK   ${marked ? "an item carries event:'interrupt' — the product recorded a user action" : "no item carries event:'interrupt'"}`,
-            `TEXT AT INTERRUPT ${before} chars → ${after} chars at settle (durable transcript)`,
-            `FRAMES AFTER      ${framesAfter} preview frame(s) arrived AFTER the interrupt was sent`,
-            `PREVIEW CHARS     ${charsAtInterrupt} at the interrupt → ${lastFrameChars} at settle`,
-            ...(stopped
-              ? []
-              : framesAfter > 0
-                ? [
-                    'READING           the agent KEPT GENERATING. The interrupt did not reach the',
-                    '                  turn at all, and the call still returned ok — the product',
-                    '                  reported a success that did not happen.',
-                  ]
-                : [
-                    'READING           generation STOPPED (no frame arrived after the call) but the',
-                    '                  phase never left `working`. The turn is over and the product',
-                    '                  still shows it running — a stuck state rather than an',
-                    '                  unhonoured interrupt. Different defect, different owner.',
-                  ]),
-          ],
-          data: {
-            settledMs: stopped ? settled.ms : null,
-            marked,
-            charsBefore: before,
-            charsAfter: after,
-            framesAfterInterrupt: framesAfter,
-            previewCharsAtInterrupt: charsAtInterrupt,
-            previewCharsAtSettle: lastFrameChars,
-          },
+          verdict: 'FAIL',
+          summary: 'could not get a running turn to interrupt',
+          evidence: [`WATCHED           ${observedDetail}`],
+          data: {},
         },
       }
-    },
-  }
+    }
+
+    const before = ctx.chat.assistantText().length
+    // FRAMES ARE THE READING THAT SEPARATES THE TWO FAILURES. A phase stuck at
+    // `working` can mean the agent kept generating (the interrupt did nothing)
+    // or that generation stopped and only the STATE never cleared. Those are
+    // different defects with different owners, and phase alone cannot tell them
+    // apart — so count what arrives AFTER the call. On a coarse-only terminal
+    // arm there are no preview frames, so the transcript's own growth is the
+    // stand-in and both are reported.
+    const framesAtInterrupt = ctx.chat.previews.length
+    const screenAtInterrupt = ctx.chat.screenBytes
+    const t0 = now()
+    const res = await mutate('sessions.interrupt', { sessionId: ctx.sid })
+    const settled = await until(ctx.sid, (r) => r?.agentState?.phase !== 'working', IDLE_MS, 500)
+    const after = ctx.chat.assistantText().length
+    const framesAfter = ctx.chat.previews.length - framesAtInterrupt
+
+    // ON THE TERMINAL ARM `phase` IS VACUOUSLY SATISFIED — it never said
+    // `working` in the first place, so "it left working" proves nothing. The
+    // reading there is whether the OUTPUT STOPPED: sample the PTY bytes twice,
+    // a few seconds apart, after the call.
+    await wait(6_000)
+    const screenAfterA = ctx.chat.screenBytes
+    await wait(6_000)
+    const screenAfterB = ctx.chat.screenBytes
+    const outputStopped = screenAfterB <= screenAfterA + 200
+    const phaseNeverWorked = phase !== 'working'
+    const honoured = phaseNeverWorked ? outputStopped : settled.ok
+
+    // The transcript's OWN word for it: `event: 'interrupt'` is the item the
+    // parser synthesizes for "[Request interrupted by user]". A driver that
+    // merely went idle looks identical by phase alone; this is the reading that
+    // says the interrupt was an ACTION and not a coincidence.
+    const marked = ctx.chat.items.some((i) => i.event === 'interrupt')
+    const stopped = honoured
+    return {
+      control,
+      outcome: {
+        verdict: stopped ? 'PASS' : 'FAIL',
+        summary: stopped
+          ? `turn stopped ${settled.ms}ms after interrupt${marked ? ', transcript marks it' : ', but nothing marks it'}`
+          : `still working ${IDLE_MS / 1000}s after interrupt`,
+        evidence: [
+          `WAS RUNNING       ${observedDetail}`,
+          `INTERRUPT SENT    ${JSON.stringify(res.result?.data ?? res.error ?? null).slice(0, 200)}`,
+          `SETTLED           ${stopped ? `phase left 'working' after ${settled.ms}ms` : `NEVER — phase=${settled.row?.agentState?.phase}`}`,
+          `TRANSCRIPT MARK   ${marked ? "an item carries event:'interrupt' — the product recorded a user action" : "no item carries event:'interrupt'"}`,
+          `TEXT              ${before} chars at the call -> ${after} chars at settle`,
+          `FRAMES AFTER      ${framesAfter} preview frame(s) arrived AFTER the call`,
+          `TERMINAL BYTES    ${screenAtInterrupt - baselineScreen} at the call -> +${screenAfterA - screenAtInterrupt} after 6s -> +${screenAfterB - screenAtInterrupt} after 12s`,
+          `SCORED ON         ${phaseNeverWorked ? 'output stopping — this arm never publishes phase=working, so "left working" would be vacuously true' : "phase leaving 'working'"}`,
+          ...(stopped
+            ? []
+            : framesAfter > 0 || after > before || screenAfterB > screenAtInterrupt + 2_000
+              ? [
+                  'READING           the agent KEPT GENERATING after the call. The interrupt did',
+                  '                  not reach the turn, and the call still returned ok — the',
+                  '                  product reported a success that did not happen.',
+                  `                  evidence: +${screenAfterB - screenAtInterrupt} terminal bytes and ${framesAfter} preview frame(s) AFTER the interrupt.`,
+                ]
+              : [
+                  'READING           generation STOPPED (nothing arrived after the call) but the',
+                  '                  phase never left `working`. The turn is over and the product',
+                  '                  still shows it running — a stuck state rather than an',
+                  '                  unhonoured interrupt. Different defect, different owner.',
+                ]),
+        ],
+        data: {
+          settledMs: stopped ? settled.ms : null,
+          marked,
+          charsBefore: before,
+          charsAfter: after,
+          framesAfterInterrupt: framesAfter,
+        },
+      },
+    }
+  },
 }
 
 // ---------------------------------------------------------------------------

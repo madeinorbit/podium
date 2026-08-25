@@ -48,11 +48,30 @@ for name in server daemon; do
   cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)"
   [ "$cwd" = "$(readlink -f "$PODIUM_DRIVE_REPO")" ] \
     || fail "$name (pid $pid) is running from $cwd, not $PODIUM_DRIVE_REPO"
-  started="$(stat -c %Y "/proc/$pid" 2>/dev/null || echo 0)"
-  committed="$(git -C "$PODIUM_DRIVE_REPO" show -s --format=%ct "$WANT_SHA")"
-  [ "$started" -ge "$committed" ] \
-    || fail "$name (pid $pid) started before $WANT_SHA was committed — it cannot be running it"
-  echo "  ok  $name pid=$pid cwd=$cwd started after the commit"
+  # WHICH COMMIT THIS PROCESS WAS SPAWNED AT — read back, not inferred.
+  #
+  # This leg used to ask whether the process STARTED AFTER the commit, via
+  # `stat -c %Y /proc/<pid>`. POD-2775's reviewer defeated it and the defeat
+  # REPRODUCES on this host: that path returns the INODE's mtime, not the
+  # process start time, and 113 of 256 pids skew FORWARD by more than 5 seconds
+  # (worst case 7751s) against the real start time from /proc/<pid>/stat.
+  #
+  # And even with a perfect clock the test was too weak to matter: `started >=
+  # committed` is ALSO true for the commit's PARENT, so it could not tell the
+  # build under test from the one immediately before it — the only distinction a
+  # pin exists to make.
+  #
+  # drive-up.sh now writes `git rev-parse HEAD` beside the pidfile as it spawns
+  # the process, and this compares that RECORDED sha. A recorded fact beats a
+  # derived one — the same shape that makes leg 3 (fetching podium-build.json
+  # back out of the server) the strongest leg here.
+  shafile="$PODIUM_DRIVE_BASE/$name.sha"
+  [ -f "$shafile" ] \
+    || fail "no $name.sha — this instance was started by a drive-up.sh that did not record its commit, so the pin cannot be checked at all. Re-run drive-up.sh."
+  spawned="$(cat "$shafile")"
+  [ "$spawned" = "$WANT_SHA" ] \
+    || fail "$name (pid $pid) was SPAWNED AT $spawned, you named $WANT_SHA ($WANT) — restart it with drive-up.sh"
+  echo "  ok  $name pid=$pid cwd=$cwd spawned at $(printf '%.7s' "$spawned")"
 done
 
 # 1b. EXACTLY ONE DAEMON ON THIS STATE ROOT.
@@ -143,5 +162,5 @@ echo "  ok  arm live in the processes: daemon CONTRACT=$RUNNING_CONTRACT DRIVER=
 
 # The machine-readable line drive.ts reads back, so a report can carry the pin
 # it actually ran under rather than one a human retyped.
-echo "PINJSON {\"want\":\"$WANT_SHA\",\"short\":\"$WANT_SHORT\",\"serverPid\":$SERVER_PID,\"daemonPid\":$DAEMON_PID,\"webSourceSha\":\"$WEB_SHA\",\"contract\":\"$RUNNING_CONTRACT\",\"streaming\":\"$RUNNING_STREAMING\",\"driver\":\"${RUNNING_DRIVER:-}\"}"
+echo "PINJSON {\"want\":\"$WANT_SHA\",\"short\":\"$WANT_SHORT\",\"spawnedSha\":\"$spawned\",\"serverPid\":$SERVER_PID,\"daemonPid\":$DAEMON_PID,\"webSourceSha\":\"$WEB_SHA\",\"contract\":\"$RUNNING_CONTRACT\",\"streaming\":\"$RUNNING_STREAMING\",\"driver\":\"${RUNNING_DRIVER:-}\"}"
 echo "VERIFIED: p2777 (server + daemon + web bundle) is running $WANT_SHA in arm CONTRACT=$RUNNING_CONTRACT STREAMING=$RUNNING_STREAMING DRIVER='${RUNNING_DRIVER:-(policy)}'"

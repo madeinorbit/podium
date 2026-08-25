@@ -152,6 +152,78 @@ EITHER arm. Scored `n/a` with the declarations quoted rather than red: nothing i
 broken, nothing is proven, and it is not a way in which headless is better or
 worse.
 
+## THE A/B — opencode on both drivers, same rig, same probes, same commit
+
+Terminal arm bound `generic-pty` (family `terminal`), verified live in the
+daemon's own `/proc/<pid>/environ`. Both columns at **e28013a**.
+
+| behaviour | headless (`opencode-server`) | terminal (`generic-pty`) | which is better |
+|---|---|---|---|
+| send a turn, get a reply | PASS — 7.2s | PASS — 11.7s | same |
+| streaming to a late joiner | **PASS** — 26 frames, seq 145→512, monotonic | **cannot** — declares `coarse` only | **headless** |
+| interrupt a running turn | **FAIL** | **FAIL** | **same — see below** |
+| stop | PASS — 153ms | PASS — 261ms | same |
+| resume after a park | **FAIL** | **FAIL** | same |
+| attach a file | **PASS** | **FAIL** — staged and sent, contents never came back | **headless** |
+| pending interaction | n/a — permissive posture | n/a — permissive posture | same |
+| provider error surfaced | n/a — fault never fired | FAIL — no error surfaced in 180s | — |
+| model / effort switch | n/a — no product surface | n/a — no product surface | same |
+
+**Headless is better in two cells and worse in none.** The terminal driver
+cannot stream to a late joiner at all — that is its declaration (`watchLevels:
+['coarse']`), not a defect, and it is exactly the gap the headless work exists to
+close. Attachments reach the agent on the headless path and do not on the
+terminal one.
+
+### interrupt fails on BOTH arms — so it is not this epic's regression
+
+This is POD-2792's release question and the answer is not the one that blocks a
+release. On the terminal arm, with the control fired (PTY output bytes growing
+before the call):
+
+```
+INTERRUPT SENT    {"ok":true}
+TERMINAL BYTES    257 at the call -> +44049 after 6s -> +72080 after 12s
+TRANSCRIPT MARK   no item carries event:'interrupt'
+```
+
+The agent kept generating — 72KB of output after a call that reported success.
+The headless arm fails the same way. So `interrupt` is a **pre-existing gap on
+the old path that the headless work inherited, not one it introduced**. The
+catalogue's `wired` on all four drivers was right that the code exists and wrong
+that it works, equally on both paths.
+
+### The terminal driver never reports `phase: working`
+
+Found while trying to score the cell above, and a finding in its own right.
+Measured twice on `generic-pty`: a session produced **13,250 characters of
+output while `agentState.phase` read `idle` at all 60 polls across 60 seconds**.
+`working` never appeared once.
+
+```
++45ms     phase=idle transcriptChars=0
++12902ms  phase=idle transcriptChars=0
++26605ms  phase=idle transcriptChars=13250
++53717ms  phase=idle transcriptChars=13250
+phases seen: idle=60      EVER working: false
+```
+
+The catalogue lists "working vs idle" as `wired` for terminal. Driven, it fails:
+a busy terminal session renders as **idle on the home board for the whole turn**.
+
+It also forced a change to HOW the interrupt control is established — announced
+to POD-1761 before it was made, because they own that row now. The control's
+PURPOSE is untouched: prove tokens are being produced right now, immediately
+before the call, because interrupting nothing always looks like success. What
+differs is the signal each arm actually publishes — headless uses `phase=working`
+plus arriving preview frames, terminal uses the PTY's own output bytes growing.
+Both are direct evidence of live token production; neither is the weaker claim.
+Every cell reports which signal fired.
+
+The success reading had to change with it. On an arm that never says `working`,
+"it left `working`" is vacuously TRUE, so the terminal cell is scored on whether
+output actually stopped, sampled 6s and 12s after the call.
+
 ## Where this drive was WRONG, and how it found out
 
 A drive that records where it was wrong is worth more than one that only records
@@ -256,10 +328,68 @@ resolved path and version of every harness binary before the arm runs, into
 `harness-versions.txt`. A drive that does not write down which binary it ran
 cannot tell a product finding from a PATH accident.
 
+**A ring buffer made continuing output look like stopped output.** The terminal
+interrupt cell first scored FAIL with this line in its evidence:
+
+```
+TERMINAL BYTES  7697 at the call -> +-68017 after 6s -> +-30926 after 12s
+```
+
+Negative deltas. `Chat.screen` is a ring that truncates past 200KB so a long turn
+cannot exhaust memory, and I was measuring "did output stop" as a difference in
+its LENGTH — which goes negative once truncation starts, and a negative delta
+trivially satisfies "did not grow". A turn that was still streaming would have
+scored as one that had stopped. `Chat` now keeps a monotonic `screenBytes`
+counter that never truncates, separate from the display ring. The corrected run
+reads `+44049 after 6s -> +72080 after 12s` — the opposite conclusion, from the
+same session doing the same thing.
+
+**A verdict that contradicted its own evidence.** With the counter fixed the
+cell scored FAIL correctly, and then printed *"generation STOPPED (nothing
+arrived after the call)"* directly beneath the bytes proving 105KB had arrived.
+The verdict was right and the explanation was wrong — the narrative branch was
+keyed on preview frames and transcript growth, neither of which moves on a
+coarse-only, batch-tailed terminal arm. Left alone it would have been read by
+someone as the finding. Fixed and re-driven rather than hand-corrected in prose.
+
 **`pkill -f <path>` kills the shell that runs it** when that shell's own command
 line contains the path. It happened repeatedly here: exit 144, no output, and the
 drive it was meant to protect gone with it. The reaping is `pgrep` plus an
 explicit self filter.
+
+## Pin leg 1 was defeated, and the fix is a recorded fact
+
+The first version of leg 1 asked whether a process had STARTED AFTER the commit,
+reading `stat -c %Y /proc/<pid>`. POD-2775's reviewer defeated it and the defeat
+reproduces here — measured on this host, comparing that value against the real
+start time from `/proc/<pid>/stat` field 22:
+
+```
+pids sampled        256
+skewing FORWARD >5s 113
+worst               7751.1s
+```
+
+It is the INODE's mtime, not a process start time. And the second defect is worse
+because no clock fixes it: `started >= committed` is ALSO true for the commit's
+PARENT, so the leg could not distinguish the build under test from the one
+immediately before it — the only distinction a pin exists to make.
+
+`drive-up.sh` now writes `git rev-parse HEAD` beside each pidfile **as it spawns
+the process**, and `drive-verify.sh` compares that recorded sha. Mutation-tested
+at both edges: correct commit → exit 0; **parent commit → exit 1** (`was SPAWNED
+AT 26f99a8ad…, you named d71398329…`); `daemon.sha` removed → exit 1, because an
+instance left by an older `drive-up.sh` must not silently skip the leg; restored
+→ exit 0.
+
+A recorded fact beats a derived one. That is why leg 3 was always the strongest —
+`/podium-build.json` fetched back OUT OF THE SERVER is a fact about the bytes
+being served — and leg 1 now has the same shape.
+
+**What was and was not at risk.** The COMMIT IDENTITY was never in doubt: leg 2
+checked the worktree was at that sha and clean, and leg 3 checked the served
+bundle was built from it. What leg 1 failed to establish is that the running
+server and daemon were started FROM that checkout rather than an earlier one.
 
 ## Two daemons on one state root — asked for, added, and the product got there first
 

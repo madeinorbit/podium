@@ -191,6 +191,16 @@ export class Chat {
    *  while the screen is full — of a modal nobody cleared. Capturing it turns a
    *  refusal from "nothing happened" into a diagnosis. */
   screen = ''
+  /**
+   * TOTAL PTY bytes ever received — monotonic, and separate from `screen` for a
+   * reason that cost a wrong verdict. `screen` is a ring: it truncates past
+   * 200KB so a long turn cannot exhaust memory. Measuring "did output stop" as a
+   * DIFFERENCE IN `screen.length` therefore reads NEGATIVE once truncation
+   * starts, and a negative delta satisfies "did not grow" — so a turn that was
+   * still streaming scored as one that had stopped. This counter never shrinks,
+   * so a difference in it means what it says.
+   */
+  screenBytes = 0
   deltaFrames = 0
   firstDeltaAtMs?: number
   openedAt = 0
@@ -237,7 +247,9 @@ export class Chat {
       return
     }
     if (type === 'outputFrame' && m.sessionId === this.sid && typeof m.data === 'string') {
-      this.screen += Buffer.from(m.data, 'base64').toString('binary')
+      const bytes = Buffer.from(m.data, 'base64').toString('binary')
+      this.screenBytes += bytes.length
+      this.screen += bytes
       if (this.screen.length > 200_000) this.screen = this.screen.slice(-100_000)
       return
     }

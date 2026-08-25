@@ -192,7 +192,7 @@ function refuseAll(reasonWhat: string, reasonDetail: string): void {
   const all: Probe[] = [
     reply,
     streaming(0, false, 'unknown'),
-    interrupt(false, ''),
+    interrupt,
     stop,
     resumeAfterKill('', undefined as never, '', false),
     attach,
@@ -323,19 +323,10 @@ if (boundDriver !== wantDriver) {
   await wait(STREAM_SAMPLE_MS)
   if (wanted('stream')) await runProbe(streaming(joinedMs, wasRunningAtJoin, phaseAtJoin), streamCtx)
 
-  // THE INTERRUPT'S CONTROL, read HERE and not inside the probe: the turn must
-  // be observed in flight in the moment before the interrupt is sent, or
-  // interrupting nothing passes for success.
-  const liveRow = await sessionRow(sid)
-  const working = liveRow?.agentState?.phase === 'working'
-  const producing = late.previews.length > 0 || late.assistantText().length > 0
-  if (wanted('interrupt')) await runProbe(
-    interrupt(
-      working && producing,
-      `phase=${liveRow?.agentState?.phase}, ${late.previews.length} preview frame(s), ${late.assistantText().length} chars on the transcript`,
-    ),
-    streamCtx,
-  )
+  // The interrupt probe establishes its own running turn (see probes.ts): the
+  // shared streaming turn finishes inside the join delay on fast harnesses, and
+  // a cell POD-2792 depends on must not be hostage to another probe's timing.
+  if (wanted('interrupt')) await runProbe(interrupt, streamCtx)
 
   if (wanted('stop')) await runProbe(stop, streamCtx)
   await late.close()

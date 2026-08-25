@@ -114,11 +114,26 @@ for name in daemon server; do
   rm -f "$pidfile"
 done
 
+# THE SHA IS RECORDED AT SPAWN, NOT INFERRED AFTERWARDS.
+#
+# The first version of the pin asked whether a process STARTED AFTER the commit
+# was made, reading `stat -c %Y /proc/<pid>`. POD-2775's reviewer defeated that
+# and the defeat reproduces here: `/proc/<pid>` mtime is the INODE's mtime, not
+# the process start time, and on this host 113 of 256 pids skew FORWARD by more
+# than 5 seconds — worst case 7751 seconds. Worse, even with a perfect clock the
+# test `started >= committed` also passes for the commit's PARENT, so it cannot
+# make the one distinction a pin exists to make.
+#
+# So the spawning shell writes down the commit it is spawning, and verify
+# compares THAT. A recorded fact beats a derived one, and it takes the timestamp
+# out of the argument entirely — the same shape that makes leg 3 (fetching
+# podium-build.json back out of the server) trustworthy.
 start() { # name, script
   local name="$1" script="$2"
   nohup bun --conditions=@podium/source "$script" >"$LOGS/$name.log" 2>&1 &
   echo "$!" > "$PODIUM_DRIVE_BASE/$name.pid"
-  echo "started $name pid=$(cat "$PODIUM_DRIVE_BASE/$name.pid")"
+  git -C "$PODIUM_DRIVE_REPO" rev-parse HEAD > "$PODIUM_DRIVE_BASE/$name.sha"
+  echo "started $name pid=$(cat "$PODIUM_DRIVE_BASE/$name.pid") at $(cut -c1-7 < "$PODIUM_DRIVE_BASE/$name.sha")"
 }
 
 start server scripts/server.ts
