@@ -292,6 +292,34 @@ wait_for() {
   return 1
 }
 
+# THE GATE STOPS WATCHING BEFORE THE PRODUCT STOPS TRYING (POD-2747).
+#
+# `UPDATE_STEP_MACHINES.silenceMs` is `machineDeliverySilenceMs` (the daemon's
+# download timeout, 5 min) plus `machineSilenceMarginMs` (2 min) — seven minutes,
+# armed by the engine rather than aged when someone reads `fleet()`. On breach
+# the engine does not merely re-check: it marks the step stalled, re-enters
+# `ensure`, and REISSUES GRANTS. A wave can therefore look completely dead for
+# seven minutes and then complete normally, on its own.
+#
+# Every operation wait in this gate is DELIBERATELY shorter than that, and they
+# stay that way. A fleet update that converges only because the stall deadline
+# gave up and retried has failed, and a gate that waited past the budget would go
+# green on precisely that defect — lengthening these to clear a red would turn a
+# race into a slower race and hide the bug the red is pointing at.
+#
+# What was missing is that the timeout never SAID so. "did not reach a terminal
+# state within 300s" reads as "the wave is dead", and a reader — human or agent —
+# had no way to tell that from "we stopped watching at 300s of a 420s budget the
+# product was still working through". That ambiguity cost this epic hours. Note
+# the 300s waits equal the download timeout exactly: they were sized from one
+# half of the budget and the margin was missed.
+UPDATE_MACHINES_SILENCE_BUDGET_S=$((5 * 60 + 2 * 60))
+say_watch_budget() {
+  local waited=$1
+  (( waited < UPDATE_MACHINES_SILENCE_BUDGET_S )) || return 0
+  say "NOTE: this gave up after ${waited}s, INSIDE the product's ${UPDATE_MACHINES_SILENCE_BUDGET_S}s machines-step silence budget. On breach the engine marks the step stalled, re-enters ensure and REISSUES GRANTS, so a wave that looks dead here can still converge on its own. This red means the wave did not converge PROMPTLY — which is the assertion — and NOT that the product would never have recovered. Do not lengthen this wait to clear it: past ${UPDATE_MACHINES_SILENCE_BUDGET_S}s the row would go green on a stalled wave that only recovered by retry." >&2
+}
+
 rpc() {
   local verb=$1 proc=$2 input=${3:-} url body=""
   url="http://127.0.0.1:$SOURCE_PORT/trpc/$proc"
@@ -1000,6 +1028,7 @@ negative_refusal() {
         ([.deferred[]? | "\(.name // .id) left out of the wave (\(.reason))"] | join("; ")) as $left |
         [(if ($running | length) > 0 then $running else "no running step" end),
          (if ($left | length) > 0 then $left else empty end)] | join("; ")' 2>/dev/null || true)"
+    say_watch_budget 150
     refusal_reason "the update operation did not reach a terminal state within 150s; stuck at ${stuck:-unknown}"
     return 1
   fi
@@ -1254,6 +1283,7 @@ rollout() {
   if ! jq -e '.state=="done"' <<<"$value" >/dev/null; then
     dump_update_operations rollout-not-done
     say "rollout operation $id is $(jq -r '.state // "missing from operations.history"' <<<"$value"), not done; steps: $(jq -c '[.steps[]? | {id, state, places: [.places[]? | {name, state, detail}]}]' <<<"$value" 2>/dev/null || printf 'unreadable')" >&2
+    say_watch_budget 300
     return 1
   fi
   (( saw_canary == 1 ))
@@ -1364,7 +1394,11 @@ rollback() {
   started="$(start_update)"
   printf '%s\n' "$started" >"$WORK/logs/rollback-start.json"
   id="$(jq -r .operationId <<<"$started")"
-  wait_for 300 "rollback operation" terminal_operation "$id"
+  if ! wait_for 300 "rollback operation" terminal_operation "$id"; then
+    dump_update_operations rollback-stalled
+    say_watch_budget 300
+    return 1
+  fi
   value="$(operation "$id")"
   printf '%s\n' "$value" >"$WORK/logs/rollback-operation.json"
   rpc GET updates.fleet >"$WORK/logs/rollback-terminal-fleet.json"
