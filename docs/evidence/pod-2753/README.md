@@ -228,6 +228,29 @@ file. Removing the ban turns nine of the table entries red. There is also a
 false-positive control on ordinary code, because a ban that fires on everything
 is not a guard — it is noise that gets deleted.
 
+### The harness had the defect it was testing for
+
+`defeat-battery.sh` ran **twelve** shapes and read as the whole battery. `A7` (a
+requirer exported across a module boundary) and `A2b` (the import-alias spelling
+that defeated the first attempt at this fix) were simply absent from its output —
+not marked skipped, not marked not-applicable. A reader counted the lines and got
+a number that was not the coverage.
+
+There was a real reason for A7's absence: the script injects into one file, and
+A7 needs a second module to import from. That is a fine reason to omit a shape and
+a terrible reason to omit it *silently* — a harness that covers less than it
+appears to is the exact defect the guard it tests exists to prevent, sitting
+inside the evidence for the fix to it.
+
+Both shapes now run (A7 with a temporary sibling module), and the script
+**reconciles its own coverage against the CI table** and exits non-zero on a
+mismatch. Naming an omission would have been enough; making the two lists compare
+themselves means nobody has to notice next time.
+
+Found by POD-1761, who ran the script after the reviewer's session died. Worth
+recording that it was caught by someone *using* the evidence rather than reading
+it.
+
 ### A claim I overstated, corrected
 
 Commit `4cef94ec1` says the isolation test was "proven to go red four ways,

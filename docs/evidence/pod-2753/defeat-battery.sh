@@ -24,17 +24,22 @@ TARGET=apps/daemon/src/headless-drivers.ts
 cp "$TARGET" /tmp/battery-target.bak
 SDK='@anthropic-ai/claude-agent-sdk'
 
-shape() { # id, description, code
-  local id="$1" desc="$2" code="$3"
+RAN=""
+SIBLING=apps/daemon/src/battery-sibling.ts
+
+shape() { # id, description, code, [sibling-module-source]
+  local id="$1" desc="$2" code="$3" sib="${4:-}"
+  RAN="$RAN $id"
+  [ -n "$sib" ] && printf '%s\n' "$sib" > "$SIBLING"
   printf '%s\n' "$code" > /tmp/battery-inject.ts
   cat /tmp/battery-inject.ts "$TARGET" > /tmp/battery-out.ts && mv /tmp/battery-out.ts "$TARGET"
   if diff -q "$TARGET" /tmp/battery-target.bak >/dev/null; then
-    echo "  $id  !! MUTATION NOT APPLIED"; cp /tmp/battery-target.bak "$TARGET"; return
+    echo "  $id  !! MUTATION NOT APPLIED"; cp /tmp/battery-target.bak "$TARGET"; rm -f "$SIBLING"; return
   fi
   local out; out=$(timeout 200 ./node_modules/.bin/vitest run apps/daemon/src/claude-sdk-isolation.test.ts 2>&1)
   if echo "$out" | grep -qE "^ +Tests +[0-9]+ failed"; then r="RED  (caught)"; else r="GREEN (DEFEAT)"; fi
   printf '  %-4s %-13s %s\n' "$id" "$r" "$desc"
-  cp /tmp/battery-target.bak "$TARGET"
+  cp /tmp/battery-target.bak "$TARGET"; rm -f "$SIBLING"
 }
 
 echo "=== controls: shapes the guard must already catch ==="
@@ -77,11 +82,41 @@ shape A6  "concatenated specifier"        "import { createRequire as crA6 } from
 const reqA6 = crA6(import.meta.url)
 const mA6 = reqA6('@anthropic-ai/' + 'claude-agent-sdk')
 void mA6"
+shape A2b "house idiom, import alias"   "import { createRequire as crA2b } from 'node:module'
+const reqA2b = crA2b(import.meta.url)
+const mA2b = reqA2b('$SDK')
+void mA2b"
+shape A7  "requirer exported across modules" "import { reqA7 } from './battery-sibling.js'
+const mA7 = reqA7('$SDK')
+void mA7" "import { createRequire } from 'node:module'
+export const reqA7 = createRequire(import.meta.url)"
 shape A8  "rebound builtin require"       "import { createRequire as crA8 } from 'node:module'
 const loadA8 = crA8(import.meta.url)
 const gA8 = loadA8
 const mA8 = gA8('$SDK')
 void mA8"
 
-cp /tmp/battery-target.bak "$TARGET"
+cp /tmp/battery-target.bak "$TARGET"; rm -f "$SIBLING"
+
+# RECONCILIATION, and it is the most important thing in this file.
+# This script used to run twelve shapes and READ as the whole battery: A7 and A2b
+# were simply absent from the output, not marked skipped, and a reader counted the
+# lines and got a number that was not the coverage. A harness that silently covers
+# less than it appears to is the exact defect the guard it is testing exists to
+# prevent — so the two lists are now compared, and a mismatch is a failure rather
+# than something a reader has to notice.
+TABLE=$(grep -oE "id: '[A-Za-z0-9]+'" apps/daemon/src/claude-sdk-isolation.test.ts \
+        | sed "s/id: '//; s/'//" | sort -u | tr '\n' ' ')
+MINE=$(printf '%s' "$RAN" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')
+echo
+echo "=== reconciliation with the CI table ==="
+echo "  table:  $TABLE"
+echo "  script: $MINE"
+if [ "$TABLE" = "$MINE" ]; then
+  echo "  ok  both cover the same $(printf '%s' "$MINE" | wc -w) shapes"
+else
+  echo "  !! COVERAGE MISMATCH — this script does not exercise what the table declares"
+  exit 1
+fi
+
 [ -z "$(git status --porcelain)" ] && echo "=== tree clean after battery ===" || { echo "!! TREE DIRTY AFTER BATTERY"; git status --short; }
