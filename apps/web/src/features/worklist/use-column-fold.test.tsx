@@ -50,8 +50,8 @@ beforeEach(() => {
     frames: Array<{ width: string }>,
   ) => {
     const entry: Recorded = {
-      from: Number.parseFloat(frames[0].width),
-      to: Number.parseFloat(frames[1].width),
+      from: Number.parseFloat(frames[0]!.width),
+      to: Number.parseFloat(frames[1]!.width),
       finish: () => {},
       cancelled: 0,
     }
@@ -118,31 +118,31 @@ describe('useColumnFold', () => {
     // The END width, not the start — see the file header.
     expect(shell().style.width).toBe(`${RAIL}px`)
     expect(recorded).toHaveLength(1)
-    expect(recorded[0].from).toBe(OPEN)
-    expect(recorded[0].to).toBe(RAIL)
+    expect(recorded[0]!.from).toBe(OPEN)
+    expect(recorded[0]!.to).toBe(RAIL)
 
-    act(() => recorded[0].finish())
+    act(() => recorded[0]!.finish())
     expect(screen.getByText('the rail')).toBeTruthy()
     expect(shell().dataset.folding).toBeUndefined()
     // Width handed back to layout, so the rail's own flex basis is what sizes
     // the column and the next drag-resize is not fighting an inline pixel.
     expect(shell().style.width).toBe('')
-    expect(recorded[0].cancelled).toBe(1)
+    expect(recorded[0]!.cancelled).toBe(1)
   })
 
   it('runs the expand from the rail to the open width', () => {
     render(<Column />)
     fireEvent.click(screen.getByText('the work list'))
-    act(() => recorded[0].finish())
+    act(() => recorded[0]!.finish())
 
     fireEvent.click(screen.getByText('the rail'))
     expect(screen.getByText('the work list')).toBeTruthy()
     expect(shell().dataset.folding).toBe('true')
     expect(shell().style.width).toBe(`${OPEN}px`)
-    expect(recorded[1].from).toBe(RAIL)
-    expect(recorded[1].to).toBe(OPEN)
+    expect(recorded[1]!.from).toBe(RAIL)
+    expect(recorded[1]!.to).toBe(OPEN)
 
-    act(() => recorded[1].finish())
+    act(() => recorded[1]!.finish())
     expect(shell().style.width).toBe('')
   })
 
@@ -163,8 +163,8 @@ describe('useColumnFold', () => {
     render(<Column />)
     fireEvent.click(screen.getByText('the work list'))
 
-    expect(recorded[0].from).toBe(244)
-    expect(recorded[0].to).toBe(RAIL)
+    expect(recorded[0]!.from).toBe(244)
+    expect(recorded[0]!.to).toBe(RAIL)
   })
 
   it('reverses a fold already in flight without stacking animations', () => {
@@ -174,7 +174,7 @@ describe('useColumnFold', () => {
     // an operator hits — and it must not leave the first animation running.
     fireEvent.click(screen.getByText('the work list'))
 
-    expect(recorded[0].cancelled).toBe(1)
+    expect(recorded[0]!.cancelled).toBe(1)
     expect(recorded).toHaveLength(2)
   })
 
