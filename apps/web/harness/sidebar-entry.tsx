@@ -119,7 +119,9 @@ function FoldHarness(): JSX.Element {
         )}
         {fold.folding && (
           <div ref={fold.ghostRef} className="sidebar-fold-ghost" aria-hidden="true">
-            <CollapsedSidebar />
+            <div ref={fold.ghostContentRef} className="sidebar-fold-ghost-inner">
+              <CollapsedSidebar />
+            </div>
           </div>
         )}
       </div>

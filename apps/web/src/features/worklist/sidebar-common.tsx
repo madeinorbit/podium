@@ -78,13 +78,43 @@ export const SIDEBAR_WIDTH_DEFAULT = 306
  *  basis in `styles.css` — the animation ends on a pixel CSS then owns. */
 export const SIDEBAR_RAIL_WIDTH = 58
 
-/** The drawer's own motion (POD-769), matched to the Flight Deck's fold in
- *  AppShell: the same 280ms and the same decelerating curve, because these are
- *  the two columns of one shell opening and closing. Exported since POD-1584
- *  put the LEFT column on the same gesture — three hand-copied spellings of one
- *  curve is how a shell ends up with three slightly different folds. */
+/** THE DRAWER's own motion (POD-769) — {@link ResizableColumn}'s `collapsed`
+ *  mode, where a column that was not taking any room starts taking some. An
+ *  entrance, so a strong ease-out: almost all of the travel up front, because
+ *  arrival is the thing the eye is waiting for.
+ *
+ *  The two shell COLUMNS used to fold on these numbers too and no longer do —
+ *  see {@link COLUMN_FOLD_MS} below for what a fold wants instead, and why. */
 export const COLLAPSE_MS = 280
 export const COLLAPSE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+
+/**
+ * A SHELL COLUMN'S FOLD, which is a different animation from the drawer above
+ * even though it used to borrow its numbers (POD-1672).
+ *
+ * The drawer ENTERS and EXITS — a section that was not there is there — and an
+ * entrance wants the strong ease-out above: almost all of the travel up front,
+ * because the thing the eye is waiting for is arrival.
+ *
+ * A column fold MOVES something already on screen. Measured off the fold
+ * harness with every animation frozen and stepped, `cubic-bezier(0.22, 1,
+ * 0.36, 1)` puts 306→68 of a 306→58 collapse — 96% of it — into the first
+ * 140ms and spends the remaining 140ms crossing nine pixels. That is a lurch
+ * followed by a still frame, and the still frame is where POD-1658 then put
+ * the rail's crossfade, so the one thing left moving on screen was two legible
+ * compositions dissolving through each other. Flicker, exactly as reported.
+ *
+ * This curve spreads the same travel across the whole duration — 276, 229,
+ * 163, 115, 90, 75, 66, 61, 59, 58 at each tenth — so the column is still
+ * visibly closing at 70% of the way through, which is where the swap now
+ * happens. Both shell columns fold on it; the drawer keeps its own.
+ *
+ * Not to be confused with `work-folds.tsx`'s module-local FOLD_EASE, which is
+ * a section's HEIGHT opening inside the list. Different animation, different
+ * curve, deliberately not shared.
+ */
+export const COLUMN_FOLD_MS = 240
+export const COLUMN_FOLD_EASE = 'cubic-bezier(0.4, 0.4, 0.15, 1)'
 
 /**
  * A fixed-width column with a drag-to-resize edge (`handleSide`, default right —

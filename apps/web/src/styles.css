@@ -2404,6 +2404,11 @@ html[data-density="balanced"] .header-quota-pools {
 .sidebar-shell[data-sidebar-folding="true"] {
   overflow: hidden;
   flex: none;
+  /* A width animation relayouts the shell row on every frame, and the row holds
+     the whole window. Containment bounds what that invalidates to this box: the
+     clipped column inside is already `flex: none` and cannot reflow, so nothing
+     in here has an answer that depends on anything out there (POD-1672). */
+  contain: layout paint;
 }
 .sidebar-shell[data-sidebar-folding="true"] > * {
   flex: none;
@@ -2447,6 +2452,16 @@ html[data-density="balanced"] .header-quota-pools {
   inset: 0;
   display: flex;
   background: var(--sidebar);
+  /* WHAT THE LID IS RISING OVER, out of focus (POD-1672). While this layer is
+     half-opaque the work list behind it is still legible, and legible is what
+     invites the eye to read a column that is in the middle of being taken
+     away. There is no separate animation: the blur is only ever seen THROUGH
+     this element's own opacity, so it arrives and leaves with the lid, and
+     once the lid is opaque there is nothing behind it to blur. The 7px is well
+     under the 20px where a transition-time blur starts costing frames, and
+     `contain: paint` on the shell above makes that shell the backdrop root, so
+     the sample is the column and not the window. */
+  backdrop-filter: blur(7px);
   /* The mount state, immediately overwritten by the hook. Invisible is the safe
      default of the two: a stray frame with the rail missing is a glimpse of the
      column behind it, one with the rail opaque is a rail laid over a 306px
@@ -2456,6 +2471,26 @@ html[data-density="balanced"] .header-quota-pools {
      a tab stop. `aria-hidden` keeps it out of the a11y tree; this keeps it out
      of the pointer's way. */
   pointer-events: none;
+}
+/* The rail that lands ON the lid, which is a layer of its own so it can arrive
+   AFTER the lid is opaque instead of dissolving through the work list with it
+   (POD-1672). The lid holds still over the clip; this covers the last six
+   pixels in from the left as the fold closes over it, so the rail arrives
+   rather than appears. The hook owns both channels; this is the box they apply
+   to. */
+.sidebar-fold-ghost-inner {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  /* The mount state, immediately overwritten by the hook, and invisible for the
+     same reason the lid's is: a stray frame with the rail missing is a lid with
+     nothing on it, one with the rail opaque is the rail landing early — which
+     is the whole seam this layer exists to remove. */
+  opacity: 0;
+  /* Its own layer for the length of the fold. The transform is composited
+     either way, but the promotion keeps the rail's text off the repaint the
+     shrinking width forces on everything under it. */
+  will-change: transform;
 }
 .sidebar-collapse-control:hover,
 .collapsed-sidebar-expand:hover,

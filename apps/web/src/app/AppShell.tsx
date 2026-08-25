@@ -25,8 +25,8 @@ import { UpdatesProvider } from '@/features/updates/updates-context'
 import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import {
-  COLLAPSE_EASE,
-  COLLAPSE_MS,
+  COLUMN_FOLD_EASE,
+  COLUMN_FOLD_MS,
   ResizableAside,
   ResizableColumn,
   SIDEBAR_RAIL_WIDTH,
@@ -507,8 +507,11 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     }
     flightDeckAnimation.current?.cancel()
     const animation = shell.animate([{ width: `${from}px` }, { width: `${to}px` }], {
-      duration: COLLAPSE_MS,
-      easing: COLLAPSE_EASE,
+      // The left column's curve, since POD-1672 gave the shell's folds one that
+      // is not the drawer's (`COLUMN_FOLD_EASE`). Two columns of one shell decelerating
+      // differently is how a window stops feeling like a single object.
+      duration: COLUMN_FOLD_MS,
+      easing: COLUMN_FOLD_EASE,
       fill: 'both',
     })
     flightDeckAnimation.current = animation
@@ -801,7 +804,14 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
                   only one of them is the column. */}
               {sidebarFold.folding && (
                 <div ref={sidebarFold.ghostRef} className="sidebar-fold-ghost" aria-hidden="true">
-                  <CollapsedSidebar />
+                  {/* The lid and what is on it are two layers (POD-1672). The
+                      ghost holds still and carries the opacity and the blur —
+                      it is what covers the clip, and a cover that moves is a
+                      gap. This node carries the slide that makes the rail
+                      ARRIVE instead of appear. */}
+                  <div ref={sidebarFold.ghostContentRef} className="sidebar-fold-ghost-inner">
+                    <CollapsedSidebar />
+                  </div>
                 </div>
               )}
             </div>
