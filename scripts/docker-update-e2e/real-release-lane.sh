@@ -698,7 +698,18 @@ run_real_release_lane() {
     [[ -z "$PROVE_FAILURE" ]] && return 1
   fi
 
-  if [[ -n "$PROVE_FAILURE" && "${RESULT[real-release-converged]:-}" != FAIL ]]; then
+  # SCOPED TO THE CONTROLS THAT ACTUALLY TARGET CONVERGENCE.
+  #
+  # This read `-n "$PROVE_FAILURE"` while `real-release-migration` was the only
+  # control there was, so "a control is armed" and "convergence must go red" were
+  # the same statement. They stopped being the same the moment a second control
+  # arrived: `real-release-pairing-coupled` breaks the RESOLVER on a later row and
+  # leaves convergence correctly green, and the unscoped check called that green
+  # a failure — reddening a row that had done its job, and skipping the row the
+  # control was actually arming. A deliberate-failure control has to name the row
+  # it targets, or every new control silently indicts an old row.
+  if [[ "$PROVE_FAILURE" == real-release-migration &&
+    "${RESULT[real-release-converged]:-}" != FAIL ]]; then
     fail real-release-converged \
       "deliberate $PROVE_FAILURE mutation unexpectedly produced a green convergence"
     return 1

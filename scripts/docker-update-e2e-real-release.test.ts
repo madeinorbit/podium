@@ -116,6 +116,19 @@ describe('real-release row expectations still match the code they describe', () 
     expect(lane).not.toContain('/work/source/scripts/docker-update-e2e/couple-desktop-pairing.ts')
   })
 
+  it('scopes each deliberate-failure check to the row that control targets', () => {
+    // The convergence check read `-n "$PROVE_FAILURE"` while migration was the
+    // only control, so "a control is armed" and "convergence must go red" were
+    // the same statement. A second control broke that: it targets the RESOLVER
+    // and leaves convergence correctly green, which the unscoped check called a
+    // failure -- reddening a row that had done its job and skipping the row the
+    // control was actually arming.
+    expect(lane).toContain('if [[ "$PROVE_FAILURE" == real-release-migration &&')
+    expect(lane).not.toMatch(/if \[\[ -n "\$PROVE_FAILURE" && "\$\{RESULT\[real-release-converged\]/)
+    // …and the pairing control names its own row rather than borrowing that one.
+    expect(lane).toContain('[[ "$PROVE_FAILURE" == real-release-pairing-coupled ]] || return 1')
+  })
+
   it('serves the feed paths a v0.1.0 stable install fetches', () => {
     const resolver = fromTag('apps/server/src/modules/updates/release-target.ts')
     expect(resolver).toContain('${RELEASE_BASE}/latest/download/podium-update.json')
