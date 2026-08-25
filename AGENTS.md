@@ -93,7 +93,7 @@ data, and node are supported by the default ESM loader. Received protocol 'bun:'
 suites import `bun:` builtins, so they must run under Bun's runtime, not Node's:
 
 ```
-cd apps/server && bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.services.config.ts <file>
+cd apps/server && bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts <file>
 ```
 
 That is what the package's own scripts already do. Two agents have written a server test,
