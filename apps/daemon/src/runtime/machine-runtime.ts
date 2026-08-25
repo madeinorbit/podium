@@ -45,6 +45,11 @@ export type JournalledAdoption =
       what: string
       workdir: string
       handle?: AgentSessionHandle
+      /** Why there is no handle, when there is none. The adopt is allowed to
+       *  fail — a journal can name a conversation this machine can no longer
+       *  reach — but the operator gets told which of the driver's refusals it
+       *  was rather than a generic "could not be resumed" (POD-2775, review 1). */
+      reason?: string
     }
 
 export type DaemonDriverResolution =
@@ -339,12 +344,20 @@ export function createDaemonMachineRuntime(input: {
         bindingVersion: entry.bindingVersion,
       }
       let handle: AgentSessionHandle | undefined
+      let reason: string | undefined
       try {
         handle = await runtime.adopt(binding)
-      } catch {
+      } catch (error) {
         handle = undefined
+        reason = error instanceof Error ? error.message : String(error)
       }
-      return { found: true, what, workdir: entry.workdir, ...(handle ? { handle } : {}) }
+      return {
+        found: true,
+        what,
+        workdir: entry.workdir,
+        ...(handle ? { handle } : {}),
+        ...(reason ? { reason } : {}),
+      }
     },
     serverHandleFor(sessionId) {
       for (const server of servers) {

@@ -1009,12 +1009,18 @@ async function resumeJournalledServerSession(
     return true
   }
   if (!adoption.found) return false
-  const { handle, what, workdir } = adoption
+  const { handle, what, workdir, reason } = adoption
   if (!handle) {
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
-      message: `the ${what} session recorded in the binding journal could not be resumed`,
+      // THE DRIVER'S OWN WORDS WHERE THERE ARE ANY. Each refusal in this path
+      // names a different repair — a journal naming another incarnation, a
+      // conversation the harness no longer has — and the generic sentence sent
+      // the operator to the daemon log for all of them.
+      message: reason
+        ? `the ${what} session recorded in the binding journal could not be resumed: ${reason}`
+        : `the ${what} session recorded in the binding journal could not be resumed`,
     })
     return true
   }

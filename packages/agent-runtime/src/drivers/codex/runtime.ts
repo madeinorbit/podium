@@ -79,7 +79,7 @@ import type {
   PendingInteraction,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import type { SessionSpec } from '../../session-spec.js'
+import type { ModelPolicy, SessionSpec } from '../../session-spec.js'
 import type {
   AnswerOptions,
   AttachmentStager,
@@ -242,6 +242,25 @@ export interface CodexJournalEntry {
   /** The rollout JSONL path Codex reported at `thread/start`. What makes
    *  `export()` byte-faithful for this family. */
   rolloutPath?: string
+  /**
+   * THE SESSION'S MODEL POLICY, because a resume that drops it CHANGES THE
+   * AGENT (POD-2775, review 3).
+   *
+   * `deliver()` sends `model` and `effort` on every `turn/start` from the spec
+   * it was bound with, and an adopted session used to be bound with an empty
+   * one. So a session the operator put on a specific model came back on Codex's
+   * default and stayed there — silently, because nothing in the transcript says
+   * which model answered.
+   *
+   * It belongs in the journal rather than in the resume frame because the wake
+   * has to work from what THIS MACHINE persisted: a daemon restart adopts with
+   * no frame at all, and the spawn frame that does arrive describes what the
+   * server currently believes rather than what the session was started with.
+   *
+   * Optional: entries written before this field existed simply have no policy,
+   * which is exactly the old behaviour and not a parse error.
+   */
+  model?: ModelPolicy
   process: ProcessIdentity
   /** The event-stream high-water mark, so a rebind resumes rather than replays
    *  and so `seq` stays monotonic across it. */
@@ -443,6 +462,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       threadId: session.threadId,
       workdir: session.spec.workdir,
       ...(session.rolloutPath ? { rolloutPath: session.rolloutPath } : {}),
+      model: session.spec.model,
       process: session.binding.process,
       seq: session.seq,
       turnEpoch: session.turnEpoch,
@@ -2131,7 +2151,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     })
   }
 
-  const adoptedSpec = (workdir: string): SessionSpec => ({
+  const adoptedSpec = (workdir: string, model: ModelPolicy = {}): SessionSpec => ({
     harness: 'codex',
     selection: {
       auth: 'subscription',
@@ -2139,7 +2159,10 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       available: [CODEX_APP_SERVER_DRIVER_ID],
     },
     workdir,
-    model: {},
+    // NOT `{}` — see {@link CodexJournalEntry.model}. Instructions and MCP
+    // below stay unsupported because the resumed thread genuinely carries its
+    // own; the model does not, it is sent per turn.
+    model,
     instructions: { supported: false, reason: 'adopted session carries its own context' },
     mcpServers: { supported: false, reason: 'adopted session carries its own config' },
   })
@@ -2193,7 +2216,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       }
       const handle = await resumeThread({
         sessionId: binding.sessionId,
-        spec: adoptedSpec(journalled.workdir),
+        spec: adoptedSpec(journalled.workdir, journalled.model),
         threadId: journalled.threadId,
         bindingVersion: binding.bindingVersion + 1,
         observerGeneration: binding.bindingVersion + 1,

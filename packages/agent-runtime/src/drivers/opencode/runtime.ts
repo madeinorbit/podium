@@ -68,7 +68,7 @@ import type {
   PendingInteraction,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import type { SessionSpec } from '../../session-spec.js'
+import type { ModelPolicy, SessionSpec } from '../../session-spec.js'
 import type {
   AnswerOptions,
   AttachmentStager,
@@ -202,6 +202,20 @@ export interface OpencodeJournalEntry {
   username: string
   secret: string
   workdir: string
+  /**
+   * THE SESSION'S MODEL POLICY, because a resume that drops it CHANGES THE
+   * AGENT (POD-2775, review 3).
+   *
+   * This family sends `model` and `variant` on EVERY prompt, from the spec the
+   * handle was bound with, and an adopted session used to be bound with an
+   * empty one. `POST /session` recorded a model at create time, so the server
+   * still had one — but every message after the wake overrode it with opencode's
+   * default, which is the same silent downgrade by a different route.
+   *
+   * Optional: entries written before this field existed have no policy, which
+   * is exactly the old behaviour and not a parse error.
+   */
+  model?: ModelPolicy
   process: ProcessIdentity
   /** The event-stream high-water mark, so a reconnect resumes rather than
    *  replays and so `seq` stays monotonic across a rebind. */
@@ -418,6 +432,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       username: session.endpoint.username,
       secret: session.endpoint.password,
       workdir: session.spec.workdir,
+      model: session.spec.model,
       process: session.binding.process,
       seq: session.seq,
       turnEpoch: session.turnEpoch,
@@ -1752,6 +1767,27 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
 
   // -- driver ---------------------------------------------------------------
 
+  /**
+   * A FRESH SERVER FOR A CONVERSATION THAT OUTLIVED IT (POD-2775, review 1).
+   *
+   * Identical in every step to `resume()` — launch, then address the journalled
+   * `ses_…` — and different in the one thing that matters to a wake: it runs
+   * under the session's EXISTING id rather than a newly minted one, so the row,
+   * the client terminal and the operator's open tab all still point at it.
+   *
+   * A NEW SECRET, not the journalled one. The credential in the journal belonged
+   * to a process that is gone; minting a fresh one is what `resume()` does and
+   * what keeps a recycled port from ever answering on a live credential.
+   */
+  async function relaunchFor(entry: OpencodeJournalEntry): Promise<OpencodeServerEndpoint> {
+    return host.launch({
+      sessionId: entry.sessionId,
+      workdir: entry.workdir,
+      secret: host.randomSecret(),
+      username: entry.username,
+    })
+  }
+
   async function attachSession(input: {
     sessionId: SessionId
     spec: SessionSpec
@@ -1935,29 +1971,56 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       })
     },
 
+    /**
+     * COME BACK TO THIS SESSION — by rebinding if the server lived, and by
+     * RESTARTING IT if it did not (POD-2775, review 1).
+     *
+     * This used to be the rebind alone: ask the host for a live endpoint and
+     * throw when nothing answered. That is the whole story after a supervisor
+     * restart, where an opencode server genuinely outlives the daemon that
+     * spawned it — and it is the wrong half of the story after a HIBERNATE,
+     * which kills the server on purpose. Nothing was ever going to answer, so
+     * every Resume press on a parked opencode session produced the same
+     * `spawnError` and the row stayed `exited` forever.
+     *
+     * WHAT MAKES THE RESTART SAFE IS THE JOURNAL, and it is checked first here
+     * rather than inside `host.adopt` so the two refusals stay distinguishable:
+     *
+     *   - NO ENTRY — `kill()` clears the journal and `hibernate()` keeps it, so
+     *     an absent entry means this session was retired. Nothing to come back
+     *     to; throw, and the corpus's "refuses to adopt a binding whose process
+     *     did not survive" keeps meaning what it says.
+     *   - A DIFFERENT PROCESS KEY — the entry describes another incarnation of
+     *     this session id, so resuming its conversation would attach this
+     *     session to somebody else's work. Throw.
+     *   - ENTRY MATCHES, NOTHING ANSWERS — the conversation is ours and the
+     *     process is gone. That is a park, and `resume()` one screen up already
+     *     says how this family comes back from it: start a fresh server and
+     *     address the SAME `ses_…`, because the conversation is rows in a
+     *     database that outlived the process. This does the same thing under the
+     *     session's own id, which is the part `resume()` cannot do.
+     */
     async adopt(binding: SessionBinding): Promise<AgentSessionHandle> {
-      const endpoint = await host.adopt(binding)
-      if (!endpoint) {
-        // EXACT IDENTITY OR NOTHING. Adopting a server that merely occupies the
-        // same port would produce a session reporting someone else's work, which
-        // is strictly worse than not adopting.
-        throw new Error(
-          `opencode-server cannot adopt ${binding.sessionId}: no live server matches process ${binding.process.key}`,
-        )
-      }
       const journalled = host.journal.read(binding.sessionId)
       if (!journalled) {
         throw new Error(
           `opencode-server cannot adopt ${binding.sessionId}: no binding journal entry to rebind from`,
         )
       }
+      if (journalled.process.key !== binding.process.key) {
+        throw new Error(
+          `opencode-server cannot adopt ${binding.sessionId}: journal names process ${journalled.process.key}, binding names ${binding.process.key}`,
+        )
+      }
+      const endpoint = (await host.adopt(binding)) ?? (await relaunchFor(journalled))
       const handle = await attachSession({
         sessionId: binding.sessionId,
         spec: {
           harness: 'opencode',
           selection: { auth: 'api-key', platform: 'linux', available: [OPENCODE_SERVER_DRIVER_ID] },
           workdir: journalled.workdir,
-          model: {},
+          // NOT `{}` — see {@link OpencodeJournalEntry.model}.
+          model: journalled.model ?? {},
           instructions: { supported: false, reason: 'adopted session carries its own context' },
           mcpServers: { supported: false, reason: 'adopted session carries its own config' },
         },
