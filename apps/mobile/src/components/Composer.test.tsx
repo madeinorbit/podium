@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentProps, ReactNode } from 'react'
 import type { View } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -16,9 +16,12 @@ vi.mock('expo-blur', async () => {
 vi.mock('expo-linear-gradient', () => ({
   LinearGradient: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
+// `impactAsync` HAS to resolve. PressableScale calls `.catch()` on whatever it
+// returns, so a bare `vi.fn()` throws a TypeError inside the press handler —
+// before `onPress` runs. Every press in this file was silently swallowed.
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
-  impactAsync: vi.fn(),
+  impactAsync: vi.fn(() => Promise.resolve()),
 }))
 vi.mock('lucide-react-native', () => ({
   ArrowUp: () => null,
@@ -30,6 +33,19 @@ vi.mock('lucide-react-native', () => ({
 }))
 
 const { Composer, composerVoiceStatus } = await import('./Composer')
+
+/**
+ * UNMOUNT BETWEEN CASES.
+ *
+ * This lane runs with `globals: false`, so `@testing-library/react` never
+ * registers its own auto-cleanup — every render stayed in `document.body` for
+ * the rest of the file. The cases that reach for their input through the
+ * returned `container` never noticed; the dictation cases query `screen`, which
+ * searches the whole document, and got "found multiple elements by
+ * [data-testid=composer-voice]" — a failure about leaked DOM that reads exactly
+ * like a failure about the composer rendering two microphones.
+ */
+afterEach(cleanup)
 
 interface FakeVoiceResult {
   isFinal: boolean
@@ -183,6 +199,20 @@ describe('Composer floating dock', () => {
   })
 })
 
+/**
+ * The rendered size of a control.
+ *
+ * NOT `element.style` — react-native-web compiles `StyleSheet.create` styles
+ * into atomic CSS classes and leaves the inline attribute holding only what
+ * Animated writes per frame (`transform`). Reading `.style.width` there answers
+ * `''` for every control in the app whether it is 44pt or 4, so the assertion
+ * passed nothing and failed once the surrounding leak was closed.
+ */
+const sizeOf = (element: HTMLElement) => {
+  const computed = getComputedStyle(element)
+  return { width: computed.width, height: computed.height }
+}
+
 describe('Composer web dictation', () => {
   afterEach(() => {
     FakeSpeechRecognition.instances = []
@@ -220,12 +250,10 @@ describe('Composer web dictation', () => {
     fireEvent.change(input, { target: { value: 'Typed note' } })
 
     const microphone = screen.getByTestId('composer-voice')
-    expect(microphone.style.width).toBe('44px')
-    expect(microphone.style.height).toBe('44px')
+    expect(sizeOf(microphone)).toEqual({ width: '44px', height: '44px' })
     expect(microphone.getAttribute('aria-label')).toBe('Start dictation')
     const send = screen.getByLabelText('Send')
-    expect(send.style.width).toBe('44px')
-    expect(send.style.height).toBe('44px')
+    expect(sizeOf(send)).toEqual({ width: '44px', height: '44px' })
 
     fireEvent.click(microphone)
     const recognition = FakeSpeechRecognition.instances[0]
