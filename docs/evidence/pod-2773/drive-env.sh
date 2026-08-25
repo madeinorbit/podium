@@ -63,19 +63,33 @@ unset CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH
 # arm a script intended and the arm a long-lived process is actually running are
 # different facts, and this epic has confused them before.
 #
-#   P2773_CONTRACT=1  headless driver (opencode-server / grok-acp), declares
-#                     watchLevels ['coarse','fine'] — the code under test.
-#   P2773_CONTRACT=0  TERMINAL driver, declares ['coarse'] only — the control.
-#                     This is "the driver reverted": same rig, same script, same
-#                     preview plane, and the only difference is which driver the
-#                     session binds. A zero from this arm is what makes a
-#                     non-zero from the other one mean something.
+#   P2773_DRIVER=generic-pty   THE CONTROL, and it took a wrong turn to find.
+#                     The obvious knob is PODIUM_RUNTIME_CONTRACT=0, and it does
+#                     NOT work: the flag is only the MACHINE-WIDE half of
+#                     `runtimeContractEnabledFor`, a session carries its own, and
+#                     an opencode session bound `opencode-server` with the
+#                     machine flag off. That arm was run and reported 25 preview
+#                     frames — a control that measured the treatment. Recorded
+#                     here rather than quietly replaced, because the failure mode
+#                     is invisible without reading the bound driverId back, which
+#                     is exactly why drive.ts now prints it.
 #
-#   P2773_STREAMING=0 turns the preview PLANE off with the contract still on —
-#                     a second, narrower control that separates "the plane does
-#                     nothing" from "the driver produces nothing".
+#                     What actually reverts the driver is the operator
+#                     preference. `selectRuntimeDriver` lets an explicit choice
+#                     win over the policy, and 'generic-pty' is the terminal id
+#                     every harness declares. That driver declares watchLevels
+#                     ['coarse'] and nothing else, so it is the pre-contract
+#                     world: same rig, same script, same preview plane, same
+#                     prompt, and the only difference is which driver bound.
+#
+#   P2773_STREAMING=0 turns the preview PLANE off with the driver unchanged — a
+#                     second, narrower control that separates "the plane
+#                     delivered nothing" from "the driver produced nothing".
+#
+#   P2773_CONTRACT    kept as a knob so the finding above stays reproducible.
 export PODIUM_RUNTIME_CONTRACT="${P2773_CONTRACT:-1}"
 export PODIUM_CHAT_STREAMING="${P2773_STREAMING:-1}"
+if [ -n "${P2773_DRIVER:-}" ]; then export PODIUM_RUNTIME_DRIVER="$P2773_DRIVER"; else unset PODIUM_RUNTIME_DRIVER; fi
 
 # --- code under test ------------------------------------------------------
 export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2773-drive-streaming-on-grok-and-opencode

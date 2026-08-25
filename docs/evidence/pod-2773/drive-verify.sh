@@ -83,6 +83,9 @@ RUNNING_STREAMING="$(arm_of "$SERVER_PID" PODIUM_CHAT_STREAMING)"
   || fail "the daemon is running PODIUM_RUNTIME_CONTRACT='$RUNNING_CONTRACT', you asked for '$PODIUM_RUNTIME_CONTRACT' — restart it with drive-up.sh"
 [ "$RUNNING_STREAMING" = "$PODIUM_CHAT_STREAMING" ] \
   || fail "the server is running PODIUM_CHAT_STREAMING='$RUNNING_STREAMING', you asked for '$PODIUM_CHAT_STREAMING' — restart it with drive-up.sh"
-echo "  ok  arm live in the processes: daemon CONTRACT=$RUNNING_CONTRACT, server STREAMING=$RUNNING_STREAMING"
+RUNNING_DRIVER="$(arm_of "$DAEMON_PID" PODIUM_RUNTIME_DRIVER)"
+[ "$RUNNING_DRIVER" = "${PODIUM_RUNTIME_DRIVER:-}" ] \
+  || fail "the daemon is running PODIUM_RUNTIME_DRIVER='$RUNNING_DRIVER', you asked for '${PODIUM_RUNTIME_DRIVER:-}' — restart it with drive-up.sh"
+echo "  ok  arm live in the processes: daemon CONTRACT=$RUNNING_CONTRACT DRIVER='${RUNNING_DRIVER:-(policy)}', server STREAMING=$RUNNING_STREAMING"
 
 echo "VERIFIED: p2773 is running $WANT_SHA in arm CONTRACT=$RUNNING_CONTRACT STREAMING=$RUNNING_STREAMING"

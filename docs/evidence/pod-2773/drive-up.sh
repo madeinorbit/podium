@@ -2,7 +2,7 @@
 # Bring up the isolated `p2773` instance: server + daemon, split, detached.
 #
 #   bash docs/evidence/pod-2773/drive-up.sh                    # treatment arm
-#   P2773_CONTRACT=0 bash docs/evidence/pod-2773/drive-up.sh   # terminal-driver control
+#   P2773_DRIVER=generic-pty bash docs/evidence/pod-2773/drive-up.sh  # the control
 #   P2773_STREAMING=0 bash docs/evidence/pod-2773/drive-up.sh  # plane-off control
 #
 # Split-and-detached because that is what a real install runs, and the seam
@@ -136,6 +136,6 @@ curl -fsS -c "$PODIUM_DRIVE_BASE/cookie-jar" \
 echo
 echo "instance '$PODIUM_INSTANCE' up"
 echo "  API      http://$PODIUM_HOST:$PODIUM_PORT   (password: p2773; loopback only)"
-echo "  ARM      PODIUM_RUNTIME_CONTRACT=$PODIUM_RUNTIME_CONTRACT PODIUM_CHAT_STREAMING=$PODIUM_CHAT_STREAMING"
+echo "  ARM      CONTRACT=$PODIUM_RUNTIME_CONTRACT STREAMING=$PODIUM_CHAT_STREAMING DRIVER=${PODIUM_RUNTIME_DRIVER:-(policy)}"
 echo "  state    $PODIUM_STATE_DIR"
 echo "  logs     $LOGS"

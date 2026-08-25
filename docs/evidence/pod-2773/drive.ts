@@ -252,7 +252,7 @@ line('')
 line('='.repeat(72))
 line(`HARNESS            ${harness}`)
 line(`SESSION            ${sid}`)
-line(`ARM                CONTRACT=${process.env.PODIUM_RUNTIME_CONTRACT ?? '(unset)'} STREAMING=${process.env.PODIUM_CHAT_STREAMING ?? '(unset)'}`)
+line(`ARM                CONTRACT=${process.env.PODIUM_RUNTIME_CONTRACT ?? '(unset)'} STREAMING=${process.env.PODIUM_CHAT_STREAMING ?? '(unset)'} DRIVER=${process.env.PODIUM_RUNTIME_DRIVER ?? '(policy)'}`)
 line(`BOUND DRIVER       ${driverId ?? '(unknown)'}${driverFamily ? ` (family ${driverFamily})` : ''}`)
 line(`JOINED             ${joinedAt - startedAt}ms into a turn already running`)
 line(`SESSION STATUS     ${sessionStatus ?? '(unknown)'}`)
@@ -331,6 +331,7 @@ console.log(
     sessionId: sid,
     contract: process.env.PODIUM_RUNTIME_CONTRACT,
     streaming: process.env.PODIUM_CHAT_STREAMING,
+    driverPreference: process.env.PODIUM_RUNTIME_DRIVER ?? null,
     driverId: driverId ?? null,
     joinedAtMs: joinedAt - startedAt,
     controlDeltas,
