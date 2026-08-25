@@ -162,6 +162,9 @@ PODIUM_UPDATE_E2E_MIN_FREE_GB=N       disk floor (default 10)
 PODIUM_UPDATE_E2E_OUTPUT_DIR=PATH     preserve bounded matrix/journal evidence
 PODIUM_UPDATE_E2E_PROVE_FAILURE=NAME  leave `tampered` or `schema` broken; the
                                       ordinary rollout assertion must go red
+PODIUM_UPDATE_E2E_PROVE_FAILURE=canary  build a coordinator that skips the
+                                      canary stage; `rollout` must go red for
+                                      that reason and nothing else
 PODIUM_UPDATE_E2E_ONLY=legacy         run the packaged legacy migration row
                                       while release minting is unavailable
 PODIUM_UPDATE_E2E_ONLY=server         update a packaged all-in-one server from
@@ -1299,8 +1302,51 @@ reported_versions_are() {
         select(.online and .version==$v)]|length==3' >/dev/null
 }
 
+# READ THE RECORD, DO NOT WATCH FOR THE MOMENT (POD-2754).
+#
+# This row's claim is that exactly one machine converged before the rest. It
+# used to prove that by SAMPLING `updates.fleet` every hundred milliseconds and
+# setting a flag if a sample happened to catch the fleet with one machine in
+# flight and two still on the old version. That is a transient state, and a
+# sampling observer cannot prove a transient fact: when the update ran fast the
+# window closed before the first sample landed, the flag stayed zero, and a
+# perfectly gated wave was failed for it. The row read FAIL, PASS, FAIL, PASS,
+# FAIL across this epic with no product change between several of those runs,
+# and POD-2747 measured it flipping about one run in three.
+#
+# Sampling faster, retrying, or slowing the product down would all have left the
+# race in place. So the product now WRITES THE WAVE DOWN: every round of grants
+# it issued, what each granted, and every machine it held back with the reason
+# (`details.waveRounds`, see `wave.ts`). The canary stage stopped being a moment
+# somebody had to be looking at and became a fact in the finished operation.
+#
+# WHAT MAKES THIS PASS, and every clause is load bearing:
+#
+#  - the FIRST round of this operation's wave ran under the `canary` gate. A
+#    wave that widened from the start has no first canary round at all;
+#  - it granted EXACTLY ONE machine. Two is the un-gated wave this row exists to
+#    catch;
+#  - and it HELD at least one other machine `canary-gated` — eligible, and kept
+#    back only because nothing had proved the bundle yet. Without this clause a
+#    single-machine fleet would pass a row about ordering between machines;
+#  - and a later round GRANTED every machine that first round held, which is the
+#    widening. A canary that gated forever is not a rollout.
+canary_gated_wave_holds() {
+  jq -e '
+    (.details.waveRounds // []) as $rounds |
+    ($rounds[0] // {}) as $first |
+    ($first.held // [] | map(select(.reason=="canary-gated") | .id)) as $gated |
+    ([$rounds[] | .granted[]? | .id] | unique) as $everGranted |
+    ($rounds | length) > 0 and
+    $first.gate == "canary" and
+    ($first.granted | length) == 1 and
+    ($gated | length) > 0 and
+    ($gated - $everGranted | length) == 0
+  ' <<<"$1" >/dev/null
+}
+
 rollout() {
-  local target=$1 old=$2 id=$3 deadline snapshot staged saw_canary=0 value summary last_summary=""
+  local target=$1 id=$2 deadline snapshot value summary last_summary=""
   deadline=$((SECONDS+300))
   while (( SECONDS < deadline )); do
     snapshot="$(rpc GET updates.fleet)" || { sleep 0.1; continue; }
@@ -1310,14 +1356,9 @@ rollout() {
       printf '%s\n' "$summary" >>"$WORK/logs/rollout-transitions.ndjson"
       last_summary="$summary"
     fi
-    staged="$(jq -r --arg old "$old" --arg target "$target" '
-      ([.machines[] | select((.name=="source" or .name=="fleet-a" or .name=="fleet-b") and
-        (.state=="granted" or .state=="downloading" or .state=="restarting"))] | length) == 1 and
-      ([.machines[] | select((.name=="source" or .name=="fleet-a" or .name=="fleet-b") and
-        .state=="current" and .version==$old)] | length) == 2 and
-      ([.machines[] | select((.name=="source" or .name=="fleet-a" or .name=="fleet-b") and
-        .version==$target)] | length) == 0' <<<"$snapshot")"
-    [[ "$staged" == true ]] && saw_canary=1
+    # Still sampled, and no longer ASSERTED ON: the transition log is how a
+    # human reads back what the fleet did, and it costs nothing to keep. What it
+    # cannot do is decide the row.
     terminal_operation "$id" && break
     sleep 0.1
   done
@@ -1333,7 +1374,24 @@ rollout() {
     say_watch_budget 300
     return 1
   fi
-  (( saw_canary == 1 ))
+  jq -c '.details.waveRounds // []' <<<"$value" >"$WORK/logs/rollout-wave-rounds.json"
+  if ! canary_gated_wave_holds "$value"; then
+    # The rounds ARE the diagnosis, so the matrix says what they were rather
+    # than a line number. `fail` first, because `on_error` will not overwrite a
+    # row that has already said something specific about itself.
+    local rounds
+    # NAMES, not machine ids. The record carries both; a row that reds at 3am
+    # is read by a person, and "fleet-a, fleet-b, source" is the sentence that
+    # says what happened where a line of UUIDs says nothing.
+    rounds="$(jq -c '[.details.waveRounds[]? |
+      {gate,
+       granted: [.granted[] | .name // .id],
+       held: [.held[] | "\(.name // .id):\(.reason)"]}]' <<<"$value" 2>/dev/null ||
+      printf 'unreadable')"
+    fail rollout "the update finished, and its wave was not gated on a canary: rounds $rounds (raw: logs/rollout-wave-rounds.json)"
+    say "rollout did not gate its wave on a canary; rounds: $rounds" >&2
+    return 1
+  fi
   wait_for 120 "both on-disk versions" installed_versions_are "$target"
   wait_for 120 "coordinator on-disk version" installed_version_is "$SOURCE" "$target"
   wait_for 120 "coordinator served version" coordinator_version_is "$target"
@@ -1600,7 +1658,8 @@ main() {
     (( MIN_FREE_GB >= 10 )) || die "disk floor cannot be lower than 10 GiB"
   fi
   [[ -z "$PROVE_FAILURE" || "$PROVE_FAILURE" == schema ||
-    "$PROVE_FAILURE" == tampered || "$PROVE_FAILURE" == server-assets ||
+    "$PROVE_FAILURE" == tampered || "$PROVE_FAILURE" == canary ||
+    "$PROVE_FAILURE" == server-assets ||
     "$PROVE_FAILURE" == coordinator-participant ||
     "$PROVE_FAILURE" == server-migration || "$PROVE_FAILURE" == server-client ||
     "$PROVE_FAILURE" == server-handover || "$PROVE_FAILURE" == server-agent ||
@@ -1738,6 +1797,29 @@ main() {
 
   if [[ "$ONLY" == server ]]; then
     prepare_server_trust_root
+  fi
+
+  # BEFORE THE BOOTSTRAP BUILD, because the coordinator that plans the wave is
+  # the one this build installs. Arming after it would leave the running product
+  # unchanged and prove nothing (POD-2754).
+  if [[ "$PROVE_FAILURE" == canary ]]; then
+    docker cp "$ROOT/scripts/docker-update-e2e/skip-canary.ts" \
+      "$SOURCE:/work/source/scripts/docker-update-e2e/skip-canary.ts"
+    # COMMITTED, not just written. The development publisher refuses to build a
+    # `dev+<sha>` artifact from a checkout that does not match its own HEAD —
+    # rightly, since the bytes would not be the commit they claim to be — so an
+    # arming control that only edited the file failed `dev-release` and never
+    # reached the row it was arming.
+    container_exec "$SOURCE" bash -lc \
+      'cd /work/source && bun --conditions=@podium/source \
+        scripts/docker-update-e2e/skip-canary.ts &&
+       git add -A &&
+       git commit -m "update e2e: a coordinator that skips the canary stage"' \
+      >"$WORK/logs/skip-canary.log" 2>&1
+    say "$(grep skip-canary: "$WORK/logs/skip-canary.log" | head -1)"
+    container_exec "$SOURCE" bash -lc \
+      'cd /work/source && test -z "$(git status --porcelain)"' ||
+      die "the canary control left /work/source dirty"
   fi
 
   local bootstrap_private
@@ -2057,7 +2139,7 @@ main() {
     operation_id="$(jq -er .operationId <<<"$started")"
   fi
   CURRENT_SCENARIO=rollout
-  rollout "$target" "$BOOTSTRAP_VERSION" "$operation_id"
+  rollout "$target" "$operation_id"
   CURRENT_SCENARIO=version-display
   if ui_probe versions "$target" "$WORK/logs/version-display.png" \
       >"$WORK/logs/version-display.json" 2>"$WORK/logs/version-display.stderr"; then
@@ -2071,7 +2153,7 @@ main() {
   fi
   CURRENT_SCENARIO=rollout
   require_disk_margin "canary and widening rollout"
-  pass rollout "exactly one in-flight canary preceded widening to two self-handovers without a systemd restart; both installed and reported versions reached the target"
+  pass rollout "the operation recorded a first wave round that granted one canary and held the rest for it, then a later round that granted every machine it held; two self-handovers without a systemd restart; both installed and reported versions reached the target"
   if (( shells_ready == 1 )); then
     CURRENT_SCENARIO=agent-survival
     if wait_for 60 "durable shells after handover" shells_live "$shells" &&

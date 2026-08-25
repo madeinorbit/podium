@@ -131,12 +131,47 @@ ordinary positive rollout assertion. They must exit non-zero with a red matrix:
 ```bash
 PODIUM_UPDATE_E2E_PROVE_FAILURE=tampered bun run test:update-e2e
 PODIUM_UPDATE_E2E_PROVE_FAILURE=schema bun run test:update-e2e
+PODIUM_UPDATE_E2E_PROVE_FAILURE=canary bun run test:update-e2e
 ```
 
 `tampered` appends a byte to the artifact without changing its signed manifest. `schema`
 removes an applied migration from the target. Manifest mutations are followed by a cold
 coordinator boot, bypassing the manual-refresh cache. A green exit from either command is
 a broken harness, not a successful updater.
+
+`canary` is the odd one out, and deliberately: the update it produces SUCCEEDS. It patches
+the source the bootstrap coordinator is built from — before that build, because that
+coordinator is the one that plans the wave — so every rollout starts with the canary
+already proved and the first round widens to the whole fleet at once. The machines
+converge, the versions land, the handovers happen; only the shape of the wave changes.
+`rollout` must go red naming the rounds it read.
+
+## What `rollout` actually checks
+
+The row's claim is that exactly one machine converged before the rest. It used to prove
+that by sampling `updates.fleet` every hundred milliseconds and setting a flag if a sample
+happened to catch one machine in flight while the others were still on the old version.
+That state is transient, and a sampling observer cannot prove a transient fact: when the
+update ran fast the window closed before the first sample landed, and a correctly gated
+wave was failed for it. The row flipped about one run in three.
+
+The product now writes the wave down. Every round of grants an update issues is appended
+to the operation's own durable `details.waveRounds` as it happens — when, which gate
+produced it (`canary` or `widen`), what it granted, and every machine it held back with
+the reason from a closed set (`canary-gated`, `wave-full`, `offline`, `already-current`,
+`in-flight`, `terminal-verdict`, `source-checkout`). The row reads that record out of
+`operations.history` once the operation is done and asks four things of it:
+
+- the first round of this operation's wave ran under the `canary` gate;
+- it granted exactly one machine;
+- it held at least one other machine `canary-gated` — eligible, and kept back only because
+  nothing had proved the bundle yet, which is what stops a single-machine fleet passing a
+  row about ordering between machines;
+- and a later round granted every machine that first round held, which is the widening.
+
+The fleet sampling stays and is no longer part of the verdict: `logs/rollout-transitions.ndjson`
+is how a human reads back what the fleet did. The rounds themselves are preserved as
+`logs/rollout-wave-rounds.json`.
 
 ## Focused legacy lane
 
