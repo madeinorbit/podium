@@ -416,24 +416,36 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
     const p = payload as Record<string, unknown>
     const path = typeof p.transcript_path === 'string' ? p.transcript_path : ''
-    let capture: Awaited<ReturnType<typeof captureClaudeTranscript>>
+    // An unreadable transcript costs this hook its POSITION, not its existence.
+    // Dropping it here cost a session its whole turn: claude posts no
+    // SessionStart at all, so the first hook a fresh session delivers is the
+    // UserPromptSubmit, which becomes the bootstrap AND is replayed as the live
+    // hook — and at that instant claude has not yet created the conversation's
+    // .jsonl, so this capture throws. UserPromptSubmit is the only hook that
+    // opens a turn epoch, so the drop left the epoch closed; the Stop that
+    // arrived minutes later, once the file existed, was refused for having no
+    // open epoch, and the phase sat at the bootstrap's `idle` through 80KB of
+    // output. The hook is claude's own report of a lifecycle event and is
+    // evidence on its own; the transcript only supplies a cursor boundary and
+    // prompt-record evidence, and the observer already has a defined answer for
+    // having neither. [POD-2810]
+    let capture: Awaited<ReturnType<typeof captureClaudeTranscript>> | null = null
     try {
       capture = await captureTranscript(path)
     } catch {
-      // An unreadable transcript costs this hook, not the queue behind it —
-      // returning without draining left buffered hooks parked until the next
-      // one happened to arrive.
-      drainClaudeHooks(causal)
-      return
+      capture = null
     }
-    const baseSegmentId = claudeTranscriptSegmentId(String(p.session_id), capture)
-    const promptFingerprint = claudePromptHookFingerprint(payload)
-    const promptEvidence = promptFingerprint
-      ? capture.prompts.findLast((prompt) => prompt.payloadFingerprint === promptFingerprint)
+    const baseSegmentId = capture
+      ? claudeTranscriptSegmentId(String(p.session_id), capture)
       : undefined
+    const promptFingerprint = claudePromptHookFingerprint(payload)
+    const promptEvidence =
+      capture && promptFingerprint
+        ? capture.prompts.findLast((prompt) => prompt.payloadFingerprint === promptFingerprint)
+        : undefined
     const observation = await causal.observer.observeHook(
       payload,
-      causal.observer.nextHookOffset(capture.boundary),
+      causal.observer.nextHookOffset(capture ? capture.boundary : null),
       undefined,
       baseSegmentId,
       promptEvidence

@@ -52,7 +52,7 @@ Both columns at epic tip **c47650d**, same rig, same prompt, same probe. The
 | **opencode** | `generic-pty` | **FAIL** — `idle`×60, 121,554 bytes, EVER working: **false** | **PASS** — `working`×12, 159,751 bytes |
 | **codex** | `generic-pty` | REFUSED — 3,984 bytes over 0 growing intervals; the session never ran a turn | **PASS** — `working`×38, 91,041 bytes |
 | **grok** | `generic-pty` | **PASS** — `working` then `errored`, 9,132 bytes | REFUSED — the account hit its weekly limit; the phase correctly read `errored` |
-| **claude** | `claude-pty` | **FAIL** — `idle`×60, 79,242 bytes over 49 of 59 growing intervals | unchanged — a DIFFERENT defect, see below |
+| **claude** | `claude-pty` | **FAIL** — `idle`×60, 79,242 bytes over 49 of 59 growing intervals | unchanged here — a DIFFERENT defect, fixed on POD-2810, see below |
 | cursor | `generic-pty` | not driven — `cursor-agent` is not installed on this box | — |
 
 The before/after reading for opencode, in the probe's own words:
@@ -108,7 +108,7 @@ starvation cannot be reported as "the rows never came".
 This is the catalogue's `wired` column doing exactly what that column warns
 about: the code existed, the tests passed, and driven it did not work.
 
-## THE SECOND DEFECT, found by this rig and NOT fixed here
+## THE SECOND DEFECT, found by this rig and fixed on POD-2810
 
 **Claude on `claude-pty` never reports `working` either, for a completely
 different reason.** 79,242 bytes of output across 49 of 59 growing intervals,
@@ -121,14 +121,16 @@ hooks folded by the causal observer. Three things are established:
    throwaway HTTP sink using the same settings shape Podium writes, and it
    posted `UserPromptSubmit` and `Stop`. So the events exist.
 2. **The bootstrap was accepted.** The server holds an observation checkpoint
-   for the session naming the real provider session id, so `SessionStart`
-   arrived and was folded.
+   for the session naming the real provider session id, so *a* hook arrived and
+   was folded. This section originally read "so `SessionStart` arrived";
+   POD-2810's trace showed claude fires no `SessionStart` at all, and what
+   bootstrapped the session was its first `UserPromptSubmit`.
 3. **Nothing live was ever accepted after it.** That checkpoint's cursor reads
    `components: {transcript: 0, hook: 0}`, `lastAcceptedLiveCursor: null`,
    `turnEpoch: 0` — through a turn that wrote 79KB. Its transcript segment was
    pinned at bootstrap as `device: "missing", inode: "missing"`, because claude
-   had not created the transcript file yet at `SessionStart`; the file exists
-   now, 57KB of it.
+   had not created the transcript file yet when that first hook fired; the file
+   exists now, 57KB of it.
 
 And the one legacy `agentState` frame the daemon did send for that session was
 **rejected at the server** — `"rejected a legacy unfenced observation"` — which
@@ -138,8 +140,17 @@ dropped" shape worth naming: on the causal path, a live channel that stops being
 accepted goes silent rather than degrading.
 
 Whether the live hooks were never delivered or were delivered and rejected
-against that bootstrap cursor is the open question. It is a different subsystem
-from the fix above and is filed separately.
+against that bootstrap cursor was the open question. **POD-2810 answered it and
+fixed it: they were delivered, and the daemon dropped the one that mattered.**
+Claude fires no `SessionStart` at all, so a fresh session's first hook is its
+`UserPromptSubmit` — which becomes the bootstrap AND is replayed as the live
+hook. At that instant claude has not created the transcript `.jsonl`, so the
+capture threw and `applyClaudeHook` returned without folding. `UserPromptSubmit`
+is the only hook that opens a turn epoch, so the epoch stayed closed and the
+`Stop` that arrived once the file existed was correctly refused for having no
+open epoch. The fix makes an unreadable transcript cost the hook its position
+rather than its existence. Re-driven on this rig: `working`×60 over 59 of 59
+growing intervals. See `docs/evidence/pod-2810/`.
 
 ## What this rig deliberately does NOT do
 
