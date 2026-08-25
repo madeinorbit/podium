@@ -91,6 +91,14 @@ export PODIUM_RUNTIME_CONTRACT="${P2773_CONTRACT:-1}"
 export PODIUM_CHAT_STREAMING="${P2773_STREAMING:-1}"
 if [ -n "${P2773_DRIVER:-}" ]; then export PODIUM_RUNTIME_DRIVER="$P2773_DRIVER"; else unset PODIUM_RUNTIME_DRIVER; fi
 
+# --- the daemon has to say when it takes the watch ------------------------
+# `fine watch acquired` is logged at DEBUG (apps/daemon/src/runtime/watch.ts),
+# and it is the one line that proves the viewer's subscribe crossed the process
+# boundary and moved the driver's refcount. Without it, a zero cannot be told
+# apart from "nobody ever asked the driver for fragments" — which is one of the
+# three explanations this drive is required to choose between.
+export PODIUM_LOG_LEVEL="${P2773_LOG_LEVEL:-debug}"
+
 # --- code under test ------------------------------------------------------
 export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2773-drive-streaming-on-grok-and-opencode
 

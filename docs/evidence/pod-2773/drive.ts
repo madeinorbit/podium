@@ -274,6 +274,51 @@ try {
   /* the socket may still have answered; the report says so either way */
 }
 
+/**
+ * WHAT THE TURN ACTUALLY DID, and it is a required reading for the same reason
+ * the binding is.
+ *
+ * A turn that produced no tokens produces no fragments, and the preview count
+ * for it is zero no matter how well the plane works. That zero is about the
+ * PROVIDER, not about this feature, and the two are different findings — one is
+ * a blocked drive and the other is a broken one. The rig hit exactly this on
+ * grok: `usage_limit`, "402 Payment Required: Grok Build usage balance
+ * exhausted", 883ms of work and nothing generated. So the drive reads the
+ * session's own error classification back and refuses to let a zero from an
+ * errored turn stand as evidence about the plane.
+ */
+let agentPhase: string | undefined
+let agentError: { class?: string; detail?: string } | undefined
+try {
+  const res = await fetch(`${BASE}/trpc/sessions.list?input=%7B%7D`, { headers: { cookie } })
+  const body = (await res.json()) as {
+    result?: { data?: { sessionId?: string; agentState?: { phase?: string; error?: { class?: string; detail?: string } } }[] }
+  }
+  const mine = (body.result?.data ?? []).find((s) => s.sessionId === sid)
+  agentPhase = mine?.agentState?.phase
+  agentError = mine?.agentState?.error
+} catch {
+  /* reported as unknown below */
+}
+
+/**
+ * DID THE DAEMON ACTUALLY TAKE THE WATCH? The three explanations a zero has to
+ * choose between are: the driver never upgraded past coarse, the fragments were
+ * produced and dropped, or the viewer never subscribed. This line separates the
+ * third from the other two, because it is written by the daemon at the moment
+ * the driver's fine refcount moves — a different process from the one sampling.
+ */
+let fineWatchAcquired: boolean | undefined
+try {
+  const logPath = `${process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-2773'}/logs/daemon.log`
+  const text = await Bun.file(logPath).text()
+  fineWatchAcquired = text
+    .split('\n')
+    .some((l) => l.includes('fine watch acquired') && l.includes(sid))
+} catch {
+  /* reported as unknown below */
+}
+
 // ---------------------------------------------------------------------------
 // REPORT
 // ---------------------------------------------------------------------------
@@ -286,7 +331,9 @@ line(`PROMPT MODE        ${PROMPT_MODE}`)
 line(`ARM                CONTRACT=${process.env.PODIUM_RUNTIME_CONTRACT ?? '(unset)'} STREAMING=${process.env.PODIUM_CHAT_STREAMING ?? '(unset)'} DRIVER=${process.env.PODIUM_RUNTIME_DRIVER ?? '(policy)'}`)
 line(`BOUND DRIVER       ${driverId ?? '(unknown)'}${driverFamily ? ` (family ${driverFamily})` : ''}`)
 line(`JOINED             ${joinedAt - startedAt}ms into a turn already running`)
-line(`SESSION STATUS     ${sessionStatus ?? '(unknown)'}`)
+line(`SESSION STATUS     ${sessionStatus ?? '(unknown)'}  phase=${agentPhase ?? '(unknown)'}`)
+line(`FINE WATCH         ${fineWatchAcquired === undefined ? '(daemon log unreadable)' : fineWatchAcquired ? 'ACQUIRED — the daemon moved the driver refcount for this session' : 'NOT acquired for this session'}`)
+if (agentError) line(`TURN ERROR         ${agentError.class ?? '?'} — ${agentError.detail ?? ''}`)
 line('-'.repeat(72))
 
 // THE CONTROL GATE. Nothing about the preview plane is printed above this line
@@ -306,6 +353,23 @@ if (controlDeltas === 0) {
 line('CONTROL FIRED — the socket is alive and the session is producing durable')
 line('transcript items, so a preview count from it is a real measurement.')
 line('-'.repeat(72))
+
+// THE SECOND GATE. The socket being alive is not enough: a turn the provider
+// refused generates no tokens, so it generates no fragments, and its zero says
+// nothing about the preview plane. A blocked drive and a broken feature are
+// different findings and must not be reported in the same words.
+if (agentPhase === 'errored') {
+  line(`TURN DID NOT RUN — the harness errored (${agentError?.class ?? 'unknown'}).`)
+  line(`  ${agentError?.detail ?? '(no detail)'}`)
+  line('')
+  line('No tokens were generated, so no fragments could exist and a preview count')
+  line('of zero is a fact about the PROVIDER, not about the preview plane.')
+  line('REFUSING to report this as a measurement of the feature. This is a BLOCKED')
+  line('drive, not a failed one.')
+  line(`preview frames actually seen (for the record only, not evidence): ${samples.length}`)
+  line('='.repeat(72))
+  process.exit(3)
+}
 
 const first = samples[0]
 const last = samples.at(-1)
@@ -372,5 +436,8 @@ console.log(
     firstChars: first?.chars ?? null,
     lastChars: last?.chars ?? null,
     done: last?.done ?? false,
+    agentPhase: agentPhase ?? null,
+    agentErrorClass: agentError?.class ?? null,
+    fineWatchAcquired: fineWatchAcquired ?? null,
   })}`,
 )
