@@ -101,13 +101,20 @@ flight:
 
 The agent kept generating. That is the operator's report, reproduced.
 
-**AFTER** (pin `5843c04`):
+**AFTER**, re-driven on the REBASED branch (pin `47be96d`) rather than on the
+sha the fix was first measured at — the epic moved 85 lines of
+`drivers/opencode/runtime.ts` underneath this work, and an after-arm taken at a
+commit that no longer exists is an after-arm nobody can reproduce:
 
 | harness | interrupt answered | daemon | verdict | frames after | settled |
 |---|---|---|---|---|---|
-| opencode | `{"ok":true,"requested":"protocol"}` | no discard warning | **PASS** | 2 | 9 ms |
-| codex | `{"ok":true,"requested":"protocol"}` | no discard warning | **PASS** | 0 | 591 ms |
+| opencode | `{"ok":true,"requested":"protocol"}` | no discard warning | **PASS** | 0 | 12 ms |
+| codex | `{"ok":true,"requested":"protocol"}` | no discard warning | **PASS** | 1 | 532 ms |
 | grok | `{"ok":true,"requested":"protocol"}` | no discard warning | REFUSED | — | — |
+
+(The wire readings and the `phase: errored` finding below were taken at
+`1d50579` and `5843c04`, the two fix commits before the rebase; the trees they
+measured are the ones that rebased forward unchanged.)
 
 Grok refuses for an account reason the product reports correctly and this rig
 cannot fix: `usage_limit`, non-retryable, *"API error (status 402 Payment
