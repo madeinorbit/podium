@@ -9,12 +9,14 @@ import type {
 } from '@podium/protocol'
 import { isProvablyNewer } from '@podium/protocol'
 import {
+  decideWave,
   IN_FLIGHT_STATES,
   isPackagedRolloutTarget,
   offeredDeliveries,
   planWave,
   TERMINAL_STATES,
   type WaveMachine,
+  type WaveRound,
 } from './wave'
 
 const log = createLogger('server:updates')
@@ -255,8 +257,27 @@ export class UpdatesService {
   private readonly refreshesInFlight = new Map<UpdateChannel, Promise<boolean>>()
   /** Versions published while an exclusive operation held the group (§3.2). */
   private readonly nextTargets = new Map<UpdateChannel, UpdateTarget>()
+  /**
+   * EVERY ROUND OF GRANTS THIS PROCESS HAS ISSUED, PER CHANNEL (POD-2754).
+   *
+   * Append-only and in-memory, which is the whole reason it is not the durable
+   * copy: a wave outlives this process — the coordinator replaces itself
+   * halfway through one. {@link waveRounds} is what the update operation copies
+   * into its own persisted record, and that record is what anybody reads
+   * afterwards. This is only the buffer between the instant a round happens and
+   * the next time the operation writes itself down.
+   */
+  private readonly waveHistory = new Map<UpdateChannel, WaveRound[]>()
 
   constructor(private readonly deps: UpdatesDeps) {}
+
+  /**
+   * The rounds this process has issued on this channel, oldest first. Callers
+   * scope by target version and by their own start time; see {@link WaveRound}.
+   */
+  waveRounds(channel: UpdateChannel): readonly WaveRound[] {
+    return this.waveHistory.get(channel) ?? []
+  }
 
   targetVersion(machineId?: MachineId): string | undefined {
     return machineId === undefined
@@ -934,13 +955,14 @@ export class UpdatesService {
     // which is what makes this method the only thing granting on this path.
     const { machines } = this.project()
     const channelMachines = machines.filter((machine) => this.channelOf(machine) === channel)
-    const selected = planWave({
+    const decision = decideWave({
       machines: channelMachines,
       targetVersion: target.version,
       concurrency: this.deps.concurrency,
       canaryHealthy: rollout.canaryHealthy,
       deliveries: offeredDeliveries(target),
     })
+    const selected = decision.selected
     /**
      * WHY THIS TICK GRANTED WHAT IT GRANTED — INCLUDING NOTHING (POD-2741).
      *
@@ -955,9 +977,11 @@ export class UpdatesService {
     log.info('update wave tick', {
       channel,
       targetVersion: target.version,
+      gate: decision.gate,
       canaryHealthy: rollout.canaryHealthy,
       concurrency: this.deps.concurrency,
       selected,
+      held: decision.held,
       considered: channelMachines.map((machine) => ({
         machine: machine.name ?? machine.id,
         version: machine.version,
@@ -965,7 +989,49 @@ export class UpdatesService {
         online: machine.online,
       })),
     })
-    return this.issueGrants(channel, target, channelMachines, selected)
+    const issued = this.issueGrants(channel, target, channelMachines, selected)
+    /**
+     * …AND THE SAME ANSWER SOMEWHERE A CHECK CAN READ IT (POD-2754).
+     *
+     * The log line above says all of this and says it to a human. The rollout
+     * gate is not a human: it had to watch for the canary window instead, and
+     * on a fast update that window is gone before the first sample. So a round
+     * that actually granted something is written down too.
+     *
+     * ONLY WHEN GRANTS WENT OUT. A tick that selected nobody is answered by the
+     * log line, and recording every one of them would bury the handful of rounds
+     * that constitute the wave under hundreds that changed nothing.
+     */
+    if (issued.length > 0) {
+      const granted = issued.map((machineId) => {
+        const machine = channelMachines.find((candidate) => candidate.id === machineId)
+        return { id: machineId, ...(machine?.name ? { name: machine.name } : {}) }
+      })
+      this.recordWaveRound(channel, {
+        at: this.deps.now(),
+        gate: decision.gate,
+        targetVersion: target.version,
+        granted,
+        held: decision.held,
+      })
+    }
+    return issued
+  }
+
+  /**
+   * Append one round, keeping the buffer bounded.
+   *
+   * A wave is a handful of rounds; a coordinator that has been up for weeks has
+   * served many waves. The cap is generous enough that no single wave can reach
+   * it and small enough that the buffer cannot grow without limit — and dropping
+   * the OLDEST is safe precisely because every consumer scopes to rounds newer
+   * than its own start.
+   */
+  private recordWaveRound(channel: UpdateChannel, round: WaveRound): void {
+    const rounds = this.waveHistory.get(channel) ?? []
+    rounds.push(round)
+    if (rounds.length > 200) rounds.splice(0, rounds.length - 200)
+    this.waveHistory.set(channel, rounds)
   }
 
   /**

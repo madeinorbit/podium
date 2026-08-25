@@ -28,6 +28,7 @@ import {
   describeUpdateWaitingExpiry,
   exclusiveUpdateVersion,
   LIFECYCLE_EXCLUSION_GROUP,
+  mergedWaveRounds,
   planUpdateOperation,
   RELOAD_SURFACES_ASK,
   reconcileUpdateOperation,
@@ -46,11 +47,12 @@ import {
   type UpdateFailure,
   type UpdateOperationContext,
   type UpdatePlanInput,
+  updateOperationDetails,
   updateOperationKind,
 } from './operation'
 import { UpdatesService } from './service'
 import { updateStartability } from './trpc'
-import { offeredDeliveries, type WaveMachine } from './wave'
+import { offeredDeliveries, type WaveMachine, type WaveRound } from './wave'
 
 /**
  * THE `update` KIND (POD-2098), proven the way the framework next door is: a
@@ -761,8 +763,7 @@ describe('the error taxonomy', () => {
   })
 
   it('surfaces an unexpected local error without inventing a connectivity failure', () => {
-    const detail =
-      'ENOENT: no such file or directory, open /state/runtime/pending-update.json.tmp'
+    const detail = 'ENOENT: no such file or directory, open /state/runtime/pending-update.json.tmp'
     const code = classifyMachineFailure(detail)
     const error = describeUpdateOperationFailure({
       code: 'machine-update-failed',
@@ -2445,6 +2446,7 @@ describe('the fleet bridge', () => {
         recordProgress,
         admitDeferred,
         reensure: () => Promise.resolve(),
+        recordDetails: () => undefined,
       },
       updates: h.updates,
     }).onFleetChanged()
@@ -3484,6 +3486,7 @@ describe('a wave whose canary arrived without an attach', () => {
         recordProgress,
         admitDeferred: async () => {},
         reensure,
+        recordDetails: () => undefined,
       },
       updates: {
         // `source` is on the target; the two fleet machines are behind and were
@@ -3497,6 +3500,7 @@ describe('a wave whose canary arrived without an attach', () => {
         // that would otherwise move `source` is available.
         machineBootedAtTarget: () => false,
         machineCrossedRestartBoundary: () => false,
+        waveRounds: () => [],
       } as unknown as UpdatesService,
       now: () => 1_000,
     })
@@ -3505,5 +3509,161 @@ describe('a wave whose canary arrived without an attach', () => {
     await Promise.resolve()
 
     expect(reensure).toHaveBeenCalledWith('op_1', UPDATE_STEP_MACHINES, expect.anything())
+  })
+})
+
+/**
+ * THE WAVE, AS A RECORD RATHER THAN A MOMENT (POD-2754).
+ *
+ * The rollout gate used to prove the canary stage by SAMPLING the fleet and
+ * hoping a sample landed inside the window where exactly one machine was in
+ * flight. On a fast update that window closes before the first sample, so a
+ * correct wave read as one that never gated — the row flipped about one run in
+ * three with no product change between them. These cases are about the thing
+ * that replaces the sampling: the rounds this wave actually issued, written into
+ * the operation as they happen and readable long after the moment has passed.
+ */
+describe('the wave rounds an update writes down', () => {
+  const twoMachines = () => [
+    machine({ id: 'fleet-a', name: 'fleet-a' }),
+    machine({ id: 'fleet-b', name: 'fleet-b' }),
+  ]
+  const waveHarness = (fleet: WaveMachine[]) =>
+    harness({
+      machines: fleet,
+      target: packedTarget(),
+      // The coordinator is already at the target, so this plan is the wave and
+      // nothing else — no server step to restart underneath the assertions.
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+  const rounds = (operation: Operation) => updateOperationDetails(operation)?.waveRounds
+
+  it('records the canary round: one machine granted, the other held for it', async () => {
+    const h = waveHarness(twoMachines())
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    expect(h.sent).toHaveLength(1)
+    expect(rounds(h.read())).toEqual([
+      expect.objectContaining({
+        gate: 'canary',
+        targetVersion: 'dev+abc1234',
+        granted: [{ id: 'fleet-a', name: 'fleet-a' }],
+        held: [{ id: 'fleet-b', name: 'fleet-b', reason: 'canary-gated' }],
+      }),
+    ])
+  })
+
+  /**
+   * THE WHOLE CLAIM THE GATE MAKES, in one value: a first round that granted one
+   * machine while holding the other, and a second that widened to it. Neither
+   * half is a state anybody has to be looking at when it happens.
+   */
+  it('records the widening round after the canary proves the bundle', async () => {
+    const fleet = twoMachines()
+    const h = waveHarness(fleet)
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    // The canary reconnects on the target — the directory proof, which is what
+    // makes the bundle proved and lets the planner widen.
+    fleet[0] = machine({ id: 'fleet-a', name: 'fleet-a', version: 'dev+abc1234' })
+    await h.engine.reensure('op_1', UPDATE_STEP_MACHINES)
+    await h.engine.whenSettled('op_1')
+
+    expect(rounds(h.read())).toEqual([
+      expect.objectContaining({ gate: 'canary', granted: [{ id: 'fleet-a', name: 'fleet-a' }] }),
+      expect.objectContaining({
+        gate: 'widen',
+        granted: [{ id: 'fleet-b', name: 'fleet-b' }],
+        // The canary is on the target now, so the widening round holds it for
+        // the one reason that is not a wait at all.
+        held: [{ id: 'fleet-a', name: 'fleet-a', reason: 'already-current' }],
+      }),
+    ])
+  })
+
+  /**
+   * A COORDINATOR REPLACES ITSELF IN THE MIDDLE OF ITS OWN UPDATE, so a record
+   * kept only in the service is a record that dies before anybody reads it. The
+   * successor's service buffer is empty; the canary round is still there because
+   * the operation carried it across, and it is APPENDED to rather than replaced.
+   */
+  it('keeps the rounds the dead process recorded when a successor adopts the wave', async () => {
+    const fleet = twoMachines()
+    const h = waveHarness(fleet)
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    const before = rounds(h.read())
+    expect(before).toHaveLength(1)
+    h.engine.stop()
+
+    // A whole new process: same store, same fleet, a service that remembers
+    // nothing — and the canary has come back on the target meanwhile.
+    fleet[0] = machine({ id: 'fleet-a', name: 'fleet-a', version: 'dev+abc1234' })
+    const boot = h.reboot()
+    expect(boot.updates.waveRounds('dev')).toEqual([])
+    await boot.engine.adoptOnBoot(
+      () => ({
+        appVersion: 'dev+abc1234',
+        servedWebDigest: WEB_DIGEST,
+        machineDirectory: fleet,
+        now: h.clock.clock.now(),
+      }),
+      () => boot.context(),
+    )
+    await boot.engine.whenSettled('op_1')
+
+    const after = rounds(h.read()) ?? []
+    expect(after.slice(0, 1)).toEqual(before)
+    // The successor grants the machine still behind. Its gate reads `canary`
+    // and not `widen`, because a process that has forgotten everything has
+    // forgotten the proof too and earns it again — the honest answer, and the
+    // reason this record says which gate each round came from.
+    expect(after.at(-1)).toEqual(
+      expect.objectContaining({ granted: [{ id: 'fleet-b', name: 'fleet-b' }] }),
+    )
+    expect(after.length).toBeGreaterThan(before?.length ?? 0)
+  })
+
+  /**
+   * A ROUND BELONGS TO THE WAVE THAT ISSUED IT.
+   *
+   * The service buffer spans every wave this process has served, so an earlier
+   * update's canary would otherwise read as this one's — and it would look
+   * identical, because a re-run grants the same machines in the same order. Two
+   * scopes keep them apart, and both are asked here.
+   */
+  it('takes only the rounds that belong to this operation', () => {
+    const round = (over: Partial<WaveRound>): WaveRound => ({
+      at: 100,
+      gate: 'canary',
+      targetVersion: 'dev+abc1234',
+      granted: [{ id: 'fleet-a' }],
+      held: [{ id: 'fleet-b', reason: 'canary-gated' }],
+      ...over,
+    })
+    const mine = round({ at: 100 })
+    const buffer = [
+      round({ at: 50 }), // an earlier update's, over before this one began
+      round({ at: 120, targetVersion: 'dev+9999999' }), // a different rollout
+      mine,
+    ]
+    const operation = {
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      createdAt: 90,
+      startedAt: 90,
+      details: { target: packedTarget(), channel: 'dev' },
+    } as unknown as Operation
+    const updates = { waveRounds: () => buffer } as unknown as UpdatesService
+
+    expect(mergedWaveRounds(operation, updates)).toEqual([mine])
+    // Written once and then nothing new to write, which is what stops a caller
+    // rewriting the same value on every pass of the step.
+    const written = { ...operation, details: { ...operation.details, waveRounds: [mine] } }
+    expect(mergedWaveRounds(written as Operation, updates)).toBeUndefined()
   })
 })

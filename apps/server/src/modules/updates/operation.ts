@@ -24,12 +24,13 @@ import type {
 } from '../operations/kinds'
 import type { UpdatesService } from './service'
 import {
-  machineCanTakeDelivery,
   IN_FLIGHT_STATES,
   isPackagedRolloutTarget,
+  machineCanTakeDelivery,
   offeredDeliveries,
   TERMINAL_STATES,
   type WaveMachine,
+  type WaveRound,
 } from './wave'
 
 /**
@@ -532,6 +533,19 @@ export interface UpdateOperationDetails {
   fromVersion?: string
   /** Verified restore point available when this attempt began or created by it. */
   databaseSnapshotPath?: string
+  /**
+   * EVERY ROUND OF GRANTS THIS OPERATION'S WAVE ISSUED (POD-2754), oldest
+   * first — see {@link WaveRound} for why a record and not an observation.
+   *
+   * It is here, in the operation's own durable payload, because that is the one
+   * thing about a wave that outlives both the wave and the process running it:
+   * the coordinator replaces itself mid-update, and the service's copy dies with
+   * it. Written as the rounds happen, so the finished operation answers "was
+   * there a canary stage, and what was held back for it" to anybody reading it
+   * afterwards — including a check, which can never be looking at the right
+   * moment.
+   */
+  waveRounds?: WaveRound[]
   surface?: UpdateSurface
   [key: string]: unknown
 }
@@ -542,6 +556,61 @@ export function updateOperationDetails(operation: Operation): UpdateOperationDet
   const target = details.target
   if (!target || typeof target !== 'object' || typeof target.version !== 'string') return undefined
   return details
+}
+
+/**
+ * A round's identity, so the same round copied twice is stored once.
+ *
+ * Two DIFFERENT rounds cannot collide on it: a round exists because grants went
+ * out, and a machine granted in one round is `in-flight` for the next, so no two
+ * rounds of a wave carry the same grants — let alone in the same millisecond.
+ */
+const waveRoundKey = (round: WaveRound): string =>
+  [
+    round.at,
+    round.gate,
+    round.targetVersion,
+    round.granted.map((machine) => machine.id).join(','),
+    round.held.map((machine) => `${machine.id}:${machine.reason}`).join(','),
+  ].join('|')
+
+/**
+ * THE OPERATION'S COPY OF ITS OWN WAVE (POD-2754) — what it already carries,
+ * plus the rounds the live service has issued since and it has not yet written.
+ *
+ * Scoped twice, and both halves matter. To rounds no older than this operation,
+ * because the service's buffer spans every wave this process has served and an
+ * earlier update's canary is not this one's. And to rounds granting THIS
+ * target, because a publication mid-wave starts a different rollout.
+ *
+ * Carried rounds are never rewritten — only ever appended to. That is what makes
+ * the record survive the coordinator replacing itself halfway through its own
+ * update: the successor's service buffer is empty, and the rounds from before
+ * the handover are still there because nothing was in a position to overwrite
+ * them.
+ *
+ * `undefined` means "nothing new", so a caller writes only when there is
+ * something to write.
+ */
+export function mergedWaveRounds(
+  operation: Operation,
+  updates: UpdatesService,
+): WaveRound[] | undefined {
+  const details = updateOperationDetails(operation)
+  if (!details) return undefined
+  const since = operation.startedAt ?? operation.createdAt ?? 0
+  const carried = Array.isArray(details.waveRounds) ? details.waveRounds : []
+  const known = new Set(carried.map(waveRoundKey))
+  const fresh = updates
+    .waveRounds(details.channel)
+    .filter(
+      (round) =>
+        round.at >= since &&
+        round.targetVersion === details.target.version &&
+        !known.has(waveRoundKey(round)),
+    )
+  if (fresh.length === 0) return undefined
+  return [...carried, ...fresh]
 }
 
 /**
@@ -1446,97 +1515,123 @@ const machinesRunner: StepRunner<UpdateOperationContext> = {
    * selected once the operation is gone.
    */
   reversible: true,
-  ensure: async ({ operation, step, context }) => {
-    const details = updateOperationDetails(operation)
-    if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
-
-    /**
-     * A VERDICT THIS OPERATION DID NOT ASK FOR IS NOT THIS OPERATION'S VERDICT
-     * (POD-2201, spec §6.2, §7).
-     *
-     * The step used to settle before it authorized anything, so a machine whose
-     * last word — to a PREVIOUS operation, or to a cancel that left it `stuck` —
-     * was terminal decided this one in under ten milliseconds, with zero grants
-     * issued and nothing asked of the machine. The panel then offered Try again,
-     * which is another operation, which failed the same way: a button that
-     * looked like a way out and could not be one. Starting an update is a new
-     * human decision, and §6.2's promise is that a failure is never a dead end.
-     *
-     * WHY THIS IS NOT "MOVE `markAuthorized` UP". Forgetting a verdict on every
-     * pass would forget the one the wave is being failed on and re-grant on the
-     * next re-entry, forever — the hot loop POD-2105's terminal guard and its
-     * per-machine attempt cap exist to prevent. So it is asked per PLACE, and
-     * only of a place this operation has not yet put anything to: a place still
-     * `pending` has been granted nothing by this step, so any verdict against it
-     * was given to somebody else's decision. The moment a place is granted, its
-     * carried state stops being `pending` and its verdict settles the step in
-     * the usual way — one grant per human decision, on this route and on
-     * `authorizeMachine`'s alike.
-     *
-     * It runs before the delivery gate below rather than after, because it is a
-     * statement about authority and not about readiness: a step that is still
-     * waiting for its package must not be sitting on a stale refusal either.
-     */
-    const untouched = (step.places ?? [])
-      .filter((place) => place.state === undefined || place.state === 'pending')
-      .map((place) => place.id)
-    if (untouched.length > 0) context.updates.clearMachineVerdicts(details.channel, untouched)
-
-    const settled = settleMachines(operation, step, context)
-    if (settled) return settled
-
-    /**
-     * NEVER GRANT WHAT CANNOT BE DELIVERED — asked of the MACHINES this step is
-     * waiting on, not of the target alone (POD-2195).
-     *
-     * `prepare` is supposed to have left a packed descriptor published for this
-     * version; if it has not, ticking would hand an installed daemon a bare
-     * `dev+<sha>` identity it can only refuse — the fleet learning by failing,
-     * which is exactly the defect the delivery-capability work removed. Staying
-     * `running` instead means the step's own deadline decides, visibly, rather
-     * than a wave of rejections.
-     *
-     * But a machine that owns a checkout can take that identity TODAY: it names
-     * a repo and a sha, which is the whole of what git delivery needs. Asking
-     * only "has it been packed?" held such a machine behind a package it could
-     * never consume, for a package this plan may not even contain (spec §9.2).
-     * The wave planner does the same per-machine filtering at grant time, so a
-     * mixed fleet advances the git machines here and picks the rest up when the
-     * packed descriptor arrives.
-     */
-    const published = context.updates.target(details.channel) ?? details.target
-    const awaited = new Set((step.places ?? []).map((place) => place.id))
-    const waiting = context.updates.fleet().filter((machine) => awaited.has(machine.id))
-    if (!fleetCanTakeTargetNow(published, waiting)) {
-      return {
-        state: 'running',
-        detail: 'Waiting for the update package.',
-        ...projectMachines(operation, step, context),
-      }
+  /**
+   * WRITE THE WAVE DOWN ON THE WAY OUT (POD-2754), whatever the outcome was.
+   *
+   * The rounds this pass issued are in the service the moment `tick()` returns,
+   * and this is the last instant before the answer goes back to the engine — a
+   * `done` answer being the one that matters most, because it is the pass that
+   * ends the step, and after it nothing re-enters this runner to write anything.
+   * `finally`, so a runner that throws still leaves behind the grants it made.
+   */
+  ensure: async (args) => {
+    try {
+      return await ensureMachines(args)
+    } finally {
+      writeWaveRounds(args.operation, args.context)
     }
-
-    /**
-     * THE ONE AUTOMATIC RETRY, FOR A MACHINE MID-GRANT (§3.3, POD-2101).
-     *
-     * The engine re-enters `ensure()` after it has marked this step `stalled`,
-     * and by itself that would change nothing: the wave planner deliberately
-     * skips a machine it believes is mid-grant, so `tick()` would select nobody
-     * and the step would go straight back to waiting on the same silence. Re-
-     * issuing the grant is what a retry MEANS here — safe because the daemon's
-     * grant runner serializes: the same grant id is ignored, a newer one cancels
-     * the delivery in flight before taking over.
-     *
-     * `stalls` rather than `attempts`, because adoption after a server restart
-     * also re-enters this runner and that is not a stall — the successor should
-     * let the existing grants stand and watch them.
-     */
-    if ((step.stalls ?? 0) > 0) context.updates.reissueGrants(details.channel)
-
-    context.updates.markAuthorized(details.channel)
-    context.updates.tick(details.channel)
-    const progress = projectMachines(operation, step, context)
-    return { state: 'running', ...progress }
   },
+}
+
+function writeWaveRounds(operation: Operation, context: UpdateOperationContext): void {
+  const rounds = mergedWaveRounds(operation, context.updates)
+  if (rounds) context.recordOperationDetails?.(operation.id, { waveRounds: rounds })
+}
+
+const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
+  operation,
+  step,
+  context,
+}) => {
+  const details = updateOperationDetails(operation)
+  if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
+
+  /**
+   * A VERDICT THIS OPERATION DID NOT ASK FOR IS NOT THIS OPERATION'S VERDICT
+   * (POD-2201, spec §6.2, §7).
+   *
+   * The step used to settle before it authorized anything, so a machine whose
+   * last word — to a PREVIOUS operation, or to a cancel that left it `stuck` —
+   * was terminal decided this one in under ten milliseconds, with zero grants
+   * issued and nothing asked of the machine. The panel then offered Try again,
+   * which is another operation, which failed the same way: a button that
+   * looked like a way out and could not be one. Starting an update is a new
+   * human decision, and §6.2's promise is that a failure is never a dead end.
+   *
+   * WHY THIS IS NOT "MOVE `markAuthorized` UP". Forgetting a verdict on every
+   * pass would forget the one the wave is being failed on and re-grant on the
+   * next re-entry, forever — the hot loop POD-2105's terminal guard and its
+   * per-machine attempt cap exist to prevent. So it is asked per PLACE, and
+   * only of a place this operation has not yet put anything to: a place still
+   * `pending` has been granted nothing by this step, so any verdict against it
+   * was given to somebody else's decision. The moment a place is granted, its
+   * carried state stops being `pending` and its verdict settles the step in
+   * the usual way — one grant per human decision, on this route and on
+   * `authorizeMachine`'s alike.
+   *
+   * It runs before the delivery gate below rather than after, because it is a
+   * statement about authority and not about readiness: a step that is still
+   * waiting for its package must not be sitting on a stale refusal either.
+   */
+  const untouched = (step.places ?? [])
+    .filter((place) => place.state === undefined || place.state === 'pending')
+    .map((place) => place.id)
+  if (untouched.length > 0) context.updates.clearMachineVerdicts(details.channel, untouched)
+
+  const settled = settleMachines(operation, step, context)
+  if (settled) return settled
+
+  /**
+   * NEVER GRANT WHAT CANNOT BE DELIVERED — asked of the MACHINES this step is
+   * waiting on, not of the target alone (POD-2195).
+   *
+   * `prepare` is supposed to have left a packed descriptor published for this
+   * version; if it has not, ticking would hand an installed daemon a bare
+   * `dev+<sha>` identity it can only refuse — the fleet learning by failing,
+   * which is exactly the defect the delivery-capability work removed. Staying
+   * `running` instead means the step's own deadline decides, visibly, rather
+   * than a wave of rejections.
+   *
+   * But a machine that owns a checkout can take that identity TODAY: it names
+   * a repo and a sha, which is the whole of what git delivery needs. Asking
+   * only "has it been packed?" held such a machine behind a package it could
+   * never consume, for a package this plan may not even contain (spec §9.2).
+   * The wave planner does the same per-machine filtering at grant time, so a
+   * mixed fleet advances the git machines here and picks the rest up when the
+   * packed descriptor arrives.
+   */
+  const published = context.updates.target(details.channel) ?? details.target
+  const awaited = new Set((step.places ?? []).map((place) => place.id))
+  const waiting = context.updates.fleet().filter((machine) => awaited.has(machine.id))
+  if (!fleetCanTakeTargetNow(published, waiting)) {
+    return {
+      state: 'running',
+      detail: 'Waiting for the update package.',
+      ...projectMachines(operation, step, context),
+    }
+  }
+
+  /**
+   * THE ONE AUTOMATIC RETRY, FOR A MACHINE MID-GRANT (§3.3, POD-2101).
+   *
+   * The engine re-enters `ensure()` after it has marked this step `stalled`,
+   * and by itself that would change nothing: the wave planner deliberately
+   * skips a machine it believes is mid-grant, so `tick()` would select nobody
+   * and the step would go straight back to waiting on the same silence. Re-
+   * issuing the grant is what a retry MEANS here — safe because the daemon's
+   * grant runner serializes: the same grant id is ignored, a newer one cancels
+   * the delivery in flight before taking over.
+   *
+   * `stalls` rather than `attempts`, because adoption after a server restart
+   * also re-enters this runner and that is not a stall — the successor should
+   * let the existing grants stand and watch them.
+   */
+  if ((step.stalls ?? 0) > 0) context.updates.reissueGrants(details.channel)
+
+  context.updates.markAuthorized(details.channel)
+  context.updates.tick(details.channel)
+  const progress = projectMachines(operation, step, context)
+  return { state: 'running', ...progress }
 }
 
 /**
@@ -2034,6 +2129,8 @@ export function createUpdateFleetBridge(deps: {
       patch: StepProgressPatch,
     ): Promise<void>
     reensure(id: string, stepId: string, patch?: StepProgressPatch): Promise<void>
+    /** Where this bridge writes the wave rounds it just watched happen (POD-2754). */
+    recordDetails(id: string, patch: Record<string, unknown>): unknown
   }
   updates: UpdatesService
   /**
@@ -2058,6 +2155,9 @@ export function createUpdateFleetBridge(deps: {
         channel: details.channel,
         appVersion: () => details.fromVersion ?? '',
         ...(deps.now ? { now: deps.now } : {}),
+        recordOperationDetails: (id, patch) => {
+          deps.engine.recordDetails(id, patch)
+        },
       }
 
       // §3.6: a deferred machine that woke up while its own step is still
@@ -2089,6 +2189,21 @@ export function createUpdateFleetBridge(deps: {
         state: 'running' as const,
         ...projectMachines(row.operation, step, context),
       }
+
+      /**
+       * THE WIDENING ROUND HAPPENS IN HERE (POD-2754).
+       *
+       * Both projections above read `fleet()`, and `fleet()` is one of the three
+       * things that advance a wave: the canary reconnecting on the target is
+       * what proves it, and the grant that widens to the rest goes out from
+       * inside that read. On a two-machine fleet that is also the LAST round, so
+       * if this bridge did not write it down nothing would — `settled` is `done`
+       * on the very next event and the runner is never entered again.
+       *
+       * Before the reports below, all of which can finish the step and with it
+       * the operation, and a finished operation accepts no more detail.
+       */
+      writeWaveRounds(row.operation, context)
 
       /**
        * A MACHINE THE WAVE WAS WAITING ON JUST CAME BACK (POD-2167).
