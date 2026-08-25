@@ -68,6 +68,34 @@ every later attach rebuilds from. Rendered through the browser's own emulator, a
 real capture shows the residue as stacked banner borders above the current
 interface.
 
+## What the drive did NOT establish — read this before trusting the fix
+
+**The A/B is null.** Driven on `p2761` against a live codex session, the rendered
+buffer holds exactly one interface *with* the fix and exactly one *without* it:
+
+| build | client pids, round 1 → round 2 | interfaces in the buffer | conversation |
+| --- | --- | --- | --- |
+| with the fix (`a30481002`) | 3127390/3127393 → 3128571/3128580 | 1 | ALPHA, BRAVO, CHARLIE |
+| fix reverted (`87e4b9911`) | 3137138/3137141 → 3138625/3138628 | 1 | ALPHA, BRAVO, CHARLIE |
+
+So this rig reproduces the *mechanism* — a new client process per switch, on both
+builds — but **not the operator's symptom**. The codex TUI usually emits its own
+`ESC[2J`/`ESC[3J` on startup, which re-anchors the replay log and hides the
+duplicate; the residue only showed up in a hand capture where it did not.
+
+That makes the fix **defensible but unproven against the report**. It closes a
+real hole — nothing in Podium guarantees the clear, and the whole duplicate
+depends on the harness happening to emit one — but nobody should describe it as
+"verified against what the operator saw".
+
+**The one condition still untested is theirs exactly: a RESUMED session.** The
+drive now hibernates and resumes before switching, and that path is blocked by a
+different defect — `sessions.hibernate` on a codex app-server session leaves the
+driver wedged (`server-reap: could not complete the server-driver verb`, then
+`needs measured escalation`), the resume never comes back live, and the drive
+measures nothing. Reproduced on two independent instances. Filed separately; it
+has to be fixed before this symptom can be reproduced or the fix judged.
+
 ## The fix
 
 Not "park it too" — the revoke-on-release behaviour protects a real hazard and is
