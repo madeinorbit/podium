@@ -35,12 +35,27 @@ export interface ForceDecision {
 const REFUSAL = `\
 uncached typecheck refused.
 
-A forced run recomputes all 22 packages (~3m14s of CPU, measured) instead of
-reusing the cache (~2s) — 110x — on a host shared with a live Podium instance.
-The cache key already covers source files, bun.lock, tooling/tsconfig, and the
-install environment (bunfig.toml + node_modules/@podium census via
-PODIUM_CHECK_ENV_HASH), so installs, linker changes, and base swaps are
-noticed automatically.
+A forced run recomputes every package (24 of them; ~3m14s of CPU when that was
+last measured at 22) instead of reusing the cache (~2s) on a host shared with a
+live Podium instance.
+
+WHAT THE KEY COVERS: each package's own tracked files; the task hashes of the
+packages it depends on; bun.lock and tooling/tsconfig; the install environment
+(bunfig.toml + node_modules/@podium census via PODIUM_CHECK_ENV_HASH), so
+installs, linker changes and base swaps are noticed automatically; and, for the
+packages that import sources outside their own directory by relative path, those
+directories as explicit turbo inputs.
+
+WHAT IT STILL CANNOT SEE (POD-2807). That last clause is hand-maintained in
+turbo.json, and the guard that keeps it honest — "keeps every typecheck cache
+key over the sources that task actually reads", in scripts/test-configuration.test.ts
+— runs under 'bun run test', not here. It reads relative imports statically, so
+a package that escapes its directory some other way (a tsconfig "paths" alias, an
+"include" glob pointing outside, a computed specifier) is still invisible to it.
+This refusal used to claim the key covered source files full stop; it did not,
+and a red sat behind a replayed green for three days on the strength of that
+sentence. Treat the list above as the limit of what is checked, not as proof
+that nothing is missing.
 
 If you still believe the cache is wrong, state why:
 
