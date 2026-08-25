@@ -22,7 +22,7 @@
  *      with --allow-uncovered once you have run the full lane yourself.
  *
  *   3. A BROKEN INSTALL IS A MISS, NOT A HIT. Reuses the manifest-owned resolution
- *      census and environment fingerprint from scripts/typecheck.ts
+ *      census, install-topology admission, and environment fingerprint from scripts/typecheck.ts
  *      (PODIUM_CHECK_ENV_HASH, declared in turbo.json globalEnv), so missing, dangling,
  *      undeclared, or external workspace resolutions cannot serve a stale green.
  *
@@ -32,7 +32,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { readCensus, turboEnv } from './typecheck'
+import { admissionRefusal, readCensus, turboEnv } from './typecheck'
 
 /** Runs a git command, returning trimmed stdout, or null if git exited non-zero. */
 export type Git = (args: string[]) => string | null
@@ -271,11 +271,9 @@ async function main() {
   }
 
   const census = readCensus(root)
-  if (census.resolutionErrors.length > 0) {
-    console.error(
-      'test:affected refused: workspace resolution contract failed; a cached green there would be ' +
-        `unsafe (POD-1343).\n- ${census.resolutionErrors.join('\n- ')}`,
-    )
+  const refusal = admissionRefusal(census, 'affected test')
+  if (refusal) {
+    console.error(refusal)
     process.exit(1)
   }
 

@@ -1,4 +1,4 @@
-import { existsSync, globSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
+import { existsSync, globSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -70,6 +70,11 @@ function dependenciesOf(manifest: PackageManifest): Map<string, string> {
     for (const [name, range] of Object.entries(manifest[field] ?? {})) result.set(name, range)
   }
   return result
+}
+
+/** Directories of every declared workspace, so install-topology walks the same tree. */
+export function workspaceDirectories(root: string): string[] {
+  return workspaceManifests(root).map((path) => dirname(path))
 }
 
 function workspaceManifests(root: string): string[] {

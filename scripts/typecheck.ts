@@ -8,19 +8,24 @@
  * runs deliberate:
  *
  *   1. Resolves every declared workspace edge and every exercised @podium subpath
- *      from its owning workspace. Missing, dangling, undeclared, or external
- *      resolutions are refused regardless of the installer's linker topology.
- *   2. Fingerprints the environment (bunfig.toml content + resolution census)
- *      into PODIUM_CHECK_ENV_HASH, declared in turbo.json `globalEnv`, so any
- *      environment drift is an automatic cache MISS — no --force needed.
+ *      from its owning workspace, and walks the linked tree for third-party
+ *      breakage the workspace census cannot see. Missing, dangling, undeclared, or
+ *      external resolutions are refused regardless of the installer's linker topology.
+ *   2. Fingerprints the environment (the effective install configuration and the
+ *      topology it produced, plus the resolution census) into PODIUM_CHECK_ENV_HASH,
+ *      declared in turbo.json `globalEnv`, so any environment drift is an automatic
+ *      cache MISS — no --force needed. Fingerprinting the tracked bunfig.toml alone
+ *      was not enough: an install driven by an external `--config` leaves that file
+ *      untouched, so hoisted and global-store layouts shared one identity (POD-2774).
  *   3. Refuses --force / TURBO_FORCE unless an explicit reason is given via
  *      --uncached-because="<reason>". A forced 22-package run costs ~3m of CPU
  *      (110x the cached 2s) on a host shared with a live Podium instance.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { arch, platform, tmpdir } from 'node:os'
+import { arch, homedir, platform, tmpdir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
+import { type InstallTopology, readInstallTopology } from './install-topology'
 import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
 
 export interface ForceDecision {
@@ -39,11 +44,11 @@ last measured at 22) instead of reusing the cache (~2s) on a host shared with a
 live Podium instance.
 
 WHAT THE KEY COVERS: each package's own tracked files; the task hashes of the
-packages it depends on; bun.lock and tooling/tsconfig; the install environment
-(bunfig.toml + workspace resolution census via PODIUM_CHECK_ENV_HASH), so
-installs, linker changes and base swaps are noticed automatically; and, for the
-packages that import sources outside their own directory by relative path, those
-directories as explicit turbo inputs.
+packages it depends on; bun.lock and tooling/tsconfig; the effective install
+configuration, install topology, and workspace resolution census (via
+PODIUM_CHECK_ENV_HASH), so installs, linker changes and base swaps are noticed
+automatically; and, for packages that import sources outside their own directory
+by relative path, those directories as explicit turbo inputs.
 
 WHAT IT STILL CANNOT SEE (POD-2807). That last clause is hand-maintained in
 turbo.json, and the guard that keeps it honest — "keeps every typecheck cache
@@ -115,10 +120,12 @@ export function decideForce(
 }
 
 export interface EnvCensus {
-  bunfig: string
+  /** effective install configuration and the topology it produced */
+  install: InstallTopology
   /** sorted owner/specifier/relative-realpath records */
   resolutions: string[]
-  resolutionErrors: string[]
+  /** every reason this environment may not serve or produce a cached result */
+  admissionErrors: string[]
   runtime: {
     bun: string
     platform: string
@@ -129,7 +136,9 @@ export interface EnvCensus {
 /** Environment fingerprint: hashed into the turbo cache key via globalEnv. */
 export function fingerprint(census: EnvCensus): string {
   return createHash('sha256')
-    .update(census.bunfig)
+    .update(census.install.config.join('\0'))
+    .update('\0')
+    .update(census.install.layout.join('\0'))
     .update('\0')
     .update(census.resolutions.join('\0'))
     .update('\0')
@@ -138,20 +147,31 @@ export function fingerprint(census: EnvCensus): string {
 }
 
 export function readCensus(root: string): EnvCensus {
-  const bunfig = existsSync(join(root, 'bunfig.toml'))
-    ? readFileSync(join(root, 'bunfig.toml'), 'utf8')
-    : ''
+  const install = readInstallTopology(root)
   const resolution = readWorkspaceResolutionCensus(root)
   return {
-    bunfig,
+    install,
     resolutions: resolution.records,
-    resolutionErrors: resolution.errors,
+    admissionErrors: [...resolution.errors, ...install.errors],
     runtime: {
       bun: Bun.version,
       platform: platform(),
       arch: arch(),
     },
   }
+}
+
+/**
+ * One refusal for every cached entry point. A cached green is a claim about an
+ * environment; if the environment is already broken the claim is not evidence,
+ * so this has to run before turbo can serve or record a hit.
+ */
+export function admissionRefusal(census: EnvCensus, lane: string): string | null {
+  if (census.admissionErrors.length === 0) return null
+  return (
+    `${lane} refused: this install cannot produce or replay a trustworthy cached ` +
+    `result (POD-1343, POD-2774).\n- ${census.admissionErrors.join('\n- ')}`
+  )
 }
 
 function projectCacheIdentity(root: string): string {
@@ -176,16 +196,28 @@ function projectCacheIdentity(root: string): string {
   return realpathSync(absoluteGitDir)
 }
 
-export function sharedTurboCacheDir(root: string): string {
+/**
+ * One durable cache per repository per host, shared by every sibling worktree.
+ *
+ * The key is the common git directory, so linked worktrees of one repository land in
+ * the same place and a result produced in one is readable from the next — that sharing
+ * is the whole return on the cache. Two things used to threaten it. TMPDIR is reminted
+ * per agent session and per test file in this repository, so an XDG-less host silently
+ * gave every session its own cache and its own cold start; and /tmp does not survive a
+ * reboot. $HOME/.cache — the XDG default — is stable for both, so it is preferred over
+ * the temporary directory, which now only catches a host with no usable home.
+ */
+export function sharedTurboCacheDir(root: string, env = process.env, home = homedir()): string {
   const projectKey = createHash('sha256')
     .update(projectCacheIdentity(root))
     .digest('hex')
     .slice(0, 16)
-  const configuredBase = process.env.XDG_CACHE_HOME
-  // XDG_CACHE_HOME is only valid when absolute. Treat a relative value as unset;
+  // Each candidate is only valid when absolute. A relative value is treated as unset:
   // resolving it against each worktree would silently produce separate caches.
   const cacheBase =
-    configuredBase && isAbsolute(configuredBase) ? configuredBase : join(tmpdir(), 'podium-cache')
+    [env.XDG_CACHE_HOME, home && join(home, '.cache')].find(
+      (candidate): candidate is string => !!candidate && isAbsolute(candidate),
+    ) ?? join(tmpdir(), 'podium-cache')
   return join(cacheBase, 'podium', 'turbo', projectKey)
 }
 
@@ -203,11 +235,9 @@ export function turboEnv(root: string, census: EnvCensus): NodeJS.ProcessEnv {
 async function main() {
   const root = join(import.meta.dir, '..')
   const census = readCensus(root)
-  if (census.resolutionErrors.length > 0) {
-    console.error(
-      'typecheck refused: workspace resolution contract failed; a cached green there would be ' +
-        `unsafe (POD-1343).\n- ${census.resolutionErrors.join('\n- ')}`,
-    )
+  const refusal = admissionRefusal(census, 'typecheck')
+  if (refusal) {
+    console.error(refusal)
     process.exit(1)
   }
   const decision = decideForce(

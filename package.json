@@ -42,6 +42,7 @@
     "deps:clean-local-installs": "bun scripts/clean-workspace-installs.ts",
     "deps:rollback-hoisted": "bun run deps:clean-local-installs && bun install --frozen-lockfile --linker=hoisted",
     "deps:canary-global-store": "bun scripts/global-store-canary.ts",
+    "deps:global-store-cache-admission": "bun scripts/global-store-cache-admission.ts",
     "host": "bun run --filter @podium/web dev & bun --conditions=@podium/source --watch scripts/host.ts",
     "host:web": "bun run --filter @podium/web dev",
     "host:backend": "bun --conditions=@podium/source --watch scripts/host.ts",

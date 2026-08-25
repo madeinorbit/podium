@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { decideForce, fingerprint } from './typecheck'
+import { decideForce, fingerprint, sharedTurboCacheDir } from './typecheck'
 import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
 
 describe('decideForce', () => {
@@ -48,17 +48,51 @@ describe('decideForce', () => {
 
 describe('fingerprint', () => {
   const base = {
-    bunfig: 'linker = "hoisted"\n',
+    install: {
+      config: ['local\tc0ffee', 'global\tabsent'],
+      layout: [
+        'node_modules\t@podium/model\tl\t../../packages/model',
+        'node_modules\tleft-pad\td\t-',
+      ],
+      errors: [],
+    },
     resolutions: [
       '@podium/scripts\t@podium/model\tpackages/model/src/index.ts',
       '@podium/scripts\t@podium/runtime/sqlite\tpackages/runtime/src/sqlite/index.ts',
     ],
-    resolutionErrors: [],
+    admissionErrors: [],
     runtime: { bun: '1.3.14', platform: 'linux', arch: 'x64' },
   }
 
-  it('moves when bunfig.toml changes (the POD-1343 linker blind spot)', () => {
-    expect(fingerprint({ ...base, bunfig: 'linker = "isolated"\n' })).not.toBe(fingerprint(base))
+  it('moves when the effective install configuration changes', () => {
+    expect(
+      fingerprint({
+        ...base,
+        install: { ...base.install, config: ['local\tdecaf', 'global\tabsent'] },
+      }),
+    ).not.toBe(fingerprint(base))
+    expect(
+      fingerprint({
+        ...base,
+        install: { ...base.install, config: ['local\tc0ffee', 'global\tdecaf'] },
+      }),
+    ).not.toBe(fingerprint(base))
+  })
+
+  it('separates two linker layouts that share one bunfig.toml (POD-2774)', () => {
+    // The candidate installs through an external --config, so the tracked bunfig is
+    // byte-identical to the hoisted control's. Only the tree it produced tells them apart.
+    const isolated = {
+      ...base,
+      install: {
+        ...base.install,
+        layout: [
+          'node_modules\t@podium/model\tl\t../../packages/model',
+          'node_modules\tleft-pad\tl\t.bun/left-pad@1.3.0/node_modules/left-pad',
+        ],
+      },
+    }
+    expect(fingerprint(isolated)).not.toBe(fingerprint(base))
   })
 
   it('moves when an owner resolution changes or disappears', () => {
@@ -262,12 +296,80 @@ describe('workspace resolution ownership', () => {
     const after = readWorkspaceResolutionCensus(root)
     expect(after).toEqual(before)
     const environment = {
-      bunfig: 'linker = "isolated"\n',
-      resolutionErrors: [],
+      install: { config: ['local\tc0ffee', 'global\tabsent'], layout: [], errors: [] },
+      admissionErrors: [],
       runtime: { bun: '1.3.14', platform: 'linux', arch: 'x64' },
     }
     expect(fingerprint({ ...environment, resolutions: after.records })).toBe(
       fingerprint({ ...environment, resolutions: before.records }),
     )
+  })
+})
+
+describe('sharedTurboCacheDir', () => {
+  function repository(): { common: string; worktrees: string[] } {
+    const root = mkdtempSync(join(tmpdir(), 'podium-cache-key-'))
+    cleanup.push(root)
+    const common = join(root, 'repo/.git')
+    mkdirSync(join(common, 'worktrees'), { recursive: true })
+    const worktrees = ['alpha', 'beta'].map((name) => {
+      const worktree = join(root, name)
+      mkdirSync(worktree, { recursive: true })
+      mkdirSync(join(common, 'worktrees', name), { recursive: true })
+      writeFileSync(join(worktree, '.git'), `gitdir: ${join(common, 'worktrees', name)}\n`)
+      return worktree
+    })
+    return { common, worktrees }
+  }
+
+  it('gives sibling worktrees of one repository the same durable cache', () => {
+    const { worktrees } = repository()
+    const [alpha, beta] = worktrees as [string, string]
+    const home = mkdtempSync(join(tmpdir(), 'podium-home-'))
+    cleanup.push(home)
+
+    expect(sharedTurboCacheDir(alpha, {}, home)).toBe(sharedTurboCacheDir(beta, {}, home))
+    expect(dirname(sharedTurboCacheDir(alpha, {}, home))).toBe(join(home, '.cache/podium/turbo'))
+  })
+
+  it('prefers $HOME/.cache over the temporary directory, which TMPDIR reminting moves', () => {
+    const { worktrees } = repository()
+    const [alpha] = worktrees as [string, string]
+    const home = mkdtempSync(join(tmpdir(), 'podium-home-'))
+    cleanup.push(home)
+
+    const chosen = sharedTurboCacheDir(alpha, {}, home)
+    expect(chosen.startsWith(join(home, '.cache'))).toBe(true)
+    // A per-session temporary directory must not move a durable cache.
+    expect(sharedTurboCacheDir(alpha, { TMPDIR: '/tmp/session-a' }, home)).toBe(chosen)
+    expect(sharedTurboCacheDir(alpha, { TMPDIR: '/tmp/session-b' }, home)).toBe(chosen)
+  })
+
+  it('honours an absolute XDG_CACHE_HOME and ignores a relative one', () => {
+    const { worktrees } = repository()
+    const [alpha] = worktrees as [string, string]
+    const home = mkdtempSync(join(tmpdir(), 'podium-home-'))
+    cleanup.push(home)
+
+    expect(sharedTurboCacheDir(alpha, { XDG_CACHE_HOME: '/xdg' }, home).startsWith('/xdg')).toBe(
+      true,
+    )
+    expect(sharedTurboCacheDir(alpha, { XDG_CACHE_HOME: 'relative' }, home)).toBe(
+      sharedTurboCacheDir(alpha, {}, home),
+    )
+  })
+
+  it('falls back to the temporary directory only when there is no usable home', () => {
+    const { worktrees } = repository()
+    const [alpha] = worktrees as [string, string]
+    expect(sharedTurboCacheDir(alpha, {}, '').startsWith(join(tmpdir(), 'podium-cache'))).toBe(true)
+  })
+
+  it('separates unrelated repositories', () => {
+    const home = mkdtempSync(join(tmpdir(), 'podium-home-'))
+    cleanup.push(home)
+    const [first] = repository().worktrees as [string, string]
+    const [second] = repository().worktrees as [string, string]
+    expect(sharedTurboCacheDir(first, {}, home)).not.toBe(sharedTurboCacheDir(second, {}, home))
   })
 })

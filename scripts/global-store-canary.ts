@@ -13,8 +13,8 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   readlinkSync,
   realpathSync,
   rmSync,
@@ -24,6 +24,7 @@ import {
 import { homedir, hostname } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isFullHit, isFullMiss, parseTurboSummary } from './turbo-summary'
 
 const REQUIRED_BUN = '1.3.14'
 export const CANDIDATE_BUNFIG = `[install]\nexact = false\nlinker = "isolated"\nglobalStore = true\nlinkWorkspacePackages = true\n`
@@ -41,7 +42,7 @@ export interface CanaryOptions {
   sourceRoot: string
 }
 
-interface CommandResult {
+export interface CommandResult {
   command: string[]
   cwd: string
   durationMs: number
@@ -51,7 +52,7 @@ interface CommandResult {
   timedOut: boolean
 }
 
-interface InstallResult extends CommandResult {
+export interface InstallResult extends CommandResult {
   lockfileAfter: string
   lockfileBefore: string
 }
@@ -274,7 +275,7 @@ function readPipe(pipe: ReadableStream<Uint8Array> | number | undefined): Promis
   return new Response(pipe).text()
 }
 
-async function runCommand(
+export async function runCommand(
   command: string[],
   cwd: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -329,7 +330,7 @@ async function runCommand(
   return result
 }
 
-function runSync(command: string[], cwd: string): string {
+export function runSync(command: string[], cwd: string): string {
   const result = Bun.spawnSync(command, { cwd, stdout: 'pipe', stderr: 'pipe' })
   if (result.exitCode !== 0) {
     throw new Error(
@@ -339,7 +340,7 @@ function runSync(command: string[], cwd: string): string {
   return new TextDecoder().decode(result.stdout).trim()
 }
 
-function sha256File(path: string): string {
+export function sha256File(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
@@ -350,7 +351,7 @@ export function installCommand(bun: string, cache: string, config?: string): str
   return command
 }
 
-async function install(
+export async function install(
   bun: string,
   cwd: string,
   cache: string,
@@ -558,13 +559,18 @@ async function readResolution(
   }
 }
 
-function createWorktree(sourceRoot: string, runRoot: string, name: string, commit: string): string {
+export function createWorktree(
+  sourceRoot: string,
+  runRoot: string,
+  name: string,
+  commit: string,
+): string {
   const path = join(runRoot, name)
   runSync(['git', 'worktree', 'add', '--detach', path, commit], sourceRoot)
   return path
 }
 
-function removeWorktree(sourceRoot: string, path: string): void {
+export function removeWorktree(sourceRoot: string, path: string): void {
   const result = Bun.spawnSync(['git', 'worktree', 'remove', '--force', path], {
     cwd: sourceRoot,
     stdout: 'pipe',
@@ -599,14 +605,17 @@ function allCommandsGreen(probes: Record<string, CommandResult>): boolean {
   return Object.values(probes).every((result) => result.exitCode === 0 && !result.timedOut)
 }
 
+/** Combined output: turbo writes its run summary to stdout, its task logs to both. */
+export function commandOutput(result: CommandResult): string {
+  return `${result.stdoutTail}\n${result.stderrTail}`
+}
+
 function turboReused(cold: CommandResult, warm: CommandResult): boolean {
-  const coldOutput = `${cold.stdoutTail}\n${cold.stderrTail}`
-  const warmOutput = `${warm.stdoutTail}\n${warm.stderrTail}`
   return (
     cold.exitCode === 0 &&
     warm.exitCode === 0 &&
-    /cache miss/i.test(coldOutput) &&
-    /cache hit/i.test(warmOutput)
+    isFullMiss(parseTurboSummary(commandOutput(cold))) &&
+    isFullHit(parseTurboSummary(commandOutput(warm)))
   )
 }
 
@@ -734,11 +743,7 @@ async function main(): Promise<void> {
       candidateRoot,
       env,
     )
-    probes.rootScript = await runCommand(
-      [options.bun, 'run', 'systemd:diff'],
-      candidateRoot,
-      env,
-    )
+    probes.rootScript = await runCommand([options.bun, 'run', 'systemd:diff'], candidateRoot, env)
     probes.webBuild = await runCommand(
       [options.bun, 'run', '--filter', '@podium/web', 'build'],
       candidateRoot,
