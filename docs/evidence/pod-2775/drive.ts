@@ -299,6 +299,13 @@ const journalEntry = (sid: string): JournalEntry | undefined => {
   }
 }
 
+/** The session's transcript as the browser reads it, flattened to text. */
+const transcriptText = async (sid: string): Promise<string> =>
+  JSON.stringify(
+    (await query('sessions.transcriptRead', { sessionId: sid, direction: 'before', limit: 200 })) ??
+      [],
+  )
+
 const pollRow = async (
   sid: string,
   want: (r: Row | undefined) => boolean,
@@ -314,7 +321,7 @@ const pollRow = async (
 }
 
 // --- a live codex session, with a conversation in it ------------------------
-console.log('creating a codex session with one exchange…')
+console.log(`creating a ${KIND} session with one exchange…`)
 const created = (await trpc('sessions.create', {
   cwd: REPO,
   agentKind: arm.agentKind,
@@ -325,19 +332,47 @@ if (!sid) throw new Error(`sessions.create failed: ${JSON.stringify(created)}`)
 console.log(`  session ${sid}`)
 
 /**
- * WAIT FOR IDLE, AND THE FIRST RUN OF THIS RIG IS WHY.
+ * THE PRE-PARK EXCHANGE HAS TO BE ON THE TRANSCRIPT, AND ONLY THEN MAY THE
+ * SESSION BE PARKED. Both halves were learned by driving the opencode arm, and
+ * the order between them is the whole lesson.
  *
- * `hibernateSession` REFUSES a working agent — "let it reach idle first" — and
- * it refuses by returning `{ ok: false, reason }`, not by erroring. A drive that
- * slept a fixed twenty seconds and then read the row got a session that was
- * still `live` with no park attempted at all, and every measurement after that
- * point described a session nobody had touched. So the park is only attempted
- * from the state the park is defined for, and the refusal reason is printed.
+ * AN IDLE ROW IS NOT AN EXCHANGE. This rig waited for
+ * `agentState.phase === 'idle'` and parked at once. For codex that is safe —
+ * the initial prompt opens the thread's first turn, so the session cannot be
+ * idle before it has been asked. For opencode the initial prompt is a
+ * `when-ready` send AFTER `POST /session`, and the row is idle in the window
+ * before it goes out. The park landed on a conversation with nothing in it and
+ * the run ended at NO MEASUREMENT, because the control it needs after the
+ * resume had never existed.
+ *
+ * AND AN EXCHANGE ON THE TRANSCRIPT IS NOT AN IDLE SESSION. Waiting for the
+ * witness alone put the park on an OPEN TURN, and `hibernateSession` refuses
+ * one ("agent is working — let it reach idle first"). So the witness is waited
+ * for first, where it has to be true, and idle is waited for after it.
  */
+const t0Alpha = Date.now()
+let preParkText = ''
+while (Date.now() - t0Alpha < 180_000) {
+  preParkText = await transcriptText(sid)
+  if (preParkText.includes(ALPHA)) break
+  await wait(2_000)
+}
+if (!preParkText.includes(ALPHA)) {
+  console.error(
+    `\nNO MEASUREMENT: ${ALPHA} never reached the transcript, so there is no pre-park\n` +
+      `  exchange for the resume to be judged against. Parking here would measure the\n` +
+      `  wake of an EMPTY conversation, which succeeds for reasons that say nothing\n` +
+      `  about this fix.`,
+  )
+  await trpc('sessions.kill', { sessionId: sid })
+  process.exit(1)
+}
+console.log(`  ${ALPHA} on the transcript after ${secs(Date.now() - t0Alpha)}`)
+
 const idle = await pollRow(
   sid,
   (r) => r?.agentState?.phase === 'idle' || r?.agentState?.phase === 'ended',
-  120_000,
+  180_000,
 )
 console.log(`  reached '${idle.r?.agentState?.phase ?? 'no state'}' after ${secs(idle.ms)}`)
 
@@ -461,12 +496,7 @@ if (spawnFailure) console.log(`     spawnFailure on the row: ${JSON.stringify(sp
 // --- 4. does the resumed session actually answer? ---------------------------
 console.log('\nwaiting for the resumed session to answer…')
 await wait(45_000)
-const items = (await query('sessions.transcriptRead', {
-  sessionId: sid,
-  direction: 'before',
-  limit: 200,
-})) as { items?: unknown[] } | unknown[] | undefined
-const text = JSON.stringify(items ?? [])
+const text = await transcriptText(sid)
 const has = (w: string): boolean => text.includes(w)
 const journalAfter = journalEntry(sid)
 const conversationBefore = arm.conversation(journalBefore)
