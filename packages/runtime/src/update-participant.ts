@@ -5,7 +5,7 @@ import type {
   UpdateStatusMessage,
   UpdateTrustRoot,
 } from '@podium/protocol'
-import { planConvergence } from '@podium/protocol'
+import { convergenceRefusal, planConvergence } from '@podium/protocol'
 import type { PendingGrant } from './update-pending'
 
 type PlatformAsset = Extract<UpdateArtifact, { delivery: 'feed' }>['platforms'][string]
@@ -91,11 +91,12 @@ export async function applyGrant(
   let current = ''
   try {
     current = deps.currentVersion()
+    const platform = deps.platform ?? runningPlatform()
     const plan = planConvergence({
       current,
       target: grant.target,
       caps: deps.caps,
-      platform: deps.platform ?? runningPlatform(),
+      platform,
       repair: grant.repair === true,
     })
 
@@ -104,7 +105,21 @@ export async function applyGrant(
       return
     }
     if (plan.action === 'cannot') {
-      report(deps, grant, 'rejected', current, `cannot converge: ${plan.reason}`)
+      /**
+       * THE REFUSAL SAYS WHICH PLATFORM AND WHICH RELEASE (POD-2783).
+       *
+       * This used to interpolate the bare reason, and `unsupported-platform`
+       * alone is what let the panel above it send an operator to check a
+       * release that is immutable. The constructor lives in the protocol
+       * because the classifier that reads this sentence lives there too.
+       */
+      report(
+        deps,
+        grant,
+        'rejected',
+        current,
+        convergenceRefusal(plan, { platform, target: grant.target }),
+      )
       return
     }
     const refusal = deps.refuse?.(grant.target)

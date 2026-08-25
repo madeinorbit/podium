@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { convergenceRefusal } from './convergence'
 import {
   CODE_FOR_UPDATE_FAILURE_TOKEN,
   classifyUpdateFailureDetail,
@@ -6,6 +7,18 @@ import {
   UPDATE_FAILURE_EXAMPLES,
   UPDATE_FAILURE_TOKENS,
 } from './refusal'
+
+/** A release built for Linux alone, which is what a Linux-only fleet mints. */
+const RELEASE = {
+  version: '0.1.5',
+  critical: false,
+  artifacts: {
+    headless: {
+      delivery: 'feed',
+      platforms: { 'linux-x86_64': { url: 'https://x.test/a', digest: 'd', signature: 's' } },
+    },
+  },
+} as never
 
 /**
  * THE TABLE'S OWN GATE (POD-2241).
@@ -87,5 +100,43 @@ describe('the shared refusal table', () => {
           '(ETIMEDOUT while waiting for the lock)',
       ),
     ).toBe('machine-schema-unreadable')
+  })
+  /**
+   * ONE TOKEN WAS ANSWERING FOR TWO OPPOSITE SITUATIONS (POD-2783).
+   *
+   * A machine that enrolled after a release was minted, and a machine on a
+   * platform Podium publishes nothing for, both said `unsupported-platform` and
+   * both were told to ask the operator to check the release. For the first the
+   * operator has nothing to fix and the next release carries it; for the second
+   * no release ever will. A code that cannot tell them apart cannot say either.
+   */
+  it('separates a release that predates a machine from a platform never published', () => {
+    expect(
+      classifyUpdateFailureDetail(
+        convergenceRefusal(
+          { action: 'cannot', reason: 'unsupported-platform' },
+          { platform: 'darwin-aarch64', target: RELEASE },
+        ),
+      ),
+    ).toBe('machine-platform-absent')
+    expect(
+      classifyUpdateFailureDetail(
+        convergenceRefusal(
+          { action: 'cannot', reason: 'unsupported-platform' },
+          { platform: 'windows-x86_64', target: RELEASE },
+        ),
+      ),
+    ).toBe('machine-platform-unpublished')
+  })
+
+  /**
+   * A daemon older than POD-2783 writes the bare token with no clause. It is
+   * still the release-predates-it case as far as anything can tell, and it must
+   * not fall back through the table into a sentence about connectivity.
+   */
+  it('reads a pre-POD-2783 bare token as the release lacking that platform', () => {
+    expect(classifyUpdateFailureDetail('cannot converge: unsupported-platform')).toBe(
+      'machine-platform-absent',
+    )
   })
 })

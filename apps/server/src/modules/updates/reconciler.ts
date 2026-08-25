@@ -1,12 +1,13 @@
 import { createLogger } from '@podium/logger'
 import { asMachineId, type UpdateChannel } from '@podium/model'
-import type { UpdateTarget } from '@podium/protocol'
+import { targetPlatforms, type UpdateTarget } from '@podium/protocol'
 import { UPDATE_BUDGETS } from './operation'
 import { GRANT_TIMED_OUT_DETAIL, type MachineApplyOutcome, type UpdatesService } from './service'
 import {
   IN_FLIGHT_STATES,
   isPackagedRolloutTarget,
   machineCanTakeDelivery,
+  machineCanTakeTargetPlatform,
   offeredDeliveries,
   TERMINAL_STATES,
   type WaveMachine,
@@ -73,6 +74,14 @@ export type ReconcileRefusal =
   | 'at-target'
   | 'offline'
   | 'cannot-take-delivery'
+  /**
+   * The release carries no bytes for this machine's platform, because it was
+   * minted before the machine joined the fleet (POD-2783). Named apart from
+   * `cannot-take-delivery` because it never clears: no reconnect and no retry
+   * changes an immutable release, and a background process poking a permanent
+   * fact is how this one got granted twice on every wake.
+   */
+  | 'platform-not-in-release'
   | 'in-flight'
   | 'terminal'
   | 'attempts-exhausted'
@@ -157,6 +166,9 @@ export function decideReconciliation(facts: ReconcileFacts): ReconcileDecision {
   if (!machine.online) return { converge: false, because: 'offline' }
   if (!machineCanTakeDelivery(machine, offeredDeliveries(facts.target))) {
     return { converge: false, because: 'cannot-take-delivery' }
+  }
+  if (!machineCanTakeTargetPlatform(machine, targetPlatforms(facts.target))) {
+    return { converge: false, because: 'platform-not-in-release' }
   }
   if (IN_FLIGHT_STATES.has(machine.state)) return { converge: false, because: 'in-flight' }
   // THE LOOP GUARD. `authorizeMachine` clears this state as the human retry

@@ -33,6 +33,7 @@ import type {
 import {
   formatIssueRef,
   isTerminalOperationState,
+  platformTargetFor,
   SubscriptionRegistry,
   wireSchemaDigest,
 } from '@podium/protocol'
@@ -533,6 +534,17 @@ export class SessionRegistry {
           // A daemon inside Podium Desktop is the shell's to update, never the
           // wave's — the planner refuses to select it (POD-2099).
           ...(machine.supervised ? { supervised: true } : {}),
+          // WHICH BYTES IT COULD RUN (POD-2783), in the release manifest's own
+          // vocabulary, through the SAME function the mint keys the manifest by
+          // — so "the platforms this release contains" and "this machine's
+          // platform" cannot be two spellings of one fact. Absent until the
+          // daemon reports an inventory, and absent means eligible; a fleet
+          // that fell back to the publishing host's platform here would answer
+          // the join-late question with a guess about the very machine it is
+          // about.
+          ...(machine.inventory
+            ? { platform: platformTargetFor(machine.inventory.os, machine.inventory.arch) }
+            : {}),
         })),
       channelFor: (machineId) => machines.updateChannel(machineId),
       send: (machineId, message) => machines.toMachine(machineId, message),

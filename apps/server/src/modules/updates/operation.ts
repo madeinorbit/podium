@@ -9,7 +9,12 @@ import type {
   StepPlace,
   UpdateTarget,
 } from '@podium/protocol'
-import { buildsDiffer, classifyUpdateFailureDetail } from '@podium/protocol'
+import {
+  buildsDiffer,
+  classifyUpdateFailureDetail,
+  isHeadlessPlatform,
+  targetPlatforms,
+} from '@podium/protocol'
 import {
   DEFAULT_DOWNLOAD_TIMEOUT_MS,
   PROGRESS_REPORT_INTERVAL_MS,
@@ -27,6 +32,7 @@ import {
   IN_FLIGHT_STATES,
   isPackagedRolloutTarget,
   machineCanTakeDelivery,
+  machineCanTakeTargetPlatform,
   offeredDeliveries,
   TERMINAL_STATES,
   type WaveMachine,
@@ -111,6 +117,21 @@ export const RELOAD_SURFACES_ASK = 'reload-surfaces'
 export const UPDATE_ERROR_CODES = [
   'machine-dirty-checkout',
   'machine-unsupported',
+  /**
+   * THE TWO PLATFORM REFUSALS (POD-2783), split apart from `machine-unsupported`
+   * because their next actions are opposites and neither is "check the release".
+   *
+   *  - `machine-platform-absent` — this release carries no bytes for that
+   *    machine's platform because the release was minted before the machine
+   *    joined the fleet. Nothing is broken; the next release built carries it.
+   *  - `machine-platform-unpublished` — Podium publishes no package for that
+   *    platform at all, so no release will ever carry it.
+   *
+   * A human hit the first one connecting a Mac to a Linux-only fleet, and was
+   * sent to an operator who had nothing to fix.
+   */
+  'machine-platform-absent',
+  'machine-platform-unpublished',
   'machine-unreachable',
   'machine-update-failed',
   /**
@@ -192,6 +213,18 @@ export type UpdateFailure =
     }
   | {
       code: 'machine-unsupported'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-platform-absent'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-platform-unpublished'
       places: string[]
       names: string[]
       detail?: string
@@ -304,6 +337,31 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
         message: `${subject(
           failure,
         )} can't use this update's package. Check the release includes its platform.`,
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    /**
+     * THE ONLY TWO ARMS THAT TELL AN OPERATOR TO DO NOTHING, and they are
+     * right to (POD-2783). The old sentence — "check the release includes its
+     * platform" — described a fix nobody can perform: a release is immutable,
+     * and its platform list was fixed by the fleet that existed when it was
+     * minted.
+     */
+    case 'machine-platform-absent':
+      return {
+        code: failure.code,
+        message: `${subject(
+          failure,
+        )} joined after this update was built, so it contains no package for that machine. The next update built will include it.`,
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'machine-platform-unpublished':
+      return {
+        code: failure.code,
+        message: `${subject(
+          failure,
+        )} runs a platform Podium publishes no package for, so no update can install there.`,
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
@@ -751,6 +809,21 @@ export function fleetCanTakeTargetNow(
 }
 
 /**
+ * WILL A BUILD THIS SERVER RUNS EVER PRODUCE BYTES FOR THIS MACHINE (POD-2783)?
+ *
+ * The dev builder mints for `fleetHeadlessPlatforms` — every REGISTERED
+ * machine's platform, read at build time — so a machine that joined after the
+ * last release is in the next one by construction, and asking here is asking
+ * whether the vocabulary has a name for it at all.
+ *
+ * A machine that has never reported a platform counts as coverable, matching
+ * the unknown-caps rule: uncertainty stays visible rather than stranding it.
+ */
+function packWouldCoverPlatform(machine: Pick<WaveMachine, 'platform'>): boolean {
+  return machine.platform === undefined || isHeadlessPlatform(machine.platform)
+}
+
+/**
  * DOES THIS MACHINE NEED THE PACK — the stricter question, and deliberately so.
  *
  * {@link machineCanTakeDelivery} answers YES for a machine that has never
@@ -758,10 +831,32 @@ export function fleetCanTakeTargetNow(
  * the cost of being wrong runs the other way: skipping the pack for a machine
  * that turns out to need it buys a wave of rejections, while packing for one
  * that did not costs a build. So an unknown machine counts as needing it.
+ *
+ * IT IS DELIBERATELY NOT ASKED ABOUT PLATFORMS (POD-2783). This is only
+ * consulted when a pack is possible at all, which means an IDENTITY target with
+ * nothing published — and for one of those {@link machineCanTakeTargetNow} has
+ * already answered no. Re-minting an ALREADY PUBLISHED release to add a
+ * platform is a different act on a different contract (a published target is
+ * immutable), and planning a prepare step for it would only reach a runner that
+ * reports `done` without building.
  */
 function machineNeedsPack(machine: WaveMachine, target: DeliverableTarget): boolean {
   if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) return true
   return !machineCanTakeTargetNow(machine, target)
+}
+
+/**
+ * Does this target, AS PUBLISHED, contain bytes this machine could run?
+ *
+ * An identity target contains nothing for anybody, and says so rather than
+ * blaming the machine's platform: what is missing there is the whole release.
+ */
+function machineCarriedBy(
+  machine: Pick<WaveMachine, 'platform'>,
+  target: DeliverableTarget,
+): boolean {
+  if (needsDevelopmentBundle(target)) return false
+  return machineCanTakeTargetPlatform(machine, targetPlatforms(target as UpdateTarget))
 }
 
 /**
@@ -800,6 +895,32 @@ function placeOf(machine: WaveMachine): StepPlace {
  * bearing: the panel renders "step 2 of 4" straight off this list, so a step
  * that was never going to do anything would make that sentence a lie.
  */
+/**
+ * WHY THIS MACHINE IS NOT IN THIS OPERATION — the honest name, not the nearest
+ * one (POD-2783).
+ *
+ * `cannot-take-delivery` was answering for a machine whose delivery was fine
+ * and whose PLATFORM the release simply did not contain, which is a different
+ * fact with a different remedy. Offline leads because it is a statement about
+ * reachability rather than about the release, and it is the one that clears on
+ * its own.
+ */
+function deferralReason(
+  machine: WaveMachine,
+  target: DeliverableTarget,
+  packable: boolean,
+): string {
+  if (!machine.online) return 'offline'
+  // A machine that has never said what it is cannot be given a platform reason.
+  if (machine.platform === undefined) return 'cannot-take-delivery'
+  // …and this one is about the MACHINE alone, so no target can excuse it.
+  if (!isHeadlessPlatform(machine.platform)) return 'platform-not-published'
+  // An identity target is missing the whole release, not one platform of it.
+  if (needsDevelopmentBundle(target)) return 'cannot-take-delivery'
+  if (!machineCarriedBy(machine, target) && !packable) return 'platform-not-in-release'
+  return 'cannot-take-delivery'
+}
+
 export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   const { target } = input
   const details: UpdateOperationDetails = {
@@ -874,8 +995,10 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
    * needs is a planned step of this very operation, not a state of the world.
    */
   const canTakeEventually = (machine: WaveMachine): boolean =>
-    machineCanTakeTargetNow(machine, target) ||
-    (packable && machineCanTakeDelivery(machine, [PACKED_DELIVERY]))
+    (machineCanTakeTargetNow(machine, target) && machineCarriedBy(machine, target)) ||
+    (packable &&
+      machineCanTakeDelivery(machine, [PACKED_DELIVERY]) &&
+      packWouldCoverPlatform(machine))
   const core = behind.filter((machine) => machine.online && canTakeEventually(machine))
   // §3.6: a machine that is asleep must not hold the outcome open. It goes to
   // `deferred` with an honest note and the standing reconciliation converges it
@@ -885,7 +1008,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
     deferred.push({
       id: machine.id,
       ...(machine.name ? { name: machine.name } : {}),
-      reason: machine.online ? 'cannot-take-delivery' : 'offline',
+      reason: deferralReason(machine, target, packable),
     })
   }
   if (core.length > 0) {

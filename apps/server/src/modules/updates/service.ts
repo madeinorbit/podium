@@ -7,11 +7,12 @@ import type {
   UpdateStatusMessage,
   UpdateTarget,
 } from '@podium/protocol'
-import { isProvablyNewer } from '@podium/protocol'
+import { isHeadlessPlatform, isProvablyNewer, targetPlatforms } from '@podium/protocol'
 import {
   decideWave,
   IN_FLIGHT_STATES,
   isPackagedRolloutTarget,
+  machineCanTakeTargetPlatform,
   offeredDeliveries,
   planWave,
   TERMINAL_STATES,
@@ -173,6 +174,18 @@ export type MachineApplyOutcome =
   | { result: 'unknown-machine' }
   | { result: 'no-target'; reason: string }
   | { result: 'in-flight'; state: ConvergenceState }
+  /**
+   * THE TWO ANSWERS THAT ARE NOT ABOUT TODAY (POD-2783).
+   *
+   * A release's platform list is fixed when it is minted, from the fleet as it
+   * stood then, so a machine that enrolled afterwards can never take that
+   * release however many times a human presses Apply. `platform-not-published`
+   * is the harder version: Podium builds nothing for that platform at all.
+   * Both carry the platform, because a row that says "no" without saying what
+   * it is is the sentence this issue exists to delete.
+   */
+  | { result: 'platform-not-in-release'; platform: string }
+  | { result: 'platform-not-published'; platform: string }
 
 interface ChannelRolloutState {
   authorized: boolean
@@ -865,6 +878,26 @@ export class UpdatesService {
    * it. A deliberate human Apply is exactly that reset, so it clears this
    * machine's terminal state before planning.
    */
+  /**
+   * Would these bytes be a bricked daemon rather than an update (POD-2783)?
+   *
+   * Asked on BOTH human paths, because the wave's own answer covers neither: a
+   * per-row Apply plans a fleet of one and a Repair plans no wave at all, so a
+   * gate that lived only in `decideWave` would leave the two buttons a human
+   * actually presses granting a package for another architecture.
+   */
+  private platformRefusal(
+    machine: WaveMachine,
+    target: UpdateTarget,
+  ): MachineApplyOutcome | undefined {
+    const platform = machine.platform
+    if (platform === undefined) return undefined
+    if (machineCanTakeTargetPlatform(machine, targetPlatforms(target))) return undefined
+    return isHeadlessPlatform(platform)
+      ? { result: 'platform-not-in-release', platform }
+      : { result: 'platform-not-published', platform }
+  }
+
   authorizeMachine(machineId: MachineId): MachineApplyOutcome {
     // `project()`, because this issues a grant (POD-2180): a wave continued from
     // inside the lookup would move machines this row is not about, and then this
@@ -883,6 +916,11 @@ export class UpdatesService {
     if (machine.version === target.version) {
       return { result: 'already-current', version: machine.version }
     }
+    // Before in-flight and before offline: this one does not clear when the
+    // machine settles or reconnects, so answering it first is the difference
+    // between "come back later" and the truth.
+    const platformRefusal = this.platformRefusal(machine, target)
+    if (platformRefusal) return platformRefusal
     if (IN_FLIGHT_STATES.has(machine.state)) {
       return { result: 'in-flight', state: machine.state }
     }
@@ -931,6 +969,8 @@ export class UpdatesService {
         reason: this.targetUnavailableReasonFor(machineId) ?? 'No target is available.',
       }
     }
+    const repairRefusal = this.platformRefusal(machine, target)
+    if (repairRefusal) return repairRefusal
     if (IN_FLIGHT_STATES.has(machine.state)) {
       return { result: 'in-flight', state: machine.state }
     }
@@ -961,6 +1001,8 @@ export class UpdatesService {
       concurrency: this.deps.concurrency,
       canaryHealthy: rollout.canaryHealthy,
       deliveries: offeredDeliveries(target),
+      // …and never a machine this release contains no bytes for (POD-2783).
+      platforms: targetPlatforms(target),
     })
     const selected = decision.selected
     /**

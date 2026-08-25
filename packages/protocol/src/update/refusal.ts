@@ -83,8 +83,20 @@ export const UPDATE_ARTIFACT_INTEGRITY_REFUSAL = 'integrity-failed'
 export type MachineFailureCode =
   /** The machine's checkout is not clean, so git delivery would not be safe. */
   | 'machine-dirty-checkout'
-  /** No artifact this machine can use: wrong platform, or no offered delivery. */
+  /** No artifact this machine can use: no offered delivery, or none at all. */
   | 'machine-unsupported'
+  /**
+   * THE RELEASE PREDATES THE MACHINE (POD-2783).
+   *
+   * A dev target's platform list is built from the fleet AT MINT TIME, so a
+   * machine that enrolled afterwards is not in it and never will be — the
+   * release is immutable. Its own code because the remedy is the opposite of
+   * every other refusal's: there is nothing to fix, nothing to retry, and the
+   * next release built carries this platform.
+   */
+  | 'machine-platform-absent'
+  /** Podium publishes no package for that platform at all, so no release will. */
+  | 'machine-platform-unpublished'
   /** The machine went quiet. THE ONLY MEMBER THAT MEANS "NOT ANSWERING". */
   | 'machine-unreachable'
   /** A live participant reported an unexpected local error while applying the update. */
@@ -228,11 +240,28 @@ const UPDATE_FAILURE_MATCHERS = [
     code: 'machine-unsupported',
     example: 'cannot converge: unsupported-delivery',
   },
+  /**
+   * THE TWO PLATFORM REFUSALS (POD-2783), which wore one token until a human
+   * connected a Mac to a Linux-only fleet and was sent to an operator who had
+   * nothing to fix. `platform-not-published` leads because it is the narrower
+   * claim; the two sentences do not overlap, and keeping them adjacent is what
+   * makes that reviewable.
+   */
+  {
+    token: 'platform-not-published',
+    pattern: /platform[-_\s]not[-_\s]published/i,
+    code: 'machine-platform-unpublished',
+    example:
+      'cannot converge: platform-not-published — Podium publishes no package for ' +
+      'windows-x86_64, so 0.1.5 contains none and no later release will.',
+  },
   {
     token: 'unsupported-platform',
     pattern: /unsupported[-_\s]platform/i,
-    code: 'machine-unsupported',
-    example: 'cannot converge: unsupported-platform',
+    code: 'machine-platform-absent',
+    example:
+      'cannot converge: unsupported-platform — 0.1.5 contains no package for darwin-aarch64. ' +
+      'It was built for linux-x86_64.',
   },
 
   // --- what a git delivery step said ---------------------------------------

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planConvergence } from './convergence'
+import { convergenceRefusal, planConvergence } from './convergence'
 
 const feed = {
   delivery: 'feed',
@@ -184,5 +184,66 @@ describe('planConvergence', () => {
       platform: HOST,
     })
     expect(p).toEqual({ action: 'already-current' })
+  })
+})
+
+/**
+ * WHAT THE MACHINE WRITES DOWN WHEN IT REFUSES (POD-2783).
+ *
+ * A bare token was true and useless: `cannot converge: unsupported-platform`
+ * left a reader to guess which platform, and left the copy above it guessing
+ * whether a later release could ever help. Both facts are here — the running
+ * platform and what the release actually carries — so the sentence states them
+ * instead of sending someone to an operator with nothing to fix.
+ */
+describe('convergenceRefusal', () => {
+  it('names this machine and what the release actually carries', () => {
+    expect(
+      convergenceRefusal(
+        { action: 'cannot', reason: 'unsupported-platform' },
+        { platform: 'darwin-aarch64', target: target('0.4.2') },
+      ),
+    ).toBe(
+      'cannot converge: unsupported-platform — 0.4.2 contains no package for darwin-aarch64. ' +
+        'It was built for linux-x86_64, linux-aarch64.',
+    )
+  })
+
+  it('separates a platform Podium never publishes from one a release merely lacks', () => {
+    expect(
+      convergenceRefusal(
+        { action: 'cannot', reason: 'unsupported-platform' },
+        { platform: 'windows-x86_64', target: target('0.4.2') },
+      ),
+    ).toBe(
+      'cannot converge: platform-not-published — Podium publishes no package for ' +
+        'windows-x86_64, so 0.4.2 contains none and no later release will.',
+    )
+  })
+
+  it('says what a release carrying nothing at all carries', () => {
+    expect(
+      convergenceRefusal(
+        { action: 'cannot', reason: 'unsupported-platform' },
+        {
+          platform: 'darwin-aarch64',
+          target: target('0.4.2', { delivery: 'feed', platforms: {} }),
+        },
+      ),
+    ).toBe(
+      'cannot converge: unsupported-platform — 0.4.2 contains no package for darwin-aarch64. ' +
+        'It was built for no platform at all.',
+    )
+  })
+
+  it('leaves the other refusals as the bare token they have always been', () => {
+    for (const reason of ['no-artifact', 'unsupported-delivery'] as const) {
+      expect(
+        convergenceRefusal(
+          { action: 'cannot', reason },
+          { platform: 'linux-x86_64', target: target('0.4.2') },
+        ),
+      ).toBe(`cannot converge: ${reason}`)
+    }
   })
 })

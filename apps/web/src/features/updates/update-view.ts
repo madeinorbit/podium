@@ -332,8 +332,38 @@ const MACHINE_FAILURE_COPY: Record<
   'machine-unsupported': (subject) => ({
     message: `${subject ?? 'A machine'} cannot use this update's package.`,
     nextAction:
-      "Ask the server operator to check the release includes that machine's platform and " +
-      'delivery method, then try again.',
+      "Ask the server operator to check the release includes that machine's delivery method, " +
+      'then try again.',
+  }),
+  /**
+   * THE ARM THAT TELLS AN OPERATOR THERE IS NOTHING TO DO (POD-2783).
+   *
+   * This used to be `machine-unsupported`, whose next action sends someone to
+   * check that the release includes the machine's platform. It does not, and
+   * nobody can make it: a release's platform list is fixed when it is minted,
+   * from the machines registered at that instant, and the release is immutable.
+   * A human connected a Mac to a Linux-only sandbox, accepted the update they
+   * were offered, and were sent to an operator with a task that does not exist.
+   *
+   * So this sentence says the true thing and then stops. No "try again" —
+   * trying again returns here every time, which §7 says copy must not offer —
+   * and no instruction, because the thing that fixes it is the next release
+   * being built, and that happens without anybody doing anything about THIS
+   * one. The machine's own platform is in the diagnostic below, where §7 keeps
+   * vocabulary.
+   */
+  'machine-platform-absent': (subject) => ({
+    message: `${subject ?? 'This machine'} joined after this update was built, so the update contains no package it can run.`,
+    nextAction: `Nothing to fix here, and nothing to retry — this update cannot gain a package for ${subject ?? 'that machine'}. The next one built will include it, and it will take that one.`,
+  }),
+  /**
+   * The other half of the split, and the reason it IS split: the sentence above
+   * promises a later release, and for a platform Podium builds nothing for that
+   * promise would be the same confident lie in a new place.
+   */
+  'machine-platform-unpublished': (subject) => ({
+    message: `${subject ?? 'This machine'} runs on a platform Podium publishes no package for.`,
+    nextAction: `No update can install there, now or later. Run Podium from source on ${subject ?? 'that machine'}, or move it to a platform Podium builds for.`,
   }),
   /**
    * THE ONLY ARM THAT MAY SAY "STOPPED RESPONDING". It reads as the truth for

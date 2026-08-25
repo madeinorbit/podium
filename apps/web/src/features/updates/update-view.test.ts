@@ -323,9 +323,12 @@ describe('describeUpdateFailure', () => {
     expect(v).toEqual({
       state: 'failed',
       message: "ludovico cannot use this update's package.",
+      // POD-2783 took "platform" out of this sentence: the platform half moved
+      // to its own two codes, and leaving it here would send an operator to
+      // check a fact that has nothing to do with a delivery refusal.
       guidance:
-        "Ask the server operator to check the release includes that machine's platform and " +
-        'delivery method, then try again.',
+        "Ask the server operator to check the release includes that machine's delivery " +
+        'method, then try again.',
       diagnostic: 'cannot converge: unsupported-delivery',
     })
     expect(`${v.message} ${v.guidance}`).not.toContain('unsupported-delivery')

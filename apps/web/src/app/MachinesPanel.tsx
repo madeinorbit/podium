@@ -1412,6 +1412,8 @@ export function describeApplyOutcome(
     state?: string
     reason?: string
     version?: string
+    /** The machine's own platform, for the two POD-2783 refusals that are about it. */
+    platform?: string
   },
   machineName: string,
 ): { tone: 'progress' | 'ok' | 'error'; message: string } {
@@ -1434,6 +1436,28 @@ export function describeApplyOutcome(
       return {
         tone: 'progress',
         message: `${machineName} is already updating. Wait for it to finish.`,
+      }
+    /**
+     * THE ROW THAT CANNOT BE FIXED BY PRESSING IT AGAIN (POD-2783).
+     *
+     * A release's platform list is fixed when it is minted, so a machine that
+     * enrolled afterwards can never take that release. Saying so — and saying
+     * what does resolve it — is the whole point; the old path granted, waited,
+     * and then told the operator to go and check the release.
+     */
+    case 'platform-not-in-release':
+      return {
+        tone: 'error',
+        message:
+          `This update was built before ${machineName} joined, so it has no package for ` +
+          `${outcome.platform ?? 'its platform'}. The next update built will include it.`,
+      }
+    case 'platform-not-published':
+      return {
+        tone: 'error',
+        message:
+          `Podium publishes no package for ${outcome.platform ?? "that machine's platform"}, ` +
+          `so no update can install on ${machineName}.`,
       }
     case 'offline':
       return {

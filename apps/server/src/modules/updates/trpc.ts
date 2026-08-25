@@ -1,7 +1,7 @@
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
 import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } from '@podium/protocol'
-import { buildsDiffer } from '@podium/protocol'
+import { buildsDiffer, targetPlatforms } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { serverBuildSourceDigest, serverBuildVersion } from '../../build-version'
@@ -24,7 +24,7 @@ import {
 } from './operation'
 import { ReleaseApprovalRefusal } from './release-approval'
 import type { ChannelCheckRecord, UpdatesService } from './service'
-import { isPackagedRolloutTarget, type WaveMachine } from './wave'
+import { isPackagedRolloutTarget, machineCanTakeTargetPlatform, type WaveMachine } from './wave'
 
 const log = createLogger('server:updates')
 
@@ -171,7 +171,7 @@ export interface UpdateFleetSnapshot {
  * standing reconciliation — they remain in `allMachines`, which is where
  * Settings renders them.
  */
-function fleetSnapshot(
+export function fleetSnapshot(
   updates: UpdatesService,
   reconciler?: { convergedBy(machine: WaveMachine): 'reconciler' | undefined },
   hostMachineId?: string,
@@ -188,10 +188,26 @@ function fleetSnapshot(
   // `allMachines` remains the complete Settings inventory. The operation-facing
   // projection is narrower: a source checkout has no packaged install to swap.
   // Only the explicit source fact excludes; old/unknown reports stay visible.
-  const machines = allMachines.filter(
-    (machine) => isOnChannel(updates, machine, channel) && isPackagedRolloutTarget(machine),
-  )
   const target = updates.target(channel)
+  /**
+   * …AND NOT A MACHINE THIS RELEASE CONTAINS NOTHING FOR (POD-2783).
+   *
+   * The invariant above is that this set is the set `updates.start` would
+   * grant. A release's platform list is fixed when it is minted, from the fleet
+   * that existed at that instant, so a machine that enrolled afterwards is not
+   * in it and never will be — the plan defers it, and counting it `behind` here
+   * is what put a button in front of a human whose Mac could never take the
+   * bytes behind it. The refusal they then got was correct; the offer was not.
+   *
+   * It stays in `allMachines`, which is the Settings inventory — the same split
+   * a source checkout gets. This is about what may be OFFERED.
+   */
+  const machines = allMachines.filter(
+    (machine) =>
+      isOnChannel(updates, machine, channel) &&
+      isPackagedRolloutTarget(machine) &&
+      (target === undefined || machineCanTakeTargetPlatform(machine, targetPlatforms(target))),
+  )
   const targetVersion = target?.version
   // PER MACHINE, not per target (POD-2195): a fleet that can take git delivery
   // is converging on a bare `dev+<sha>` identity right now, and zeroing its live

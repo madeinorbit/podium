@@ -171,6 +171,63 @@ describe('every refusal a daemon can produce is classified by the shared table',
     }
   })
 
+  /**
+   * WHAT THE MAC ACTUALLY GOT TOLD (POD-2783).
+   *
+   * A macOS daemon joining a Linux-only fleet was granted a release minted
+   * before it enrolled and reported the bare token `unsupported-platform`. The
+   * sentence has to carry the two facts that make the situation legible — which
+   * platform this machine is, and which platforms the release was built for —
+   * or the copy above it can only guess, which is how an operator was sent to
+   * check a release nobody can change.
+   */
+  it('reports which platform it is and which the release carries, through applyGrant', async () => {
+    const [detail] = await detailsFromApplyGrant({
+      target: {
+        version: '0.1.5',
+        artifacts: {
+          headless: {
+            delivery: 'feed',
+            platforms: {
+              'linux-x86_64': { url: 'https://x', digest: 'd', signature: 's' },
+            },
+          },
+        },
+      },
+      caps: ['update.delivery.feed'],
+      platform: 'darwin-aarch64',
+    })
+    expect(detail).toContain('darwin-aarch64')
+    expect(detail).toContain('linux-x86_64')
+    expect(detail).toContain('0.1.5')
+    expect(classifyUpdateFailureDetail(detail)).toBe('machine-platform-absent')
+  })
+
+  /**
+   * The other half of the split: a platform Podium publishes for nobody must
+   * not be told that a later release will include it. Only the daemon knows
+   * which of the two it is, so only the daemon can write the token apart.
+   */
+  it('writes a distinct token for a platform no release will ever carry', async () => {
+    const [detail] = await detailsFromApplyGrant({
+      target: {
+        version: '0.1.5',
+        artifacts: {
+          headless: {
+            delivery: 'feed',
+            platforms: {
+              'linux-x86_64': { url: 'https://x', digest: 'd', signature: 's' },
+            },
+          },
+        },
+      },
+      caps: ['update.delivery.feed'],
+      platform: 'windows-x86_64',
+    })
+    expect(matchUpdateFailureToken(detail)).toBe('platform-not-published')
+    expect(classifyUpdateFailureDetail(detail)).toBe('machine-platform-unpublished')
+  })
+
   /** The planner's three refusals, through the wrapper `applyGrant` puts on them. */
   it('classifies every convergence-planner refusal, as applyGrant reports it', async () => {
     const cases: Array<[UpdateFailureToken, { version: string; artifacts: object }, string[]]> = [

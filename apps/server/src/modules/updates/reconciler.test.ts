@@ -597,3 +597,55 @@ describe('UpdateReconciler: a grant that goes silent', () => {
     expect(RECONCILE_GRANT_DEADLINE_MS).toBe(UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs)
   })
 })
+
+/**
+ * THE PATH WITH NOBODY WATCHING (POD-2783).
+ *
+ * The standing reconciliation converges a machine on RECONNECT, with no
+ * operation and no human. A Mac that joined after the release was minted
+ * reconnects like any other machine, so without this it would be granted a
+ * package for another architecture every time it woke — twice per target,
+ * silently, forever.
+ */
+describe('decideReconciliation and a release that predates the machine', () => {
+  const linuxOnly = target({
+    artifacts: {
+      headless: {
+        delivery: 'feed',
+        platforms: {
+          'linux-x86_64': { url: 'https://x.test/a.tgz', digest: 'd', signature: 's' },
+        },
+      },
+    },
+  } as never)
+
+  it('refuses the machine the release carries nothing for', () => {
+    expect(
+      decideReconciliation(
+        facts({
+          machine: machine({
+            id: 'mac',
+            platform: 'darwin-aarch64',
+            deliveryCaps: ['update.delivery.feed'],
+          }),
+          target: linuxOnly,
+        }),
+      ),
+    ).toEqual({ converge: false, because: 'platform-not-in-release' })
+  })
+
+  it('converges the machine the release was built for', () => {
+    expect(
+      decideReconciliation(
+        facts({
+          machine: machine({
+            id: 'vps',
+            platform: 'linux-x86_64',
+            deliveryCaps: ['update.delivery.feed'],
+          }),
+          target: linuxOnly,
+        }),
+      ),
+    ).toEqual({ converge: true })
+  })
+})

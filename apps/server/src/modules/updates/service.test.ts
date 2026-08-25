@@ -1677,3 +1677,76 @@ describe('a channel this server also publishes into', () => {
     expect(svc.target('stable')?.version).toBe('0.4.1')
   })
 })
+
+/**
+ * THE GRANT SIDE OF THE OFFER (POD-2783).
+ *
+ * Not counting a machine as behind removes the BUTTON. These are the two paths
+ * that can still reach a grant with the button gone — the standing wave, and a
+ * human pressing Apply on that machine's own Settings row — and both have to
+ * answer the same way, or the fix is only cosmetic.
+ */
+describe('a release that predates a machine', () => {
+  const linuxOnly = {
+    version: '0.4.2',
+    critical: false,
+    artifacts: {
+      headless: {
+        delivery: 'feed',
+        platforms: {
+          'linux-x86_64': { url: 'https://x.test/a.tgz', digest: 'd', signature: 's' },
+        },
+      },
+    },
+  } as never
+
+  const mac = (over: Record<string, unknown> = {}) =>
+    m('mac', {
+      platform: 'darwin-aarch64',
+      deliveryCaps: ['update.delivery.feed'],
+      ...over,
+    })
+
+  it('is never granted to that machine by the standing wave', () => {
+    const { svc, send } = make([mac()])
+    svc.setTarget(linuxOnly)
+    svc.tick()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('still waves the machines it was built for', () => {
+    const { svc, send } = make([m('vps', { platform: 'linux-x86_64' }), mac()])
+    svc.setTarget(linuxOnly)
+    svc.tick()
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send.mock.calls[0]?.[0]).toBe('vps')
+  })
+
+  /** The per-row Apply is a human asking directly, and it gets a direct answer
+   *  rather than a grant the machine will refuse minutes later. */
+  it('answers a per-row Apply with the platform fact instead of granting', () => {
+    const { svc, send } = make([mac()])
+    svc.setTarget(linuxOnly)
+    expect(svc.authorizeMachine(asMachineId('mac'))).toEqual({
+      result: 'platform-not-in-release',
+      platform: 'darwin-aarch64',
+    })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('answers a per-row Repair the same way, for the same reason', () => {
+    const { svc, send } = make([mac()])
+    svc.setTarget(linuxOnly)
+    expect(svc.repairMachine(asMachineId('mac'))).toMatchObject({
+      result: 'platform-not-in-release',
+    })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('leaves a machine that has reported no platform alone', () => {
+    const { svc, send } = make([m('mute', { deliveryCaps: ['update.delivery.feed'] })])
+    svc.setTarget(linuxOnly)
+    svc.tick()
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+})

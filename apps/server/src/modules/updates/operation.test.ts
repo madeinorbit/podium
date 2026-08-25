@@ -113,6 +113,24 @@ function packedTarget(): UpdateTarget {
   } as Partial<UpdateTarget>)
 }
 
+/** A published release carrying bytes for exactly these platforms and no others. */
+function releaseFor(platforms: readonly string[]): UpdateTarget {
+  return devTarget({
+    artifacts: {
+      web: { digest: WEB_DIGEST },
+      headless: {
+        delivery: 'feed',
+        platforms: Object.fromEntries(
+          platforms.map((platform) => [
+            platform,
+            { url: `https://x.test/${platform}.tgz`, digest: 'd', signature: 's' },
+          ]),
+        ),
+      },
+    },
+  } as Partial<UpdateTarget>)
+}
+
 function machine(over: Partial<WaveMachine> & { id: string }): WaveMachine {
   return {
     name: over.id,
@@ -404,6 +422,93 @@ describe('planUpdateOperation', () => {
       'macbook',
     )
     expect(plan.deferred).toEqual([])
+  })
+
+  /**
+   * A MACHINE THAT JOINED AFTER THE RELEASE WAS BUILT (POD-2783).
+   *
+   * `fleetHeadlessPlatforms` fixes a release's platform list from the fleet as
+   * it stood at mint time. A Mac enrolling into a Linux-only fleet is therefore
+   * offered a release that contains nothing it could run, and the release is
+   * immutable, so no retry and no reconnect will ever change that. Planning it
+   * into the machines step spends the operation's whole silence budget to
+   * arrive at a refusal that was knowable before the first grant.
+   */
+  it('defers a machine the release predates when nothing here can build one', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        canPrepare: false,
+        target: releaseFor(['linux-x86_64']),
+        fleet: [machine({ id: 'mac', platform: 'darwin-aarch64', deliveryCaps: FEED_CAPS })],
+      }),
+    )
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
+    expect(plan.deferred?.[0]).toMatchObject({ id: 'mac', reason: 'platform-not-in-release' })
+  })
+
+  /**
+   * …and a server that CAN build does not rescue it either, which is the fact
+   * the copy has to carry. A published release is immutable: adding a platform
+   * to it would be a different release. The Mac's bytes arrive at the next
+   * MINT, not from this operation, so it is deferred here rather than waved
+   * towards a build nothing is going to run.
+   */
+  it('defers it on a publishing server too, because a release is immutable', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        canPrepare: true,
+        target: releaseFor(['linux-x86_64']),
+        fleet: [machine({ id: 'mac', platform: 'darwin-aarch64', deliveryCaps: FEED_CAPS })],
+      }),
+    )
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
+    expect(plan.deferred?.[0]).toMatchObject({ id: 'mac', reason: 'platform-not-in-release' })
+  })
+
+  /**
+   * An IDENTITY target is a different case and must not borrow this vocabulary:
+   * nothing is published for anybody yet, and the pack this plan commits to
+   * reads the fleet as it stands NOW — so a Mac that joined yesterday is in the
+   * platform list by construction and belongs in the wave.
+   */
+  it('waves a late-joining machine towards a pack that will cover it', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        target: identityTarget(),
+        fleet: [machine({ id: 'mac', platform: 'darwin-aarch64', deliveryCaps: FEED_CAPS })],
+      }),
+    )
+    expect(stepIds(plan)).toContain(UPDATE_STEP_PREPARE)
+    expect(stepIds(plan)).toContain(UPDATE_STEP_MACHINES)
+    expect(plan.deferred).toEqual([])
+  })
+
+  /**
+   * The other half of the platform split: no build will ever produce these
+   * bytes, so promising one by planning a prepare step would be the same lie in
+   * a new place.
+   */
+  it('defers a platform no release will ever carry, however much it could build', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        target: identityTarget(),
+        fleet: [machine({ id: 'win', platform: 'windows-x86_64', deliveryCaps: FEED_CAPS })],
+      }),
+    )
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
+    expect(plan.deferred?.[0]).toMatchObject({ id: 'win', reason: 'platform-not-published' })
+  })
+
+  /** A machine that has never said what it is stays visible, as with unknown caps. */
+  it('keeps a machine that has reported no platform in the wave', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        canPrepare: false,
+        target: releaseFor(['linux-x86_64']),
+        fleet: [machine({ id: 'mute', deliveryCaps: FEED_CAPS })],
+      }),
+    )
+    expect(stepIds(plan)).toContain(UPDATE_STEP_MACHINES)
   })
 
   it('defers a machine that cannot take the packed artifact', () => {
@@ -728,7 +833,14 @@ describe('the error taxonomy', () => {
   const rows: Array<[string | undefined, string]> = [
     ['git delivery refused: dirty-working-tree', 'machine-dirty-checkout'],
     ['cannot converge: unsupported-delivery', 'machine-unsupported'],
-    ['unsupported-platform', 'machine-unsupported'],
+    // POD-2783 split these two apart from `machine-unsupported`: one says the
+    // release predates the machine and the next one carries it, the other says
+    // Podium publishes nothing for that platform and none ever will.
+    ['unsupported-platform', 'machine-platform-absent'],
+    [
+      'cannot converge: platform-not-published — Podium publishes no package for windows-x86_64',
+      'machine-platform-unpublished',
+    ],
     ['no-artifact for linux-x64', 'machine-unsupported'],
     ['fetch failed', 'download-failed'],
     ['ECONNREFUSED 127.0.0.1:18787', 'download-failed'],

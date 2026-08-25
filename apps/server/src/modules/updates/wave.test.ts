@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   decideWave,
   machineCanTakeDelivery,
+  machineCanTakeTargetPlatform,
   offeredDeliveries,
   planWave,
   type WaveMachine,
@@ -366,5 +367,73 @@ describe('decideWave', () => {
       const ctx = { ...base, canaryHealthy, machines }
       expect(planWave(ctx)).toEqual(decideWave(ctx).selected)
     }
+  })
+})
+
+/**
+ * NEVER OFFER A MACHINE A RELEASE THAT CONTAINS NOTHING FOR IT (POD-2783).
+ *
+ * A release's platform list is fixed when it is minted, from the fleet as it
+ * stood at that moment. A machine that enrolls afterwards is not in it and can
+ * never be — the release is immutable — so granting it that release buys one
+ * download attempt, one refusal, and a dialog telling the operator to check a
+ * release nobody can change. The wave has to ask before it grants, which is the
+ * same rule `machineCanTakeDelivery` already carries for delivery kinds.
+ */
+describe('machineCanTakeTargetPlatform', () => {
+  it('refuses a platform the release carries no bytes for', () => {
+    expect(machineCanTakeTargetPlatform({ platform: 'darwin-aarch64' }, ['linux-x86_64'])).toBe(
+      false,
+    )
+  })
+
+  it('accepts a platform the release carries', () => {
+    expect(
+      machineCanTakeTargetPlatform({ platform: 'darwin-aarch64' }, [
+        'linux-x86_64',
+        'darwin-aarch64',
+      ]),
+    ).toBe(true)
+  })
+
+  /** Unknown means yes, for the reason unknown delivery caps mean yes: a machine
+   *  that has not said what it is must stay visible rather than be stranded. */
+  it('accepts a machine that has not reported a platform', () => {
+    expect(machineCanTakeTargetPlatform({}, ['linux-x86_64'])).toBe(true)
+  })
+
+  it('does not filter when the caller asks no platform question', () => {
+    expect(machineCanTakeTargetPlatform({ platform: 'darwin-aarch64' })).toBe(true)
+  })
+
+  /** A target carrying no platform at all is takeable by nobody who named itself. */
+  it('refuses a named platform against a release that carries none', () => {
+    expect(machineCanTakeTargetPlatform({ platform: 'darwin-aarch64' }, [])).toBe(false)
+  })
+})
+
+describe('decideWave platform eligibility', () => {
+  it('holds the machine a release predates instead of granting it', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: true,
+      machines: [m({ id: 'mac', platform: 'darwin-aarch64' })],
+      platforms: ['linux-x86_64'],
+    })
+    expect(decision.selected).toEqual([])
+    expect(decision.held).toEqual([{ id: 'mac', reason: 'unsupported-platform' }])
+  })
+
+  it('still waves the machines the release was built for', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: true,
+      machines: [
+        m({ id: 'mac', platform: 'darwin-aarch64' }),
+        m({ id: 'vps', platform: 'linux-x86_64' }),
+      ],
+      platforms: ['linux-x86_64'],
+    })
+    expect(decision.selected).toEqual(['vps'])
   })
 })

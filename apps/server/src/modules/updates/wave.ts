@@ -38,6 +38,17 @@ export interface WaveMachine {
    * fleet-managed according to deliveryCaps. Absent means no desktop supervisor.
    */
   supervised?: boolean
+  /**
+   * WHICH BYTES THIS MACHINE COULD EVEN RUN (POD-2783), in the release
+   * manifest's own vocabulary — `darwin-aarch64`, `linux-x86_64` — derived from
+   * the os/arch its daemon reported at handshake through `platformTargetFor`,
+   * which is the same function the mint keys the manifest by.
+   *
+   * Absent for a machine that has never reported an inventory, and absent means
+   * ELIGIBLE for the reason absent `deliveryCaps` does: a machine that has not
+   * said what it is must stay visible rather than be silently stranded.
+   */
+  platform?: string
 }
 
 /** Explicit source checkouts are operators of their files, not package consumers. */
@@ -114,6 +125,41 @@ export function machineCanTakeDelivery(
   )
 }
 
+/**
+ * WHETHER THIS RELEASE CONTAINS ANYTHING THIS MACHINE COULD RUN (POD-2783).
+ *
+ * The sibling of {@link machineCanTakeDelivery}, asked for the same reason and
+ * at the same moment: BEFORE granting, so the fleet does not learn by failing.
+ *
+ * THE CASE IT EXISTS FOR IS PERMANENT, WHICH IS WHAT MAKES IT DIFFERENT. A
+ * release's platform list is fixed when it is minted, from the machines that
+ * were registered at that instant plus the publishing host
+ * (`fleetHeadlessPlatforms`). A machine that enrols AFTERWARDS is not in that
+ * list and never will be — the release is immutable. So this is not a transient
+ * state that a retry, a reconnect, or an operator clears: the machine simply
+ * has to wait for the next release, and being offered this one in the meantime
+ * is an action that cannot succeed. A human found it by connecting a Mac to a
+ * Linux-only fleet on their first try.
+ *
+ * The daemon's planner refuses exactly this and reports `unsupported-platform`,
+ * so asking only there is the same defect POD-2004 fixed for delivery kinds one
+ * axis over — and the answers cannot drift, because both sides read the target's
+ * platform keys through `targetPlatforms` in `@podium/protocol`.
+ *
+ * UNKNOWN PLATFORM MEANS YES, matching the caps rule above. Omitting
+ * `platforms` means the caller is not asking the platform question at all; an
+ * EMPTY list is the opposite — a release with no bytes for anybody, which no
+ * machine that has named itself can take.
+ */
+export function machineCanTakeTargetPlatform(
+  machine: Pick<WaveMachine, 'platform'>,
+  platforms?: readonly string[],
+): boolean {
+  if (machine.platform === undefined) return true
+  if (platforms === undefined) return true
+  return platforms.includes(machine.platform)
+}
+
 /** A grant has been issued and the machine has not yet reported a verdict. */
 export const IN_FLIGHT_STATES: ReadonlySet<ConvergenceState> = new Set([
   'granted',
@@ -142,6 +188,8 @@ export type WaveExclusion =
   | 'in-flight'
   | 'terminal-verdict'
   | 'unsupported-delivery'
+  /** The release carries no bytes for this machine's platform, and never will. */
+  | 'unsupported-platform'
   | 'canary-gated'
   | 'wave-full'
 
@@ -210,7 +258,7 @@ const hold = (machine: WaveMachine, reason: WaveExclusion): WaveHold => ({
  */
 function ineligibility(
   machine: WaveMachine,
-  ctx: { targetVersion: string; deliveries?: readonly string[] },
+  ctx: { targetVersion: string; deliveries?: readonly string[]; platforms?: readonly string[] },
 ): WaveExclusion | undefined {
   if (!isPackagedRolloutTarget(machine)) return 'source-checkout'
   if (machine.version === ctx.targetVersion) return 'already-current'
@@ -220,6 +268,10 @@ function ineligibility(
   // Never hand a machine an update it has already told us it cannot take,
   // applying the same predicate to canary selection and every later wave.
   if (!machineCanTakeDelivery(machine, ctx.deliveries)) return 'unsupported-delivery'
+  // …and never one built before this machine existed. Delivery first because it
+  // is the coarser fact: a machine that can take no delivery at all is not made
+  // any more eligible by the release happening to carry its platform.
+  if (!machineCanTakeTargetPlatform(machine, ctx.platforms)) return 'unsupported-platform'
   return undefined
 }
 
@@ -230,6 +282,8 @@ export function decideWave(ctx: {
   canaryHealthy: boolean
   /** How the target can be delivered; omitted means "do not filter on it". */
   deliveries?: readonly string[]
+  /** Which platforms the target carries bytes for; omitted means "do not filter". */
+  platforms?: readonly string[]
 }): WaveDecision {
   const gate = ctx.canaryHealthy ? 'widen' : 'canary'
   const inFlight = ctx.machines.filter((machine) => IN_FLIGHT.has(machine.state)).length
@@ -268,6 +322,7 @@ export function planWave(ctx: {
   concurrency: number
   canaryHealthy: boolean
   deliveries?: readonly string[]
+  platforms?: readonly string[]
 }): string[] {
   return decideWave(ctx).selected
 }
