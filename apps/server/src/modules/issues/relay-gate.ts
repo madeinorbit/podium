@@ -56,8 +56,9 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // shape over HTTP and another over the relay is a trap for every caller that can reach
   // both. `listWithRepos` is a SECOND proc rather than a wider `list`, and it joins the
   // registered checkout paths server-side, use-gated: relaying repos.listDetailed instead
-  // would hand over every row on every machine, unscoped.
-  machines: new Set(['list', 'listWithRepos']),
+  // would hand over every row on every machine, unscoped. The reprobe is the bounded
+  // recovery write: it reaches only an online machine with this caller's live use grant.
+  machines: new Set(['list', 'listWithRepos', 'reprobe']),
   // Unified messaging (#237) [spec:SP-34d7]: podium mail, cross-harness child
   // spawn/bounded await, and the stop-hook's single-reminder query. Sender and
   // parent identity are stamped from the capability; MessageGate owns target-

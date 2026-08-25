@@ -301,9 +301,34 @@ describe('server agent relay handler (P1b)', () => {
       expect(view.repos.every((repo) => visible.has(repo.machineId))).toBe(true)
     })
 
+    it('routes a capability-scoped re-probe to the selected online machine', async () => {
+      const sent: ControlMessage[] = []
+      const reply = new Promise<RelayResult>((resolve) => {
+        registry.gateway.attachDaemon(machineId, (message) => {
+          sent.push(message)
+          if (message.type === 'agentRelayResult') resolve(message)
+        })
+      })
+      registry.gateway.routeDaemonFrame(machineId, {
+        type: 'agentRelayRequest',
+        requestId: 'ir-machines-reprobe',
+        sessionId: asSessionId(sA),
+        router: 'machines',
+        proc: 'reprobe',
+        input: { id: machineId },
+      })
+
+      const result = await reply
+      expect(result).toMatchObject({
+        ok: true,
+        result: { machineId, requested: true },
+      })
+      expect(sent).toContainEqual({ type: 'inventoryRequest' })
+    })
+
     it('still refuses every other machines proc', async () => {
-      // The allowlist grants reach to two READS, not to the router: rename and
-      // revoke stay operator-side.
+      // The allowlist grants reach to two reads and the bounded re-probe, not
+      // to the router: rename and revoke stay operator-side.
       for (const proc of ['rename', 'revoke', 'pairingCode']) {
         const reply = captureReply(registry, machineId)
         registry.gateway.routeDaemonFrame(machineId, {

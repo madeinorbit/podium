@@ -54,6 +54,32 @@ function makeCtx(): { ctx: DaemonContext; sent: DaemonMessage[] } {
   return { ctx, sent }
 }
 
+function makeRuntimeCtx(): {
+  ctx: DaemonContext
+  sent: DaemonMessage[]
+  current: ReturnType<typeof vi.fn>
+  refresh: ReturnType<typeof vi.fn>
+  reprobe: ReturnType<typeof vi.fn>
+} {
+  const sent: DaemonMessage[] = []
+  const snapshot = { inventory: INV }
+  const current = vi.fn(async () => snapshot)
+  const refresh = vi.fn(async () => snapshot)
+  const reprobe = vi.fn(async () => snapshot)
+  const ctx = {
+    send: (message: DaemonMessage) => sent.push(message),
+    machineId: 'm-runtime',
+    agentRuntime: { inventory: async () => INV },
+    harnessRuntime: {
+      current,
+      refresh,
+      reprobe,
+      isCurrent: (candidate: unknown) => candidate === snapshot,
+    },
+  } as unknown as DaemonContext
+  return { ctx, sent, current, refresh, reprobe }
+}
+
 describe('daemon inventory reporting (#222)', () => {
   beforeEach(() => buildInventory.mockReset().mockResolvedValue(INV))
   afterEach(() => vi.restoreAllMocks())
@@ -62,6 +88,21 @@ describe('daemon inventory reporting (#222)', () => {
     const { ctx, sent } = makeCtx()
     await reportInventory(ctx)
     expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: INV }])
+  })
+
+  it('re-probes the production runtime on reconnect instead of replaying its snapshot', async () => {
+    const { ctx, sent, current, reprobe } = makeRuntimeCtx()
+    await reportInventory(ctx)
+    expect(reprobe).toHaveBeenCalledTimes(1)
+    expect(current).not.toHaveBeenCalled()
+    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-runtime', inventory: INV }])
+  })
+
+  it('routes inventoryRequest through the single-flight re-probe', async () => {
+    const { ctx, refresh, reprobe } = makeRuntimeCtx()
+    inventoryHandlers.inventoryRequest(ctx, { type: 'inventoryRequest' })
+    await vi.waitFor(() => expect(reprobe).toHaveBeenCalledTimes(1))
+    expect(refresh).not.toHaveBeenCalled()
   })
 
   it('caches: a second report (reconnect) re-sends without rebuilding', async () => {

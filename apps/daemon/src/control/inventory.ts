@@ -14,9 +14,11 @@ const log = createLogger('daemon:inventory')
  * never rides the handshake path: a hung CLI probe cannot stall reconnect.
  *
  * The build spawns up to five real CLIs for `--version`, so a definitive result
- * is cached and reconnects re-send it. An inconclusive timeout is sent but NOT
- * cached: the next reconnect/report probes again, while explicit and periodic
- * refreshes also rebuild so live changes converge without a daemon restart.
+ * is cached inside one completed wave. Reconnects and explicit/periodic requests
+ * re-probe it, while concurrent re-probes join the live wave so it can publish.
+ * An inconclusive timeout is sent but NOT cached: the next reconnect/report
+ * probes again, while explicit and periodic refreshes also re-probe so live
+ * changes converge without a daemon restart.
  *
  * The cache is keyed by `(machineId, homeDir)` and holds `MachineHarnessInventory`
  * — a value that names the machine it describes. Not an instance-global "current
@@ -44,11 +46,14 @@ export async function reportInventory(
   // this line. [POD-758]
   if (ctx.harnessRuntime) {
     try {
+      // Every authenticated (re)connect must observe the machine again rather
+      // than merely replaying the process-lifetime snapshot. reprobe() is
+      // single-flight, so an initial boot wave or periodic tick joins rather
+      // than supersedes the observation that is about to repair the server's
+      // persisted inventory row.
       const snapshot = await (opts.rebuild
         ? ctx.harnessRuntime.refresh()
-        : opts.reprobe
-          ? ctx.harnessRuntime.reprobe()
-          : ctx.harnessRuntime.current())
+        : ctx.harnessRuntime.reprobe())
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       if (!ctx.agentRuntime) throw new Error('machine runtime is not composed')
       const inventory = await ctx.agentRuntime.inventory()
@@ -209,7 +214,11 @@ async function runModelProbe(
 
 export const inventoryHandlers: Pick<ControlHandlers, 'inventoryRequest' | 'modelProbeRequest'> = {
   inventoryRequest: (ctx) => {
-    void reportInventory(ctx, { rebuild: true })
+    // A server/CLI request asks for fresh install/login facts. Reusing the
+    // captured command environment is sufficient: resolve() checks the
+    // filesystem anew, including manifest fallback locations. More importantly,
+    // reprobe is single-flight while refresh would supersede an in-flight wave.
+    void reportInventory(ctx, { reprobe: true })
   },
   modelProbeRequest: (ctx, msg) => {
     void runModelProbe(ctx, msg)

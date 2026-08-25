@@ -30,6 +30,7 @@ import {
 import { resolveAgentRelay } from '@podium/runtime/config'
 
 type Proc = { query(input?: unknown): Promise<unknown> }
+type Mutation = { mutate(input?: unknown): Promise<unknown> }
 
 /**
  * `machines.listWithRepos` — the projection plus the registered checkout paths of
@@ -39,7 +40,7 @@ type Proc = { query(input?: unknown): Promise<unknown> }
  * `repos.listDetailed` would disclose paths on machines the caller cannot see.
  */
 export interface MachineClient {
-  machines: { listWithRepos: Proc }
+  machines: { listWithRepos: Proc; reprobe: Mutation }
 }
 
 interface FleetView {
@@ -63,7 +64,8 @@ export function machineHelpText(): string {
     '',
     'Commands:',
     '  list [--json]           Every visible machine, one block each (default).',
-    '  show <name|id> [--json] One machine in full, including its harness inventory.',
+    '  show <name|id> [--json]    One machine in full, including its harness inventory.',
+    '  reprobe <name|id> [--json] Re-run install and login probes on that machine.',
     '',
     'Options:',
     '  --json    Print the exact server payload as JSON.',
@@ -81,16 +83,21 @@ export function machineHelpText(): string {
 
 function argumentError(argv: string[]): string | undefined {
   const [command, ...rest] = argv
-  if (command !== undefined && command !== 'list' && command !== 'show') {
+  if (
+    command !== undefined &&
+    command !== 'list' &&
+    command !== 'show' &&
+    command !== 'reprobe'
+  ) {
     return `unknown command '${command}' (see \`podium machine --help\`)`
   }
   const positional = rest.filter((arg) => !arg.startsWith('-'))
   const unknownOption = rest.find((arg) => arg.startsWith('-') && arg !== '--json')
   if (unknownOption) return `unknown option '${unknownOption}' (see \`podium machine --help\`)`
-  if (command === 'show' && positional.length === 0) {
-    return 'usage: podium machine show <name|id>'
+  if ((command === 'show' || command === 'reprobe') && positional.length === 0) {
+    return `usage: podium machine ${command} <name|id>`
   }
-  if (command !== 'show' && positional.length > 0) {
+  if (command !== 'show' && command !== 'reprobe' && positional.length > 0) {
     return `unexpected argument '${positional[0]}' (see \`podium machine --help\`)`
   }
   if (positional.length > 1) {
@@ -213,9 +220,19 @@ export async function runMachineCli(
   const { machines, repos } = (await client.machines.listWithRepos.query()) as FleetView
   const json = argv.includes('--json')
 
-  if (argv[0] === 'show') {
+  if (argv[0] === 'show' || argv[0] === 'reprobe') {
     const selector = argv.slice(1).find((arg) => !arg.startsWith('-')) as string
     const machine = selectMachine(machines, selector)
+    if (argv[0] === 'reprobe') {
+      await client.machines.reprobe.mutate({ id: machine.id })
+      return json
+        ? JSON.stringify({
+            command: 'machine reprobe',
+            ok: true,
+            data: { machineId: machine.id, machineName: machine.name },
+          })
+        : `Inventory re-probe requested for ${machine.name} (${machine.id}).`
+    }
     const machineRepos = repos.filter((repo) => repo.machineId === machine.id)
     return json
       ? JSON.stringify({

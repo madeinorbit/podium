@@ -58,7 +58,12 @@ const repos = [
 ]
 
 function fakeClient(machines: MachineWire[], repoRows = repos): MachineClient {
-  return { machines: { listWithRepos: { query: async () => ({ machines, repos: repoRows }) } } }
+  return {
+    machines: {
+      listWithRepos: { query: async () => ({ machines, repos: repoRows }) },
+      reprobe: { mutate: async () => ({ requested: true }) },
+    },
+  }
 }
 
 /** A machine this principal can SEE but not USE: the server drops both its
@@ -161,7 +166,16 @@ describe('runMachineCli', () => {
 
   it('reads the fleet in ONE call, not a machine list plus an unscoped repo list', async () => {
     const query = vi.fn(async () => ({ machines: [ludovico, quiet], repos }))
-    await runMachineCli([], { machines: { listWithRepos: { query } } }, NOW)
+    await runMachineCli(
+      [],
+      {
+        machines: {
+          listWithRepos: { query },
+          reprobe: { mutate: async () => ({ requested: true }) },
+        },
+      },
+      NOW,
+    )
     // Two calls would mean the paths came from repos.listDetailed, which returns every
     // row on every machine regardless of who is asking.
     expect(query).toHaveBeenCalledTimes(1)
@@ -171,6 +185,15 @@ describe('runMachineCli', () => {
     const out = await runMachineCli(['show', 'quiet-box'], fakeClient([ludovico, quiet]), NOW)
     expect(out).toContain('quiet-box')
     expect(out).not.toContain('ludovico')
+  })
+
+  it('forces a re-probe for the selected machine', async () => {
+    const mutate = vi.fn(async () => ({ requested: true }))
+    const client = fakeClient([ludovico, quiet])
+    client.machines.reprobe = { mutate }
+    const out = await runMachineCli(['reprobe', 'ludovico'], client, NOW)
+    expect(mutate).toHaveBeenCalledWith({ id: ludovico.id })
+    expect(out).toContain('Inventory re-probe requested for ludovico')
   })
 
   it('emits the server payload verbatim under --json', async () => {
@@ -193,6 +216,9 @@ describe('runMachineCli', () => {
     await expect(runMachineCli(['show'], client, NOW)).rejects.toThrow(
       /usage: podium machine show/u,
     )
+    await expect(runMachineCli(['reprobe'], client, NOW)).rejects.toThrow(
+      /usage: podium machine reprobe/u,
+    )
     await expect(runMachineCli(['list', 'extra'], client, NOW)).rejects.toThrow(
       /unexpected argument 'extra'/u,
     )
@@ -206,6 +232,7 @@ describe('runMachineCli', () => {
             throw new Error('must not be called')
           },
         },
+        reprobe: { mutate: async () => ({ requested: true }) },
       },
     }
     expect(await runMachineCli(['--help'], exploding, NOW)).toBe(machineHelpText())

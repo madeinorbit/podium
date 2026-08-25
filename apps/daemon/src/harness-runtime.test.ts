@@ -15,6 +15,29 @@ function deferred<T>() {
 }
 
 describe('DaemonHarnessRuntime', () => {
+  it('joins an in-flight inventory wave instead of suppressing its result', async () => {
+    const build = deferred<ResolvedHarnessInventory>()
+    let builds = 0
+    const runtime = new DaemonHarnessRuntime({
+      buildSnapshot: async () => {
+        builds += 1
+        return build.promise
+      },
+    })
+
+    const initial = runtime.current()
+    const periodic = runtime.reprobe()
+    const serverRequested = runtime.reprobe()
+    expect(periodic).toBe(initial)
+    expect(serverRequested).toBe(initial)
+    expect(builds).toBe(1)
+
+    const snapshot = testHarnessSnapshot({ 'claude-code': '/home/user/.local/bin/claude' }, 0)
+    build.resolve(snapshot)
+    await expect(initial).resolves.toBe(snapshot)
+    expect(runtime.isCurrent(snapshot)).toBe(true)
+  })
+
   it('discards a generation that finishes after its replacement', async () => {
     const builds = [deferred<ResolvedHarnessInventory>(), deferred<ResolvedHarnessInventory>()]
     const runtime = new DaemonHarnessRuntime({

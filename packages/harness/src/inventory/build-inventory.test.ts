@@ -487,6 +487,31 @@ describe('buildInventory', () => {
     })
   })
 
+  it('discovers OpenCode in its known user install directory outside PATH', async () => {
+    const opencodePath = join(home, '.opencode', 'bin', 'opencode')
+    const env = Object.freeze({ PATH: '/usr/bin:/bin', HOME: home })
+    const inv = await buildInventoryWithEnv({
+      machineHome: home,
+      credentialHome: home,
+      commandEnvironment: {
+        env,
+        pathEntries: ['/usr/bin', '/bin'],
+        source: 'inherited',
+        generation: 3,
+        machineHome: home,
+        loginShell: '/bin/sh',
+        resolve: (candidate) => (candidate === opencodePath ? opencodePath : undefined),
+      },
+      exec: fakeExec({ opencode: '1.18.16' }),
+    })
+
+    expect(inv.agents.find((agent) => agent.kind === 'opencode')).toMatchObject({
+      installed: true,
+      version: '1.18.16',
+      path: opencodePath,
+    })
+  })
+
   it('reports logged-out when the credential files are missing', async () => {
     const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
     const byKind = Object.fromEntries(inv.agents.map((a) => [a.kind, a]))
