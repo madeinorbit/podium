@@ -448,6 +448,16 @@ const REFUSAL_CORRECTION: Record<
   session_ended: { correct: 'dead-letter', as: 'teardown' },
   staging_failed: { correct: 'dead-letter', as: 'delivery-failed' },
   no_resume_ref: { correct: 'none' },
+  /** EXPORT-ONLY TODAY (POD-2703): the harness has not written its session store
+   *  yet. No send path can produce it, and it is here for the same reason
+   *  `unsupported` is — so that a driver which ever answers a send with it fails
+   *  LOUDLY instead of falling through to "leave `delivered` standing".
+   *
+   *  Dead-letter rather than requeue even though the condition is transient: it
+   *  clears when the session speaks, and the queued message is the thing that
+   *  would have made it speak, so a requeue waits on itself. The visible
+   *  correction is the one a sender can act on. */
+  no_archive_yet: { correct: 'dead-letter', as: 'delivery-failed' },
 }
 
 export class MessageDeliveryService {

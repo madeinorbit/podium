@@ -164,6 +164,19 @@ export type RefusalReason =
   | 'staging_failed'
   /** A turn is open and the requested delivery cannot join it. */
   | 'busy'
+  /**
+   * THE VERB IS IMPLEMENTED AND ITS PRECONDITION IS NOT MET YET (POD-2703).
+   *
+   * `export()` against a harness that has not written its session store — the
+   * driver reads the harness's own files, and a session that has not spoken has
+   * none. The SAME session answers after a turn.
+   *
+   * NOT `unsupported`, and the difference is the only thing either reason is
+   * for: a caller retries this one and never that one. Typing a not-yet as
+   * permanent is worse than leaving it untyped, because the caller now trusts a
+   * wrong answer and stops retrying something that would have succeeded.
+   */
+  | 'no_archive_yet'
 
 export interface Refusal {
   reason: RefusalReason

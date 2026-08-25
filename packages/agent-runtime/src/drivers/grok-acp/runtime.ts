@@ -7,20 +7,15 @@
  * this package owns protocol, receipts, permissions, observation and resume.
  */
 import {
-  classifyGrokProviderFailure,
   type AgentStateEvent,
+  classifyGrokProviderFailure,
   initialAgentState,
   reduceAgentState,
   translateGrokUpdatePayload,
 } from '@podium/harness'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
-import type {
-  ObservationProvenance,
-  ProviderCursor,
-} from '@podium/protocol'
-import type {
-  QueueDrainAbandonedReason,
-} from '@podium/protocol/daemon'
+import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ArchiveFile,
@@ -46,13 +41,7 @@ import type {
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import type { SessionSpec } from '../../session-spec.js'
-import type {
-  AnswerOptions,
-  Refusal,
-  SendOptions,
-  TurnInput,
-  TurnReceipt,
-} from '../../turns.js'
+import type { AnswerOptions, Refusal, SendOptions, TurnInput, TurnReceipt } from '../../turns.js'
 import { stampRuntimeEvent } from '../terminal/envelope.js'
 import { grokAcpCapabilities } from './capabilities.js'
 import {
@@ -71,9 +60,9 @@ import {
   GROK_ACP_METHODS,
   type GrokAcpFrame,
   GrokAcpPermissionRequest,
-  GrokAcpRpcError,
   type GrokAcpPromptResult,
   GrokAcpPromptResult as GrokAcpPromptResultSchema,
+  GrokAcpRpcError,
   GrokAcpSessionResult,
   grokAcpEventOrdinal,
   parseGrokAcpSessionUpdate,
@@ -789,9 +778,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     if (error instanceof GrokAcpRpcError) {
       const status = error.code >= 400 && error.code <= 599 ? `status ${error.code}` : undefined
       const detail = nestedProviderDetail(error.data)
-      const message = compactProviderDetail(
-        error.message.replace(/^grok ACP [^:]+:\s*/i, ''),
-      )
+      const message = compactProviderDetail(error.message.replace(/^grok ACP [^:]+:\s*/i, ''))
       return compactProviderDetail([status, detail ?? message].filter(Boolean).join(': '))
     }
     return nestedProviderDetail(error)
@@ -1174,19 +1161,44 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       },
 
       async export(): Promise<SessionArchive> {
-        const files = await host.readArchive?.({
+        /**
+         * TWO WORLDS HID BEHIND ONE `!files`, AND THEY CALL FOR OPPOSITE ANSWERS
+         * (POD-2703, review 2).
+         *
+         * This arm used to answer `unsupported` to both, which is the
+         * classification backwards on the common one. `unsupported` means never;
+         * a caller that reads it stops asking. Grok writes `updates.jsonl` and
+         * its siblings AS THE CONVERSATION HAPPENS, so a session that has not
+         * spoken yet has no files — and answering "never" there talks a caller
+         * out of the retry that would have worked. Getting this backwards is
+         * worse than leaving it untyped: an untyped throw is at least not
+         * trusted.
+         */
+        if (!host.readArchive) {
+          // PERMANENT, for this machine's wiring: no reader exists, so no turn
+          // and no wait will produce one. `unsupported` is the honest answer and
+          // the caller is right to stop asking.
+          throw new DriverRefusalError(
+            { reason: 'unsupported', detail: 'this host wires no Grok session-file reader' },
+            'grok-acp export',
+          )
+        }
+        const files = await host.readArchive({
           sessionId: session.sessionId,
           grokSessionId: session.grokSessionId,
           workdir: session.spec.workdir,
         })
-        if (!files) {
-          // A DECLARED archive whose bytes this machine cannot read. Typed so a
-          // scheduler can tell it from a driver that crashed — and `unsupported`
-          // rather than a fabricated empty archive, because a backup that
-          // reports success carrying nothing is the failure this refusal exists
-          // to make visible.
+        if (!files || files.length === 0) {
+          // NOT YET. The reader is there and the harness has written nothing to
+          // read. Refused rather than answered with an empty archive, because a
+          // backup that reports success carrying nothing is the failure this
+          // whole refusal exists to make visible — but refused as a condition
+          // that CLEARS, which is what a caller needs to know.
           throw new DriverRefusalError(
-            { reason: 'unsupported', detail: 'Grok native session files are unavailable' },
+            {
+              reason: 'no_archive_yet',
+              detail: "Grok has not written this session's files yet",
+            },
             'grok-acp export',
           )
         }

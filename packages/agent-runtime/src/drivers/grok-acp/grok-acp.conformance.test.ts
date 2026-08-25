@@ -6,7 +6,10 @@ import { PERMITTED_FAILURES } from '../../permitted-failures.js'
 // The assertion, not a copy of it: the refusal worlds below are judged by the
 // same corpus function the run judges its endpoint arm with. From the module
 // rather than the `testing/` barrel, which is the corpus's surface to curate.
-import { assertAttachHonoursOneControlLease } from '../../testing/conformance/suite.js'
+import {
+  assertAttachHonoursOneControlLease,
+  expectTypedRefusal,
+} from '../../testing/conformance/suite.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
 import { runConformance } from '../../testing/index.js'
 import { createGrokAcpClient } from './client.js'
@@ -40,6 +43,22 @@ import { type FakeGrokAcpServer, startFakeGrokAcpServer } from './test-support/f
  */
 interface WorldOptions {
   hostsClientTerminals?: boolean | 'spectators-only'
+  /**
+   * WHETHER THIS MACHINE CAN READ GROK'S SESSION FILES, AND WHETHER THEY EXIST
+   * YET (POD-2703, review 2). Also a fact about the machine, not the driver —
+   * the capability declares an archive under all three.
+   *
+   *   `'ready'` (default)  the reader is wired and the files are there;
+   *   `'not-yet'`          wired, and the harness has written nothing yet;
+   *   `'absent'`           this host wires no reader at all.
+   *
+   * The last two are the arms `export()` answers with a refusal, and they had no
+   * world: the review found that replacing the whole branch with a bare `throw`
+   * left the package at 512/512. A refusal nobody provokes is indistinguishable
+   * from one that was never written — which is this milestone's own rule, turned
+   * on the corpus that enforces it.
+   */
+  archiveReader?: 'ready' | 'not-yet' | 'absent'
 }
 
 function makeWorld(options: WorldOptions = {}): {
@@ -48,6 +67,7 @@ function makeWorld(options: WorldOptions = {}): {
   failNextPrompt(sessionId: SessionId, detail?: string): void
 } {
   const hostsClientTerminals = options.hostsClientTerminals ?? true
+  const archiveReader = options.archiveReader ?? 'ready'
   let runtime: GrokAcpRuntime | undefined
   let replayPromptSettlement: (() => void) | undefined
   let seq = 0
@@ -137,16 +157,26 @@ function makeWorld(options: WorldOptions = {}): {
      * carries nothing of the conversation is a backup that reports success and
      * restores nothing.
      */
-    readArchive: async ({ grokSessionId }) => [
-      {
-        path: `grok/${grokSessionId}/updates.jsonl`,
-        bytes: new TextEncoder().encode(
-          (conversations.get(grokSessionId) ?? [])
-            .map((update) => JSON.stringify(update))
-            .join('\n') + '\n',
-        ),
-      },
-    ],
+    // OMITTED ENTIRELY under `'absent'`, not stubbed to return nothing: the
+    // driver distinguishes a host with no reader from a reader with nothing to
+    // read, and a stub would collapse the two back together.
+    ...(archiveReader === 'absent'
+      ? {}
+      : {
+          readArchive: async ({ grokSessionId }: { grokSessionId: string }) => {
+            if (archiveReader === 'not-yet') return undefined
+            return [
+              {
+                path: `grok/${grokSessionId}/updates.jsonl`,
+                bytes: new TextEncoder().encode(
+                  (conversations.get(grokSessionId) ?? [])
+                    .map((update) => JSON.stringify(update))
+                    .join('\n') + '\n',
+                ),
+              },
+            ]
+          },
+        }),
     // `mode` HAS ALWAYS BEEN ON THE HOST CONTRACT — a real host needs it to
     // decide what to spawn — and a machine that hands a watcher a read-only
     // stream while refusing to seat a controller is what makes the corpus's
@@ -460,4 +490,66 @@ runConformance(target.createDriver, {
   reset: target.reset,
   spec: target.spec,
   exemptions: PERMITTED_FAILURES.server,
+})
+
+/**
+ * THE TWO REFUSALS `export()` CAN GIVE, AND THE ONE THING THAT SEPARATES THEM.
+ *
+ * Both worlds are a session with a resume ref, a live process and no archive to
+ * hand back, so every other export assertion is identical across them. The only
+ * difference a caller can see is the REASON, and the reason decides whether it
+ * ever asks again. That makes this pair the whole test: a single-arm version of
+ * it — either one alone — passes on a driver that answers both the same way,
+ * which is the defect this replaced.
+ *
+ * WHY HERE AND NOT IN THE CORPUS. Neither world is reachable through the driver
+ * contract: nothing in it makes a harness un-write its own store, and the corpus
+ * has no verb for "this machine wires no reader". The corpus supplies the
+ * judgement — {@link expectTypedRefusal} — and the family supplies the world.
+ */
+describe('grok-acp export when there is no archive to give', () => {
+  it('says NOT YET when the harness has not written its session files', async () => {
+    const world = makeWorld({ archiveReader: 'not-yet' })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+
+      /**
+       * PINNED FIRST, for the reason the attach worlds above are: the property
+       * below is satisfied by a refusal, and a world that had quietly declared
+       * no archive would reach one WITHOUT running the branch this exists for.
+       * The declaration stays `supported` — grok archives, this session has
+       * nothing in it yet — and that is what forces the not-yet arm.
+       */
+      expect(driver.capabilities().archive.supported).toBe(true)
+      expect(handle.binding.resume).toBeTruthy()
+
+      await expectTypedRefusal(
+        handle.export(),
+        'no_archive_yet',
+        'export() on a grok session whose files the harness has not written yet',
+      )
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('says NEVER when this machine wires no reader at all', async () => {
+    const world = makeWorld({ archiveReader: 'absent' })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      expect(driver.capabilities().archive.supported).toBe(true)
+
+      // The ONE world where `unsupported` is honest on this family: no turn and
+      // no wait produces a reader, so a caller that stops asking is right.
+      await expectTypedRefusal(
+        handle.export(),
+        'unsupported',
+        'export() on a grok host that wires no session-file reader',
+      )
+    } finally {
+      world.target.reset()
+    }
+  })
 })

@@ -324,8 +324,13 @@ const mintWitness = (targetName: string): string => `podium-witness-${targetName
  * `unsupported` versus `no_resume_ref` differently — one is permanent, the other
  * says "not yet" — so a refusal carrying the wrong one misroutes exactly the
  * decision the type exists to inform.
+ *
+ * EXPORTED, like {@link assertArchiveHonoursItsDeclaration}, so a driver-level
+ * world that provokes a refusal the corpus cannot reach judges it by THIS
+ * definition rather than by a hand-rolled copy that would drift into accepting a
+ * bare throw again.
  */
-async function expectTypedRefusal(
+export async function expectTypedRefusal(
   attempt: Promise<unknown>,
   reason: RefusalReason,
   what: string,
@@ -1511,11 +1516,40 @@ export function describeDriverConformance(target: ConformanceTarget): void {
          */
         const declared = driver.capabilities().transcript
         if (!declared.supported || !declared.value.history) {
-          // A driver that declines transcript history has no contract-level way
-          // to show its conversation survived. That is a REAL GAP rather than an
-          // exemption — say so here, so it is a finding a reader trips over and
-          // not a silent skip. No driver under this corpus declines today.
-          expect(declared.supported && declared.value.history).toBe(false)
+          /**
+           * A PROPERTY A DRIVER CAN SWITCH OFF BY DESCRIBING ITSELF IS NOT A
+           * PROPERTY (POD-2703, review 2).
+           *
+           * This used to `expect(false).toBe(false)` and return, on the reading
+           * that a driver without history has no way to show its conversation
+           * survived. Which is true, and it made the DECLARATION an off switch:
+           * declaring no transcript exempted a driver from the one assertion
+           * that can tell a revived session from a fresh one, and the suite ran
+           * green with resume genuinely broken — measured, not predicted.
+           *
+           * So the declaration goes under test rather than being trusted, in
+           * both directions.
+           */
+
+          // ONE: PROVE THE CLAIM. "No history" must mean the verb REFUSES, not
+          // that it quietly returns an empty list — a driver whose history works
+          // and whose capability says otherwise is degrading, and it is the
+          // cheapest way to get exempted from everything below.
+          await expectTypedRefusal(
+            resumed.transcript.history({ limit: 100 }),
+            'unsupported',
+            'transcript.history() on a driver that declares it has none',
+          )
+
+          // TWO: THE BURDEN MOVES, IT DOES NOT VANISH. The conversation must
+          // still be provable through a channel this driver DOES declare, and
+          // the archive is the other one that carries conversation content.
+          const archive = driver.capabilities().archive
+          expect(
+            archive.supported,
+            "this driver declares neither a transcript history nor an archive, so nothing in the contract can show a resumed session is the one that was killed — under this milestone's rule a resume nobody can check is not implemented, and the fix is to declare one of the two rather than to weaken this property",
+          ).toBe(true)
+          await assertArchiveHonoursItsDeclaration(resumed, driver, witness)
           return
         }
         const items = await resumed.transcript.history({ limit: 100 })

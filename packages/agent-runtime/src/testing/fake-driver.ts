@@ -194,6 +194,24 @@ export interface FakeDriverOptions {
    * honest to put in it — and the corpus asserts that pair.
    */
   resumeRefTiming?: ResumeRefTiming
+  /**
+   * WHETHER THIS FAKE'S HARNESS CAN BE ASKED WHAT IS IN THE CONVERSATION
+   * (POD-2703, review 2).
+   *
+   * `false` is a harness that streams its turns and keeps no readable history —
+   * a real shape, and the shape that turned out to be an OFF SWITCH. The
+   * corpus's "resume brings the conversation back" property read this
+   * declaration and returned early when it was false, so a driver could exempt
+   * itself from the only assertion that separates a revived session from a fresh
+   * one by describing itself, and the suite stayed green with resume broken.
+   *
+   * The property now makes the declaration earn it: history must actually
+   * REFUSE, and the conversation must still be provable through the archive.
+   * This option is what runs that arm — without a target that declares `false`,
+   * the repair is itself an untested branch, which is the shape of the bug it
+   * repairs.
+   */
+  transcriptHistory?: boolean
 }
 
 /**
@@ -425,6 +443,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
   const attachLease = options.attachLease ?? 'honest'
   const resumeRefTiming: ResumeRefTiming = options.resumeRefTiming ?? 'spawn'
   const resumable = resumeRefTiming !== 'never'
+  const transcriptHistory = options.transcriptHistory ?? true
 
   const capabilities = (): DriverCapabilities => ({
     send: {
@@ -444,7 +463,9 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       watchLevels: ['coarse', 'fine'],
       cursorMaterial: 'in-memory-seq',
     },
-    transcript: supported({ history: true }),
+    transcript: transcriptHistory
+      ? supported({ history: true })
+      : unsupported('this harness streams its turns and keeps no readable history'),
     staging: supported({ kinds: ['image', 'file'], promptForm: 'file-part' }),
     attach:
       family === 'embedded'
@@ -914,6 +935,17 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
 
       transcript: {
         async history({ limit }) {
+          if (!transcriptHistory) {
+            // REFUSED, NOT EMPTY. A declaration of "no history" that answers
+            // with `[]` is indistinguishable from a conversation that is empty,
+            // and the corpus cannot tell a harness that keeps nothing from one
+            // that lost everything. The typed refusal is what makes the
+            // declaration falsifiable — see the resume property in the corpus.
+            throw new DriverRefusalError(
+              { reason: 'unsupported', detail: 'this harness keeps no readable history' },
+              `${id} transcript.history`,
+            )
+          }
           return core.items.slice(-limit)
         },
       },

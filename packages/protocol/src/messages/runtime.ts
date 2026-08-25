@@ -107,6 +107,10 @@ export const RefusalReason = z.enum([
   'not_running',
   'staging_failed',
   'busy',
+  // APPENDED, and the position matters: the golden fixture samples enum member
+  // `min(arm, len-1)` over arms 0..7, so a ninth member added at the END leaves
+  // every existing sample byte-identical. See __fixtures__/sampler.ts.
+  'no_archive_yet',
 ])
 export type RefusalReason = z.infer<typeof RefusalReason>
 

@@ -92,6 +92,31 @@ describeDriverConformance({
   spec,
 })
 
+/**
+ * A FOURTH TARGET, FOR THE ARM THAT USED TO BE AN EXEMPTION (POD-2703, review 2).
+ *
+ * A harness that streams its turns and keeps no readable history — real enough,
+ * and the declaration the second review found could switch the corpus's central
+ * resume property OFF. Every target above declares `transcript.history`, so the
+ * "no history" branch was reasoned about and never run, and what ran instead was
+ * `expect(false).toBe(false)`.
+ *
+ * It RESUMES and it ARCHIVES. That combination is the point: the property can no
+ * longer take the absent history as an answer, so it has to reach for the
+ * archive and find this conversation's own turn in it. Break resume here and it
+ * goes red through the second channel rather than being excused by the first.
+ */
+describeDriverConformance({
+  name: 'fake-server-no-transcript',
+  family: 'server',
+  createDriver: () => {
+    const driver = createFakeServerDriver({ transcriptHistory: false })
+    return { driver, control: driver.control as ConformanceControl }
+  },
+  reset: resetFakeRuntime,
+  spec,
+})
+
 // ---------------------------------------------------------------------------
 // The tables themselves — a permission nobody can read is a permission that
 // grows quietly.
