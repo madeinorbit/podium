@@ -712,14 +712,26 @@ export class MessagesRepository {
 
   /** queued → dead_letter: the target was gone before the message could land
    *  (issue closed/archived, session deleted with nowhere to re-route) [POD-834].
-   *  Terminal; the sender is told once. Guarded on status='queued'. */
-  markDeadLetter(id: string, at: string): boolean {
+   *  Terminal; the sender is told once. Guarded on status='queued'.
+   *
+   *  `cause` RECORDS WHY, FOR THE ROWS WHERE "GONE" IS NOT THE ANSWER [POD-2574].
+   *  A dead letter with no cause reads, downstream, as a vanished target — which
+   *  is right for the callsites this was written for and wrong for a driver that
+   *  refused the send. Passing a cause stamps the same two columns
+   *  {@link markDeliveryAbandoned} uses, so both refusal paths — the late one the
+   *  daemon reports and the synchronous one answered inside the send — leave a row
+   *  a reader can tell apart from a target that disappeared. */
+  markDeadLetter(id: string, at: string, cause?: QueueDrainAbandonedReason): boolean {
     const r = this.db
       .prepare(
-        `UPDATE messages SET status = 'dead_letter', dead_lettered_at = ?
-         WHERE id = ? AND status = 'queued'`,
+        cause
+          ? `UPDATE messages SET status = 'dead_letter', dead_lettered_at = ?,
+                 delivery_deferred_at = ?, delivery_deferred_reason = ?
+             WHERE id = ? AND status = 'queued'`
+          : `UPDATE messages SET status = 'dead_letter', dead_lettered_at = ?
+             WHERE id = ? AND status = 'queued'`,
       )
-      .run(at, id)
+      .run(...(cause ? [at, at, cause, id] : [at, id]))
     return r.changes === 1
   }
 

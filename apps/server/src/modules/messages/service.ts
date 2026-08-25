@@ -2106,10 +2106,20 @@ export class MessageDeliveryService {
     // on their own; the sweep is the retry those rows want. It is the wrong answer
     // for `unsupported`, which is a CAPABILITY rather than a moment: every sweep
     // tick would refuse it again, for the same reason, forever. So end it here.
-    // The sender is not notified because they were already told synchronously —
-    // this refusal is the `ok: false` their own send returns.
+    // WHO GETS TOLD DEPENDS ON WHO CAN HEAR THE SYNCHRONOUS ANSWER [POD-2574].
+    // An OPERATOR send is a human at the composer: the refusal is the `ok: false`
+    // their own call returns and the chat renders it, so a steward notice on top
+    // would be the same refusal twice. An AGENT mailing another session has no
+    // such surface — nothing renders its return — so without the notice it is
+    // told nothing at all, which is the silent drop this issue exists to end.
+    // The cause is stamped so the row does not read as a vanished target: without
+    // it every reader falls through to "target gone", which is the one thing this
+    // refusal is NOT — the session is fine and the driver said no.
     if (receipt.refusal.reason === 'unsupported' && message.attachments?.length) {
-      this.deadLetter(message, receipt.refusal.detail ?? 'file attachments are unsupported')
+      this.deadLetter(message, receipt.refusal.detail ?? 'file attachments are unsupported', {
+        cause: 'delivery-failed',
+        notifySender: message.fromKind !== 'operator',
+      })
     }
   }
 
@@ -2263,13 +2273,18 @@ export class MessageDeliveryService {
   private deadLetter(
     message: MessageRow,
     reason: string,
-    opts?: { notifySender?: boolean },
+    opts?: { notifySender?: boolean; cause?: QueueDrainAbandonedReason },
   ): DeliveryOutcome {
     const at = this.deps.now()
-    const first = this.deps.messages.markDeadLetter(message.id, at)
+    const first = this.deps.messages.markDeadLetter(message.id, at, opts?.cause)
     if (first) {
       this.emitTransition(
-        { ...message, status: 'dead_letter', deadLetteredAt: at },
+        {
+          ...message,
+          status: 'dead_letter',
+          deadLetteredAt: at,
+          ...(opts?.cause ? { deliveryDeferredAt: at, deliveryDeferredReason: opts.cause } : {}),
+        },
         'message.dead_letter',
       )
       if (opts?.notifySender) this.notifyDeadLetter(message, reason)

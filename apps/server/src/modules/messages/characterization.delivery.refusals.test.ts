@@ -392,6 +392,14 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     // `ok: false` their own send returned. Two notices for one refusal is the
     // same disrespect as none, from the other side.
     expect(notices(h)).toEqual([])
+    // AND IT SAYS WHY [POD-2574]. Asserting the status alone is what let this row
+    // reach both readers as an unexplained dead letter, and a null reason falls
+    // through to "target gone" — a claim about the SESSION, which is fine and
+    // still running. The stamp is what separates "the driver refused" from "the
+    // target vanished". The rendered wording is pinned on the web side, in
+    // message-ledger.test.ts; what belongs here is that the row carries a cause.
+    expect(h.svc.message(r.id)!.deliveryDeferredReason).toBe('delivery-failed')
+    expect(h.svc.message(r.id)!.deliveryDeferredAt).toBeTruthy()
   })
 
   it('leaves a synchronous refusal that WILL clear where the durable queue put it', async () => {
