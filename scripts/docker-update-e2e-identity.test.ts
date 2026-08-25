@@ -209,6 +209,37 @@ describe('a timeout says it stopped watching before the product stopped trying',
   })
 })
 
+describe('the decided-red row explains itself in the matrix', () => {
+  // POD-2462 decided legacy-sigkill stays red rather than adding a kill-phase
+  // seam to the shipped binary for a test to reach. A permanent red with no
+  // stated cause becomes a row people skip, then delete, then a gap nobody
+  // remembers choosing — so the reason ships IN the evidence string, and these
+  // tests are what stop it being quietly shortened back to a bare sentence.
+  const gate = readFileSync(GATE, 'utf8')
+
+  it('states the decision, the refusal, and the coverage underneath', async () => {
+    const run = await bash('printf %s "$LEGACY_SIGKILL_DECIDED_RED"')
+    expect(run.stdout).toContain('DECIDED RED')
+    expect(run.stdout).toContain('no product code is reachable')
+    expect(run.stdout).toContain('deps.checkpoint')
+    expect(run.stdout).toContain('test-only seam')
+    expect(run.stdout).toContain('7/7')
+    expect(run.stdout).toMatch(/do not skip it, delete it/i)
+  })
+
+  it('uses one string at both call sites, never two copies', () => {
+    // Two copies of a sentence drifting apart is the defect this issue existed
+    // to fix. Both `fail legacy-sigkill` sites must reference the variable.
+    const calls = gate.match(/fail legacy-sigkill .*/g) ?? []
+    expect(calls.length).toBe(2)
+    for (const call of calls) expect(call).toContain('"$LEGACY_SIGKILL_DECIDED_RED"')
+  })
+
+  it('is still exit-fatal, so a decided red cannot be mistaken for a pass', () => {
+    expect(gate).toMatch(/RESULT\[legacy-sigkill\]:-\}" != FAIL/)
+  })
+})
+
 describe('the coordinator came back as an installed build', () => {
   const BOOTSTRAP = { instanceId: 'update-e2e', appVersion: '0.1.1-edge.2', installKind: 'installed' }
   const ROLLED_OUT = { instanceId: 'update-e2e', appVersion: '0.1.2-dev.1+316f98f', installKind: 'installed' }

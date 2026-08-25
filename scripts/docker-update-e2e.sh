@@ -83,6 +83,40 @@ declare -A PARENT_PID=()
 declare -A PARENT_INVOCATION=()
 declare -A PARENT_RESTARTS=()
 
+# WHY THIS ROW IS RED, IN THE ROW ITSELF (POD-2747, decided in POD-2462).
+#
+# A permanent red with no stated cause becomes a row people skip, then a row
+# people delete, and then a gap nobody remembers choosing. So the reason ships in
+# the evidence string: the matrix has to say this is a DECISION, not a failure.
+#
+# It is red because nothing here executes product code. The migration's nine kill
+# boundaries are exposed only through `deps.checkpoint`, an optional injected
+# dependency on `reconcileSupervision`; all three production call sites in
+# apps/cli/src/cli.ts pass either nothing or only `parentHealthy`. Driving them
+# against the PACKAGED binary would therefore mean adding a kill-phase seam to
+# the shipped artifact — a production seam existing solely for a test. This epic
+# refused to relax the tampered-artifact refusal, the disk floor and the
+# capability guard to satisfy checks; this would be the same trade with a better
+# excuse, and unlike those it would ship.
+#
+# What makes it a limitation rather than a hole is that the behaviour beneath IS
+# covered: scripts/topology-migration-live.integration.test.ts kills the
+# production migrator at each boundary it can reach and passes 7/7, verified
+# armed by pointing its recovery probe at a dead port (all four recovery phases
+# redden). Two production boundaries — after-legacy-runtime-mask and
+# after-parent-start — are covered by NOTHING, packaged or source; that gap is
+# tracked separately and is cheap to close in that same vitest matrix.
+#
+# ONE string, used by both call sites. Two copies of a sentence drifting apart is
+# the defect this row's own issue existed to fix; it is not being reintroduced
+# three lines from its own explanation.
+LEGACY_SIGKILL_DECIDED_RED="DECIDED RED, not a regression: no product code is reachable from this row. \
+The migration's kill boundaries are exposed only through an optional injected deps.checkpoint that no \
+production call site passes, so reaching them against the packaged binary needs a test-only seam in the \
+shipped artifact — refused. The behaviour beneath is covered at 7/7 by \
+scripts/topology-migration-live.integration.test.ts, proven armed. This row will not go green; do not \
+skip it, delete it, or read it as a defect."
+
 say() { printf '[update-e2e] %s\n' "$*"; }
 die() { say "FATAL: $*" >&2; exit 1; }
 pass() { RESULT["$1"]=PASS; DETAIL["$1"]="$2"; }
@@ -1810,7 +1844,7 @@ main() {
     legacy_migration "$LEGACY" >"$WORK/logs/legacy-migration.log" 2>&1
     pass legacy-migration "packaged three-unit layout stayed fully armed through an unhealthy parent and then converged"
     CURRENT_SCENARIO=legacy-sigkill
-    fail legacy-sigkill "packaged per-transition SIGKILL coverage is not implemented; source-injected checkpoint evidence remains rejected"
+    fail legacy-sigkill "$LEGACY_SIGKILL_DECIDED_RED"
     exit 1
   fi
 
@@ -2043,7 +2077,7 @@ main() {
   fi
 
   CURRENT_SCENARIO=legacy-sigkill
-  fail legacy-sigkill "source-backed migration evidence was rejected; per-transition packaged SIGKILL coverage is not implemented"
+  fail legacy-sigkill "$LEGACY_SIGKILL_DECIDED_RED"
 
   prepare_legacy_machine
   CURRENT_SCENARIO=legacy-migration
