@@ -104,7 +104,10 @@ M0 below, since without them we cannot *know* a release is safe.
 ### M0 — we can trust a release again
 
 No behaviour changes. Two things only:
-1. The web app loads on this branch (POD-2470).
+1. Land and verify the fixes already sitting in review — POD-2470 (web UI broke
+   on an earlier tip; the fix exists on its branch), POD-2116, POD-2761,
+   POD-2602, POD-2775, POD-2298 — each under merge-lock with its reviewer
+   verdict, each then driven live.
 2. The automated checks mean something: today several fail for reasons unrelated
    to this project (outdated test snapshots, a type-checker that misses folders
    or exhausts the machine, a "test" command that runs almost nothing). Fix
