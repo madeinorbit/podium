@@ -217,6 +217,24 @@ describe('resolveReleaseTarget', () => {
     )
   })
 
+  it('offers a shell-requiring release whose satisfying shell asset is unreachable', async () => {
+    // The narrow case the two rows above cannot reach. When a release DOES state
+    // `minRequired.desktop`, the manifest is fetched — and the temptation is to
+    // HEAD the shell assets while we are holding it. That would put the
+    // stranding straight back for exactly the releases that care most about the
+    // shell: the version window is satisfied, nothing is wrong with the payload,
+    // and a pruned old asset would still retract it. Reachability of the shell
+    // is the shell's own business; this resolver returns the headless target,
+    // which never names these URLs.
+    const release = { ...releaseManifest(), minRequired: { desktop: '0.4.0' } }
+    const fetchImpl = fetchFixture({ release, artifactStatus: { [DESKTOP_URL]: 404 } })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
+      version: '0.4.2',
+    })
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).not.toContain(DESKTOP_URL)
+  })
+
   it('refuses a standing shell outside the declared compatibility window', async () => {
     const release = {
       ...releaseManifest(),
