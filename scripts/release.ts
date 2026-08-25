@@ -150,19 +150,109 @@ export function buildHeadlessManifest(p: {
   })
 }
 
-function arg(name: string): string | undefined {
-  const i = process.argv.indexOf(name)
-  return i >= 0 ? process.argv[i + 1] : undefined
+type OptionKind = 'value' | 'repeated' | 'flag'
+
+/**
+ * EVERY OPTION THIS SCRIPT UNDERSTANDS, AND THE SHAPE OF ITS VALUE (POD-2800).
+ *
+ * This table is the only declaration. {@link parseReleaseArgs} refuses anything that
+ * is not in it, so a new option is one line here plus the read of it — and if you add
+ * the line without adding the read, you have built back the bug this table replaced.
+ *
+ * WHY A TABLE AND NOT `process.argv.indexOf`. The old reader matched argv entries
+ * exactly, so `--channel stable` worked and `--channel=stable` was dropped on the
+ * floor without a word: the run then built edge while the operator believed they had
+ * asked for stable. Silence is the expensive half of that. A refused release costs a
+ * retry; a release published to a channel nobody asked for costs a wrong release on a
+ * feed real installs read, and no way to take it back.
+ *
+ *   value    — `--tag v0.4.2` or `--tag=v0.4.2`, given at most once
+ *   repeated — the same, but may be given more than once and collects in order
+ *   flag     — presence only; handing it a value is a refusal, not a truthy string
+ */
+const RELEASE_OPTIONS = {
+  '--channel': 'value',
+  '--tag': 'value',
+  '--prepare-arch': 'value',
+  '--publish-dir': 'value',
+  '--min-required': 'value',
+  '--platform': 'repeated',
+  '--critical': 'flag',
+  '--prepare-cross': 'flag',
+} as const satisfies Record<`--${string}`, OptionKind>
+
+export type ReleaseOption = keyof typeof RELEASE_OPTIONS
+
+export type ReleaseArgs = {
+  /** The value of a `value` option, or undefined when it was not passed. */
+  value(option: ReleaseOption): string | undefined
+  /** Whether a `flag` option was passed. */
+  flag(option: ReleaseOption): boolean
+  /** Every value of a `repeated` option, in the order written. */
+  repeated(option: ReleaseOption): string[]
 }
 
-function minRequiredArg(): MinRequiredShape | undefined {
-  const flag = '--min-required'
-  const index = process.argv.indexOf(flag)
-  if (index < 0) return undefined
-  const value = process.argv[index + 1]
-  if (!value || value.startsWith('--')) {
-    throw new Error('--min-required needs a JSON object')
+/**
+ * Read a release command line, or refuse it by name.
+ *
+ * Exported so `scripts/release.test.ts` can watch each refusal fire: a guard nobody
+ * has seen fail is not yet evidence.
+ */
+export function parseReleaseArgs(argv: readonly string[]): ReleaseArgs {
+  const declared: Record<string, OptionKind | undefined> = RELEASE_OPTIONS
+  const understood = Object.keys(RELEASE_OPTIONS).join(', ')
+  const given = new Map<string, string[]>()
+
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i] as string
+    if (!token.startsWith('--')) {
+      throw new Error(
+        `release: unexpected argument '${token}'; this script takes options only (${understood})`,
+      )
+    }
+    const equals = token.indexOf('=')
+    const name = equals >= 0 ? token.slice(0, equals) : token
+    const inline = equals >= 0 ? token.slice(equals + 1) : undefined
+    const kind = declared[name]
+    if (!kind) {
+      throw new Error(`release: unknown option '${name}'; understood options are ${understood}`)
+    }
+
+    if (kind === 'flag') {
+      if (inline !== undefined) {
+        throw new Error(`release: '${name}' takes no value, but was given '${token}'`)
+      }
+      given.set(name, [])
+      continue
+    }
+
+    // With `=` the operator has spelled the value out, so it is taken as written even
+    // if it looks like another option. Without one, the next token is only a value if
+    // it is not itself an option — otherwise `--channel --critical` would silently
+    // release to a channel named `--critical`.
+    const value = inline ?? (argv[i + 1]?.startsWith('--') ? undefined : argv[++i])
+    if (value === undefined || value === '') {
+      throw new Error(`release: '${name}' needs a value`)
+    }
+    const already = given.get(name)
+    if (already && kind === 'value') {
+      throw new Error(
+        `release: '${name}' was given more than once ('${already[0]}' and '${value}')`,
+      )
+    }
+    given.set(name, [...(already ?? []), value])
   }
+
+  return {
+    value: (option) => given.get(option)?.[0],
+    flag: (option) => given.has(option),
+    repeated: (option) => given.get(option) ?? [],
+  }
+}
+
+function minRequiredArg(args: ReleaseArgs): MinRequiredShape | undefined {
+  const value = args.value('--min-required')
+  if (value === undefined) return undefined
   try {
     return MinRequired.parse(JSON.parse(value))
   } catch (error) {
@@ -498,13 +588,16 @@ export function publishPreparedHeadless(p: {
 }
 
 async function main(): Promise<void> {
+  // Runs on the raw command line, ahead of the parser, so the forbidden spelling keeps
+  // its own refusal instead of being reported as merely unknown.
   assertNoCallerSuppliedClientRootDigest(process.argv.slice(2), process.env)
-  const channel = (arg('--channel') ?? 'edge') as 'stable' | 'edge'
+  const args = parseReleaseArgs(process.argv.slice(2))
+  const channel = args.value('--channel') ?? 'edge'
   if (channel !== 'stable' && channel !== 'edge') throw new Error(`unknown channel ${channel}`)
-  const tag = channel === 'stable' ? (arg('--tag') ?? '') : 'edge'
-  const prepareArch = arg('--prepare-arch')
-  const publishDir = arg('--publish-dir')
-  const prepareCross = process.argv.includes('--prepare-cross')
+  const tag = channel === 'stable' ? (args.value('--tag') ?? '') : 'edge'
+  const prepareArch = args.value('--prepare-arch')
+  const publishDir = args.value('--publish-dir')
+  const prepareCross = args.flag('--prepare-cross')
   const modes = [prepareArch, publishDir, prepareCross || undefined].filter(Boolean)
   if (modes.length > 1) {
     throw new Error('choose one of --prepare-cross, --prepare-arch or --publish-dir')
@@ -514,9 +607,7 @@ async function main(): Promise<void> {
     // `--platform` may be repeated to build a subset; the dev publisher uses that to
     // mint only the platforms its fleet actually has machines for. A release passes
     // none and gets all four.
-    const requested = process.argv
-      .filter((a) => a.startsWith('--platform='))
-      .map((a) => a.slice('--platform='.length))
+    const requested = args.repeated('--platform')
     for (const value of requested) {
       if (!isHeadlessPlatform(value)) {
         throw new Error(
@@ -541,8 +632,8 @@ async function main(): Promise<void> {
       channel,
       tag,
       dir: publishDir,
-      critical: process.argv.includes('--critical'),
-      minRequired: minRequiredArg(),
+      critical: args.flag('--critical'),
+      minRequired: minRequiredArg(args),
     })
     return
   }
@@ -560,8 +651,8 @@ async function main(): Promise<void> {
     tag,
     dir: 'dist-bun/release',
     requiredTargets: [prepared.target],
-    critical: process.argv.includes('--critical'),
-    minRequired: minRequiredArg(),
+    critical: args.flag('--critical'),
+    minRequired: minRequiredArg(args),
   })
 }
 
