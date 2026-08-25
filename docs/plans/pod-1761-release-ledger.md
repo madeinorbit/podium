@@ -254,7 +254,32 @@ output after a call that reported success. A pre-existing gap on the old path th
 the headless work inherited. POD-2792 is re-scoped: it no longer blocks the
 release, and it must not be fixed only on the new path.
 
-**NEW DEFECT ON THE OLD PATH: the terminal driver never reports `phase:'working'`**
+**CORRECTED — it was ONE HARNESS, not the terminal driver.** Driven by POD-2801,
+`codex/generic-pty` and `grok/generic-pty` both report `working` correctly. The
+defect was **opencode only**, and its cause was neither the driver nor the board's
+read path: `observeOpencodeState` had TWO readers on ONE SQLite cursor —
+`emitTranscript` and `tick` both query the parts newer than `(lastPartTime,
+lastPartId)` and both advance it, and `pollOnce` ran them in that order. So on
+every tick of every turn the transcript read consumed the new rows and the state
+read queried from a cursor already past them: zero rows, no
+`prompt_submitted`/`activity`/`turn_completed`, `onEvents` never called, the
+reducer never reached. The phase kept whatever `bootEvents` seeded — `idle` —
+while the transcript filled. Fixed to one reader per cursor. Driven before/after
+with the PTY's own output bytes as control: **`idle`×60 over 121,554 bytes →
+`working`×12 over 159,751 bytes** (`604f8d7de`).
+
+**BUT CLAUDE HAS THE SAME SYMPTOM FROM AN UNRELATED CAUSE, and it is the column
+that can stop the release.** `claude-pty` never reports `working` either:
+79,242 bytes across 49 of 59 one-second intervals, 12,267 transcript chars,
+`phase=idle` at all 60 polls. Claude's phase comes from http hooks folded by the
+causal observer rather than from a poller; the harness **does** fire them
+(verified against a throwaway sink — `UserPromptSubmit` and `Stop` both posted),
+and the checkpoint names the real provider session id — but its cursor sits at
+`components {transcript: 0, hook: 0}`. **POD-2810, started.** Claude is the
+harness this epic promises will be no worse, and today a busy claude session
+reads as idle for its whole turn.
+
+**The original, too-broad claim, kept because it is what I wrote:**
 — 13,250 characters of output across 60 polls in 60 seconds, `idle` every time. A
 busy terminal session renders as idle on the home board for the entire turn. The
 catalogue lists that row `wired` for terminal, which is exactly what that column
