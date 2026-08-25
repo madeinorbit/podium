@@ -27,6 +27,7 @@ import { AttachmentStrip } from './AttachmentStrip'
 import {
   COMPOSER_LINE,
   COMPOSER_MIN_HEIGHT,
+  composerAtRest,
   composerFieldHeight,
   composerMaxHeight,
   composerScrolls,
@@ -160,7 +161,7 @@ export function Composer({
   const height = composerFieldHeight(measured, line)
   const scrolls = composerScrolls(measured, line)
   const maxHeight = composerMaxHeight(line)
-  const atRest = height === COMPOSER_MIN_HEIGHT
+  const atRest = composerAtRest(measured, line)
 
   // Web has to be asked for the content height; native volunteers it through
   // onContentSizeChange below. `fontScale` is a dependency so raising Dynamic
@@ -314,6 +315,7 @@ export function Composer({
           <View style={[styles.fieldWrap, { height }]}>
             <TextInput
               ref={inputRef}
+              {...composerFieldProps}
               accessibilityLabel={placeholder}
               style={[styles.input, { maxHeight }]}
               value={composedText}
@@ -343,6 +345,20 @@ export function Composer({
     </View>
   )
 }
+
+/**
+ * Names the field for the web shell's one-line placeholder rule [POD-1666].
+ *
+ * The composer rests at ONE line, so a placeholder that wraps has nowhere to
+ * put its second one — it was silently clipped mid-word. The rule that
+ * ellipsizes it lives in scripts/patch-web-html.ts with the app's other
+ * browser tells, and needs a handle on the node; `dataSet` is
+ * react-native-web's escape hatch to a `data-*` attribute, the same one
+ * ../lib/selectable.ts uses. On native the placeholder is laid out by the
+ * platform and takes no rule.
+ */
+const composerFieldProps: object =
+  Platform.OS === 'web' ? { dataSet: { composerField: 'true' } } : {}
 
 function VoiceButton({
   starting,

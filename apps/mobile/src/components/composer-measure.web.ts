@@ -24,6 +24,15 @@ import type { TextInput } from 'react-native'
  * a column flex container stretches its items on the cross axis, so the text
  * keeps wrapping exactly as it did.
  *
+ * THE PLACEHOLDER IS NOT CONTENT, but `scrollHeight` counts it. An empty
+ * textarea whose placeholder wraps measures as many lines as the placeholder
+ * takes — "Message — resumes the agent…" is two of them on a phone. That made
+ * the resting composer two lines tall, and, worse, made it never look at rest:
+ * the caller reports its height to the feed only while the field is resting, so
+ * the transcript stopped paying for the composer and its last message scrolled
+ * underneath [POD-1666]. The placeholder is blanked for the same instant the
+ * box is collapsed, inside the same effect, so nothing is painted without it.
+ *
  * `width` is not read; it is a dependency so a rotation, a split-view resize or
  * a Dynamic Type change re-measures the new wrapping.
  */
@@ -41,9 +50,12 @@ export function useComposerMeasure(
     if (!node || typeof node.scrollHeight !== 'number' || !node.style) return
     const previousHeight = node.style.height
     const previousFlex = node.style.flex
+    const previousPlaceholder = node.placeholder
     node.style.flex = 'none'
     node.style.height = '0px'
+    node.placeholder = ''
     const measured = node.scrollHeight
+    node.placeholder = previousPlaceholder
     node.style.flex = previousFlex
     node.style.height = previousHeight
     // A layout engine that reports nothing (happy-dom, a detached node) must
