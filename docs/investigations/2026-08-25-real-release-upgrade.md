@@ -157,10 +157,18 @@ has.
 ## 6. How you test it by hand
 
 ```bash
-PODIUM_UPDATE_E2E_ONLY=real-release PODIUM_UPDATE_E2E_HOLD=real-release bun run test:update-e2e
+PODIUM_UPDATE_E2E_ONLY=real-release PODIUM_UPDATE_E2E_HOLD=real-release \
+  bash scripts/docker-update-e2e.sh
 ```
 
 This leaves a real published `0.1.0` install standing, its data seeded, and the new release
 already offered to it — so the next move is the same click a user would make, and **the first
 hop is performed by the old updater**. The printed instructions name the UI URL, the teardown,
 and how to flip the desktop manifest back to a divergent version to watch it refuse instead.
+
+A held sandbox was verified working: the UI answers on the host with
+`appVersion 0.1.0`, `updates.fleet` reports `targetVersion 0.2.0` and `behind 1`, the three
+legacy units are standing, and the seeded `real_release_probe` row is present. The
+host-reachability drop-in is written for the parent unit as well as the server unit it
+replaces, so the UI survives the convergence — and `podium.service.d` is not a `.service`,
+so the migration's own unit listing does not see it.

@@ -246,11 +246,15 @@ not infer that 1.2 GiB of free disk is sufficient.
 
 ## Real-release lane
 
+> The commands here invoke the script directly. The `bun run test:update-e2e` form used
+> elsewhere in this document does not resolve on this branch — `package.json` defines no
+> such script — so those are documented but not runnable as written.
+
 Every other lane in this gate starts at current source. This one starts at a **real
 published release** and lets that release's own updater perform the first hop:
 
 ```bash
-PODIUM_UPDATE_E2E_ONLY=real-release bun run test:update-e2e
+PODIUM_UPDATE_E2E_ONLY=real-release bash scripts/docker-update-e2e.sh
 ```
 
 It downloads the published `v0.1.0` headless tarball, verifies it against the
@@ -333,7 +337,8 @@ in the field. The row keeps it reproduced by the old code rather than argued fro
 ### Prove it can fail
 
 ```bash
-PODIUM_UPDATE_E2E_ONLY=real-release PODIUM_UPDATE_E2E_PROVE_FAILURE=real-release-migration bun run test:update-e2e
+PODIUM_UPDATE_E2E_ONLY=real-release PODIUM_UPDATE_E2E_PROVE_FAILURE=real-release-migration \
+  bash scripts/docker-update-e2e.sh
 ```
 
 This makes the parent unit's path a directory, so `reconcileSupervision`'s one write fails,
