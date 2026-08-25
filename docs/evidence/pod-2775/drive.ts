@@ -204,6 +204,20 @@ interface JournalEntry {
 
 interface Arm {
   agentKind: string
+  /**
+   * A MODEL TO PIN THE SESSION TO, where this host has one it will accept.
+   *
+   * Without it the journalled policy is empty on both sides of the park and the
+   * drive cannot show that a wake KEEPS the operator's choice — the third
+   * review finding. `sessions.create` takes it, and the daemon carries it into
+   * the spec every later turn is sent with.
+   *
+   * Absent for opencode: this host's only provider credential is `opencode-go`
+   * and the family refuses anything that is not `provider/model`, so naming one
+   * here would be a guess. That arm's model property is pinned in the
+   * conformance corpus instead, where the fixture knows what its harness takes.
+   */
+  model?: { model: string; effort?: string }
   /** Where the daemon persists this family's binding journal. */
   journalDir: string
   /** The field that names the CONVERSATION — the value a resume must reuse. */
@@ -236,6 +250,7 @@ const ARMS: Record<string, Arm> = {
         .filter((l) => l.includes('codex') && l.includes(tag) && !l.includes('ps -eo'))
         .map(asChild)
     },
+    model: { model: 'gpt-5-codex', effort: 'high' },
     scopeUnit: (sid) => `podium-cx-${sid}.scope`,
   },
   opencode: {
@@ -325,6 +340,7 @@ console.log(`creating a ${KIND} session with one exchange…`)
 const created = (await trpc('sessions.create', {
   cwd: REPO,
   agentKind: arm.agentKind,
+  ...(arm.model ?? {}),
   initialPrompt: `Say the word ${ALPHA} and nothing else.`,
 })) as { result?: { data?: { sessionId?: string } }; error?: unknown }
 const sid = created.result?.data?.sessionId
@@ -418,7 +434,9 @@ console.log(`  row status before the park: ${live?.status}`)
  * comparing two undefineds and calling them equal.
  */
 console.log(`  binding journal conversation: ${arm.conversation(journalBefore) ?? 'UNREADABLE'}`)
-console.log(`  binding journal model:        ${JSON.stringify(journalBefore?.model ?? null)}`)
+console.log(
+  `  binding journal model:        ${JSON.stringify(journalBefore?.model ?? null)}${arm.model ? ` (asked for ${JSON.stringify(arm.model)})` : ''}`,
+)
 
 // --- 1. the park's receipt --------------------------------------------------
 console.log('\nhibernating…')
