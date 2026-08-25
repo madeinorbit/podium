@@ -8,11 +8,8 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Fast jobs install with --ignore-scripts (same rationale as release.yml): node-pty's
-# node-gyp postinstall crash-loops on CI runner toolchains, and nothing they run needs
-# it — the unit scope (vitest.unit.config.ts) excludes every suite that actually
-# spawns a PTY/abduco/real server. The oracle job below is the exception: it runs the
-# process-spawning lanes, so it installs with scripts and real system deps.
+# CI installs with --ignore-scripts: Podium's real PTYs use Bun.Terminal and its
+# vendored abduco is built on first use, so validation has no package lifecycle prerequisite.
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -291,9 +288,7 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       # Podium builds its vendored abduco on first use; Ubuntu 24.04 no longer
       # provides the package in the runner's configured apt repositories.
-      # The exception to --ignore-scripts above: node-pty's native addon must
-      # exist for lanes that spawn real PTYs.
-      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile --ignore-scripts
       # No playwright install here on purpose: the e2e LANE is browser-free — it
       # is 7 vitest files under tests/e2e (verified: none of them, nor their
       # helpers, import playwright). The Playwright browser suite is
@@ -338,9 +333,8 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-      # The harness relay builds Podium's vendored abduco on first use; node-pty
-      # still needs install scripts below for its native addon.
-      - run: bun install --frozen-lockfile
+      # The harness relay builds Podium's vendored abduco on first use.
+      - run: bun install --frozen-lockfile --ignore-scripts
       # The config declares chromium and webkit projects; both browsers plus
       # their OS deps have to be present or every suite errors on setup.
       - name: playwright browsers

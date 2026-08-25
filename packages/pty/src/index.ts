@@ -2,9 +2,8 @@
  * @podium/pty — the PTY kernel (L2). Owns everything between a child process's
  * pseudo-terminal and the bytes a client renders:
  *
- *  - **backends** — a swappable {@link PtyBackend}: `Bun.spawn({ terminal })` when
- *    the running Bun actually has it (feature-detected, never assumed — a stale
- *    Bun in the daemon once rendered every remote terminal black) else node-pty.
+ *  - **backend** — `Bun.spawn({ terminal })`, feature-detected rather than assumed
+ *    because a stale Bun in the daemon once rendered every remote terminal black.
  *  - **durable hosts** — abduco (with the vendored ISC source built/embedded on
  *    demand) and tmux, plus the per-master systemd transient scopes that keep an
  *    agent's CPU/IO weight off the daemon's. A durable host is what makes a

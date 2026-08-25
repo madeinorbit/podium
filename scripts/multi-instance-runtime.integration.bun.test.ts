@@ -146,7 +146,7 @@ function instanceEnv(
     PODIUM_NO_RELAY: '1',
     PODIUM_ABDUCO: join(TEST_ROOT, 'missing-abduco'),
     PODIUM_NO_SCOPE: '1',
-    PODIUM_PTY_BACKEND: 'node-pty',
+    PODIUM_PTY_BACKEND: 'bun-terminal',
     PATH: RUNTIME_BIN,
     SHELL: '/bin/bash',
   })

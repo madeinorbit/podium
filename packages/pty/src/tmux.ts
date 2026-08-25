@@ -140,7 +140,7 @@ export async function spawnTmuxAgent(opts: TmuxSpawnOptions): Promise<AgentSessi
   })
 }
 
-/** Attach a node-pty tmux client to an existing session. dispose() detaches (agent survives). */
+/** Attach a Bun.Terminal tmux client to an existing session. dispose() detaches (agent survives). */
 export function attachTmuxAgent(opts: {
   label: string
   cols: number

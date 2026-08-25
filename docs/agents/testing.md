@@ -263,10 +263,9 @@ hermetic setup, lane exclusions, and exit-status safeguards.
   ([docs/multi-instance.md](../multi-instance.md)) instead of hand-rolled
   `PODIUM_PORT`/`PODIUM_STATE_DIR` overrides.
 - **CI runs the oracle: unit + typecheck + integration + e2e + multi-instance**
-  [POD-295]. The light jobs (lint/typecheck/migrations/unit) install with
-  `--ignore-scripts`, so node-pty's native addon never exists there; the `oracle`
-  matrix job is the exception — it installs fully and adds abduco, because its
-  lanes spawn real PTYs. Agent-smoke is NEVER in CI (it bills real LLM quota) and
+  [POD-295]. CI installs with `--ignore-scripts`; real PTYs use Bun.Terminal and
+  Podium builds its vendored abduco on first use. Agent-smoke is NEVER in CI
+  (it bills real LLM quota) and
   runs only on explicit request.
 - **The oracle is the rewrite's behavioral contract** [POD-295]: `bun run oracle`
   runs all five lanes locally in one command (sequentially — the heavy lanes bind

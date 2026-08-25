@@ -1,6 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { ensureBunNodePtyTtyPolyfill, resolveNodeExecutable } from '@podium/pty'
-import * as pty from 'node-pty'
+import { bunTerminalBackend, spawnAgent } from '@podium/pty'
 
 const CLI = fileURLToPath(new URL('../src/cli.tsx', import.meta.url))
 const PKG_DIR = fileURLToPath(new URL('..', import.meta.url))
@@ -21,23 +20,24 @@ function nowMs(): number {
 }
 
 export function bootKeyecho(args: string[] = []): Keyecho {
-  // node-pty under Bun needs the tty.ReadStream polyfill (oven-sh/bun#25822).
-  ensureBunNodePtyTtyPolyfill()
-  // Real Node absolute path — Bun prepends a `node`→bunx shim on PATH under `bun --bun`.
-  const proc = pty.spawn(resolveNodeExecutable(), ['--import', 'tsx', CLI, ...args], {
-    name: 'xterm-256color',
-    cols: 100,
-    rows: 30,
-    cwd: PKG_DIR,
-    env: process.env as Record<string, string>,
-  })
+  const session = spawnAgent(
+    {
+      cmd: process.execPath,
+      args: [CLI, ...args],
+      cols: 100,
+      rows: 30,
+      cwd: PKG_DIR,
+      env: process.env as Record<string, string>,
+    },
+    bunTerminalBackend(),
+  )
   let raw = ''
-  proc.onData((d) => {
-    raw += d
+  session.onFrame((frame) => {
+    raw += Buffer.from(frame.data, 'base64').toString('utf8')
   })
   const text = () => raw.replace(ANSI, '')
   return {
-    send: (bytes) => proc.write(bytes),
+    send: (bytes) => session.write(Buffer.from(bytes, 'latin1').toString('base64')),
     text,
     waitFor: (pred, timeoutMs = 4000) =>
       new Promise<void>((resolve, reject) => {
@@ -52,7 +52,7 @@ export function bootKeyecho(args: string[] = []): Keyecho {
       }),
     dispose: () => {
       try {
-        proc.kill()
+        session.dispose()
       } catch {
         /* ignore */
       }

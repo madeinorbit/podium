@@ -7,22 +7,18 @@ afterEach(() => {
   else process.env.PODIUM_PTY_BACKEND = orig
 })
 
-// The suite runs under Bun in CI and prod, but these tests stay correct under
-// Node too: every expectation is derived from the LIVE runtime rather than
-// assuming one. `process.versions.bun` is the independent oracle (set only under
-// Bun) — using it keeps the isUnderBun()/hasBunTerminal() assertions non-circular.
+// Podium and its validation lanes run under Bun. `process.versions.bun` is an
+// independent oracle for the feature-detection helpers.
 const reallyUnderBun = !!process.versions.bun
-// Under Bun the auto path takes the terminal PTY; under Node it falls to node-pty.
-const autoBackendName = isUnderBun() && hasBunTerminal() ? 'bun-terminal' : 'node-pty'
 
 describe('defaultPtyBackend', () => {
-  it('auto-selects the runtime PTY (bun-terminal under Bun, else node-pty)', () => {
+  it('selects Bun.Terminal', () => {
     delete process.env.PODIUM_PTY_BACKEND
-    expect(defaultPtyBackend().name).toBe(autoBackendName)
+    expect(defaultPtyBackend().name).toBe('bun-terminal')
   })
-  it('honors PODIUM_PTY_BACKEND=node-pty', () => {
+  it('rejects the retired node-pty override', () => {
     process.env.PODIUM_PTY_BACKEND = 'node-pty'
-    expect(defaultPtyBackend().name).toBe('node-pty')
+    expect(() => defaultPtyBackend()).toThrow(/requires bun-terminal/)
   })
   it('forces bun-terminal when the API is present, else throws', () => {
     process.env.PODIUM_PTY_BACKEND = 'bun-terminal'
@@ -40,9 +36,6 @@ describe('defaultPtyBackend', () => {
 
 describe('bun terminal feature-detection', () => {
   it('isUnderBun() matches the runtime and hasBunTerminal() tracks it', () => {
-    // The probes must move together so the auto path picks bun-terminal iff the
-    // terminal PTY API is present: true under Bun (>= our floor, which CI + prod
-    // pin), false under Node.
     expect(isUnderBun()).toBe(reallyUnderBun)
     expect(hasBunTerminal()).toBe(reallyUnderBun)
   })

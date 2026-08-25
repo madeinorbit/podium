@@ -434,8 +434,8 @@ export function packageHeadlessForFreshClients(
   }
   const env = process.env
   // Refuse to compile with a Bun whose terminal PTY API is missing (feature-detected, not
-  // version-guessed). The compiled daemon's ONLY PTY is Bun's terminal — `bun build --compile`
-  // can't embed node-pty's native addon — so an old build Bun would silently ship a binary
+  // version-guessed). The compiled daemon's PTY is Bun.Terminal, so an old build Bun
+  // would silently ship a binary
   // whose remote terminals render black (proc.terminal undefined on attach). This is the guard
   // that answers "why was the build allowed to use an old Bun": now it isn't.
   if (!hasBunTerminal())

@@ -19,7 +19,7 @@ import type { ShippingExecutionPlane } from '../shipping/executor'
 import type { DiscoveryWorkerClient } from '../worker-client'
 import type { SessionCwdTracker } from '../worktree-resolve'
 
-/** What holds the agent's PTY across daemon restarts. `none` = bare node-pty. */
+/** What holds the agent's PTY across daemon restarts. `none` = bare Bun.Terminal. */
 export type DurableBackend = 'abduco' | 'tmux' | 'none'
 
 /**

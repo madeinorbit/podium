@@ -2,7 +2,7 @@
   "name": "@podium/pty",
   "version": "0.0.0",
   "private": true,
-  "description": "Harness-agnostic PTY kernel: swappable PTY backends (Bun.Terminal / node-pty), durable session hosts (abduco, tmux, systemd scopes) with the vendored abduco build, byte framing, OSC title scan and redraw.",
+  "description": "Harness-agnostic Bun.Terminal PTY kernel with durable session hosts (abduco, tmux, systemd scopes), byte framing, OSC title scan and redraw.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -27,9 +27,6 @@
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*"
-  },
-  "optionalDependencies": {
-    "node-pty": "^1.0.0"
   },
   "scripts": {
     "build": "tsup",

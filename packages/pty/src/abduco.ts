@@ -922,7 +922,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
 }
 
 /**
- * Attach a node-pty client to an existing abduco session. dispose() SIGKILLs the
+ * Attach a Bun.Terminal client to an existing abduco session. dispose() SIGKILLs the
  * client (the master + agent survive) — a hard kill on purpose: the client's atexit
  * handler would otherwise print cursor/alt-screen restore chrome into the stream.
  *

@@ -12,9 +12,8 @@ bot: just open a pull request.
 
 - **Bun ≥ 1.3.14** — package manager, task runner, bundler, **and the runtime**. Source-only
   tools use the `@podium/source` condition to resolve workspace packages to `src`; the normal live
-  development backend runs from an installed Bun-compiled bundle. The PTY backend is selected at
-  runtime — `Bun.Terminal` under Bun, so the `node-pty` native addon is never loaded. (Node 22 is
-  only needed for legacy paths; `.nvmrc` pins it for those.)
+  development backend runs from an installed Bun-compiled bundle. Agent PTYs use
+  `Bun.Terminal`.
 - **macOS:** Xcode Command Line Tools (`xcode-select --install`). A C compiler (`cc`/clang) compiles
   the vendored `abduco` session helper into `~/.podium/bin/` on first daemon start; without it,
   sessions don't survive a daemon restart. `tmux` is used as a fallback, or set

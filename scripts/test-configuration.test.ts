@@ -553,6 +553,17 @@ describe('test lane configuration', () => {
     expect(pkg.scripts.test).not.toContain('scripts/test.ts')
   })
 
+  it('keeps the native node-pty backend retired', () => {
+    const lock = readFileSync(new URL('../bun.lock', import.meta.url), 'utf8')
+    expect(lock).not.toContain('"node-pty"')
+    for (const path of [
+      '../packages/pty/src/backends/node-pty-backend.ts',
+      '../packages/pty/src/backends/bun-node-pty-tty-polyfill.ts',
+    ]) {
+      expect(existsSync(new URL(path, import.meta.url)), path).toBe(false)
+    }
+  })
+
   it('keeps rewrite migration tests out of routine package validation', () => {
     expect(config(scriptsConfig).test?.exclude).toContain('scripts/rearch-audit.test.ts')
     expect(config(rearchConfig).test?.include).toEqual(['scripts/rearch-audit.test.ts'])

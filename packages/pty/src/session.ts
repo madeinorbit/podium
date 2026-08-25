@@ -70,7 +70,7 @@ export function spawnAgent(
     rows: opts.rows,
     cwd: opts.cwd ?? process.cwd(),
     // The frontend is xterm.js, which renders 24-bit color. TERM=xterm-256color is set
-    // explicitly (not via node-pty's `name`) so BOTH backends advertise it identically.
+    // explicitly so every launch advertises the same terminal capabilities.
     // COLORTERM is the companion signal supports-color/chalk read to unlock truecolor;
     // without it agents like Claude Code degrade to a 256-color approximation. We assert
     // both after process.env (the frontend's capability doesn't depend on how the daemon
