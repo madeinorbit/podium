@@ -37,6 +37,36 @@ Status 2026-08-25 15:32: POD-2775 reports fixed AND driven (A/B evidence on the
 issue, branch tip `a62c09c72`, each fix mutation-checked) — land first, it
 unblocks judging POD-2761.
 
+**Step 1 progress, 2026-08-25 evening (coordinator, verified not reported):**
+- POD-2775 **LANDED** at `059dc628a`. Hibernate→resume works on codex: parked
+  session live in 2.4s, ALPHA (pre-park) and BRAVO (post-resume) both in the
+  transcript, against a byte-identical control build where it never came back.
+  Three defects, mutants attributable one test each.
+- POD-2574 **LANDED**. R1 fixed; typecheck fully cached (549ms). Its author
+  reopened F2 against themselves — "already told synchronously" holds for an
+  operator at the composer, is FALSE for an agent mailing another session where
+  nothing renders the return — and found a test red since the commit that
+  introduced it, because nobody had run the module.
+- POD-2761 **REOPENED, and this is the one to watch.** The ordering pin landed
+  (`7c69a6430`) and I verified it myself: the reviewer's previously-surviving
+  mutation now kills exactly one test. But its session closed on item 1 of five,
+  and item 3 is worse: `start()` is not only the cold-start path — `attach()`
+  calls it on two documented CONTINUATION cases, where `spawnAbducoAgent` adopts
+  a LIVE master and only repaints the viewport. So the reset deletes scrollback
+  nothing will redraw and truncates the server's replay log. That is exactly the
+  half of the operator's report the drive could not reproduce, and this change
+  can now CAUSE it. `hasMaster(record.label)` is the named discriminator.
+- POD-2780 (`@podium/web` typecheck red on the tip, named in step 2 below)
+  **FIXED** at `d71456bc8` — a fixture missing `since`/`nativeSubagentCount`.
+  Found by running the whole gate rather than the package I had touched.
+- POD-2631 **fix landed** (`589512488`, "publish in-flight inventory probes").
+  Its real shape is a WINDOW not a wedge: for ~40 minutes after a daemon start,
+  installed harnesses report `not installed` and every spawn fails with a flat
+  refusal. It blocked all claude-code spawns this evening, then self-healed.
+- Gate tooling: the shared Turbo cache now lives inside the repo instead of
+  `/tmp` (it died with every reboot), and `bun run typecheck` caps its own
+  concurrency from free memory. Both were burning this box.
+
 **Step 2 — gates green, and meaningful.** Run on the tip, stating whether
 `PODIUM_TEST_WORKERS` was set (it changes the outcome):
 `bun scripts/typecheck.ts` (25/25), `bun scripts/test.ts` (full suite, under
