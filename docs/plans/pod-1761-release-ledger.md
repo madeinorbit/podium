@@ -168,6 +168,50 @@ the truth** — it is not what to change:
 Measured live on opencode 1.18.16: before, 1 failed with 3 errors; after,
 1 passed, 0 errors, 31s of assertions against 184s of timeouts.
 
+## THE CRITICAL PATH IS CLOSED — hibernate/resume on all three server families
+
+**POD-2775 finished all six blockers; I verified two of them by my own mutation
+rather than by report.**
+
+- Reverting `opencode/runtime.ts` to the pre-fix commit: **5 red**, including
+  *brings a HIBERNATED session back on its own conversation* and *wakes on the
+  SAME model and effort it was parked on* — on **opencode**, not merely codex.
+- The wrong-thread mutant that once survived 269 tests with zero red: codex
+  corpus 155 passed clean, then **6 red** with `'thr-someone-elses-conversation'`.
+  Both restored byte-identical.
+
+**The F1 design answer is better than either option I offered.** I said "either
+the park leaves something `adopt()` can reach, or `adopt()` restarts and
+rejoins". They took the second *and explained why the first is unavailable*:
+making the park leave a live server means not killing it, which is the POD-2249
+lie. Then the real obstacle — `adopt()`'s precondition is a surviving process
+tree and `resume()` is the verb for process-gone, **but `resume()` mints a new
+session id and a wake must keep the old one**, because a row, a client terminal
+and an open tab all still name it. The journal makes the restart safe: `kill()`
+clears it, `hibernate()` keeps it, so an absent entry means retired and a
+mismatched process key means another incarnation — both still throw.
+
+**Two corrections against myself, recorded because the second one matters.** I
+reopened this issue claiming F1 was untouched, having grepped `probeHealth` at
+`opencode-server.ts:608` and found it unchanged. I then "corrected" that by
+saying :608 was a neighbouring client-terminal path. **That was also wrong, in
+the flattering direction.** The author's own record is the accurate one: :608 *is*
+on the resume path, inside the `host.adopt` the driver calls first — what changed
+is that **its refusal is now a fork rather than an end**. The host is entitled to
+say "no live server for this binding"; the driver answers a different question.
+Grepping for the probe will always make this fix look absent.
+
+**POD-2792 fixed interrupt on opencode, two defects deep.** The stop button never
+reached the driver; then, once it did, `POST /abort` ends the turn as
+`session.error` carrying `MessageAborted`, which the driver classified correctly
+as `interrupted` and then **closed as FAILED anyway** — so stopping an agent
+landed it on `phase: errored` with no error to show, where codex reaches `idle`
+from the same button. `MessageAborted` appeared once in the package and no test
+named it; two conformance pins now do.
+
+**So two cells of the opencode column should now flip**, and the drive re-running
+them is the independent confirmation those fixes need.
+
 ## THE COMPARISON THE EPIC IS JUDGED ON — FIRST HARNESS ANSWERED (`5c5a4d547`)
 
 **opencode, driven on BOTH arms, same rig, same probes, same commit, with the arm
