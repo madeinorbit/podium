@@ -212,10 +212,17 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
 
   // `findByText`, not `getByText`: the row's menu is fetched on the right-click
   // rather than carried by the first paint (POD-1239).
+  //
+  // THE TIMEOUT IS EXPLICIT BECAUSE THIS IS THE FIRST MENU OPEN IN THE FILE, and
+  // it therefore pays for the whole deferred menu chunk being transformed and
+  // imported. Under jsdom on a loaded host that alone runs to ~1.2s, which is
+  // past testing-library's 1000ms default — while the very next case, opening
+  // the same menu with the module cached, settles in ~0.1s. The budget is a
+  // module-load cost in the test environment, not a latency the operator sees.
   it('right-clicking a READ issue offers "Mark as unread" and calls markIssueUnread (#138)', async () => {
     render(<SidebarUnified />)
     fireEvent.contextMenu(screen.getByText('Read issue'))
-    fireEvent.click(await screen.findByText('Mark as unread'))
+    fireEvent.click(await screen.findByText('Mark as unread', undefined, { timeout: 5000 }))
     expect(markIssueUnread).toHaveBeenCalledWith('r1')
   })
 
