@@ -5,8 +5,14 @@ The operator's sentence was one symptom. Driven on an isolated instance it is
 process teardown was completely clean, and the park's alarming log pair appears
 on parks that lose nothing.
 
-This directory holds the rig that drives hibernate→resume and the record of what
-it found.
+A review round then found **three more**, all in the same wake path: opencode
+could not come back at all, nothing anywhere asserted that a resumed session was
+the RIGHT conversation, and a wake dropped the session's model. Those are at
+[the bottom of this file](#the-review-round--three-findings-and-what-they-cost-to-prove),
+with their own A/B.
+
+This directory holds the rig that drives hibernate→resume — two arms, `codex`
+and `opencode` — and the record of what it found.
 
 ## The scripts
 
@@ -15,13 +21,14 @@ it found.
 | `drive-env.sh` | isolation environment for the `p2775` instance — source it, never execute it |
 | `drive-up.sh` | brings up server + daemon, split and detached, from this worktree |
 | `drive-verify.sh` | **refuses to let you measure anything** until the running processes are proven to be the commit you name |
-| `drive.ts` | the drive: one exchange, park, resume, another exchange — receipt, process, row, transcript |
+| `drive.ts` | the drive: one exchange, park, resume, another exchange — receipt, process, row, transcript. Takes the arm: `codex` (default) or `opencode` |
 | `drive-down.sh` | stops the pair, keeps the state and logs |
 
 ```
 bash docs/evidence/pod-2775/drive-up.sh
 bash docs/evidence/pod-2775/drive-verify.sh HEAD
-bun  docs/evidence/pod-2775/drive.ts
+bun  docs/evidence/pod-2775/drive.ts codex
+bun  docs/evidence/pod-2775/drive.ts opencode
 ```
 
 Re-cut from `docs/evidence/pod-2761/`, whose evidence doc reported this defect
@@ -202,6 +209,110 @@ erroring. The first run of this drive slept a fixed twenty seconds, read `ok`
 from the absence of an `error`, and then measured a session nobody had touched —
 every number after that point described a live session. The drive now waits for
 `idle` and prints the refusal reason.
+
+## The review round — three findings, and what they cost to prove
+
+An independent reviewer read the landed fix and found three real things. All
+three were confirmed here before anything was changed.
+
+**A parked OPENCODE session still could not come back.** The daemon route that
+resumes from the binding journal is one route serving three families, and the
+first round drove one. Codex's `adopt` was already written as
+resume-not-rebind, so it passed; opencode's asked the host for a LIVE endpoint
+and threw when nothing answered — correct after a supervisor restart, fatal
+after a hibernate, which kills the server on purpose.
+
+**Nothing anywhere asserted the resumed session was the RIGHT conversation.**
+Replacing `journalled.threadId` with `'thr-someone-elses-conversation'` passed
+the entire driver corpus: 355 tests, zero red, measured here before the fix. The
+reason is one line in a fixture — `thread/resume` ECHOED BACK whatever id it was
+handed, so a resume of a thread that never existed resolved as happily as the
+real one. Every property a rebind had checked the session's BOOKKEEPING, all of
+which a session on somebody else's thread satisfies exactly.
+
+**A wake dropped the session's model and effort.** Codex sends both on every
+`turn/start` and opencode on every prompt, from the spec the handle was bound
+with — and an adopted session was bound with an empty one.
+
+### The A/B, both arms
+
+The control branch is byte-identical to the pre-fix epic tip in `apps/` and
+`packages/` (`git diff --stat 83b007772 <control> -- apps packages` is empty)
+with the rig kept, so the only difference between the rows IS the fix.
+
+| arm | tree | resume | conversation | journalled model |
+| --- | --- | --- | --- | --- |
+| opencode | before | **DEAD** — row `exited` in 0.6s, `spawnFailure: the opencode serve session recorded in the binding journal could not be resumed`, no child | same `ses_…` | `null` |
+| opencode | after | **LIVE** in 8.3s on a NEW pid, both nonced witnesses present | same `ses_…` | `{}` |
+| codex | before | LIVE in 3.5s | same thread | `null` — the operator asked for `gpt-5-codex`/`high` and the record the wake reads holds neither |
+| codex | after | LIVE in 1.1s | same thread | `{"model":"gpt-5-codex","effort":"high"}` on both sides |
+
+The codex rows are both LIVE because round one's fix is already on the epic tip;
+what moved there is the MODEL, which is the third finding measured on a live
+instance rather than argued from a code read.
+
+### What the rig had to learn to produce those rows
+
+**Presence is not identity.** The witnesses were the bare words `ALPHA` and
+`BRAVO`, which any transcript containing them satisfies — including a fresh
+session that had just been told to say them. They are nonced per run now, and
+the binding journal's conversation id is read off disk before the park and after
+the resume. That is the mechanism rather than a proxy for it.
+
+**An idle row is not an exchange, and an exchange is not an idle session.** The
+rig waited for `agentState.phase === 'idle'` and parked at once. Safe for codex,
+where the initial prompt opens the thread's first turn; wrong for opencode,
+whose initial prompt is a `when-ready` send AFTER `POST /session`, so the row is
+idle in the window before it goes out. The first opencode run parked an EMPTY
+conversation and correctly reported NO MEASUREMENT. Waiting only for the witness
+then moved the park onto an OPEN TURN, which `hibernateSession` refuses outright
+— reported on the next run as a refusal and no park at all. Both were rig
+defects the controls caught, and the order is now witness, then idle, then park.
+
+**The port has to be proved ours.** POD-2777's acceptance rig picked
+19847/46847/46848, the same three this one started on. The loser of that race
+fails to bind while `/health` keeps answering 200 from the WINNER — every check
+passed, and the drive was one step from logging in to another session's daemon
+and reporting their sessions as ours. This rig moved to 19867/46867/46868, and
+`drive-verify.sh` now compares the pid holding the listener against the pid it
+started, because `/health` carries no instance id.
+
+### The review round's mutants
+
+| mutant | test that went red | what stayed green |
+| --- | --- | --- |
+| `codex/runtime.ts` resumes a literal thread id instead of `journalled.threadId` | 6 tests across `runtime.test.ts` and the codex conformance suite | everything else in the 8-file run |
+| opencode's `adopt` throws again when nothing answers | both properties in `park and come back` — and ONLY on opencode | codex and grok conformance, 159 tests |
+| `adoptedSpec(journalled.workdir)` — model dropped again (codex) | `wakes on the SAME model and effort it was parked on` | the other 50 |
+| `model: {}` in opencode's adopted spec | the same property, opencode | the other 53 |
+
+The first row is the one worth keeping: the mutant was reachable only after the
+fake was taught to refuse a thread it never started. A fixture more forgiving
+than the harness cannot fail, whatever is asserted on top of it.
+
+### What is pinned in the corpus rather than driven
+
+`park and come back — hibernate, then adopt` is a new conformance block, so
+every family answers it rather than the one that happened to be looked at. The
+model property inside it reads what the harness was ASKED for, off the fixture's
+own server — a session's model is on no contract surface, which is exactly why a
+wake could drop it unseen. Grok supplies no model control and the property says
+why: its driver never reads `spec.model`, so it has nothing to preserve.
+
+The opencode arm of the live drive does not pin a model: this host's only
+provider credential is `opencode-go`, and the family refuses anything that is
+not `provider/model`, so naming one here would be a guess. The corpus covers it
+where the fixture knows what its harness accepts.
+
+### Filed, not fixed
+
+A wake relaunches the server WITHOUT the spawn frame's `env` — the layer
+`session-env.ts` calls "the server-resolved session env off the spawn frame
+(managed credentials)". `RuntimeDriver.adopt` takes only a binding, so the
+driver synthesises a spec from its journal and neither family's carries it. Not
+a regression from this round (before it, a parked opencode session could not
+come back at all, and codex shipped the same shape), and the repair is a
+contract change across four drivers. Filed as POD-2795 with the analysis.
 
 ## What a screenshot would not have shown
 
