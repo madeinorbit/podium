@@ -49,6 +49,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+import { seedOpencodeLogin } from './opencode-login'
 
 // Own isolated state dir / port (relay 9921, multi-machine 9922, split-local
 // 9923, runtime-contract 9924).
@@ -79,8 +80,55 @@ function drivableOpencode(): boolean {
 
 const live = drivableOpencode()
 
-/** A free model on opencode's own gateway — plumbing, not a bill. */
-const MODEL = process.env.PODIUM_OPENCODE_TEST_MODEL ?? 'opencode/laguna-s-2.1-free'
+/**
+ * A FREE MODEL ON OPENCODE'S OWN GATEWAY that STILL EXISTS — plumbing, not a
+ * bill (POD-2772).
+ *
+ * This was a hard-coded id, and the id rotted: `opencode/laguna-s-2.1-free` was
+ * retired from the gateway, and every call to it answers
+ * `UnknownError: Unexpected server error` — reproduced here both under the
+ * lane's isolated home and under the operator's real one, which is what rules
+ * out a credential problem and pins it on the model. What the lane REPORTED was
+ * `waitFor(badge working): timed out` sixty seconds later, an answer that names
+ * neither the model nor the gateway. That failure was mistaken for a
+ * consequence of the login-gate regression this issue is about; it is a
+ * separate cause that happened to be next in line.
+ *
+ * So the id is resolved against what the machine can actually reach, and the
+ * preference list is a preference, not a requirement — the day these three are
+ * retired too, the lane picks another free model instead of going red on a
+ * dead name. A machine listing NO free model throws here, naming what it did
+ * list, rather than handing the failure to a `waitFor` that cannot describe it.
+ */
+const PREFERRED_FREE_MODELS = [
+  'opencode/nemotron-3.5-lightning-free',
+  'opencode/hy3-free',
+  'opencode/mimo-v2.5-free',
+] as const
+
+function testModel(): string {
+  const explicit = process.env.PODIUM_OPENCODE_TEST_MODEL?.trim()
+  if (explicit) return explicit
+  const listed = execFileSync('opencode', ['models'], {
+    encoding: 'utf8',
+    timeout: OPENCODE_VERSION_PROBE_TIMEOUT_MS,
+  })
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const available = new Set(listed)
+  const preferred = PREFERRED_FREE_MODELS.find((model) => available.has(model))
+  // Any free model beats a dead preferred one. `-free` is the gateway's own
+  // naming for the models it does not bill for.
+  const fallback = listed.find((model) => model.endsWith('-free'))
+  const model = preferred ?? fallback
+  if (!model) {
+    throw new Error(
+      `the live opencode lane needs a free model on the gateway and this machine lists none — got: ${listed.join(', ') || '(nothing)'}`,
+    )
+  }
+  return model
+}
 
 async function waitFor(pred: () => boolean, timeoutMs = 30_000, what = 'condition'): Promise<void> {
   const start = Date.now()
@@ -94,6 +142,14 @@ describe.skipIf(!live)('e2e: an opencode session on the SERVER driver', () => {
   it('spawns, answers, renders, interrupts and parks', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'podium-opencode-e2e-'))
     mkdirSync(join(tmp, 'hooks'), { recursive: true })
+    // THE ISOLATED HOME CARRIES THE LOGIN (POD-2772). `discovery.homeDir` below
+    // becomes the daemon's `ctx.homeDir`, which is both the home inventory reads
+    // the login from and the `HOME` the `opencode serve` child is spawned with.
+    // An empty one is honestly logged out, and a logged-out harness has no
+    // headless path to admit — so without this the spawn is refused before any
+    // server starts, which is the regression POD-2772 was filed for. The helper
+    // carries the measurement, including the part of the report it disproved.
+    seedOpencodeLogin(tmp)
 
     const srv = await startServer()
     const daemon = await startDaemon({
@@ -132,13 +188,25 @@ describe.skipIf(!live)('e2e: an opencode session on the SERVER driver', () => {
       const { sessionId } = sessions.createSession({
         agentKind: 'opencode',
         cwd: tmp,
-        model: MODEL,
+        model: testModel(),
         runtimeContract: 'opencode-server',
       })
       // `bind` is what flips the row live, and for this family it is sent by the
       // driver's own launch rather than by a PTY coming up.
+      //
+      // A REFUSAL IS NOT A TIMEOUT. The daemon answers an unhonourable
+      // `runtimeContract` with a `spawnError` carrying the reason, and the row
+      // records it in `spawnFailure` within a second. Polling only for 'live'
+      // spent 90 seconds ignoring that message and then reported
+      // `waitFor(session live): timed out` — an answer that sent the reviewer
+      // who found POD-2772 into the daemon source to recover a reason the row
+      // was already holding. Surface it instead, immediately. [POD-2772]
       await waitFor(
-        () => sessions.listSessions().find((s) => s.sessionId === sessionId)?.status === 'live',
+        () => {
+          const spawnFailure = sessions.sessions.get(sessionId)?.spawnFailure
+          if (spawnFailure) throw new Error(`the daemon refused the spawn: ${spawnFailure}`)
+          return sessions.listSessions().find((s) => s.sessionId === sessionId)?.status === 'live'
+        },
         90_000,
         'session live',
       )

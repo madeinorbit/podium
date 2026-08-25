@@ -518,6 +518,9 @@ export async function startServer(
   // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
   // janitor issues connect-scan commands; deep scans stay interactive via API.
   const superagent = new SuperagentService(registry.modules, repos, store)
+  // Its turn reaper is a periodic write; the registry's dispose is what stops it
+  // before `store.close()` on every close path (POD-2772).
+  registry.adoptSuperagent(superagent)
   // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
   // superagent, riding the notification bot config. configure() is a no-op
   // until a bot token + chat id are set; settings.changed re-arms it live.

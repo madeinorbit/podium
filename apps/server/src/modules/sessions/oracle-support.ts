@@ -247,6 +247,9 @@ export function makeOracle(
   })
   const repos = new RepoRegistry(reg, reg.sessionStore)
   const superagent = new SuperagentService(reg.modules, repos, reg.sessionStore)
+  // The oracle's own teardown is `reg.dispose()`; adoption is what makes that
+  // stop the turn reaper too (POD-2772).
+  reg.adoptSuperagent(superagent)
   const call = appRouter.createCaller({
     registry: reg,
     repos,

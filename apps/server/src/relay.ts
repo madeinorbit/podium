@@ -360,6 +360,9 @@ export class SessionRegistry {
   private readonly store: SessionStore
   private readonly now: () => number
   private localDaemonPortableState: LocalPortableStateControl | undefined
+  /** The superagent service, once assembly has built it — see
+   *  {@link adoptSuperagent}. */
+  private adoptedSuperagent: { dispose(): void } | undefined
 
   constructor(
     store: SessionStore | undefined,
@@ -2821,6 +2824,27 @@ export class SessionRegistry {
     this.localDaemonPortableState = control
   }
 
+  /**
+   * ADOPT THE SUPERAGENT FOR SHUTDOWN (POD-2772).
+   *
+   * It cannot be a field: it is built from `this.modules`, so it exists only
+   * after this registry does. Left unadopted it was disposed by NOBODY — its
+   * turn reaper is a `setInterval` that outlived every close path and woke into
+   * a closed database, and each e2e file ended with two or three
+   * `RangeError: Cannot use a closed database` from `reapStaleTurns`. Vitest
+   * counts those as unhandled errors and fails the FILE, so a lane whose every
+   * assertion passed still reported red.
+   *
+   * Adoption rather than a `dispose()` call at each construction site, because
+   * there are three of them — the shutdown persist list, the port-in-use
+   * `failListen` path, and the oracle test harness — and all three already call
+   * `dispose()` here. One of them getting a new line and the others not is
+   * exactly the shape this bug already had.
+   */
+  adoptSuperagent(service: { dispose(): void }): void {
+    this.adoptedSuperagent = service
+  }
+
   dispose(): void {
     // FIRST, and before store.close() further down the shutdown's persist list:
     // the memory service owns paced loops (transcript mirror + FTS indexer) that
@@ -2828,6 +2852,9 @@ export class SessionRegistry {
     // handle closed and logged their own failure, so a clean stop was
     // indistinguishable from a broken one (POD-1390).
     this.modules.memory.dispose()
+    // Same hazard, same window: the superagent's turn reaper is a periodic
+    // write against the store this shutdown is about to close (POD-2772).
+    this.adoptedSuperagent?.dispose()
     this.eventRetention.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)
