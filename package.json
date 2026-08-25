@@ -77,7 +77,7 @@
     "test:bun:unit": "bun scripts/validation-admission.ts focused --label test:bun:unit -- bun test --conditions=@podium/source packages/runtime/test/sqlite.bun.test.ts --test-name-pattern ''",
     "systemd:render": "bun --conditions=@podium/source scripts/render-systemd.ts --profile dev",
     "systemd:diff": "bun --conditions=@podium/source scripts/systemd-diff.ts",
-    "lint": "biome check . && bun run lint:boundaries && bun run lint:shadowing && bun run systemd:diff",
+    "lint": "bun run lint:shadowing && biome check . && bun run lint:boundaries && bun run systemd:diff",
     "lint:boundaries": "bun scripts/check-boundaries.ts",
     "audit:composition": "bun scripts/server-composition-graph.ts && bun scripts/server-construction-order.ts && bun scripts/reactions-ledger.ts",
     "lint:shadowing": "bun scripts/check-merge-shadowing.ts",

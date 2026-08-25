@@ -86,6 +86,9 @@ jobs:
       # duplicated body. It is in `bun run lint` too, but that step is
       # continue-on-error while biome's backlog burns down (#30), so this step is
       # what actually blocks — exactly the split `lint:boundaries` already uses.
+      # It is FIRST in that aggregate, not appended: `biome check .` still exits
+      # 1 on the backlog, so anything after it in the `&&` chain is unreachable
+      # and would have stayed dark in a second way.
       - name: merge shadowing sweep (duplicate declarations git and tsc both miss)
         run: bun run lint:shadowing
       # The layer diagram in ARCHITECTURE.md is RENDERED from the same manifest
