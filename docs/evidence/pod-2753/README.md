@@ -238,6 +238,34 @@ vacuous. The control now builds a real `export … from` chain on disk. The
 capability was never unguarded (the boundary suite catches it 16 ways), but the
 sentence in that commit message was wrong and this is the correction.
 
+## One thing that behaved correctly under a condition nobody designed for
+
+Mid-way through the round-2 gates the lean gate returned:
+
+```
+FAIL  apps/server/src/router.setup.test.ts
+Error: EDQUOT: unknown error, write
+ Test Files  1 failed | 3 passed (4)
+      Tests  61 passed (61)
+LEAN GATE INCOMPLETE — this is NOT the test suite.
+```
+
+The host had run out of disk quota. Note what the gate did NOT do: it did not print
+80 tests and a pass, and it did not print a failure that would have sent someone
+hunting through a change that was fine. Sixty-one tests passed, zero failed, one
+file could not be collected — and the gate called that **INCOMPLETE**, which is
+the true statement.
+
+That is worth recording because it is the same principle as everything else on
+this page, arriving from the opposite direction. A gate that cannot measure says
+so, instead of reporting the measurement it managed to take. Every defect in the
+round-2 and round-3 lists was a check that reported success it had not earned;
+this is the one that refused to.
+
+(The cause was ordinary: a shared `/tmp` on a machine running several agents. It
+was cleared by removing this drive's own rig state and a regenerable compile
+cache, and the gate went green. Nothing about the change.)
+
 ## Five wrong observables, recorded because the next person will reach for them
 
 The drive was wrong three times before it was right, each time in the direction of
