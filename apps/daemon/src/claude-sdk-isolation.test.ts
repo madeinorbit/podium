@@ -42,6 +42,16 @@ const DAEMON_ROOTS = [
   'apps/daemon/src/durable-headless.ts',
   'apps/daemon/src/control/headless.ts',
   'apps/daemon/src/control/context.ts',
+  // THE WORKER IS THE DAEMON'S PROCESS TOO. discovery-worker.ts runs on a
+  // `node:worker_threads` Worker, which shares this process's address space and
+  // its RSS ceiling — so anything the worker imports is in the daemon's heap and
+  // dies in the daemon's OOM, exactly the failure mode this whole change exists
+  // to move out. It reaches the graph today only because worker-client.ts
+  // type-imports it and this walk deliberately follows type edges; delete that
+  // one `import type` and the worker's entire graph would leave the walk in
+  // silence. Named as a root so that coverage is a decision rather than a
+  // side effect.
+  'apps/daemon/src/discovery-worker.ts',
 ]
 
 /** Resolve `@podium/x` / `@podium/x/sub` to a source file via the package's own
@@ -186,6 +196,8 @@ describe('the Claude Agent SDK does not run in the daemon process', () => {
     // at files no root imports directly.
     expect(graph.files.has('apps/daemon/src/claude-sdk-client.ts')).toBe(true)
     expect(graph.files.has('apps/daemon/src/claude-sdk-protocol.ts')).toBe(true)
+    // The worker shares the daemon's address space; its graph must be in the walk.
+    expect(graph.files.has('apps/daemon/src/discovery-jobs.ts')).toBe(true)
     expect([...graph.files].some((f) => f.startsWith('packages/harness/src/'))).toBe(true)
     expect(graph.files.size).toBeGreaterThan(100)
     // And it does see third-party packages when they are really there.
