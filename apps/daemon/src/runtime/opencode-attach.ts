@@ -108,6 +108,11 @@ export const WARM_TTL_MS = 30 * 60_000
  */
 const DEFAULT_GEOMETRY: Geometry = { cols: 120, rows: 40 }
 
+/** Cursor home, clear screen, clear scrollback: the anchor a cold-started client
+ *  terminal draws onto. Matches the server's `SCREEN_RESET`, so it also truncates
+ *  the replay log the next attach rebuilds from. */
+const CLIENT_GENERATION_RESET = '\x1b[H\x1b[2J\x1b[3J'
+
 /** The durable label of a session's client terminal. See the header: the session's
  *  own label must NOT be a substring of it. */
 export const opencodeAttachLabel = (sessionId: SessionId): string => `podium-oc-attach-${sessionId}`
@@ -327,6 +332,29 @@ export function createOpencodeClientTerminals(
 
   async function start(record: Attachment, target: ClientTerminalTarget): Promise<AgentSession> {
     const kind = targetKind(target)
+    /**
+     * A NEW CLIENT MUST NOT PAINT INTO THE OLD ONE'S SCROLLBACK (POD-2761).
+     *
+     * Leaving Native closes the client terminal — for codex because the lease
+     * gate demands the direct writer be revoked, and for every other harness
+     * because the release arm closes unconditionally. So the next Native view is
+     * a COLD START in every case: a brand-new TUI process whose first act is to
+     * draw its whole interface, header to footer.
+     *
+     * What it draws into is not blank. The browser terminal is addressed by
+     * SESSION, not by attachment (POD-2108), so one stream outlives every client
+     * generation — and the server's replay log is truncated only by a frame that
+     * carries a screen reset. Without one here the second generation's interface
+     * lands BELOW the first, and both the live view and every later attach show
+     * the whole thing twice, the older copy reading as scrollback from a
+     * conversation that never scrolled.
+     *
+     * Emitted BEFORE the spawn, which is what makes it an anchor rather than a
+     * race: no frame of the generation it introduces can precede it. `[3J` takes
+     * the scrollback the duplicate would have hidden in, and the pair matches the
+     * server's own reset test, so the replay log re-anchors here too.
+     */
+    ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET).toString('base64'))
     const launch =
       target.kind === 'codex'
         ? agentLaunchCommand('codex', {

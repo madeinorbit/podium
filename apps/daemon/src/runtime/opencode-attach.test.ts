@@ -229,8 +229,48 @@ describe('the client terminal a server-family attach produces', () => {
     const { terminals, state } = harness()
     const endpoint = await terminals.attach({ sessionId: SESSION, target })
     state.clients[0]?.emit('ZnJhbWU=')
-    expect(state.frames).toEqual([{ streamId: endpoint.streamId, data: 'ZnJhbWU=' }])
+    // The generation reset leads every client's output — see the cold-start rows.
+    expect(state.frames.filter((frame) => frame.data === 'ZnJhbWU=')).toEqual([
+      { streamId: endpoint.streamId, data: 'ZnJhbWU=' },
+    ])
+    expect(state.frames.every((frame) => frame.streamId === endpoint.streamId)).toBe(true)
     expect(endpoint.streamId).toBe(SESSION)
+  })
+
+  /**
+   * POD-2761. Leaving Native closes the client terminal for EVERY server-family
+   * harness, so returning to it is always a cold start that repaints the whole
+   * interface. The browser terminal is addressed by session, not by attachment,
+   * so that paint lands in a view the previous generation already wrote to.
+   *
+   * The rows below pin the two things that make the reset an anchor rather than
+   * a decoration: it precedes the generation it introduces, and it takes the
+   * scrollback as well as the screen.
+   */
+  it('clears the screen and scrollback BEFORE a cold-started client can paint', async () => {
+    const { terminals, state } = harness()
+    await terminals.attach({ sessionId: SESSION, target })
+    state.clients[0]?.emit('cGFpbnQ=')
+    const decoded = state.frames.map((frame) => Buffer.from(frame.data, 'base64').toString('latin1'))
+    expect(decoded[0]).toContain('\x1b[2J')
+    expect(decoded[0]).toContain('\x1b[3J')
+    expect(decoded.indexOf('paint')).toBeGreaterThan(0)
+  })
+
+  it('re-anchors on EVERY generation, which is the one the duplicate came from', async () => {
+    const { terminals, state } = harness()
+    await terminals.attach({ sessionId: SESSION, target })
+    state.clients[0]?.emit('Zmlyc3Q=')
+    await terminals.close(SESSION)
+    await terminals.attach({ sessionId: SESSION, target })
+    state.clients[1]?.emit('c2Vjb25k')
+    const decoded = state.frames.map((frame) => Buffer.from(frame.data, 'base64').toString('latin1'))
+    const resets = decoded.filter((data) => data.includes('\x1b[2J') && data.includes('\x1b[3J'))
+    expect(resets).toHaveLength(2)
+    // The second client's paint follows the second reset, so nothing of the first
+    // generation survives in front of it.
+    expect(decoded.lastIndexOf(resets[1] as string)).toBeLessThan(decoded.indexOf('second'))
+    expect(decoded.indexOf('first')).toBeLessThan(decoded.lastIndexOf(resets[1] as string))
   })
 
   /**
@@ -302,7 +342,10 @@ describe('the client terminal a server-family attach produces', () => {
     // The browser's attach-time redraw can arrive before an asynchronous
     // server-family client exists. Every harness, including a master adopted
     // after daemon restart, gets the request replayed after relay subscription.
-    expect(state.frames).toEqual([{ streamId: endpoint.streamId, data: initialPaint }])
+    // The paint is the LAST frame: the generation reset (POD-2761) is emitted
+    // before the spawn, so it can only ever precede the client it introduces.
+    expect(state.frames.at(-1)).toEqual({ streamId: endpoint.streamId, data: initialPaint })
+    expect(state.frames.every((frame) => frame.streamId === endpoint.streamId)).toBe(true)
     expect(state.clients[0]?.redraws).toBe(1)
   })
 
