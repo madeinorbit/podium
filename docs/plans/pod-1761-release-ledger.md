@@ -168,6 +168,40 @@ the truth** — it is not what to change:
 Measured live on opencode 1.18.16: before, 1 failed with 3 errors; after,
 1 passed, 0 errors, 31s of assertions against 184s of timeouts.
 
+## THE MATRIX IS COMPLETE — headless better in 3 cells, worse in 1 (`acab1cc65`)
+
+codex, opencode and claude driven on both arms where both exist, per-cell pinned,
+**every scored cell with its positive control fired.**
+
+**HEADLESS BETTER (3)** — codex streams to a late joiner (78 frames, monotonic)
+where its PTY cannot; opencode resumes a parked session where its PTY does not;
+opencode's attachments reach the agent where the PTY's do not.
+
+**HEADLESS WORSE (1) — codex attach, and it is the one thing standing between
+this epic and its own bar.** Two defects in one cell: the headless driver
+*declares image-only* and refuses a text file **exactly as declared**, while codex
+on the PTY reads the text file fine — so the declaration itself is the
+regression, not the refusal. And **the image it DOES declare was not read back
+either**, which is unambiguous: a claimed capability that does not work is worse
+than an honest refusal. **POD-2819, started.**
+
+**CLAUDE RUNS ONE PATH** and it is the one the epic promises not to make worse:
+reply, stop and resume PASS; **attach FAIL**; streaming n/a on a coarse-only
+family. It binds `claude-pty` whatever the preference says — forcing
+`generic-pty` produced **no binding at all** in 91s, because that preference names
+a driver claude does not have, so that arm was meaningless rather than red.
+Whether claude's attach also fails on today's main is POD-2819's to establish.
+
+**The rig refused far more often than it failed**, and every refusal traced to
+something real — a stalled turn, a modal nobody had cleared, a driver that never
+bound, an arm naming a driver the harness lacks. In its own words: *a guard
+cannot tell the rig's fault from the product's, which is why each refusal needed
+a diagnosis before it could become a report.*
+
+**The `resurrect` finding was retracted** (`2a9630dc6`) after POD-2775's control
+experiment — which argued against its own author's position — established that a
+healthy wake goes `starting → live` and never visits `exited` at all.
+
 ## CLAUDE'S PHASE IS FIXED — the release-critical column's blocker (`4adb58eb6`)
 
 `claude-pty` reported `idle` through 79,922 bytes of output over 53 of 59
