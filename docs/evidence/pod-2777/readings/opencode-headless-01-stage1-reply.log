@@ -1,0 +1,36 @@
+ok  server pid=584704 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic started after the commit
+  ok  daemon pid=584780 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic started after the commit
+  ok  exactly one daemon (pid 584780) on state root /tmp/pod-2777/state
+  ok  worktree at e28013a8526ee454ca6b49296b9902daa6bbe1e2, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at e28013a
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"e28013a8526ee454ca6b49296b9902daa6bbe1e2","short":"e28013a","serverPid":584704,"daemonPid":584780,"webSourceSha":"e28013a","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running e28013a8526ee454ca6b49296b9902daa6bbe1e2 in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=opencode  arm=headless  expecting driver 'opencode-server'
+PIN                e28013a8526ee454ca6b49296b9902daa6bbe1e2 (web bundle e28013a, server pid 584704, daemon pid 584780)
+==============================================================================
+session 0c7b85e1-7cb5-41aa-8e78-64b4a99e3c96 created; giving the harness 25000ms to come up
+BOUND DRIVER       opencode-server (family server)
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 7.1s
+   control: FIRED — 2 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-129CL8. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-129CL8 — a blank session cannot produce this by luck
+   REPLY             arrived after 7106ms
+   ASSISTANT TEXT    13 chars: "PODIUM-129CL8"
+   ELAPSED           7264ms
+
+==============================================================================
+RESULT  opencode / headless / driver=opencode-server
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 7.1s
+==============================================================================
+written /tmp/pod-2777/results/opencode.headless.json
+EXIT=0
