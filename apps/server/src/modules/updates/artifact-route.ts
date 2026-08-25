@@ -4,9 +4,20 @@ import { Readable } from 'node:stream'
 import { UPDATE_ARTIFACT_INTEGRITY_REFUSAL, UPDATE_ARTIFACT_REFUSAL_HEADER } from '@podium/protocol'
 import type { Context, Hono } from 'hono'
 import { DevArtifactIntegrityError, type DevBundleArtifact } from './dev-bundle'
-import { DEV_DESKTOP_MANIFEST, DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
+import {
+  DEV_DESKTOP_MANIFEST,
+  DEV_FEED_MANIFEST,
+  DEV_FEED_ROUTE,
+  desktopManifestFeedChannel,
+} from './release-target'
 
 export const DEV_BUNDLE_CONTENT_TYPE = 'application/gzip'
+
+/**
+ * Which release the shell manifest in this response came from: `dev`, `edge` (the fallback
+ * an instance with no dev desktop release gets), or `unknown`.
+ */
+export const DEV_DESKTOP_CHANNEL_HEADER = 'x-podium-desktop-channel'
 
 /** The artifact leg of the dev feed, under {@link DEV_FEED_ROUTE}. */
 export const DEV_FEED_ARTIFACT_SEGMENT = 'artifact'
@@ -165,9 +176,20 @@ export function registerDevFeedRoutes(app: Hono, deps: DevFeedRouteDeps): void {
     const path = deps.desktopManifestPath?.()
     const body = path ? await readManifest(path) : null
     if (!body) return c.text('not found', 404)
+    // A dev server serves the dev shell when one is published and the edge shell when none
+    // is. Both are correct; leaving a reader to work out which is not — so the answer rides
+    // along, read out of the bytes in THIS response rather than from anything remembered.
+    // `unknown` when the document names no single release, which is never a normal state.
+    let served: string
+    try {
+      served = desktopManifestFeedChannel(JSON.parse(body)) ?? 'unknown'
+    } catch {
+      served = 'unknown'
+    }
     return c.body(body, 200, {
       'content-type': 'application/json',
       'cache-control': 'no-store',
+      [DEV_DESKTOP_CHANNEL_HEADER]: served,
     })
   })
 

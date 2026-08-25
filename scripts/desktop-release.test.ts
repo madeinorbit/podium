@@ -90,6 +90,34 @@ describe('desktop release manifest', () => {
     )
   })
 
+  it('gives the dev channel its own standing tag, leaving the edge tag alone', () => {
+    // Both moving channels republish onto one tag named for the channel. Dev having its own
+    // is the whole point: promoting a test build must never overwrite what real installs follow.
+    expect(desktopReleaseTag('dev', '0.2.0-edge.1')).toBe('dev')
+    expect(desktopReleaseTag('edge', '0.2.0-edge.1')).toBe('edge')
+    expect(desktopReleaseTag('dev', '0.2.0-edge.1')).not.toBe(
+      desktopReleaseTag('edge', '0.2.0-edge.1'),
+    )
+  })
+
+  it('does not ask a dev release for a version tag', () => {
+    expect(() => desktopReleaseTag('dev', '0.2.0-edge.1')).not.toThrow()
+  })
+
+  it('builds a dev manifest whose every URL is served from the dev release', () => {
+    const parsed = JSON.parse(
+      buildDesktopManifest({
+        version: '0.2.0-edge.1',
+        channel: 'dev',
+        artifacts: releaseArtifacts,
+      }),
+    ) as { platforms: Record<string, { url: string }> }
+    for (const [target, platform] of Object.entries(parsed.platforms)) {
+      expect(platform.url, target).toContain('/releases/download/dev/')
+      expect(platform.url, target).not.toContain('/releases/download/edge/')
+    }
+  })
+
   it('rejects a manifest whose signature differs from a detached .sig', () => {
     const text = buildDesktopManifest({
       version: '0.2.0-edge.1',

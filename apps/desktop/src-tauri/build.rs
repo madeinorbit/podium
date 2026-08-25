@@ -1,8 +1,8 @@
 fn main() {
     println!("cargo:rerun-if-env-changed=PODIUM_DESKTOP_RELEASE_CHANNEL");
     if let Ok(channel) = std::env::var("PODIUM_DESKTOP_RELEASE_CHANNEL") {
-        if channel != "stable" && channel != "edge" {
-            panic!("PODIUM_DESKTOP_RELEASE_CHANNEL must be stable or edge, got {channel}");
+        if channel != "stable" && channel != "edge" && channel != "dev" {
+            panic!("PODIUM_DESKTOP_RELEASE_CHANNEL must be stable, edge, or dev, got {channel}");
         }
     }
 

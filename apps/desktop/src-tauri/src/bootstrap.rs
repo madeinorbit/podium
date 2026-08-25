@@ -133,8 +133,14 @@ impl UpdateChannel {
 /// The release workflow sets this for every shipped desktop artifact. Local builds are not
 /// promoted from a channel, so they retain the historical stable fallback (and cannot update in
 /// debug mode anyway).
+///
+/// A `dev` build stamps itself dev and therefore keeps updating from dev afterwards: this is
+/// the fact that makes a test shell a test shell for the rest of its life rather than only on
+/// the day it was installed. Without it a build promoted to dev would ask the edge feed for
+/// its next version and quietly rejoin the channel real installs follow.
 pub fn build_update_channel() -> UpdateChannel {
     match option_env!("PODIUM_DESKTOP_RELEASE_CHANNEL") {
+        Some("dev") => UpdateChannel::Dev,
         Some("edge") => UpdateChannel::Edge,
         Some("stable") | None => UpdateChannel::Stable,
         Some(value) => panic!("invalid PODIUM_DESKTOP_RELEASE_CHANNEL: {value}"),
@@ -490,6 +496,26 @@ pub fn write_update_channel(
     channel: UpdateChannel,
     feed_endpoint: Option<&str>,
 ) -> Result<(), String> {
+    write_channel(channel, feed_endpoint, EndpointRequirement::Required)
+}
+
+/// Whether selecting `dev` must come with a feed endpoint.
+///
+/// It must when a USER picks the channel — there is a source server in front of them, and a
+/// dev selection with nowhere to fetch from is a mistake worth refusing. It must not when the
+/// shell is merely recording the channel it was BUILT as: nobody has chosen anything yet, and
+/// the endpoint is a fact about a server this shell may not have met.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EndpointRequirement {
+    Required,
+    SeedWithoutOne,
+}
+
+fn write_channel(
+    channel: UpdateChannel,
+    feed_endpoint: Option<&str>,
+    requirement: EndpointRequirement,
+) -> Result<(), String> {
     let path = state_dir().join("config.json");
     let mut json = match std::fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str::<serde_json::Value>(&text)
@@ -507,18 +533,30 @@ pub fn write_update_channel(
         serde_json::Value::String(channel.as_str().to_string()),
     );
     if channel == UpdateChannel::Dev {
-        let endpoint = feed_endpoint
-            .map(str::trim)
-            .filter(|endpoint| !endpoint.is_empty())
-            .ok_or_else(|| "the dev desktop channel needs a feed endpoint".to_string())?;
-        let url = Url::parse(endpoint).map_err(|e| format!("invalid dev update endpoint: {e}"))?;
-        if !matches!(url.scheme(), "http" | "https") {
-            return Err("the dev update endpoint must use http or https".to_string());
+        let given = feed_endpoint.map(str::trim).filter(|e| !e.is_empty());
+        let endpoint = match (given, requirement) {
+            (Some(endpoint), _) => Some(endpoint),
+            // A dev-built shell records `dev` and no endpoint, and the updater reports itself
+            // unavailable until an attached source server supplies one. The alternative is
+            // worse in both directions: failing here stops the shell from launching at all,
+            // and seeding some other channel would leave a test build quietly updating from
+            // the feed real installs follow.
+            (None, EndpointRequirement::SeedWithoutOne) => None,
+            (None, EndpointRequirement::Required) => {
+                return Err("the dev desktop channel needs a feed endpoint".to_string())
+            }
+        };
+        if let Some(endpoint) = endpoint {
+            let url =
+                Url::parse(endpoint).map_err(|e| format!("invalid dev update endpoint: {e}"))?;
+            if !matches!(url.scheme(), "http" | "https") {
+                return Err("the dev update endpoint must use http or https".to_string());
+            }
+            obj.insert(
+                "updateFeedEndpoint".to_string(),
+                serde_json::Value::String(endpoint.to_string()),
+            );
         }
-        obj.insert(
-            "updateFeedEndpoint".to_string(),
-            serde_json::Value::String(endpoint.to_string()),
-        );
     } else {
         obj.remove("updateFeedEndpoint");
     }
@@ -544,7 +582,11 @@ pub fn initialize_update_channel(
     if let Some(channel) = configured {
         return Ok(channel);
     }
-    write_update_channel(build, None)?;
+    // Seeding must never be able to stop the shell launching: `main.rs` propagates this error
+    // out of Tauri's setup. A dev-built shell has no feed endpoint on first run — the server
+    // it will attach to is what supplies one — so recording `dev` without one is the whole
+    // difference between a dev shell that boots and one that cannot start.
+    write_channel(build, None, EndpointRequirement::SeedWithoutOne)?;
     Ok(build)
 }
 
@@ -1915,6 +1957,71 @@ mod tests {
                 Some("https://podium.test/updates/feed/dev/latest.json")
             );
         });
+    }
+
+    /// A DEV BUILD KEEPS UPDATING FROM DEV.
+    ///
+    /// The channel stamped at build time is what an install falls back to for the rest of
+    /// its life, so a shell promoted to dev must seed `dev` into a fresh config and stay
+    /// there. If it seeded anything else, a test build would ask a real channel for its
+    /// next version — which is the exact thing a dev channel exists to prevent.
+    #[test]
+    fn dev_build_seeds_and_keeps_the_dev_channel() {
+        with_state_dir("channel-seed-dev", Some(r#"{"mode":"all-in-one"}"#), || {
+            // First launch of a dev-promoted shell: no channel chosen, and no feed endpoint,
+            // because the source server that supplies one has not been attached yet. This
+            // must SUCCEED — `main.rs` turns a failure here into a shell that cannot start.
+            let channel = initialize_update_channel(None, UpdateChannel::Dev)
+                .expect("a dev build must be able to seed its own channel on first launch");
+            assert_eq!(channel, UpdateChannel::Dev);
+            let raw: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(state_dir().join("config.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(raw["updateChannel"], "dev");
+            assert!(raw.get("updateFeedEndpoint").is_none());
+            // And it round-trips: the next launch reads dev back rather than falling
+            // through to the build default.
+            let persisted = read_config().update_channel;
+            assert_eq!(persisted, Some(UpdateChannel::Dev));
+            assert_eq!(
+                resolve_update_channel(None, persisted, UpdateChannel::Dev),
+                UpdateChannel::Dev
+            );
+        });
+    }
+
+    /// Seeding is lenient; CHOOSING is not. A user switching to dev has a source server in
+    /// front of them, so a selection with nowhere to fetch from stays a refusal — the
+    /// leniency above must not have widened into the path where an endpoint is knowable.
+    #[test]
+    fn choosing_dev_still_requires_a_feed_endpoint() {
+        with_state_dir("channel-choose-dev", Some(r#"{"mode":"all-in-one"}"#), || {
+            assert_eq!(
+                write_update_channel(UpdateChannel::Dev, None),
+                Err("the dev desktop channel needs a feed endpoint".to_string())
+            );
+            assert_eq!(
+                write_update_channel(UpdateChannel::Dev, Some("ftp://nope.test/feed")),
+                Err("the dev update endpoint must use http or https".to_string())
+            );
+        });
+    }
+
+    /// `build.rs` refuses an unknown channel at COMPILE time, so a typo in the workflow
+    /// fails the build instead of silently producing a stable-updating shell. That guard
+    /// has to name every channel the workflow can dispatch, and nothing here can compile
+    /// twice to prove it — so the two lists are pinned against each other directly.
+    #[test]
+    fn the_compile_time_channel_guard_admits_every_dispatchable_channel() {
+        let guard = include_str!("../build.rs");
+        for channel in ["stable", "edge", "dev"] {
+            assert!(
+                guard.contains(&format!("channel != \"{channel}\"")),
+                "build.rs rejects PODIUM_DESKTOP_RELEASE_CHANNEL={channel}, \
+                 so a {channel} promotion could not compile"
+            );
+        }
     }
 
     #[test]

@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -6,16 +7,18 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { UpdateChannel } from '@podium/model'
 import type { UpdateTarget } from '@podium/protocol'
-import { afterEach, describe, expect, it } from 'bun:test'
 import { Hono } from 'hono'
 import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
+import { registerDevFeedRoutes } from '../apps/server/src/modules/updates/artifact-route'
+import { withDevBuildSnapshot } from '../apps/server/src/modules/updates/dev-build-snapshot'
 import {
   assertSourceMatchesHead,
   createDevBundlePublisher,
 } from '../apps/server/src/modules/updates/dev-bundle'
-import { registerDevFeedRoutes } from '../apps/server/src/modules/updates/artifact-route'
-import { withDevBuildSnapshot } from '../apps/server/src/modules/updates/dev-build-snapshot'
-import { resolveReleaseTarget } from '../apps/server/src/modules/updates/release-target'
+import {
+  desktopManifestFeedChannel,
+  resolveReleaseTarget,
+} from '../apps/server/src/modules/updates/release-target'
 import { UpdatesService } from '../apps/server/src/modules/updates/service'
 import { readOrCreateDevArtifactToken } from '../apps/server/src/modules/updates/signing-key'
 import { refreshTargetsOnBoot } from '../apps/server/src/modules/updates/target-refresh'
@@ -120,16 +123,24 @@ describe('named-instance development releases', () => {
         platform: 'linux-x86_64',
         artifactUrl: (version, platform) =>
           `https://named.test/updates/feed/dev/artifact/${version}/${platform}?token=${encodeURIComponent(artifactToken)}`,
-        edgeDesktopManifest: async () => ({
-          version: '0.1.0-edge.20',
-          bridgeVersion: 1,
-          platforms: {
-            'linux-x86_64': {
-              url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium.AppImage',
-              signature: 'edge-signature',
-            },
-          },
-        }),
+        // An instance with no dev desktop release — the state every existing install is in
+        // until one is promoted. It must keep publishing exactly as it did before the dev
+        // channel existed, which is what this fixture pins by answering only for edge.
+        desktopShellManifest: async (channel) =>
+          channel === 'edge'
+            ? {
+                raw: {
+                  version: '0.1.0-edge.20',
+                  bridgeVersion: 1,
+                  platforms: {
+                    'linux-x86_64': {
+                      url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium.AppImage',
+                      signature: 'edge-signature',
+                    },
+                  },
+                },
+              }
+            : { missing: 'dev desktop manifest returned HTTP 404' },
         spawnBuild: async ({ artifactPath }) => {
           mkdirSync(dirname(artifactPath), { recursive: true })
           writeFileSync(artifactPath, 'named release bytes')
@@ -147,6 +158,16 @@ describe('named-instance development releases', () => {
     expect(readFileSync(publisher.feedManifestPath(), 'utf8')).toContain(
       `"version": "${built?.version}"`,
     )
+    // With no dev desktop release published, this server serves the edge shell — and says
+    // so, in both directions a reader can check: the source it recorded, and the release
+    // named by the URLs in the document it is actually handing out.
+    expect(publisher.desktopManifestSource()).toEqual({
+      channel: 'edge',
+      fellBackBecause: 'dev desktop manifest returned HTTP 404',
+    })
+    expect(
+      desktopManifestFeedChannel(JSON.parse(readFileSync(publisher.desktopManifestPath(), 'utf8'))),
+    ).toBe('edge')
 
     /**
      * RESTART BOUNDARY. The publisher above is the old source process; the

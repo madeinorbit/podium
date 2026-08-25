@@ -18,8 +18,12 @@ on:
         options:
           - edge
           - stable
+          # A shell for trying a build. Published exactly like edge, onto its own standing
+          # `dev` release, so it never reaches an install following edge or stable. Only a
+          # source server on the dev channel hands this build out.
+          - dev
       release_tag:
-        description: Stable tag (vX.Y.Z); required for stable and ignored for edge
+        description: Stable tag (vX.Y.Z); required for stable and ignored for edge and dev
         required: false
         type: string
       release_notes:
@@ -45,6 +49,7 @@ jobs:
       channel: ${{ steps.resolve.outputs.channel }}
       stable_tag: ${{ steps.resolve.outputs.stable_tag }}
       checkout_ref: ${{ steps.resolve.outputs.checkout_ref }}
+      target_tag: ${{ steps.validate.outputs.target_tag }}
       build_shell: ${{ steps.shell.outputs.build_shell }}
       shell_input_hash: ${{ steps.shell.outputs.shell_input_hash }}
     steps:
@@ -58,12 +63,14 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             channel="$INPUT_CHANNEL"
             stable_tag="$INPUT_RELEASE_TAG"
-            # Stable builds the immutable release tag; edge builds the ref selected in the UI,
-            # making the promoted source commit explicit.
+            # Stable builds the immutable release tag; edge and dev build the ref selected in
+            # the UI, making the promoted source commit explicit.
             if [ "$channel" = stable ]; then checkout_ref="$stable_tag"; else checkout_ref="$GITHUB_REF"; fi
           else
             # A prerelease tag naming the edge channel promotes to edge; every other version tag
             # is a stable cut. Anything else is a tag we do not know how to release.
+            # No tag promotes to dev: a dev shell is a disposable build of whatever is being
+            # tried, always dispatched by hand against that ref.
             case "$GITHUB_REF_NAME" in
               *-edge.*) channel=edge;   stable_tag="" ;;
               *-*)      echo "tag $GITHUB_REF_NAME is a prerelease but names no channel" >&2; exit 1 ;;
@@ -74,7 +81,7 @@ jobs:
           if [ "$channel" = stable ] && [ -z "$stable_tag" ]; then
             echo "stable release needs a vX.Y.Z tag" >&2; exit 1
           fi
-          if [ "$channel" != stable ] && [ "$channel" != edge ]; then
+          if [ "$channel" != stable ] && [ "$channel" != edge ] && [ "$channel" != dev ]; then
             echo "unknown channel '$channel'" >&2; exit 1
           fi
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
@@ -87,6 +94,7 @@ jobs:
       - uses: useblacksmith/setup-bun@v1
         with: { bun-version: '1.3.14' }
       - name: Validate release selection
+        id: validate
         env:
           CHANNEL: ${{ steps.resolve.outputs.channel }}
           RELEASE_TAG: ${{ steps.resolve.outputs.stable_tag }}
@@ -104,17 +112,27 @@ jobs:
             fi
           fi
           bun scripts/desktop-release.ts --validate-only --channel "$CHANNEL" --tag "$RELEASE_TAG"
+          # The release this promotion uploads to, taken from the script that wrote it into every
+          # manifest URL rather than re-derived here. Two places deciding which tag a channel
+          # publishes to is how a dev build ends up on the tag real installs follow.
+          target_tag="$(bun scripts/desktop-release.ts --print-tag --channel "$CHANNEL" --tag "$RELEASE_TAG")"
+          echo "target_tag=$target_tag" >> "$GITHUB_OUTPUT"
+          echo "$CHANNEL publishes to release $target_tag"
       - name: Compare desktop shell inputs
         id: shell
         env:
           GH_TOKEN: ${{ github.token }}
           CHANNEL: ${{ steps.resolve.outputs.channel }}
+          TARGET_TAG: ${{ steps.validate.outputs.target_tag }}
         run: |
           set -euo pipefail
           shell_input_hash="$(git ls-files -s apps/desktop/src-tauri apps/desktop/scripts/stage-sidecar.ts | sha256sum | cut -d " " -f 1)"
           mkdir -p "$RUNNER_TEMP/standing-shell"
-          if [ "$CHANNEL" = edge ]; then
-            gh release download edge --pattern desktop-shell-input.sha256 --dir "$RUNNER_TEMP/standing-shell" || true
+          # A moving channel compares against the shell standing on its OWN release. Reading
+          # another channel's hash would let a dev promotion match edge's shell and skip the
+          # build, leaving the dev release empty while the run reports success.
+          if [ "$CHANNEL" = edge ] || [ "$CHANNEL" = dev ]; then
+            gh release download "$TARGET_TAG" --pattern desktop-shell-input.sha256 --dir "$RUNNER_TEMP/standing-shell" || true
           else
             gh release download --pattern desktop-shell-input.sha256 --dir "$RUNNER_TEMP/standing-shell" || true
           fi
@@ -320,11 +338,32 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CHANNEL: ${{ needs.validate.outputs.channel }}
-          RELEASE_TAG: ${{ needs.validate.outputs.stable_tag }}
+          TARGET_TAG: ${{ needs.validate.outputs.target_tag }}
         run: |
           set -euo pipefail
-          target_tag="$RELEASE_TAG"
-          if [ "$CHANNEL" = "edge" ]; then target_tag=edge; fi
+          target_tag="$TARGET_TAG"
+          # Dev has no headless counterpart — nothing else ever creates or moves this release —
+          # so this workflow owns it. `--prerelease` is load-bearing: a release marked latest
+          # becomes what `releases/latest/download/...` resolves to, and that is the URL every
+          # STABLE install reads its manifest from.
+          if [ "$CHANNEL" = dev ]; then
+            sha="$(git rev-parse HEAD)"
+            notes="Rolling desktop shell for the dev channel, built from $sha.
+          Served only to a source server on the dev channel; never offered to an edge or stable install."
+            if gh release view "$target_tag" >/dev/null 2>&1; then
+              # Move the standing tag onto the commit these assets were built from. Left where
+              # the first promotion put it, the release page would name a source it no longer
+              # carries — a build claiming to be something it is not.
+              gh api --method PATCH \
+                "repos/$GITHUB_REPOSITORY/git/refs/tags/$target_tag" -f "sha=$sha" -F force=true
+              gh release edit "$target_tag" --prerelease \
+                --title "dev (desktop shell)" --notes "$notes"
+            else
+              echo "creating standing $target_tag release from $sha"
+              gh release create "$target_tag" --target "$sha" --prerelease \
+                --title "dev (desktop shell)" --notes "$notes"
+            fi
+          fi
           # The same tag push starts the headless release workflow, which is what CREATES this
           # release. Desktop builds far longer than headless, so the release is normally already
           # there — but "normally" is not a guarantee, and failing here would throw away a
@@ -336,16 +375,16 @@ jobs:
           done
           gh release view "$target_tag" >/dev/null
           gh release upload "$target_tag" dist-desktop/* --clobber
-          # Edge is a rolling release, and DMG/AppImage names embed the version, so --clobber
-          # never replaces them: every past edge build keeps offering its (possibly
+          # Edge and dev are rolling releases, and DMG/AppImage names embed the version, so
+          # --clobber never replaces them: every past build keeps offering its (possibly
           # pre-notarization) installer. Prune desktop assets this upload did not replace —
           # after the upload, so a failed publish leaves the previous build downloadable.
           # Headless assets on the same release belong to the other workflow and are kept.
-          if [ "$CHANNEL" = edge ]; then
-            gh release view edge --json assets --jq '.assets[].name' \
+          if [ "$CHANNEL" = edge ] || [ "$CHANNEL" = dev ]; then
+            gh release view "$target_tag" --json assets --jq '.assets[].name' \
               | bun scripts/desktop-release.ts --list-stale --manifest dist-desktop/latest.json \
               | while IFS= read -r asset; do
-                  echo "pruning stale edge desktop asset $asset"
-                  gh release delete-asset edge "$asset" --yes
+                  echo "pruning stale $CHANNEL desktop asset $asset"
+                  gh release delete-asset "$target_tag" "$asset" --yes
                 done
           fi

@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   type ChannelFeed,
+  desktopManifestFeedChannel,
   desktopReleaseManifestUrl,
   devFeedManifestUrl,
   RELEASE_ARTIFACT_REDIRECT_HOSTS,
   releaseChannelFeed,
   releaseManifestUrl,
   resolveReleaseTarget,
+  validateDesktopFeedManifest,
 } from './release-target'
 
 const RELEASE_BASE = 'https://github.com/madeinorbit/podium/releases/download/edge'
@@ -558,5 +560,55 @@ describe('resolveReleaseTarget trust root', () => {
     expect(releaseChannelFeed('dev')).toBeUndefined()
     expect(releaseChannelFeed('edge')?.trust).toBe('release')
     expect(releaseChannelFeed('stable')?.trust).toBe('release')
+  })
+})
+
+describe('desktop shell manifests', () => {
+  const shell = (base: string) => ({
+    version: '0.4.2-edge.7',
+    bridgeVersion: 1,
+    platforms: { 'darwin-aarch64': { url: `${base}Podium.app.tar.gz`, signature: 'SIG' } },
+  })
+  const edgeBase = 'https://github.com/madeinorbit/podium/releases/download/edge/'
+  const devBase = 'https://github.com/madeinorbit/podium/releases/download/dev/'
+
+  it('gives the dev shell its own release URL, leaving edge and stable untouched', () => {
+    expect(desktopReleaseManifestUrl('edge')).toBe(`${edgeBase}latest.json`)
+    expect(desktopReleaseManifestUrl('stable')).toBe(
+      'https://github.com/madeinorbit/podium/releases/latest/download/latest.json',
+    )
+    expect(desktopReleaseManifestUrl('dev')).toBe(`${devBase}latest.json`)
+  })
+
+  it('fences each channel to its own release, refusing the other channel by name', () => {
+    expect(validateDesktopFeedManifest('edge', shell(edgeBase)).bridgeVersion).toBe(1)
+    expect(validateDesktopFeedManifest('dev', shell(devBase)).bridgeVersion).toBe(1)
+    // The fence is what keeps the two channels from bleeding into each other. A "dev"
+    // manifest whose assets live on the edge release would put an edge shell on a dev
+    // machine while every label said dev.
+    expect(() => validateDesktopFeedManifest('dev', shell(edgeBase))).toThrow(
+      /dev target unavailable: desktop darwin-aarch64 artifact is served from outside the dev feed/,
+    )
+    expect(() => validateDesktopFeedManifest('edge', shell(devBase))).toThrow(
+      /edge target unavailable: desktop darwin-aarch64 artifact is served from outside the edge feed/,
+    )
+  })
+
+  it('names the channel a served manifest actually carries, from its own URLs', () => {
+    // Read off the SHIPPED BYTES rather than remembered at publish time: this is what a
+    // reader gets to check, and it survives a restart that forgets what was fetched.
+    expect(desktopManifestFeedChannel(shell(devBase))).toBe('dev')
+    expect(desktopManifestFeedChannel(shell(edgeBase))).toBe('edge')
+    expect(desktopManifestFeedChannel({ nonsense: true })).toBeUndefined()
+    expect(
+      desktopManifestFeedChannel({
+        version: '1',
+        platforms: {
+          a: { url: `${devBase}A.tar.gz`, signature: 'S' },
+          b: { url: `${edgeBase}B.tar.gz`, signature: 'S' },
+        },
+      }),
+      'a manifest straddling two releases names neither',
+    ).toBeUndefined()
   })
 })

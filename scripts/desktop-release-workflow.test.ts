@@ -1,6 +1,8 @@
-import { readFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 
 const repoRoot = join(__dirname, '..')
 const desktopWorkflow = readFileSync(
@@ -17,6 +19,273 @@ const publishedHeadlessSmoke = readFileSync(
   join(repoRoot, 'scripts/verify-published-headless-update.sh'),
   'utf8',
 )
+
+/**
+ * Runs the `Resolve channel and ref` step's own shell, lifted out of the workflow file, so
+ * these assertions are about what CI will actually decide rather than about the text of a
+ * script nobody executed. Pattern-matching a workflow proves a string is present; only
+ * running it proves a dev dispatch does not resolve to the edge tag.
+ */
+const scratch: string[] = []
+afterAll(() => {
+  for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true })
+})
+
+function resolveStep(): string {
+  const parsed = Bun.YAML.parse(desktopWorkflow) as {
+    jobs: { validate: { steps: Array<{ id?: string; run?: string }> } }
+  }
+  const step = parsed.jobs.validate.steps.find((candidate) => candidate.id === 'resolve')
+  if (!step?.run) throw new Error('the validate job has no `resolve` step to run')
+  return step.run
+}
+
+function runResolve(env: {
+  GITHUB_EVENT_NAME: string
+  INPUT_CHANNEL?: string
+  INPUT_RELEASE_TAG?: string
+  GITHUB_REF?: string
+  GITHUB_REF_NAME?: string
+}): { outputs: Record<string, string>; stdout: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'desktop-resolve-'))
+  scratch.push(dir)
+  const script = join(dir, 'resolve.sh')
+  const output = join(dir, 'github_output')
+  writeFileSync(script, resolveStep())
+  writeFileSync(output, '')
+  const stdout = execFileSync('bash', [script], {
+    encoding: 'utf8',
+    env: {
+      PATH: process.env.PATH ?? '',
+      GITHUB_OUTPUT: output,
+      INPUT_CHANNEL: '',
+      INPUT_RELEASE_TAG: '',
+      GITHUB_REF: '',
+      GITHUB_REF_NAME: '',
+      ...env,
+    },
+  })
+  const outputs: Record<string, string> = {}
+  for (const line of readFileSync(output, 'utf8').split('\n').filter(Boolean)) {
+    const at = line.indexOf('=')
+    outputs[line.slice(0, at)] = line.slice(at + 1)
+  }
+  return { outputs, stdout }
+}
+
+describe('desktop release channel resolution', () => {
+  it('sends a dev dispatch to its own tag, built from the selected ref', () => {
+    const { outputs } = runResolve({
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      INPUT_CHANNEL: 'dev',
+      GITHUB_REF: 'refs/heads/some-branch',
+    })
+    expect(outputs.channel).toBe('dev')
+    // Dev builds the ref chosen in the UI, exactly as edge does. Requiring a version tag
+    // would defeat the point: a dev shell exists to try a commit that has no release.
+    expect(outputs.checkout_ref).toBe('refs/heads/some-branch')
+    expect(outputs.stable_tag).toBe('')
+  })
+
+  it('leaves the edge and stable resolutions exactly as they were', () => {
+    const edge = runResolve({
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      INPUT_CHANNEL: 'edge',
+      GITHUB_REF: 'refs/heads/main',
+    })
+    expect(edge.outputs).toMatchObject({
+      channel: 'edge',
+      stable_tag: '',
+      checkout_ref: 'refs/heads/main',
+    })
+
+    const stable = runResolve({
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      INPUT_CHANNEL: 'stable',
+      INPUT_RELEASE_TAG: 'v0.2.0',
+      GITHUB_REF: 'refs/heads/main',
+    })
+    expect(stable.outputs).toMatchObject({
+      channel: 'stable',
+      stable_tag: 'v0.2.0',
+      checkout_ref: 'v0.2.0',
+    })
+
+    const tagged = runResolve({
+      GITHUB_EVENT_NAME: 'push',
+      GITHUB_REF: 'refs/tags/v0.2.0-edge.3',
+      GITHUB_REF_NAME: 'v0.2.0-edge.3',
+    })
+    expect(tagged.outputs).toMatchObject({ channel: 'edge', stable_tag: '' })
+  })
+
+  it('never promotes to dev from a pushed tag', () => {
+    // Dev is dispatch-only on purpose: a tag push is how a release reaches real installs,
+    // and no tag shape should be able to divert one into a throwaway shell — or, worse,
+    // silently mint a dev build where a stable cut was intended.
+    const stable = runResolve({
+      GITHUB_EVENT_NAME: 'push',
+      GITHUB_REF: 'refs/tags/v0.2.0',
+      GITHUB_REF_NAME: 'v0.2.0',
+    })
+    expect(stable.outputs.channel).toBe('stable')
+    const edge = runResolve({
+      GITHUB_EVENT_NAME: 'push',
+      GITHUB_REF: 'refs/tags/v0.2.0-edge.1',
+      GITHUB_REF_NAME: 'v0.2.0-edge.1',
+    })
+    expect(edge.outputs.channel).toBe('edge')
+  })
+
+  it('still refuses a stable promotion with no version tag, and an unknown channel', () => {
+    expect(() =>
+      runResolve({ GITHUB_EVENT_NAME: 'workflow_dispatch', INPUT_CHANNEL: 'stable' }),
+    ).toThrow()
+    expect(() =>
+      runResolve({ GITHUB_EVENT_NAME: 'workflow_dispatch', INPUT_CHANNEL: 'nightly' }),
+    ).toThrow()
+  })
+})
+
+/**
+ * Runs the `Upload promoted desktop assets` step against stubbed `gh`/`git`/`bun`, and reads
+ * back every command it issued.
+ *
+ * WHICH RELEASE A PROMOTION WRITES TO cannot be checked by reading the file: the tag is a
+ * variable, threaded from another job, used by five different `gh` calls. The question that
+ * matters — can a dev promotion touch the tag real installs follow? — is answerable only by
+ * running the thing and looking at what it actually did.
+ */
+function runPublish(input: {
+  channel: string
+  targetTag: string
+  releaseAlreadyExists?: boolean
+}): string[] {
+  const parsed = Bun.YAML.parse(desktopWorkflow) as {
+    jobs: { publish: { steps: Array<{ name?: string; run?: string }> } }
+  }
+  const step = parsed.jobs.publish.steps.find(
+    (candidate) => candidate.name === 'Upload promoted desktop assets',
+  )
+  if (!step?.run) throw new Error('the publish job has no upload step to run')
+
+  const dir = mkdtempSync(join(tmpdir(), 'desktop-publish-'))
+  scratch.push(dir)
+  const bin = join(dir, 'bin')
+  const state = join(dir, 'state')
+  const log = join(dir, 'log')
+  const work = join(dir, 'work')
+  for (const path of [bin, state, work]) mkdirSync(path, { recursive: true })
+  writeFileSync(log, '')
+  if (input.releaseAlreadyExists) writeFileSync(join(state, `exists.${input.targetTag}`), '')
+
+  // `gh release view <tag>` is the only stub with state: it decides whether the step takes the
+  // create path or the edit path, and `release create` has to make the next view succeed or
+  // the step's wait loop would spin.
+  writeFileSync(
+    join(bin, 'gh'),
+    `#!/bin/bash
+echo "gh $*" >> "${log}"
+if [ "$1 $2" = "release view" ]; then
+  [ -f "${state}/exists.$3" ] || exit 1
+  exit 0
+fi
+if [ "$1 $2" = "release create" ]; then touch "${state}/exists.$3"; fi
+exit 0
+`,
+  )
+  writeFileSync(
+    join(bin, 'git'),
+    `#!/bin/bash
+echo "git $*" >> "${log}"
+[ "$1 $2" = "rev-parse HEAD" ] && echo "abcdef1234567890abcdef1234567890abcdef12"
+exit 0
+`,
+  )
+  writeFileSync(join(bin, 'bun'), `#!/bin/bash\necho "bun $*" >> "${log}"\nexit 0\n`)
+  for (const name of ['gh', 'git', 'bun']) chmodSync(join(bin, name), 0o755)
+
+  const script = join(dir, 'publish.sh')
+  writeFileSync(script, step.run)
+  const result = spawnSync('bash', [script], {
+    cwd: work,
+    encoding: 'utf8',
+    timeout: 20_000,
+    env: {
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      CHANNEL: input.channel,
+      TARGET_TAG: input.targetTag,
+      GITHUB_REPOSITORY: 'madeinorbit/podium',
+    },
+  })
+  if (result.status !== 0) {
+    throw new Error(`publish step failed (${result.status}): ${result.stderr}`)
+  }
+  return readFileSync(log, 'utf8').split('\n').filter(Boolean)
+}
+
+describe('desktop release publication', () => {
+  it('creates the standing dev release as a PRERELEASE on first promotion', () => {
+    const commands = runPublish({ channel: 'dev', targetTag: 'dev' })
+    const create = commands.find((line) => line.startsWith('gh release create'))
+    expect(create).toBeDefined()
+    // A release marked latest becomes what `releases/latest/download/...` resolves to — the
+    // URL every STABLE install reads its manifest from. Losing this flag would point the
+    // stable channel at a throwaway test build.
+    expect(create).toContain('--prerelease')
+    expect(create).not.toContain('--latest')
+    expect(commands.some((line) => line.startsWith('gh release upload dev'))).toBe(true)
+  })
+
+  it('republishes onto the same dev release, moving its tag to the built commit', () => {
+    const commands = runPublish({ channel: 'dev', targetTag: 'dev', releaseAlreadyExists: true })
+    expect(commands.some((line) => line.startsWith('gh release create'))).toBe(false)
+    expect(
+      commands.some((line) =>
+        line.startsWith('gh api --method PATCH repos/madeinorbit/podium/git/refs/tags/dev'),
+      ),
+    ).toBe(true)
+    // Still a prerelease after the edit; `gh release edit` would otherwise leave whatever
+    // the release currently is.
+    expect(commands.find((line) => line.startsWith('gh release edit'))).toContain('--prerelease')
+  })
+
+  it('never names the edge or a stable tag while promoting to dev', () => {
+    // THE ONE THAT MATTERS. Real installs follow edge and stable; a dev promotion exists so a
+    // build can be tried without reaching them. Any `gh` call naming another release here
+    // would be a test build landing where real users look.
+    for (const releaseAlreadyExists of [false, true]) {
+      const commands = runPublish({ channel: 'dev', targetTag: 'dev', releaseAlreadyExists })
+      for (const line of commands) {
+        if (!line.startsWith('gh ')) continue
+        expect(line, line).not.toMatch(/\bedge\b/)
+        expect(line, line).not.toMatch(/\bv\d+\.\d+\.\d+/)
+        expect(line, line).not.toContain('--latest')
+      }
+    }
+  })
+
+  it('leaves the edge and stable publications doing exactly what they did', () => {
+    const edge = runPublish({ channel: 'edge', targetTag: 'edge', releaseAlreadyExists: true })
+    // Edge never creates or moves its release — the headless workflow owns that — and it
+    // prunes, because it rolls.
+    expect(edge.some((line) => line.startsWith('gh release create'))).toBe(false)
+    expect(edge.some((line) => line.startsWith('gh api'))).toBe(false)
+    expect(edge.some((line) => line.startsWith('gh release upload edge'))).toBe(true)
+    expect(edge.some((line) => line.includes('--list-stale'))).toBe(true)
+
+    const stable = runPublish({
+      channel: 'stable',
+      targetTag: 'v0.2.0',
+      releaseAlreadyExists: true,
+    })
+    expect(stable.some((line) => line.startsWith('gh release create'))).toBe(false)
+    expect(stable.some((line) => line.startsWith('gh api'))).toBe(false)
+    expect(stable.some((line) => line.startsWith('gh release upload v0.2.0'))).toBe(true)
+    // A stable cut is an immutable per-version tag; nothing accumulates, so nothing is pruned.
+    expect(stable.some((line) => line.includes('--list-stale'))).toBe(false)
+  })
+})
 
 describe('desktop release workflow', () => {
   it('parses as a GitHub workflow triggered by version tags and dispatch', () => {
@@ -67,14 +336,17 @@ describe('desktop release workflow', () => {
     expect(desktopWorkflow).toContain('gh release upload "$target_tag"')
   })
 
-  it('prunes stale desktop assets from the rolling edge release after uploading', () => {
+  it('prunes stale desktop assets from a rolling release after uploading', () => {
     // All desktop asset names embed the version, so --clobber never replaces them: without
-    // pruning, every past edge build — including pre-notarization installers and updater
+    // pruning, every past build — including pre-notarization installers and updater
     // archives — stays downloadable from the release page.
     expect(desktopWorkflow).toContain('--list-stale --manifest dist-desktop/latest.json')
-    expect(desktopWorkflow).toContain('gh release delete-asset edge "$asset" --yes')
-    // Only the rolling edge release accumulates; stable releases are immutable per-tag cuts.
-    expect(desktopWorkflow).toMatch(/if \[ "\$CHANNEL" = edge ]; then\n\s+gh release view edge/)
+    expect(desktopWorkflow).toContain('gh release delete-asset "$target_tag" "$asset" --yes')
+    // Only the rolling releases accumulate; stable releases are immutable per-tag cuts, so
+    // the prune must stay behind a channel test that names edge and dev and nothing else.
+    expect(desktopWorkflow).toMatch(
+      /if \[ "\$CHANNEL" = edge ] \|\| \[ "\$CHANNEL" = dev ]; then\n\s+gh release view "\$target_tag"/,
+    )
     // Prune after the upload so a failed publish leaves the previous build downloadable.
     const upload = desktopWorkflow.indexOf('gh release upload "$target_tag"')
     const prune = desktopWorkflow.indexOf('gh release delete-asset')

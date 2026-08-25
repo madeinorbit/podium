@@ -8,6 +8,7 @@ import { fetchArtifact } from '@podium/runtime/update-delivery'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
 import { registerDevFeedRoutes } from './artifact-route'
+import { withDevBuildSnapshot } from './dev-build-snapshot'
 import {
   assertSourceMatchesHead,
   buildDevBundle,
@@ -33,8 +34,8 @@ import {
   sweepDevBundles,
 } from './dev-bundle'
 import { createServerDevBundleLock } from './dev-bundle-lock'
-import { withDevBuildSnapshot } from './dev-build-snapshot'
 import { classifyMachineFailure, describeUpdateOperationFailure } from './operation'
+import { type DesktopFeedChannel, desktopManifestFeedChannel } from './release-target'
 
 const CHECKOUT_BASE = '0.1.0-edge.20'
 /**
@@ -704,8 +705,7 @@ describe('selectDevBundleSweep', () => {
       'podium-headless-dev+2222222-20260812T180000Z.tar.gz',
     ]
     const fresh = ['linux-x86_64', 'darwin-aarch64'].map(
-      (platform) =>
-        `podium-headless-0.1.0-dev.9+9999999-${platform}-20260812T190000Z.tar.gz`,
+      (platform) => `podium-headless-0.1.0-dev.9+9999999-${platform}-20260812T190000Z.tar.gz`,
     )
     const doomed = selectDevBundleSweep([...fresh, ...legacy], {
       keep: 1,
@@ -2076,6 +2076,30 @@ describe('development targets declare the schema they can open', () => {
  * accepts, and that it never names its own trust root.
  */
 describe('the dev feed manifest the publisher writes', () => {
+  // Two shells that a reader can tell apart at a glance — different versions, and each
+  // served from its own standing release. Which one a dev server hands out is the whole
+  // question this suite exists to answer, so the fixtures must never be interchangeable.
+  const devShellManifest = {
+    version: '0.4.3-dev.2',
+    bridgeVersion: 1,
+    platforms: {
+      'linux-x86_64': {
+        url: 'https://github.com/madeinorbit/podium/releases/download/dev/Podium_0.4.3-dev.2_amd64.AppImage',
+        signature: 'DEV-SIGNATURE',
+      },
+    },
+  }
+  const edgeShellManifest = {
+    version: '0.4.2-edge.7',
+    bridgeVersion: 1,
+    platforms: {
+      'linux-x86_64': {
+        url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium_0.4.2-edge.7_amd64.AppImage',
+        signature: 'EDGE-SIGNATURE',
+      },
+    },
+  }
+
   function publisherFor(
     store: ReturnType<typeof memoryFs>,
     head: () => string,
@@ -2088,6 +2112,10 @@ describe('the dev feed manifest the publisher writes', () => {
     }),
     prepareWebDist?: (headSha: string, explicit: boolean) => Promise<void>,
     fixture = signedFixture(),
+    shells: Partial<Record<DesktopFeedChannel, unknown>> = {
+      dev: devShellManifest,
+      edge: edgeShellManifest,
+    },
   ) {
     const { bytes, signature, signingKey } = fixture
     return createDevBundlePublisher({
@@ -2106,16 +2134,12 @@ describe('the dev feed manifest the publisher writes', () => {
       lock: lockFixture([]),
       artifactUrl: (version) =>
         `https://ludovico.test/updates/feed/dev/artifact/${encodeURIComponent(version)}?token=t`,
-      edgeDesktopManifest: async () => ({
-        version: '0.4.2-edge.7',
-        bridgeVersion: 1,
-        platforms: {
-          'linux-x86_64': {
-            url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium_0.4.2-edge.7_amd64.AppImage',
-            signature: 'EDGE-SIGNATURE',
-          },
-        },
-      }),
+      desktopShellManifest: async (channel) => {
+        const raw = shells[channel]
+        return raw === undefined
+          ? { missing: `${channel} desktop manifest returned HTTP 404` }
+          : { raw }
+      },
       now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
       spawnBuild: async ({ artifactPath }) => {
         store.blobs.set(artifactPath, bytes)
@@ -2203,6 +2227,65 @@ describe('the dev feed manifest the publisher writes', () => {
     expect(store.names()).toEqual([])
   })
 
+  it('serves the dev shell, and says so, when a dev desktop release exists', async () => {
+    const store = memoryFs()
+    const publisher = publisherFor(store, () => 'aaaaaaa')
+    await publisher.requestBuild(true)
+    expect(await publisher.publishFeed()).toBe(true)
+
+    const served = JSON.parse(await store.fs.readText(publisher.desktopManifestPath()))
+    expect(served).toMatchObject({ version: '0.4.3-dev.2' })
+    // Not "we asked for dev" — what the served document actually names.
+    expect(desktopManifestFeedChannel(served)).toBe('dev')
+    expect(publisher.desktopManifestSource()).toEqual({ channel: 'dev' })
+  })
+
+  it('falls back to the edge shell when no dev desktop release exists, and reports it', async () => {
+    // An instance with no dev desktop release must keep working exactly as it did before
+    // the dev channel existed. What must NOT happen is it working silently: a server
+    // handing out an edge build while every label says dev is the defect this guards.
+    const store = memoryFs()
+    const publisher = publisherFor(store, () => 'aaaaaaa', undefined, undefined, undefined, {
+      edge: edgeShellManifest,
+    })
+    await publisher.requestBuild(true)
+    expect(await publisher.publishFeed()).toBe(true)
+
+    const served = JSON.parse(await store.fs.readText(publisher.desktopManifestPath()))
+    expect(served).toMatchObject({ version: '0.4.2-edge.7' })
+    expect(desktopManifestFeedChannel(served)).toBe('edge')
+    const source = publisher.desktopManifestSource()
+    expect(source?.channel).toBe('edge')
+    expect(source?.fellBackBecause).toMatch(/dev desktop manifest returned HTTP 404/)
+  })
+
+  it('refuses to publish a dev shell manifest served from the wrong release', async () => {
+    // A dev manifest that exists but points at edge assets is a BROKEN dev release, not an
+    // absent one. Falling back there would put an edge shell behind a dev label with
+    // nothing amiss to see — so this fails loudly instead.
+    const store = memoryFs()
+    const publisher = publisherFor(store, () => 'aaaaaaa', undefined, undefined, undefined, {
+      dev: edgeShellManifest,
+      edge: edgeShellManifest,
+    })
+    await publisher.requestBuild(true)
+
+    expect(await publisher.publishFeed()).toBe(false)
+    expect(publisher.unavailable()).toMatch(/served from outside the dev feed/)
+    // The previous complete pair is left alone: nothing was written.
+    expect(store.names()).not.toContain('latest.json')
+  })
+
+  it('publishes nothing when neither shell can be fetched, naming both attempts', async () => {
+    const store = memoryFs()
+    const publisher = publisherFor(store, () => 'aaaaaaa', undefined, undefined, undefined, {})
+    await publisher.requestBuild(true)
+
+    expect(await publisher.publishFeed()).toBe(false)
+    expect(publisher.unavailable()).toMatch(/dev desktop manifest returned HTTP 404/)
+    expect(publisher.unavailable()).toMatch(/edge desktop manifest returned HTTP 404/)
+  })
+
   it('writes a manifest the shared parser accepts, naming this build', async () => {
     const store = memoryFs()
     const publisher = publisherFor(store, () => 'aaaaaaa')
@@ -2212,7 +2295,7 @@ describe('the dev feed manifest the publisher writes', () => {
     expect(publisher.feedManifestPath()).toBe('/repo/podium/dist-bun/podium-update.json')
     expect(publisher.desktopManifestPath()).toBe('/repo/podium/dist-bun/latest.json')
     expect(JSON.parse(await store.fs.readText(publisher.desktopManifestPath()))).toMatchObject({
-      version: '0.4.2-edge.7',
+      version: '0.4.3-dev.2',
       bridgeVersion: 1,
     })
 

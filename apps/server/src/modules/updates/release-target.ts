@@ -25,6 +25,14 @@ import {
 
 export type ReleaseUpdateChannel = UpdateChannel
 
+/**
+ * The desktop channels published onto a STANDING release that is republished in place.
+ *
+ * Stable is absent because it is not one: each stable cut is an immutable per-version tag,
+ * fetched through `releases/latest/`, and nothing re-serves it.
+ */
+export type DesktopFeedChannel = 'edge' | 'dev'
+
 const RELEASE_BASE = 'https://github.com/madeinorbit/podium/releases'
 /** Every release artifact `scripts/release.ts` names lives under this prefix. */
 const RELEASE_ARTIFACT_BASE = `${RELEASE_BASE}/download/`
@@ -104,10 +112,24 @@ export function releaseManifestUrl(channel: 'edge' | 'stable'): string {
     : `${RELEASE_BASE}/download/edge/podium-update.json`
 }
 
-export function desktopReleaseManifestUrl(channel: 'edge' | 'stable'): string {
+/**
+ * Where a channel's DESKTOP SHELL is published — always a GitHub release, `dev` included.
+ *
+ * This is not the same fact as {@link releaseChannelFeed}, and the difference is the one
+ * thing to keep straight here. A dev machine's UPDATE FEED is its own source server. Its
+ * SHELL is a signed, notarized macOS bundle that only CI can produce, so it is published
+ * to GitHub like any other, onto a standing `dev` release that no edge or stable install
+ * ever reads. The source server fetches from here and re-serves it on its own feed.
+ */
+export function desktopReleaseManifestUrl(channel: ReleaseUpdateChannel): string {
   return channel === 'stable'
     ? `${RELEASE_BASE}/latest/download/latest.json`
-    : `${RELEASE_BASE}/download/edge/latest.json`
+    : `${RELEASE_BASE}/download/${channel}/latest.json`
+}
+
+/** The standing release a moving desktop channel publishes onto. */
+function desktopFeedBase(channel: DesktopFeedChannel): string {
+  return `${RELEASE_BASE}/download/${channel}/`
 }
 
 /** Where the source server serves its own feed, relative to its origin. */
@@ -364,28 +386,67 @@ function artifactUrlBelongsToFeed(url: string, artifactBase: string): boolean {
  *    hosts {@link ChannelFeed.redirectHosts} names — GitHub's object host,
  *    not the open internet.
  */
-export function validateEdgeDesktopManifest(raw: unknown): DesktopReleaseManifest {
-  const manifest = parseDesktopManifest('edge', raw)
-  const edgeBase = RELEASE_BASE + '/download/edge/'
+export function validateDesktopFeedManifest(
+  channel: DesktopFeedChannel,
+  raw: unknown,
+): DesktopReleaseManifest {
+  const manifest = parseDesktopManifest(channel, raw)
+  const base = desktopFeedBase(channel)
   for (const [platform, artifact] of Object.entries(manifest.platforms)) {
-    if (artifactUrlBelongsToFeed(artifact.url, edgeBase)) continue
+    if (artifactUrlBelongsToFeed(artifact.url, base)) continue
     throw new Error(
-      'edge target unavailable: desktop ' +
+      channel +
+        ' target unavailable: desktop ' +
         platform +
-        ' artifact is served from outside the edge feed (' +
+        ' artifact is served from outside the ' +
+        channel +
+        ' feed (' +
         artifact.url +
         ')',
     )
   }
   for (const url of manifest.downloads ?? []) {
-    if (artifactUrlBelongsToFeed(url, edgeBase)) continue
+    if (artifactUrlBelongsToFeed(url, base)) continue
     throw new Error(
-      'edge target unavailable: desktop download is served from outside the edge feed (' +
+      channel +
+        ' target unavailable: desktop download is served from outside the ' +
+        channel +
+        ' feed (' +
         url +
         ')',
     )
   }
   return manifest
+}
+
+/**
+ * WHICH SHELL A SERVED MANIFEST ACTUALLY CARRIES, read off its own URLs.
+ *
+ * A dev source server serves the dev shell when one is published and the edge shell when
+ * none is. Both are legitimate; serving one while claiming the other is not. So the answer
+ * is derived from the bytes being served rather than remembered from the fetch that
+ * produced them: a memory is lost at restart and can drift from the document, and the
+ * failure that costs days is the record that reports intent instead of fact.
+ *
+ * `undefined` when the manifest names no single release — including a mixture, which is
+ * a manifest nobody should be serving.
+ */
+export function desktopManifestFeedChannel(raw: unknown): DesktopFeedChannel | undefined {
+  let manifest: DesktopReleaseManifest
+  try {
+    manifest = parseDesktopManifest('dev', raw)
+  } catch {
+    return undefined
+  }
+  const urls = [
+    ...Object.values(manifest.platforms).map((artifact) => artifact.url),
+    ...(manifest.downloads ?? []),
+  ]
+  const channels: DesktopFeedChannel[] = ['dev', 'edge']
+  const named = channels.filter((channel) =>
+    urls.every((url) => artifactUrlBelongsToFeed(url, desktopFeedBase(channel))),
+  )
+  return named.length === 1 ? named[0] : undefined
 }
 
 async function assertArtifactsFetchable(

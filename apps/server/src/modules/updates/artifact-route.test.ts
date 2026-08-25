@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { UPDATE_ARTIFACT_INTEGRITY_REFUSAL, UPDATE_ARTIFACT_REFUSAL_HEADER } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterAll, describe, expect, it } from 'vitest'
-import { registerDevFeedRoutes } from './artifact-route'
+import { DEV_DESKTOP_CHANNEL_HEADER, registerDevFeedRoutes } from './artifact-route'
 import {
   type BuiltDevBundle,
   DevArtifactIntegrityError,
@@ -358,11 +358,50 @@ describe('development artifact route', () => {
   })
 
   describe('the manifest leg of the feed', () => {
-    it('serves the edge-referencing shell manifest without machine credentials', async () => {
+    it('serves the shell manifest without machine credentials, naming its release', async () => {
       const response = await appFor(false).request('/updates/feed/dev/latest.json')
       expect(response.status).toBe(200)
       expect(response.headers.get('cache-control')).toBe('no-store')
       expect(await response.json()).toEqual(desktopManifest)
+      // This fixture is an instance with no dev desktop release, serving the edge shell —
+      // the state every install is in until one is promoted. It must say so.
+      expect(response.headers.get(DEV_DESKTOP_CHANNEL_HEADER)).toBe('edge')
+    })
+
+    it('names the dev release once a dev shell is what it is actually serving', async () => {
+      // The header tracks the BYTES, not a decision recorded elsewhere: swapping the file
+      // under the route — which is exactly what a publish does — changes the answer.
+      writeFileSync(
+        desktopManifestPath,
+        JSON.stringify({
+          version: '0.4.3-dev.2',
+          bridgeVersion: 1,
+          platforms: {
+            'linux-x86_64': {
+              url: 'https://github.com/madeinorbit/podium/releases/download/dev/Podium.AppImage',
+              signature: 'DEV-SIGNATURE',
+            },
+          },
+        }) + '\n',
+      )
+      try {
+        const response = await appFor(false).request('/updates/feed/dev/latest.json')
+        expect(response.headers.get(DEV_DESKTOP_CHANNEL_HEADER)).toBe('dev')
+      } finally {
+        writeFileSync(desktopManifestPath, JSON.stringify(desktopManifest) + '\n')
+      }
+    })
+
+    it('refuses to name a release for a manifest that names none', async () => {
+      // Silence would read as "fine". A document this server cannot place is a state
+      // someone has to look at, so it is reported rather than left blank.
+      writeFileSync(desktopManifestPath, '{"nonsense":true}\n')
+      try {
+        const response = await appFor(false).request('/updates/feed/dev/latest.json')
+        expect(response.headers.get(DEV_DESKTOP_CHANNEL_HEADER)).toBe('unknown')
+      } finally {
+        writeFileSync(desktopManifestPath, JSON.stringify(desktopManifest) + '\n')
+      }
     })
 
     it('serves the published manifest to an authenticated machine', async () => {

@@ -25,13 +25,14 @@ import {
   versionStateOf,
   writeDevPublisherState,
 } from './dev-publisher-state'
-import { releaseProposalFacts, type ReleaseProposalFacts } from './release-proposal'
+import { type ReleaseProposalFacts, releaseProposalFacts } from './release-proposal'
 import {
-  desktopReleaseManifestUrl,
   DEV_DESKTOP_MANIFEST,
   DEV_FEED_MANIFEST,
   DEV_FEED_ROUTE,
-  validateEdgeDesktopManifest,
+  type DesktopFeedChannel,
+  desktopReleaseManifestUrl,
+  validateDesktopFeedManifest,
 } from './release-target'
 
 const log = createLogger('server:updates')
@@ -1659,23 +1660,69 @@ export async function writeDevFeedManifest(
   return path
 }
 
-async function fetchStandingEdgeDesktopManifest(): Promise<unknown> {
-  const response = await fetch(desktopReleaseManifestUrl('edge'), {
-    cache: 'no-store',
-    signal: AbortSignal.timeout(5_000),
-  })
-  if (!response.ok) {
-    throw new Error('current edge desktop manifest returned HTTP ' + response.status)
+/** One channel's standing shell manifest, or why there was none to have. */
+export type StandingDesktopManifest = { raw: unknown } | { missing: string }
+
+/** Which shell a dev server is serving, and — if it is not the dev one — why not. */
+export type DesktopManifestSource = {
+  channel: DesktopFeedChannel
+  /** Present only on a fallback: what the dev channel answered instead of a manifest. */
+  fellBackBecause?: string
+}
+
+async function fetchStandingDesktopManifest(
+  channel: DesktopFeedChannel,
+): Promise<StandingDesktopManifest> {
+  const url = desktopReleaseManifestUrl(channel)
+  try {
+    const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(5_000) })
+    if (!response.ok) {
+      return { missing: `${channel} desktop manifest returned HTTP ${response.status}` }
+    }
+    return { raw: await response.json() }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return { missing: `${channel} desktop manifest could not be fetched: ${detail}` }
   }
-  return response.json()
+}
+
+/**
+ * THE DEV SHELL IF THERE IS ONE, THE EDGE SHELL IF THERE IS NOT.
+ *
+ * A dev machine's shell has to come from somewhere real: only CI can produce a signed,
+ * notarized bundle, so both channels' shells are published to GitHub and this picks
+ * between them. Preferring dev is the point — a dev release exists precisely so a build
+ * can be tried without reaching an install that follows edge.
+ *
+ * FALLING BACK IS FINE; DOING IT QUIETLY IS NOT. An instance with no dev desktop release
+ * still works exactly as it did before this channel existed, and it says that is what
+ * happened — {@link DesktopManifestSource.fellBackBecause} carries the dev channel's own
+ * answer, and the served document names its release in every URL it contains.
+ *
+ * Note where the line falls: this handles a dev release that is ABSENT. A dev manifest
+ * that was served but does not validate is a BROKEN release, and the caller lets that
+ * throw rather than swapping in edge — an edge shell wearing a dev label, with nothing
+ * for a reader to notice, is the failure this whole path is shaped to avoid.
+ */
+export async function resolveStandingDesktopManifest(
+  fetchFor: (channel: DesktopFeedChannel) => Promise<StandingDesktopManifest>,
+): Promise<{ source: DesktopManifestSource; raw: unknown }> {
+  const dev = await fetchFor('dev')
+  if ('raw' in dev) return { source: { channel: 'dev' }, raw: dev.raw }
+  const edge = await fetchFor('edge')
+  if (!('raw' in edge)) {
+    throw new Error(`no desktop shell manifest to serve: ${dev.missing}; ${edge.missing}`)
+  }
+  return { source: { channel: 'edge', fellBackBecause: dev.missing }, raw: edge.raw }
 }
 
 export async function writeDevDesktopManifest(
   fs: DevBundleFs,
   root: string,
+  channel: DesktopFeedChannel,
   raw: unknown,
 ): Promise<string> {
-  validateEdgeDesktopManifest(raw)
+  validateDesktopFeedManifest(channel, raw)
   const path = devDesktopManifestPath(root)
   await fs.writeText(path, JSON.stringify(raw, null, 2) + '\n')
   return path
@@ -1710,8 +1757,14 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    * exactly the convergence that must be refused.
    */
   migrationsAt?: (sha: string) => Promise<string[] | undefined>
-  /** Fetches the standing edge shell manifest. Seam for tests; production reads GitHub. */
-  edgeDesktopManifest?: () => Promise<unknown>
+  /**
+   * Fetches one channel's standing shell manifest. Seam for tests; production reads GitHub.
+   *
+   * Deliberately below the dev-then-edge choice rather than beside it: the preference and
+   * the fallback are the behaviour under test, so a test replaces what GitHub answers, not
+   * what this server decides to do about it.
+   */
+  desktopShellManifest?: (channel: DesktopFeedChannel) => Promise<StandingDesktopManifest>
   /** Seam for tests; defaults to `git status --porcelain -z` in `root`. */
   readSourceStatus?: DevBundleSourceReader
   /** Seam for tests; defaults to `git ls-files --others --ignored` in `root`. */
@@ -1832,8 +1885,15 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   proposal(): Promise<ReleaseProposal | undefined>
   /** Where the product manifest is written, so the feed route can serve it. */
   feedManifestPath(): string
-  /** Where the edge-referencing shell manifest is written. */
+  /** Where the shell manifest this server re-serves is written. */
   desktopManifestPath(): string
+  /**
+   * Which channel's shell the last publish put there, and why it is not the dev one when
+   * it is not. Nothing before this process has published — after a restart the answer that
+   * matters is derivable from the served file itself (`desktopManifestFeedChannel`), which
+   * is why this is a convenience and never the record.
+   */
+  desktopManifestSource(): DesktopManifestSource | undefined
   /** Explicit lifecycle for this HEAD, with a reason safe to show a client. */
   readiness(): Promise<DevBundleReadiness>
   /**
@@ -1847,6 +1907,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   let lastAttemptAt: number | null = null
   let inFlight: Promise<BuiltDevBundle> | null = null
   let unavailable: string | undefined
+  let desktopManifestSource: DesktopManifestSource | undefined
   let failure: { sha: string | null; reason: string; publicReason: string } | undefined
   const now = deps.now ?? Date.now
   const debounceMs = deps.debounceMs ?? 60_000
@@ -2360,17 +2421,20 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     feedManifest,
     feedManifestPath: () => devFeedManifestPath(deps.root ?? SOURCE_ROOT),
     desktopManifestPath: () => devDesktopManifestPath(deps.root ?? SOURCE_ROOT),
+    desktopManifestSource: () => desktopManifestSource,
     publishFeed: async () => {
       const manifest = await builtManifest()
       if (!manifest) return false
       try {
         if (!builtSha) throw new Error('cannot publish a development release without its commit')
         const root = deps.root ?? SOURCE_ROOT
-        const desktopRaw = await (deps.edgeDesktopManifest ?? fetchStandingEdgeDesktopManifest)()
-        // Validate the edge URLs before changing either served document. A failed shell
-        // reference leaves the previous complete pair visible.
-        validateEdgeDesktopManifest(desktopRaw)
-        const desktopPath = await writeDevDesktopManifest(fs, root, desktopRaw)
+        const { source, raw: desktopRaw } = await resolveStandingDesktopManifest(
+          deps.desktopShellManifest ?? fetchStandingDesktopManifest,
+        )
+        // Validate against the release it CAME FROM before changing either served document.
+        // A failed shell reference leaves the previous complete pair visible.
+        validateDesktopFeedManifest(source.channel, desktopRaw)
+        const desktopPath = await writeDevDesktopManifest(fs, root, source.channel, desktopRaw)
         const path = await writeDevFeedManifest(fs, root, manifest)
         const statePath = deps.publisherStateDir ?? stateDir()
         const publisherState = readDevPublisherState(statePath)
@@ -2380,10 +2444,16 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           )
         }
         writeDevPublisherState({ ...publisherState, lastPublishedSha: builtSha }, statePath)
+        desktopManifestSource = source
         log.info('published development feed manifests', {
           version: manifest.version,
           path,
           desktopPath,
+          // Which shell this instance is now handing out. On a fallback the reason travels
+          // with it, so the log says "edge, because dev had none" rather than just "edge"
+          // — or, worse, nothing at all while the feed answers to the name dev.
+          desktopChannel: source.channel,
+          ...(source.fellBackBecause ? { desktopFallback: source.fellBackBecause } : {}),
         })
         return true
       } catch (error) {

@@ -18,7 +18,11 @@ import { extractRelease } from './changelog'
 
 export const NATIVE_DESKTOP_BRIDGE_VERSION = 1
 
-export type DesktopReleaseChannel = 'stable' | 'edge'
+/**
+ * `dev` is a shell for trying a build, published exactly like `edge` but onto its own
+ * standing release so a test promotion never lands where real installs are looking.
+ */
+export type DesktopReleaseChannel = 'stable' | 'edge' | 'dev'
 export type DesktopReleaseTarget = 'linux-x86_64' | 'darwin-aarch64' | 'darwin-x86_64'
 
 export type DesktopReleaseArtifact = {
@@ -145,7 +149,10 @@ export function desktopReleaseTag(
   version: string,
   stableTag?: string,
 ): string {
-  if (channel === 'edge') return 'edge'
+  // A moving channel republishes onto one standing tag named for the channel, so its manifest
+  // URL survives every build. The tag is the isolation: `dev` and `edge` can never clobber each
+  // other's assets, and only `stable` pins the immutable version tag.
+  if (channel === 'edge' || channel === 'dev') return channel
   if (!stableTag) throw new Error('stable desktop release needs --tag vX.Y.Z')
   if (stableTag !== `v${version}`) {
     throw new Error(`stable tag ${stableTag} does not match desktop version ${version}`)
@@ -429,14 +436,22 @@ function main(): void {
     return
   }
   const channel = arg('--channel')
-  if (channel !== 'stable' && channel !== 'edge') {
-    throw new Error('--channel must be stable or edge')
+  if (channel !== 'stable' && channel !== 'edge' && channel !== 'dev') {
+    throw new Error('--channel must be stable, edge, or dev')
   }
   const rootPackage = JSON.parse(readFileSync('package.json', 'utf8')) as { version?: string }
   const version = arg('--version') ?? rootPackage.version
   if (!version) throw new Error('desktop release version is missing')
   const stableTag = arg('--tag')
   const releaseTag = desktopReleaseTag(channel, version, stableTag)
+  // The release tag the workflow uploads to has to be the one this script wrote into every
+  // manifest URL. Printing it here keeps that one fact in one place: a workflow that re-derived
+  // it in shell could disagree, and the way that disagreement shows up is a dev promotion
+  // uploading onto the tag real installs follow.
+  if (process.argv.includes('--print-tag')) {
+    console.log(releaseTag)
+    return
+  }
   if (process.argv.includes('--validate-only')) {
     console.log(`[desktop-release] validated ${version} for ${channel} at ${releaseTag}`)
     return
