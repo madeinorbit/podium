@@ -161,6 +161,31 @@ describe('SetupGate', () => {
     expect(connect).not.toHaveBeenCalled()
   })
 
+  it('carries the stale setting from the readiness probe onto the screen [POD-2766]', async () => {
+    // The gate is the only thing that can: the data plane is blocked, so the
+    // screen behind it cannot ask the server anything itself. If the gate drops
+    // `stale` on the floor the screen falls back to "something changed" and the
+    // operator is left guessing which of their changes did this.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        headers: new Headers(),
+        json: async () => ({
+          needsSetup: true,
+          state: 'activation_pending',
+          reason: 'restart_required',
+          dataPlane: 'blocked',
+          controlPlane: 'available',
+          stale: ['persistence'],
+        }),
+      }),
+    )
+    render(<SetupGate>{child}</SetupGate>)
+    expect(await screen.findByText(/how podium is kept running/i)).toBeTruthy()
+  })
+
   it('renders the app for degraded readiness because the data plane is available', async () => {
     vi.stubGlobal(
       'fetch',
