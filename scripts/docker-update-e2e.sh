@@ -53,6 +53,7 @@ SOURCE="$RUN_ID-source"
 FLEET_A="$RUN_ID-fleet-a"
 FLEET_B="$RUN_ID-fleet-b"
 SERVER_CONSUMER="$RUN_ID-server"
+REAL_CONSUMER="$RUN_ID-real-release"
 LEGACY="$RUN_ID-legacy"
 SCHEMA_CONTROL="$RUN_ID-schema-control"
 TAMPER_CONTROL="$RUN_ID-tamper-control"
@@ -81,6 +82,7 @@ TAILNET_PORT=""
 TAILNET_HTTPS_PORT=""
 TAILNET_HTTPS_URL=""
 SERVER_PORT=""
+REAL_PORT=""
 START_FREE=0
 CLEANED=0
 HOLD_READY=0
@@ -97,6 +99,10 @@ SERVER_MIGRATION="20991231235959_update-e2e-packaged-server"
 if [[ "$ONLY" == server ]]; then
   SCENARIOS=(environment resource-safety coordinator-install server-install server-assets server-migration
     server-client-reconnect server-handover server-agent-survival server-rollback cleanup host-disk)
+elif [[ "$ONLY" == real-release ]]; then
+  # THE ONLY LANE THAT DOES NOT START AT CURRENT SOURCE (POD-2769).
+  SCENARIOS=(environment resource-safety coordinator-install real-release-install
+    real-release-pairing-refusal real-release-resolve real-release-converged cleanup host-disk)
 else
   SCENARIOS=(environment resource-safety coordinator-install fresh-install diagnostic-version fleet-join
     fleet-join-refusal version-display dev-release update-offer schema-refusal tampered-refusal
@@ -181,6 +187,15 @@ PODIUM_UPDATE_E2E_ONLY=legacy         run the packaged legacy migration row
                                       while release minting is unavailable
 PODIUM_UPDATE_E2E_ONLY=server         update a packaged all-in-one server from
                                       a run-local production-shaped edge feed
+PODIUM_UPDATE_E2E_ONLY=real-release   install the REAL published 0.1.0 artifact and
+                                      let ITS OWN updater take a new release
+PODIUM_UPDATE_E2E_REAL_RELEASE=X.Y.Z  which published release to start from (0.1.0)
+PODIUM_UPDATE_E2E_REAL_RELEASE_CACHE=PATH
+                                      a directory already holding that release's
+                                      tarball, .sig and install.sh (skips gh)
+PODIUM_UPDATE_E2E_PROVE_FAILURE=real-release-migration
+                                      break the topology migration's one write;
+                                      real-release-converged must go red for it
 PODIUM_UPDATE_E2E_PROVE_FAILURE=server-*  arm one server assertion (see docs)
 PODIUM_UPDATE_E2E_PROVE_FAILURE=coordinator-participant
                                       restore the old server-only no-participant shape
@@ -224,7 +239,7 @@ owned_ids() { docker ps -aq --filter "label=$LABEL"; }
 capture_logs() {
   mkdir -p "$WORK/logs"
   local container name
-  for container in "$SOURCE" "$FLEET_A" "$FLEET_B" "$SERVER_CONSUMER" "$LEGACY" "$SCHEMA_CONTROL" "$TAMPER_CONTROL"; do
+  for container in "$SOURCE" "$FLEET_A" "$FLEET_B" "$SERVER_CONSUMER" "$REAL_CONSUMER" "$LEGACY" "$SCHEMA_CONTROL" "$TAMPER_CONTROL"; do
     docker inspect "$container" >/dev/null 2>&1 || continue
     name="$(docker inspect -f '{{.Config.Hostname}}' "$container")"
     docker logs --tail 4000 "$container" >"$WORK/logs/$name.log" 2>&1 || true
@@ -1863,7 +1878,7 @@ main() {
      resolved=$(realpath /work/source/node_modules/@podium/runtime)
      case "$resolved" in /work/source/*) ;; *) echo "dependency escaped: $resolved" >&2; exit 1;; esac'
 
-  if [[ "$ONLY" == server ]]; then
+  if [[ "$ONLY" == server || "$ONLY" == real-release ]]; then
     prepare_server_trust_root
   fi
 
@@ -1958,6 +1973,12 @@ main() {
 
   if [[ "$ONLY" == server ]]; then
     run_server_lane
+    CURRENT_SCENARIO=""
+    return 0
+  fi
+
+  if [[ "$ONLY" == real-release ]]; then
+    run_real_release_lane
     CURRENT_SCENARIO=""
     return 0
   fi
@@ -2259,6 +2280,7 @@ main() {
 }
 
 source "$ROOT/scripts/docker-update-e2e/server-lane.sh"
+source "$ROOT/scripts/docker-update-e2e/real-release-lane.sh"
 
 # Run only when executed, so the helpers above can be sourced and tested on their
 # own. When this file IS the program, BASH_SOURCE[0] and $0 are the same path.
