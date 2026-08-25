@@ -4,17 +4,17 @@
   "driverId": "generic-pty",
   "driverFamily": "terminal",
   "pin": {
-    "want": "9d7ca3c12838975972c3c58733eaedaac5dc5be8",
-    "short": "9d7ca3c",
-    "spawnedSha": "9d7ca3c12838975972c3c58733eaedaac5dc5be8",
-    "serverPid": 1022908,
-    "daemonPid": 1022960,
-    "webSourceSha": "9d7ca3c",
+    "want": "2a9630dc61fb02e880446e328b49f237e0ca7cfa",
+    "short": "2a9630d",
+    "spawnedSha": "2a9630dc61fb02e880446e328b49f237e0ca7cfa",
+    "serverPid": 1061097,
+    "daemonPid": 1061149,
+    "webSourceSha": "2a9630d",
     "contract": "1",
     "streaming": "1",
     "driver": "generic-pty"
   },
-  "at": "2026-08-25T23:21:31.161Z",
+  "at": "2026-08-25T23:49:48.436Z",
   "tuiPriming": [
     "codex hooks: pressed t (trust all)",
     "codex hooks: Esc (t did not clear it)",
@@ -31,26 +31,26 @@
       "control": {
         "fired": true,
         "what": "our own prompt landing on the durable transcript plane (transcriptDelta)",
-        "detail": "1 transcriptDelta frame(s); prompt echoed on transcript: yes"
+        "detail": "2 transcriptDelta frame(s); prompt echoed on transcript: yes"
       },
-      "ms": 8202,
+      "ms": 55125,
       "verdict": "PASS",
-      "summary": "replied with the nonce in 7.8s",
+      "summary": "replied with the nonce in 55.0s",
       "evidence": [
-        "SENT              Reply with exactly this word and nothing else: PODIUM-VD8J2M. Do not use any tools.",
+        "SENT              Reply with exactly this word and nothing else: PODIUM-4KNBUI. Do not use any tools.",
         "SEND ACCEPTED     {\"ok\":true,\"disposition\":\"delivered\"}",
-        "NONCE             PODIUM-VD8J2M — a blank session cannot produce this by luck",
-        "REPLY             arrived after 7805ms",
-        "ASSISTANT TEXT    13 chars: \"PODIUM-VD8J2M\"",
-        "ELAPSED           8201ms"
+        "NONCE             PODIUM-4KNBUI — a blank session cannot produce this by luck",
+        "REPLY             arrived after 55035ms",
+        "ASSISTANT TEXT    13 chars: \"PODIUM-4KNBUI\"",
+        "ELAPSED           55123ms"
       ],
       "data": {
-        "nonce": "PODIUM-VD8J2M",
-        "replyMs": 7805,
+        "nonce": "PODIUM-4KNBUI",
+        "replyMs": 55035,
         "chars": 13
       },
-      "pin": "9d7ca3c",
-      "at": "2026-08-25T23:21:31.161Z"
+      "pin": "2a9630d",
+      "at": "2026-08-25T23:49:48.433Z"
     },
     {
       "id": "attach",
@@ -61,15 +61,15 @@
         "what": "a plain send on this same session having already produced a reply (probe 1)",
         "detail": "probe 1 PASSED here, so this session can send and answer"
       },
-      "ms": 20352,
+      "ms": 17367,
       "verdict": "PASS",
-      "summary": "the agent read the file and echoed FILESECRET-QB3J7O",
+      "summary": "the agent read the file and echoed FILESECRET-ZIYB7W",
       "evidence": [
-        "STAGED            path=/tmp/pod-2777/state/uploads/7e944689-8516-49c3-9bad-c51637bf293d/68f61710-042d-46a5-bb68-d93427335188.txt ref={\"id\":\"68f61710-042d-46a5-bb68-d93427335188\",\"path\":\"/tmp/pod-2777/state/uploads/7e944689-8516-49c3-9bad-c51637bf293d/68f61710-042d-46a5-bb68-d93427335188.txt\",\"filename\":\"podium-2777-secret.txt\",\"med",
-        "SECRET IN FILE    FILESECRET-QB3J7O — present in the bytes and nowhere else",
+        "STAGED            path=/tmp/pod-2777/state/uploads/18431c5e-d410-4c81-9f62-721f230bf0c2/c4c3003d-b85d-4484-99d5-8401116bdcb7.txt ref={\"id\":\"c4c3003d-b85d-4484-99d5-8401116bdcb7\",\"path\":\"/tmp/pod-2777/state/uploads/18431c5e-d410-4c81-9f62-721f230bf0c2/c4c3003d-b85d-4484-99d5-8401116bdcb7.txt\",\"filename\":\"podium-2777-secret.txt\",\"med",
+        "SECRET IN FILE    FILESECRET-ZIYB7W — present in the bytes and nowhere else",
         "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
         "                  (a 'queued' disposition here would mean the session was still busy)",
-        "ECHOED BACK       yes, after 19477ms",
+        "ECHOED BACK       yes, after 17280ms",
         "APPROVALS NEEDED  0 — the staging dir is OUTSIDE the repo, so reading the",
         "                  attachment raises an external_directory permission ask. A drive that",
         "                  did not answer it would time out and report \"never read the file\".",
@@ -77,13 +77,13 @@
         "                  it cannot produce these bytes without having read them."
       ],
       "data": {
-        "secret": "FILESECRET-QB3J7O",
+        "secret": "FILESECRET-ZIYB7W",
         "staged": true,
         "echoed": true,
-        "echoMs": 19477
+        "echoMs": 17280
       },
-      "pin": "9d7ca3c",
-      "at": "2026-08-25T23:21:31.161Z"
+      "pin": "2a9630d",
+      "at": "2026-08-25T23:49:48.433Z"
     },
     {
       "id": "interaction",
@@ -92,13 +92,13 @@
       "control": {
         "fired": true,
         "what": "the turn producing durable transcript items at all (transcriptDelta on the same socket)",
-        "detail": "5 new transcript item(s) after the prompt; 12 delta frame(s) total"
+        "detail": "5 new transcript item(s) after the prompt; 13 delta frame(s) total"
       },
-      "ms": 21540,
+      "ms": 20934,
       "verdict": "BLOCKED",
       "summary": "no ask — this harness ran the tool without asking (permissive posture)",
       "evidence": [
-        "INTERACTIONS.LIST empty for this session after 22s",
+        "INTERACTIONS.LIST empty for this session after 21s",
         "TOOL CALLS SEEN   Bash, tool",
         "BLOCKED, NOT FAILED: the harness approved its own tool call, so the",
         "product was never handed an ask to surface. That is a fact about this",
@@ -108,8 +108,8 @@
         "asks": 0,
         "toolRan": true
       },
-      "pin": "9d7ca3c",
-      "at": "2026-08-25T23:21:31.161Z"
+      "pin": "2a9630d",
+      "at": "2026-08-25T23:49:48.433Z"
     },
     {
       "id": "model-switch",
@@ -120,7 +120,7 @@
         "what": "the session readable at all, reporting the model it was asked for",
         "detail": "model=(unset) observedModel=gpt-5.6-sol"
       },
-      "ms": 46,
+      "ms": 26,
       "verdict": "BLOCKED",
       "summary": "no product surface exists to switch model or effort mid-session",
       "evidence": [
@@ -144,8 +144,8 @@
         "observedEffort": "xhigh",
         "productSurface": false
       },
-      "pin": "9d7ca3c",
-      "at": "2026-08-25T23:21:31.161Z"
+      "pin": "2a9630d",
+      "at": "2026-08-25T23:49:48.433Z"
     },
     {
       "id": "stream",
@@ -154,19 +154,19 @@
       "control": {
         "fired": true,
         "what": "transcriptDelta — the DURABLE plane, on the same socket and the same subscription",
-        "detail": "1 frame(s), first at +28ms"
+        "detail": "1 frame(s), first at +48ms"
       },
-      "ms": 58,
+      "ms": 28,
       "verdict": "FAIL",
       "summary": "0 preview frames — the reply did not build in the pane",
       "evidence": [
-        "JOINED            8599ms into a turn ALREADY RUNNING (the hard ordering, not the easy one)",
+        "JOINED            8628ms into a turn ALREADY RUNNING (the hard ordering, not the easy one)",
         "PHASE AT JOIN     working — a turn was in flight when the viewer arrived",
         "PREVIEW FRAMES    0",
         "NO PREVIEW FRAMES. The control fired, so the socket and the session are",
         "alive — this zero is about the preview plane, not about the rig.",
         "FINE WATCH        NOT acquired — the viewer's subscribe never reached the driver",
-        "FRAME TYPES       outputFrame=605 hostMetricsChanged=6 sessionDraftChanged=5 machinesChanged=5 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 transcriptDelta=1"
+        "FRAME TYPES       outputFrame=842 hostMetricsChanged=6 sessionDraftChanged=5 machinesChanged=4 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 transcriptDelta=1"
       ],
       "data": {
         "previewFrames": 0,
@@ -174,10 +174,10 @@
         "lastChars": null,
         "grew": 0,
         "shrinks": 0,
-        "joinedMs": 8599
+        "joinedMs": 8628
       },
-      "pin": "9d7ca3c",
-      "at": "2026-08-25T23:21:31.161Z"
+      "pin": "2a9630d",
+      "at": "2026-08-25T23:49:48.433Z"
     },
     {
       "id": "interrupt",
@@ -186,36 +186,36 @@
       "control": {
         "fired": true,
         "what": "the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)",
-        "detail": "0 preview frame(s) and 4864 new transcript chars — tokens are being produced; phase=idle, 0 preview frame(s), 4864 new transcript chars, 32965 new terminal bytes"
+        "detail": "0 preview frame(s) and 7428 new transcript chars — tokens are being produced; phase=idle, 0 preview frame(s), 7428 new transcript chars, 80937 new terminal bytes"
       },
-      "ms": 64136,
+      "ms": 31225,
       "verdict": "FAIL",
       "summary": "the product REFUSED the call: Codex only takes an interrupt while it is working, and it is not working right now",
       "evidence": [
-        "WAS RUNNING       0 preview frame(s) and 4864 new transcript chars — tokens are being produced; phase=idle, 0 preview frame(s), 4864 new transcript chars, 32965 new terminal bytes",
+        "WAS RUNNING       0 preview frame(s) and 7428 new transcript chars — tokens are being produced; phase=idle, 0 preview frame(s), 7428 new transcript chars, 80937 new terminal bytes",
         "INTERRUPT SENT    {\"ok\":false,\"reason\":\"Codex only takes an interrupt while it is working, and it is not working right now\"}",
         "                  ^ ok:false — the product declined its own call, so nothing was interrupted and a \"stopped\" reading below means only that nothing was running.",
         "SETTLED           NEVER — phase=idle",
         "TRANSCRIPT MARK   no item carries event:'interrupt'",
-        "TEXT              4864 chars at the call -> 4864 chars at settle",
+        "TEXT              7428 chars at the call -> 7428 chars at settle",
         "FRAMES AFTER      0 preview frame(s) arrived AFTER the call",
-        "TERMINAL BYTES    32965 at the call -> +13209 after 6s -> +21170 after 12s",
+        "TERMINAL BYTES    80937 at the call -> +35401 after 6s -> +44807 after 12s",
         "AFTER THE CALL    phase=working status=live error=none",
         "SCORED ON         output stopping — this arm never publishes phase=working, so \"left working\" would be vacuously true",
         "READING           the agent KEPT GENERATING after the call. The interrupt did",
         "                  not reach the turn, and the call still returned ok — the",
         "                  product reported a success that did not happen.",
-        "                  evidence: +21170 terminal bytes and 0 preview frame(s) AFTER the interrupt."
+        "                  evidence: +44807 terminal bytes and 0 preview frame(s) AFTER the interrupt."
       ],
       "data": {
         "settledMs": null,
         "marked": false,
-        "charsBefore": 4864,
-        "charsAfter": 4864,
+        "charsBefore": 7428,
+        "charsAfter": 7428,
         "framesAfterInterrupt": 0
       },
-      "pin": "9d7ca3c",
-      "at": "2026-08-25T23:21:31.161Z"
+      "pin": "2a9630d",
+      "at": "2026-08-25T23:49:48.433Z"
     },
     {
       "id": "stop",
@@ -226,25 +226,25 @@
         "what": "the session present and readable in sessions.list immediately before the stop",
         "detail": "present, status=live phase=working"
       },
-      "ms": 536,
+      "ms": 153,
       "verdict": "PASS",
-      "summary": "session left its running state 40ms after stop (status=hibernated)",
+      "summary": "session left its running state 47ms after stop (status=hibernated)",
       "evidence": [
         "BEFORE            status=live phase=working",
         "STOP RETURNED     {\"ok\":true,\"worktreeFreed\":false,\"deferredKill\":false}",
         "AFTER             status=hibernated phase=working",
-        "VERIFIED IN       40ms",
+        "VERIFIED IN       47ms",
         "NOTE              this is sessions.stop (the SESSION). The catalogue records",
         "                  \"stop this turn, keep the session\" as ABSENT from the contract",
         "                  on all four drivers; this drive does not pretend otherwise."
       ],
       "data": {
-        "stoppedMs": 40,
+        "stoppedMs": 47,
         "statusAfter": "hibernated",
-        "elapsed": 351
+        "elapsed": 121
       },
-      "pin": "9d7ca3c",
-      "at": "2026-08-25T23:21:31.161Z"
+      "pin": "2a9630d",
+      "at": "2026-08-25T23:49:48.433Z"
     },
     {
       "id": "resume",
@@ -255,7 +255,7 @@
         "what": "a conversation existing to restore — the pre-park turn answered with the secret",
         "detail": "the pre-park turn never produced the secret, so there is nothing whose return could be measured"
       },
-      "ms": 3,
+      "ms": 2,
       "verdict": "REFUSED",
       "summary": "control did not fire — refusing to report this measurement",
       "evidence": [
@@ -269,8 +269,8 @@
       "data": {
         "refusedProbeVerdict": "FAIL"
       },
-      "pin": "9d7ca3c",
-      "at": "2026-08-25T23:21:31.161Z"
+      "pin": "2a9630d",
+      "at": "2026-08-25T23:49:48.433Z"
     },
     {
       "id": "provider-error",
@@ -281,7 +281,7 @@
         "what": "this harness answering a normal question on this arm (probe 1)",
         "detail": "probe 1 PASSED, so a failure in this probe is attributable to the injected fault"
       },
-      "ms": 1,
+      "ms": 2,
       "verdict": "BLOCKED",
       "summary": "no accepted-then-never-settles fault is known for codex",
       "evidence": [
@@ -296,8 +296,8 @@
       "data": {
         "faultAvailable": false
       },
-      "pin": "9d7ca3c",
-      "at": "2026-08-25T23:21:31.161Z"
+      "pin": "2a9630d",
+      "at": "2026-08-25T23:49:48.433Z"
     }
   ]
 }

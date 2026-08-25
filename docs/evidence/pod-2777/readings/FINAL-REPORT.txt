@@ -4,7 +4,7 @@ POD-1761 ACCEPTANCE DRIVE — did the headless drivers beat the terminal ones?
 
 arm                   driver bound        pin (server+daemon)   web bundle  when
 ------------------------------------------------------------------------------------------------
-codex / terminal      generic-pty         9d7ca3c12838          9d7ca3c     2026-08-25T23:21:31
+codex / terminal      generic-pty         2a9630dc61fb          2a9630d     2026-08-25T23:49:48
 opencode / terminal   generic-pty         26f99a8adfff          26f99a8     2026-08-25T19:41:03
 claude / headless     claude-pty          9d7ca3c12838          9d7ca3c     2026-08-25T23:28:24
 opencode / headless   opencode-server     21e9f04c89d5          21e9f04     2026-08-25T22:32:50
@@ -13,7 +13,7 @@ codex / headless      codex-app-server    c172add95c27          c172add     2026
 Every row above verified server, daemon AND web bundle against the same commit
 BEFORE it ran; drive.ts exits 4 rather than measure a rig that failed that check.
 
-NOTE: cells in this table were taken at 7 different commits (9d7ca3c, 26f99a8, e28013a, f3691cf, 21e9f04, 5c5a4d5, c172add).
+NOTE: cells in this table were taken at 8 different commits (2a9630d, 26f99a8, 9d7ca3c, e28013a, f3691cf, 21e9f04, 5c5a4d5, c172add).
 Per-cell pins are printed in the evidence section; no cell inherits another run's.
 
 ================================================================================================
