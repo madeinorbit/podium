@@ -40,6 +40,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type AgentSessionHandle,
   type AttachmentKind,
+  type AttachmentRef,
   type AttachmentSource,
   CORE_PRIMITIVES,
   type DriverCapabilities,
@@ -524,6 +525,57 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         await expect(
           session.stageAttachment(attachmentSourceFor(declaredKinds[0] ?? 'file')),
         ).resolves.toMatchObject({ reason: 'not_running' })
+      })
+
+      it('enforces the staging declaration when attachments reach send', async () => {
+        const { handle, driver } = setup()
+        const session = await handle
+        const declared = driver.capabilities().staging
+        const foreignRef = (kind: AttachmentKind): AttachmentRef => ({
+          id: `foreign-${kind}`,
+          path: `/foreign/attachment-probe.${kind === 'image' ? 'png' : 'txt'}`,
+          filename: kind === 'image' ? 'probe.png' : 'probe.txt',
+          mediaType: kind === 'image' ? 'image/png' : 'text/plain',
+          kind,
+        })
+        const send = (attachment: AttachmentRef) =>
+          session.send(
+            { text: 'inspect this attachment', attachments: [attachment] },
+            { origin: 'human', delivery: 'when-ready' },
+          )
+
+        // HAND-BUILT ON PURPOSE. Passing this through stageAttachment() would
+        // prove the stager honours its declaration while leaving send() free to
+        // silently accept a ref from a session that cannot stage attachments.
+        if (!declared.supported) {
+          await expect(send(foreignRef('image'))).resolves.toMatchObject({
+            outcome: 'refused',
+          })
+          return
+        }
+
+        // The converse keeps a broad "refuse every attachment" guard from
+        // satisfying the negative half of the contract. A ref minted by this
+        // session for a declared kind must make it through send().
+        const supportedKind = declared.value.kinds[0]
+        expect(supportedKind).toBeDefined()
+        if (!supportedKind) return
+        const staged = await session.stageAttachment(attachmentSourceFor(supportedKind))
+        expect(staged).not.toHaveProperty('reason')
+        if ('reason' in staged) return
+        await expect(send(staged)).resolves.not.toMatchObject({ outcome: 'refused' })
+
+        // A supported driver still owns the negative half for every kind it did
+        // not declare. Keep this ref foreign so the assertion reaches send()
+        // directly instead of succeeding at the earlier staging boundary.
+        const undeclaredKind = (['image', 'file'] as const).find(
+          (kind) => !declared.value.kinds.includes(kind),
+        )
+        if (undeclaredKind) {
+          await expect(send(foreignRef(undeclaredKind))).resolves.toMatchObject({
+            outcome: 'refused',
+          })
+        }
       })
     })
 
