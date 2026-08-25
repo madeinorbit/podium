@@ -33,7 +33,7 @@ import {
   isAgentComputing,
 } from '@podium/model'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
-import type { TurnReceipt } from '@podium/protocol/daemon'
+import type { Refusal, TurnReceipt } from '@podium/protocol/daemon'
 import { asDelegationRef, type DelegationRef } from '@podium/protocol'
 import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
@@ -42,6 +42,22 @@ import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
 import type { HarnessInterrupt } from '../../harness-manifest'
 import { injectionPayload } from './paste'
 import type { Session } from './session'
+
+/**
+ * What `sessions.interrupt` answers, and what each half of it means (POD-2792).
+ *
+ * `ok` is "the interrupt was REQUESTED", never "the turn stopped" — see
+ * {@link SessionInbox.interruptTurn} for why nothing synchronous can say the
+ * second. `requested` names the delivery that carried it, so a caller reading
+ * only this object can tell a keystroke typed at a TUI from a request a driver
+ * accepted over its protocol; they are different proofs and collapsing them is
+ * how the two paths came to look alike while only one of them worked.
+ *
+ * `reason` is user-facing: the chat composer prints it verbatim.
+ */
+export type InterruptOutcome =
+  | { ok: true; requested: 'keystroke' | 'protocol'; reason?: undefined }
+  | { ok: false; reason: string; requested?: undefined }
 
 const SUBMIT_CR_DELAY_MS = 90
 /** Gap between two keystrokes typed into a native menu — see
@@ -314,6 +330,19 @@ export interface SessionInboxDeps {
     origin: ObservationInputOrigin
     principal: InboxPrincipalReference
   }): Promise<TurnReceipt>
+  /**
+   * REQUEST an interrupt through the runtime contract, for sessions
+   * {@link serverDriven} says have no PTY to type an abort key into.
+   *
+   * The answer is the DRIVER's, and it says the request was accepted or names
+   * the reason it was not — it never says the turn stopped. The fence is a
+   * provider-confirmed terminal turn event on the causal stream, and this reply
+   * is not it (see {@link SessionInbox.interruptTurn}).
+   *
+   * Optional only as a fixture affordance, and the missing case REFUSES rather
+   * than confirming: a stop that cannot be delivered must say so.
+   */
+  contractInterrupt?(sessionId: SessionId): Promise<{ ok: true } | Refusal>
 }
 
 /**
@@ -440,9 +469,7 @@ const tailUserTurnMatches = (session: Session, needle: string, exact = false): b
  * recovery answer may override. Keep this gate separate from
  * {@link terminalSessionSendFailureReason}: combining them makes
  * `allowErrored` an archive bypass. */
-export function archivedSessionSendReason(
-  session: Pick<Session, 'archived'>,
-): string | undefined {
+export function archivedSessionSendReason(session: Pick<Session, 'archived'>): string | undefined {
   return session.archived ? 'session is archived' : undefined
 }
 
@@ -572,12 +599,35 @@ export class SessionInbox {
     return { ok: true }
   }
 
-  /** Interrupt the active native turn without injecting a replacement prompt. */
-  interruptTurn(input: Omit<InboxSendInput, 'text'>): { ok: boolean; reason?: string } {
+  /**
+   * Interrupt the active native turn without injecting a replacement prompt.
+   *
+   * WHAT `ok: true` CLAIMS, SAID EXACTLY, because the difference is the whole
+   * bug (POD-2792). It claims the interrupt was REQUESTED — the abort key went
+   * to the terminal, or the driver accepted the request — and `requested` names
+   * which of those two happened. It does NOT claim the turn stopped. Nothing
+   * synchronous can: the contract models `interrupt()` as a request for a fence,
+   * and the fence is a provider-confirmed terminal turn event that arrives later
+   * on the causal stream. A reply that said "stopped" would be a claim this
+   * server cannot check, which is the shape of lie this issue is about.
+   *
+   * TWO PATHS, BECAUSE THERE ARE TWO KINDS OF SESSION, and routing every stop
+   * down the terminal one is what made the button lie. A server-family session
+   * has no PTY: the daemon finds no bridge for its `input` frame, logs
+   * `discarding input bytes for a bridgeless contract session` and drops the
+   * abort key on the floor — while this method had already answered `ok: true`.
+   * That is POD-2291's vanish, reached through the stop button instead of
+   * through a queued row, and it was measured on the opencode headless arm as
+   * "the interrupt returns ok and the turn runs on". The contract branch below
+   * is the delivery those sessions actually have; every server driver
+   * implements `interrupt()` and none of them was ever called.
+   */
+  interruptTurn(input: Omit<InboxSendInput, 'text'>): InterruptOutcome | Promise<InterruptOutcome> {
     const session = this.deps.getSession(input.sessionId)
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
     }
+    if (this.deps.serverDriven?.(session) === true) return this.contractInterrupt(session, input)
     const abort = this.abortKeyFor(session)
     // REFUSED, not skipped: unlike interruptText there is nothing else this call
     // does, so a silent `{ ok: true }` would be the lie POD-1214 set out to fix —
@@ -591,7 +641,35 @@ export class SessionInbox {
     }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
     this.sendInput(session, abort, input.inputOrigin ?? 'controller', principal.attribution)
-    return { ok: true }
+    return { ok: true, requested: 'keystroke' }
+  }
+
+  /**
+   * The stop, for a session with no terminal to type it into.
+   *
+   * The reason travels back VERBATIM where the driver gave one: the chat
+   * composer prints this string, and 'not_running' with the driver's own detail
+   * tells an operator more than a sentence this layer invented would. The
+   * unwired case refuses rather than confirming — a fixture without the port is
+   * still a stop that did not happen.
+   */
+  private async contractInterrupt(
+    session: Session,
+    input: Omit<InboxSendInput, 'text'>,
+  ): Promise<InterruptOutcome> {
+    const request = this.deps.contractInterrupt
+    if (!request) {
+      return {
+        ok: false,
+        reason: `${this.deps.harnessName(session.agentKind)} is running headless and this server has no runtime connection to it, so the stop could not be delivered`,
+      }
+    }
+    const result = await request(input.sessionId)
+    if ('ok' in result) return { ok: true, requested: 'protocol' }
+    return {
+      ok: false,
+      reason: result.detail ? `${result.reason}: ${result.detail}` : result.reason,
+    }
   }
 
   /**
@@ -828,10 +906,7 @@ export class SessionInbox {
           stop()
           return
         }
-        const blockedReason = sessionSendRefusalReason(
-          current,
-          this.recoveryDrains.has(sessionId),
-        )
+        const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
         if (blockedReason) {
           reportPromptFailure(current, head, blockedReason)
           stop()
@@ -1016,15 +1091,9 @@ export class SessionInbox {
       }
       if (needle !== null && (witnessable || firstPromptNeedsProof || needsReadinessProof)) {
         confirm(head, needle, attempt)
-      }
-      else if (needsReadinessProof) {
-        reportPromptFailure(
-          current,
-          head,
-          'the agent transcript did not confirm this Claude input',
-        )
-      }
-      else settleHead(current, head)
+      } else if (needsReadinessProof) {
+        reportPromptFailure(current, head, 'the agent transcript did not confirm this Claude input')
+      } else settleHead(current, head)
     }
     const deliverNext = (): void => {
       const current = this.deps.getSession(sessionId)
@@ -1263,8 +1332,7 @@ export class SessionInbox {
               ? 'the session did not become live before the creation prompt deadline'
               : 'the session did not become live before this input deadline',
           )
-        }
-        else stop()
+        } else stop()
         return
       }
       setTimeout(tick, READY_POLL_MS).unref?.()

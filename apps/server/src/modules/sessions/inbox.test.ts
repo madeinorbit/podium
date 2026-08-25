@@ -49,11 +49,16 @@ function harness(
     /** Receipts the fake contract port answers with, in order; when omitted
      *  entirely the port itself is absent (the bare-fixture shape). */
     contractReceipts?: TurnReceipt[]
+    /** What the fake runtime-interrupt port answers. Omitted entirely means the
+     *  port is ABSENT — the bare-fixture shape, and the case a server-family
+     *  session must refuse rather than confirm (POD-2792). */
+    contractInterrupt?: { ok: true } | { reason: string; detail?: string }
   } = {},
 ) {
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
   const sent: unknown[] = []
   const contractCalls: unknown[] = []
+  const contractInterrupts: SessionId[] = []
   const rejected: unknown[] = []
   const answered: unknown[] = []
   const promptFailed = vi.fn()
@@ -151,6 +156,14 @@ function harness(
     ...(options.serverDriven !== undefined
       ? { serverDriven: () => options.serverDriven === true }
       : {}),
+    ...(options.contractInterrupt
+      ? {
+          contractInterrupt: (sessionId: SessionId) => {
+            contractInterrupts.push(sessionId)
+            return Promise.resolve(options.contractInterrupt as never)
+          },
+        }
+      : {}),
     ...(options.contractReceipts
       ? {
           contractDeliver: (input: unknown) => {
@@ -175,6 +188,7 @@ function harness(
     rows,
     sent,
     contractCalls,
+    contractInterrupts,
     rejected,
     answered,
     promptFailed,
@@ -623,7 +637,10 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({ agentKind, phase: 'working' })
     const principal = agentPrincipal()
 
-    expect(h.inbox.interruptTurn({ sessionId: SID, principal })).toEqual({ ok: true })
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal })).toEqual({
+      ok: true,
+      requested: 'keystroke',
+    })
 
     expect(h.sent).toEqual([
       expect.objectContaining({
@@ -638,10 +655,12 @@ describe('SessionInbox authorization and identity', () => {
   // The guard that keeps the fix from becoming a worse bug: one Ctrl-C at an
   // IDLE codex prompt exits the CLI, so a stop aimed at a turn that already
   // ended must refuse rather than kill the session.
-  it('refuses to interrupt an idle codex instead of sending the key that would quit it', () => {
+  it('refuses to interrupt an idle codex instead of sending the key that would quit it', async () => {
     const h = harness({ agentKind: 'codex', phase: 'idle' })
 
-    const result = h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+    // AWAITED because the verb now answers either way: the terminal path is
+    // still synchronous, the contract path is not, and a caller reads one shape.
+    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
 
     expect(result.ok).toBe(false)
     expect(result.reason).toContain('only takes an interrupt while it is working')
@@ -655,6 +674,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
       ok: true,
+      requested: 'keystroke',
     })
     expect(h.sent).toHaveLength(1)
   })
@@ -693,6 +713,94 @@ describe('SessionInbox authorization and identity', () => {
       reason: 'session not running',
     })
     expect(h.sent).toEqual([])
+  })
+
+  /**
+   * THE STOP BUTTON ON A SESSION WITH NO TERMINAL (POD-2792).
+   *
+   * These four are the pins the driver-capability catalogue's `interrupt` row
+   * did not have. It read WIRED on all four drivers and PINNED on none, and the
+   * gap that column exists to warn about is exactly what happened: every server
+   * driver implements `interrupt()`, the daemon has a handler for the frame, the
+   * gateway has a method that sends it — and no caller anywhere reached it. The
+   * stop button went down the terminal path on every session, so for a
+   * server-family one the daemon logged `discarding input bytes for a bridgeless
+   * contract session` and this method had already answered `{ ok: true }`.
+   * Measured on the opencode headless arm as "the interrupt returns ok and the
+   * turn runs on".
+   *
+   * Each test below fails on the code as it was: the first three could not even
+   * be written (no port existed), and the fourth passed for the wrong reason —
+   * it typed a keystroke into nothing and called that success.
+   */
+  it('interrupts a server-family session through the runtime contract, typing nothing', async () => {
+    const h = harness({
+      agentKind: 'opencode',
+      phase: 'working',
+      serverDriven: true,
+      contractInterrupt: { ok: true },
+    })
+
+    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+
+    expect(result).toEqual({ ok: true, requested: 'protocol' })
+    expect(h.contractInterrupts).toEqual([SID])
+    // THE HALF THAT WOULD HAVE CAUGHT THE BUG. A keystroke here is a keystroke
+    // into a bridge that does not exist; the daemon drops it and says nothing
+    // this side can read.
+    expect(h.sent).toEqual([])
+  })
+
+  it('reports a driver that refused the interrupt instead of confirming it', async () => {
+    const h = harness({
+      agentKind: 'opencode',
+      phase: 'working',
+      serverDriven: true,
+      contractInterrupt: { reason: 'not_running', detail: 'no machine' },
+    })
+
+    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+
+    // The driver's own vocabulary, carried verbatim: the chat composer prints
+    // this string, and 'not_running: no machine' tells an operator more than a
+    // sentence this layer invented would.
+    expect(result).toEqual({ ok: false, reason: 'not_running: no machine' })
+    expect(h.sent).toEqual([])
+  })
+
+  it('refuses a server-family stop it has no runtime connection to deliver', async () => {
+    // The port ABSENT — a server-family session on a server that cannot reach
+    // the daemon. Confirming here is the same lie by a different route.
+    const h = harness({ agentKind: 'opencode', phase: 'working', serverDriven: true })
+
+    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+
+    expect(result.ok).toBe(false)
+    expect(result.reason).toContain('could not be delivered')
+    expect(h.sent).toEqual([])
+  })
+
+  /**
+   * WHAT `ok: true` IS ALLOWED TO MEAN, pinned as a property rather than left to
+   * a comment. `interrupt()` REQUESTS a fence; the fence is a provider-confirmed
+   * terminal turn event that arrives later on the causal stream. So the reply
+   * comes back with the session still `working`, and `requested` — not `ok` — is
+   * what a caller reads to learn which delivery carried it. A future edit that
+   * made this wait for the turn to end, or that answered `stopped`, breaks here.
+   */
+  it('answers that the interrupt was requested, not that the turn stopped', async () => {
+    const h = harness({
+      agentKind: 'opencode',
+      phase: 'working',
+      serverDriven: true,
+      contractInterrupt: { ok: true },
+    })
+
+    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+
+    expect(result).toEqual({ ok: true, requested: 'protocol' })
+    // Still working: nothing here waited for a fence, and nothing here claimed one.
+    expect(h.session.agentState?.phase).toBe('working')
   })
 
   it('free-text via Other schedules digit, then text, then CR', async () => {

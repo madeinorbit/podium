@@ -5309,6 +5309,105 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
 })
 
 /**
+ * POD-2792: the same vanish as POD-2291, reached through the STOP BUTTON.
+ *
+ * `sessions.interrupt` went down the terminal path on every session, so for a
+ * server-family one the daemon logged `discarding input bytes for a bridgeless
+ * contract session` and the call had already answered `{ ok: true }`. Measured
+ * on the opencode and codex headless arms: the turn kept generating (35 and 66
+ * preview frames arrived AFTER the stop) while the product said it had worked.
+ *
+ * THESE ARE WIRING PINS AND THAT IS THE POINT. `inbox.test.ts` proves the branch
+ * chooses the contract; only a test that composes the real registry proves the
+ * PORT BEHIND IT IS CONNECTED — and an unwired port was the entire defect. Every
+ * layer of this existed and passed its own tests: the driver implements
+ * `interrupt()`, the daemon has a handler for the frame, the gateway has a
+ * method that sends it. Nothing called it.
+ */
+describe('the stop button on a session with no terminal [POD-2792]', () => {
+  const codexBind = (sessionId: SessionId) =>
+    ({
+      ...bind(sessionId),
+      cmd: 'codex app-server (codex-app-server)',
+      agentKind: 'codex',
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    }) as const
+
+  it('asks the driver to interrupt, and never types an abort key at a bridge that is not there', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+
+      const answer = registry.modules.sessions.interruptTurn({ sessionId })
+
+      const request = daemon.find(
+        (message) => message.type === 'runtimeInterruptRequest' && message.sessionId === sessionId,
+      ) as Extract<ControlMessage, { type: 'runtimeInterruptRequest' }> | undefined
+      expect(request).toBeDefined()
+      // NOT AN `input` FRAME. codex's abort key is Ctrl-C; typing it at a session
+      // with no bridge is what the daemon threw away, and what this side called
+      // a success.
+      expect(daemon.filter((message) => message.type === 'input')).toEqual([])
+
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeLifecycleResult',
+        requestId: request!.requestId,
+        sessionId,
+        result: { ok: true },
+      })
+      // `requested`, not `stopped`: the reply says the driver took the request.
+      // The fence is a provider-confirmed turn event and arrives later, if at all.
+      await expect(answer).resolves.toEqual({ ok: true, requested: 'protocol' })
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  it('tells the operator when the driver refused the stop, instead of confirming it', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+
+      const answer = registry.modules.sessions.interruptTurn({ sessionId })
+      const request = daemon.find(
+        (message) => message.type === 'runtimeInterruptRequest' && message.sessionId === sessionId,
+      ) as Extract<ControlMessage, { type: 'runtimeInterruptRequest' }> | undefined
+      expect(request).toBeDefined()
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeLifecycleResult',
+        requestId: request!.requestId,
+        sessionId,
+        result: { reason: 'not_running' },
+      })
+
+      // The chat composer prints this string. A refusal that resolved as ok is
+      // the shape this whole issue is about.
+      await expect(answer).resolves.toEqual({ ok: false, reason: 'not_running' })
+      expect(daemon.filter((message) => message.type === 'input')).toEqual([])
+    } finally {
+      registry.dispose()
+    }
+  })
+})
+
+/**
  * POD-2327: the same vanish as POD-2291, reached through a VERSION-SKEW door.
  *
  * A daemon newer than this server binds a driver id no manifest here declares —

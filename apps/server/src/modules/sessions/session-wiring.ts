@@ -466,6 +466,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         delivery: 'when-ready',
         principal: input.principal,
       }),
+    // THE STOP BUTTON'S HALF OF THE SAME FACT (POD-2792). `serverDriven` says
+    // there is no PTY; this is what a session with no PTY is interrupted
+    // through. Late-bound for the same reason `contractDeliver` is.
+    contractInterrupt: (sessionId) => bag.runtimeGateway.interrupt(sessionId),
   })
   bag.sendText = (input: any) => bag.inbox.sendText(input)
   bag.interruptText = (input: any) => bag.inbox.interruptText(input)

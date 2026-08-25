@@ -322,13 +322,30 @@ describe('oracle: kill', () => {
 })
 
 describe('oracle: sendText / resumeAndSend', () => {
+  /**
+   * RE-PINNED, NOT RELAXED (POD-2792). The behaviour this characterizes — one
+   * bare Esc, no replacement text, `ok` — is unchanged for a terminal session
+   * and is still asserted here byte-for-byte. What the reply gained is
+   * `requested: 'keystroke'`, which names WHICH delivery carried the stop.
+   *
+   * It was added because the other delivery had been missing entirely: a
+   * server-family session has no PTY, the daemon discarded these bytes, and the
+   * call answered a bare `{ ok: true }` that a caller could not tell from this
+   * one. `ok` means the interrupt was REQUESTED, never that the turn stopped,
+   * and `requested` is what makes the two proofs distinguishable at the wire.
+   * Pinning the field here is the point: an edit that collapses them again is a
+   * red test rather than a silent return to a stop that could not be checked.
+   */
   it(`${MUST_NOT_CHANGE}: interrupt sends one bare Esc to the PTY and no replacement text`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId, 'working')
     o.daemon.length = 0
 
-    expect(await o.call.sessions.interrupt({ sessionId })).toEqual({ ok: true })
+    expect(await o.call.sessions.interrupt({ sessionId })).toEqual({
+      ok: true,
+      requested: 'keystroke',
+    })
     expect(ptyFrames(o.daemon)).toEqual([{ inputOrigin: 'controller', data: '\x1b' }])
   })
 
