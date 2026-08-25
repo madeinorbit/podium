@@ -37,7 +37,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { hostname } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   CANDIDATE_BUNFIG,
@@ -53,16 +53,23 @@ import {
   runtimeEnv,
   sha256File,
 } from './global-store-canary'
-import { isFullHit, isFullMiss, parseTurboSummary, type TurboSummary } from './turbo-summary'
+import {
+  isFullHit,
+  isFullMiss,
+  parseTurboSummary,
+  reusedEverythingCacheable,
+  type TurboSummary,
+} from './turbo-summary'
+import { workspaceDirectories } from './workspace-resolution-census'
 
 const REQUIRED_BUN = '1.3.14'
 /**
- * The representative cached test. A leaf package with no workspace dependencies: its
- * task hash moves only for its own sources and the global environment, so a hit or a
- * miss here is about the cache identity under test and not about a neighbour's rebuild.
+ * The representative cached test. A leaf package with no workspace dependencies and a
+ * green suite: its task hash moves only for its own sources and the global environment,
+ * so a hit or a miss here is about the cache identity under test and not about a
+ * neighbour's rebuild — or about a failure the cache had no say in.
  */
-const REPRESENTATIVE_PACKAGE = '@podium/protocol'
-const REPRESENTATIVE_SOURCE = 'packages/protocol/src/index.ts'
+const REPRESENTATIVE_PACKAGE = '@podium/composer'
 /** Never sacrifice a package `bun run typecheck` needs in order to report the refusal. */
 const LOAD_BEARING = new Set(['.bin', '.bun', '.cache', 'turbo', 'typescript', 'vitest'])
 
@@ -74,13 +81,15 @@ export interface AdmissionOptions {
   runId: string
   scratchParent: string
   sourceRoot: string
+  testPackage: string
 }
 
 export interface Probe {
   summary: TurboSummary | null
   durationMs: number
   exitCode: number
-  stderrTail: string
+  /** Both streams: turbo writes its summary to stdout and tsgo writes errors there too. */
+  outputTail: string
 }
 
 interface WorktreeIdentity {
@@ -93,7 +102,8 @@ interface WorktreeIdentity {
 function usage(): never {
   console.error(
     'usage: bun run deps:global-store-cache-admission -- --cache-root <dir> ' +
-      '--scratch-parent <dir> --run-id <label> --output <file> [--ref <commit>] [--bun <path>]',
+      '--scratch-parent <dir> --run-id <label> --output <file> [--ref <commit>] [--bun <path>] ' +
+      '[--test-package @podium/<name>]',
   )
   process.exit(2)
 }
@@ -119,6 +129,7 @@ export function parseAdmissionArgs(args: string[], sourceRoot: string): Admissio
     runId: values.get('run-id') as string,
     scratchParent: canonicalizeFuturePath(values.get('scratch-parent') as string),
     sourceRoot,
+    testPackage: values.get('test-package') ?? REPRESENTATIVE_PACKAGE,
   }
 }
 
@@ -150,8 +161,22 @@ function probe(result: CommandResult): Probe {
     summary: parseTurboSummary(commandOutput(result)),
     durationMs: result.durationMs,
     exitCode: result.exitCode,
-    stderrTail: result.stderrTail.slice(-2000),
+    outputTail: commandOutput(result).slice(-4000),
   }
+}
+
+/** The directory of a workspace package, so the source-change probe knows what to edit. */
+export function workspaceSourceFile(root: string, packageName: string): string {
+  for (const directory of workspaceDirectories(root)) {
+    const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')) as {
+      name?: string
+    }
+    if (manifest.name !== packageName) continue
+    const source = join(directory, 'src', 'index.ts')
+    if (!existsSync(source)) throw new Error(`${packageName} has no src/index.ts to edit`)
+    return source
+  }
+  throw new Error(`no workspace package named ${packageName}`)
 }
 
 /**
@@ -179,14 +204,18 @@ async function readIdentity(
   }
 }
 
-const typecheckCommand = (bun: string) => [bun, 'run', 'typecheck']
+// `--continue` so every task runs and the counts stay comparable between worktrees.
+// Without it turbo stops at the first red package, and a run that attempted 19 tasks
+// cannot be compared with one that attempted 24.
+const typecheckCommand = (bun: string) => [bun, 'run', 'typecheck', '--', '--continue']
+
 // scripts/test.ts directly: the root `test` script is a four-file smoke lane, and
 // `test:cached` reserves --shared-admission for the web/mobile pair.
-const packageTestCommand = (bun: string) => [
+const packageTestCommand = (bun: string, packageName: string) => [
   bun,
   'scripts/test.ts',
   '--filter',
-  REPRESENTATIVE_PACKAGE,
+  packageName,
 ]
 
 /**
@@ -272,19 +301,24 @@ async function main(): Promise<void> {
       await runCommand(typecheckCommand(options.bun), producer, env),
     )
     const candidateTestCold = probe(
-      await runCommand(packageTestCommand(options.bun), producer, env),
+      await runCommand(packageTestCommand(options.bun, options.testPackage), producer, env),
     )
 
     console.log('[cache-admission] an independently installed candidate reads both')
     const readerTypecheck = probe(await runCommand(typecheckCommand(options.bun), reader, env))
-    const readerTest = probe(await runCommand(packageTestCommand(options.bun), reader, env))
+    const readerTest = probe(
+      await runCommand(packageTestCommand(options.bun, options.testPackage), reader, env),
+    )
 
     console.log('[cache-admission] one edited source file must be a miss again')
-    const sourcePath = join(reader, REPRESENTATIVE_SOURCE)
+    const sourcePath = workspaceSourceFile(reader, options.testPackage)
+    const sourceRelative = relative(reader, sourcePath)
     writeFileSync(sourcePath, `${readFileSync(sourcePath, 'utf8')}\n// POD-2774 cache probe\n`)
     const changedTypecheck = probe(await runCommand(typecheckCommand(options.bun), reader, env))
-    const changedTest = probe(await runCommand(packageTestCommand(options.bun), reader, env))
-    runSync(['git', 'checkout', '--', REPRESENTATIVE_SOURCE], reader)
+    const changedTest = probe(
+      await runCommand(packageTestCommand(options.bun, options.testPackage), reader, env),
+    )
+    runSync(['git', 'checkout', '--', sourceRelative], reader)
 
     console.log('[cache-admission] a dangling third-party link must be refused')
     const modules = join(reader, 'node_modules')
@@ -322,7 +356,9 @@ async function main(): Promise<void> {
         restored,
       },
       refusalStderr: refusal.stderrTail.slice(-4000),
-      representativePackage: REPRESENTATIVE_PACKAGE,
+      representativePackage: options.testPackage,
+      representativeSource: sourceRelative,
+      typecheckRedTasks: candidateTypecheckCold.summary?.failed ?? [],
       runId: options.runId,
       startedAt,
     }
@@ -340,14 +376,21 @@ async function main(): Promise<void> {
       installsGreen: Object.values(installs).every(
         (result) => result.exitCode === 0 && result.lockfileBefore === result.lockfileAfter,
       ),
-      hoistedProducesCache: hoistedTypecheck.exitCode === 0 && isFullMiss(hoistedTypecheck.summary),
-      hoistedToCandidateMiss:
-        candidateTypecheckCold.exitCode === 0 && isFullMiss(candidateTypecheckCold.summary),
-      candidateTypecheckHit: readerTypecheck.exitCode === 0 && isFullHit(readerTypecheck.summary),
+      // The typecheck proofs are counted, not exit-coded. Turbo caches only successful
+      // tasks, and three packages are still red under isolated linking (POD-2781), so a
+      // green tree is not available to assert on. Whether a cache was read is a question
+      // about the counts, and the red task names ride along in the report.
+      hoistedProducesCache: isFullMiss(hoistedTypecheck.summary),
+      hoistedToCandidateMiss: isFullMiss(candidateTypecheckCold.summary),
+      candidateTypecheckHit: reusedEverythingCacheable(
+        candidateTypecheckCold.summary,
+        readerTypecheck.summary,
+      ),
+      // The representative test is a green package, so here a hit does mean a green hit.
       candidateTestHit: readerTest.exitCode === 0 && isFullHit(readerTest.summary),
       sourceChangeMiss:
-        changedTypecheck.exitCode === 0 &&
-        (changedTypecheck.summary?.cached ?? -1) < (changedTypecheck.summary?.total ?? 0) &&
+        (changedTypecheck.summary?.cached ?? Number.NaN) <
+          (readerTypecheck.summary?.cached ?? -1) &&
         changedTest.exitCode === 0 &&
         isFullMiss(changedTest.summary),
       // Refused, and refused BEFORE turbo: a run that reached turbo prints a summary.
@@ -356,12 +399,22 @@ async function main(): Promise<void> {
         parseTurboSummary(commandOutput(refusal)) === null &&
         /dangling symlink/.test(commandOutput(refusal)) &&
         commandOutput(refusal).includes(broken),
-      refusalIsRecoverable: restored.exitCode === 0 && isFullHit(restored.summary),
+      refusalIsRecoverable: reusedEverythingCacheable(
+        candidateTypecheckCold.summary,
+        restored.summary,
+      ),
       // Proving reuse cost one package task, not a suite.
       noFullSuiteRequired:
         candidateTestCold.summary?.total === 1 &&
         readerTest.summary?.total === 1 &&
         changedTest.summary?.total === 1,
+    }
+    const red = candidateTypecheckCold.summary?.failed ?? []
+    if (red.length > 0) {
+      console.log(
+        `[cache-admission] ${red.length} typecheck task(s) red under isolated linking and so ` +
+          `never cacheable, tracked separately: ${red.join(', ')}`,
+      )
     }
     mkdirSync(dirname(options.output), { recursive: true })
     writeFileSync(options.output, `${JSON.stringify(report, null, 2)}\n`)

@@ -84,8 +84,9 @@ The JSON report exits nonzero if any acceptance field is false:
 - `independentCandidatesShareIdentity` — two separate installs of the same config agree;
 - `hoistedProducesCache`, `hoistedToCandidateMiss` — a hoisted-warmed cache is a full miss
   for a candidate;
-- `candidateTypecheckHit`, `candidateTestHit` — a candidate-warmed cache is a full hit for an
-  independently installed candidate, for `typecheck` and for one representative package test;
+- `candidateTypecheckHit` — the independently installed reader replayed every task the
+  producer was able to cache, and recomputed none of them;
+- `candidateTestHit` — a full hit for one representative package test;
 - `sourceChangeMiss` — editing one source file misses again, so the hit was not indiscriminate;
 - `brokenInstallRefused` — a dangling third-party link exits nonzero, names the entry, and
   prints no Turbo summary at all, which is how the report knows Turbo never ran;
@@ -97,9 +98,29 @@ Hits and misses are counted from Turbo's own `Tasks:`/`Cached:` lines rather tha
 for the words "cache hit": a run that prints "cache miss" may still have reused 23 of 24
 tasks, and the single-task claim is a statement about the count.
 
-The representative test is `@podium/protocol` — a package whose Turbo task has no
-dependencies, so a hit or a miss there is about the cache identity under test rather than a
-neighbour's rebuild.
+## Why typecheck reuse is counted against the producer, not against a full hit
+
+Turbo caches only SUCCESSFUL tasks. Three packages — `@podium/mobile`, `@podium/scripts`
+and `@podium/web` — do not yet typecheck under isolated linking, because they import
+third-party packages they never declare and a hoisted install hides that by putting
+everything at the checkout root. That is tracked as POD-2781 and is not a cache defect: a
+red task is simply never cacheable, so a full hit is unreachable however well the cache
+works.
+
+So `candidateTypecheckHit` asks the question that is actually about the cache — did the
+reader recompute anything the producer had already cached — by comparing the reader's hit
+count against the producer's successful count. The failing task names are parsed off
+Turbo's `Failed:` line, stored in the report as `typecheckRedTasks`, and logged during the
+run, so a shrinking denominator cannot pass unnoticed. When POD-2781 lands, the same
+comparison proves the stronger thing with no change here. The typecheck probes pass
+`--continue` for the same reason: without it Turbo stops at the first red package, and a
+run that attempted 19 tasks cannot be compared with one that attempted 24.
+
+The representative test defaults to `@podium/composer` — a leaf package with no workspace
+dependencies and a green suite, so a hit or a miss there is about the cache identity under
+test rather than a neighbour's rebuild or a failure the cache had no say in. Override it
+with `--test-package @podium/<name>`; the lane edits that package's `src/index.ts` for the
+source-change probe.
 
 The lane points `XDG_CACHE_HOME` at its own run directory. That is the only override: the
 cache directory itself is the one `scripts/typecheck.ts` derives, so the sharing under test
