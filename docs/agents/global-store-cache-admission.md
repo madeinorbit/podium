@@ -72,6 +72,16 @@ of a repository lands in the same place. It now resolves under `$XDG_CACHE_HOME`
 temporary-directory default silently gave many sessions their own cache and their own cold
 start, and did not survive a reboot.
 
+**What this lane does NOT prove: that the default location is writable where agents run.**
+The lane pins `XDG_CACHE_HOME` at its own run directory, so what it demonstrates is that
+sibling worktrees agree on one directory beneath whatever root is in force and share it.
+The production root is `$HOME/.cache`, and reaching it from a spawned agent is a different
+contract: the launcher and sandbox have to admit writes there, and the worktree bootstrap
+has to give the session a `HOME` that is the operator's rather than an empty or per-session
+one. That is POD-1305's ground, it is not settled, and nothing here should be read as
+settling it. Until it is, the durable default is proven for the lane's own root only —
+treat a host-wide `$HOME/.cache` hit as unverified rather than as a Stage 1 result.
+
 ## Recorded proofs
 
 The JSON report exits nonzero if any acceptance field is false:
@@ -85,7 +95,8 @@ The JSON report exits nonzero if any acceptance field is false:
 - `hoistedProducesCache`, `hoistedToCandidateMiss` — a hoisted-warmed cache is a full miss
   for a candidate;
 - `candidateTypecheckHit` — the independently installed reader replayed every task the
-  producer was able to cache, and recomputed none of them;
+  producer was able to cache, recomputed none of them, and attempted the same work: the
+  same task total, the same successful count, and the same set of failed tasks;
 - `candidateTestHit` — a full hit for one representative package test;
 - `sourceChangeMiss` — editing one source file misses again, so the hit was not indiscriminate;
 - `brokenInstallRefused` — a dangling third-party link exits nonzero, names the entry, and
@@ -109,10 +120,20 @@ works.
 
 So `candidateTypecheckHit` asks the question that is actually about the cache — did the
 reader recompute anything the producer had already cached — by comparing the reader's hit
-count against the producer's successful count. The failing task names are parsed off
-Turbo's `Failed:` line, stored in the report as `typecheckRedTasks`, and logged during the
-run, so a shrinking denominator cannot pass unnoticed. When POD-2781 lands, the same
-comparison proves the stronger thing with no change here. The typecheck probes pass
+count against the producer's successful count.
+
+That comparison alone would be easy to satisfy by running LESS. A reader whose filter,
+workspace list or task graph had shrunk to exactly the producer's 21 cacheable tasks would
+report 21 cached and never attempt the other three, and it would look like the strongest
+result in the report. So `reusedEverythingCacheable` pins the universe as well as the hit
+count: same total, same successful count, same set of failed tasks — compared as a set,
+because Turbo names failures in completion order. Any of those moving means the two runs
+are not comparable and the predicate says no rather than handing back a number nobody can
+interpret. Growth is refused for the same reason as shrinkage, in both the total and the
+successful count. The failing task names are also parsed off Turbo's `Failed:` line, stored
+in the report as `typecheckRedTasks`, and logged during the run. When POD-2781 lands and
+the tree goes green under isolated linking, the producer baseline moves with it and the
+same comparison proves the stronger thing with no change here. The typecheck probes pass
 `--continue` for the same reason: without it Turbo stops at the first red package, and a
 run that attempted 19 tasks cannot be compared with one that attempted 24.
 
@@ -124,5 +145,25 @@ source-change probe.
 
 The lane points `XDG_CACHE_HOME` at its own run directory. That is the only override: the
 cache directory itself is the one `scripts/typecheck.ts` derives, so the sharing under test
-is the real mechanism, and the operator's own cache is neither read nor written. It takes no
-heavy-test lease per probe; take one around the whole lane if the host is shared.
+is the real mechanism, and the operator's own cache is neither read nor written.
+
+## The lease is taken once, around the whole lane
+
+`deps:global-store-cache-admission` runs through `scripts/validation-admission.ts heavy`, so
+a single `test:heavy` lease covers every probe. It has to be there and not per probe: the
+probes run in DETACHED worktrees, where `podium lock` cannot resolve a repository to name a
+holder in, so an inner acquire would fail rather than wait — and without an outer lease a
+routine agent invocation would run several cold full-graph typechecks and a package test
+suite with nothing admitting them. That was the state before this lane was leased, and the
+host had no way to know it was busy.
+
+`probeEnv` makes the no-nesting half of that intrinsic rather than incidental. It unsets
+`PODIUM_SESSION_ID` (no identity, no lease) and sets `PODIUM_VALIDATION_RESOURCE_HELD=heavy`
+(this command is already inside a heavy lane), which are the two conditions
+`runWithValidationAdmission` branches on. The marker is a Turbo `globalPassThroughEnv`
+rather than a `globalEnv`, so it reaches the tasks without entering any cache key. Both are
+covered by `scripts/global-store-cache-admission.test.ts`, and the lease itself by the
+package.json regression in `scripts/test-configuration.test.ts`.
+
+Running `bun scripts/global-store-cache-admission.ts` directly still works and takes no
+lease. Use the package script on a shared host.

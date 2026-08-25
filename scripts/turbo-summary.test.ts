@@ -57,19 +57,31 @@ describe('parseTurboSummary', () => {
 })
 
 describe('reusedEverythingCacheable', () => {
-  const producer = { successful: 21, total: 24, cached: 0, failed: [] }
+  const red = ['@podium/mobile#typecheck', '@podium/scripts#typecheck', '@podium/web#typecheck']
+  const producer = { successful: 21, total: 24, cached: 0, failed: red }
 
   it('passes when the reader replayed every task the producer could cache', () => {
     // A full hit is unreachable while any task is red, however well the cache works.
     expect(
-      reusedEverythingCacheable(producer, { successful: 21, total: 24, cached: 21, failed: [] }),
+      reusedEverythingCacheable(producer, { successful: 21, total: 24, cached: 21, failed: red }),
     ).toBe(true)
-    expect(isFullHit({ successful: 21, total: 24, cached: 21, failed: [] })).toBe(false)
+    expect(isFullHit({ successful: 21, total: 24, cached: 21, failed: red })).toBe(false)
+  })
+
+  it('does not care which order turbo happened to name the failures in', () => {
+    expect(
+      reusedEverythingCacheable(producer, {
+        successful: 21,
+        total: 24,
+        cached: 21,
+        failed: [...red].reverse(),
+      }),
+    ).toBe(true)
   })
 
   it('fails when the reader recomputed something the producer had cached', () => {
     expect(
-      reusedEverythingCacheable(producer, { successful: 21, total: 24, cached: 20, failed: [] }),
+      reusedEverythingCacheable(producer, { successful: 21, total: 24, cached: 20, failed: red }),
     ).toBe(false)
   })
 
@@ -79,6 +91,51 @@ describe('reusedEverythingCacheable', () => {
         { successful: 0, total: 24, cached: 0, failed: [] },
         { successful: 0, total: 24, cached: 0, failed: [] },
       ),
+    ).toBe(false)
+  })
+
+  // The shape that makes this predicate worth having: every one of these readers reports
+  // `cached === producer.successful`, and none of them is evidence of anything.
+  it('refuses a reader whose task universe shrank to exactly what was cacheable', () => {
+    // The three red tasks are simply not attempted — filtered out, or dropped from the
+    // graph — so the run replays 21 of 21 and looks like a perfect hit.
+    expect(
+      reusedEverythingCacheable(producer, { successful: 21, total: 21, cached: 21, failed: [] }),
+    ).toBe(false)
+  })
+
+  it('refuses a reader that attempted the same total but got more of it done', () => {
+    // A green tree is good news and still not this claim: 24 successful against the
+    // producer's 21 means the two runs did not do the same work, so the hit count is
+    // not comparable. It has to be re-baselined against a producer that also went green.
+    expect(
+      reusedEverythingCacheable(producer, { successful: 24, total: 24, cached: 21, failed: [] }),
+    ).toBe(false)
+  })
+
+  it('refuses a reader whose failures drifted to a different set of tasks', () => {
+    // Same counts, different tasks: something moved between the two runs, and 21 replays
+    // no longer say which 21.
+    const drifted = [
+      '@podium/mobile#typecheck',
+      '@podium/scripts#typecheck',
+      '@podium/cli#typecheck',
+    ]
+    expect(
+      reusedEverythingCacheable(producer, {
+        successful: 21,
+        total: 24,
+        cached: 21,
+        failed: drifted,
+      }),
+    ).toBe(false)
+  })
+
+  it('refuses a reader that grew tasks the producer never attempted', () => {
+    // Widening is the direction that is easy to forget: 21 replayed out of 27 attempted
+    // means six tasks ran uncached, whatever the producer's number was.
+    expect(
+      reusedEverythingCacheable(producer, { successful: 24, total: 27, cached: 21, failed: red }),
     ).toBe(false)
   })
 })

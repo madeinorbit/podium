@@ -1,12 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   breakableEntry,
   parseAdmissionArgs,
+  probeEnv,
   workspaceSourceFile,
 } from './global-store-cache-admission'
+import { shouldAcquireValidationLease, VALIDATION_HELD_ENV } from './validation-admission'
 
 const source = '/home/agent/podium'
 
@@ -101,5 +103,49 @@ describe('workspaceSourceFile', () => {
     const root = repository()
     expect(() => workspaceSourceFile(root, '@podium/headless')).toThrow('no src/index.ts')
     expect(() => workspaceSourceFile(root, '@podium/nonexistent')).toThrow('no workspace package')
+  })
+})
+
+describe('probeEnv', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('leaves no probe able to take a heavy lease of its own', () => {
+    // Asserted against the two conditions runWithLease actually branches on, not against
+    // the variable names: a probe that queued for a second `test:heavy` would queue
+    // behind the lane's own holder and never start.
+    vi.stubEnv('PODIUM_SESSION_ID', 'sess_live_agent')
+    vi.stubEnv(VALIDATION_HELD_ENV, '')
+    const env = probeEnv('/home/agent/.bun/bin/bun', '/cache/run/xdg') as Record<
+      string,
+      string | undefined
+    >
+    expect(shouldAcquireValidationLease(env)).toBe(false)
+    expect(env[VALIDATION_HELD_ENV]).toBe('heavy')
+  })
+
+  it('says the lane is already heavy even when nothing outside it said so', () => {
+    // The lane may be invoked directly rather than through the leased script. The marker
+    // is the lane's own statement about what it is, so inner probes behave the same way
+    // either route.
+    vi.stubEnv(VALIDATION_HELD_ENV, 'focused')
+    expect(
+      (probeEnv('/home/agent/.bun/bin/bun', '/cache/run/xdg') as Record<string, string>)[
+        VALIDATION_HELD_ENV
+      ],
+    ).toBe('heavy')
+  })
+
+  it('keeps the cache directory the one the checkout derives for itself', () => {
+    // An inherited TURBO_CACHE_DIR would point every worktree at one directory by fiat,
+    // and the lane would then prove nothing about how siblings find each other.
+    vi.stubEnv('TURBO_CACHE_DIR', '/somewhere/the/operator/uses')
+    const env = probeEnv('/home/agent/.bun/bin/bun', '/cache/run/xdg') as Record<
+      string,
+      string | undefined
+    >
+    expect(env.TURBO_CACHE_DIR).toBeUndefined()
+    expect(env.XDG_CACHE_HOME).toBe('/cache/run/xdg')
   })
 })

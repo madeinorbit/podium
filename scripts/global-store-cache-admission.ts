@@ -23,6 +23,9 @@
  *
  * The test proofs run a single package task. Proving reuse must not cost a full suite,
  * and the report records the task count that shows it did not.
+ *
+ * The whole lane runs under ONE heavy-test lease, taken by the public
+ * `deps:global-store-cache-admission` script rather than by any probe — see `probeEnv`.
  */
 import {
   existsSync,
@@ -60,6 +63,7 @@ import {
   reusedEverythingCacheable,
   type TurboSummary,
 } from './turbo-summary'
+import { VALIDATION_HELD_ENV } from './validation-admission'
 import { workspaceDirectories } from './workspace-resolution-census'
 
 const REQUIRED_BUN = '1.3.14'
@@ -154,6 +158,33 @@ export function validateAdmissionOptions(options: AdmissionOptions): void {
     throw new Error(`run cache already exists; choose a new --run-id: ${runCache}`)
   }
   mkdirSync(options.scratchParent, { recursive: true })
+}
+
+/**
+ * The environment every probe runs under.
+ *
+ * The heavy-test lease is taken ONCE, around the whole lane, by the public
+ * `deps:global-store-cache-admission` script. Two things keep it that way, and both are
+ * asserted rather than assumed, because a probe that queued for a second lease would
+ * queue behind the lane's own holder and never start.
+ *
+ * `PODIUM_SESSION_ID` is unset because the probes run in DETACHED worktrees, where
+ * `podium lock` cannot resolve a repository to name a holder in — so an inner acquire
+ * would fail rather than wait. That alone already suppresses nesting, and it is a
+ * side-effect of where the probes run rather than a statement about admission. The held
+ * marker says the thing directly: this command is already inside a heavy lane. Turbo
+ * carries it as a pass-through variable, not a global one, so it reaches the tasks
+ * without entering any cache key.
+ */
+export function probeEnv(bun: string, xdgCacheHome: string): NodeJS.ProcessEnv {
+  return runtimeEnv(bun, {
+    XDG_CACHE_HOME: xdgCacheHome,
+    // The cache directory must be the one scripts/typecheck.ts derives, or this lane
+    // would prove nothing about how sibling worktrees find each other's results.
+    TURBO_CACHE_DIR: undefined,
+    PODIUM_SESSION_ID: undefined,
+    [VALIDATION_HELD_ENV]: 'heavy',
+  })
 }
 
 function probe(result: CommandResult): Probe {
@@ -258,16 +289,7 @@ async function main(): Promise<void> {
   )
   const candidateConfig = join(runRoot, 'global-store.bunfig.toml')
   writeFileSync(candidateConfig, CANDIDATE_BUNFIG)
-  const env = runtimeEnv(options.bun, {
-    XDG_CACHE_HOME: xdgCacheHome,
-    // The cache directory must be the one scripts/typecheck.ts derives, or this lane
-    // would prove nothing about how sibling worktrees find each other's results.
-    TURBO_CACHE_DIR: undefined,
-    // One heavy-test lease is taken around the whole lane by whoever runs it. Letting
-    // each probe take its own would queue the lane behind itself, and the lock cannot
-    // name a holder from a detached worktree anyway.
-    PODIUM_SESSION_ID: undefined,
-  })
+  const env = probeEnv(options.bun, xdgCacheHome)
   const worktrees: string[] = []
 
   try {

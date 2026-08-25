@@ -36,22 +36,45 @@ export function parseTurboSummary(output: string): TurboSummary | null {
   }
 }
 
+/** Two runs attempted the same failing tasks. Turbo names them in completion order, so
+ *  the comparison has to be by set and not by the order they came back in. */
+function sameTaskSet(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  const seen = new Set(right)
+  return left.every((task) => seen.has(task))
+}
+
 /**
- * Every task the producer was able to cache came back without being recomputed.
+ * Every task the producer was able to cache came back without being recomputed, and the
+ * reader attempted the same work to prove it.
  *
  * This is the reuse question, and it is not the same as `isFullHit`. Turbo caches only
  * SUCCESSFUL tasks, so in a repository where some task is red — and under isolated
  * linking three still are, tracked separately — a full hit is unreachable no matter how
  * perfectly the cache works. Comparing against what the producer actually cached asks
- * whether anything reusable was recomputed, which is the property under test. The red
- * count travels with the answer so a shrinking denominator cannot pass unnoticed.
+ * whether anything reusable was recomputed, which is the property under test.
+ *
+ * `reader.cached === producer.successful` ALONE is not that property, because it says
+ * nothing about the universe the reader ran over. A reader whose filter, workspace list
+ * or task graph shrank to exactly the producer's cacheable tasks reports the same number
+ * while never attempting the rest — the strongest-looking evidence in the report would
+ * then be produced by running less. So the universe is pinned as well: the same total,
+ * the same successful count, and the same set of failed tasks. Any of those three moving
+ * means the two runs are not comparable, whatever the hit count says, and the caller is
+ * told no rather than being handed a number it cannot interpret.
  */
 export function reusedEverythingCacheable(
   producer: TurboSummary | null,
   reader: TurboSummary | null,
 ): boolean {
   if (!producer || !reader) return false
-  return producer.successful > 0 && reader.cached === producer.successful
+  if (producer.successful <= 0) return false
+  return (
+    reader.total === producer.total &&
+    reader.successful === producer.successful &&
+    sameTaskSet(reader.failed, producer.failed) &&
+    reader.cached === producer.successful
+  )
 }
 
 /** Every task replayed from the cache — Turbo's FULL TURBO. */

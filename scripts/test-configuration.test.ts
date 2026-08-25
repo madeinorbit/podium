@@ -540,6 +540,20 @@ describe('test lane configuration', () => {
         'bun scripts/test-heavy.ts --',
       )
     }
+    // The dependency lanes spawn cold typechecks and package tests in DISPOSABLE
+    // worktrees, where PODIUM_SESSION_ID is unset so no inner probe can take a lease of
+    // its own. The lease therefore has to be here, around the whole lane, or a routine
+    // agent invocation runs several full typechecks with nothing admitting them
+    // [POD-2774].
+    const admissionLane = pkg.scripts['deps:global-store-cache-admission'] as string
+    expect(admissionLane).toContain('validation-admission.ts heavy')
+    expect(admissionLane).toContain('bun scripts/global-store-cache-admission.ts')
+    // One lease, outermost: the lane entry point must be the leased command and not
+    // something that leases again inside it.
+    expect(admissionLane.indexOf('validation-admission.ts')).toBeLessThan(
+      admissionLane.indexOf('global-store-cache-admission.ts'),
+    )
+    expect(admissionLane.match(/validation-admission\.ts/g)).toHaveLength(1)
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
     expect(pkg.scripts.test).toContain('bun run typecheck &&')
