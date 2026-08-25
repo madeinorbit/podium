@@ -130,10 +130,7 @@ export function classifyProbe(p: {
     }
   }
   if (/\(HTTP 404\)/.test(p.stderr)) return { kind: 'none' }
-  const detail = (p.stderr.trim() || p.stdout.trim() || `gh exited ${p.status}`).replace(
-    /\s+$/,
-    '',
-  )
+  const detail = p.stderr.trim() || p.stdout.trim() || `gh exited ${p.status}`
   return { kind: 'unreadable', detail }
 }
 
@@ -153,10 +150,7 @@ export function carryForwardRefusal(p: { channel: ReleaseChannel; detail: string
   )
 }
 
-export function carryForwardPlan(p: {
-  channel: ReleaseChannel
-  source: SourceRelease
-}): CarryPlan {
+export function carryForwardPlan(p: { channel: ReleaseChannel; source: SourceRelease }): CarryPlan {
   if (p.source.kind === 'unreadable') {
     return { kind: 'refuse', message: carryForwardRefusal({ ...p, detail: p.source.detail }) }
   }

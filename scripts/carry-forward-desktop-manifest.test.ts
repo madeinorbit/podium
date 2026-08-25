@@ -27,7 +27,7 @@
 // exactly the step this issue is about.
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -77,7 +77,8 @@ const MEASURED = {
   unreachable: {
     status: 1,
     stdout: '',
-    stderr: 'error connecting to nope.invalid\ncheck your internet connection or https://githubstatus.com\n',
+    stderr:
+      'error connecting to nope.invalid\ncheck your internet connection or https://githubstatus.com\n',
   },
 } as const
 
