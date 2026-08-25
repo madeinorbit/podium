@@ -88,16 +88,46 @@ const trpc = async (path: string, body: unknown) => {
   return (await res.json()) as { result?: { data?: unknown }; error?: unknown }
 }
 
-// --- start a session that is BUSY FROM ITS FIRST MOMENT ---------------------
-console.log(`[${harness}] creating a session with an initial prompt…`)
+/**
+ * HOW THE TURN IS STARTED, and why there are two ways.
+ *
+ * `initial` is the shape the case is written about: a session created WITH a
+ * prompt, busy from its first moment. It is the default, and it is what the
+ * treatment arm uses.
+ *
+ * `send` exists because the control arm needs the SAME SCRIPT and the terminal
+ * driver would not run at all under `initial`: a generic-pty opencode session
+ * created with an initialPrompt was left sitting at an empty TUI prompt, no
+ * turn, no transcript — and a control arm that never ran a turn proves nothing
+ * about preview frames. So `send` waits for the harness to come up, sends the
+ * prompt as a person would, and only then starts the join clock. The ordering
+ * under test is untouched: the chat still opens JOIN_DELAY_MS into a turn
+ * already in flight. Run BOTH arms in the same mode or the comparison is not
+ * one.
+ */
+const PROMPT_MODE = (process.env.P2773_PROMPT_MODE ?? 'initial') as 'initial' | 'send'
+/** How long the harness gets to come up before `send` mode types at it. */
+const READY_MS = Number(process.env.P2773_READY_MS ?? 25_000)
+
+console.log(`[${harness}] creating a session (prompt mode: ${PROMPT_MODE})…`)
 const created = (await trpc('sessions.create', {
   cwd: REPO,
   agentKind: harness,
-  initialPrompt: PROMPT,
+  ...(PROMPT_MODE === 'initial' ? { initialPrompt: PROMPT } : {}),
 })) as { result?: { data?: { sessionId?: string } }; error?: unknown }
 const sid = created.result?.data?.sessionId
 if (!sid) throw new Error(`sessions.create failed: ${JSON.stringify(created)}`)
-console.log(`[${harness}] session ${sid} started; letting the turn run for ${JOIN_DELAY_MS}ms BEFORE opening the chat`)
+
+if (PROMPT_MODE === 'send') {
+  console.log(`[${harness}] session ${sid} created; giving the harness ${READY_MS}ms to come up`)
+  await wait(READY_MS)
+  const sent = await trpc('sessions.sendText', { sessionId: sid, text: PROMPT })
+  if ((sent as { error?: unknown }).error) {
+    throw new Error(`sessions.sendText failed: ${JSON.stringify(sent)}`)
+  }
+  console.log(`[${harness}] prompt sent`)
+}
+console.log(`[${harness}] letting the turn run for ${JOIN_DELAY_MS}ms BEFORE opening the chat`)
 
 const startedAt = now()
 await wait(JOIN_DELAY_MS)
@@ -252,6 +282,7 @@ line('')
 line('='.repeat(72))
 line(`HARNESS            ${harness}`)
 line(`SESSION            ${sid}`)
+line(`PROMPT MODE        ${PROMPT_MODE}`)
 line(`ARM                CONTRACT=${process.env.PODIUM_RUNTIME_CONTRACT ?? '(unset)'} STREAMING=${process.env.PODIUM_CHAT_STREAMING ?? '(unset)'} DRIVER=${process.env.PODIUM_RUNTIME_DRIVER ?? '(policy)'}`)
 line(`BOUND DRIVER       ${driverId ?? '(unknown)'}${driverFamily ? ` (family ${driverFamily})` : ''}`)
 line(`JOINED             ${joinedAt - startedAt}ms into a turn already running`)
@@ -332,6 +363,7 @@ console.log(
     contract: process.env.PODIUM_RUNTIME_CONTRACT,
     streaming: process.env.PODIUM_CHAT_STREAMING,
     driverPreference: process.env.PODIUM_RUNTIME_DRIVER ?? null,
+    promptMode: PROMPT_MODE,
     driverId: driverId ?? null,
     joinedAtMs: joinedAt - startedAt,
     controlDeltas,
