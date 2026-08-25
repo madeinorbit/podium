@@ -25,6 +25,7 @@ import type {
 import type { UpdatesService } from './service'
 import {
   machineCanTakeDelivery,
+  IN_FLIGHT_STATES,
   isPackagedRolloutTarget,
   offeredDeliveries,
   TERMINAL_STATES,
@@ -2115,7 +2116,37 @@ export function createUpdateFleetBridge(deps: {
           (place) =>
             wasOffline.has(place.id) && place.state !== undefined && place.state !== 'offline',
         )
-      if (returned) {
+      /**
+       * …AND WHEN THE WAVE SIMPLY STOPPED (POD-2741).
+       *
+       * The edge above is the only re-entry this had, and an edge can be
+       * missed. Three things advance a wave — the runner's `ensure`, the
+       * operator's first click, and `fleet()`'s read continuation — and the
+       * continuation fires only for a machine it can judge `continuing`, which
+       * needs the pending grant saying one is outstanding. `pendingGrants` is
+       * IN-MEMORY, so it does not survive the coordinator replacing itself.
+       *
+       * After a self-handover the successor therefore has no pending grant for
+       * the coordinator that just converged, so the continuation cannot fire;
+       * and the machines still waiting are `pending` rather than `offline`, so
+       * the edge above cannot fire either. Both drive paths are out at once and
+       * only the step's silence deadline is left — about seven minutes, longer
+       * than any caller waits. Measured twice: `[source:current,
+       * fleet-a:pending, fleet-b:pending]` and not one tick in the following
+       * 300 s.
+       *
+       * So this asks a STATE rather than watching for an event: the step has
+       * work it has never granted, and nothing is in flight to finish it. That
+       * cannot be missed the way an edge can, and it costs nothing during a
+       * healthy wave because something is always in flight then.
+       */
+      const places = projected.places ?? []
+      const stalled =
+        settled === undefined &&
+        !places.some((place) => IN_FLIGHT_STATES.has(place.state as never)) &&
+        places.some((place) => place.state === 'pending')
+
+      if (returned || stalled) {
         void deps.engine.reensure(row.id, UPDATE_STEP_MACHINES, projected)
         return
       }

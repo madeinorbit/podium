@@ -3424,3 +3424,86 @@ describe('the web rebuild watcher stops when its step does', () => {
     expect(reads()).toBeGreaterThan(before)
   })
 })
+
+/**
+ * THE WAVE MUST RE-PLAN WHEN A MACHINE ARRIVES, NOT ONLY WHEN ONE ATTACHES
+ * (POD-2741).
+ *
+ * Three things can advance a wave: the runner's own `ensure`, the operator's
+ * first click, and `fleet()`'s read continuation — and that continuation only
+ * fires for a machine it can judge `continuing`, which needs the pending grant
+ * that says a grant is outstanding. `pendingGrants` is IN-MEMORY, so it does
+ * not survive the coordinator replacing itself. After a self-handover the
+ * successor therefore has no pending grant for the coordinator that just
+ * converged, the continuation cannot fire, and the offline→online re-entry
+ * cannot fire either because the machines still waiting were `pending` rather
+ * than `offline`. Both drive paths are out at once and only the step's
+ * seven-minute silence deadline is left — longer than any caller waits.
+ *
+ * Measured twice on the gate: `[source:current, fleet-a:pending,
+ * fleet-b:pending]`, progress 1 of 3, and not one wave tick in the 300 s after
+ * the handover while the harness polled `updates.fleet` every 100 ms.
+ *
+ * The fix is level-triggered on purpose. An edge can be missed; "the wave has
+ * work left and nothing is in flight" is a state, and re-entering on it costs
+ * nothing during a healthy wave because something is always in flight then.
+ */
+describe('a wave whose canary arrived without an attach', () => {
+  const stalledOperation = (): Operation =>
+    ({
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      details: {
+        target: devTarget(),
+        channel: 'dev',
+        fromVersion: '0.4.1',
+      },
+      steps: [
+        {
+          id: UPDATE_STEP_MACHINES,
+          title: 'Updating your machines',
+          state: 'running',
+          progress: { done: 1, total: 3 },
+          places: [
+            { id: 'source', name: 'source', state: 'current' },
+            { id: 'fleet-a', name: 'fleet-a', state: 'pending' },
+            { id: 'fleet-b', name: 'fleet-b', state: 'pending' },
+          ],
+        },
+      ],
+    }) as unknown as Operation
+
+  it('re-enters the step so the remaining machines are granted', async () => {
+    const operation = stalledOperation()
+    const reensure = vi.fn(async () => {})
+    const recordProgress = vi.fn(async () => {})
+    const bridge = createUpdateFleetBridge({
+      engine: {
+        active: () => ({ id: 'op_1', kind: UPDATE_OPERATION_KIND, operation }),
+        recordProgress,
+        admitDeferred: async () => {},
+        reensure,
+      },
+      updates: {
+        // `source` is on the target; the two fleet machines are behind and were
+        // never granted. Nothing is in flight — this is the stalled shape.
+        fleet: () => [
+          machine({ id: 'source', version: devTarget().version }),
+          machine({ id: 'fleet-a' }),
+          machine({ id: 'fleet-b' }),
+        ],
+        // The restart lost the in-memory grant, so neither of the two proofs
+        // that would otherwise move `source` is available.
+        machineBootedAtTarget: () => false,
+        machineCrossedRestartBoundary: () => false,
+      } as unknown as UpdatesService,
+      now: () => 1_000,
+    })
+
+    bridge.onFleetChanged()
+    await Promise.resolve()
+
+    expect(reensure).toHaveBeenCalledWith('op_1', UPDATE_STEP_MACHINES, expect.anything())
+  })
+})
