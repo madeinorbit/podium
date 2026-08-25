@@ -129,6 +129,18 @@ describe('real-release row expectations still match the code they describe', () 
     expect(lane).toContain('[[ "$PROVE_FAILURE" == real-release-pairing-coupled ]] || return 1')
   })
 
+  it('does not claim release.ts silently ignores an option it cannot read', () => {
+    // This comment asserted the opposite until POD-2800 landed a strict parser,
+    // and nothing pushed back: a stale comment is a confident claim about a
+    // world that moved, and it cost the next reader more than a missing one
+    // would. The pin is on the PROPERTY, not the wording, so it survives an
+    // edit but not a reversal.
+    const release = readFileSync(join(root, 'scripts/release.ts'), 'utf8')
+    expect(release).toMatch(/unknown option/)
+    expect(lane).not.toMatch(/parses `--channel` by exact\s+#?\s*argv match/)
+    expect(lane).not.toMatch(/is silently ignored and builds/)
+  })
+
   it('serves the feed paths a v0.1.0 stable install fetches', () => {
     const resolver = fromTag('apps/server/src/modules/updates/release-target.ts')
     expect(resolver).toContain('${RELEASE_BASE}/latest/download/podium-update.json')

@@ -358,12 +358,17 @@ prepare_real_target_release() {
       bun scripts/release.ts --channel stable --tag 'v$REAL_TARGET_VERSION'" \
     >"$WORK/logs/real-release-target-build.log" 2>&1
   require_disk_margin "real-release target build"
-  # THE FLAG IS NOT THE EVIDENCE. `scripts/release.ts` parses `--channel` by exact
-  # argv match, so the `--channel=stable` spelling is silently ignored and builds
-  # an EDGE release whose artifacts live under `releases/download/edge/` — which
-  # this lane's feed does not serve, so the old resolver 404s on the artifact HEAD
-  # and refuses a target that looks fine in the manifest. Check the URLs the
-  # manifest actually names, not the flag we thought we passed.
+  # THE FLAG IS NOT THE EVIDENCE. A mis-parsed `--channel` would build an EDGE
+  # release whose artifacts live under `releases/download/edge/` — which this
+  # lane's feed does not serve, so the old resolver 404s on the artifact HEAD and
+  # refuses a target that looks fine in the manifest.
+  #
+  # The specific way that used to happen is gone: `--channel=stable` was silently
+  # ignored by an exact-argv match, and `scripts/release.ts` now refuses an option
+  # it cannot read rather than proceeding without it (POD-2800). The check stays,
+  # because a mis-parse was never the only way to arrive here — a wrong tag, a
+  # wrong publish dir, or a release script that changes where it points all land
+  # in the same place. Check the URLs the manifest actually names.
   container_exec "$SOURCE" bash -lc "cd '$release' &&
     jq -e --arg v '$REAL_TARGET_VERSION' '.version==\$v' podium-update.json >/dev/null"
   container_exec "$SOURCE" bash -lc "cd '$release' &&
