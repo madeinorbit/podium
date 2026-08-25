@@ -401,6 +401,53 @@ The second row is the number worth carrying: the reviewer measured zero red for
 that mutant across nine driver files and both daemon lanes. After the fake was
 taught to refuse a thread it never started, the same mutation reds nine.
 
+## The third round — driving the acceptance rig's verb
+
+POD-1761's acceptance drive kept reporting a red opencode resume row after this
+rig reported green. Two rigs disagreeing about one live instance is worth more
+than either result, so the first thing to rule out was that they are exercising
+DIFFERENT CODE PATHS: their drive wakes a parked session with
+`sessions.resurrect`, `drive.ts` uses `sessions.resumeAndSend`.
+
+They are not different paths. `resurrectSession`
+(`apps/server/src/modules/sessions/session-revival.ts`) sets the row to
+`starting` and sends a `spawn` frame — the same frame `resumeAndSend` produces
+and the same one `resumeJournalledServerSession` intercepts. `drive-resurrect.sh`
+exists to SHOW that rather than argue it: their verb, in their order, with the
+binding journal printed at every step.
+
+| step | before (`1861f0d93`, source byte-identical to `83b007772`) | after (`719c94221`) |
+| --- | --- | --- |
+| before the park | live, `ses_…`, baseUrl `:40125` | live, `ses_…`, baseUrl `:35661` |
+| hibernate | `{ok:true}` → hibernated, journal kept | `{ok:true}` → hibernated, journal kept |
+| **resurrect** | `{ok:true}` → **exited after 2s**, baseUrl unchanged | `{ok:true}` → **live after 6s**, baseUrl `:37043` |
+| resumeAndSend | `{ok:true, queued}` → still exited after 40s | `{ok:true, delivered}` → live after 2s |
+| transcript | pre-park PRESENT, post-resume **MISSING** | pre-park PRESENT, post-resume PRESENT |
+
+The before row is the acceptance drive's row, reproduced here — so this rig does
+show the defect when the defect is present, which is the control that the
+disagreement actually needed.
+
+**THE BASEURL IS THE EVIDENCE.** It changes across the wake while the `ses_…`
+stays the same: a relaunched server rejoining the recorded conversation, which is
+exactly what a rebind cannot do. On the before arm it never moves, because
+nothing was ever started.
+
+### The park/retire tension, answered
+
+A park must leave the journal (it is the address the wake reads) and a retire
+must not (finding 4). Those pull against each other because the entry holds
+`baseUrl` **and** `secret`. Three things keep them apart:
+
+- `hibernate()` keeps the entry; `kill()` clears it, and finding 4 restored the
+  retire's second `kill()` — the only thing on the handle path that runs that
+  clear.
+- a parked entry's credential belongs to a process that **no longer exists**. The
+  park stops the server; the secret at rest opens nothing.
+- and the wake does not reuse it. `relaunchFor` mints a FRESH secret, exactly as
+  `resume()` does, so the old credential is never presented again — visible in
+  the table above as the port moving with it.
+
 ## What a screenshot would not have shown
 
 Nothing here is drawn. The park's receipt is two lines in the daemon's log
