@@ -58,15 +58,16 @@ const laneGreen = [
 
 const cleanRun = drive(
   'real-release',
-  `${laneGreen.map((row) => `pass ${row} green`).join('\n')}
-   scope_out_remaining
+  `declare_scope
+   ${laneGreen.map((row) => `pass ${row} green`).join('\n')}
    RUN_STATUS=0
    matrix`,
 )
 
 const killedRun = drive(
   'real-release',
-  `pass resource-safety green
+  `declare_scope
+   pass resource-safety green
    pass coordinator-install green
    pass advertised-url green
    CURRENT_SCENARIO=real-release-install
@@ -79,7 +80,8 @@ const killedRun = drive(
 
 const failedRun = drive(
   'real-release',
-  `pass resource-safety green
+  `declare_scope
+   pass resource-safety green
    pass coordinator-install green
    pass advertised-url green
    CURRENT_SCENARIO=real-release-install
@@ -124,6 +126,20 @@ describe('a blank row says why it is blank', () => {
       'not reached after real-release-install failed',
     )
     expect(failedRun).not.toContain('*** INTERRUPTED:')
+  })
+
+  it('still says out of scope in a lane that FAILED, and in one that was killed', () => {
+    // The reason the exclusion is declared before the first row rather than worked
+    // out on the way back: a run that dies in the middle never gets to the way
+    // back, and `environment` would be swept into the failure with everything
+    // else — the same ambiguity in a worse place, because now something really
+    // did go wrong and the reader has no way to tell how far it reached.
+    expect(evidenceFor(failedRun, 'environment')).toBe(
+      'out of scope for PODIUM_UPDATE_E2E_ONLY=real-release',
+    )
+    expect(evidenceFor(killedRun, 'environment')).toBe(
+      'out of scope for PODIUM_UPDATE_E2E_ONLY=real-release',
+    )
   })
 
   it('gives the three situations three different sentences', () => {
@@ -222,13 +238,60 @@ describe('the cleanup rows scope_out_remaining must leave alone', () => {
     }
   })
 
-  it('is what each focused lane calls when it hands back', () => {
-    // The declaration is made where the bypass happens, so a lane added later
-    // inherits nothing it did not ask for.
-    expect(harness).toMatch(/run_server_lane\n\s+CURRENT_SCENARIO=""\n\s+scope_out_remaining/)
-    expect(harness).toMatch(/run_real_release_lane\n\s+CURRENT_SCENARIO=""\n\s+scope_out_remaining/)
+  it('is what the legacy lane calls where it stops, being the one lane that cannot declare up front', () => {
     expect(harness).toMatch(
       /fail legacy-sigkill "\$LEGACY_SIGKILL_DECIDED_RED"\n[\s\S]{0,400}?scope_out_remaining\n\s+exit 1/,
+    )
+    // And the focused lanes do NOT decide it on the way out any more, so a lane
+    // that fails halfway keeps its exclusions.
+    expect(harness).not.toMatch(/run_server_lane\n\s+CURRENT_SCENARIO=""\n\s+scope_out_remaining/)
+    expect(harness).not.toMatch(
+      /run_real_release_lane\n\s+CURRENT_SCENARIO=""\n\s+scope_out_remaining/,
+    )
+  })
+})
+
+describe('an exclusion declared before the run, and checked from both sides', () => {
+  it('is applied by declare_scope before the first row executes', () => {
+    // Ordering is the whole point: after the traps, before `prepare_image`.
+    expect(harness).toMatch(
+      /trap 'RUN_INTERRUPT=SIGHUP; exit 129' HUP\n(?:\s*#[^\n]*\n)*\s+declare_scope/,
+    )
+    const beforeFirstRow = harness.indexOf('declare_scope\n  say "run=$RUN_ID')
+    expect(beforeFirstRow).toBeGreaterThan(0)
+    expect(beforeFirstRow).toBeLessThan(harness.indexOf('CURRENT_SCENARIO=coordinator-install'))
+  })
+
+  it('names environment for the real-release lane and nothing for the others', () => {
+    const scopeOf = (only: string): string =>
+      drive(only, `printf '%s' "\${OUT_OF_SCOPE[*]}"`).trim()
+    expect(scopeOf('real-release')).toBe('environment')
+    expect(scopeOf('server')).toBe('')
+    // The complete matrix runs every row it prints; `legacy` and `positive` are
+    // that matrix stopped early, and say so where they stop.
+    expect(scopeOf('')).toBe('')
+    expect(scopeOf('legacy')).toBe('')
+  })
+
+  it('calls a declaration that turns out to be wrong a harness bug', () => {
+    // The other direction: if `environment` ever starts running in this lane, the
+    // stale declaration must not be able to sit quietly under a real result.
+    const stale = drive(
+      'real-release',
+      `declare_scope
+       pass environment "the lane grew an environment row"
+       if out="$(stale_scope_declarations)"; then echo "STALE=$out"; else echo "quiet"; fi`,
+    )
+    expect(stale).toContain('STALE=environment')
+    const honest = drive(
+      'real-release',
+      `declare_scope
+       if stale_scope_declarations >/dev/null; then echo "STALE"; else echo "quiet"; fi`,
+    )
+    expect(honest).toContain('quiet')
+    // And cleanup reddens the run on it.
+    expect(harness).toMatch(
+      /if stale="\$\(stale_scope_declarations\)"; then\n\s+say "HARNESS BUG:[\s\S]*?status=1/,
     )
   })
 })

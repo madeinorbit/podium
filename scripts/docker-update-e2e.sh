@@ -116,9 +116,21 @@ SERVER_RELEASE_PUBKEY=""
 SERVER_TARGET_VERSION=""
 SERVER_MIGRATION="20991231235959_update-e2e-packaged-server"
 
+# OUT_OF_SCOPE — THE ROWS A LANE PRINTS BUT DOES NOT RUN, SAID UP FRONT (POD-2813).
+#
+# Declared here, beside the list, and applied before the first row executes —
+# NOT worked out at the end. A lane that fails in the middle must still be able
+# to tell a reader which of its blank rows were never in play, and a decision
+# made only on the way out cannot do that: the run is already gone.
+#
+# Nothing has to be remembered to keep this honest, because cleanup checks it
+# from both sides. A row left blank that nobody declared is reported as a harness
+# bug and reddens the run; a row declared here that then RAN is reported the same
+# way. Neither can be true and silent.
 if [[ "$ONLY" == server ]]; then
   SCENARIOS=(environment resource-safety coordinator-install advertised-url server-install server-assets server-migration
     server-client-reconnect server-handover server-agent-survival server-rollback cleanup host-disk)
+  OUT_OF_SCOPE=()
 elif [[ "$ONLY" == real-release ]]; then
   # THE ONLY LANE THAT DOES NOT START AT CURRENT SOURCE (POD-2769).
   # `advertised-url` belongs here even though this lane asserts nothing about the
@@ -128,10 +140,19 @@ elif [[ "$ONLY" == real-release ]]; then
   SCENARIOS=(environment resource-safety coordinator-install advertised-url real-release-install
     real-release-pairing-refusal real-release-resolve real-release-converged
     real-release-headless-only cleanup host-disk)
+  # `environment` is in the list for the same attribution reason and, unlike
+  # `advertised-url`, it sits BELOW the dispatch — this lane never reaches it. That
+  # is the blank row that started POD-2813, reported for months as fallout from a
+  # failure while every substantive row passed.
+  OUT_OF_SCOPE=(environment)
 else
   SCENARIOS=(environment resource-safety coordinator-install advertised-url fresh-install diagnostic-version fleet-join
     fleet-join-refusal version-display dev-release update-offer schema-refusal tampered-refusal
     unsigned-refusal ui-acceptance agent-survival rollout legacy-migration legacy-sigkill rollback cleanup host-disk)
+  # The complete matrix runs every row it prints. `legacy` and `positive` are the
+  # complete matrix stopped early on purpose rather than lanes of their own, and
+  # each says so where it stops.
+  OUT_OF_SCOPE=()
 fi
 declare -A RESULT=()
 declare -A DETAIL=()
@@ -235,11 +256,33 @@ scope_out() {
   fi
 }
 
-# Called where a focused lane HAS FINISHED and control is going back to cleanup:
-# at that point every row still without a result is one this lane was never going
-# to run. Deriving it here rather than from a hand-kept per-lane list is what
-# keeps it true when rows are added — a new row is scoped out by the lane that
-# does not reach it, with nobody having to remember a second table.
+# Applied before the first row runs, so an exclusion is on the record whatever
+# becomes of the run.
+declare_scope() {
+  local row
+  for row in "${OUT_OF_SCOPE[@]}"; do scope_out "$row"; done
+}
+
+# The rows OUT_OF_SCOPE claims this lane skips that it then RAN anyway. A stale
+# declaration is a lie of exactly the kind this issue is about — it would print
+# "out of scope" over a row that had a real result — so cleanup treats it as a
+# harness bug rather than letting the later result quietly overwrite it.
+stale_scope_declarations() {
+  local row found=""
+  for row in "${OUT_OF_SCOPE[@]}"; do
+    # `pass`/`fail`/`blocked`/`resource` all replace the SKIP that `declare_scope`
+    # wrote, so anything else here means the row ran after all.
+    [[ "${RESULT[$row]:-SKIP}" == SKIP ]] || found="${found:+$found }$row"
+  done
+  [[ -n "$found" ]] || return 1
+  printf '%s' "$found"
+}
+
+# The one lane that stops early WITHOUT being a lane of its own: `legacy` runs the
+# complete matrix's list but only its legacy rows, and it always ends nonzero on a
+# decided red. Its exclusions cannot be declared up front — they depend on where
+# it stops — so it states them at the point it stops instead, which is still
+# before the matrix is printed and still a statement rather than a guess.
 scope_out_remaining() {
   local row cleanup_row
   for row in "${SCENARIOS[@]}"; do
@@ -515,9 +558,13 @@ cleanup() {
     pass host-disk "host free space returned within the 192 MiB observation tolerance"
   fi
   if [[ "${RESULT[cleanup]:-}" == FAIL && "$status" == 0 ]]; then status=1; fi
-  local unexplained
+  local unexplained stale
   if unexplained="$(unexplained_rows)"; then
     say "HARNESS BUG: $unexplained neither ran nor were declared out of scope, and no row failed. The matrix cannot say why they are blank, so this run is not a pass." >&2
+    status=1
+  fi
+  if stale="$(stale_scope_declarations)"; then
+    say "HARNESS BUG: $stale is declared out of scope for this lane in OUT_OF_SCOPE and ran anyway. The declaration is stale: fix it or stop running the row, because a reader has no way to know which one to believe." >&2
     status=1
   fi
   RUN_STATUS="$status"
@@ -2162,6 +2209,8 @@ main() {
   trap 'RUN_INTERRUPT=SIGINT; exit 130' INT
   trap 'RUN_INTERRUPT=SIGTERM; exit 143' TERM
   trap 'RUN_INTERRUPT=SIGHUP; exit 129' HUP
+  # Before the first row, not after the last one: see OUT_OF_SCOPE (POD-2813).
+  declare_scope
   say "run=$RUN_ID instance=$INSTANCE label=$LABEL"
 
   prepare_image
@@ -2369,21 +2418,19 @@ main() {
   # (POD-2668), and POD-2700 structurally refuses `repos.add` onto a machine
   # that runs no daemon — a refusal this harness would otherwise trip over.
 
-  # Each focused lane states its own exclusions as it hands back: whatever it did
-  # not run, it was never going to (POD-2813). `real-release` is the lane that
-  # exposed this — it leaves `environment` blank, and the matrix used to report
-  # that blank as fallout from a failure while every substantive row passed.
+  # Neither lane decides its own scope here. Each declared it in OUT_OF_SCOPE
+  # before the run started, so the statement survives a lane that fails halfway —
+  # and a row neither run nor declared is reported as a harness bug by cleanup
+  # rather than absorbed silently (POD-2813).
   if [[ "$ONLY" == server ]]; then
     run_server_lane
     CURRENT_SCENARIO=""
-    scope_out_remaining
     return 0
   fi
 
   if [[ "$ONLY" == real-release ]]; then
     run_real_release_lane
     CURRENT_SCENARIO=""
-    scope_out_remaining
     return 0
   fi
 
