@@ -25,6 +25,7 @@
  * and the report records the task count that shows it did not.
  */
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -45,6 +46,7 @@ import {
   commandOutput,
   createWorktree,
   install,
+  isInside,
   removeWorktree,
   runCommand,
   runSync,
@@ -120,6 +122,29 @@ export function parseAdmissionArgs(args: string[], sourceRoot: string): Admissio
   }
 }
 
+/**
+ * The same guardrails the canary applies: nothing this lane writes may land in the
+ * checkout under test, and a run-id is single-use so an old cache cannot be mistaken
+ * for a cold start. Unlike the canary the scratch parent is created rather than
+ * required — it holds only worktrees this lane also removes.
+ */
+export function validateAdmissionOptions(options: AdmissionOptions): void {
+  if (!existsSync(options.bun)) throw new Error(`Bun binary does not exist: ${options.bun}`)
+  const sourceRoot = realpathSync(options.sourceRoot)
+  for (const [label, path] of [
+    ['dedicated cache', options.cacheRoot],
+    ['disposable worktrees', options.scratchParent],
+  ] as const) {
+    if (isInside(sourceRoot, path))
+      throw new Error(`${label} must be outside the checkout: ${path}`)
+  }
+  const runCache = join(options.cacheRoot, 'runs', options.runId)
+  if (existsSync(runCache)) {
+    throw new Error(`run cache already exists; choose a new --run-id: ${runCache}`)
+  }
+  mkdirSync(options.scratchParent, { recursive: true })
+}
+
 function probe(result: CommandResult): Probe {
   return {
     summary: parseTurboSummary(commandOutput(result)),
@@ -188,6 +213,7 @@ async function main(): Promise<void> {
   if (bunVersion !== REQUIRED_BUN) {
     throw new Error(`requires Bun ${REQUIRED_BUN}, found ${bunVersion}`)
   }
+  validateAdmissionOptions(options)
   const commit = runSync(['git', 'rev-parse', `${options.ref}^{commit}`], sourceRoot)
 
   const runCache = join(options.cacheRoot, 'runs', options.runId)

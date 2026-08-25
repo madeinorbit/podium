@@ -197,7 +197,7 @@ export function parseCanaryArgs(args: string[], sourceRoot: string): CanaryOptio
   return options
 }
 
-function isInside(parent: string, child: string): boolean {
+export function isInside(parent: string, child: string): boolean {
   const rel = relative(parent, child)
   return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`))
 }

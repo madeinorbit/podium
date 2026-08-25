@@ -173,6 +173,30 @@ describe('install topology admission', () => {
     ])
   })
 
+  it('refuses a dangling link nested under a hoisted package', () => {
+    // A hoisted install writes <pkg>/node_modules whenever two versions collide. That
+    // tree is reached by being pointed at, the same way the isolated store's farms are.
+    const root = checkout('hoisted')
+    link(join(root, 'node_modules/left-pad/node_modules/its-dependency'), '../../evaporated')
+
+    expect(readInstallTopology(root, scratch('home')).errors).toEqual([
+      'install topology: node_modules/left-pad/node_modules/its-dependency ' +
+        'is a dangling symlink (-> ../../evaporated)',
+    ])
+  })
+
+  it('walks a directory reachable by two names only once', () => {
+    // node_modules/left-pad and .bun/left-pad@1.3.0/node_modules/left-pad are the same
+    // directory. Recording it twice would inflate the fingerprint and, on a link cycle,
+    // never finish.
+    const root = checkout('isolated')
+    link(join(root, 'node_modules/left-pad/node_modules/its-dependency'), '../../evaporated')
+
+    const topology = readInstallTopology(root, scratch('home'))
+    expect(topology.errors).toHaveLength(1)
+    expect(new Set(topology.layout).size).toBe(topology.layout.length)
+  })
+
   it('refuses a checkout with no install at all', () => {
     const root = checkout('hoisted')
     rmSync(join(root, 'node_modules'), { recursive: true, force: true })
