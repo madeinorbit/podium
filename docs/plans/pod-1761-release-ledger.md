@@ -168,6 +168,42 @@ the truth** — it is not what to change:
 Measured live on opencode 1.18.16: before, 1 failed with 3 errors; after,
 1 passed, 0 errors, 31s of assertions against 184s of timeouts.
 
+## CLAUDE'S PHASE IS FIXED — the release-critical column's blocker (`4adb58eb6`)
+
+`claude-pty` reported `idle` through 79,922 bytes of output over 53 of 59
+one-second intervals, `phase` idle at all 60 polls. **Claude fires no
+`SessionStart` at all**, so the first hook a fresh session delivers is its
+`UserPromptSubmit` — which does double duty: it becomes the causal bootstrap AND
+is buffered to replay as the live hook. At that instant claude has not yet
+created the conversation's `.jsonl`, so the transcript capture **threw** and the
+handler returned without folding. `UserPromptSubmit` is the only hook that opens
+a turn epoch, so the epoch stayed closed; the `Stop` arriving minutes later, once
+the file existed, was then *correctly* refused for having no open epoch. The one
+legacy `agentState` frame was correctly rejected at the server as unfenced, so
+there was no second channel either — three mechanisms each behaving correctly,
+composing into a session that looked asleep while it worked.
+
+**The fix in one sentence: an unreadable transcript now costs the hook its
+POSITION, not its EXISTENCE.** The hook is claude's own report of a lifecycle
+event and is evidence on its own; the transcript only supplies a cursor boundary.
+
+**Verified by my own mutation, not by report.** Control 34 passed; restoring the
+drop (`drainClaudeHooks(causal); return`) kills exactly one test — *folds the
+prompt hook that arrives before claude has created the transcript* — 1 failed /
+33 passed, restored byte-identical.
+
+**Claude still cannot be driven end-to-end in the rig, and that is a decision I
+made rather than a gap.** Its OAuth token there is revoked; claude authenticates
+by OAuth only, no API key exists on this box, and a refresh in either home
+ROTATES the token and invalidates the other holder — so re-seeding could log the
+operator out of their daily driver mid-release. I declined that trade. Instead:
+the terminal driver is SHARED, so codex and grok on `generic-pty` exercise the
+same `injection.ts`, `paste.ts` and `index.ts` claude runs on, and that becomes
+the substrate evidence. **The named residual** — `manifests/claude-code.ts`,
+`agent-state/claude-code.ts`, `claude-screen.ts`, `claude-sdk-protocol.ts` — is
+recorded as the untested delta. A named residual is a releasable risk; an
+unmeasured column is not.
+
 ## THE CRITICAL PATH IS CLOSED — hibernate/resume on all three server families
 
 **POD-2775 finished all six blockers; I verified two of them by my own mutation
