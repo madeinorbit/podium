@@ -33,6 +33,8 @@ const spawnDraftAgent = vi.fn(() => ({ sessionId: 'session-new', issueId: asIssu
 const setSelectedIssueId = vi.fn()
 const setSelectedWorktree = vi.fn()
 const setPane = vi.fn()
+const setPanelMode = vi.fn()
+const focusIssueSession = vi.fn(async (): Promise<string | null> => null)
 const setView = vi.fn()
 const create = vi.fn()
 const start = vi.fn()
@@ -78,11 +80,12 @@ const store = {
       return () => uiListeners.delete(listener)
     },
   },
-  focusIssueSession: vi.fn(async () => null),
+  focusIssueSession,
   spawnDraftAgent,
   setSelectedIssueId,
   setSelectedWorktree,
   setPane,
+  setPanelMode,
   setView,
   trpc: {
     settings: {
@@ -109,6 +112,9 @@ afterEach(() => {
   setSelectedIssueId.mockClear()
   setSelectedWorktree.mockClear()
   setPane.mockClear()
+  setPanelMode.mockClear()
+  focusIssueSession.mockReset()
+  focusIssueSession.mockResolvedValue(null)
   setView.mockClear()
   create.mockReset()
   start.mockReset()
@@ -290,6 +296,61 @@ describe('a retry in flight', () => {
     expect(spawnDraftAgent).not.toHaveBeenCalled()
     // The issue already exists; a retry must not make a second one.
     expect(create).not.toHaveBeenCalled()
+  })
+})
+
+/* WHAT THE LAUNCH ASKS THE PANEL TO SHOW (POD-1669).
+ *
+ * The two modes already meant two different things by Launch; they now mean two
+ * different SURFACES as well, because they are two different requests. An
+ * operator who wrote nothing wants the harness in front of them — a chat view
+ * over a CLI they asked to see raw is not what they clicked — and an operator
+ * who wrote a paragraph wants the answer to it as a conversation, not a terminal
+ * replaying their own words as keystrokes. Neither is what `effectivePanelMode`
+ * would pick on its own: it reads the operator's `startScreen` and per-device
+ * default, which know nothing about which half of this box was used.
+ *
+ * PER-SESSION ONLY. `pickMode` is what writes the per-device default; this is
+ * one session's surface, not a standing preference for every session to come. */
+describe('the launch chooses the panel surface', () => {
+  it('opens the CLI when nothing was written, before the pane is pointed at it', () => {
+    render(<ColdStartComposer first={false} />)
+    fireEvent.click(launch())
+
+    expect(setPanelMode).toHaveBeenCalledWith('session-new', 'native')
+    // Order is the point: `usePanelSurface` materializes its derived fallback
+    // only while the per-session mode is undefined, so the write has to be
+    // sitting there before the panel mounts on the session.
+    expect(setPanelMode.mock.invocationCallOrder[0]).toBeLessThan(
+      setPane.mock.invocationCallOrder[0] as number,
+    )
+  })
+
+  it('opens the chat on the session a written prompt started', async () => {
+    const issueId = asIssueId('issue-first')
+    create.mockResolvedValue({ id: issueId })
+    start.mockResolvedValue({ id: issueId })
+    focusIssueSession.mockResolvedValue('session-live')
+    render(<ColdStartComposer first={false} />)
+    fireEvent.change(field(), { target: { value: 'Fix the flaky test' } })
+    fireEvent.click(launch())
+
+    await waitFor(() => expect(setPanelMode).toHaveBeenCalledWith('session-live', 'chat'))
+  })
+
+  it('says nothing about a surface when no session showed up in time', async () => {
+    const issueId = asIssueId('issue-first')
+    create.mockResolvedValue({ id: issueId })
+    start.mockResolvedValue({ id: issueId })
+    // `focusIssueSession` resolves null when the wait times out or the operator
+    // selected something else meanwhile — there is no panel to have an opinion
+    // about, and guessing an id would write the mode onto a stranger.
+    render(<ColdStartComposer first={false} />)
+    fireEvent.change(field(), { target: { value: 'Fix the flaky test' } })
+    fireEvent.click(launch())
+
+    await waitFor(() => expect(focusIssueSession).toHaveBeenCalled())
+    expect(setPanelMode).not.toHaveBeenCalled()
   })
 })
 

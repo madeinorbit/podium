@@ -118,6 +118,7 @@ const store = {
   setSelectedIssueId: vi.fn(),
   setSelectedWorktree: vi.fn(),
   setPane: vi.fn(),
+  setPanelMode: vi.fn(),
   setView: vi.fn(),
   trpc: {
     settings: {

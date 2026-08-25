@@ -17,6 +17,7 @@ const styles = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'u
 const create = vi.fn()
 const start = vi.fn()
 const focusIssueSession = vi.fn(async () => null)
+const setPanelMode = vi.fn()
 const uploadImage = vi.fn()
 const uiValues = new Map<string, string>()
 const uiListeners = new Set<() => void>()
@@ -66,6 +67,7 @@ const store = {
     },
   },
   focusIssueSession,
+  setPanelMode,
   trpc: {
     settings: {
       get: {
@@ -107,6 +109,7 @@ afterEach(() => {
   start.mockReset()
   focusIssueSession.mockReset()
   focusIssueSession.mockResolvedValue(null)
+  setPanelMode.mockClear()
   uploadImage.mockReset()
 })
 
@@ -291,10 +294,15 @@ describe('ColdStartComposer', () => {
    * runs out. Neither half shows up in a happy-dom render, so assert both. */
   it('centres the deck without putting its top out of scroll reach', () => {
     render(<ColdStartComposer first={false} />)
-    const deck = screen.getByLabelText('What do you want to work on?').closest('.cold-start')
-    expect(deck).toBeTruthy()
-    expect(deck?.className).toContain('overflow-y-auto')
-    expect(deck?.className).not.toContain('justify-center')
+    // The scroller is the body's own parent. POD-1669 split it out of
+    // `.cold-start`, which keeps the container query and now carries the pane's
+    // drop veil — a veil inside the scroller would be laid out against the
+    // SCROLLED content and ride away on exactly the short panes that scroll.
+    const scroller = document.querySelector('.cold-start-body')?.parentElement
+    expect(scroller).toBeTruthy()
+    expect(scroller?.className).toContain('overflow-y-auto')
+    expect(scroller?.className).not.toContain('justify-center')
+    expect(document.querySelector('.cold-start')?.className).not.toContain('overflow-y-auto')
     expect(styles).toMatch(/\.cold-start-body\s*\{[^}]*margin-block:\s*auto/)
   })
 
@@ -398,6 +406,76 @@ describe('ColdStartComposer', () => {
         ),
       )
       expect(screen.getByText('brief.pdf')).toBeTruthy()
+    })
+
+    /* THE DECK IS THE DROP TARGET, NOT THE WELL (POD-1669).
+     *
+     * Closed, the well is a 46px line adrift in a pane that is mostly air, so a
+     * file dragged at "the box I am about to write in" lands on the document —
+     * and the browser's default for a file dropped on a document is to NAVIGATE
+     * to it. The gesture did not merely miss; it replaced the shell, the draft
+     * and any launch in flight with a PDF in a tab. Both halves are guarded
+     * here: the pane takes the file, and every drop is cancelled whether or not
+     * it is taken. */
+    describe('dropped on the deck', () => {
+      const transfer = (files: File[]): unknown => ({
+        files,
+        types: ['Files'],
+        items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+      })
+      const deck = (): HTMLElement => screen.getByTestId('cold-start-deck')
+      const well = (): HTMLElement => screen.getByTestId('cold-start-field')
+
+      it('attaches a file dropped on the empty air beside the well, and opens the box', async () => {
+        uploadImage.mockResolvedValue({ path: '/home/a/.podium/uploads/scope/1.png' })
+        render(<ColdStartComposer first={false} />)
+        expect(well().dataset.expanded).toBe('false')
+
+        const file = new File(['bytes'], 'shot.png', { type: 'image/png' })
+        fireEvent.dragOver(deck(), { dataTransfer: transfer([file]) })
+        // The answer to "will this land?" covers the same area as the question,
+        // which takes a positioned pane to hang the veil on.
+        expect(screen.getByText('Drop files to attach')).toBeTruthy()
+        expect(deck().className).toContain('relative')
+        fireEvent.drop(deck(), { dataTransfer: transfer([file]) })
+
+        await waitFor(() =>
+          expect(uploadImage).toHaveBeenCalledWith(
+            expect.objectContaining({ filename: 'shot.png' }),
+          ),
+        )
+        // An attachment unfolds the box by the rule a written prompt does — the
+        // strip lives inside the well, so a closed box would hide what landed.
+        expect(well().dataset.expanded).toBe('true')
+        expect(screen.queryByText('Drop files to attach')).toBeNull()
+      })
+
+      it('cancels the browser default, so a stray drop cannot navigate the shell away', () => {
+        render(<ColdStartComposer first={false} />)
+        const file = new File(['bytes'], 'shot.png', { type: 'image/png' })
+        // `fireEvent` returns false for a cancelled event; both halves of the
+        // gesture have to be cancelled or the drop still reaches the document.
+        expect(fireEvent.dragOver(deck(), { dataTransfer: transfer([file]) })).toBe(false)
+        expect(fireEvent.drop(deck(), { dataTransfer: transfer([file]) })).toBe(false)
+      })
+
+      it('refuses files while a launch owns the box, and still swallows the drop', async () => {
+        create.mockResolvedValue({ id: asIssueId('issue-busy') })
+        // Never resolves: the composer stays `busy`, which is the state where a
+        // mission is already being created and its brief already written.
+        start.mockReturnValue(new Promise<never>(() => {}))
+        render(<ColdStartComposer first={false} />)
+        fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
+          target: { value: 'Ship the new onboarding' },
+        })
+        fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+        await waitFor(() => expect(start).toHaveBeenCalled())
+
+        const file = new File(['bytes'], 'late.png', { type: 'image/png' })
+        expect(fireEvent.drop(deck(), { dataTransfer: transfer([file]) })).toBe(false)
+        expect(uploadImage).not.toHaveBeenCalled()
+        expect(screen.queryByText('Drop files to attach')).toBeNull()
+      })
     })
   })
 })
