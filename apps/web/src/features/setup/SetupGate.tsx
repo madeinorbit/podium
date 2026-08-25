@@ -145,8 +145,7 @@ async function probeRemoteReadiness(httpOrigin: string): Promise<ProbeResult> {
     const status: unknown = await response.json()
     if (!isServerReadiness(status)) {
       return {
-        phase:
-          status && typeof status === 'object' && 'state' in status ? 'remote-setup' : 'ready',
+        phase: status && typeof status === 'object' && 'state' in status ? 'remote-setup' : 'ready',
       }
     }
     if (status.state === 'ready' || status.state === 'degraded') return { phase: 'ready' }

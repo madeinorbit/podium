@@ -48,7 +48,8 @@ export function isControlPlanePath(pathname: string): boolean {
   if (!pathname.startsWith('/trpc/')) return false
   const procedures = pathname.slice('/trpc/'.length).split(',').map(decodeURIComponent)
   return (
-    procedures.length > 0 && procedures.every((procedure) => CONTROL_PLANE_PROCEDURES.has(procedure))
+    procedures.length > 0 &&
+    procedures.every((procedure) => CONTROL_PLANE_PROCEDURES.has(procedure))
   )
 }
 

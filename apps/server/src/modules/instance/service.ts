@@ -284,7 +284,11 @@ export class InstanceService {
     restart()
     // What the caller should now expect, and the identity being left behind — both
     // already public on /readiness, so this returns no new fact.
-    return { state: 'restarting' as const, stale: readiness.stale ?? [], from: serverBuildVersion() }
+    return {
+      state: 'restarting' as const,
+      stale: readiness.stale ?? [],
+      from: serverBuildVersion(),
+    }
   }
 
   // ---- auth ----

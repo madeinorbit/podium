@@ -308,8 +308,8 @@ export function SetupView({
             Setup is saved; Podium needs to restart
           </h1>
           <p className="text-[13px] text-muted-foreground">
-            Podium is running with the settings it started up with. Restarting adopts what is
-            saved. Nothing needs to be entered again.
+            Podium is running with the settings it started up with. A restart adopts what is saved.
+            Nothing needs to be entered again.
           </p>
           {/* NAMING THE STALE SETTING (POD-2766). "Something changed, restart" is
               what an operator got before, and it left them unable to tell an

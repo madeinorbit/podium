@@ -140,7 +140,11 @@ describe('SetupView', () => {
     // THE REMEDY, ON THE SAME SCREEN AS THE PROBLEM. The locked-out operator was
     // in a browser pointed at a remote box: a desktop-shell restart hook does not
     // exist there, and "restart it on the server" was advice they could not take.
-    trpcMock.activate.mockResolvedValue({ state: 'restarting', stale: ['persistence'], from: 'dev' })
+    trpcMock.activate.mockResolvedValue({
+      state: 'restarting',
+      stale: ['persistence'],
+      from: 'dev',
+    })
     render(
       <SetupView
         httpOrigin="https://sandbox.example.com"
@@ -154,7 +158,7 @@ describe('SetupView', () => {
       await flush()
     })
     expect(trpcMock.activate).toHaveBeenCalled()
-    expect(screen.getByText(/restarting/i)).toBeTruthy()
+    expect(screen.getByText(/reconnects on its own/i)).toBeTruthy()
   })
 
   it('tells an unauthenticated operator to sign in rather than reporting a crash', async () => {

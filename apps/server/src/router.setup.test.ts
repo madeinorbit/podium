@@ -334,7 +334,10 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
   it('refuses on a healthy instance, so it never becomes a remote bounce lever', async () => {
     const restart = vi.fn()
     await expect(
-      activationHarness({ readiness: () => READY, requestCoordinatorRestart: restart }).setup.activate(),
+      activationHarness({
+        readiness: () => READY,
+        requestCoordinatorRestart: restart,
+      }).setup.activate(),
     ).rejects.toThrow(/nothing to activate/i)
     expect(restart).not.toHaveBeenCalled()
   })

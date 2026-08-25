@@ -39,9 +39,7 @@ function staleBootFields(
  */
 export function createServerReadiness(source: ServerReadinessSource): () => ServerReadiness {
   const read = source.inspect ?? inspectConfig
-  const withPlanes = (
-    readiness: Omit<ServerReadiness, 'controlPlane'>,
-  ): ServerReadiness => ({
+  const withPlanes = (readiness: Omit<ServerReadiness, 'controlPlane'>): ServerReadiness => ({
     ...readiness,
     controlPlane: controlPlaneFor(readiness.state),
   })
