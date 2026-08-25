@@ -26,7 +26,6 @@ import { color, font, leading, radius, sans, space, spring } from '../theme/them
 import { AttachmentStrip } from './AttachmentStrip'
 import {
   COMPOSER_LINE,
-  COMPOSER_MIN_HEIGHT,
   composerAtRest,
   composerFieldHeight,
   composerMaxHeight,
@@ -76,13 +75,17 @@ export function composerVoiceStatus(
  * inside itself.
  *
  * THE CONTROLS SIT ON THEIR OWN ROW UNDER THE FIELD. They used to flank it —
- * attach and mic to its left, send to its right — which cost the prose three
- * 44pt targets of the line it had to wrap inside. On a phone that left a
- * ~40% column down the middle of the capsule, so a placeholder of ordinary
- * length ("Message — resumes the agent…") wrapped to two lines before a word
- * was typed and the surface opened at double height to say nothing. Stacking
- * gives the text the FULL width and the controls a stable rail, which is the
- * arrangement every reference composer on a phone converges on.
+ * attach and mic to its left, send to its right — which spent three 44pt
+ * targets of the one line the prose had. On a 390pt phone that left the field
+ * roughly half the capsule, and a placeholder of ordinary length ("Message —
+ * resumes the agent…") did not fit in it: POD-1666 stopped it wrapping the
+ * composer to two lines, but it stops fitting either way, and what the operator
+ * reads is "Message — resumes the ag…". Stacking is the other half of that fix
+ * — the field is 1.78× wider here, the placeholder fits whole, and a grown
+ * prompt spends FEWER lines than it did flanked despite the extra row.
+ *
+ * It is also the arrangement every reference composer on a phone converges on,
+ * which is the shape this was asked for.
  *
  * The row reads outside-in from each end: attach at the leading edge because
  * it acts on what you are about to write, dictation and send at the trailing
