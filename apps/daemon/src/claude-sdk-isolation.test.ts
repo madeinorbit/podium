@@ -41,7 +41,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { extractImports, isTestFile } from '../../../scripts/architecture-manifest.js'
+import {
+  extractImports,
+  isTestFile,
+  stripComments,
+} from '../../../scripts/architecture-manifest.js'
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const SDK = '@anthropic-ai/claude-agent-sdk'
@@ -90,36 +94,143 @@ function resolveWorkspace(specifier: string, root = repoRoot): string | null {
 // createRequire — the fourth edge kind
 // ---------------------------------------------------------------------------
 
-const ALIAS_DECL = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*createRequire\s*\(/g
+/**
+ * A specifier a static walker can actually resolve: a plain string literal in any
+ * of JavaScript's three delimiters. THE BACKTICK IS THE POINT — `extractImports`
+ * accepts only `'` and `"`, so ``await import(`@anthropic-ai/claude-agent-sdk`)``
+ * was invisible to it: one character different from the shape it guards, needing
+ * no indirection and no new idiom, and caught by nothing else in the repo. A
+ * guard that catches `'x'` and misses `` `x` `` is pinned at one edge only.
+ *
+ * A template with `${` in it is NOT a literal and is deliberately excluded — it
+ * cannot be resolved, and it is banned below rather than silently skipped.
+ */
+const LITERAL = String.raw`(?:'([^']+)'|"([^"]+)"|\`([^\`$]+)\`)`
+
+/** `import(x)` / `require(x)` with a literal specifier, INCLUDING backticks. */
+const LITERAL_CALL = new RegExp(String.raw`\b(?:import|require)\s*\(\s*${LITERAL}\s*\)`, 'g')
+/** `import(x)` / `require(x)` where x is anything else — unresolvable by anyone. */
+const UNRESOLVABLE_CALL = new RegExp(
+  String.raw`\b(?:import|require)\s*\(\s*(?!\s*${LITERAL}\s*\))([^)]*)\)`,
+  'g',
+)
+
+function literalOf(m: RegExpMatchArray, from: number): string | undefined {
+  return m[from] ?? m[from + 1] ?? m[from + 2]
+}
 
 /**
- * Specifiers loaded through a `createRequire` result, plus any such call whose
- * specifier is NOT a literal.
+ * WHY THIS IS A BAN AND NOT A CLEVERER PARSER.
  *
- * `req.resolve('x')` is deliberately NOT an edge: it returns a path and loads
- * nothing. Only `req('x')` puts a module in this process's heap.
+ * An independent review derived thirteen ways to load a module past an
+ * import-graph walker. Three of them — `require(a + b)`, `await import(r.resolve(x))`,
+ * a requirer exported across a module boundary — are not resolvable by ANY static
+ * walker, and the rest differ only in where the requirer is parked: a const, an
+ * alias of that const, an object property, a rebound builtin. Chasing them is an
+ * arms race the walker loses, and the first version of this fix proved it by
+ * following `const req = createRequire(…)` and being defeated by
+ * `createRequire as cr` — the same defect one layer down, in the fix for it.
+ *
+ * So the daemon's graph may not hold the CAPABILITY at all. `createRequire`
+ * returns a function that loads arbitrary modules into this process's heap;
+ * banning the token bans every spelling of every shape above at once, whatever
+ * the local name, because the capability has to be obtained before it can be
+ * hidden. Files that genuinely need it are listed with what they may load, and
+ * that list is checked — an allowance that does not pin its own specifiers is
+ * just a hole with a comment.
  */
-function createRequireEdges(source: string): {
-  specifiers: string[]
-  computed: string[]
-} {
+const REQUIRER_ALLOWANCE: Record<string, readonly string[]> = {
+  // A native addon, loaded lazily so importing the module under Bun never pays
+  // for it. Runs in the daemon's address space; see the note on native addons.
+  'packages/pty/src/backends/node-pty-backend.ts': ['node-pty'],
+  'packages/pty/src/backends/bun-node-pty-tty-polyfill.ts': ['tty'],
+  // Node/Bun builtins chosen at runtime, which a static import cannot express.
+  'packages/runtime/src/sqlite/bun.ts': ['bun:sqlite'],
+  'packages/runtime/src/sqlite/node.ts': ['node:sqlite'],
+  // Resolves the TypeScript loader for the SDK host CHILD. `.resolve()` returns a
+  // path and loads nothing into this process.
+  'apps/daemon/src/claude-sdk-protocol.ts': ['tsx'],
+}
+
+/** Every specifier this file loads through a requirer, plus unresolvable ones. */
+function requirerLoads(source: string): { specifiers: string[]; unresolvable: string[] } {
   const specifiers: string[] = []
-  const computed: string[] = []
-  const aliases = new Set<string>()
-  for (const m of source.matchAll(ALIAS_DECL)) if (m[1]) aliases.add(m[1])
-  // `createRequire(import.meta.url)('pkg')` with no intermediate binding.
-  aliases.add('createRequire\\s*\\([^)]*\\)')
-  for (const alias of aliases) {
-    const call = new RegExp(`(?:^|[^.\\w$])${alias}\\s*\\(\\s*([^)]*?)\\s*\\)`, 'g')
-    for (const m of source.matchAll(call)) {
-      const arg = (m[1] ?? '').trim()
-      if (!arg) continue
-      const literal = arg.match(/^['"]([^'"]+)['"]$/)
-      if (literal?.[1]) specifiers.push(literal[1])
-      else if (!/^import\.meta\.url$/.test(arg)) computed.push(arg)
+  const unresolvable: string[] = []
+  const names = new Set<string>()
+  // Any binding whose initialiser calls something named …createRequire (under any
+  // import alias), plus aliases of those bindings.
+  for (const m of source.matchAll(
+    /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[\w$.]*[cC]reateRequire\w*\s*\(/g,
+  )) {
+    if (m[1]) names.add(m[1])
+  }
+  for (let i = 0; i < 3; i++) {
+    for (const name of [...names]) {
+      for (const m of source.matchAll(
+        new RegExp(
+          String.raw`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*${name}\s*(?![(.])`,
+          'g',
+        ),
+      )) {
+        if (m[1]) names.add(m[1])
+      }
     }
   }
-  return { specifiers, computed }
+  for (const name of names) {
+    const call = new RegExp(String.raw`(?:^|[^.\w$])${name}\s*\(\s*([^)]*?)\s*\)`, 'g')
+    for (const m of source.matchAll(call)) {
+      const arg = (m[1] ?? '').trim()
+      if (!arg || /^import\.meta\.url$/.test(arg)) continue
+      const lit = arg.match(/^(?:'([^']+)'|"([^"]+)"|`([^`$]+)`)$/)
+      const value = lit ? (lit[1] ?? lit[2] ?? lit[3]) : undefined
+      if (value) specifiers.push(value)
+      else unresolvable.push(arg)
+    }
+  }
+  // `createRequire(import.meta.url)('spec')` with no intermediate binding.
+  for (const m of source.matchAll(
+    new RegExp(String.raw`[cC]reateRequire\w*\s*\([^)]*\)\s*\(\s*${LITERAL}\s*\)`, 'g'),
+  )) {
+    const v = literalOf(m, 1)
+    if (v) specifiers.push(v)
+  }
+  return { specifiers, unresolvable }
+}
+
+/** Files that hold a module-loading capability without an allowance. */
+function requirerViolations(file: string, source: string): string[] {
+  const out: string[] = []
+  const allowed = REQUIRER_ALLOWANCE[file]
+  const holdsCapability = /\bcreateRequire\b/.test(source)
+  if (holdsCapability && !allowed) {
+    out.push(
+      `${file} obtains a module loader (createRequire). That capability loads ` +
+        `arbitrary modules into this process's heap and no import-graph walk can ` +
+        `follow where it is later parked — an alias, a property, an export. If the ` +
+        `file genuinely needs it, add it to REQUIRER_ALLOWANCE with the exact ` +
+        `specifiers it may load.`,
+    )
+  }
+  const loads = requirerLoads(source)
+  if (allowed) {
+    for (const spec of loads.specifiers) {
+      if (!allowed.includes(spec)) {
+        out.push(`${file} is allowed a module loader but loads '${spec}', which is not declared`)
+      }
+    }
+  }
+  for (const arg of loads.unresolvable) {
+    out.push(`${file} loads through a module loader with an unresolvable specifier: ${arg}`)
+  }
+  for (const m of source.matchAll(UNRESOLVABLE_CALL)) {
+    const arg = (m[1] ?? '').trim()
+    // `import type … from` and bare re-exports never reach this form; what does is
+    // `import(someExpression)`, which nothing can resolve.
+    if (arg && !arg.startsWith('/*')) {
+      out.push(`${file} calls import()/require() with a non-literal specifier: ${arg}`)
+    }
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -129,8 +240,8 @@ function createRequireEdges(source: string): {
 interface Edges {
   internal: string[]
   external: string[]
-  /** createRequire calls whose specifier this walker cannot resolve. */
-  computedRequires: string[]
+  /** Module-loading capabilities held without a declared allowance. */
+  violations: string[]
 }
 
 const edgeCache = new Map<string, Edges>()
@@ -142,13 +253,25 @@ function externalName(spec: string): string {
 function edgesOf(file: string): Edges {
   const cached = edgeCache.get(file)
   if (cached) return cached
-  const edges: Edges = { internal: [], external: [], computedRequires: [] }
+  const edges: Edges = { internal: [], external: [], violations: [] }
   const abs = join(repoRoot, file)
   if (existsSync(abs)) {
     const source = readFileSync(abs, 'utf8')
-    const requireEdges = createRequireEdges(source)
-    edges.computedRequires = requireEdges.computed
-    const specs = [...extractImports(source).map((r) => r.specifier), ...requireEdges.specifiers]
+    // Prose ABOUT a capability is not the capability. Two files in the harness
+    // package explain in comments why `createRequire` at module scope breaks a
+    // browser bundle, and a ban that reads those as uses would teach the next
+    // person that this test cries wolf.
+    edges.violations = requirerViolations(file, stripComments(source))
+    const backtickCalls: string[] = []
+    for (const m of source.matchAll(LITERAL_CALL)) {
+      const v = literalOf(m, 1)
+      if (v) backtickCalls.push(v)
+    }
+    const specs = [
+      ...extractImports(source).map((r) => r.specifier),
+      ...backtickCalls,
+      ...requirerLoads(source).specifiers,
+    ]
     for (const spec of specs) {
       if (spec.startsWith('node:') || spec.startsWith('bun:')) continue
       let target: string | null = null
@@ -186,13 +309,13 @@ function isGuardedHostDispatch(file: string): boolean {
 interface Graph {
   files: Set<string>
   externals: Map<string, string>
-  computedRequires: Map<string, string[]>
+  violations: string[]
 }
 
 function closure(roots: string[]): Graph {
   const files = new Set<string>()
   const externals = new Map<string, string>()
-  const computedRequires = new Map<string, string[]>()
+  const violations: string[] = []
   const queue = [...roots]
   while (queue.length > 0) {
     const file = queue.pop() as string
@@ -200,7 +323,7 @@ function closure(roots: string[]): Graph {
     if (!existsSync(join(repoRoot, file))) continue
     files.add(file)
     const edges = edgesOf(file)
-    if (edges.computedRequires.length > 0) computedRequires.set(file, edges.computedRequires)
+    for (const v of edges.violations) violations.push(v)
     for (const name of edges.external) if (!externals.has(name)) externals.set(name, file)
     const skipHost = isGuardedHostDispatch(file)
     for (const target of edges.internal) {
@@ -208,7 +331,7 @@ function closure(roots: string[]): Graph {
       queue.push(target)
     }
   }
-  return { files, externals, computedRequires }
+  return { files, externals, violations }
 }
 
 // ---------------------------------------------------------------------------
@@ -323,35 +446,141 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
     }
   })
 
-  it('follows a createRequire alias, which loads into this very heap', () => {
-    // The idiom that defeated the previous version of this test:
-    //   const req = createRequire(import.meta.url); req('pkg')
-    // Proven against the real file rather than a fixture: node-pty is a NATIVE
-    // addon running in the daemon's address space, and it must be visible as an
-    // edge in its own right — not because a neighbouring type annotation happens
-    // to mention it.
+  it('still sees what an ALLOWED module loader loads', () => {
+    // The ban has an allowance list, and an allowance that does not pin its own
+    // specifiers is a hole with a comment on it. node-pty is a NATIVE addon
+    // running in the daemon's address space; it must be an edge in its own
+    // right, not because a neighbouring `typeof import('node-pty')` annotation
+    // happens to mention it — that accident is what a review found here, and it
+    // was one tidy-up from removing a native addon from the walk in silence.
     const backend = readFileSync(
       join(repoRoot, 'packages/pty/src/backends/node-pty-backend.ts'),
       'utf8',
     )
-    expect(createRequireEdges(backend).specifiers).toContain('node-pty')
-    // And the walk sees it from the daemon's roots.
+    expect(requirerLoads(backend).specifiers).toContain('node-pty')
     expect(graph.externals.has('node-pty')).toBe(true)
   })
 
-  it('refuses a createRequire call it cannot resolve, rather than ignoring it', () => {
-    // A computed specifier through an alias is unfollowable. Silently skipping it
-    // would be a hole shaped exactly like the one this test just closed, so it
-    // fails loudly instead and whoever wrote it has to make it resolvable.
-    const offenders = [...graph.computedRequires.entries()]
+  it('reads a backtick specifier as the literal it is', () => {
+    // ONE CHARACTER defeated the previous walker: extractImports accepts only
+    // ' and ", so `await import(`<sdk>`)` was invisible — no indirection, no new
+    // idiom, and nothing else in the repo caught it.
+    const sample = ['const a = await import(`some-pkg`)', 'const b = require(`other-pkg`)'].join(
+      '\n',
+    )
+    const found: string[] = []
+    for (const m of sample.matchAll(LITERAL_CALL)) {
+      const v = literalOf(m, 1)
+      if (v) found.push(v)
+    }
+    expect(found).toEqual(['some-pkg', 'other-pkg'])
+  })
+
+  // THE DEFEAT BATTERY, from an independent review that derived it BEFORE this fix
+  // was written — thirteen ways to get a module into this process past an
+  // import-graph walk. Measured against the walker at the time: three controls
+  // red, ten defeats green. They live here as a table rather than in a shell
+  // script so they run whenever anyone touches this file, and so a fix that
+  // closes one shape and leaves its neighbours open fails immediately — which is
+  // exactly what the FIRST attempt at this fix did, closing the house idiom and
+  // falling to `createRequire as cr`.
+  const SPEC = '@anthropic-ai/claude-agent-sdk'
+  const BATTERY: readonly { id: string; what: string; code: string }[] = [
+    { id: 'S0', what: 'quoted static import', code: `import { query } from '${SPEC}'` },
+    { id: 'S0b', what: 'quoted await import()', code: `const m = await import('${SPEC}')` },
+    { id: 'S0c', what: 'quoted require()', code: `const m = require('${SPEC}')` },
+    { id: 'A0', what: 'template-literal import', code: 'const m = await import(`' + SPEC + '`)' },
+    {
+      id: 'A0b',
+      what: 'template-literal through a requirer',
+      code: `const req = createRequire(import.meta.url)\nconst m = req(\`${SPEC}\`)`,
+    },
+    {
+      id: 'A1',
+      what: 'direct createRequire call',
+      code: `const m = createRequire(import.meta.url)('${SPEC}')`,
+    },
+    {
+      id: 'A2',
+      what: 'the house idiom',
+      code: `const req = createRequire(import.meta.url)\nconst m = req('${SPEC}')`,
+    },
+    {
+      id: 'A2b',
+      what: 'the house idiom under an import alias',
+      code: `import { createRequire as cr } from 'node:module'\nconst req = cr(import.meta.url)\nconst m = req('${SPEC}')`,
+    },
+    {
+      id: 'A3',
+      what: 'alias of the requirer',
+      code: `const req = createRequire(import.meta.url)\nconst r = req\nconst m = r('${SPEC}')`,
+    },
+    {
+      id: 'A4',
+      what: 'requirer parked on a property',
+      code: `const io = { req: createRequire(import.meta.url) }\nconst m = io.req('${SPEC}')`,
+    },
+    {
+      id: 'A5',
+      what: 'resolve then import',
+      code: `const req = createRequire(import.meta.url)\nconst m = await import(req.resolve('${SPEC}'))`,
+    },
+    {
+      id: 'A6',
+      what: 'concatenated specifier',
+      code: `const req = createRequire(import.meta.url)\nconst m = req('@anthropic-ai/' + 'claude-agent-sdk')`,
+    },
+    {
+      id: 'A7',
+      what: 'requirer exported across a module boundary',
+      code: `export const req = createRequire(import.meta.url)`,
+    },
+    {
+      id: 'A8',
+      what: 'rebound requirer',
+      code: `const load = createRequire(import.meta.url)\nconst g = load\nconst m = g('${SPEC}')`,
+    },
+  ]
+
+  it.each(BATTERY)('catches $id — $what', ({ code }) => {
+    // "Caught" means either: the capability is refused outright (the ban), or the
+    // specifier is resolved and becomes a visible edge. Both end in a red suite
+    // for a real module; what must never happen is neither.
+    const banned = requirerViolations('apps/daemon/src/probe.ts', stripComments(code)).length > 0
+    const resolved = [...code.matchAll(LITERAL_CALL)].some((m) => literalOf(m, 1) === SPEC)
+    const imported = extractImports(code).some((r) => r.specifier === SPEC)
     expect(
-      offenders,
-      offenders.length > 0
-        ? `these load modules through a createRequire alias with a non-literal specifier, ` +
-            `which no import-graph walk can follow: ${offenders
-              .map(([f, c]) => `${f} (${c.join(', ')})`)
-              .join('; ')}`
-        : '',
+      banned || resolved || imported,
+      `this shape puts ${SPEC} in the daemon's heap and nothing here objects:\n${code}`,
+    ).toBe(true)
+  })
+
+  it('does not object to the ordinary code around it', () => {
+    // The other half of pinning a class: a ban that fires on everything is not a
+    // guard, it is noise that gets deleted. These are shapes daemon modules
+    // legitimately contain and must stay silent.
+    for (const clean of [
+      "import { join } from 'node:path'",
+      "const mod = await import('./sibling.js')",
+      'const x = someFn(import.meta.url)',
+      "const y = { resolve: (s: string) => s }\ny.resolve('anything')",
+    ]) {
+      expect(
+        requirerViolations('apps/daemon/src/probe.ts', stripComments(clean)),
+        `false positive on: ${clean}`,
+      ).toEqual([])
+    }
+  })
+
+  it('refuses to let a daemon module hold a module loader at all', () => {
+    // THE BAN. Not a parser: a review derived thirteen shapes that hide a load
+    // from an import-graph walk, and three of them are unresolvable by anything.
+    // The capability has to be obtained before it can be hidden, so the token is
+    // what is banned — every spelling of every shape dies at once, whatever the
+    // local name it is imported under.
+    expect(
+      graph.violations,
+      graph.violations.length > 0 ? graph.violations.join('\n') : '',
     ).toEqual([])
   })
 
