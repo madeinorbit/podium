@@ -66,10 +66,6 @@ describe('parseAdmissionArgs', () => {
 describe('breakableEntry', () => {
   const installed = ['.bin', '.bun', '@podium', '@types', 'left-pad', 'turbo', 'typescript']
 
-  it('prefers node-pty, the optional native package this lane exists for', () => {
-    expect(breakableEntry([...installed, 'node-pty'])).toBe('node-pty')
-  })
-
   it('never sacrifices a package the refusal itself has to load', () => {
     // Breaking turbo or typescript would crash the run instead of refusing it, and a
     // crash is not evidence that admission said no.

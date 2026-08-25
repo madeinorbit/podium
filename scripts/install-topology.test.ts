@@ -29,7 +29,7 @@ function link(path: string, target: string): void {
 /** A checkout with one workspace, installed the way `layout` names. */
 function checkout(
   layout: 'hoisted' | 'isolated',
-  options: { store?: string; nodePty?: 'absent' | 'linked' | 'dangling' } = {},
+  options: { store?: string; optionalAddon?: 'absent' | 'linked' | 'dangling' } = {},
 ): string {
   const root = scratch(layout)
   writeFileSync(join(root, 'package.json'), '{"private":true,"workspaces":["packages/*"]}\n')
@@ -45,8 +45,9 @@ function checkout(
 
   if (layout === 'hoisted') {
     realDirectory(join(modules, 'left-pad'))
-    if (options.nodePty === 'linked') realDirectory(join(modules, 'node-pty'))
-    if (options.nodePty === 'dangling') link(join(modules, 'node-pty'), '../evaporated/node-pty')
+    if (options.optionalAddon === 'linked') realDirectory(join(modules, 'optional-addon'))
+    if (options.optionalAddon === 'dangling')
+      link(join(modules, 'optional-addon'), '../evaporated/optional-addon')
     return root
   }
 
@@ -54,13 +55,19 @@ function checkout(
   realDirectory(join(store, 'left-pad@1.3.0/node_modules/left-pad'))
   link(join(modules, '.bun/left-pad@1.3.0'), join(store, 'left-pad@1.3.0'))
   link(join(modules, 'left-pad'), '.bun/left-pad@1.3.0/node_modules/left-pad')
-  if (options.nodePty === 'linked') {
-    realDirectory(join(store, 'node-pty@1.0.0/node_modules/node-pty'))
-    link(join(modules, '.bun/node-pty@1.0.0'), join(store, 'node-pty@1.0.0'))
-    link(join(modules, 'node-pty'), '.bun/node-pty@1.0.0/node_modules/node-pty')
+  if (options.optionalAddon === 'linked') {
+    realDirectory(join(store, 'optional-addon@1.0.0/node_modules/optional-addon'))
+    link(join(modules, '.bun/optional-addon@1.0.0'), join(store, 'optional-addon@1.0.0'))
+    link(
+      join(modules, 'optional-addon'),
+      '.bun/optional-addon@1.0.0/node_modules/optional-addon',
+    )
   }
-  if (options.nodePty === 'dangling') {
-    link(join(modules, 'node-pty'), '.bun/node-pty@1.0.0/node_modules/node-pty')
+  if (options.optionalAddon === 'dangling') {
+    link(
+      join(modules, 'optional-addon'),
+      '.bun/optional-addon@1.0.0/node_modules/optional-addon',
+    )
   }
   return root
 }
@@ -103,12 +110,15 @@ describe('install topology as cache identity', () => {
 
   it('walks the node_modules each workspace owns', () => {
     const root = checkout('hoisted')
-    link(join(root, 'packages/pty/node_modules/node-pty'), '../../../evaporated/node-pty')
+    link(
+      join(root, 'packages/pty/node_modules/optional-addon'),
+      '../../../evaporated/optional-addon',
+    )
 
     const topology = readInstallTopology(root, scratch('home'))
     expect(topology.errors).toEqual([
-      'install topology: packages/pty/node_modules/node-pty is a dangling symlink ' +
-        '(-> ../../../evaporated/node-pty)',
+      'install topology: packages/pty/node_modules/optional-addon is a dangling symlink ' +
+        '(-> ../../../evaporated/optional-addon)',
     ])
   })
 })
@@ -153,22 +163,25 @@ describe('install topology admission', () => {
     'hoisted',
     'isolated',
   ] as const)('refuses a dangling third-party link in a %s install', (layout) => {
-    const topology = readInstallTopology(checkout(layout, { nodePty: 'dangling' }), scratch('home'))
+    const topology = readInstallTopology(
+      checkout(layout, { optionalAddon: 'dangling' }),
+      scratch('home'),
+    )
     expect(topology.errors).toHaveLength(1)
-    expect(topology.errors[0]).toContain('node_modules/node-pty is a dangling symlink')
+    expect(topology.errors[0]).toContain('node_modules/optional-addon is a dangling symlink')
   })
 
   it.each([
     'hoisted',
     'isolated',
   ] as const)('accepts an optional package that is simply absent from a %s install', (layout) => {
-    // node-pty is optional and routinely missing. Absent is not broken; only a link
-    // that points at nothing is, and conflating the two would refuse healthy installs.
+    // Absence is not breakage; only a link that points at nothing is. Conflating the two
+    // would refuse healthy installs.
     expect(
-      readInstallTopology(checkout(layout, { nodePty: 'absent' }), scratch('home')).errors,
+      readInstallTopology(checkout(layout, { optionalAddon: 'absent' }), scratch('home')).errors,
     ).toEqual([])
     expect(
-      readInstallTopology(checkout(layout, { nodePty: 'linked' }), scratch('home')).errors,
+      readInstallTopology(checkout(layout, { optionalAddon: 'linked' }), scratch('home')).errors,
     ).toEqual([])
   })
 

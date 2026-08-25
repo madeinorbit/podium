@@ -318,14 +318,15 @@ describe('readCensus', () => {
     // perfectly, and the install is still one whose cached green means nothing.
     const root = resolutionFixture('hoisted')
     mkdirSync(join(root, 'node_modules'), { recursive: true })
-    symlinkSync('../evaporated/node-pty', join(root, 'node_modules/node-pty'))
+    symlinkSync('../evaporated/optional-addon', join(root, 'node_modules/optional-addon'))
 
     const census = readCensus(root)
     expect(census.resolutions.length).toBeGreaterThan(0)
     expect(census.admissionErrors).toEqual([
-      'install topology: node_modules/node-pty is a dangling symlink (-> ../evaporated/node-pty)',
+      'install topology: node_modules/optional-addon is a dangling symlink ' +
+        '(-> ../evaporated/optional-addon)',
     ])
-    expect(admissionRefusal(census, 'typecheck')).toContain('node-pty')
+    expect(admissionRefusal(census, 'typecheck')).toContain('optional-addon')
   })
 
   it('admits a healthy install', () => {
@@ -351,14 +352,14 @@ describe('admissionRefusal', () => {
         ...clean,
         admissionErrors: [
           '@podium/a: @podium/b is missing or dangling from its owner',
-          'install topology: node_modules/node-pty is a dangling symlink (-> ../evaporated)',
+          'install topology: node_modules/optional-addon is a dangling symlink (-> ../evaporated)',
         ],
       },
       'test',
     )
     expect(refusal).toContain('test refused')
     expect(refusal).toContain('@podium/b is missing or dangling')
-    expect(refusal).toContain('node_modules/node-pty is a dangling symlink')
+    expect(refusal).toContain('node_modules/optional-addon is a dangling symlink')
   })
 
   it('refuses on a third-party break with every workspace edge intact', () => {
@@ -369,7 +370,9 @@ describe('admissionRefusal', () => {
         {
           ...clean,
           resolutions: ['@podium/a\t@podium/b\tpackages/b/src/index.ts'],
-          admissionErrors: ['install topology: node_modules/node-pty is a dangling symlink (-> x)'],
+          admissionErrors: [
+            'install topology: node_modules/optional-addon is a dangling symlink (-> x)',
+          ],
         },
         'typecheck',
       ),

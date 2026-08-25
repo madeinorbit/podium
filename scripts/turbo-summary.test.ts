@@ -22,7 +22,7 @@ describe('parseTurboSummary', () => {
   })
 
   it('returns null when the run never reached turbo', () => {
-    expect(parseTurboSummary('typecheck refused: node-pty is a dangling symlink\n')).toBeNull()
+    expect(parseTurboSummary('typecheck refused: left-pad is a dangling symlink\n')).toBeNull()
     expect(parseTurboSummary('')).toBeNull()
   })
 

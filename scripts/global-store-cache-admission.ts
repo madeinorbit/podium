@@ -280,16 +280,11 @@ const packageTestCommand = (bun: string, packageName: string) => [
   packageName,
 ]
 
-/**
- * Pick a third-party package to break. node-pty is the case that motivated this lane —
- * it is optional, native, and routinely half-installed — so prefer it when it is there
- * and otherwise take the first entry that `bun run typecheck` does not itself need.
- */
+/** Pick a deterministic third-party package that `bun run typecheck` does not itself need. */
 export function breakableEntry(entries: string[]): string | null {
   const eligible = entries
     .filter((name) => !name.startsWith('@') && !name.startsWith('.') && !LOAD_BEARING.has(name))
     .sort()
-  if (entries.includes('node-pty')) return 'node-pty'
   return eligible[0] ?? null
 }
 

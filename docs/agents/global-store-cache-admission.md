@@ -59,9 +59,8 @@ inside it. The refusal runs in `scripts/typecheck.ts`, `scripts/test.ts` and
 `scripts/test-affected.ts` before Turbo is spawned, so a broken environment can neither
 serve a cached green nor record one.
 
-An **absent** optional package is not a broken one. node-pty is optional, native, and
-routinely missing from a worktree whose install skipped it; only a link that points at
-nothing is a fault. Conflating the two would refuse healthy installs.
+An **absent** optional package is not a broken one. Only a link that points at nothing is
+a fault; conflating absence with breakage would refuse healthy installs.
 
 ## One durable cache per repository per host
 
