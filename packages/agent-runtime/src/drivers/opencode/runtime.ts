@@ -38,13 +38,8 @@
  */
 
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
-import type {
-  ObservationProvenance,
-  ProviderCursor,
-} from '@podium/protocol'
-import type {
-  QueueDrainAbandonedReason,
-} from '@podium/protocol/daemon'
+import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ProcessIdentity,
@@ -781,7 +776,31 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     session.interruptPending = false
     persist(session)
 
-    if (failure) {
+    /**
+     * AN ABORT IS A VERDICT, NOT A FAULT (POD-2792).
+     *
+     * opencode reports a cancelled turn as `session.error` carrying
+     * `MessageAborted`, and `describeError` classifies it — correctly — as
+     * `interrupted`. Closing it as FAILED anyway left the operator's own stop
+     * looking like a breakage: measured on the headless arm, the turn ended and
+     * the session went to `phase: errored` with no error to show, while codex —
+     * whose provider says `turn/completed status: interrupted` — went to `idle`
+     * from the same button. The contract has a slot for exactly this and this
+     * driver was already filling it from the local flag: `interrupted` is one of
+     * the four turn VERDICTS, beside `done`, `question` and `approval`.
+     *
+     * THE PROVIDER'S WORD, NOT OURS. This does not consult `interruptPending`,
+     * because an abort we did not request is still an abort: the turn was
+     * cancelled and ended, which is what `interrupted` says. Inferring "failed"
+     * from "we did not ask for it" would be the driver deciding a verdict the
+     * catalogue says comes from the provider.
+     *
+     * Everything else `describeError` classifies — auth, context overflow,
+     * timeouts, unclassifiable shapes — still fails the turn.
+     */
+    const cancelled = failure?.reason === 'interrupted'
+
+    if (failure && !cancelled) {
       emit(
         session,
         {
@@ -812,11 +831,12 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       )
       session.state = { phase: 'errored', since: at, nativeSubagentCount: 0 }
     } else {
-      const verdict = interrupted
-        ? 'interrupted'
-        : session.interactions.size > 0
-          ? 'question'
-          : 'done'
+      const verdict =
+        interrupted || cancelled
+          ? 'interrupted'
+          : session.interactions.size > 0
+            ? 'question'
+            : 'done'
       emit(
         session,
         { t: 'turn', ev: { ev: 'completed', turnEpoch: session.turnEpoch, verdict } },

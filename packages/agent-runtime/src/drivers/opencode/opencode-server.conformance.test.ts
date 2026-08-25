@@ -32,7 +32,7 @@
  */
 
 import type { SessionId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { RuntimeEvent } from '../../events.js'
 // `assertAttachHonoursOneControlLease` is the assertion, not a copy of it: the
 // refusal arm below is judged by the same corpus function the run judges its
@@ -96,6 +96,9 @@ function makeWorld(options: WorldOptions = {}): {
   target: ConformanceTarget
   prompt(sessionId: SessionId): ReturnType<FakeOpencodeServer['lastPrompt']>
   failTurn(sessionId: SessionId): void
+  /** The same channel with the error the caller names — `MessageAborted` is the
+   *  one opencode sends for a cancelled turn (POD-2792). */
+  emitSessionError(sessionId: SessionId, error: { name: string; message: string }): void
 } {
   const hostsClientTerminals = options.hostsClientTerminals ?? true
   let runtime: OpencodeRuntime | undefined
@@ -456,6 +459,13 @@ function makeWorld(options: WorldOptions = {}): {
         sessionID: opencodeIdFor(sessionId),
         error: { name: 'ProviderError', message: 'fixture provider failure' },
       }),
+    /** The same channel with the error the caller names — `MessageAborted` is
+     *  the one opencode sends for a cancelled turn (POD-2792). */
+    emitSessionError: (sessionId: SessionId, error: { name: string; message: string }) =>
+      serverFor(sessionId).emit('session.error', {
+        sessionID: opencodeIdFor(sessionId),
+        error,
+      }),
 
     target: {
       name: 'opencode-server',
@@ -519,6 +529,73 @@ describe('opencode provider failure detail', () => {
           detail: expect.stringContaining('fixture provider failure'),
         },
       })
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+/**
+ * AN ABORTED TURN IS INTERRUPTED, NOT BROKEN (POD-2792).
+ *
+ * opencode signals a cancelled turn as `session.error` with `MessageAborted`,
+ * and this driver classified it as `interrupted` and then closed the turn as
+ * FAILED anyway — so a session the operator stopped went to `phase: errored`
+ * carrying no error at all, while codex reached `idle` from the same button.
+ * Nothing covered the mapping: `MessageAborted` appeared exactly once in this
+ * package, in the classifier, and no test named it.
+ */
+describe('an aborted opencode turn', () => {
+  const abortTurn = (world: ReturnType<typeof makeWorld>, sessionId: SessionId) =>
+    world.emitSessionError(sessionId, {
+      name: 'MessageAborted',
+      message: 'the turn was aborted',
+    })
+
+  it('closes as completed with the interrupted verdict, never as a failure', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const events: RuntimeEvent[] = []
+      const collect = (async () => {
+        for await (const event of handle.events('bootstrap')) {
+          events.push(event)
+          if (event.t === 'state' && event.change.kind === 'turn_completed') break
+          if (event.t === 'state' && event.change.kind === 'turn_failed') break
+        }
+      })()
+      await handle.send({ text: 'a long task' }, { origin: 'human', delivery: 'when-ready' })
+      abortTurn(world, handle.binding.sessionId)
+      await collect
+
+      // The VERDICT, from the provider's own word for what happened.
+      expect(
+        events.find((event) => event.t === 'state' && event.change.kind === 'turn_completed'),
+      ).toMatchObject({
+        t: 'state',
+        change: { kind: 'turn_completed', verdict: { kind: 'interrupted' } },
+      })
+      // And nothing that would paint the session as errored.
+      expect(
+        events.filter((event) => event.t === 'state' && event.change.kind === 'turn_failed'),
+      ).toEqual([])
+      expect(events.filter((event) => event.t === 'turn' && event.ev.ev === 'failed')).toEqual([])
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('leaves the session idle and takeable, not stuck at working', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send({ text: 'a long task' }, { origin: 'human', delivery: 'when-ready' })
+      await vi.waitFor(async () => expect((await handle.snapshot()).state.phase).toBe('working'))
+
+      abortTurn(world, handle.binding.sessionId)
+
+      await vi.waitFor(async () => expect((await handle.snapshot()).state.phase).toBe('idle'))
     } finally {
       world.target.reset()
     }
