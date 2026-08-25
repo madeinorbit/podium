@@ -15,7 +15,6 @@ import { existsSync, readFileSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { nodePrerequisiteProblem } from './node-prerequisite'
 
 const os = platform() // 'darwin' | 'linux' | 'win32' | ...
 const isMac = os === 'darwin'
@@ -35,6 +34,7 @@ const problems: Problem[] = []
 
 // 1. Vite runs through the `node` executable on PATH even though this preflight itself runs
 //    under Bun. Catch an absent or incompatible Node before Vite fails with a runtime error.
+const viteNodeRange = '^20.19.0 || >=22.12.0'
 const nodeVersion = (() => {
   try {
     const result = spawnSync('node', ['--version'], { encoding: 'utf8' })
@@ -43,8 +43,20 @@ const nodeVersion = (() => {
     return null
   }
 })()
-const nodeProblem = nodePrerequisiteProblem(nodeVersion)
-if (nodeProblem) problems.push(nodeProblem)
+const nodeVersionParts = nodeVersion?.match(/^v?(\d+)\.(\d+)\.(\d+)$/)
+const nodeMajor = Number(nodeVersionParts?.[1])
+const nodeMinor = Number(nodeVersionParts?.[2])
+const nodeSupported = nodeVersionParts
+  ? (nodeMajor === 20 && nodeMinor >= 19) || nodeMajor > 22 || (nodeMajor === 22 && nodeMinor >= 12)
+  : false
+if (!nodeSupported) {
+  problems.push({
+    what: nodeVersion
+      ? `Node.js ${nodeVersion} cannot run Vite (needs ${viteNodeRange}).`
+      : `Node.js not found (Vite needs ${viteNodeRange}).`,
+    fix: 'sudo pacman -S nodejs   # Omarchy/Arch; elsewhere install Node.js 22.12+, then check node --version',
+  })
+}
 
 // 2. Rust / cargo — the thing Tauri shells out to. Distinguish "not installed" from
 //    "installed but this shell didn't load ~/.cargo/env" (a very common first-run snag).
