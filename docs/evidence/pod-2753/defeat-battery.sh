@@ -22,17 +22,49 @@ export PATH="$HOME/.bun/bin:$PATH"
 TARGET=apps/daemon/src/headless-drivers.ts
 SIBLING=apps/daemon/src/battery-sibling.ts
 RAN=""
+BROKEN=0
+
+# SELF-HEAL FIRST, BEFORE THE DIRTY-TREE CHECK. A trap cannot catch SIGKILL, and
+# an OOM kill is exactly how this script died on a loaded host — leaving an SDK
+# import sitting in headless-drivers.ts twice. The sentinel below is the only
+# protection that survives being killed uncatchably: it is written before the
+# first mutation and removed after the last restore, so its presence at startup
+# means a previous run did not finish, and the pristine copy beside it is what the
+# file should be. Sequenced ahead of the dirty-tree refusal deliberately — that
+# refusal cannot tell this script's own leftover from somebody's work in progress.
+# Repairs from GIT, not from a copy in /tmp. The target is a committed file, so
+# git is the authority on what it should be; a backup beside the sentinel is one
+# more thing that can be stale or missing when it is needed most.
+MARK=/tmp/battery-in-progress
+if [ -f "$MARK" ]; then
+  if ! git diff --quiet -- "$TARGET" 2>/dev/null; then
+    echo "REPAIRING: a previous run was killed before it could restore $TARGET"
+    git checkout -- "$TARGET"
+  fi
+  rm -f "$MARK" "$SIBLING"
+fi
+
+# MEMORY IS THE CEILING ON THIS HOST, not load. Fourteen vitest starts on a box
+# that is already short will produce a run that reports nothing useful — see the
+# ERROR branch below for what that looked like the first time.
+AVAIL=$(free -m | awk '/^Mem:/{print $7}')
+if [ "$AVAIL" -lt 1500 ]; then
+  echo "REFUSING: ${AVAIL}MB available, need 1500MB — this run would report noise"
+  exit 1
+fi
+
 [ -z "$(git status --porcelain)" ] || { echo "REFUSING: tree is dirty"; exit 1; }
 cp "$TARGET" /tmp/battery-target.bak
+: > "$MARK"
 
-# RESTORE ON ANY EXIT, and this is not hypothetical: a run of this script was
-# killed by a timeout part-way through and left the A0b mutation sitting in
-# headless-drivers.ts. A mutation harness that only restores on the happy path
-# will eventually hand somebody a mutated tree and let them commit it — the whole
-# point of these shapes is that they are invisible, so nobody would notice.
+# Restore on any exit we CAN catch. This is not hypothetical either: a run killed
+# by a timeout left the A0b mutation behind before this existed. A mutation
+# harness that only restores on the happy path will eventually hand somebody a
+# mutated tree and let them commit it — these shapes are chosen for being
+# invisible, so nobody would notice.
 restore() {
   cp /tmp/battery-target.bak "$TARGET" 2>/dev/null || true
-  rm -f "$SIBLING" /tmp/battery-inject.ts /tmp/battery-out.ts 2>/dev/null || true
+  rm -f "$SIBLING" "$MARK" /tmp/battery-inject.ts /tmp/battery-out.ts 2>/dev/null || true
 }
 trap restore EXIT INT TERM
 
@@ -49,6 +81,20 @@ shape() { # id, description, code, [sibling-module-source]
     echo "  $id  !! MUTATION NOT APPLIED"; cp /tmp/battery-target.bak "$TARGET"; rm -f "$SIBLING"; return
   fi
   local out; out=$(timeout 200 ./node_modules/.bin/vitest run apps/daemon/src/claude-sdk-isolation.test.ts 2>&1)
+  # DID IT RUN AT ALL? This mattered on the first attempt at the 14-shape run:
+  # the host was low on memory, vitest died before producing a summary, and the
+  # old check — "no 'Tests N failed' line, therefore no failures" — reported every
+  # shape as GREEN (DEFEAT). The harness could not tell "ran and the guard lost"
+  # from "never ran", which is the same defect as everything else on this page.
+  # The vacuity controls DID catch it (S0/S0b/S0c came back green, which is
+  # impossible when the harness is working) — but a harness should say it is
+  # broken, not leave that to a reader who knows what the controls mean.
+  if ! echo "$out" | grep -qE "^ +Tests +[0-9]+"; then
+    printf '  %-4s %-13s %s\n' "$id" "ERROR (no run)" "$desc — vitest produced no summary"
+    echo "$out" | tail -5 | sed 's/^/        /'
+    BROKEN=1
+    cp /tmp/battery-target.bak "$TARGET"; rm -f "$SIBLING"; return
+  fi
   if echo "$out" | grep -qE "^ +Tests +[0-9]+ failed"; then r="RED  (caught)"; else r="GREEN (DEFEAT)"; fi
   printf '  %-4s %-13s %s\n' "$id" "$r" "$desc"
   cp /tmp/battery-target.bak "$TARGET"; rm -f "$SIBLING"
@@ -128,6 +174,11 @@ if [ "$TABLE" = "$MINE" ]; then
   echo "  ok  both cover the same $(printf '%s' "$MINE" | wc -w) shapes"
 else
   echo "  !! COVERAGE MISMATCH — this script does not exercise what the table declares"
+  exit 1
+fi
+
+if [ "$BROKEN" != "0" ]; then
+  echo "  !! ONE OR MORE SHAPES DID NOT RUN — every result above is worthless"
   exit 1
 fi
 
