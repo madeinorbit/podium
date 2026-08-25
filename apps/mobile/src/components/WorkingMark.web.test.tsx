@@ -1,12 +1,15 @@
 import { readFileSync } from 'node:fs'
-import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { resolve } from 'node:path'
+import { cleanup, render } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
 import { WorkingMark } from './WorkingMark.web'
 
-const css = readFileSync(new URL('./WorkingMark.web.css', import.meta.url), 'utf8').replace(
-  /\s+/g,
-  ' ',
-)
+const css = readFileSync(
+  resolve(process.cwd(), 'src/components/WorkingMark.web.css'),
+  'utf8',
+).replace(/\s+/g, ' ')
+
+afterEach(cleanup)
 
 describe('WorkingMark on web', () => {
   it('renders the same braille geometry for CSS to animate', () => {

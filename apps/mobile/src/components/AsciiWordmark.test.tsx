@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 let reduceMotion = false
@@ -13,6 +13,7 @@ describe('AsciiWordmark', () => {
   })
 
   afterEach(() => {
+    cleanup()
     vi.useRealTimers()
   })
 

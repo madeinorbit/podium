@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 import type { ComponentProps, ComponentType } from 'react'
 import type { View as RNView } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -218,6 +218,7 @@ describe('WorkingMark', () => {
     vi.clearAllMocks()
   })
   afterEach(() => {
+    cleanup()
     reduceMotion = false
   })
 

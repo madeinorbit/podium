@@ -1,8 +1,10 @@
-import { act, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { Text } from 'react-native'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
 import { MobileSyncProgressStore } from './mobile-sync-progress'
+
+afterEach(cleanup)
 
 describe('MobileSyncBoundary', () => {
   it('uses the launch surface as an intentional cold-start input gate', () => {
