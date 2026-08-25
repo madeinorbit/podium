@@ -82,6 +82,10 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
   /** Codex's rollout files, per WORLD rather than per app-server: the child dies
    *  with the daemon, the JSONL on disk does not. */
   const rollouts = new Map<string, Record<string, unknown>[]>()
+  /** …and, for the same reason, WHICH THREADS EXIST: per world, not per server.
+   *  A restarted app-server must still be able to resume a thread an earlier
+   *  incarnation started, and must still refuse one nobody ever started. */
+  const threads = new Set<string>()
   const servers = new Map<SessionId, FakeAppServer>()
   /** Servers a relaunch superseded. The driver stops them through the endpoint;
    *  `reset` closes any the property left standing. */
@@ -136,6 +140,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
       const server = startFakeAppServer({
         threadIds: [`thr-w${++mintedThreads}`],
         rollouts,
+        threads,
       })
       /**
        * A RELAUNCH REPLACES THE SERVER FOR THIS SESSION under the same
@@ -319,6 +324,16 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
       serverFor(sessionId).failNextTurn()
     },
 
+    model: {
+      // A model this family names the way an operator names it, and an effort,
+      // because Codex takes them as two separate turn parameters and a wake
+      // could drop either one alone.
+      policy: () => ({ model: 'gpt-5-codex', effort: 'high' }),
+      // READ OFF THE SERVER, not remembered from what the driver was told. What
+      // the corpus is asking is what the harness RECEIVED.
+      requested: (sessionId) => servers.get(sessionId)?.lastTurnModel,
+    },
+
     restartSupervisor() {
       // Handles die. So, for this family, do the CHILDREN — `codex app-server`
       // exits on stdin EOF, so a daemon restart takes every one of them with it.
@@ -365,6 +380,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
         entries.clear()
         // Per-WORLD, but a property must not inherit a previous one's thread.
         rollouts.clear()
+        threads.clear()
         seq = 0
         mintedThreads = 0
       },

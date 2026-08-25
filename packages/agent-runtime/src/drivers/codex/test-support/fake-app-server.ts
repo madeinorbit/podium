@@ -92,6 +92,26 @@ export interface FakeAppServerOptions {
    * models the disk rather than the process. Omitted, the server keeps its own.
    */
   rollouts?: Map<string, Record<string, unknown>[]>
+  /**
+   * WHICH THREADS EXIST IN THIS WORLD (POD-2775, review 2).
+   *
+   * A thread id names a conversation ON DISK, and `thread/resume` against an id
+   * Codex has never written REFUSES. This fixture answered it by echoing the id
+   * back, so a resume of `thr-someone-elses-conversation` resolved as happily as
+   * a resume of the real one — which made "the resumed session is the RIGHT
+   * conversation" unfalsifiable at every level above it. A wrong-thread mutant
+   * in `codex/runtime.ts` survived the entire driver corpus because of this line
+   * alone: 355 passed, zero red.
+   *
+   * So the set of started threads is now kept, and a resume outside it is an
+   * error. Pass ONE set across every server a world starts — like `rollouts`,
+   * it models the disk rather than the process, and a server that only knew what
+   * IT minted would refuse the legitimate resume that follows a restart.
+   * Omitted, the server keeps its own, which is the strict default: a fixture
+   * that never shares one cannot resume across an incarnation, and that is the
+   * truthful answer rather than the convenient one.
+   */
+  threads?: Set<string>
 }
 
 export interface FakeAppServer {
@@ -115,6 +135,9 @@ export interface FakeAppServer {
    */
   turnStarts: number
   lastTurnInput: readonly unknown[] | undefined
+  /** What `turn/start` was asked to run on, as it arrived. The model rides on
+   *  the turn in this protocol, so this is the only place it is observable. */
+  lastTurnModel: { model?: string; effort?: string } | undefined
   /** `turn/steer` calls that were accepted into an open turn. */
   steers: number
   /** Make the next `turn/start` answer a JSON-RPC error. */
@@ -198,6 +221,8 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
   const threadIds = [...(options.threadIds ?? ['thr-1', 'thr-2', 'thr-3', 'thr-4', 'thr-5'])]
   let mintedThreads = 0
   const rollouts = options.rollouts ?? new Map<string, Record<string, unknown>[]>()
+  /** @see {@link FakeAppServerOptions.threads} */
+  const threads = options.threads ?? new Set<string>()
   /** Append one item to the thread's rollout — the on-disk record every later
    *  `thread/read` and `export()` is built from. */
   const record = (item: Record<string, unknown>): void => {
@@ -251,6 +276,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     threadNames: [],
     turnStarts: 0,
     lastTurnInput: undefined,
+    lastTurnModel: undefined,
     steers: 0,
     answers: new Map(),
     optedOutOfDeltas: false,
@@ -545,12 +571,22 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       case 'thread/start': {
         const threadId = threadIds[mintedThreads++] ?? `thr-${mintedThreads}`
         server.threadId = threadId
+        threads.add(threadId)
         respond(id, { thread: threadPayload(threadId) })
         notify('thread/started', { thread: threadPayload(threadId) })
         return
       }
       case 'thread/resume': {
         const threadId = String(params.threadId)
+        /**
+         * NO SUCH THREAD IS AN ERROR, not a thread. Codex looks the id up among
+         * its rollout files and fails when it is not there; echoing it back is
+         * what let a session resume onto a conversation that never existed.
+         */
+        if (!threads.has(threadId)) {
+          respondError(id, -32000, `no rollout file for thread ${threadId}`)
+          return
+        }
         server.threadId = threadId
         const answer = (): void => {
           respond(id, { thread: threadPayload(threadId) })
@@ -590,6 +626,10 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         }
         server.turnStarts += 1
         server.lastTurnInput = Array.isArray(params.input) ? params.input : undefined
+        server.lastTurnModel = {
+          ...(typeof params.model === 'string' ? { model: params.model } : {}),
+          ...(typeof params.effort === 'string' ? { effort: params.effort } : {}),
+        }
         // THE PROMPT LANDS IN THE ROLLOUT, as Codex writes it when the turn
         // opens. `userMessage` with `content: [{type:'text'}]` is the shape
         // `threadItemToItems` reads.
@@ -660,6 +700,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       }
       case 'thread/fork': {
         const forked = `${server.threadId}-fork`
+        threads.add(forked)
         respond(id, { thread: threadPayload(forked) })
         return
       }

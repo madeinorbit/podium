@@ -1334,6 +1334,22 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // Same session, same process, same conversation position.
         expect(after.binding.sessionId).toBe(before.binding.sessionId)
         expect(after.binding.process.key).toBe(before.binding.process.key)
+        /**
+         * AND THE SAME CONVERSATION (POD-2775, review 2).
+         *
+         * Every other assertion here is about the session's BOOKKEEPING — its
+         * id, its process, its epoch, its generation — and all of them hold
+         * perfectly for a session that came back on somebody else's thread. A
+         * mutant that replaced the journalled thread id with a literal passed
+         * the entire driver corpus, 355 green, because the one property a
+         * rebind exists to preserve was the one nothing compared.
+         *
+         * The resume ref IS the conversation: `thr-…` for codex, `ses_…` for
+         * opencode, the ACP session for grok. It is the same value in every
+         * family and it is what a fresh bind would necessarily differ on, so it
+         * is the check that transfers.
+         */
+        expect(after.binding.resume).toEqual(before.binding.resume)
         // The turn epoch is MONOTONIC across a rebind. Resetting it is how a
         // replayed stream looks like new work.
         expect(after.turnEpoch).toBeGreaterThanOrEqual(before.turnEpoch)
@@ -1671,6 +1687,105 @@ export function describeDriverConformance(target: ConformanceTarget): void {
     // -----------------------------------------------------------------------
     // Export — the portable archive
     // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Park and come back — hibernate, then adopt the same session id
+    // -----------------------------------------------------------------------
+
+    /**
+     * THE ROUND TRIP THE PRODUCT ACTUALLY SELLS, and the one the corpus reached
+     * from neither side (POD-2775, review 1).
+     *
+     * `adopt` above starts from `restartSupervisor()` — the daemon died and the
+     * SERVER LIVED — and `resume` below starts from a ref and mints a NEW
+     * session id. A hibernate/resume is neither: the process is gone AND the
+     * session id has to survive, because a row, a client terminal and an
+     * operator's open tab all still name it. That combination had no property,
+     * so a family could satisfy every green test here and still refuse to wake.
+     *
+     * OPENCODE DID EXACTLY THAT. Its `adopt` asked the host for a live endpoint
+     * and threw when nothing answered, which is correct for the restart story
+     * and fatal for this one: hibernate kills the server, so nothing ever
+     * answers, and every Resume press produced the same `spawnError` forever.
+     * Codex passed the same route because its `adopt` was already written as
+     * resume-not-rebind. One route, three families, one of them checked.
+     *
+     * WHAT SEPARATES THIS FROM `kill`, and therefore why `adopt` may serve it at
+     * all: THE BINDING JOURNAL. `kill()` clears it and `hibernate()` keeps it,
+     * so the journal is this machine's record of "this conversation is meant to
+     * come back". The refusal property one block up — adopt rejects a binding
+     * whose process did not survive — stays exactly as true, because a killed
+     * session has no journal entry to come back to.
+     */
+    describe('park and come back — hibernate, then adopt', () => {
+      it('brings a HIBERNATED session back on its own conversation', async () => {
+        const { handle, control, driver } = setup()
+        if (driver.family !== 'server') {
+          /**
+           * A PTY's park is a DETACH: the abduco host outlives it and the
+           * process was never gone, so this family reaches the same user-facing
+           * promise by a route this property does not describe. Skipping it
+           * here is a statement about the shape, not a gap in the family.
+           */
+          return
+        }
+        const session = await handle
+        const timing = driver.capabilities().resumeRefTiming
+        const conversation = await afterOneTurn(session, control, timing)
+        if (conversation.ref === null) {
+          // A family that never mints a ref cannot be parked at all, and
+          // `hibernate REFUSES without a resume ref` is where that is proved.
+          return
+        }
+        const binding = session.binding
+
+        expect(await session.hibernate()).toEqual({ ok: true })
+        const woken = await driver.adopt(binding)
+
+        // The SAME session id — this is what makes it a wake rather than a new
+        // session wearing a new name.
+        expect(woken.binding.sessionId).toBe(binding.sessionId)
+        // …on the SAME conversation. Everything else here is satisfied by a
+        // session that came back empty; only this separates woken from restarted.
+        expect(woken.binding.resume).toEqual(conversation.ref)
+        // A wake is a new binding, so a stale one must be rejectable.
+        expect(woken.binding.bindingVersion).toBeGreaterThan(binding.bindingVersion)
+      })
+
+      it('wakes on the SAME model and effort it was parked on', async () => {
+        const { control, driver, spec } = setup()
+        if (driver.family !== 'server' || !control.model) {
+          // See `ConformanceControl.model` for which families have nothing to
+          // preserve here and why that is a shape rather than a gap.
+          return
+        }
+        const observe = control.model.requested
+        const policy = control.model.policy()
+        const session = await driver.create({ ...spec, model: policy })
+        await session.send({ text: 'before' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(session.binding.sessionId)
+        const asked = observe(session.binding.sessionId)
+        // The fixture must actually be observing something, or the comparison
+        // below is two undefineds agreeing.
+        expect(asked).toEqual(expect.objectContaining({ model: policy.model }))
+        const binding = session.binding
+        expect(await session.hibernate()).toEqual({ ok: true })
+
+        const woken = await driver.adopt(binding)
+        await woken.send({ text: 'after' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(binding.sessionId)
+
+        /**
+         * A MODEL IS PART OF THE SESSION, not part of the launch (POD-2775,
+         * review 3). Every driver here bound an adopted session with an empty
+         * model policy and then sent it on every turn, so a session the operator
+         * had put on a specific model came back on the harness default and
+         * stayed there. Nothing said so: the transcript does not name the model
+         * that answered, so the only symptom is worse work.
+         */
+        expect(observe(binding.sessionId)).toEqual(asked)
+      })
+    })
 
     /**
      * THE ARCHIVE GUARANTEE, PINNED AS FAR AS IT CAN BE PINNED TODAY (POD-2703).

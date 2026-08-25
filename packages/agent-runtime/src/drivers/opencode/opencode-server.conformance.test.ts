@@ -419,6 +419,23 @@ function makeWorld(options: WorldOptions = {}): {
       serverFor(sessionId).failNextPrompt()
     },
 
+    model: {
+      // `provider/model` is the only shape this family accepts — a bare id has
+      // no provider to send it to and the driver drops it. The variant is the
+      // effort, and it travels beside the model rather than inside it, so a
+      // wake could lose either one alone.
+      policy: () => ({ model: 'anthropic/claude-sonnet-4', effort: 'thinking' }),
+      // READ OFF THE SERVER: the prompt body it actually received.
+      requested: (sessionId) => {
+        const body = serverFor(sessionId).lastPrompt(opencodeIdFor(sessionId))
+        if (!body) return undefined
+        return {
+          ...(body.model ? { model: `${body.model.providerID}/${body.model.modelID}` } : {}),
+          ...(body.variant ? { effort: body.variant } : {}),
+        }
+      },
+    },
+
     restartSupervisor() {
       // Handles die; the SERVERS do not. That is a daemon restart, and it is
       // what `adopt()` then has to find.

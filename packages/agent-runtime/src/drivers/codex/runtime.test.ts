@@ -57,6 +57,15 @@ interface World {
 async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Promise<World> {
   const servers = new Map<SessionId, FakeAppServer>()
   const entries = new Map<SessionId, CodexJournalEntry>()
+  /**
+   * THE THREADS THIS WORLD HAS ON DISK, and world-wide ids so no two
+   * incarnations mint the same one (POD-2703's argument, POD-2775's set).
+   * Every server this world starts shares them, which is what lets `adopt()`
+   * resume a thread an earlier incarnation started — and what makes a resume of
+   * an id nobody started fail, as Codex fails it.
+   */
+  const threads = new Set<string>()
+  let mintedThreads = 0
   const authReports: World['authReports'] = []
   const abandonments: World['abandonments'] = []
   let failAbandonment = false
@@ -99,7 +108,7 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
         gate = undefined
         await waiting
       }
-      const server = startFakeAppServer()
+      const server = startFakeAppServer({ threadIds: [`thr-w${++mintedThreads}`], threads })
       const clients = [server]
       servers.set(input.sessionId, server)
       return {
@@ -934,6 +943,31 @@ describe('a queue this driver loses says so — POD-2297', () => {
     w.dispose()
 
     expect(w.abandonments).toEqual([{ turnIds: ['once'], reason: 'teardown' }])
+  })
+})
+
+describe('an adopted session comes back on ITS OWN conversation — POD-2775, review 2', () => {
+  /**
+   * THE ONE PROPERTY A REBIND EXISTS TO PRESERVE, and until this test nothing
+   * at any level compared it. The corpus checked the session id, the process
+   * key, the turn epoch, the observer generation and the binding version — all
+   * of which a session resumed onto SOMEBODY ELSE'S THREAD satisfies exactly.
+   * A mutant that replaced `journalled.threadId` with a literal passed 355
+   * tests green.
+   *
+   * It is asserted on the RESUME REF rather than on any transcript text,
+   * because the ref is what the next `thread/resume` will be handed: a check
+   * that the words came back is satisfied by any conversation containing them.
+   */
+  it('resumes the thread the journal names, not a fresh one', async () => {
+    const w = await world()
+    const before = w.handle.binding.resume
+    expect(before).toEqual({ kind: 'codex-thread', value: expect.any(String) })
+
+    const adopted = await w.adopt()
+
+    expect(adopted.binding.resume).toEqual(before)
+    w.dispose()
   })
 })
 

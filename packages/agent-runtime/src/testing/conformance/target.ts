@@ -25,6 +25,7 @@ import type {
   DriverFamily,
   InteractionAskSpec,
   InteractionKind,
+  ModelPolicy,
   PermittedFailure,
   ProcessEvent,
   RuntimeDriver,
@@ -120,6 +121,35 @@ export interface ConformanceControl {
    * report a number that means something else.
    */
   textDeliveries(sessionId: SessionId): number
+  /**
+   * THE SESSION'S MODEL: one to ask for, and what the harness was last asked
+   * for (POD-2775, review 3).
+   *
+   * ONE OPTIONAL FIELD CARRYING BOTH HALVES, deliberately. They were two
+   * optional members and the property silently no-opped when a target supplied
+   * only one — which is the failure mode this whole review round is about: a
+   * green test that never ran. Halves that are useless apart belong together,
+   * where the type will not let a fixture provide one of them.
+   *
+   * `requested` must READ OFF THE HARNESS — the request the driver actually
+   * made — never a value the fixture remembered from what it was told. The
+   * corpus needs it because a session's model is on no contract surface at all:
+   * it rides on each turn, which is exactly why a wake could drop it in silence.
+   *
+   * `policy` is family-specific by necessity: opencode refuses anything that is
+   * not `provider/model`, so a corpus that invented one string for everybody
+   * would be testing its own guess.
+   *
+   * OPTIONAL, and the reason must be that the family sends no model. Grok's ACP
+   * driver never reads `spec.model`, so there is nothing to preserve and nothing
+   * to report; the terminal family chooses its model in argv at spawn. A family
+   * that DOES send one and omits this is opting out of the property, which is a
+   * finding rather than a configuration.
+   */
+  model?: {
+    policy(): ModelPolicy
+    requested(sessionId: SessionId): ModelPolicy | undefined
+  }
   restartSupervisor(): void
   connectWithoutSecret(sessionId: SessionId): { refused: boolean }
 }
