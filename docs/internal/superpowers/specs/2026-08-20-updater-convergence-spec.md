@@ -377,13 +377,30 @@ names a shell asset. Shell asset reachability belongs to the shell, which fetche
 
 **v0.1.0 CANNOT BE FIXED BY ANY OF THIS, and pretending otherwise would be the more
 expensive mistake.** A released install runs its own baked resolver, and v0.1.0's demands
-`desktop.version === target.version` unconditionally, on every channel, with no override
-(verified against the tag; it is the refusal the `real-release-pairing-refusal` gate row
-reproduces). So the constraint is a property of the *release*, not of our source:
+`desktop.version === target.version` unconditionally, on every channel, headless Linux
+servers included, with no override and without ever consulting `minRequired`. POD-2769
+established that by EXECUTING the v0.1.0 resolver source, extracted verbatim from the tag,
+against real published manifests — it accepts the real 0.1.0 stable pair, accepts the live
+edge pair, and refuses a headless 0.2.0 while the shell is still at 0.1.1-edge.2 with
+`stable target unavailable: desktop build for 0.2.0 is not published yet`. So the
+constraint is a property of the *release*, not of our source:
 
 > The next `stable` release that existing v0.1.0 installs are expected to take must carry
 > a desktop build at the same version. After that hop they are running relaxed code and
 > headless-only releases flow normally.
+
+**Edge reaches this state by default, with nobody doing anything wrong.** `gh release
+upload --clobber` replaces only the assets a run staged, so a release that built no desktop
+leaves the previous `latest.json` sitting on the rolling release at its own older version —
+which is exactly the mismatch the old rule refuses. An absent staged manifest is therefore
+not "no pairing claim"; it is "the previous claim stands".
+
+`scripts/release.ts` now REFUSES to publish such a release (`legacyPairingRefusal`), naming
+the consequence and offering `--accept-legacy-stranding` to record the decision. It refuses
+rather than repairs, and it is checked only on the publishing path — staging a release
+locally strands nobody. The obligation is scoped to feeds an OLD install reads, which is
+`stable` and `edge`; `dev` is published by the server's own publisher and is consumed only
+by installs running the new resolver, so it is untouched.
 
 This is **one** release, not every release, so it does not reintroduce the coupling §6
 exists to remove — a dev mint still never needs a darwin runner. The alternative was
