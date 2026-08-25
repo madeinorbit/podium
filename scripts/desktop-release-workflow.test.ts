@@ -381,16 +381,23 @@ describe('desktop release workflow', () => {
     )
   })
 
-  it('executes both copied seed and exact fleet-grant bytes in the macOS verifier', () => {
+  it('executes the copied seed payload in the macOS verifier, and no local headless tarball', () => {
+    // The seed is the real first-run boundary this runner can prove: main.rs execs
+    // `podium-cli` out of the copy in Application Support, so the copy — quarantine-stripped
+    // exactly as the shell does it — is what must verify and run.
     expect(macSigningVerifier).toContain('cp -R "$APP/Contents/Resources/resources/payload" "$seeded"')
     expect(macSigningVerifier).toContain('xattr -dr com.apple.quarantine "$seeded"')
     expect(macSigningVerifier).toContain('codesign --verify --strict --verbose=2 "$seeded/podium-cli"')
     expect(macSigningVerifier).toContain('"$seeded/podium-cli" --version')
-    expect(macSigningVerifier).toContain("find dist-bun -maxdepth 1 -name 'podium-headless-*.tar.gz'")
-    expect(macSigningVerifier).toContain('tar -xzf "$grant_tarball" -C "$grant_work"')
-    expect(macSigningVerifier).toContain('codesign --verify --strict --verbose=2 "$granted/podium-cli"')
+    // The in-bundle sidecar still has to carry the JIT entitlement — the seed is a copy of it.
     expect(macSigningVerifier).toContain("grep -q 'allow-jit'")
-    expect(macSigningVerifier).toContain('"$granted/podium" --version')
+    // But dist-bun/podium-headless-*.tar.gz on a macOS release runner is NOT a fleet grant
+    // payload: `bun run package:headless` here passes no --target, so build-bun never runs the
+    // rcodesign pass, and the tarball is never uploaded by any job in this workflow. Verifying
+    // it blocks every darwin release on a byproduct no user receives. The bytes a grant really
+    // installs are cross-built in release.yml and gated by assert-headless-bundle.sh there.
+    expect(macSigningVerifier).not.toContain("find dist-bun -maxdepth 1 -name 'podium-headless-*.tar.gz'")
+    expect(macSigningVerifier).not.toContain('$granted/podium-cli')
   })
 
   it('builds Linux and Apple Silicon macOS with signing before an atomic upload', () => {
