@@ -85,12 +85,33 @@ nothing behind.
 
 ## The A/B
 
-Same rig, same session shape, same machine.
+Same rig, same session shape, same machine, minutes apart. The "before" arm is
+`380456dab`, a branch whose `apps/daemon` and `packages` trees are byte-identical
+to the pre-fix commit (`git diff` between them is empty) with the rig kept, so
+the only thing that differs between the two rows is the fix.
 
 | | park receipt | park process | resume | conversation |
 | --- | --- | --- | --- | --- |
-| `8550ee452` (before) | verb timed out at 1000ms, then escalated | child gone, scope inactive | `exited`, `already has a persisted server journal`, permanently | unreachable — the session never came back |
-| `b17983ec5` (after) | **clean** — 0 verb failures, 0 escalations | child gone, scope inactive | **`live` in 3.6s**, a NEW app-server pid | ALPHA (pre-park) **and** BRAVO (post-resume) both in the transcript |
+| before (`380456dab`) | verb timed out at 1000ms, then escalated | child gone, scope inactive | `exited`, `already has a persisted server journal` | ALPHA yes, BRAVO **no** — the session never came back |
+| after (`b17983ec5`) | **clean** — 0 verb failures, 0 escalations | child gone, scope inactive | **`live` in 3.6s**, a NEW app-server pid | ALPHA **and** BRAVO both in the transcript |
+
+Read the `park process` column across both rows: the child died and the scope
+went inactive on BOTH builds. That is defect 3 shown to be independent — the
+resume failed against a park that left nothing behind, and it would still have
+failed if the reap had never logged a thing.
+
+The before-run's two lines, as the daemon wrote them:
+
+```
+15:19:24.515 warn daemon:server-reap could not complete the server-driver verb
+             sessionId=bff9db46-… verb=stop
+15:19:26.073 warn daemon:server-reap the server-driver process needs measured escalation
+             sessionId=bff9db46-… processKey=podium-cx-bff9db46-…
+```
+
+1.6s apart: the bound expired at 1000ms, and `pollDead` then watched the child
+exit on its own — 2.6s after the stop began, which is `GRACEFUL_EXIT_MS` plus the
+exit. Nothing was ever wedged.
 
 The after-run in full:
 
@@ -126,6 +147,25 @@ hibernating…
 The resumed pid is a DIFFERENT process from the parked one, which is the point:
 this family's adopt is a resume, not a rebind, and the fresh child says so by
 bumping the binding version.
+
+## The tests, checked against the defects they claim to pin
+
+A green test proves nothing until the defect it names has been put back and shown
+to turn it red. Each fix was reverted on its own, and each mutant was killed by
+exactly one test while the other stayed green — so the pins are attributable
+rather than a diffuse "something went red".
+
+| mutant | test that went red | tests that stayed green |
+| --- | --- | --- |
+| `control/session.ts` reverted — no resume-by-adopt | `resumes a PARKED server session by adopting its journal rather than reaching the create` | `does NOT adopt when a live handle already holds the session` (it pins the unchanged half) |
+| `HANDLE_VERB_TIMEOUT_MS` given a local `1000` again | `a stop that spends its whole graceful window is NOT reported as a verb that could not complete` | all 41 others, including the escalation pin |
+| the escalation trigger back to `dead === false \|\| verbError !== undefined` | `a verb that failed beside a process that DIED is not escalated` | all 41 others, including the bound pin |
+
+The middle row is why the bound is pinned behaviourally rather than by asserting
+on the two constants: that mutant leaves `SERVER_HANDLE_VERB_TIMEOUT_MS` and
+`SERVER_GRACEFUL_EXIT_MS` agreeing with each other perfectly, so a
+constants-only assertion would have survived it — and re-localising the bound is
+exactly how the defect arrived in the first place.
 
 ## What this rig refuses to report
 
