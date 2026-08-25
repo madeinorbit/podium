@@ -440,6 +440,13 @@ export async function primeTerminalTui(chat: Chat, sid: string): Promise<string[
       // POD-2761's exact answer: option 2, then Enter.
       await press('2', 'codex hooks-need-review: chose 2')
       await press('\r', 'codex hooks-need-review: Enter')
+    } else if (/Set it up[\s\S]{0,40}Not now|1\.\s*Set it up/i.test(screen)) {
+      // claude's first-run onboarding: "Telling it which repos you trust ...
+      // 1. Set it up  2. Not now  3. Don't show again". A fresh agent home opens
+      // on it, and a rig that types its prompt into that dialog measures the
+      // dialog. Answer 2 (Not now), exactly as a person skipping setup would.
+      await press('2', 'claude onboarding: chose 2 (Not now)')
+      await press('\r', 'claude onboarding: Enter')
     } else if (/trust the files|Do you trust|yes, proceed|Yes, proceed/i.test(screen)) {
       await press('\r', 'trust-this-folder: Enter')
     } else if (/press enter to continue|\[Enter\]/i.test(screen)) {

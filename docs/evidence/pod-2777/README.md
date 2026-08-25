@@ -224,7 +224,29 @@ the old path that the headless work inherited, not one it introduced**. The
 catalogue's `wired` on all four drivers was right that the code exists and wrong
 that it works, equally on both paths.
 
-### The terminal driver never reports `phase: working`
+### `phase: working` is missing on TWO harnesses, not on "the terminal driver"
+
+**CORRECTED — my original claim here was too broad.** I wrote this section as
+"the terminal driver never reports `phase: working`" on the strength of driving
+ONE harness on it. POD-2801 then drove the others: **codex/generic-pty and
+grok/generic-pty both report `working` correctly.** It was never a property of
+the terminal family.
+
+What is true is narrower and has two unrelated causes:
+
+- **opencode on generic-pty** — the mechanism I measured below. Since fixed.
+- **claude on `claude-pty`** — a different cause entirely (POD-2810): claude's
+  phase comes from HTTP hooks folded by the causal observer rather than from a
+  poller. The harness DOES fire the hooks, and the checkpoint names the real
+  provider session id, but its cursor sits at `components {transcript: 0,
+  hook: 0}`. Measured at 79,242 bytes across 49 of 59 one-second intervals and
+  12,267 transcript chars, with `phase=idle` at all 60 polls.
+
+The generalisation was mine and it was wrong: one harness is not a family. The
+measurement below stands for the harness it was taken on; the sentence it was
+wrapped in did not.
+
+### What I measured on opencode/generic-pty
 
 Found while trying to score the cell above, and a finding in its own right.
 Measured twice on `generic-pty`: a session produced **13,250 characters of
