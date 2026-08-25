@@ -33,14 +33,21 @@ POD-2602, POD-2775, POD-2298: confirm its reviewer verdict is a pass (request
 the review if none exists), then ff-only merge to `issue/1761-agent-runtime`
 under `podium merge-lock`. POD-2604 first needs its blocker cleared or the
 dependency waived. *Exit: all six merged; `git log` shows them on the tip.*
+Status 2026-08-25 15:32: POD-2775 reports fixed AND driven (A/B evidence on the
+issue, branch tip `a62c09c72`, each fix mutation-checked) — land first, it
+unblocks judging POD-2761.
 
 **Step 2 — gates green, and meaningful.** Run on the tip, stating whether
 `PODIUM_TEST_WORKERS` was set (it changes the outcome):
 `bun scripts/typecheck.ts` (25/25), `bun scripts/test.ts` (full suite, under
 the `test:heavy` lock, short-disk TMPDIR), `bun run lint:boundaries` (baseline
 is 6 known lines — zero NEW). Stale-golden and gate bugs that block this step:
-POD-2714, POD-2759, POD-2778, POD-2728, POD-2040, POD-2031. *Exit: all three
-commands green, or every red attributed to a filed issue that is provably
+POD-2714, POD-2759, POD-2778, POD-2728, POD-2040, POD-2031. Known reds already
+attributed: `@podium/web` typecheck fails on the epic tip itself (POD-2780,
+filed 2026-08-25 with reproduction — fix or attribute before release), and
+`scripts/test-configuration.test.ts` is red iff `PODIUM_TEST_WORKERS` is set
+(environment, not code — run the gate with it unset and say so). *Exit: all
+three commands green, or every red attributed to a filed issue that is provably
 pre-existing on main.*
 
 **Step 3 — repin the operator instance** (`/tmp/pod-op`, port 19797) to the
