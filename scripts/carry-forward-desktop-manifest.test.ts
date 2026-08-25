@@ -209,8 +209,14 @@ echo "unexpected gh invocation: $*" >&2; exit 64
   return bin
 }
 
-function run(behaviour: Parameters<typeof ghShim>[0], channel: 'stable' | 'edge' = 'edge') {
+function run(
+  behaviour: Parameters<typeof ghShim>[0],
+  channel: 'stable' | 'edge' = 'edge',
+  /** Files already sitting in the staging directory before the step runs. */
+  seed: Readonly<Record<string, string>> = {},
+) {
   const dir = tmp('release')
+  for (const [name, contents] of Object.entries(seed)) writeFileSync(join(dir, name), contents)
   const bin = ghShim(behaviour)
   const result = spawnSync(
     'bun',
@@ -251,7 +257,28 @@ describe('the step as CI runs it', () => {
     const { status, stderr } = run({ api: 'present', assets: ['latest.json'], download: 'fail' })
     expect(status).not.toBe(0)
     expect(stderr).toContain(CARRY_FORWARD_STEP)
-    expect(stderr).toContain('latest.json')
+    expect(stderr).toContain('downloading it failed')
+  })
+
+  /**
+   * The same failure with a FILE ALREADY IN THE STAGING DIRECTORY, which is what
+   * separates the two guards. Asking only "is the file there afterwards?" passes
+   * this — and publishes whatever bytes happened to be lying around, at whatever
+   * version, as though they were this release's carried manifest. Mutation-tested:
+   * deleting the exit-status check leaves every other case green and only this one
+   * red, which is the whole reason it is written down.
+   */
+  it('STOPS the publish when a download fails over a file already staged', () => {
+    const { status, stderr, dir } = run(
+      { api: 'present', assets: ['latest.json'], download: 'fail' },
+      'edge',
+      { 'latest.json': '{"version":"stale"}' },
+    )
+    expect(status).not.toBe(0)
+    expect(stderr).toContain(CARRY_FORWARD_STEP)
+    expect(stderr).toContain('downloading it failed')
+    // Untouched — the refusal is about the fetch, not about tidying the directory.
+    expect(readFileSync(join(dir, 'latest.json'), 'utf8')).toBe('{"version":"stale"}')
   })
 
   // The silent shape one layer down: gh reports success and leaves no file. The
