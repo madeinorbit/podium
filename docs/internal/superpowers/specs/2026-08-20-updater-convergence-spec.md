@@ -360,6 +360,40 @@ manifests** (`podium-update.json` + `latest.json`). The referenced shell artifac
 survives any number of headless-only releases; everything unreferenced is pruned as
 before.
 
+**AS BUILT (POD-2794, 2026-08-25 — this paragraph is the authority for how much the
+desktop leg may say about a HEADLESS target):** the compatibility window §5 promised is
+now the *only* thing the shell contributes. `resolveReleaseTarget` reads `latest.json`
+if and only if the release states `minRequired.desktop` or `minRequired.desktopBridge`,
+and it no longer HEADs the shell assets at all. Three facts used to be able to retract a
+perfectly good headless target — no desktop build at this version (404), a manifest that
+failed to parse, and a shell artifact pruned from an old release — and each surfaced as
+the channel simply having no target, which an operator's Update surface renders as being
+up to date. A stated requirement that cannot be checked is still refused; nothing else
+about the shell is the headless resolver's business, because the target it returns never
+names a shell asset. Shell asset reachability belongs to the shell, which fetches
+`latest.json` itself.
+
+### 5b. The one hop that still needs a paired release
+
+**v0.1.0 CANNOT BE FIXED BY ANY OF THIS, and pretending otherwise would be the more
+expensive mistake.** A released install runs its own baked resolver, and v0.1.0's demands
+`desktop.version === target.version` unconditionally, on every channel, with no override
+(verified against the tag; it is the refusal the `real-release-pairing-refusal` gate row
+reproduces). So the constraint is a property of the *release*, not of our source:
+
+> The next `stable` release that existing v0.1.0 installs are expected to take must carry
+> a desktop build at the same version. After that hop they are running relaxed code and
+> headless-only releases flow normally.
+
+This is **one** release, not every release, so it does not reintroduce the coupling §6
+exists to remove — a dev mint still never needs a darwin runner. The alternative was
+considered and rejected: restamping `latest.json` at the headless version while pointing
+it at the existing shell satisfies v0.1.0, but `latest.json` is also the Tauri updater
+endpoint baked into every shipped shell (`apps/desktop/src-tauri/src/updater.rs`), so
+every installed shell would be offered bytes that report the old version after
+installing — an update loop, on every headless-only release. Trading a silent headless
+stranding for a visible desktop loop is not a fix.
+
 ## 6. The dev release flow (release button, build preparation, handoff)
 
 Owner: the installed server's updates module on the development host grows one **pre-release stage**;
