@@ -127,6 +127,31 @@ const [first = [], second = []] = generations
 const sameProcess = first.length > 0 && first.join() === second.join()
 console.log(`\n1. PROCESS: the CLI client is ${sameProcess ? 'THE SAME process' : 'a NEW process'} the second time`)
 
+/**
+ * THE CONTROL, AND IT IS NOT A FORMALITY — the first run of this rig reported
+ * "VERDICT: the interface appears 0 time(s) — PASS" against a session that never
+ * started a client terminal at all. Codex was logged out in the isolated agent
+ * home, the driver quietly degraded to generic-pty, and zero duplicates is what
+ * an empty stream always looks like.
+ *
+ * So the absence of a duplicate is only evidence when there was something that
+ * COULD duplicate. Both legs are required: a client terminal process actually
+ * existed, and its interface actually reached the stream. Anything less exits
+ * non-zero and reports nothing a reader could mistake for a pass.
+ */
+const drewSomething = /* the harness banner reached the byte stream */ stream.length > 2_000
+if (first.length === 0 || !drewSomething) {
+  console.error(
+    `\nNO MEASUREMENT: the path under test never ran — ` +
+      `client pids seen: ${first.length}, bytes captured: ${stream.length}. ` +
+      `Check the driver actually resolved (a logged-out harness degrades to generic-pty ` +
+      `and starts no client terminal): grep 'preferred runtime driver' ${process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-2761'}/logs/daemon.log`,
+  )
+  await trpc('sessions.kill', { sessionId: sid })
+  ws.close()
+  process.exit(1)
+}
+
 // --- 3. the screen ----------------------------------------------------------
 const term = new Terminal({ cols: 120, rows: 40, scrollback: 10_000, allowProposedApi: true })
 await new Promise<void>((r) => term.write(stream, r))

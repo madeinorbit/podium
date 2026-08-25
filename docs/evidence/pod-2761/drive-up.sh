@@ -94,11 +94,21 @@ echo "server healthy on :$PODIUM_PORT"
 # the agent home to <state>/agent-home, and the first process to boot refuses a
 # state root that is non-empty but unmarked. Auth files ONLY.
 AGENT_HOME="$PODIUM_STATE_DIR/agent-home"
-mkdir -p "$AGENT_HOME/.claude"
+mkdir -p "$AGENT_HOME/.claude" "$AGENT_HOME/.codex"
 chmod 700 "$AGENT_HOME"
+#
+# CODEX TOO, and this is the leg whose absence made the first drive LIE.
+# Seeding only claude leaves codex logged out in the isolated home, and a logged
+# out harness does not degrade loudly — it resolves to `generic-pty` behind one
+# warn line ("harness is logged out; terminal provides interactive login"). That
+# is a session with no codex-app-server, so no client terminal, no abduco master
+# and nothing that could duplicate: the drive measured an empty stream and
+# called it a pass. Auth files only; no history, no state beyond credentials.
 for pair in \
   "$HOME/.claude/.credentials.json:$AGENT_HOME/.claude/.credentials.json" \
-  "$HOME/.claude.json:$AGENT_HOME/.claude.json"
+  "$HOME/.claude.json:$AGENT_HOME/.claude.json" \
+  "$HOME/.codex/auth.json:$AGENT_HOME/.codex/auth.json" \
+  "$HOME/.codex/config.toml:$AGENT_HOME/.codex/config.toml"
 do
   from="${pair%%:*}"; to="${pair#*:}"
   if [ -f "$from" ] && [ ! -f "$to" ]; then cp "$from" "$to" && chmod 600 "$to"; fi
