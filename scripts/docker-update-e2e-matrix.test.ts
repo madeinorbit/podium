@@ -199,7 +199,9 @@ describe('the cleanup rows scope_out_remaining must leave alone', () => {
     const body = harness.slice(harness.indexOf('\ncleanup() {'))
     const cleanupBody = body.slice(0, body.indexOf('\n}\n'))
     const recorded = new Set<string>()
-    for (const match of cleanupBody.matchAll(/^\s*(?:pass|fail|resource|blocked) ([a-z][a-z-]*)/gm)) {
+    for (const match of cleanupBody.matchAll(
+      /^\s*(?:pass|fail|resource|blocked) ([a-z][a-z-]*)/gm,
+    )) {
       recorded.add(match[1] as string)
     }
     const declared = /^CLEANUP_ROWS=\(([^)]*)\)/m.exec(harness)?.[1]?.trim().split(/\s+/) ?? []
@@ -225,7 +227,9 @@ describe('the cleanup rows scope_out_remaining must leave alone', () => {
     // inherits nothing it did not ask for.
     expect(harness).toMatch(/run_server_lane\n\s+CURRENT_SCENARIO=""\n\s+scope_out_remaining/)
     expect(harness).toMatch(/run_real_release_lane\n\s+CURRENT_SCENARIO=""\n\s+scope_out_remaining/)
-    expect(harness).toMatch(/fail legacy-sigkill "\$LEGACY_SIGKILL_DECIDED_RED"\n[\s\S]{0,400}?scope_out_remaining\n\s+exit 1/)
+    expect(harness).toMatch(
+      /fail legacy-sigkill "\$LEGACY_SIGKILL_DECIDED_RED"\n[\s\S]{0,400}?scope_out_remaining\n\s+exit 1/,
+    )
   })
 })
 

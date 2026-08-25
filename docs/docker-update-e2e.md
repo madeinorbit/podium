@@ -352,6 +352,22 @@ touched, so a red can only be the migration.
 | `PODIUM_UPDATE_E2E_REAL_RELEASE=X.Y.Z` | which published release to start from (default `0.1.0`) |
 | `PODIUM_UPDATE_E2E_REAL_RELEASE_CACHE=PATH` | a directory already holding that release's tarball, `.sig` and `install.sh`, so the run does not re-download 54 MiB |
 
+## Rows with no result
+
+A `SKIP` row asserts nothing, and its evidence column says which of three things
+happened — they are deliberately worded so they cannot be mistaken for each other:
+
+| Evidence reads | What it means |
+| --- | --- |
+| `out of scope for PODIUM_UPDATE_E2E_ONLY=<lane>` | The focused lane never runs this row. Nothing went wrong. The complete matrix still prints the row so a failure in it has somewhere to land. |
+| `not reached after <row> failed` | A real red stopped the run before this row. `<row>` is the one that failed. |
+| `not reached: the run was INTERRUPTED (SIG…) …` | The run was killed. The table also carries an `*** INTERRUPTED ***` banner above it and the run exits 130/143/129, so a partial matrix is never mistaken for a finished one. |
+| `not reached: the run aborted before this row — <reason>` | The harness stopped itself for a reason no row owns: a missing tool, a breached disk floor. |
+| `HARNESS BUG: …` | A row was neither run nor excluded and nothing failed. The harness has lost track of one of its own rows; the run exits nonzero rather than reporting a pass it cannot explain. |
+
+Until POD-2813 every one of these printed `not reached after an earlier failure`, so a
+clean focused lane and a run that died halfway read identically.
+
 ## What the matrix means
 
 | Row | Programmatic evidence |
