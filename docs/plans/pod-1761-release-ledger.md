@@ -168,6 +168,40 @@ the truth** — it is not what to change:
 Measured live on opencode 1.18.16: before, 1 failed with 3 errors; after,
 1 passed, 0 errors, 31s of assertions against 184s of timeouts.
 
+## THE COMPARISON THE EPIC IS JUDGED ON — FIRST HARNESS ANSWERED (`5c5a4d547`)
+
+**opencode, driven on BOTH arms, same rig, same probes, same commit, with the arm
+read live out of the daemon's `/proc` environ:**
+
+> **HEADLESS IS BETTER IN TWO CELLS AND WORSE IN NONE.**
+
+- **Streaming** — it streams to a viewer who joins mid-turn (26 frames, seq
+  145→512, monotonic per row, fine watch acquired) where `generic-pty` cannot, by
+  its own declaration of `watchLevels ['coarse']`. Not a shortfall in the old
+  driver: a capability it does not claim.
+- **Attachments** — reach the agent on the headless path and never arrive on the
+  terminal one.
+- Reply, stop, resume and the three n/a cells are **the same on both**.
+
+**INTERRUPT FAILS ON BOTH ARMS — so it is NOT a regression.** Terminal arm, control
+fired: `{"ok":true}`, then terminal bytes 257 at the call → +44,049 after 6s →
++72,080 after 12s, and no transcript item carries `event:'interrupt'`. 72KB of
+output after a call that reported success. A pre-existing gap on the old path that
+the headless work inherited. POD-2792 is re-scoped: it no longer blocks the
+release, and it must not be fixed only on the new path.
+
+**NEW DEFECT ON THE OLD PATH: the terminal driver never reports `phase:'working'`**
+— 13,250 characters of output across 60 polls in 60 seconds, `idle` every time. A
+busy terminal session renders as idle on the home board for the entire turn. The
+catalogue lists that row `wired` for terminal, which is exactly what that column
+warns about. Filed POD-2801.
+
+**The drive replaced its own pin leg after the POD-2775 reviewer defeated it**, and
+recorded two of its own wrong answers rather than fixing them quietly: a ring
+buffer that made 105KB of *continuing* output read as *stopped* (negative deltas
+satisfy "did not grow"), and a verdict whose narrative line contradicted the bytes
+printed directly above it.
+
 ## FIRST REAL DRIVE READINGS (POD-2777, 2026-08-25 ~21:00)
 
 The acceptance drive is running and has produced the epic's first measured
