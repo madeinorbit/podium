@@ -103,8 +103,36 @@ ws.onmessage = (e: MessageEvent) => {
     stream += Buffer.from(m.data, 'base64').toString('binary')
 }
 
-const generations: string[][] = []
+/**
+ * TRUST THE HOOKS ONCE, BEFORE MEASURING ANYTHING.
+ *
+ * The daemon installs codex hooks into the isolated CODEX_HOME, and a home that
+ * has never seen them opens the TUI on "Hooks need review — 6 hooks are new or
+ * changed" instead of on the conversation. A person clears that once and never
+ * sees it again; a fresh rig hits it on the first client and would otherwise
+ * measure a modal dialog and report "0 interfaces — PASS".
+ *
+ * So: a priming round that answers it exactly as a person would, then the
+ * captured stream is discarded and the real rounds start from a clean view.
+ */
 send({ type: 'attach', sessionId: sid })
+view('native')
+await wait(12_000)
+if (/Hooks need review/.test(stream)) {
+  console.log('  priming: trusting the daemon-installed codex hooks (once)')
+  send({ type: 'input', sessionId: sid, data: Buffer.from('2').toString('base64'), inputOrigin: 'human' })
+  await wait(1_500)
+  send({ type: 'input', sessionId: sid, data: Buffer.from('\r').toString('base64'), inputOrigin: 'human' })
+  await wait(6_000)
+}
+view('chat')
+await wait(6_000)
+send({ type: 'detach', sessionId: sid })
+await wait(500)
+stream = ''
+send({ type: 'attach', sessionId: sid })
+
+const generations: string[][] = []
 for (const round of [1, 2]) {
   view('native')
   await wait(12_000)
@@ -140,7 +168,8 @@ console.log(`\n1. PROCESS: the CLI client is ${sameProcess ? 'THE SAME process' 
  * non-zero and reports nothing a reader could mistake for a pass.
  */
 const drewSomething = /* the harness banner reached the byte stream */ stream.length > 2_000
-if (first.length === 0 || !drewSomething) {
+const bannerInStream = (harness === 'codex' ? /OpenAI Codex/ : /opencode/).test(stream)
+if (first.length === 0 || !drewSomething || !bannerInStream) {
   // NAME THE DEGRADE RATHER THAN POINTING AT A LOG. This check has failed twice
   // for two different reasons — a logged-out harness, then a codex the version
   // gate refuses because the rig's own PATH picked an old shim — and both times
@@ -158,7 +187,8 @@ if (first.length === 0 || !drewSomething) {
   }
   console.error(
     `\nNO MEASUREMENT: the path under test never ran — ` +
-      `client pids seen: ${first.length}, bytes captured: ${stream.length}.\n` +
+      `client pids seen: ${first.length}, bytes captured: ${stream.length}, ` +
+      `harness interface drawn: ${bannerInStream}.\n` +
       `  ${why}\n` +
       `  A degraded driver still answers prompts, so the session looks fine while starting no\n` +
       `  client terminal at all. Nothing here is evidence for or against the fix.`,
