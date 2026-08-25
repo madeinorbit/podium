@@ -476,6 +476,55 @@ export function readDefinedMigrations(dir: string = MIGRATIONS_DIR): string[] {
   return names
 }
 
+/**
+ * WHAT AN OLD INSTALL WILL MAKE OF THIS RELEASE (POD-2794).
+ *
+ * Every install shipped before the pairing was relaxed runs its own baked
+ * resolver, and v0.1.0's rule is EXACT version equality between
+ * `podium-update.json` and `latest.json` — on every channel, headless Linux
+ * servers included, with no override and no reading of `minRequired`. POD-2769
+ * measured that by executing the v0.1.0 resolver source against real published
+ * manifests, so it is not a reading of the code.
+ *
+ * We cannot patch binaries that are already in the field, which is why this
+ * check lives in the PUBLISHER rather than in `release-target.ts`. The only
+ * lever left is what we put on the feed those binaries read.
+ *
+ * It refuses rather than repairs, and that is the design. Restamping
+ * `latest.json` at the headless version would satisfy the old rule, but that
+ * document is also the Tauri updater endpoint baked into every shipped shell,
+ * so every installed shell would be offered bytes that still report the old
+ * version after installing — a silent headless stranding traded for a desktop
+ * update loop. The decision belongs to a person, once, at publish time.
+ *
+ * EDGE HITS THIS BY DEFAULT, with nobody doing anything wrong: `gh release
+ * upload --clobber` only replaces assets this run STAGED, so a release that
+ * built no desktop leaves the previous `latest.json` sitting on the rolling
+ * release at the previous version. An absent staged manifest is therefore not
+ * "no pairing claim", it is "the old one persists" — which is why it refuses
+ * too rather than passing.
+ */
+export function legacyPairingNotice(p: {
+  channel: 'stable' | 'edge'
+  headlessVersion: string
+  /** Absent when this run staged no desktop manifest at all. */
+  desktopVersion?: string
+}): string | undefined {
+  if (p.desktopVersion === p.headlessVersion) return undefined
+  const found =
+    p.desktopVersion === undefined
+      ? p.channel === 'edge'
+        ? 'this run staged none, so the previous release\u2019s manifest stays in place at its own older version'
+        : 'this run staged none, so that URL will 404'
+      : `this run staged ${p.desktopVersion}`
+  return (
+    `[release] ${p.headlessVersion} \u2192 ${p.channel} STRANDS PRE-PAIRING INSTALLS. Every ` +
+    `install older than the relaxed pairing requires latest.json to carry exactly ` +
+    `${p.headlessVersion}; ${found}. Those installs will report no update available and say ` +
+    `nothing about why. To move them, a release must carry a desktop build at its own version.`
+  )
+}
+
 export function publishPreparedHeadless(p: {
   channel: 'stable' | 'edge'
   tag: string
@@ -515,8 +564,13 @@ export function publishPreparedHeadless(p: {
   writeFileSync(join(p.dir, 'VERSION'), version + '\n')
   const desktopFiles: string[] = []
   const desktopManifestPath = join(p.dir, 'latest.json')
+  let stagedDesktopVersion: string | undefined
   if (existsSync(desktopManifestPath)) {
-    validateReferencedDesktopManifest(readFileSync(desktopManifestPath, 'utf8'))
+    const raw = readFileSync(desktopManifestPath, 'utf8')
+    validateReferencedDesktopManifest(raw)
+    const parsed: unknown = JSON.parse(raw)
+    const named = (parsed as { version?: unknown }).version
+    stagedDesktopVersion = typeof named === 'string' ? named : undefined
     desktopFiles.push('latest.json')
     if (existsSync(join(p.dir, 'desktop-shell-input.sha256'))) {
       desktopFiles.push('desktop-shell-input.sha256')
@@ -535,6 +589,24 @@ export function publishPreparedHeadless(p: {
     console.log(`[release] built ${version} for ${p.channel}; set GH_TOKEN to publish.`)
     return
   }
+
+  // STATED, NOT REFUSED, and after the local-build exit because it is a fact
+  // about PUBLISHING rather than about building.
+  //
+  // This was a refusal with a waiver flag until POD-2796 measured what that
+  // would cost: spec §5 has an unchanged shell carry its OWN older version
+  // forward, so the mismatch is the NORMAL state of every release that did not
+  // rebuild the shell, and the waiver would have been passed on essentially all
+  // of them. A refusal waived by default is ceremony, and ceremony is what the
+  // next real refusal hides behind. The stranding is a known, documented,
+  // one-time migration fact (spec §5b) — so the proportionate instrument is to
+  // say it, unconditionally, where whoever cuts the release will read it.
+  const notice = legacyPairingNotice({
+    channel: p.channel,
+    headlessVersion: version,
+    ...(stagedDesktopVersion !== undefined ? { desktopVersion: stagedDesktopVersion } : {}),
+  })
+  if (notice) console.log(notice)
 
   const assets = [...releaseFiles.map((file) => join(p.dir, file)), checksums, 'install.sh']
   if (p.channel === 'edge') {
