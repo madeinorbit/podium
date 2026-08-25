@@ -86,20 +86,18 @@ instead of `test` when it already covers the relevant basic check; otherwise run
 does not take `test:heavy`: it neither waits behind nor delays heavyweight suites.
 Never overlap other validation commands in one session.
 
-**Look at the machine before you run the gate.** This host runs the daemon, every other agent's
-session, and any live Podium instance in the same 12GB. A typecheck starts one compiler per
-package and each takes most of a gigabyte; nothing caps how many run at once, so a gate started
-on a loaded box is how the daemon and everyone else's work get killed. Check `free -m` first.
-Under ~1.5GB available, WAIT rather than start — and never start a second gate while another
-session's is running. If you must know the cost: a full uncached typecheck on this box has been
-measured at over an hour, and two of its compilers alone at 817MB and 739MB.
+**The typecheck cache is SHARED across worktrees — trust it.** `scripts/typecheck.ts` points
+turbo at one cache keyed by the repository's common git dir, so every worktree of this repo
+reuses it. Measured in a worktree with no local cache at all: **22 of 28 tasks HIT**. A fresh
+worktree is not a cold start, and re-running to "warm it up" achieves nothing. Run
+`bun run typecheck` and let turbo pick the set; never force it.
 
-**A fresh worktree has no Turbo cache and that is not your fault.** The cache is `.turbo/cache`
-in the checkout root, so it is per-checkout — one of 233 worktrees on this host has one. Your
-first typecheck in a new tree really is the expensive uncached run, it needs no `--force`, and
-there is nothing to fix by re-running it. Budget for it once, then let the cache do its job.
-If it dies with exit 144 and an EMPTY log, the box ran out of memory: that is not a type error,
-and re-reading the code for a bug you will not find is wasted time.
+Two caveats worth knowing rather than guarding against. The cache currently lives under `/tmp`
+(`XDG_CACHE_HOME` is unset), so a **reboot wipes it** and the first runs afterwards really are
+expensive — that is the box, not your change (POD-2778). And nothing caps how many compilers run
+at once: each takes most of a gigabyte, on six cores. If a typecheck dies with **exit 144 and an
+EMPTY log, the box ran out of memory** — that is not a type error, so do not go hunting a bug
+that is not there. Re-run it and treat the first result as no result.
 
 The complete map from changed paths and behavior to commands—including exact test locations,
 filename patterns, configs, parent commands, caching, and exclusions—is in
