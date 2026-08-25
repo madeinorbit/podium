@@ -65,3 +65,6 @@ verify-artifacts/
 # because `git add -A` picks them up; they are never wanted in the tree.
 *.orig
 *.rej
+
+# Cache-admission lane reports: attached to the issue, summarised in docs/agents (POD-2774).
+evidence/
