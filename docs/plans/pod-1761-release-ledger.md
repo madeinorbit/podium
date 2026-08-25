@@ -227,7 +227,27 @@ read live out of the daemon's `/proc` environ:**
   terminal one.
 - Reply, stop, resume and the three n/a cells are **the same on both**.
 
-**INTERRUPT FAILS ON BOTH ARMS — so it is NOT a regression.** Terminal arm, control
+**CORRECTED 2026-08-25 22:00 — INTERRUPT *WAS* A REGRESSION, on all three
+server drivers.** The reading below (both arms failing) was accurate and my
+inference from it was not. POD-2792 found the cause: `sessions.interrupt` routed
+EVERY session down the terminal path — look up the harness abort key, send it as
+`input` bytes. A server-family session has no PTY, so the daemon took the
+`discarding input bytes for a bridgeless contract session` branch and dropped
+them **on the line above the `bridge?.write` that would have delivered them**,
+while `interruptTurn` had already returned `{ok:true}`. **`RuntimeGateway.interrupt()`
+had ZERO callers** — driver method, daemon handler and gateway method all existed
+and nothing ever called them. The driver half *was* pinned by the conformance
+corpus; the wiring was not. That is the WIRED-not-PINNED column warning about
+precisely itself.
+
+Measured before (pin 83b0077, both controls firing): opencode and codex headless,
+turn confirmed in flight, `{"ok":true}`, the daemon's discard warning naming that
+session, and **35 and 66 preview frames arriving AFTER the stop**. After (pin
+47be96d): PASS on both, stopped in **12ms and 532ms**, 0 and 1 frames after.
+**The terminal arm remains unmeasured after the fix** and POD-2792 flagged that
+itself rather than letting it pass.
+
+**The original reading, kept because it is what was measured:** Terminal arm, control
 fired: `{"ok":true}`, then terminal bytes 257 at the call → +44,049 after 6s →
 +72,080 after 12s, and no transcript item carries `event:'interrupt'`. 72KB of
 output after a call that reported success. A pre-existing gap on the old path that
