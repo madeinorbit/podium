@@ -4,6 +4,7 @@ import {
   FileLinkPathIndex,
   FILE_LINK_PATH_CAP,
   buildChatRows,
+  deadLetteredOperatorMessages,
   dedupeByCursor,
   freshOlderPage,
   markPendingSendingDelivered,
@@ -573,5 +574,39 @@ describe('sameItems', () => {
 
   it('fails when the same length holds different items', () => {
     expect(sameItems([it_('a', 'c1')], [it_('b', 'c2')])).toBe(false)
+  })
+})
+
+describe('dead-lettered operator messages reaching the transcript', () => {
+  const row = (extra: Record<string, unknown>) => ({
+    id: 'msg_1',
+    from: 'operator',
+    to: 'session:s1',
+    status: 'dead_letter',
+    body: 'here is the screenshot',
+    createdAt: '2026-08-25T18:00:00.000Z',
+    ...extra,
+  })
+
+  // THE SECOND SURFACE, AND THE ONE THAT OUTLIVES THE FIRST [POD-2574]. The
+  // in-flight bubble renders the driver's refusal from the thrown cause; this
+  // mapper renders the SETTLED row, and it is what the user is left looking at.
+  // While the synchronous refusal recorded no cause, this returned the fallback
+  // — a claim that the session was gone, made about a session that is running.
+  it('does not tell the user the target is gone when a driver refused the file', () => {
+    const [message] = deadLetteredOperatorMessages(
+      [row({ deliveryDeferredReason: 'delivery-failed' })],
+      's1' as never,
+    )
+    expect(message?.failure).toBe('not delivered · delivery failed')
+    expect(message?.failure).not.toContain('target gone')
+  })
+
+  // The fallback is deliberately left alone for rows that really have no cause:
+  // narrowing it here would hide every OTHER dead letter that still records
+  // nothing (POD-2782), rather than fixing them.
+  it('still falls back when the row records no cause at all', () => {
+    const [message] = deadLetteredOperatorMessages([row({})], 's1' as never)
+    expect(message?.failure).toBe('dead-lettered · target gone')
   })
 })
