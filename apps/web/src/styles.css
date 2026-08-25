@@ -10570,6 +10570,15 @@ a.ref-link--session::before {
   padding-right: 46px;
   overflow-y: auto;
 }
+/* THE CLOSED LINE GIVES ITS RIGHT SHOULDER TO THE FOCUS CHORD. Same reason
+   the open box pads for the X: a 46px row with the placeholder running under
+   "⌘L to focus" reads as the hint colliding with the prompt, not as a chord.
+   The chord's own `top: 9px` is relative to this whole field (prompt plus
+   instruments), which is the prompt line — do not recenter it, or it lands
+   on the seam. */
+.cold-start-field:not([data-expanded="true"]) .cold-start-input {
+  padding-right: 96px;
+}
 @media (prefers-reduced-motion: reduce) {
   .cold-start-input {
     transition: none;

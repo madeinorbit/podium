@@ -3,10 +3,14 @@
  * (POD-1203).
  *
  * Aliased over `@/app/store` by `vite.coldstart.config.ts`. Everything above it
- * — ColdStartComposer, PropertyMenu, the model/effort pickers, the attachment
- * strip and the shipping stylesheet — is exactly what ships; only the data
- * underneath is invented. That is the point: a screenshot of a re-implementation
- * proves nothing about the thing that ships.
+ * — ColdStartComposer, the capability agent menu, the model/effort pickers, the
+ * attachment strip and the shipping stylesheet — is exactly what ships; only
+ * the data underneath is invented. That is the point: a screenshot of a
+ * re-implementation proves nothing about the thing that ships.
+ *
+ * `?missing=cursor,opencode` and `?signedOut=grok` stamp those inventory
+ * states onto the stub host so a shot of the agent menu can show the shared
+ * refusal rows instead of a list of equally startable harnesses.
  *
  * `sessions.uploadImage` answers like the daemon does (an absolute path on the
  * machine that took the bytes) so a picked file walks the whole chip state
@@ -35,7 +39,10 @@ const listeners = new Set<() => void>()
 const panelModes: { sessionId: string; mode: string }[] = []
 ;(globalThis as { __harnessPanelModes?: unknown }).__harnessPanelModes = panelModes
 
-const harness = new URLSearchParams(location.search).get('agent') ?? 'claude-code'
+const params = new URLSearchParams(location.search)
+const harness = params.get('agent') ?? 'claude-code'
+const missing = new Set((params.get('missing') ?? '').split(',').filter(Boolean))
+const signedOut = new Set((params.get('signedOut') ?? '').split(',').filter(Boolean))
 
 const machine = {
   id: 'machine-a',
@@ -48,8 +55,8 @@ const machine = {
     arch: 'arm64' as const,
     agents: ['claude-code', 'codex', 'grok', 'opencode', 'cursor'].map((kind) => ({
       kind: kind as 'claude-code',
-      installed: true,
-      login: { state: 'in' as const },
+      installed: !missing.has(kind),
+      login: { state: signedOut.has(kind) ? ('out' as const) : ('in' as const) },
     })),
     tools: [],
   },

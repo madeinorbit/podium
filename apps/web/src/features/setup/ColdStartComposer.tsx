@@ -19,6 +19,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { AttachmentStrip } from '@/features/chat/AttachmentStrip'
 import { useAttachments } from '@/features/chat/use-attachments'
+import { chordLabel, useComposerChord } from '@/features/chat/use-composer-chord'
+import {
+  agentFleetStatus,
+  CapabilityAgentMenu,
+  candidateFromAvailability,
+} from '@/lib/agent-capability'
 import { AUTO } from '@/lib/agent-models'
 import {
   ISSUE_AGENT_KINDS,
@@ -308,6 +314,38 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     agent,
   )
   const ready = activationAgentIsReady(readiness)
+  /**
+   * THE SAME REFUSAL VOCABULARY AS EVERY OTHER SPAWN MENU (POD-1201).
+   *
+   * This chip used PropertyMenu, which has no idea a harness can be missing,
+   * signed out, or unauthorized — so Cursor on a machine without Cursor looked
+   * exactly as startable as Grok. CapabilityAgentMenu is the shared picker the
+   * issue page, the new-issue dialog and the tab strip already wear; the
+   * reading is the selected host, because that is the host Launch will spend.
+   */
+  const agentOptions = useMemo(() => {
+    const hosts = selectedMachine ? [selectedMachine] : []
+    return ISSUE_AGENT_KINDS.map((kind) => {
+      const label = issueAgentLabel(kind)
+      const candidates = hosts.map((machine) =>
+        candidateFromAvailability(
+          machine,
+          !authorized.has(machine.id)
+            ? 'unauthorized'
+            : machine.online
+              ? 'available'
+              : 'unreachable',
+          kind,
+        ),
+      )
+      return {
+        value: kind,
+        label,
+        icon: issueAgentIcon(kind, 13),
+        status: hosts.length > 0 ? agentFleetStatus(candidates, label) : {},
+      }
+    })
+  }, [authorized, selectedMachine])
 
   /**
    * ATTACHING BEFORE THERE IS ANYTHING TO ATTACH TO (POD-1203).
@@ -370,6 +408,28 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     attachments.attachments.length > 0 ||
     Boolean(draft.pendingIssueId)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
+  const [focused, setFocused] = useState(false)
+  /**
+   * THE FOCUS CHORD (POD-993). The session prompt already answers ⌘/ (and ⌘L
+   * from the macOS View menu). This box is the prompt when nothing is open, so
+   * it registers as the same target: the slash chord via the shared listener,
+   * and `__PODIUM_FOCUS_SESSION_PROMPT__` so the native menu has somewhere to
+   * land when there is no session panel.
+   */
+  const focusField = useCallback(() => {
+    inputRef.current?.focus()
+  }, [])
+  useComposerChord(rootEl, focusField)
+  useEffect(() => {
+    const globals = globalThis as { __PODIUM_FOCUS_SESSION_PROMPT__?: () => void }
+    globals.__PODIUM_FOCUS_SESSION_PROMPT__ = focusField
+    return () => {
+      if (globals.__PODIUM_FOCUS_SESSION_PROMPT__ === focusField) {
+        delete globals.__PODIUM_FOCUS_SESSION_PROMPT__
+      }
+    }
+  }, [focusField])
   const collapse = useCallback(() => {
     // A retry in flight owns this box; there is no closed mode that could carry
     // it, so the control is not offered and this is a no-op if it is reached.
@@ -690,6 +750,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
           {/* The drop target is the PANE now, not this box (POD-1669) — see
               `paneDrop`. What stays here is the chord and the paste. */}
           <div
+            ref={setRootEl}
             data-testid="cold-start-field"
             data-expanded={expanded ? 'true' : 'false'}
             className="cold-start-field relative overflow-hidden rounded-[14px] bg-bar shadow-[inset_0_0_0_1px_var(--border-strong),0_20px_50px_-30px_var(--carve-drop)]"
@@ -712,7 +773,11 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               value={draft.title}
               disabled={busy || Boolean(draft.pendingIssueId)}
               onChange={(event) => setDraft({ ...draft, title: event.currentTarget.value })}
-              onFocus={() => setUnfolded(true)}
+              onFocus={() => {
+                setFocused(true)
+                setUnfolded(true)
+              }}
+              onBlur={() => setFocused(false)}
               onKeyDown={(event) => {
                 // Escape closes an EMPTY box and nothing else. Two keystrokes from
                 // discarding written work is not a shortcut, it is a trap — the X
@@ -735,6 +800,19 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               }
               className="cold-start-input block w-full resize-none bg-transparent px-[22px] text-[14.5px] leading-[1.6] text-text-strong outline-none placeholder:text-text-faint disabled:opacity-60"
             />
+            {/* Shown only while the box is closed and unfocused — the expanded
+                well already gives its right shoulder to the close control, and
+                a chord hint under the operator's own words is a puzzle. */}
+            {!expanded && (
+              <span
+                className="composer-chord"
+                data-show={!focused ? 'true' : undefined}
+                data-testid="composer-chord"
+                aria-hidden="true"
+              >
+                {chordLabel()} to focus
+              </span>
+            )}
             {/* THE WAY BACK OUT, and it is only offered where there is something to
                 go back to. It clears rather than hides: a collapsed box showing
                 `Click here to enter a prompt` while still holding a paragraph
@@ -781,7 +859,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   its own arithmetic, it just clipped the pickers mid-word and
                   then to nothing at all. It is one instrument; it wraps whole. */}
               <div className="inline-flex h-7 max-w-full flex-none items-stretch overflow-hidden rounded-lg bg-[var(--well-floor)] shadow-[inset_0_0_0_1px_var(--hairline-bar)]">
-                <PropertyMenu
+                <CapabilityAgentMenu
                   trigger={
                     <button
                       type="button"
@@ -801,13 +879,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                       <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
                     </button>
                   }
-                  options={ISSUE_AGENT_KINDS.map((candidate) => ({
-                    value: candidate,
-                    label: issueAgentLabel(candidate),
-                    icon: issueAgentIcon(candidate, 13),
-                  }))}
+                  options={agentOptions}
                   selectedValue={agent}
-                  placeholder="Choose an agent…"
                   onSelect={(nextAgent) => {
                     const kind = issueAgentKind(nextAgent) ?? agent
                     setDraft({ ...draft, agent: kind, model: AUTO, effort: AUTO })
