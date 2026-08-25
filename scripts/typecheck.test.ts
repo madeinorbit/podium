@@ -2,7 +2,13 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { decideForce, fingerprint, sharedTurboCacheDir } from './typecheck'
+import {
+  admissionRefusal,
+  decideForce,
+  fingerprint,
+  readCensus,
+  sharedTurboCacheDir,
+} from './typecheck'
 import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
 
 describe('decideForce', () => {
@@ -303,6 +309,71 @@ describe('workspace resolution ownership', () => {
     expect(fingerprint({ ...environment, resolutions: after.records })).toBe(
       fingerprint({ ...environment, resolutions: before.records }),
     )
+  })
+})
+
+describe('readCensus', () => {
+  it('carries an install-topology break into the same admission errors', () => {
+    // Pins the wiring, not just the two censuses: every workspace edge here resolves
+    // perfectly, and the install is still one whose cached green means nothing.
+    const root = resolutionFixture('hoisted')
+    mkdirSync(join(root, 'node_modules'), { recursive: true })
+    symlinkSync('../evaporated/node-pty', join(root, 'node_modules/node-pty'))
+
+    const census = readCensus(root)
+    expect(census.resolutions.length).toBeGreaterThan(0)
+    expect(census.admissionErrors).toEqual([
+      'install topology: node_modules/node-pty is a dangling symlink (-> ../evaporated/node-pty)',
+    ])
+    expect(admissionRefusal(census, 'typecheck')).toContain('node-pty')
+  })
+
+  it('admits a healthy install', () => {
+    expect(readCensus(resolutionFixture('hoisted')).admissionErrors).toEqual([])
+  })
+})
+
+describe('admissionRefusal', () => {
+  const clean = {
+    install: { config: ['local\tc0ffee', 'global\tabsent'], layout: [], errors: [] },
+    resolutions: [],
+    admissionErrors: [],
+    runtime: { bun: '1.3.14', platform: 'linux', arch: 'x64' },
+  }
+
+  it('says nothing about a healthy install', () => {
+    expect(admissionRefusal(clean, 'typecheck')).toBeNull()
+  })
+
+  it('names the lane and every reason, so the refusal is actionable', () => {
+    const refusal = admissionRefusal(
+      {
+        ...clean,
+        admissionErrors: [
+          '@podium/a: @podium/b is missing or dangling from its owner',
+          'install topology: node_modules/node-pty is a dangling symlink (-> ../evaporated)',
+        ],
+      },
+      'test',
+    )
+    expect(refusal).toContain('test refused')
+    expect(refusal).toContain('@podium/b is missing or dangling')
+    expect(refusal).toContain('node_modules/node-pty is a dangling symlink')
+  })
+
+  it('refuses on a third-party break with every workspace edge intact', () => {
+    // The case the workspace census alone cannot see: @podium resolution is perfect and
+    // the install is still not one whose cached green means anything.
+    expect(
+      admissionRefusal(
+        {
+          ...clean,
+          resolutions: ['@podium/a\t@podium/b\tpackages/b/src/index.ts'],
+          admissionErrors: ['install topology: node_modules/node-pty is a dangling symlink (-> x)'],
+        },
+        'typecheck',
+      ),
+    ).not.toBeNull()
   })
 })
 
