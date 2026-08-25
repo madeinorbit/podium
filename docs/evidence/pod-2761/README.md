@@ -70,43 +70,41 @@ interface.
 
 ## What the drive did NOT establish — read this before trusting the fix
 
-**The A/B is null.** Driven on `p2761` against a live codex session, the rendered
-buffer holds exactly one interface *with* the fix and exactly one *without* it:
+**Both A/Bs are null.** The original live-session drive held exactly one
+interface with and without the reset. POD-2775 then opened the blocked
+hibernate/resume path, so the same A/B was repeated on a temporary clean
+integration of this issue at `eca77b677` and POD-2775 at `a62c09c72`:
 
-| build | client pids, round 1 → round 2 | interfaces in the buffer | conversation |
-| --- | --- | --- | --- |
-| with the fix (`a30481002`) | 3127390/3127393 → 3128571/3128580 | 1 | ALPHA, BRAVO, CHARLIE |
-| fix reverted (`87e4b9911`) | 3137138/3137141 → 3138625/3138628 | 1 | ALPHA, BRAVO, CHARLIE |
+| resumed build | client pids, round 1 → round 2 | bytes | interfaces | conversation |
+| --- | --- | ---: | ---: | --- |
+| reset disabled (`5c81a5d9c`) | 505619/505621 → 506173/506175 | 19,106 | 1 | ALPHA, BRAVO, CHARLIE, DELTA |
+| reset enabled (`67fe23f28`) | 511679/511681 → 512225/512229 | 18,547 | 1 | ALPHA, BRAVO, CHARLIE, DELTA |
 
-So this rig reproduces the *mechanism* — a new client process per switch, on both
-builds — but **not the operator's symptom**. The codex TUI usually emits its own
-`ESC[2J`/`ESC[3J` on startup, which re-anchors the replay log and hides the
-duplicate; the residue only showed up in a hand capture where it did not.
+The resumed session now returns, takes the post-resume DELTA exchange, and starts
+a new client generation on each Native view. It still does **not** reproduce the
+operator's duplicate or history loss in either arm. The codex TUI emitted enough
+of its own clearing in both runs to leave one interface in the rendered buffer.
 
-That makes the fix **defensible but unproven against the report**. It closes a
-real hole — nothing in Podium guarantees the clear, and the whole duplicate
-depends on the harness happening to emit one — but nobody should describe it as
-"verified against what the operator saw".
-
-**The one condition still untested is theirs exactly: a RESUMED session.** The
-drive now hibernates and resumes before switching, and that path is blocked by a
-different defect — `sessions.hibernate` on a codex app-server session leaves the
-driver wedged (`server-reap: could not complete the server-driver verb`, then
-`needs measured escalation`), the resume never comes back live, and the drive
-measures nothing. Reproduced on two independent instances. Filed separately; it
-has to be fixed before this symptom can be reproduced or the fix judged.
+So the rig establishes the process mechanism and disproves conversation loss as
+an inevitable consequence of a cold client, but it does **not** verify the fix
+against the operator's symptom. The Podium reset closes a real nondeterministic
+hole: no contract requires the harness to clear, and the duplicate appears when
+it does not. That distinction remains important.
 
 ## The fix
 
 Not "park it too" — the revoke-on-release behaviour protects a real hazard and is
-untouched. Instead, a cold start stops *looking* like a continuation: a client
-generation announces itself with cursor home + clear screen + clear scrollback,
-emitted **before** the spawn so no frame of the generation it introduces can
-precede it. The pair matches the server's own `SCREEN_RESET`, so the replay log
-re-anchors there too and a later attach rebuilds from one interface.
+untouched. A **new** client generation anchors the session-addressed stream with
+cursor home + clear screen + clear scrollback. The reset is emitted only after
+spawn succeeds and before the client frame subscription, so a refused spawn
+cannot blank the terminal and no observable paint can precede the anchor.
 
-One place, both surfaces, and harness-agnostic — which it has to be, because
-opencode cold-starts as well.
+A durable master is different: it owns a continuing TUI and retained history.
+`hasMaster(record.label)` is sampled before spawn (which would create the master
+for a cold client), and a reattach emits no reset. That preserves scrollback and
+the server replay log while the surviving TUI redraws its viewport. The cold
+rule is asserted for OpenCode, Codex and Grok rather than inferred from one
+harness.
 
 ## What this rig had to unlearn from 2753
 
@@ -124,9 +122,10 @@ credentials, and — more importantly — **refuses to report any verdict** unle
 client-terminal process was seen *and* its interface reached the stream. An
 absence of duplicates is evidence only when something could have duplicated.
 
-`drive-verify.sh` also compares process **start time** against the commit's,
-which is the leg a `cwd` check misses. It caught a stale pair the first time it
-ran.
+`drive-up.sh` now records the exact HEAD beside each pid immediately before
+launch, and `drive-verify.sh` requires those SHAs to match the named commit. A
+commit timestamp was one-sided: it rejected older processes but accepted a
+process started from a newer checkout after the worktree moved backwards.
 
 ## What a screenshot would not have shown
 
