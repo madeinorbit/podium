@@ -74,6 +74,20 @@ jobs:
       # whole boundary lint blocks, which is the end state POD-296 was aiming at.
       - name: dependency boundaries + architecture manifest (error level, no allowlist)
         run: bun run lint:boundaries
+      # BLOCKING, its own step, same reason as every ratchet above — and this one
+      # is the POD-1369 class twice over. It catches the merge defect nothing else
+      # reports: both branches ADD the same declaration, git auto-merges them as
+      # adjacent additions, tsc is silent, and the later definition wins at
+      # runtime. It sat in package.json running nowhere, and it could not be
+      # switched on because it cried wolf on three legal overload/accessor sets
+      # (POD-2817) — the false positives were why nobody ran it, and nobody
+      # running it was why the false positives survived. Both halves are fixed:
+      # it is quiet on a clean tree and its tests prove it still fires on a real
+      # duplicated body. It is in `bun run lint` too, but that step is
+      # continue-on-error while biome's backlog burns down (#30), so this step is
+      # what actually blocks — exactly the split `lint:boundaries` already uses.
+      - name: merge shadowing sweep (duplicate declarations git and tsc both miss)
+        run: bun run lint:shadowing
       # The layer diagram in ARCHITECTURE.md is RENDERED from the same manifest
       # the lint reads. Without this step a hand edit is silently lost at the
       # next render, which is how the two sources drifted apart in the first
