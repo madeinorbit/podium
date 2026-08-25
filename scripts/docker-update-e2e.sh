@@ -121,7 +121,11 @@ if [[ "$ONLY" == server ]]; then
     server-client-reconnect server-handover server-agent-survival server-rollback cleanup host-disk)
 elif [[ "$ONLY" == real-release ]]; then
   # THE ONLY LANE THAT DOES NOT START AT CURRENT SOURCE (POD-2769).
-  SCENARIOS=(environment resource-safety coordinator-install real-release-install
+  # `advertised-url` belongs here even though this lane asserts nothing about the
+  # address: the row RUNS for every lane — it sits above the dispatch — and
+  # `matrix` prints only what this array names. Without it a failure there exits
+  # the run with no row saying which check failed or why (POD-2767, POD-2794).
+  SCENARIOS=(environment resource-safety coordinator-install advertised-url real-release-install
     real-release-pairing-refusal real-release-resolve real-release-converged
     real-release-headless-only cleanup host-disk)
 else
