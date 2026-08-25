@@ -33,6 +33,7 @@ import { serverConfig } from '@/app/trpc'
 import { registerUpdatePanelOpener } from './open-panel'
 import { DONE_COLLAPSE_MS } from './operation-view'
 import { ReleaseProposalCard } from './ReleaseProposalCard'
+import { startReloadHandshake } from './reload-handshake'
 import { UpdatePanel } from './UpdatePanel'
 import { publishUpdates, resetUpdates, type UpdatesContextValue } from './updates-panel-context'
 import { type PanelActionKind, useUpdateState } from './use-update-state'
@@ -75,13 +76,17 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
    * action rather than something that happens to them. Take over the new worker
    * first, then reload on controllerchange; the timeout is still needed for a
    * normal browser tab the new worker never claims.
+   *
+   * The sequence moved into `reload-handshake.ts` for one reason: which of its
+   * two paths actually ran was invisible, and the answer turned out to be "the
+   * fallback, always" (POD-2762). It says so now.
    */
   const reload = useCallback(() => {
-    navigator.serviceWorker?.addEventListener('controllerchange', () => window.location.reload(), {
-      once: true,
+    startReloadHandshake({
+      serviceWorker: typeof navigator === 'undefined' ? undefined : navigator.serviceWorker,
+      requestTakeover: () => void updateServiceWorker(true),
+      reload: () => window.location.reload(),
     })
-    void updateServiceWorker(true)
-    window.setTimeout(() => window.location.reload(), 2_000)
   }, [updateServiceWorker])
 
   const resolvedOrigin = httpOrigin ?? serverConfig(window.location).httpOrigin
