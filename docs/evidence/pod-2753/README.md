@@ -77,6 +77,41 @@ warn daemon:claude-sdk claude sdk host died mid-turn
      {signal: SIGKILL, code: None, harnessSessionId: 2a9ef15f-3fef-4718-adcf-0ced90808253}
 ```
 
+## Which path the drive exercised — the claim everything else rests on
+
+The SDK driver is the NON-durable path, so "the drive passed" is worthless
+unless the drive went through it. Stated plainly: **the drive exercised the SDK
+child, and the kill test killed the SDK child. The durable driver did not run at
+all.** Four independent confirmations and one negative, rather than one
+assertion:
+
+1. **The process.** The observed child's argv was
+   `bun --conditions=@podium/source .../apps/daemon/src/claude-sdk-host.ts`, and
+   that module is spawned by exactly one thing in product code —
+   `claude-sdk-client.ts`. The durable driver spawns the claude CLI under abduco
+   and never spawns this.
+2. **The pid.** The pid killed (`2785510`) is the same pid observed as a child of
+   the daemon (`2763359`), not a different process that happened to die nearby.
+3. **The message.** What the human was shown —
+   "the Claude model host process exited on SIGKILL before the turn finished" —
+   is emitted at exactly one place in product code, `claude-sdk-client.ts:159`.
+   A failure through the durable driver reads `durable turn failed`
+   (`durable-headless.ts:557,630`). The text itself identifies the seam.
+4. **The log namespace.** The daemon's own record of the death came from
+   `daemon:claude-sdk`, a logger constructed only in `claude-sdk-client.ts`.
+
+And the negative, from the instance's own state after the run:
+
+```
+daemon:durable log lines .............. 0
+daemon:claude-sdk log lines ........... 2
+durable per-turn state dirs created ... 0   (state/headless-turns)
+abduco sockets created ................ 0
+```
+
+The durable driver leaves per-turn directories under `state/headless-turns` and
+an abduco socket for every turn it runs. There are none. It never ran.
+
 ## The compiled binary
 
 The rig runs from source, so it cannot exercise the one production path that only
