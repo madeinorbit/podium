@@ -2184,6 +2184,13 @@ main() {
   # that reached this point would be handing a human the broken URL again.
   CURRENT_SCENARIO=advertised-url
   advertised_url_reachable || exit 1
+  # Handed back at once. `on_error` reddens whatever row is CURRENT, and the
+  # next assignment is far below the two fleet `start_container` calls — so a
+  # container that dies at boot was landing on this row's name with this row's
+  # evidence string replaced by a line number. A row must never absorb a failure
+  # from a fixture it does not own; that is how a green row starts looking flaky
+  # and a real defect gets read as somebody else's.
+  CURRENT_SCENARIO=""
 
   rpc POST setup.setChannel '{"channel":"dev"}' >/dev/null
   # The checkout is the publisher source via PODIUM_DEV_SOURCE_ROOT; it must
@@ -2203,10 +2210,14 @@ main() {
     return 0
   fi
 
+  # These two containers ARE the fresh-install fixture, so the row owns their
+  # boot as well as their behaviour: a fleet container that dies before systemd
+  # comes up is a fresh-install failure and should say so, not arrive as an
+  # unattributed line number.
+  CURRENT_SCENARIO=fresh-install
   start_container "$FLEET_A" fleet-a -v "$WORK/bootstrap:/bootstrap:ro"
   start_container "$FLEET_B" fleet-b -v "$WORK/bootstrap:/bootstrap:ro"
 
-  CURRENT_SCENARIO=fresh-install
   fresh_install "$FLEET_A" >"$WORK/logs/fresh-install.log" 2>&1
   pass fresh-install "install.sh claimed identity and dev channel, then yielded one parent, server+daemon children, a running in-server janitor, and no janitor process/unit"
 
