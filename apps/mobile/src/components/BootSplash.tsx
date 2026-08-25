@@ -21,7 +21,9 @@ export function BootSplash({
   const measuredProgress =
     progress === null || progress === undefined ? null : Math.max(0, Math.min(1, progress))
   return (
-    <View style={styles.root} accessibilityState={{ busy: true }} testID="boot-splash">
+    // `aria-busy` beside `accessibilityState`: react-native-web 0.21 reads only
+    // the former, so the web build announced no state at all. [POD-1664]
+    <View style={styles.root} accessibilityState={{ busy: true }} aria-busy testID="boot-splash">
       <AsciiWordmark color={color.text} fontSize={5.5} variant="reveal" />
       <Text style={styles.label}>{`${label}...`}</Text>
       {detail ? <Text style={styles.detail}>{detail}</Text> : null}

@@ -672,7 +672,10 @@ function MissionBar({
   return (
     <PressableScale
       accessibilityRole="button"
+      // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+      // only the former, so the web build announced no state at all. [POD-1664]
       accessibilityState={{ expanded: open }}
+      aria-expanded={open}
       accessibilityLabel="Flight deck"
       accessibilityHint={`${progress.done} of ${progress.total} tasks done, ${crew}${progress.stall > 0 ? `, ${progress.stall} stalled` : ''}${attention > 0 ? `, ${attention} asking` : ''}`}
       onPress={onToggle}

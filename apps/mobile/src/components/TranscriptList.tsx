@@ -201,7 +201,10 @@ function MachineContextDisclosure({ item }: { item: TranscriptItem }) {
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={machineContextLabel(item.text)}
+        // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+        // only the former, so the web build announced no state at all. [POD-1664]
         accessibilityState={{ expanded: open }}
+        aria-expanded={open}
         onPress={() => setOpen((value) => !value)}
         style={({ pressed }) => [styles.contextToggle, pressed && styles.contextPressed]}
       >
@@ -234,6 +237,7 @@ function ToolsRun({ blocks }: { blocks: ChatBlock[] }) {
         accessibilityRole="button"
         accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} work run: ${toolBatchTitle(blocks)}`}
         accessibilityState={{ expanded }}
+        aria-expanded={expanded}
         onPress={() => setExpanded((value) => !value)}
         style={({ pressed }) => [styles.workLine, pressed && styles.workLinePressed]}
       >

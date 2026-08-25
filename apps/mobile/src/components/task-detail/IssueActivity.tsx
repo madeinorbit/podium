@@ -204,7 +204,10 @@ function Rollup({ entry }: { entry: Extract<ActivityEntry, { kind: 'rollup' }> }
     <>
       <PressableScale
         accessibilityRole="button"
+        // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+        // only the former. [POD-1664]
         accessibilityState={{ expanded: open }}
+        aria-expanded={open}
         accessibilityLabel={entry.label}
         accessibilityHint={`between ${eventClock(entry.firstTs)} and ${eventClock(entry.ts)}`}
         onPress={() => setOpen((v) => !v)}

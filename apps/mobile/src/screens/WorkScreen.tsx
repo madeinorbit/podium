@@ -511,7 +511,10 @@ function Fold({
     <View style={styles.fold}>
       <PressableScale
         accessibilityRole="button"
+        // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+        // only the former, so the web build announced no state at all. [POD-1664]
         accessibilityState={{ expanded: !collapsed }}
+        aria-expanded={!collapsed}
         accessibilityLabel={`${collapsed ? 'Show' : 'Hide'} ${label.toLowerCase()} · ${rows.length}`}
         onPress={toggle}
         style={({ pressed }) => [styles.foldToggle, pressed && styles.pressed]}

@@ -90,7 +90,16 @@ export function ActionSheet({
             accessibilityRole="button"
             accessibilityLabel={action.label}
             {...(action.hint ? { accessibilityHint: action.hint } : {})}
+            // `aria-pressed`, not `aria-selected`, and beside `accessibilityState` rather
+            // than instead of it. react-native-web 0.21 reads only the `aria-*` spelling,
+            // so the web build announced no state at all; and `aria-selected` is only
+            // valid on a listbox/tab/grid role, so on a `button` it is ignored — the
+            // browser-visible way to say a button is the chosen one is `aria-pressed`.
+            // React Native still reads `accessibilityState` on device. [POD-1664]
+            // An action with no `selected` at all is not a toggle, and an undefined
+            // value renders no attribute — which is what those actions want.
             accessibilityState={{ disabled: action.disabled, selected: action.selected }}
+            aria-pressed={action.selected}
             disabled={action.disabled}
             scaleTo={0.99}
             onPress={() => {

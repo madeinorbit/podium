@@ -104,7 +104,10 @@ export function Disclosure({
     <View testID={testID}>
       <PressableScale
         accessibilityRole="button"
+        // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+        // only the former, so the web build announced no state at all. [POD-1664]
         accessibilityState={{ expanded: open }}
+        aria-expanded={open}
         accessibilityLabel={label}
         onPress={onToggle}
         scaleTo={0.995}

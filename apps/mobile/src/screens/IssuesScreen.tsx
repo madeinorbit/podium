@@ -284,7 +284,10 @@ function StageHeader({
   return (
     <PressableScale
       accessibilityRole="button"
+      // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+      // only the former, so the web build announced no state at all. [POD-1664]
       accessibilityState={{ expanded: !collapsed }}
+      aria-expanded={!collapsed}
       accessibilityLabel={`${title}, ${count} task${count === 1 ? '' : 's'}`}
       accessibilityHint={collapsed ? 'Show this stage' : 'Fold this stage away'}
       onPress={onToggle}

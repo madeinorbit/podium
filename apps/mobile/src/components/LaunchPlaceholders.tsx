@@ -53,7 +53,9 @@ export function BootstrapCrossfade({
   }, [contentOpacity, placeholderOpacity, reduceMotion, settled])
 
   return (
-    <View style={styles.fill} accessibilityState={{ busy: !settled }}>
+    // `aria-busy` beside `accessibilityState`: react-native-web 0.21 reads only
+    // the former, so the web build announced no state at all. [POD-1664]
+    <View style={styles.fill} accessibilityState={{ busy: !settled }} aria-busy={!settled}>
       <Animated.View
         pointerEvents={settled ? 'auto' : 'none'}
         importantForAccessibility={settled ? 'auto' : 'no-hide-descendants'}

@@ -108,7 +108,7 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
       onLayout={handleLayout}
       pointerEvents="box-none"
     >
-      <BlurView intensity={32} tint="dark" style={styles.capsule}>
+      <BlurView intensity={32} tint="dark" style={styles.capsule} role="tablist">
         {/* The bar tier over the blur: Safari's backdrop-filter alone barely
             reads on the Dark Ink ground, and the tabs need a stable surface to
             sit on — one that LIFTS off the canvas rather than sinking into it. */}
@@ -121,8 +121,16 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
           return (
             <Pressable
               key={route.key}
-              accessibilityRole="button"
-              accessibilityState={focused ? { selected: true } : {}}
+              // A TAB, NOT A BUTTON, and the state is spelled twice on purpose.
+              // react-native-web 0.21 reads only `aria-*`, so the focused tab
+              // reached the browser as an ordinary unlabelled button. Restoring it
+              // needs the role to be honest as well: `aria-selected` is ignored on
+              // `button`, and it is the tab role that makes "selected" mean the
+              // chosen tab. React Native reads `accessibilityState` on device, and
+              // it has understood the `tab` role since 0.71. [POD-1664]
+              accessibilityRole="tab"
+              accessibilityState={{ selected: focused }}
+              aria-selected={focused}
               accessibilityLabel={options.tabBarAccessibilityLabel ?? label}
               onPress={() => {
                 // Selection feedback, not impact: switching tabs is a picker, and
