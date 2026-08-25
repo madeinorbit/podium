@@ -21,7 +21,7 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { arch, platform, tmpdir } from 'node:os'
+import { arch, platform } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 export interface ForceDecision {
@@ -200,17 +200,34 @@ function projectCacheIdentity(root: string): string {
   return realpathSync(absoluteGitDir)
 }
 
+/**
+ * Where every worktree of this repository shares one Turbo cache.
+ *
+ * THE DEFAULT MUST NOT BE VOLATILE. It used to fall back to `tmpdir()`, and on a
+ * host that clears /tmp at boot the whole cache died with the machine: after one
+ * reboot the cache's oldest entry was seventeen minutes old, and every session
+ * afterwards paid to repopulate it from nothing. A cache that a reboot deletes
+ * reads to an agent exactly like a cache that never worked, and the conclusion
+ * they draw — that a fresh worktree is a cold start — is wrong and expensive.
+ *
+ * So the default lives inside the repository's OWN boundary: `projectCacheIdentity`
+ * already resolves any linked worktree to the common git dir, which is the one
+ * place all of them agree on, is never committed, never appears in `git status`,
+ * and outlives every checkout that comes and goes around it.
+ *
+ * `XDG_CACHE_HOME` still wins when set to an absolute path — that is a real user
+ * preference and also persistent. A RELATIVE value is treated as unset: resolving
+ * it against each worktree would silently produce a separate cache per checkout,
+ * which is the failure this function exists to prevent.
+ */
 export function sharedTurboCacheDir(root: string): string {
-  const projectKey = createHash('sha256')
-    .update(projectCacheIdentity(root))
-    .digest('hex')
-    .slice(0, 16)
+  const identity = projectCacheIdentity(root)
   const configuredBase = process.env.XDG_CACHE_HOME
-  // XDG_CACHE_HOME is only valid when absolute. Treat a relative value as unset;
-  // resolving it against each worktree would silently produce separate caches.
-  const cacheBase =
-    configuredBase && isAbsolute(configuredBase) ? configuredBase : join(tmpdir(), 'podium-cache')
-  return join(cacheBase, 'podium', 'turbo', projectKey)
+  if (configuredBase && isAbsolute(configuredBase)) {
+    const projectKey = createHash('sha256').update(identity).digest('hex').slice(0, 16)
+    return join(configuredBase, 'podium', 'turbo', projectKey)
+  }
+  return join(identity, 'podium-turbo-cache')
 }
 
 export function turboEnv(root: string, census: EnvCensus): NodeJS.ProcessEnv {

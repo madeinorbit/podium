@@ -1,5 +1,80 @@
-import { describe, expect, it } from 'vitest'
-import { assessWorkspaceLinks, decideForce, fingerprint } from './typecheck'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import {
+  assessWorkspaceLinks,
+  decideForce,
+  fingerprint,
+  sharedTurboCacheDir,
+} from './typecheck'
+
+/** A checkout with a real `.git` DIRECTORY, plus a linked worktree of it whose
+ *  `.git` is the FILE git actually writes: `gitdir: <common>/worktrees/<name>`.
+ *  That gitfile is the only thing tying the two together, and resolving it is
+ *  exactly what the cache location depends on. */
+function repoWithWorktree(): { main: string; linked: string; gitDir: string } {
+  const base = mkdtempSync(join(tmpdir(), 'podium-cachedir-'))
+  const main = join(base, 'repo')
+  const gitDir = join(main, '.git')
+  mkdirSync(join(gitDir, 'worktrees', 'feature'), { recursive: true })
+  const linked = join(base, 'wt-feature')
+  mkdirSync(linked, { recursive: true })
+  writeFileSync(join(linked, '.git'), `gitdir: ${join(gitDir, 'worktrees', 'feature')}\n`)
+  return { main, linked, gitDir }
+}
+
+describe('sharedTurboCacheDir', () => {
+  const saved = process.env.XDG_CACHE_HOME
+  afterEach(() => {
+    if (saved === undefined) delete process.env.XDG_CACHE_HOME
+    else process.env.XDG_CACHE_HOME = saved
+  })
+
+  it('gives a linked worktree the SAME cache as its main checkout', () => {
+    delete process.env.XDG_CACHE_HOME
+    const { main, linked } = repoWithWorktree()
+    expect(sharedTurboCacheDir(linked)).toBe(sharedTurboCacheDir(main))
+  })
+
+  it('defaults INSIDE the repository, and ignores the temp dir entirely', () => {
+    // The regression this pins: the default used to be tmpdir(), so a host that
+    // clears /tmp at boot deleted the whole cache with the machine. Every session
+    // afterwards repaid the uncached cost and read it as "a fresh worktree is a
+    // cold start".
+    //
+    // "Not under tmpdir()" would be a VACUOUS assertion here — the fixture repo is
+    // itself created in tmpdir, so it passes for the wrong reason. The property
+    // that actually distinguishes the two implementations is that the location is
+    // a function of the REPOSITORY and not of the environment: move TMPDIR and the
+    // answer must not move with it. Under the old code it did.
+    delete process.env.XDG_CACHE_HOME
+    const { main, gitDir } = repoWithWorktree()
+    const before = sharedTurboCacheDir(main)
+    expect(before.startsWith(resolve(gitDir))).toBe(true)
+
+    const savedTmp = process.env.TMPDIR
+    try {
+      process.env.TMPDIR = join(mkdtempSync(join(tmpdir(), 'podium-elsewhere-')), 'moved')
+      expect(sharedTurboCacheDir(main)).toBe(before)
+    } finally {
+      if (savedTmp === undefined) delete process.env.TMPDIR
+      else process.env.TMPDIR = savedTmp
+    }
+  })
+
+  it('honours an ABSOLUTE XDG_CACHE_HOME and ignores a relative one', () => {
+    const { main, linked, gitDir } = repoWithWorktree()
+    process.env.XDG_CACHE_HOME = '/xdg-cache'
+    expect(sharedTurboCacheDir(main).startsWith('/xdg-cache/podium/turbo/')).toBe(true)
+    // Still one cache for the whole repo, not one per checkout.
+    expect(sharedTurboCacheDir(linked)).toBe(sharedTurboCacheDir(main))
+    // A relative value would resolve against each worktree's own cwd, silently
+    // splitting the cache per checkout, so it is treated as unset.
+    process.env.XDG_CACHE_HOME = 'relative/cache'
+    expect(sharedTurboCacheDir(main).startsWith(resolve(gitDir))).toBe(true)
+  })
+})
 
 describe('decideForce', () => {
   it('plain run forwards args untouched and stays cached', () => {
