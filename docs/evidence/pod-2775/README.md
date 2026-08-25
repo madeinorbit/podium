@@ -433,6 +433,33 @@ stays the same: a relaunched server rejoining the recorded conversation, which i
 exactly what a rebind cannot do. On the before arm it never moves, because
 nothing was ever started.
 
+### Why grepping for the probe makes the fix look absent
+
+This cost a review round, so it is written down rather than left to the next
+reader. `probeHealth` at `apps/daemon/src/runtime/opencode-server.ts:608` is
+still there and still refuses, and searching for it is a natural way to check
+whether a parked session can come back. It reads as "nothing changed".
+
+It is NOT, as it was later described, a neighbouring path unrelated to the
+resume. That line IS on the resume path: the driver's `adopt` calls
+`host.adopt(binding)` first, and this is the probe inside it. What changed is
+that **its refusal is now a fork rather than an end**:
+
+```
+// packages/agent-runtime/src/drivers/opencode/runtime.ts
+const endpoint = (await host.adopt(binding)) ?? (await relaunchFor(journalled))
+```
+
+The rebind is attempted first and refuses exactly as it always did — that probe
+is what tells a live server from a recycled port, and losing it would let a
+session adopt somebody else's process. The fix does not weaken it; it adds the
+answer to "and what if nothing is answering because we killed it on purpose".
+
+So the reliable place to check this family's wake is the DRIVER's `adopt`, not
+the host's. The host answers "is there a live server for this binding" and is
+entitled to say no; the driver answers "can this session come back", which is a
+different question with a different correct answer.
+
 ### The park/retire tension, answered
 
 A park must leave the journal (it is the address the wake reads) and a retire
