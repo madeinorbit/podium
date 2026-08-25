@@ -236,9 +236,13 @@ with — and an adopted session was bound with an empty one.
 
 ### The A/B, both arms
 
-The control branch is byte-identical to the pre-fix epic tip in `apps/` and
-`packages/` (`git diff --stat 83b007772 <control> -- apps packages` is empty)
-with the rig kept, so the only difference between the rows IS the fix.
+The control branch is `pod-2775-control-before` (`91aa29fac`), byte-identical to
+the pre-fix epic tip in `apps/` and `packages/` —
+`git diff --stat 83b007772 pod-2775-control-before -- apps packages` is empty —
+with the rig kept, so the only difference between the rows IS the fix. The
+opencode before-row was driven at `91aa29fac` and the codex before-row at the
+same tree; the after-rows at `5e7d93a83` (before the rebase onto `2dfa7412f`,
+which changed nothing under `apps/` or `packages/agent-runtime`).
 
 | arm | tree | resume | conversation | journalled model |
 | --- | --- | --- | --- | --- |
