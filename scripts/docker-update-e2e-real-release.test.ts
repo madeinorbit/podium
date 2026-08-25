@@ -8,6 +8,7 @@ import {
   legacyUnitNames,
 } from '@podium/runtime/topology-migration'
 import { describe, expect, it } from 'vitest'
+import { coupleDesktopPairing } from './docker-update-e2e/couple-desktop-pairing'
 
 const run = promisify(execFile)
 const root = join(import.meta.dirname, '..')
@@ -100,13 +101,19 @@ describe('real-release row expectations still match the code they describe', () 
       join(root, 'apps/server/src/modules/updates/release-target.ts'),
       'utf8',
     )
-    const decoupled =
-      'if (feed.desktopManifestUrl && (minimumShell !== undefined || minimumBridge !== undefined)) {'
-    expect(resolver.split(decoupled)).toHaveLength(2)
-    expect(lane).toContain(decoupled)
-    expect(lane).toContain('if (feed.desktopManifestUrl) {')
+    expect(coupleDesktopPairing(resolver).occurrences).toBe(1)
     // Red alone is not the claim; red NAMING the desktop manifest is.
     expect(lane).toContain("grep -Fq 'desktop manifest'")
+  })
+
+  it('runs the coupling control through a login shell, with the HOST’s script', () => {
+    // Both halves are mistakes this lane has already paid for once each.
+    // `container_exec` runs `docker exec` directly, so `bun` is not on PATH
+    // without `-l`; and `/work/source` holds whatever ref the run selected,
+    // which is not necessarily the copy this control was written against.
+    expect(lane).toMatch(/docker cp "\$ROOT\/scripts\/docker-update-e2e\/couple-desktop-pairing\.ts"/)
+    expect(lane).toContain('bash -lc \\\n')
+    expect(lane).not.toContain('/work/source/scripts/docker-update-e2e/couple-desktop-pairing.ts')
   })
 
   it('serves the feed paths a v0.1.0 stable install fetches', () => {
@@ -188,5 +195,28 @@ describe('patch-trust-root refuses everything but its one exact site', () => {
   it('refuses a replacement of a different length, which would move every offset', async () => {
     const file = fixture(`x${oldKey}y`)
     await expect(run('bun', [script, file, oldKey, 'short'])).rejects.toThrow(/differ in length/)
+  })
+})
+
+describe('coupleDesktopPairing refuses anything but its one exact site', () => {
+  const decoupled =
+    'if (feed.desktopManifestUrl && (minimumShell !== undefined || minimumBridge !== undefined)) {'
+
+  it('restores the coupled condition and removes the decoupled one', () => {
+    const { source, occurrences } = coupleDesktopPairing(`a\n  ${decoupled}\nb`)
+    expect(occurrences).toBe(1)
+    expect(source).toContain('if (feed.desktopManifestUrl) {')
+    expect(source).not.toContain(decoupled)
+  })
+
+  it('refuses when the condition is absent', () => {
+    // The case that matters: a control which silently matched nothing would
+    // leave the row GREEN under a deliberate-failure run, and a green row there
+    // reads as "this row cannot be armed".
+    expect(() => coupleDesktopPairing('no condition here')).toThrow(/found 0/)
+  })
+
+  it('refuses when the condition appears more than once', () => {
+    expect(() => coupleDesktopPairing(`${decoupled}\n${decoupled}`)).toThrow(/found 2/)
   })
 })

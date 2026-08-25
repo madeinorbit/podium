@@ -526,22 +526,23 @@ EOF
 # nothing would leave the row green and be read as the row being unarmable.
 arm_real_release_pairing_coupling() {
   [[ "$PROVE_FAILURE" == real-release-pairing-coupled ]] || return 0
-  container_exec "$SOURCE" \
-    env FILE=/work/source/apps/server/src/modules/updates/release-target.ts \
-    bun -e '
-      const file = process.env.FILE
-      const coupled = "if (feed.desktopManifestUrl) {"
-      const decoupled =
-        "if (feed.desktopManifestUrl && (minimumShell !== undefined || minimumBridge !== undefined)) {"
-      const src = await Bun.file(file).text()
-      const hits = src.split(decoupled).length - 1
-      if (hits !== 1) {
-        console.error("expected exactly one decoupled pairing condition, found " + hits)
-        process.exit(1)
-      }
-      await Bun.write(file, src.replace(decoupled, coupled))
-    ' || die "could not arm the pairing coupling: the condition it rewrites has moved"
-  say "armed: the resolver consults latest.json unconditionally again, so a release with no desktop build must retract the headless target"
+  local report
+  # WITH THE HOST'S SCRIPT AND THROUGH A LOGIN SHELL, for the two reasons this
+  # lane already learned the hard way. `container_exec` runs `docker exec`
+  # directly, so `bun` is not on PATH without `-l`; and the copy of any harness
+  # script inside `/work/source` is whatever ref the run selected, not
+  # necessarily the one this control was written against.
+  docker cp "$ROOT/scripts/docker-update-e2e/couple-desktop-pairing.ts" \
+    "$SOURCE:/tmp/couple-desktop-pairing.ts"
+  report="$(container_exec "$SOURCE" bash -lc \
+    'bun /tmp/couple-desktop-pairing.ts \
+       /work/source/apps/server/src/modules/updates/release-target.ts')" ||
+    die "could not arm the pairing coupling: the condition it rewrites has moved"
+  printf '%s\n' "$report" >"$WORK/logs/real-release-pairing-coupling.json"
+  jq -e '.occurrences==1 and .coupled and .decoupledGone and .bytesRemoved>0' \
+    <<<"$report" >/dev/null ||
+    die "the pairing coupling did not land as expected: $report"
+  say "armed: the resolver consults latest.json unconditionally again ($report), so a release with no desktop build must retract the headless target"
 }
 
 arm_real_release_failure() {
