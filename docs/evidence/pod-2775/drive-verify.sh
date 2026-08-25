@@ -70,4 +70,23 @@ curl -fsS "http://$PODIUM_HOST:$PODIUM_PORT/health" >/dev/null \
 [ "$PODIUM_PORT" != "19797" ] || fail "refusing to drive the operator's instance"
 echo "  ok  server answers on :$PODIUM_PORT (not the operator's 19797)"
 
+# 4. …and the thing answering is OUR server, not another rig's on the same port.
+#
+# MEASURED, NOT ASSUMED. POD-2777's acceptance rig picked 19847/46847/46848 —
+# the same three this rig started on — and on a shared host the loser of that
+# race fails to bind while /health keeps answering 200 from the WINNER. Every
+# check above passes in that state: the port answers, the worktree is clean, the
+# sha matches. The drive then logs in to somebody else's daemon and measures
+# their sessions. /health carries no instance id, so the pid that HOLDS the
+# listener is compared against the pid this rig started.
+PIDFILE="$PODIUM_DRIVE_BASE/server.pid"
+[ -f "$PIDFILE" ] || fail "no $PIDFILE — run drive-up.sh first"
+OURS="$(cat "$PIDFILE")"
+HOLDER="$(ss -lntp 2>/dev/null | awk -v p=":$PODIUM_PORT " '$0 ~ p' | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)"
+[ -n "$HOLDER" ] || fail "nothing holds :$PODIUM_PORT, yet /health answered — refusing to guess"
+[ "$HOLDER" = "$OURS" ] \
+  || fail "port :$PODIUM_PORT is held by pid $HOLDER, not our server ($OURS).
+Another rig is on this port; move PODIUM_PORT rather than measuring theirs."
+echo "  ok  :$PODIUM_PORT is held by OUR server (pid $OURS)"
+
 echo "VERIFIED: p2775 is running $WANT_SHA"

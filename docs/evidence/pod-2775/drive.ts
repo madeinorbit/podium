@@ -1,6 +1,6 @@
 /**
- * POD-2775 — what happens to a codex app-server session when it is hibernated
- * and then resumed.
+ * POD-2775 — what happens to a SERVER-FAMILY session when it is hibernated and
+ * then resumed. Two arms: `codex` (default) and `opencode`.
  *
  *   bash docs/evidence/pod-2775/drive-up.sh
  *   bash docs/evidence/pod-2775/drive-verify.sh HEAD
@@ -22,10 +22,20 @@
  *    POD-2249 lie (the row says parked, the credentialed child runs on), and it
  *    is also what makes the NEXT spawn land in an occupied scope.
  *
- * 3. THE RESUME — does the row come back to a live status, and is the SAME
- *    conversation still there? Codex resumes from a rollout JSONL its child
- *    writes on the way out, so "came back live" and "came back with the
+ * 3. THE RESUME — does the row come back to a live status, and is it the SAME
+ *    CONVERSATION, proved twice over? Codex resumes from a rollout JSONL its
+ *    child writes on the way out, so "came back live" and "came back with the
  *    conversation" can fail independently and the drive asks both.
+ *
+ *    IDENTITY, NOT PRESENCE (POD-2775, review 2). This leg used to look for the
+ *    literal words ALPHA and BRAVO, which any transcript containing those words
+ *    satisfies — including a brand-new session that had just been told to say
+ *    them. Two things fix that. The witnesses are NONCED per run, so the words
+ *    exist in exactly one conversation on this machine; and the binding journal's
+ *    `threadId` is read off disk before the park and after the resume, which is
+ *    the mechanism itself rather than a proxy for it. A resume that started a
+ *    fresh thread comes back with a different id even if it says all the right
+ *    words.
  *
  * 4. THE RESUMED SESSION ANSWERS — one more exchange after the resume. A row
  *    that flips to `running` while nothing behind it can take a turn is exactly
@@ -40,12 +50,25 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
 const HOST = process.env.PODIUM_HOST ?? '127.0.0.1'
-const PORT = process.env.PODIUM_PORT ?? '19847'
+const PORT = process.env.PODIUM_PORT ?? '19867'
 const BASE = `http://${HOST}:${PORT}`
 const PASSWORD = process.env.PODIUM_PASSWORD ?? 'p2775'
 const DRIVE_BASE = process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-2775'
 const REPO = `${DRIVE_BASE}/repo`
 const DAEMON_LOG = `${DRIVE_BASE}/logs/daemon.log`
+const STATE_DIR = process.env.PODIUM_STATE_DIR ?? `${DRIVE_BASE}/state`
+
+/**
+ * THE WITNESSES, NONCED. `ALPHA`/`BRAVO` as bare words are satisfied by any
+ * transcript containing them — a fresh session told to say them passes just as
+ * well as a resumed one, which is exactly the hole review 2 found. A nonce makes
+ * each witness unique to THIS run, so finding it is finding this conversation.
+ */
+const NONCE =
+  process.env.PODIUM_DRIVE_NONCE ??
+  createHash('sha256').update(`${process.pid}:${Date.now()}`).digest('hex').slice(0, 8)
+const ALPHA = `ALPHA-${NONCE}`
+const BRAVO = `BRAVO-${NONCE}`
 
 if (PORT === '19797') throw new Error('refusing to drive the operator instance')
 
@@ -152,29 +175,128 @@ const logSince = (mark: number, needle: string): string[] =>
     }
   })()
 
-/** The codex app-server children of THIS session. The listener path is a
- *  sha256 prefix of the session id (`codexClientSocketPath`), so the process
- *  table can be filtered by identity rather than by "any codex". */
-const codexChildren = (sid: string): { pid: string; args: string }[] => {
-  const tag = createHash('sha256').update(sid).digest('hex').slice(0, 12)
-  const ps = spawnSync('ps', ['-eo', 'pid,args'], { encoding: 'utf8' }).stdout ?? ''
-  return ps
-    .split('\n')
-    .filter((l) => l.includes('codex') && l.includes(tag) && !l.includes('ps -eo'))
-    .map((l) => {
-      const t = l.trim()
-      const sp = t.indexOf(' ')
-      return { pid: t.slice(0, sp), args: t.slice(sp + 1) }
-    })
+/**
+ * THE TWO ARMS, AND WHY THIS RIG HAS TWO (POD-2775, review 1).
+ *
+ * The fix under measurement is ONE route in the daemon serving THREE families,
+ * and the first round of this issue drove exactly one of them. That is how a
+ * parked opencode session shipped unable to come back: codex's `adopt` was
+ * already written as resume-not-rebind, so the shared route looked proven when
+ * only the family that never needed it had been checked.
+ *
+ * Everything below the arm table is family-independent. What differs is only
+ * how this machine NAMES the session's server: which journal directory holds
+ * it, which field in there is the conversation, how its child appears in the
+ * process table, and what its transient scope is called.
+ *
+ *   bun docs/evidence/pod-2775/drive.ts codex
+ *   bun docs/evidence/pod-2775/drive.ts opencode
+ */
+interface JournalEntry {
+  /** codex: the rollout thread. */
+  threadId?: string
+  /** opencode: the `ses_…` row set in its database. */
+  opencodeSessionId?: string
+  baseUrl?: string
+  model?: { model?: string; effort?: string }
+  process?: { pid?: number }
 }
+
+interface Arm {
+  agentKind: string
+  /** Where the daemon persists this family's binding journal. */
+  journalDir: string
+  /** The field that names the CONVERSATION — the value a resume must reuse. */
+  conversation(entry: JournalEntry | undefined): string | undefined
+  /** This session's server children, matched on identity rather than on "any
+   *  process of this harness". */
+  children(sid: string, entry: JournalEntry | undefined): { pid: string; args: string }[]
+  scopeUnit(sid: string): string
+}
+
+const ps = (): string[] =>
+  (spawnSync('ps', ['-eo', 'pid,args'], { encoding: 'utf8' }).stdout ?? '').split('\n')
+const asChild = (line: string): { pid: string; args: string } => {
+  const t = line.trim()
+  const sp = t.indexOf(' ')
+  return { pid: t.slice(0, sp), args: t.slice(sp + 1) }
+}
+
+const ARMS: Record<string, Arm> = {
+  codex: {
+    agentKind: 'codex',
+    journalDir: 'codex-app-servers',
+    conversation: (e) => e?.threadId,
+    // The listener path is a sha256 prefix of the session id
+    // (`codexClientSocketPath`), so the process table can be filtered by
+    // identity rather than by "any codex".
+    children: (sid) => {
+      const tag = createHash('sha256').update(sid).digest('hex').slice(0, 12)
+      return ps()
+        .filter((l) => l.includes('codex') && l.includes(tag) && !l.includes('ps -eo'))
+        .map(asChild)
+    },
+    scopeUnit: (sid) => `podium-cx-${sid}.scope`,
+  },
+  opencode: {
+    agentKind: 'opencode',
+    journalDir: 'opencode-servers',
+    conversation: (e) => e?.opencodeSessionId,
+    /**
+     * `opencode serve --port <port>`, and the PORT is the identity. This family
+     * has no per-session socket path to match on, but the journal records the
+     * base url the daemon bound — so the entry passed in decides which
+     * incarnation is being asked about. That matters here more than anywhere
+     * else in this rig: the whole point of the opencode arm is that the resume
+     * relaunches on a NEW port, so "is a child alive" has to be asked of a
+     * named incarnation rather than of the session in general.
+     */
+    children: (_sid, entry) => {
+      const port = entry?.baseUrl ? new URL(entry.baseUrl).port : undefined
+      if (!port) return []
+      return ps()
+        .filter(
+          (l) => l.includes('opencode') && l.includes(`--port ${port}`) && !l.includes('ps -eo'),
+        )
+        .map(asChild)
+    },
+    scopeUnit: (sid) => `podium-oc-${sid}.scope`,
+  },
+}
+
+const KIND = process.argv[2] ?? process.env.PODIUM_DRIVE_KIND ?? 'codex'
+const arm = ARMS[KIND]
+if (!arm) throw new Error(`unknown arm '${KIND}' — expected one of ${Object.keys(ARMS).join(', ')}`)
+console.log(`arm: ${KIND}`)
 
 /** The transient scope the child was launched into, if this host scopes at all. */
 const scopeState = (sid: string): string => {
-  const unit = `podium-cx-${sid}.scope`
-  const out = spawnSync('systemctl', ['--user', 'show', unit, '-p', 'ActiveState', '--value'], {
-    encoding: 'utf8',
-  })
+  const out = spawnSync(
+    'systemctl',
+    ['--user', 'show', arm.scopeUnit(sid), '-p', 'ActiveState', '--value'],
+    { encoding: 'utf8' },
+  )
   return (out.stdout ?? '').trim() || 'unknown'
+}
+
+/**
+ * THE BINDING JOURNAL THIS MACHINE WROTE FOR THIS SESSION.
+ *
+ * The daemon persists it under its own state dir, one file per session, and it
+ * is the record the resume path reads: the conversation id, and the model policy
+ * every later turn is sent with. Reading it directly is what makes the identity
+ * claim a MECHANISM check rather than a text one — a resume that quietly started
+ * a new conversation writes a new id here whatever the transcript ends up
+ * saying.
+ */
+const journalEntry = (sid: string): JournalEntry | undefined => {
+  try {
+    return JSON.parse(
+      readFileSync(`${STATE_DIR}/${arm.journalDir}/${encodeURIComponent(sid)}.json`, 'utf8'),
+    ) as JournalEntry
+  } catch {
+    return undefined
+  }
 }
 
 const pollRow = async (
@@ -195,8 +317,8 @@ const pollRow = async (
 console.log('creating a codex session with one exchange…')
 const created = (await trpc('sessions.create', {
   cwd: REPO,
-  agentKind: 'codex',
-  initialPrompt: 'Say the word ALPHA and nothing else.',
+  agentKind: arm.agentKind,
+  initialPrompt: `Say the word ${ALPHA} and nothing else.`,
 })) as { result?: { data?: { sessionId?: string } }; error?: unknown }
 const sid = created.result?.data?.sessionId
 if (!sid) throw new Error(`sessions.create failed: ${JSON.stringify(created)}`)
@@ -221,14 +343,16 @@ console.log(`  reached '${idle.r?.agentState?.phase ?? 'no state'}' after ${secs
 
 /**
  * THE CONTROL, AND IT IS THE SAME ONE POD-2761's RIG LEARNED THE HARD WAY.
- * A codex the version gate refuses, or a logged-out home, degrades the driver to
- * `generic-pty` behind one warn line. That session answers prompts and looks
+ * A codex the version gate refuses, an opencode binary that is not on the
+ * daemon's PATH, or a logged-out home degrades the driver to `generic-pty`
+ * behind one warn line. That session answers prompts and looks
  * healthy — and it is a PTY session, so it never enters the server-driver
  * teardown this issue is about. Measuring it would produce a clean hibernate and
  * a confident, worthless PASS.
  */
 const live = await row(sid)
-const children = codexChildren(sid)
+const journalBefore = journalEntry(sid)
+const children = arm.children(sid, journalBefore)
 const driverLine = (logLines('preferred runtime driver').at(-1) ?? '').trim()
 if (children.length === 0) {
   let why = 'no driver-degrade line in the daemon log — look further up it'
@@ -240,7 +364,7 @@ if (children.length === 0) {
     }
   }
   console.error(
-    `\nNO MEASUREMENT: this session has no codex app-server child, so it is not a\n` +
+    `\nNO MEASUREMENT: this session has no ${KIND} server child, so it is not a\n` +
       `  server-driver session and the teardown under test is never entered.\n` +
       `  ${why}\n` +
       `  row: ${JSON.stringify(live)}`,
@@ -249,8 +373,17 @@ if (children.length === 0) {
   process.exit(1)
 }
 console.log(`  app-server children: ${children.map((c) => c.pid).join(', ')}`)
-console.log(`  scope ${`podium-cx-${sid}.scope`}: ${scopeState(sid)}`)
+console.log(`  scope ${arm.scopeUnit(sid)}: ${scopeState(sid)}`)
 console.log(`  row status before the park: ${live?.status}`)
+
+/**
+ * THE CONVERSATION'S IDENTITY, read before the park (it is taken above, because
+ * the process check needs the same entry). Everything after this point is
+ * compared against it, and a run that could not read it says so rather than
+ * comparing two undefineds and calling them equal.
+ */
+console.log(`  binding journal conversation: ${arm.conversation(journalBefore) ?? 'UNREADABLE'}`)
+console.log(`  binding journal model:        ${JSON.stringify(journalBefore?.model ?? null)}`)
 
 // --- 1. the park's receipt --------------------------------------------------
 console.log('\nhibernating…')
@@ -285,7 +418,7 @@ for (const l of [...verbFail, ...escalate, ...stillRunning])
   console.log(`       | ${l.trim().slice(0, 220)}`)
 
 // --- 2. the process ---------------------------------------------------------
-const after = codexChildren(sid)
+const after = arm.children(sid, journalBefore)
 console.log('\n2. THE PROCESS')
 console.log(
   `     app-server children still alive: ${after.length ? after.map((c) => c.pid).join(', ') : 'none'}`,
@@ -298,7 +431,7 @@ const mark2 = logMark()
 const t1 = Date.now()
 const res = await trpc('sessions.resumeAndSend', {
   sessionId: sid,
-  text: 'Say the word BRAVO and nothing else.',
+  text: `Say the word ${BRAVO} and nothing else.`,
 })
 const resumeCallMs = Date.now() - t1
 if (res.error)
@@ -317,7 +450,7 @@ console.log(`     the call returned in ${secs(resumeCallMs)}`)
 console.log(
   `     the row reads '${back.r?.status}' after ${secs(back.ms)}${back.ok ? '' : ' (BUDGET EXHAUSTED)'}`,
 )
-const revived = codexChildren(sid)
+const revived = arm.children(sid, journalEntry(sid))
 console.log(
   `     app-server children after the resume: ${revived.length ? revived.map((c) => c.pid).join(', ') : 'NONE'}`,
 )
@@ -334,10 +467,27 @@ const items = (await query('sessions.transcriptRead', {
   limit: 200,
 })) as { items?: unknown[] } | unknown[] | undefined
 const text = JSON.stringify(items ?? [])
-const has = (w: string): boolean => new RegExp(`\\b${w}\\b`).test(text)
+const has = (w: string): boolean => text.includes(w)
+const journalAfter = journalEntry(sid)
+const conversationBefore = arm.conversation(journalBefore)
+const conversationAfter = arm.conversation(journalAfter)
+const sameThread = conversationBefore !== undefined && conversationAfter === conversationBefore
 console.log('\n4. THE RESUMED SESSION')
-console.log(`     ALPHA (before the park) present in the transcript: ${has('ALPHA')}`)
-console.log(`     BRAVO (after the resume) present in the transcript: ${has('BRAVO')}`)
+console.log(`     ${ALPHA} (before the park) present in the transcript: ${has(ALPHA)}`)
+console.log(`     ${BRAVO} (after the resume) present in the transcript: ${has(BRAVO)}`)
+/**
+ * THE MECHANISM, BESIDE THE TEXT. A nonced witness proves the transcript is this
+ * conversation; the journalled thread id proves the RESUME addressed it, and it
+ * is the value the wrong-thread mutant moves. They can disagree — a session that
+ * resumed the right thread but cannot take a turn shows a matching id and no
+ * BRAVO — and that is precisely why both are printed.
+ */
+console.log(
+  `     journalled conversation: before ${conversationBefore ?? 'UNREADABLE'} / after ${conversationAfter ?? 'UNREADABLE'} → ${sameThread ? 'SAME CONVERSATION' : 'DIFFERENT — the resume did not rejoin it'}`,
+)
+console.log(
+  `     journalled model:        before ${JSON.stringify(journalBefore?.model ?? null)} / after ${JSON.stringify(journalAfter?.model ?? null)}`,
+)
 /**
  * THE RESUME LEG'S POSITIVE CONTROL. `BRAVO` missing is the finding — but only
  * if something could have been read at all. ALPHA was written before the park,
@@ -345,13 +495,13 @@ console.log(`     BRAVO (after the resume) present in the transcript: ${has('BRA
  * ALPHA is gone too, the read is what failed and BRAVO's absence says nothing
  * about the resume.
  */
-if (!has('ALPHA')) {
+if (!has(ALPHA)) {
   console.log(
     '     ⚠ CONTROL MISSING: the pre-park exchange is not readable either, so the absence of\n' +
       '       BRAVO is not evidence about the resume — it is evidence about this read.',
   )
 }
-const resumeErrs = logSince(mark2, 'codex')
+const resumeErrs = logSince(mark2, KIND)
   .filter((l) => /warn|error/i.test(l))
   .slice(-8)
 for (const l of resumeErrs) console.log(`       | ${l.trim().slice(0, 220)}`)
@@ -364,7 +514,7 @@ for (const l of resumeErrs) console.log(`       | ${l.trim().slice(0, 220)}`)
  */
 const parkQuiet = hibResult?.ok === true && verbFail.length === 0 && escalate.length === 0
 const parkReaped = hibResult?.ok === true && after.length === 0
-const resumeLive = back.ok && revived.length > 0 && has('BRAVO')
+const resumeLive = back.ok && revived.length > 0 && has(BRAVO)
 console.log('\n=== VERDICT ===')
 console.log(
   `  park receipt : ${parkQuiet ? 'CLEAN — the stop verb completed inside its bound' : 'WEDGED — the verb could not complete; see the lines above'}`,
@@ -376,10 +526,13 @@ console.log(
   `  resume       : ${resumeLive ? 'LIVE — a fresh app-server resumed the thread and took a turn' : 'DEAD — the session did not come back'}`,
 )
 console.log(
+  `  conversation : ${sameThread ? 'SAME — the journalled thread id survived the round trip' : 'NOT PROVED — the thread id moved, or could not be read'}`,
+)
+console.log(
   `  overall      : ${
-    !has('ALPHA')
+    !has(ALPHA)
       ? 'NO MEASUREMENT — the positive control is missing'
-      : parkQuiet && parkReaped && resumeLive
+      : parkQuiet && parkReaped && resumeLive && sameThread
         ? 'PASS'
         : 'REPRODUCED'
   }`,

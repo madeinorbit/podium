@@ -22,9 +22,16 @@ export PODIUM_DRIVE_BASE=/tmp/pod-2775
 export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
 
 # --- endpoints ------------------------------------------------------------
-export PODIUM_PORT=19847
-export PODIUM_HOOK_PORT=46847
-export PODIUM_AGENT_RELAY_PORT=46848
+# MOVED OFF 19847/46847/46848 — POD-2777's acceptance rig picked the same three,
+# and on a shared host the second one up just fails to bind ("port 19847 is
+# already in use") while its /auth/login answers 401 against the OTHER
+# instance's server. Two rigs on one port is a wrong measurement, not a busy
+# port: a drive that logged in there would be driving somebody else's daemon.
+# Different from the operator's 19797, from 2761's 19827, 2773's 19837 and
+# 2777's 19847.
+export PODIUM_PORT=19867
+export PODIUM_HOOK_PORT=46867
+export PODIUM_AGENT_RELAY_PORT=46868
 export PODIUM_HOST=127.0.0.1
 
 # --- durable-terminal containment ----------------------------------------
@@ -57,7 +64,12 @@ export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2775-bug-hibernat
 # `generic-pty` behind one warn line, the session still answers prompts, and the
 # server-driver teardown path this issue is about is never entered at all. So
 # ~/.local/bin goes first and bun's bin stays available behind it.
-export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
+#
+# AND ~/.opencode/bin, WHICH IS ON NOBODY'S PATH BY DEFAULT. The opencode arm
+# needs `opencode serve` to be findable by the daemon's child spawn, and this
+# host installs it only there. Left off, the driver never starts a server and
+# the arm degrades exactly like a refused codex — quietly.
+export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$PATH"
 
 mkdir -p "$PODIUM_STATE_DIR" "$ABDUCO_SOCKET_DIR" "$TMUX_TMPDIR"
 chmod 700 "$PODIUM_DRIVE_BASE"

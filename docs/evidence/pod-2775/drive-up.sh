@@ -93,7 +93,13 @@ echo "server healthy on :$PODIUM_PORT"
 # state root that is non-empty but unmarked. Auth files ONLY.
 AGENT_HOME="$PODIUM_STATE_DIR/agent-home"
 mkdir -p "$AGENT_HOME/.claude" "$AGENT_HOME/.codex"
+mkdir -p "$AGENT_HOME/.local/share/opencode" "$AGENT_HOME/.config/opencode"
 chmod 700 "$AGENT_HOME"
+#
+# OPENCODE TOO, since POD-2775's review round: the fix under measurement is one
+# daemon route serving three families, and the first round drove only codex — so
+# a parked opencode session shipped unable to come back. An unseeded opencode
+# home degrades the same silent way a logged-out codex does.
 #
 # CODEX TOO, and this is the leg whose absence made the first drive LIE.
 # Seeding only claude leaves codex logged out in the isolated home, and a logged
@@ -106,7 +112,9 @@ for pair in \
   "$HOME/.claude/.credentials.json:$AGENT_HOME/.claude/.credentials.json" \
   "$HOME/.claude.json:$AGENT_HOME/.claude.json" \
   "$HOME/.codex/auth.json:$AGENT_HOME/.codex/auth.json" \
-  "$HOME/.codex/config.toml:$AGENT_HOME/.codex/config.toml"
+  "$HOME/.codex/config.toml:$AGENT_HOME/.codex/config.toml" \
+  "$HOME/.local/share/opencode/auth.json:$AGENT_HOME/.local/share/opencode/auth.json" \
+  "$HOME/.config/opencode/opencode.jsonc:$AGENT_HOME/.config/opencode/opencode.jsonc"
 do
   from="${pair%%:*}"; to="${pair#*:}"
   if [ -f "$from" ] && [ ! -f "$to" ]; then cp "$from" "$to" && chmod 600 "$to"; fi
