@@ -64,6 +64,12 @@ function isInside(parent: string, child: string): boolean {
   return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`))
 }
 
+type RootKind = 'modules' | 'store'
+interface Discovered {
+  path: string
+  kind: RootKind
+}
+
 /**
  * What the INSTALLER wrote, and only that.
  *
@@ -79,14 +85,7 @@ function isInside(parent: string, child: string): boolean {
  * A package directory that has lost its package.json is skipped by that rule. It is not a
  * silent pass: nothing there resolves, so the typecheck it would have served goes red on
  * its own rather than green from the cache.
- */
-type RootKind = 'modules' | 'store'
-interface Discovered {
-  path: string
-  kind: RootKind
-}
-
-/**
+ *
  * One node_modules tree, one level deep. `@scope` and `.bin` are containers rather than
  * packages so they are opened here; anything deeper arrives by being an install root in
  * its own right, which lets the caller deduplicate. That matters: in an isolated layout
