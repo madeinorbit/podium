@@ -339,14 +339,48 @@ describe('teardown through a live handle — once per driver registry', () => {
    * read as a surviving process when the process was measured dead.
    */
   it('bounds the verb ABOVE every graceful ending the drivers are defined to spend', () => {
-    // Not a spot-check of two literals that happen to agree: the drivers'
-    // window and the reap's bound are ONE declaration, and this is the
-    // inequality that declaration exists to hold. It went the wrong way for the
-    // whole life of the reap, and no test could see it because the two numbers
-    // lived in different files.
+    // The declaration, stated as the inequality it exists to hold. Cheap, and it
+    // reads as the intent — but on its own it would survive someone giving
+    // `server-reap.ts` a local bound again, which is exactly how this defect
+    // arrived. The behavioural pin below is the one that cannot.
     expect(SERVER_HANDLE_VERB_TIMEOUT_MS).toBeGreaterThan(SERVER_GRACEFUL_EXIT_MS)
     expect(SERVER_SCOPE_RECLAIM_ALLOWANCE_MS).toBeGreaterThan(0)
   })
+
+  it(
+    'a stop that spends its whole graceful window is NOT reported as a verb that could not complete',
+    async () => {
+      /**
+       * REAL TIME, THROUGH THE REAL BOUND, and that is the point: this asserts on
+       * the timer the reap actually arms rather than on the constant feeding it,
+       * so re-localising the bound to a number below the drivers' window goes red
+       * here even though the two constants above still agree with each other.
+       *
+       * The verb resolves just AFTER `SERVER_GRACEFUL_EXIT_MS` — the codex park's
+       * ordinary shape, where the child takes its stdin EOF at the far end of the
+       * window it is given. Before this fix that park logged `could not complete
+       * the server-driver verb` every single time.
+       */
+      const state: FakeProcessState = { alive: true, diesOn: 'never' }
+      const { handle, calls } = fakeHandle({
+        pid: 4321,
+        onStop: async () => {
+          await new Promise<void>((resolve) => setTimeout(resolve, SERVER_GRACEFUL_EXIT_MS + 100))
+          state.alive = false
+        },
+      })
+      const { ctx, sent } = fakeCtx('codexRuntime', { handle })
+      const io = fakeIo(state)
+
+      await beginServerDriverReap(ctx, SESSION, { retire: false }, io)
+      await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
+
+      expect(calls).toEqual(['stop'])
+      expect(killResult(sent)).toMatchObject({ killed: true })
+      expect(killResult(sent)?.reason).toBeUndefined()
+    },
+    SERVER_GRACEFUL_EXIT_MS + 10_000,
+  )
 
   it('a verb that failed beside a process that DIED is not escalated — the measurement wins', async () => {
     // The park shape exactly: the stop verb overruns its bound, and the child

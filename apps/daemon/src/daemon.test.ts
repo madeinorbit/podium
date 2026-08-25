@@ -1664,6 +1664,113 @@ describe('server-driver admission control path', () => {
     )
     runtime.dispose()
   })
+
+  /**
+   * POD-2775 — RESUMING A PARKED SERVER SESSION.
+   *
+   * `sessions.resume` arrives here as a `spawn` frame, and this path turned every
+   * one of them into `runtime.create()`. `createWithId` REFUSES a session that
+   * already holds a binding-journal entry (two children under one session id is
+   * the POD-2249 double-spawn), and a parked server session holds exactly such an
+   * entry on purpose — it is the address the conversation lives at. So every
+   * resume of a hibernated codex session put the row on `exited` with `already
+   * has a persisted server journal` and left it there, because the retry is the
+   * same frame. Measured live before this test existed.
+   *
+   * The assertion that matters is `created === 0`: the create must not be
+   * REACHED, not merely survived. A version that called it and then recovered
+   * would still be starting a second child on any journal entry whose process is
+   * genuinely alive.
+   */
+  it('resumes a PARKED server session by adopting its journal rather than reaching the create', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = defaultServerSpawnContext(sent, {})
+    const adopted = {
+      binding: { driver: 'codex-app-server', family: 'server' },
+      state: async () => ({ phase: 'idle' as const }),
+    }
+    let created = 0
+    ctx.agentRuntime = {
+      ...ctx.agentRuntime,
+      // Parked: the journal entry survived, the handle did not.
+      serverHandleFor: () => undefined,
+      handleFor: () => undefined,
+      adoptJournalled: async () => ({
+        found: true as const,
+        what: 'codex app-server',
+        workdir: '/parked-workdir',
+        handle: adopted,
+      }),
+      create: async () => {
+        created += 1
+        throw new Error("session 'parked-codex' already has a persisted server journal")
+      },
+    } as never
+
+    await expect(
+      launchServerDriverSession(
+        ctx,
+        spawn('parked-codex'),
+        cachedProbe(() => ({ output: 'codex-cli 0.147.0', ok: true })),
+      ),
+    ).resolves.toEqual({ handled: true })
+
+    expect(created).toBe(0)
+    expect(sent.some((msg) => msg.type === 'spawnError')).toBe(false)
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: 'bind',
+        sessionId: 'parked-codex',
+        // THE JOURNAL'S WORKDIR, not the frame's `/tmp`: the adopted child is
+        // opened where the conversation actually lives.
+        cwd: '/parked-workdir',
+        runtimeContract: true,
+        driverId: 'codex-app-server',
+      }),
+    )
+  })
+
+  /**
+   * The other side of the same guard: a journal entry beside a LIVE handle is a
+   * session this daemon is already running, and a redelivered frame for one must
+   * not be turned into an adopt that starts a second child. That case keeps its
+   * previous behaviour exactly — it falls through to the create, which refuses.
+   */
+  it('does NOT adopt when a live handle already holds the session — a redelivered frame still refuses', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = defaultServerSpawnContext(sent, {})
+    let adoptions = 0
+    let created = 0
+    ctx.agentRuntime = {
+      ...ctx.agentRuntime,
+      serverHandleFor: () => ({ binding: { driver: 'codex-app-server', family: 'server' } }),
+      handleFor: () => undefined,
+      adoptJournalled: async () => {
+        adoptions += 1
+        return { found: false as const }
+      },
+      create: async () => {
+        created += 1
+        throw new Error("session 'live-codex' already has a persisted server journal")
+      },
+    } as never
+
+    await expect(
+      launchServerDriverSession(
+        ctx,
+        spawn('live-codex'),
+        cachedProbe(() => ({ output: 'codex-cli 0.147.0', ok: true })),
+      ),
+    ).resolves.toEqual({ handled: true })
+
+    expect(adoptions).toBe(0)
+    expect(created).toBe(1)
+    expect(sent.at(-1)).toMatchObject({
+      type: 'spawnError',
+      sessionId: 'live-codex',
+      message: expect.stringContaining('already has a persisted server journal'),
+    })
+  })
 })
 
 describe('durable backend resolution', () => {
