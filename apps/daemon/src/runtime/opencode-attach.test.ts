@@ -103,7 +103,9 @@ interface Harness {
   cleared: number
 }
 
-function harness(opts: { hasMaster?: (label: string) => boolean; redrawFrame?: string } = {}) {
+function harness(
+  opts: { hasMaster?: (label: string) => boolean; redrawFrame?: string; spawnFrame?: string } = {},
+) {
   const state: Harness = {
     spawns: [],
     reclaimed: [],
@@ -127,6 +129,7 @@ function harness(opts: { hasMaster?: (label: string) => boolean; redrawFrame?: s
       })
       const client = fakeClient(opts.redrawFrame)
       state.clients.push(client)
+      if (opts.spawnFrame) state.frames.push({ streamId: SESSION, data: opts.spawnFrame })
       return client
     },
     reclaim: async (label) => {
@@ -248,9 +251,9 @@ describe('the client terminal a server-family attach produces', () => {
    * scrollback as well as the screen.
    */
   it('clears the screen and scrollback BEFORE a cold-started client can paint', async () => {
-    const { terminals, state } = harness()
+    const paint = Buffer.from('paint').toString('base64')
+    const { terminals, state } = harness({ spawnFrame: paint })
     await terminals.attach({ sessionId: SESSION, target })
-    state.clients[0]?.emit('cGFpbnQ=')
     const decoded = state.frames.map((frame) => Buffer.from(frame.data, 'base64').toString('latin1'))
     expect(decoded[0]).toContain('\x1b[2J')
     expect(decoded[0]).toContain('\x1b[3J')
