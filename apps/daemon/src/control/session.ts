@@ -954,6 +954,106 @@ async function adoptServerDriverSession(
   }
 }
 
+/**
+ * A SPAWN FOR A SESSION THE SERVER FAMILY ALREADY JOURNALS IS A RESUME (POD-2775).
+ *
+ * `sessions.resume` reaches this machine as a `spawn` frame — the very frame a
+ * brand-new session arrives on, distinguished only by carrying the row's resume
+ * ref. `launchServerDriverSession` turned every one of them into
+ * `runtime.create()`, and `createWithId` REFUSES a session that already holds a
+ * binding-journal entry. That refusal is correct on its own terms: two live
+ * children under one session id is the POD-2249 double-spawn.
+ *
+ * But a PARKED server session holds exactly such an entry, deliberately — the
+ * park arm of `beginServerDriverReap` keeps it, because the entry is the address
+ * the conversation lives at. So resuming a hibernated codex session put the row
+ * on `exited` with `already has a persisted server journal` against it, and it
+ * stayed there: every retry is the same frame and fails identically. Measured on
+ * a live instance, on a park whose process teardown was completely clean — this
+ * is not the reap above it, and fixing the reap does not touch it.
+ *
+ * ADOPT IS THE PATH THAT ALREADY EXISTS AND ALREADY MEANS THIS. For the server
+ * family `adopt()` is defined as resume-not-rebind: codex starts a fresh
+ * app-server and `thread/resume`s the journalled thread, keeping the session id,
+ * the transcript, the resume ref and the turn epoch, and announcing the new
+ * process by bumping the binding version. It is what the REATTACH path has
+ * always used ({@link adoptServerDriverSession}); the resume path simply never
+ * asked for it.
+ *
+ * ONLY WHEN NO HANDLE IS LIVE. A journal entry beside a live handle is a session
+ * this daemon is already running, and a redelivered frame for one must not start
+ * a second child. That case keeps its existing behaviour exactly — it falls
+ * through to the create, which refuses it.
+ *
+ * A FAILED ADOPTION IS A SPAWN ERROR, not a fall-through to the PTY path. The
+ * journal says this conversation belongs to a server driver; launching a
+ * terminal against it would answer a resume with a different session wearing the
+ * same id.
+ */
+async function resumeJournalledServerSession(
+  ctx: DaemonContext,
+  msg: SpawnControl,
+): Promise<boolean> {
+  const runtime = ctx.agentRuntime
+  if (!runtime) return false
+  if (runtime.serverHandleFor(msg.sessionId)) return false
+  let adoption: Awaited<ReturnType<typeof runtime.adoptJournalled>>
+  try {
+    adoption = await runtime.adoptJournalled(msg.sessionId)
+  } catch (err) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: err instanceof Error ? err.message : String(err),
+    })
+    return true
+  }
+  if (!adoption.found) return false
+  const { handle, what, workdir } = adoption
+  if (!handle) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: `the ${what} session recorded in the binding journal could not be resumed`,
+    })
+    return true
+  }
+  try {
+    ctx.send({
+      type: 'bind',
+      sessionId: msg.sessionId,
+      cmd: `${what} (${handle.binding.driver})`,
+      // THE JOURNAL'S WORKDIR, like the reattach path uses. The frame's `cwd` is
+      // where the server thinks the session lives; the journal is where the
+      // conversation was actually opened, and codex resumes a thread relative to
+      // that. They agree unless a worktree moved under a parked session, and if
+      // they disagree the adopted child is the one that has to be described.
+      cwd: workdir,
+      agentKind: msg.agentKind,
+      geometry: msg.geometry ?? { cols: 120, rows: 40 },
+      // The same fact the launch and reattach paths state, and for the same
+      // reason: W4's senders branch on it, and a resumed session that reported
+      // `false` would be routed to a PTY it does not have.
+      runtimeContract: true,
+      driverId: handle.binding.driver,
+    })
+    ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
+    log.info('resumed a parked server-family session from its binding journal', {
+      sessionId: msg.sessionId,
+      driver: handle.binding.driver,
+    })
+    reconcileNativeClientTerminal(ctx, msg.sessionId)
+    return true
+  } catch (err) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: err instanceof Error ? err.message : String(err),
+    })
+    return true
+  }
+}
+
 type ServerDriverLaunchResult = { handled: true } | { handled: false; requestedDriverId?: string }
 
 /** The only server binary admission may probe after applying the login gate. */
@@ -1254,6 +1354,13 @@ export async function launchServerDriverSession(
    * by harness would hand the session to whichever registry happened to be
    * first.
    */
+  /**
+   * RESUME BEFORE CREATE (POD-2775). A session the server family already
+   * journals is being brought back, not brought into existence — see
+   * {@link resumeJournalledServerSession} for why the create below cannot serve
+   * it and what the journal entry is for.
+   */
+  if (await resumeJournalledServerSession(ctx, msg)) return { handled: true }
   try {
     const spec: SessionSpec = {
       harness: msg.agentKind,

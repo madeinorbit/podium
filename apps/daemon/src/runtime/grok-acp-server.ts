@@ -32,6 +32,7 @@ import {
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
+import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import {
   createVersionProbeCache,
   execVersionProbe,
@@ -41,7 +42,10 @@ import {
 
 const log = createLogger('daemon:grok-acp-server')
 const PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
-const EXIT_TIMEOUT_MS = 2_000
+/** How long a SIGTERM stop waits for the child to take its stdin EOF before
+ *  signalling. SHARED WITH THE REAP THAT HAS TO OUTLAST IT (POD-2775) — see
+ *  `server-teardown-budget.ts` for why the two numbers are declared together. */
+const EXIT_TIMEOUT_MS = SERVER_GRACEFUL_EXIT_MS
 
 const journalDir = (): string => join(stateDir(), 'grok-acp-servers')
 const journalPath = (sessionId: SessionId): string =>

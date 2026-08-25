@@ -24,6 +24,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../control/context'
 import { sessionHandlers, stopSessionProcess } from '../control/session'
 import { beginServerDriverReap, type ServerReapIo } from './server-reap'
+import {
+  SERVER_GRACEFUL_EXIT_MS,
+  SERVER_HANDLE_VERB_TIMEOUT_MS,
+  SERVER_SCOPE_RECLAIM_ALLOWANCE_MS,
+} from './server-teardown-budget'
 
 const SESSION = 'sess-1' as SessionId
 
@@ -317,6 +322,59 @@ describe('teardown through a live handle — once per driver registry', () => {
 
     expect(calls).toEqual(['kill', 'kill'])
     expect(io.signals).toContainEqual({ pid: 4321, signal: 'SIGKILL' })
+    expect(killResult(sent)).toMatchObject({ killed: true })
+    expect(killResult(sent)?.reason).toMatch(/timed out/)
+  })
+
+  /**
+   * POD-2775. Measured live: EVERY ordinary hibernate of a codex app-server
+   * session logged `could not complete the server-driver verb` and then
+   * escalated. Nothing was wedged — the bound on the verb (1000ms) was shorter
+   * than the graceful ending the verb is DEFINED to spend (2000ms), and the
+   * escalation then fired on `verbError !== undefined` against a process that
+   * had already exited cleanly.
+   *
+   * Two separate faults, so two tests. The first pins the arithmetic that made
+   * the timeout structural; the second pins that a failed verb is no longer
+   * read as a surviving process when the process was measured dead.
+   */
+  it('bounds the verb ABOVE every graceful ending the drivers are defined to spend', () => {
+    // Not a spot-check of two literals that happen to agree: the drivers'
+    // window and the reap's bound are ONE declaration, and this is the
+    // inequality that declaration exists to hold. It went the wrong way for the
+    // whole life of the reap, and no test could see it because the two numbers
+    // lived in different files.
+    expect(SERVER_HANDLE_VERB_TIMEOUT_MS).toBeGreaterThan(SERVER_GRACEFUL_EXIT_MS)
+    expect(SERVER_SCOPE_RECLAIM_ALLOWANCE_MS).toBeGreaterThan(0)
+  })
+
+  it('a verb that failed beside a process that DIED is not escalated — the measurement wins', async () => {
+    // The park shape exactly: the stop verb overruns its bound, and the child
+    // takes its stdin EOF and exits anyway. Escalating here raw-signals a corpse
+    // and runs `stop()` a SECOND time — and for codex that second stop is the
+    // path that flushes the rollout JSONL the next resume reads.
+    const state: FakeProcessState = { alive: true, diesOn: 'never' }
+    const { handle, calls } = fakeHandle({
+      pid: 4321,
+      scopeUnit: 'podium-x-sess-1.scope',
+      onStop: () =>
+        new Promise<void>(() => {
+          // Never settles — the overrun. The child exits on its own below.
+          state.alive = false
+        }),
+    })
+    const { ctx, sent } = fakeCtx('codexRuntime', { handle })
+    const io = fakeIo(state)
+
+    await beginServerDriverReap(ctx, SESSION, { retire: false }, io)
+    await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
+
+    expect(calls).toEqual(['stop'])
+    expect(io.signals).toHaveLength(0)
+    // The one thing a short-circuited verb may not have reached IS still done:
+    // its last step is the scope reclaim, and an unreclaimed scope squats the
+    // deterministic unit name the next spawn needs.
+    expect(io.systemctl.flat().join(' ')).toContain('podium-x-sess-1.scope')
     expect(killResult(sent)).toMatchObject({ killed: true })
     expect(killResult(sent)?.reason).toMatch(/timed out/)
   })

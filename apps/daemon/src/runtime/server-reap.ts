@@ -73,6 +73,7 @@ import type { SessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs } from '@podium/pty'
 import type { DaemonContext } from '../control/context'
 import { probeHealth } from './opencode-server'
+import { SERVER_HANDLE_VERB_TIMEOUT_MS } from './server-teardown-budget'
 
 const log = createLogger('daemon:server-reap')
 
@@ -81,11 +82,17 @@ const log = createLogger('daemon:server-reap')
  *  one-retry: teardown must converge on a measured answer, not wait politely
  *  forever — the graceful endings the drivers define (codex's stdin EOF,
  *  systemd's scope stop) have already run inside the handle verb by the time
- *  these polls start. */
+ *  these polls start.
+ *
+ *  THAT LAST SENTENCE WAS AN ASSERTION THIS FILE THEN CONTRADICTED (POD-2775):
+ *  `HANDLE_VERB_TIMEOUT_MS` was a local `1000` while the graceful endings it
+ *  claims to contain are `2000`, so the verb could not finish inside its own
+ *  bound and every healthy park reported a failure. The bound now comes from
+ *  where those endings are declared, and cannot drift away from them again. */
 const TERM_GRACE_MS = 3000
 const KILL_GRACE_MS = 2000
 const POLL_GAP_MS = 250
-const HANDLE_VERB_TIMEOUT_MS = 1000
+const HANDLE_VERB_TIMEOUT_MS = SERVER_HANDLE_VERB_TIMEOUT_MS
 
 /** The identity this module kills by: what a handle's binding and a journal
  *  entry both carry. */
@@ -322,7 +329,32 @@ async function reapViaHandle(
   }
 
   let dead = await pollDead(identity, TERM_GRACE_MS, io)
-  if (dead === false || verbError !== undefined) {
+  /**
+   * A VERB THAT FAILED IS NOT A PROCESS THAT SURVIVED (POD-2775).
+   *
+   * This branch used to fire on `verbError !== undefined` as well as on a
+   * measured survivor, which inverts the honesty contract at the top of this
+   * file: `dead` IS the measurement, and a failed verb beside a dead process
+   * says only that the verb did not get to report the ending itself. Escalating
+   * there raw-SIGKILLs a corpse and runs the verb a second time — and for a park
+   * that second `stop()` is not free, because codex's stop is the path that
+   * flushes the rollout JSONL the next resume reads.
+   *
+   * What a short-circuited verb genuinely may have skipped is its LAST step: each
+   * server host reclaims the session's transient scope at the end of `stop()`, and
+   * an unreclaimed scope squats the deterministic unit name the next spawn needs.
+   * That reclaim is idempotent and cheap, so it runs on its own — and nothing
+   * else does.
+   *
+   * The one case where a failed verb still carries the whole signal is a session
+   * with NO recorded pid (`dead === undefined`): nothing was measured, so there
+   * is nothing to believe instead.
+   */
+  const measuredSurvivor = dead === false
+  const unmeasurable = dead === undefined && verbError !== undefined
+  if (!measuredSurvivor && !unmeasurable) {
+    if (verbError !== undefined) await reclaimScope(identity, io)
+  } else {
     log.warn('the server-driver process needs measured escalation', {
       sessionId,
       processKey: identity.key,

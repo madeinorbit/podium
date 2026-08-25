@@ -60,6 +60,7 @@ import { stateDir } from '@podium/runtime/config'
 import WebSocket, { type RawData } from 'ws'
 import { serverChildEnv } from '../control/session-env'
 import { stageRuntimeAttachment } from './attachment-staging'
+import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import {
   createVersionProbeCache,
   execVersionProbe,
@@ -174,8 +175,13 @@ const VERSION_PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
 
 /** How long a SIGTERM stop waits for the child to take its stdin EOF before
  *  signalling. Short: the exit is a process teardown, not model work, and the
- *  only thing being waited for is the rollout file's last flush. */
-const GRACEFUL_EXIT_MS = 2_000
+ *  only thing being waited for is the rollout file's last flush.
+ *
+ *  SHARED WITH THE REAP THAT HAS TO OUTLAST IT (POD-2775). This was a local
+ *  `2_000` and `server-reap.ts` bounded the verb that spends it at `1_000`, so
+ *  every healthy park reported a failed verb. The one declaration now carries
+ *  both numbers and the inequality between them. */
+const GRACEFUL_EXIT_MS = SERVER_GRACEFUL_EXIT_MS
 
 /**
  * THREE ANSWERS, NOT TWO — adopted wholesale from POD-2023's review round, where
