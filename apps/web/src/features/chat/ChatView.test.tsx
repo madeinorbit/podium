@@ -1012,6 +1012,8 @@ describe('ChatView delivered send boundary', () => {
         status: 'live',
         agentState: {
           phase: 'errored',
+          since: '2026-06-03T00:00:01.000Z',
+          nativeSubagentCount: 0,
           error: { class: 'usage_limit', retryable: false, detail: 'balance exhausted' },
         },
       }),
