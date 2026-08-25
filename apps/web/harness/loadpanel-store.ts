@@ -107,6 +107,47 @@ const store = {
   setSettingsTab: () => {},
   trpc: {
     hosts: {
+      // Server-authoritative since POD-2662, and it answers on its own schedule
+      // — the panel's Reclaimable row reads "Counting checkouts…" until it does.
+      reclaimInventory: {
+        mutate: async () => ({
+          candidates: [
+            {
+              issueId: 'iss_a',
+              title: 'Sidebar row menu harness',
+              worktreePath: '/home/podium/podium/.claude/worktrees/POD-1188',
+              closedAt: '2026-08-10T00:00:00.000Z',
+              machineId: asMachineId('vmi34'),
+              present: true,
+              protectedReason: null,
+            },
+            {
+              issueId: 'iss_b',
+              title: 'Gauge planning band',
+              worktreePath: '/home/podium/podium/.claude/worktrees/POD-1181',
+              closedAt: '2026-08-04T00:00:00.000Z',
+              machineId: asMachineId('vmi34'),
+              present: true,
+              protectedReason: null,
+            },
+          ],
+          orphans: [
+            {
+              path: '/home/podium/podium-wt-pod1052',
+              branch: 'pod1052-turnkey-enrollment',
+              headSha: 'b0546163f',
+              machineId: asMachineId('vmi34'),
+              repoPath: '/home/podium/podium',
+            },
+          ],
+          diagnostics: [],
+          estimate: {
+            status: 'ready',
+            recoverableBytes: 4.7 * GIB,
+            measuredAt: '2026-08-24T09:00:00.000Z',
+          },
+        }),
+      },
       memoryBreakdown: {
         mutate: async () =>
           await new Promise((resolve) => setTimeout(() => resolve(breakdown), DELAY)),
