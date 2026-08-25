@@ -20,12 +20,24 @@ set -uo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 export PATH="$HOME/.bun/bin:$PATH"
 TARGET=apps/daemon/src/headless-drivers.ts
+SIBLING=apps/daemon/src/battery-sibling.ts
+RAN=""
 [ -z "$(git status --porcelain)" ] || { echo "REFUSING: tree is dirty"; exit 1; }
 cp "$TARGET" /tmp/battery-target.bak
+
+# RESTORE ON ANY EXIT, and this is not hypothetical: a run of this script was
+# killed by a timeout part-way through and left the A0b mutation sitting in
+# headless-drivers.ts. A mutation harness that only restores on the happy path
+# will eventually hand somebody a mutated tree and let them commit it — the whole
+# point of these shapes is that they are invisible, so nobody would notice.
+restore() {
+  cp /tmp/battery-target.bak "$TARGET" 2>/dev/null || true
+  rm -f "$SIBLING" /tmp/battery-inject.ts /tmp/battery-out.ts 2>/dev/null || true
+}
+trap restore EXIT INT TERM
+
 SDK='@anthropic-ai/claude-agent-sdk'
 
-RAN=""
-SIBLING=apps/daemon/src/battery-sibling.ts
 
 shape() { # id, description, code, [sibling-module-source]
   local id="$1" desc="$2" code="$3" sib="${4:-}"
