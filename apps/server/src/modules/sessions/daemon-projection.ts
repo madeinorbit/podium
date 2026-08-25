@@ -8,6 +8,7 @@ import {
   isGenericClaudeTitle,
   isTransientTitle,
   makeTitleDebouncer,
+  stripSpinnerFrame,
   titleFromPrompt,
 } from '../../title-filter'
 import type { SessionBindingReceipts } from './session-binding'
@@ -56,6 +57,18 @@ export class SessionDaemonProjection {
     this.titleDebouncers.delete(sessionId)
   }
 
+  /** Route every title update through one deduplicating history. */
+  private publishTitle(sessionId: SessionId, title: string): void {
+    let debouncer = this.titleDebouncers.get(sessionId)
+    if (!debouncer) {
+      debouncer = makeTitleDebouncer((settled) => {
+        this.ports.broadcastToClients({ type: 'sessionTitleChanged', sessionId, title: settled })
+      })
+      this.titleDebouncers.set(sessionId, debouncer)
+    }
+    debouncer.push(title)
+  }
+
   handle(machineId: MachineId, message: SessionProjectionDaemonFrame): void {
     switch (message.type) {
       case 'agentColor': {
@@ -85,32 +98,22 @@ export class SessionDaemonProjection {
       case 'title': {
         const session = this.ports.sessions.get(message.sessionId)
         if (!session || isCommandWrapperText(message.title)) break
-        if (
-          isGenericClaudeTitle(message.title) &&
-          session.title &&
-          !isGenericClaudeTitle(session.title)
-        ) {
+        // Store the stable title rather than whichever spinner frame the PTY
+        // happened to report last.
+        const title = stripSpinnerFrame(message.title)
+        if (isGenericClaudeTitle(title) && session.title && !isGenericClaudeTitle(session.title)) {
           break
         }
-        if (!isTransientTitle(message.title)) {
-          session.setTitle(message.title)
-          if (!isGenericClaudeTitle(message.title)) session.titleLocked = true
-          this.ports.persist(session)
+        if (!isTransientTitle(title)) {
+          // `titleLocked` is live-only, so a reattached harness must restore it
+          // even when the durable title already matches.
+          if (!isGenericClaudeTitle(title)) session.titleLocked = true
+          if (session.title !== title) {
+            session.setTitle(title)
+            this.ports.persist(session)
+          }
         }
-        if (!this.titleDebouncers.has(message.sessionId)) {
-          const sessionId = message.sessionId
-          this.titleDebouncers.set(
-            sessionId,
-            makeTitleDebouncer((title) => {
-              this.ports.broadcastToClients({
-                type: 'sessionTitleChanged',
-                sessionId,
-                title,
-              })
-            }),
-          )
-        }
-        this.titleDebouncers.get(message.sessionId)?.push(message.title)
+        this.publishTitle(message.sessionId, title)
         break
       }
       case 'sessionResumeRef':
@@ -159,11 +162,7 @@ export class SessionDaemonProjection {
             session.setTitle(title)
             session.titleLocked = true
             this.ports.persist(session)
-            this.ports.broadcastToClients({
-              type: 'sessionTitleChanged',
-              sessionId: message.sessionId,
-              title,
-            })
+            this.publishTitle(message.sessionId, title)
           }
         }
         break

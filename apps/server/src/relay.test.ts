@@ -1560,18 +1560,101 @@ describe('SessionRegistry', () => {
       title: '✳ rename functionality',
     })
 
+    // The leading `✳` is a frame of the harness's own terminal spinner, not part
+    // of the title, and it is stripped before anything is stored or sent
+    // (POD-1607) — otherwise each frame is a different string and every frame is
+    // a broadcast to every client.
     expect(c.sent).toContainEqual({
       type: 'sessionTitleChanged',
       sessionId,
-      title: '✳ rename functionality',
+      title: 'rename functionality',
     })
     // Not a full list rebroadcast.
     expect(c.sent.some((m) => m.type === 'sessionsChanged')).toBe(false)
-    // Late joiners see it via listSessions().
+    // Late joiners see it via listSessions() — also without the frame, so the
+    // session does not keep whichever one the spinner happened to stop on.
     expect(reg.modules.sessions.listSessions().at(0)).toMatchObject({
+      sessionId,
+      title: 'rename functionality',
+    })
+  })
+
+  it('says nothing more while only the spinner frame turns', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+    })
+    const c = sink()
+    attachTestClient(reg.clientGateway, c.send)
+    c.sent.length = 0
+
+    for (const frame of ['✳', '✶', '✷', '✸']) {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'title',
+        sessionId,
+        title: `${frame} rename functionality`,
+      })
+    }
+
+    // One title, one broadcast — however many frames the harness paints.
+    expect(c.sent.filter((m) => m.type === 'sessionTitleChanged')).toHaveLength(1)
+  })
+
+  it('a re-reported identical title still locks, so no prompt renames the session', () => {
+    // `titleLocked` is live-only (SessionLiveOverlay carries no storage column)
+    // while `title` is durable, so a restarted server holds a titled but UNLOCKED
+    // session and the reattached harness re-reports the SAME title. Treating that
+    // as "nothing changed" and skipping the lock would leave the prompt-title
+    // fallback free to rename the session to its first prompt. Asserted through
+    // the consequence rather than the private flag.
+    const file = join(trackTmp('podium-relay-'), 'podium.db')
+    const store = new SessionStore(file, TEST_MACHINE)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'title',
       sessionId,
       title: '✳ rename functionality',
     })
+    store.close()
+
+    // THE RESTART. The row comes back titled; `titleLocked` does not come back
+    // at all, because nothing ever wrote it down.
+    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, {
+      instanceId: 'default',
+    })
+    reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
+    const c = sink()
+    attachTestClient(reg2.clientGateway, c.send)
+
+    // The reattached harness re-reports the title it already had.
+    reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
+      type: 'title',
+      sessionId,
+      title: '✶ rename functionality',
+    })
+    // Now a first prompt arrives. It must NOT rename the session.
+    reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
+      type: 'transcriptDelta',
+      sessionId,
+      items: [{ id: 'u1', role: 'user', text: 'Refactor the transcript reader', cursor: 'c1' }],
+      tail: 'c1',
+    })
+
+    expect(
+      reg2.modules.sessions.listSessions().find((s) => s.sessionId === sessionId),
+    ).toMatchObject({ title: 'rename functionality' })
+    expect(
+      c.sent.filter(
+        (m) => m.type === 'sessionTitleChanged' && m.title !== 'rename functionality',
+      ),
+    ).toEqual([])
   })
 
   it('ignores a title for an unknown session', () => {
@@ -1607,7 +1690,9 @@ describe('SessionRegistry', () => {
       sessionId,
       title: '✳ working',
     })
-    expect(store.sessions.loadSessions().at(0)).toMatchObject({ title: '✳ working' })
+    // Persisted without the harness's spinner frame (POD-1607): the row must not
+    // keep whichever frame the spinner happened to stop on.
+    expect(store.sessions.loadSessions().at(0)).toMatchObject({ title: 'working' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,

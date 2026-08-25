@@ -1,6 +1,20 @@
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control chars is the point
 const CONTROL = /[\x00-\x1f\x7f]/
 
+/**
+ * Known leading frames emitted with a real terminal title. A closed set matters
+ * here because titles may legitimately begin with symbols such as `●` or `○`.
+ * Braille stays out of the set because `isTransientTitle` rejects a title that
+ * contains it, allowing the prompt-derived fallback to win.
+ */
+const SPINNER_FRAMES = '◐◑◒◓▁▂▃▄▅▆▇█✲✳✴✶✷✸✹✺'
+const LEADING_SPINNER = new RegExp(`^[${SPINNER_FRAMES}]+[\\s\\u00a0]+(?=\\S)`, 'u')
+
+/** The title without its spinner frame; unchanged when there is not one. */
+export function stripSpinnerFrame(title: string): string {
+  return title.replace(LEADING_SPINNER, '')
+}
+
 export function isTransientTitle(title: string): boolean {
   const t = title.trim()
   if (t.length === 0) return true
@@ -71,13 +85,17 @@ export function makeTitleDebouncer(
     emit(t)
   }
   return {
-    push(t) {
+    push(raw) {
+      // Compare the stable title so a turning spinner does not become a stream
+      // of client updates.
+      const t = stripSpinnerFrame(raw)
       if (isTransientTitle(t)) return
       pending = t
       if (!inBurst) {
-        // Leading edge: emit immediately and start a burst window.
+        // A spinner slower than the quiet window opens a fresh burst on every
+        // frame, so the leading edge must still respect the last emitted title.
         inBurst = true
-        doEmit(t)
+        if (t !== lastEmitted) doEmit(t)
         arm()
       } else {
         // Within a burst: update pending and keep the trailing timer armed.

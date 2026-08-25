@@ -17,7 +17,7 @@
  * 'working', or a message in transport to one) — gating stays the caller's job,
  * exactly as it was for the spinner.
  */
-import type { JSX } from 'react'
+import { type JSX, memo } from 'react'
 import { cn } from '@/lib/utils'
 
 /** Cell geometry, verbatim from the design (viewBox 66×100): two columns of
@@ -33,7 +33,7 @@ const DOTS: readonly (readonly [number, number])[] = [
   [49, 82],
 ]
 
-export function WorkingMark({
+function WorkingMarkCell({
   size = 12,
   className,
 }: {
@@ -63,3 +63,10 @@ export function WorkingMark({
     </svg>
   )
 }
+
+/**
+ * `PhaseTimer` re-renders once a second while working. The mark takes only a
+ * size and class, so those clock ticks should not reconcile its eight dots.
+ */
+export const WorkingMark = memo(WorkingMarkCell)
+WorkingMark.displayName = 'WorkingMark'
