@@ -11,6 +11,10 @@ const desktopWorkflow = readFileSync(
 )
 const headlessWorkflow = readFileSync(join(repoRoot, '.github/workflows/release.yml'), 'utf8')
 const releaseSource = readFileSync(join(repoRoot, 'scripts/release.ts'), 'utf8')
+const carryForwardSource = readFileSync(
+  join(repoRoot, 'scripts/carry-forward-desktop-manifest.ts'),
+  'utf8',
+)
 const macSigningVerifier = readFileSync(
   join(repoRoot, 'apps/desktop/scripts/verify-macos-signing.sh'),
   'utf8',
@@ -360,7 +364,11 @@ describe('desktop release workflow', () => {
     expect(desktopWorkflow).toContain('desktop-shell-input.sha256')
     expect(desktopWorkflow).toContain("if: needs.validate.outputs.build_shell == 'true'")
     expect(headlessWorkflow).toContain('Carry forward the standing desktop shell reference')
-    expect(headlessWorkflow).toContain('latest.json desktop-shell-input.sha256')
+    // POD-2796 moved the carry out of inline `gh … || true` and into a step that can say
+    // no. The two asset names now live in exactly one place — the script — so this asserts
+    // the workflow reaches it and that the script still names both.
+    expect(headlessWorkflow).toContain('scripts/carry-forward-desktop-manifest.ts')
+    expect(carryForwardSource).toContain("'latest.json', 'desktop-shell-input.sha256'")
     expect(releaseSource).toContain('validateReferencedDesktopManifest')
   })
 

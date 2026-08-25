@@ -163,19 +163,20 @@ jobs:
         with:
           name: headless-cross
           path: dist-bun/release
+      # PUBLISHING IS ONE ACT (POD-2796). Most headless releases mint no shell, so the
+      # previous release's `latest.json` has to come forward onto this one or installed
+      # desktop apps lose the endpoint they poll. This used to be `gh release download
+      # … || true`, which put "this channel has no previous release" and "GitHub could
+      # not be reached" into the same silent catch — and a stable cut is a NEW release,
+      # so nothing carried means `releases/latest/download/latest.json` starts 404ing
+      # for every shell already installed, while the run reports success. The script
+      # asks what the standing release holds and lets only a clean 404 mean "nothing to
+      # carry"; every other answer fails this step and the publish below never runs.
       - name: Carry forward the standing desktop shell reference
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if [ "$PODIUM_RELEASE_CHANNEL" = edge ]; then source_tag=edge; else source_tag=""; fi
-          for asset in latest.json desktop-shell-input.sha256; do
-            if [ -n "$source_tag" ]; then
-              gh release download "$source_tag" --pattern "$asset" --dir dist-bun/release --clobber || true
-            else
-              gh release download --pattern "$asset" --dir dist-bun/release --clobber || true
-            fi
-          done
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bun scripts/carry-forward-desktop-manifest.ts --channel "$PODIUM_RELEASE_CHANNEL" --dir dist-bun/release
       - name: Publish one multi-platform release
         env:
           GH_TOKEN: ${{ github.token }}
