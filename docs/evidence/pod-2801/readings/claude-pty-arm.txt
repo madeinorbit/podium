@@ -1,0 +1,20 @@
+[claude] session 1f2273d2-4e93-46c1-bedb-e24f474bff82 created; 45000ms for the TUI to come up
+[claude] bound driver claude-pty (family terminal)
+[claude] TUI priming: nothing to clear
+
+=== phase while producing output ===
+
+| harness | driver | verdict | phases seen | EVER working | output bytes | growing intervals |
+|---|---|---|---|---|---|---|
+| claude | claude-pty | **FAIL** | idle=60 | false | 79242 | 49/59 |
+
+--- claude (claude-pty) — FAIL: produced 79242 bytes of output over 49 growing intervals and never once reported working
+    +  1198ms  phase=idle       ptyBytes=   2163  transcriptChars=0
+    + 11513ms  phase=idle       ptyBytes=  15338  transcriptChars=0
+    + 22828ms  phase=idle       ptyBytes=  31358  transcriptChars=0
+    + 33110ms  phase=idle       ptyBytes=  47192  transcriptChars=0
+    + 43306ms  phase=idle       ptyBytes=  62679  transcriptChars=0
+    + 53518ms  phase=idle       ptyBytes=  79242  transcriptChars=12267
+    + 62606ms  phase=idle       ptyBytes=  79242  transcriptChars=12267
+
+1 of 1 harness(es) never reported working: claude

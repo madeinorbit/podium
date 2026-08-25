@@ -159,7 +159,7 @@ turn a viewer joined never streamed at all.
 
 | behaviour | codex | grok-acp | opencode | terminal | notes |
 |---|---|---|---|---|---|
-| working vs idle | wired | wired | wired | wired | `phase: 'working'`, `'compacting'` are the only phases in the model |
+| working vs idle | wired | wired | wired | wired | `phase: 'working'`, `'compacting'` are the only phases in the model. THE TERMINAL COLUMN IS DRIVEN AND STILL NOT PROVEN (POD-2801, `docs/evidence/pod-2801/`): codex, grok and opencode report `working` while producing output, and **claude does not** — 79,242 bytes across 49 of 59 one-second intervals with `phase=idle` at all 60 polls, its causal checkpoint stuck at `{transcript: 0, hook: 0}` with `lastAcceptedLiveCursor: null`. opencode read the same until POD-2801 fixed it: two readers shared one SQLite cursor, the transcript read consumed every row before the state read saw it, `onEvents` never fired, and the phase never left the boot-seeded `idle` while the agent wrote 121KB. This cell is what the `wired` column warns about — the code existed, the tests passed, and driven it did not work |
 | **compacting** | wired | wired | wired | wired | |
 | **has subagents running** | absent | absent | absent | absent | daemon tracks `nativeSubagentCount`; not in the driver contract |
 | **waiting to be woken by a cron** | absent | absent | absent | absent | |

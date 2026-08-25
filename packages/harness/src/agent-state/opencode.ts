@@ -241,8 +241,25 @@ export function observeOpencodeState(opts: {
     }
   }
 
-  // The hot path: run the two per-tick reads only when the DB (or its WAL sidecars)
+  // The hot path: run the per-tick read only when the DB (or its WAL sidecars)
   // changed since the last tick. An unknown mtime (stat failed) reads anyway.
+  //
+  // ONE READER PER CURSOR (POD-2801). `emitTranscript` and `tick` BOTH query the
+  // message parts newer than `(lastPartTime, lastPartId)` and BOTH advance that
+  // cursor, so running them back to back left `tick` querying from a cursor
+  // already past every new row. It saw zero rows on every tick of every turn,
+  // built no `prompt_submitted` / `activity` / `turn_completed`, and the
+  // session's phase never moved off the boot-seeded `idle` while the agent wrote
+  // megabytes — a busy session rendering as idle on the home board for its whole
+  // turn, and everything downstream of the phase reading wrong with it.
+  //
+  // `tick` is the reader that keeps BOTH planes: it publishes the same
+  // cursor-stamped items on `onTranscriptItems` that `emitTranscript` would.
+  // What it does not do is the INITIAL tail load — a bounded read of the history
+  // that is already there — so that one stays with `emitTranscript`, and only
+  // while it is still owed (`firstTranscript`). Replaying that history as live
+  // `activity` is deliberately not done: `bootEvents` already classifies the
+  // prior turn, and re-announcing it would restamp a finished session as busy.
   const pollOnce = async (): Promise<void> => {
     if (stopped || !attached) return
     const rt = await maybeLoadOpencodeRuntime()
@@ -250,7 +267,7 @@ export function observeOpencodeState(opts: {
     const mtimeMs = rt.opencodeDbMtimeMs(opts.homeDir)
     if (mtimeMs !== undefined && mtimeMs === lastPollMtimeMs) return
     lastPollMtimeMs = mtimeMs
-    await emitTranscript(false)
+    if (firstTranscript) await emitTranscript(false)
     await tick()
   }
 

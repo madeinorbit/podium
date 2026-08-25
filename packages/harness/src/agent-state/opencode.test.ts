@@ -254,3 +254,89 @@ describe('observeOpencodeState DB handle reuse + mtime gate', () => {
     dbHooks.mtimeMs = undefined // un-pin for any later tests
   })
 })
+
+/**
+ * THE TRANSCRIPT READ MUST NOT EAT THE STATE READ (POD-2801).
+ *
+ * `emitTranscript` and `tick` both query the message parts newer than
+ * `(lastPartTime, lastPartId)` and both ADVANCE that cursor, and `pollOnce` ran
+ * them in that order. So on every tick the transcript read consumed the new rows
+ * and the state read queried from a cursor already past all of them: zero rows,
+ * no `prompt_submitted`, no `activity`, no `turn_completed`. The session's phase
+ * never left the boot-seeded `idle` while the agent wrote megabytes to the
+ * terminal — measured on the POD-2777 rig as 121,554 bytes of PTY output across
+ * 60 polls, `idle` at every one.
+ *
+ * `onTranscriptItems` IS THE POINT OF THIS TEST, not scaffolding. `emitTranscript`
+ * returns immediately when no transcript sink is registered, so an observer built
+ * without one never starves its own state read and the bug is invisible. Every
+ * pre-existing test here passes `onEvents` alone; the daemon always passes both.
+ * A test that omits the sink is testing a wiring that production never uses.
+ */
+describe('observeOpencodeState state events (POD-2801)', () => {
+  it('reports the live rows on the state plane, not only on the transcript plane', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-phase-'))
+    const root = join(home, '.local', 'share', 'opencode')
+    await mkdir(root, { recursive: true })
+    await seedSessionDb(root, 'ses_phase', '/repo/phase', 'previous answer')
+
+    dbHooks.mtimeMs = 3_000
+    const events: string[] = []
+    const items: unknown[] = []
+    const obs = observeOpencodeState({
+      cwd: '/repo/phase',
+      homeDir: home,
+      resumeValue: 'ses_phase',
+      pollMs: 10,
+      onEvents: (e) => events.push(...e.map((x) => x.kind)),
+      onTranscriptItems: (i) => items.push(...i),
+    })
+    try {
+      await waitFor(() => obs.sessionId === 'ses_phase')
+      // Let the attach-time tail load finish and the cursor settle before the
+      // live rows land, so this measures the STEADY-STATE poll, not the boot read.
+      await new Promise((r) => setTimeout(r, 60))
+      const before = events.length
+
+      const db = openDatabase(join(root, 'opencode.db'))
+      db.prepare(
+        'INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)',
+      ).run('msg-live-u', 'ses_phase', 10, 10, JSON.stringify({ role: 'user' }))
+      db.prepare(
+        'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(
+        'prt-live-u',
+        'msg-live-u',
+        'ses_phase',
+        10,
+        10,
+        JSON.stringify({ type: 'text', text: 'count to a hundred' }),
+      )
+      db.prepare(
+        'INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)',
+      ).run('msg-live-a', 'ses_phase', 11, 11, JSON.stringify({ role: 'assistant' }))
+      db.prepare(
+        'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(
+        'prt-live-a',
+        'msg-live-a',
+        'ses_phase',
+        11,
+        11,
+        JSON.stringify({ type: 'text', text: 'one. two. three.' }),
+      )
+      db.close()
+      dbHooks.mtimeMs = 4_000
+
+      // The transcript plane sees the new rows — this is the control. It fires
+      // whether or not the state plane is starved, so a state plane that stayed
+      // empty here cannot be blamed on rows that never arrived.
+      await waitFor(() => items.length >= 2)
+      await waitFor(() => events.length > before)
+      expect(events.slice(before)).toEqual(['prompt_submitted', 'activity'])
+    } finally {
+      obs.stop()
+      dbHooks.mtimeMs = undefined
+    }
+  })
+})
