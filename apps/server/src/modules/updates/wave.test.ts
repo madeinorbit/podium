@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { machineCanTakeDelivery, offeredDeliveries, planWave, type WaveMachine } from './wave'
+import {
+  decideWave,
+  machineCanTakeDelivery,
+  offeredDeliveries,
+  planWave,
+  type WaveMachine,
+} from './wave'
 
 const m = (over: Partial<WaveMachine> & { id: string }): WaveMachine => ({
   version: '0.4.1',
@@ -272,5 +278,93 @@ describe('what a target offers', () => {
     // The identity target the server publishes before a release exists offers
     // nothing at all now that git delivery is retired.
     expect(offeredDeliveries({ artifacts: {} })).toEqual([])
+  })
+})
+
+/**
+ * THE DECISION, NOT JUST THE SELECTION (POD-2754).
+ *
+ * `planWave`'s answer cannot be held to afterwards: "one machine was granted"
+ * and "one machine was granted while another was deliberately held back for want
+ * of a proved canary" are the same list. These cases are about the difference,
+ * because the difference is the whole of what the rollout gate checks.
+ */
+describe('decideWave', () => {
+  it('names every machine the canary round held, and why', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: false,
+      machines: [m({ id: 'a', name: 'fleet-a' }), m({ id: 'b', name: 'fleet-b' })],
+    })
+    expect(decision.gate).toBe('canary')
+    expect(decision.selected).toEqual(['a'])
+    expect(decision.held).toEqual([{ id: 'b', name: 'fleet-b', reason: 'canary-gated' }])
+  })
+
+  it('holds an eligible machine `canary-gated` while the canary is in flight', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: false,
+      machines: [m({ id: 'a', state: 'downloading' }), m({ id: 'b' })],
+    })
+    expect(decision.selected).toEqual([])
+    expect(decision.held).toEqual([
+      { id: 'a', reason: 'in-flight' },
+      { id: 'b', reason: 'canary-gated' },
+    ])
+  })
+
+  it('says `canary-gated` about nobody once the canary is proved', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: true,
+      machines: [m({ id: 'a' }), m({ id: 'b' })],
+    })
+    expect(decision.gate).toBe('widen')
+    expect(decision.selected).toEqual(['a', 'b'])
+    expect(decision.held).toEqual([])
+  })
+
+  it('separates a machine that cannot be granted from one the round has no room for', () => {
+    const decision = decideWave({
+      ...base,
+      concurrency: 1,
+      canaryHealthy: true,
+      machines: [
+        m({ id: 'behind' }),
+        m({ id: 'waiting' }),
+        m({ id: 'checkout', installKind: 'source' }),
+        m({ id: 'gone', online: false }),
+        m({ id: 'arrived', version: '0.4.2' }),
+        m({ id: 'refused', state: 'rejected' }),
+      ],
+    })
+    expect(decision.selected).toEqual(['behind'])
+    expect(Object.fromEntries(decision.held.map((held) => [held.id, held.reason]))).toEqual({
+      waiting: 'wave-full',
+      checkout: 'source-checkout',
+      gone: 'offline',
+      arrived: 'already-current',
+      refused: 'terminal-verdict',
+    })
+  })
+
+  it('holds a machine that cannot take what the target offers', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: true,
+      deliveries: [],
+      machines: [m({ id: 'a', deliveryCaps: ['update.delivery.feed'] })],
+    })
+    expect(decision.selected).toEqual([])
+    expect(decision.held).toEqual([{ id: 'a', reason: 'unsupported-delivery' }])
+  })
+
+  it('agrees with planWave about the selection, always', () => {
+    const machines = [m({ id: 'a' }), m({ id: 'b', busy: true }), m({ id: 'c', online: false })]
+    for (const canaryHealthy of [false, true]) {
+      const ctx = { ...base, canaryHealthy, machines }
+      expect(planWave(ctx)).toEqual(decideWave(ctx).selected)
+    }
   })
 })

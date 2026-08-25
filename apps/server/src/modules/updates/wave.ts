@@ -126,40 +126,148 @@ export const TERMINAL_STATES: ReadonlySet<ConvergenceState> = new Set(['rejected
 const IN_FLIGHT = IN_FLIGHT_STATES
 const TERMINAL_FAILURE = TERMINAL_STATES
 
-export function planWave(ctx: {
+/**
+ * WHY A MACHINE IS NOT IN THIS ROUND — the closed set (POD-2754).
+ *
+ * Every filter {@link decideWave} applies has exactly one of these names, so a
+ * machine left out of a round is left out for a reason a reader can classify
+ * rather than for no recorded reason at all. `canary-gated` is the one that
+ * carries this rollout's whole safety promise: the machine was eligible, and the
+ * only thing keeping it back was that nothing had yet proved this bundle.
+ */
+export type WaveExclusion =
+  | 'source-checkout'
+  | 'offline'
+  | 'already-current'
+  | 'in-flight'
+  | 'terminal-verdict'
+  | 'unsupported-delivery'
+  | 'canary-gated'
+  | 'wave-full'
+
+/** One machine this round did not grant, and the single reason it did not. */
+export interface WaveHold {
+  id: string
+  name?: string
+  reason: WaveExclusion
+}
+
+/**
+ * WHAT ONE PASS OF THE PLANNER DECIDED, INCLUDING ABOUT THE MACHINES IT PASSED
+ * OVER (POD-2754).
+ *
+ * `planWave` answered with the selection alone, which is enough to ACT on and
+ * not enough to be held to afterwards: "one machine was granted" and "one
+ * machine was granted while two others were deliberately held for want of a
+ * proved canary" are the same list. The second is the fact the rollout gate is
+ * about, and it is only a fact if the holds are stated alongside the grants.
+ *
+ * `gate` says which of the planner's two modes produced this: `canary` while
+ * nothing has proved the bundle, `widen` once something has.
+ */
+export interface WaveDecision {
+  gate: 'canary' | 'widen'
+  selected: string[]
+  held: WaveHold[]
+}
+
+/**
+ * ONE ROUND OF GRANTS, WRITTEN DOWN WHEN IT HAPPENS (POD-2754).
+ *
+ * A wave's shape is a sequence of transient states, and the gate that checks it
+ * used to try to CATCH one — sampling the fleet every hundred milliseconds and
+ * hoping a sample landed inside the window where exactly one machine was in
+ * flight. On a fast update that window closes before the first sample, so a
+ * correct rollout read as one that never gated at all. A sampling observer
+ * cannot prove a transient fact; only a record can.
+ *
+ * So this is the record: every round that actually handed a machine an update,
+ * what it granted, and every machine it held back with the reason. The canary
+ * stage is then a fact anyone can read afterwards — the first round of an
+ * operation's wave granted one machine and held the others `canary-gated` —
+ * rather than a moment somebody had to be looking at.
+ */
+export interface WaveRound {
+  /** Server clock at the instant the grants went out. */
+  at: number
+  gate: 'canary' | 'widen'
+  /** The version this round was granting; a round is only about one target. */
+  targetVersion: string
+  granted: { id: string; name?: string }[]
+  held: WaveHold[]
+}
+
+const hold = (machine: WaveMachine, reason: WaveExclusion): WaveHold => ({
+  id: machine.id,
+  ...(machine.name ? { name: machine.name } : {}),
+  reason,
+})
+
+/**
+ * Why this machine can take no grant at all right now — independent of the
+ * canary gate and of how full the round is, which are the two reasons a
+ * PERFECTLY ELIGIBLE machine still waits.
+ */
+function ineligibility(
+  machine: WaveMachine,
+  ctx: { targetVersion: string; deliveries?: readonly string[] },
+): WaveExclusion | undefined {
+  if (!isPackagedRolloutTarget(machine)) return 'source-checkout'
+  if (machine.version === ctx.targetVersion) return 'already-current'
+  if (IN_FLIGHT.has(machine.state)) return 'in-flight'
+  if (TERMINAL_FAILURE.has(machine.state)) return 'terminal-verdict'
+  if (!machine.online) return 'offline'
+  // Never hand a machine an update it has already told us it cannot take,
+  // applying the same predicate to canary selection and every later wave.
+  if (!machineCanTakeDelivery(machine, ctx.deliveries)) return 'unsupported-delivery'
+  return undefined
+}
+
+export function decideWave(ctx: {
   machines: readonly WaveMachine[]
   targetVersion: string
   concurrency: number
   canaryHealthy: boolean
   /** How the target can be delivered; omitted means "do not filter on it". */
   deliveries?: readonly string[]
-}): string[] {
+}): WaveDecision {
+  const gate = ctx.canaryHealthy ? 'widen' : 'canary'
   const inFlight = ctx.machines.filter((machine) => IN_FLIGHT.has(machine.state)).length
-  const eligible = ctx.machines.filter(
-    (machine) =>
-      isPackagedRolloutTarget(machine) &&
-      machine.online &&
-      machine.version !== ctx.targetVersion &&
-      !IN_FLIGHT.has(machine.state) &&
-      !TERMINAL_FAILURE.has(machine.state) &&
-      // Never hand a machine an update it has already told us it cannot take,
-      // applying the same predicate to canary selection and every later wave.
-      machineCanTakeDelivery(machine, ctx.deliveries),
-  )
+  const held: WaveHold[] = []
+  const eligible: WaveMachine[] = []
+  for (const machine of ctx.machines) {
+    const reason = ineligibility(machine, ctx)
+    if (reason) held.push(hold(machine, reason))
+    else eligible.push(machine)
+  }
 
-  if (eligible.length === 0) return []
+  if (eligible.length === 0) return { gate, selected: [], held }
 
   if (!ctx.canaryHealthy) {
-    if (inFlight > 0) return []
+    // A canary is already in flight: everything eligible waits on its verdict,
+    // which is the same reason as below and deliberately named the same.
     const idle = eligible.filter((machine) => !machine.busy)
     const pool = idle.length > 0 ? idle : eligible
-    const canary = [...pool].sort((a, b) => a.id.localeCompare(b.id))[0]
-    return canary ? [canary.id] : []
+    const canary = inFlight > 0 ? undefined : [...pool].sort((a, b) => a.id.localeCompare(b.id))[0]
+    for (const machine of eligible) {
+      if (machine.id !== canary?.id) held.push(hold(machine, 'canary-gated'))
+    }
+    return { gate, selected: canary ? [canary.id] : [], held }
   }
 
   const room = Math.max(0, ctx.concurrency - inFlight)
-  return [...eligible]
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .slice(0, room)
-    .map((machine) => machine.id)
+  const ordered = [...eligible].sort((a, b) => a.id.localeCompare(b.id))
+  for (const machine of ordered.slice(room)) held.push(hold(machine, 'wave-full'))
+  return { gate, selected: ordered.slice(0, room).map((machine) => machine.id), held }
+}
+
+/** The selection alone, for every caller that acts on it rather than records it. */
+export function planWave(ctx: {
+  machines: readonly WaveMachine[]
+  targetVersion: string
+  concurrency: number
+  canaryHealthy: boolean
+  deliveries?: readonly string[]
+}): string[] {
+  return decideWave(ctx).selected
 }
