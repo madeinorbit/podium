@@ -1,7 +1,7 @@
 import { relativeTime } from '@podium/client-core/focus'
 import {
-  issueClosedFoldAt,
   type IssueNavigationModel,
+  issueClosedFoldAt,
   type UnifiedIssueRow as UnifiedIssueRowView,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
@@ -11,6 +11,7 @@ import { Archive, ChevronRight, Pin } from 'lucide-react'
 import * as m from 'motion/react-m'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useId, useRef, useState } from 'react'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { type RowTransitionItem, useArrivals } from '@/lib/motion'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
@@ -57,7 +58,11 @@ const TAIL_FOLD_CLASS =
  *  inside the 34 and gave the band 33px of ground. Same reading error as the
  *  row's `min-height`, one pixel instead of four. */
 export const SECTION_BAND_CLASS =
-  'flex h-[35px] w-full flex-none items-center gap-[9px] border-b border-hairline-bar bg-muted px-[13px] text-left'
+  // `work-section-band` carries no styles of its own here — it is the hook the
+  // Omarchy profile keys the band's geometry off (app/omarchy.css §4). A name is
+  // cheaper than a `:has()` on the utility soup, and it survives a retune of any
+  // utility in the list.
+  'work-section-band flex h-[35px] w-full flex-none items-center gap-[9px] border-b border-hairline-bar bg-muted px-[13px] text-left'
 
 /** The gap ABOVE a section that is not the first (POD-1078, the design's 14px).
  *  The band already said where a group STARTS; nothing said where one ended, so
@@ -114,9 +119,11 @@ function SectionBand({
       {/* --muted-foreground, not --label: the band is a HEADER now, not a
           floating caption, and the design sets it a step darker to match. */}
       <span className={SECTION_BAND_LABEL_CLASS}>{label}</span>
-      <ChevronRight
+      <ShellGlyph
+        icon={ChevronRight}
+        glyph="chevron_right"
         size={11}
-        aria-hidden="true"
+        aria-hidden={true}
         className={cn(
           'flex-none text-text-faint transition-[transform,opacity] duration-150',
           !collapsed && 'rotate-90',
@@ -561,7 +568,7 @@ export function ClosedIssueFold<T>({
                     onArchive(issueRow.issue.id)
                   }}
                 >
-                  <Archive size={11} aria-hidden="true" />
+                  <ShellGlyph icon={Archive} glyph="inventory_2" size={11} aria-hidden={true} />
                 </button>
               </div>
             )
@@ -593,7 +600,7 @@ export function ClosedIssueFold<T>({
             className="shell-type-micro flex h-5 items-center gap-1 rounded-[5px] border border-transparent px-1.5 font-mono font-medium tracking-[.02em] text-text-dim transition-[color,border-color,background-color] duration-100 hover:border-hairline-bar hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
             data-testid="closed-issues-archive-all"
           >
-            <Archive size={10} aria-hidden="true" />
+            <ShellGlyph icon={Archive} glyph="inventory_2" size={10} aria-hidden={true} />
             <span>Archive all</span>
           </button>
         </div>

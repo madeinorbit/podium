@@ -3,6 +3,7 @@ import { Smartphone, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { DeferredMobileHandoffQr } from './DeferredMobileHandoffQr'
 import { useHasFirstTask, useMobileHandoffUrl } from './mobile-handoff'
 
@@ -35,7 +36,11 @@ export function MobileHandoffChip(): JSX.Element | null {
         data-testid="mobile-handoff-chip"
         aria-label="On your phone"
       >
-        <Smartphone aria-hidden="true" className="size-3" />
+        {/* size={12} is `size-3` spelled as a prop — lucide writes it straight
+            onto the svg, so the Podium appearance is pixel-identical. The Omarchy
+            design draws this one at 14px; omarchy.css sets that where the rest of
+            the strip's metrics are set. */}
+        <ShellGlyph icon={Smartphone} glyph="smartphone" size={12} aria-hidden={true} />
         On your phone
       </Popover.Trigger>
       <Popover.Portal>

@@ -1,5 +1,7 @@
 import type { JSX } from 'react'
+import { useThemeAppearance } from '@/app/theme'
 import { cn } from '@/lib/utils'
+import omarchyLogoUrl from './omarchy/om-wordmark.svg'
 import logoUrl from './podium-logo.svg'
 
 /** width/height of the SVG viewBox (290.9 225.3 826.4 317.7) — the asset has no
@@ -26,6 +28,14 @@ export function PodiumLogo({
   height?: number
   className?: string
 }): JSX.Element {
+  // The Omarchy design supplies its own wordmark file (`om-wordmark.svg`, the
+  // same outline at the profile's #c0caf5). The mask discards a source's fill,
+  // so both assets would paint identically — the swap is here because the
+  // profile's mark should BE the file the design ships, not a look-alike that
+  // happens to land on the same pixels. `text-text-strong` is #c0caf5 in this
+  // appearance, which is that file's own ink.
+  const appearance = useThemeAppearance()
+  const src = appearance === 'omarchy' ? omarchyLogoUrl : logoUrl
   return (
     <span
       role="img"
@@ -35,8 +45,8 @@ export function PodiumLogo({
         height,
         width: Math.round(height * LOGO_ASPECT * 100) / 100,
         maxWidth: 'none',
-        maskImage: `url(${logoUrl})`,
-        WebkitMaskImage: `url(${logoUrl})`,
+        maskImage: `url(${src})`,
+        WebkitMaskImage: `url(${src})`,
         maskRepeat: 'no-repeat',
         WebkitMaskRepeat: 'no-repeat',
         maskSize: 'contain',

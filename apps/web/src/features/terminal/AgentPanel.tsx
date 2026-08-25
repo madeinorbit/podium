@@ -60,6 +60,7 @@ import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
 import { agentBrandDot } from '@/lib/agent-tone'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
@@ -458,7 +459,11 @@ export function AgentPanel({
   // Device-level terminal appearance (font size/family, line height, background).
   // `appearance` is memoized on the stored blob, so a settings change applies to
   // the LIVE terminal via useTerminalSession's setAppearance effect — no remount.
-  const { settings: termSettings, appearance: termAppearance } = useTerminalAppearance()
+  const {
+    settings: termSettings,
+    profileDefaults: termProfileDefaults,
+    appearance: termAppearance,
+  } = useTerminalAppearance()
   // The terminal floats on the pane's issue-tinted surface (native-pane spec
   // §2.5): the selected issue's colour (slate flow when uncoloured) mixed over
   // the terminal base, mirrored into the xterm theme via setAppearance — no
@@ -480,7 +485,20 @@ export function AgentPanel({
   // Same flow-colour resolution as the shell root (own colour, else nearest
   // coloured ancestor) so the terminal never disagrees with the pane chrome.
   const issueHex = effectiveIssueColorHex(selectedIssue, (id) => issues.find((i) => i.id === id))
-  const termBg = termSettings.background ?? paneTintedBackground(issueHex)
+  // THE TINT SITS ON WHICHEVER GROUND THE APPEARANCE SUPPLIES. Podium mixes over
+  // the terminal-client base; Omarchy mixes over the design's own #0f1017, so a
+  // coloured task still tints its terminal without the profile's ground being
+  // quietly replaced by the other appearance's (POD-1531). An operator-set
+  // background still wins over both.
+  const termProfileBg = termProfileDefaults.background
+  const termBg =
+    termSettings.background ??
+    (issueHex === undefined && termProfileBg !== undefined
+      ? // The design draws the neutral flow FLAT — the slate wash exists to keep
+        // an uncoloured terminal from reading as a black hole on Podium's ground,
+        // and on this one the ground is already the design's answer to that.
+        termProfileBg
+      : paneTintedBackground(issueHex, termProfileBg))
   const appearance = useMemo(
     () => (termSettings.background ? termAppearance : withBackground(termAppearance, termBg)),
     [termSettings.background, termAppearance, termBg],
@@ -761,7 +779,13 @@ export function AgentPanel({
               className="hidden min-w-0 max-w-[34%] items-center gap-1 truncate font-mono text-[10.5px] text-text-dim sm:inline-flex"
               title={session.cwd}
             >
-              <Folder size={11} aria-hidden="true" className="flex-none" />
+              <ShellGlyph
+                icon={Folder}
+                glyph="folder"
+                size={11}
+                aria-hidden={true}
+                className="flex-none"
+              />
               <span className="truncate">{prettyCwd(session.cwd)}</span>
             </span>
           )}
@@ -861,7 +885,12 @@ export function AgentPanel({
                     {m === 'chat' ? (
                       <MessageSquareText size={12} aria-hidden="true" />
                     ) : (
-                      <SquareTerminal size={12} aria-hidden="true" />
+                      <ShellGlyph
+                        icon={SquareTerminal}
+                        glyph="terminal"
+                        size={12}
+                        aria-hidden={true}
+                      />
                     )}
                     {m === 'chat' ? 'Chat' : 'CLI'}
                   </button>

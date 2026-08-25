@@ -11,6 +11,7 @@ import { ChevronRight, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useMemo } from 'react'
 import { IdSquare, idSquareLabel } from '@/components/IdSquare'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { WorkingMark } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { useReplicaIssues, useStoreSelector } from './store'
@@ -304,7 +305,11 @@ export function FoldedFlightDeckBar({ onExpand }: { onExpand: () => void }): JSX
           {/* The spinner replaces the static fleet glyph only while an agent is
               genuinely computing; the count is who is working then, otherwise
               who is present. */}
-          {working > 0 ? <WorkingMark size={17} /> : <Users size={16} aria-hidden="true" />}
+          {working > 0 ? (
+            <WorkingMark size={17} />
+          ) : (
+            <ShellGlyph icon={Users} glyph="group" size={16} aria-hidden={true} />
+          )}
         </FootStat>
       </div>
     </aside>

@@ -199,6 +199,29 @@ export function isMacNativeShell(): boolean {
 }
 
 /**
+ * Is this session running on Linux — the native shell there, or a browser on a
+ * Linux box?
+ *
+ * The gate for the Omarchy appearance (POD-1531). Omarchy is a Linux desktop:
+ * offering its profile in the macOS or Windows shell would be offering to make
+ * the window look like a window manager that is not running, and offering it on
+ * a phone would be worse. The USER AGENT is consulted only outside the shell —
+ * inside it the bridge already knows, and reading a string when a fact is
+ * available is how a platform check goes wrong.
+ *
+ * Android reports "Linux" in its user agent and is not a Linux desktop, so it is
+ * excluded by name. Chrome OS reports "CrOS"; it is a Linux kernel behind a
+ * shell that is emphatically not Hyprland, so it does not qualify either.
+ */
+export function isLinuxPlatform(): boolean {
+  const bridge = nativeDesktopBridge()
+  if (bridge) return bridge.platform === 'linux'
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent
+  return /Linux/.test(ua) && !/Android|CrOS/.test(ua)
+}
+
+/**
  * Sends `url` to the OS browser when the desktop shell needs the page to ask, and reports
  * back whether it did — a caller that gets a promise must suppress its own navigation.
  *

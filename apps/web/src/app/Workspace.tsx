@@ -41,6 +41,7 @@ import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { AgentStatusGlyph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -1304,7 +1305,7 @@ function PaneChrome({
                 title="New panel"
                 aria-label="New panel"
               >
-                <Plus size={13} aria-hidden="true" />
+                <ShellGlyph icon={Plus} glyph="add" size={13} aria-hidden={true} />
               </button>
             }
           />
@@ -1702,7 +1703,7 @@ function SortableTab({
           onClose()
         }}
       >
-        <X size={11} aria-hidden="true" />
+        <ShellGlyph icon={X} glyph="close" size={11} aria-hidden={true} />
       </button>
       {menuAnchor && (
         <TabContextMenu

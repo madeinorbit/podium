@@ -1,6 +1,7 @@
-import { type missionProgress, missionCrewLabel } from '@podium/client-core/viewmodels'
+import { missionCrewLabel, type missionProgress } from '@podium/client-core/viewmodels'
 import { Users } from 'lucide-react'
 import type { JSX } from 'react'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { cn } from '@/lib/utils'
 
 /**
@@ -248,7 +249,13 @@ export function MissionGauge({
         className="shell-type-micro flex h-[26px] flex-none items-center gap-1.5 rounded-lg bg-background px-[9px] font-mono tabular-nums text-text-dim"
         data-testid="mission-live-chip"
       >
-        <Users size={12} aria-hidden="true" className="text-text-faint" />
+        <ShellGlyph
+          icon={Users}
+          glyph="group"
+          size={12}
+          aria-hidden={true}
+          className="text-text-faint"
+        />
         {crew}
       </span>
     </div>

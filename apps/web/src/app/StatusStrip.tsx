@@ -7,9 +7,12 @@ import { ConnectionIndicator, useStableConnection } from '@/features/machines/Co
 import { MobileHandoffChip } from '@/features/mobile-handoff/MobileHandoffChip'
 import { UpdateIndicator } from '@/features/updates/UpdateIndicator'
 import { useUpdates } from '@/features/updates/updates-panel-context'
+import { isMacNativeShell } from '@/lib/nativeDesktop'
+import { useFeature } from '@/lib/use-feature'
 import { AgentConcurrencyHistory } from './AgentConcurrencyHistory'
 import { StatusPerformanceStats } from './StatusPerformanceStats'
 import { useReplicaIssues, useStoreSelector } from './store'
+import { useThemeAppearance } from './theme'
 
 /**
  * THE STATUS STRIP (POD-365) — 24px, the bottom edge of the frame.
@@ -56,6 +59,11 @@ export function StatusStrip(): JSX.Element {
   // the strip: window-scoped, stated nowhere else, and present only while it is
   // a FACT — there is an update, or one is running, or one failed.
   const updates = useUpdates()
+  // THE OMARCHY TAIL (POD-1531). Two readings the design puts at the strip's far
+  // end, and both exist ONLY under that appearance — see the note below.
+  const appearance = useThemeAppearance()
+  const paletteEnabled = useFeature('command-palette')
+  const omarchy = appearance === 'omarchy'
 
   // Liveness is part of the question, not just the phase: a session that exited
   // mid-turn keeps `phase: 'working'` (the server preserves the final turn
@@ -109,6 +117,35 @@ export function StatusStrip(): JSX.Element {
           chip is an OFFER, not a reading, so it takes the far end on its own —
           the slot the "⌘K commands" hint used to hold. */}
       <span className="status-strip-spacer" aria-hidden="true" />
+      {/* WHICH DESKTOP APPEARANCE THIS WINDOW IS WEARING. It passes the strip's
+          admission test above — window scope, said nowhere else, and a fact
+          rather than an instruction — and it is drawn only under the profile
+          that makes it true: on the Podium appearance there is one appearance,
+          so a readout naming it would be a label on the only option there is. */}
+      {omarchy && (
+        <>
+          <span className="status-strip-profile" data-testid="status-strip-profile">
+            omarchy · tokyo-night
+          </span>
+          <span className="status-strip-seam" aria-hidden="true" />
+        </>
+      )}
+      {/* THE PALETTE KEY, BACK, AND ONLY HERE. The strip's own doctrine cut this
+          hint years ago: a keycap is instruction, not a window-scoped fact, and
+          instruction shown all day is noise on a 30px edge. That still stands
+          for Podium. The Omarchy design puts it back for a reason particular to
+          this desktop — an Omarchy session is driven from the keyboard and its
+          bar is where every other application in the session publishes its
+          binds — so the hint is part of what the window owes that desktop, not a
+          reversal of the rule. It goes when the palette does. */}
+      {omarchy && paletteEnabled && (
+        <>
+          <span className="status-strip-hint">
+            {isMacNativeShell() ? '⌘ K' : 'CTRL K'} commands
+          </span>
+          <span className="status-strip-seam" aria-hidden="true" />
+        </>
+      )}
       <MobileHandoffChip />
     </footer>
   )

@@ -14,7 +14,9 @@ import {
 } from 'lucide-react'
 import type { ComponentType, JSX } from 'react'
 import { HeaderHostIndicators } from '@/features/machines/HostIndicators'
+import type { ShellGlyphName } from '@/lib/icons/MaterialSymbols'
 import { PodiumLogo } from '@/lib/icons/PodiumLogo'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
@@ -106,6 +108,7 @@ export function TopBar({
           view={view}
           onSelect={setView}
           icon={LayoutPanelLeft}
+          glyph="dashboard"
         />
         <ModeTab
           label="Tasks"
@@ -113,6 +116,7 @@ export function TopBar({
           view={view}
           onSelect={setView}
           icon={SquareKanban}
+          glyph="view_kanban"
         />
         {workflowsEnabled && (
           <ModeTab
@@ -121,10 +125,18 @@ export function TopBar({
             view={view}
             onSelect={setView}
             icon={Workflow}
+            glyph="account_tree"
           />
         )}
         {specsEnabled && (
-          <ModeTab label="Specs" target="specs" view={view} onSelect={setView} icon={FileText} />
+          <ModeTab
+            label="Specs"
+            target="specs"
+            view={view}
+            onSelect={setView}
+            icon={FileText}
+            glyph="description"
+          />
         )}
         {automationsEnabled && (
           <ModeTab
@@ -133,6 +145,7 @@ export function TopBar({
             view={view}
             onSelect={setView}
             icon={CalendarClock}
+            glyph="schedule"
           />
         )}
       </nav>
@@ -152,14 +165,14 @@ export function TopBar({
           target="usage"
           view={view}
           onSelect={setView}
-          icon={<BarChart3 size={16} aria-hidden="true" />}
+          icon={<ShellGlyph icon={BarChart3} glyph="bar_chart" size={16} aria-hidden={true} />}
         />
         <UtilityNavItem
           label="Settings"
           target="settings"
           view={view}
           onSelect={setView}
-          icon={<Settings size={16} aria-hidden="true" />}
+          icon={<ShellGlyph icon={Settings} glyph="settings" size={16} aria-hidden={true} />}
         />
       </div>
       {desktopBridge && desktopBridge.platform !== 'macos' && (
@@ -257,12 +270,15 @@ function ModeTab({
   view,
   onSelect,
   icon: Icon,
+  glyph,
 }: {
   label: string
   target: MainView
   view: MainView
   onSelect: (view: MainView) => void
   icon: ComponentType<{ size?: number; 'aria-hidden'?: boolean; className?: string }>
+  /** The Material Symbol the Omarchy design draws for this mode (POD-1531). */
+  glyph: ShellGlyphName
 }): JSX.Element {
   const active = view === target
   return (
@@ -281,7 +297,7 @@ function ModeTab({
       className="topbar-mode"
       data-active={active ? 'true' : undefined}
     >
-      <Icon size={14} aria-hidden={true} className="flex-none" />
+      <ShellGlyph icon={Icon} glyph={glyph} size={14} aria-hidden={true} className="flex-none" />
       <span>{label}</span>
     </button>
   )

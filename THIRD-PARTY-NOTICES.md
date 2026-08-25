@@ -13,14 +13,14 @@ package and are omitted.
 
 | License | Packages |
 | --- | --- |
-| MIT | 421 |
-| ISC | 23 |
+| MIT | 422 |
+| ISC | 24 |
 | Apache-2.0 | 6 |
 | BSD-3-Clause | 6 |
 | BSD-2-Clause | 5 |
 | BlueOak-1.0.0 | 3 |
 | MPL-2.0 | 3 |
-| OFL-1.1 | 2 |
+| OFL-1.1 | 3 |
 | SEE LICENSE IN LICENSE.md | 2 |
 | (MIT OR CC0-1.0) | 1 |
 | (MPL-2.0 OR Apache-2.0) | 1 |
@@ -45,6 +45,17 @@ The following third-party sources are vendored (copied) into this repository:
   `packages/pty/vendor/abduco/LICENSE` for the full text.
 - Podium compiles abduco at build time and embeds the binary in the compiled daemon as
   its durable PTY session backend. Local changes: none (see the accompanying VENDOR.md).
+
+### Material Symbols
+
+- Path: `apps/web/src/lib/icons/MaterialSymbols.tsx`
+- Upstream: https://github.com/google/material-design-icons (Material Symbols Rounded,
+  fetched at `opsz 20, wght 300, FILL 0, GRAD 0`)
+- License: Apache-2.0 — Copyright Google LLC.
+- The Omarchy appearance profile draws its shell chrome in Material Symbols Rounded.
+  The twenty-nine glyphs it uses are vendored as SVG path data rather than shipped as
+  the variable font, which is several megabytes. Local changes: none — each path is the
+  upstream 20px/wght300 SVG's own `d`, in Material's `0 -960 960 960` viewBox.
 
 ## npm packages
 
@@ -403,7 +414,7 @@ The following third-party sources are vendored (copied) into this repository:
 - COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 - https://floating-ui.com
 
-### @fontsource-variable/geist@5.2.9
+### @fontsource-variable/geist@5.3.0
 
 - License: OFL-1.1
 - Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font) Geist-Italic[wght].ttf: Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
@@ -411,13 +422,21 @@ The following third-party sources are vendored (copied) into this repository:
 - Copyright Holder. This restriction only applies to the primary font name as
 - https://fontsource.org/fonts/geist
 
-### @fontsource-variable/geist-mono@5.2.8
+### @fontsource-variable/geist-mono@5.3.0
 
 - License: OFL-1.1
 - Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git) GeistMono-Italic[wght].ttf: Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)
 - copyright statement(s).
 - Copyright Holder. This restriction only applies to the primary font name as
 - https://fontsource.org/fonts/geist-mono
+
+### @fontsource-variable/jetbrains-mono@5.3.0
+
+- License: OFL-1.1
+- copyright statement(s).
+- Copyright Holder. This restriction only applies to the primary font name as
+- Copyright Holder(s) and the Author(s) or with their explicit written
+- https://fontsource.org/fonts/jetbrains-mono
 
 ### @handlewithcare/prosemirror-inputrules@0.1.4
 
@@ -2191,6 +2210,13 @@ The following third-party sources are vendored (copied) into this repository:
 - License: MIT
 - Copyright (c) 2014-2016 Douglas Christopher Wilson
 
+### qrcode.react@4.2.0
+
+- License: ISC
+- Copyright (c) 2015, Paul O’Shannessy
+- copyright notice and this permission notice appear in all copies.
+- http://zpao.github.io/qrcode.react
+
 ### qs@6.15.2
 
 - License: BSD-3-Clause
@@ -2641,6 +2667,12 @@ The following third-party sources are vendored (copied) into this repository:
 - License: MIT
 - Copyright (c) 2017 Anton Korzunov
 - https://github.com/theKashey/use-sidecar
+
+### use-stick-to-bottom@1.1.6
+
+- License: MIT
+- Copyright (c) 2024 - present StackBlitz
+- https://use-stick-to-bottom.samdenty.io
 
 ### use-sync-external-store@1.6.0
 

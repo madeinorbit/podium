@@ -3,6 +3,10 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
+/* The Omarchy profile's mono face (POD-1531). Declaring @font-face costs nothing
+   on the Podium appearance: a browser fetches a font only when something on the
+   page is actually set in it, and nothing is unless the profile is on. */
+@import "@fontsource-variable/jetbrains-mono";
 @import "./lib/motion/motion.css";
 
 @custom-variant dark (&:is(.dark *));
@@ -10,7 +14,14 @@
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: 'Geist Variable', sans-serif;
-  --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* ONE INDIRECTION, SO AN APPEARANCE CAN CHANGE THE MONO FACE (POD-1531).
+     `@theme inline` inlines a token's EXPRESSION into every utility it feeds, so
+     a literal stack here would bake Geist Mono into `.font-mono` and leave the
+     `var(--font-mono)` call sites in styles.css as the only ones an appearance
+     could reach — half the shell in one face and half in another. Pointing at a
+     second variable makes the utility read `var(--font-mono-stack)` too, and the
+     whole shell follows whichever appearance is on. */
+  --font-mono: var(--font-mono-stack);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -524,6 +535,194 @@
   --ghost-4: color-mix(in srgb, var(--foreground) 2.5%, transparent);
 }
 
+
+/* ── Omarchy appearance — "Tokyo Night" [POD-1531] ───────────────────────────
+   A THIRD APPEARANCE, NOT A THIRD PRESET. Podium ships one theme in two modes;
+   this is the opt-in profile for the Omarchy desktop, where Hyprland draws the
+   window frame, Quickshell owns the top row of the screen, and every application
+   in the session is expected to sit inside one palette. Turning it off returns
+   the shell to `[data-theme="podium"]` exactly — nothing here leaks, because
+   nothing here is scoped any wider than this attribute.
+
+   It has NO light block on purpose. Omarchy's palette is a dark one; the design
+   supplies a single ground and no paper counterpart, and inventing one would be
+   the approximation this profile exists to avoid. `resolveDark` short-circuits
+   to dark whenever this appearance is on (app/theme.tsx), so the `.dark` class
+   is always present and the syntax channel below resolves correctly.
+
+   Four rules, taken from the artboard:
+
+   1. FIVE INKS, FIVE SURFACES. The text ramp is #c0caf5 · #a9b1d6 · #737aa2 ·
+      #565f89 · #414868 and the surface ramp is #1a1b26 (the work ground) ·
+      #16171f (every piece of chrome: bar, work list, tab strip, rail, status
+      strip) · #1f2335 (anything raised: a selected tab, a coordinator row) ·
+      #222741 (the one selected row) · #2e3a5c (a filled segment). Nothing in
+      the window is outside those ten values except state.
+   2. THE SEAM IS THE SEPARATOR. There is not one shadow on the artboard. Panels
+      are parted by #24283b, rows by #1f2233, and that is the whole depth model —
+      so the carve tokens go to zero rather than to a smaller alpha. The two
+      exceptions are surfaces the design never draws (popovers, the settings
+      sheet), which keep a cast: a floating menu that does not read as floating
+      is a regression, not a style.
+   3. NOTHING IS ROUNDED. Hyprland is configured `rounding 0` and the design
+      follows it into the window — every corner in the shell is square. The
+      named radii collapse with --radius; the hardcoded `rounded-[Npx]` utilities
+      are flattened in omarchy.css, where the exceptions (dots, status rings)
+      are named.
+   4. BLUE MOVES, AMBER ASKS, GREEN IS DONE. #7aa2f7 is every live and selected
+      thing; #e0af68 is the one colour that means an agent is waiting on you;
+      #9ece6a marks finished work. Red #f7768e stays for destructive alone. That
+      is the same grammar the Podium appearance uses, in Tokyo Night's hues, so
+      no component has to learn a second one. */
+[data-theme="omarchy"] {
+  /* Rule 3. Hyprland's `rounding 0`, carried inside the window. */
+  --radius: 0px;
+
+  /* The one ink, for the carve alphas that survive (popover / sheet). */
+  --ink: #c0caf5;
+
+  --background: #1a1b26;
+  --foreground: #a9b1d6;
+  /* The deck and the stage are the SAME ground as the window: the artboard's
+     card tier is not a lighter panel, it is the absence of chrome. */
+  --card: #1a1b26;
+  --card-foreground: #c0caf5;
+  --popover: #1f2335;
+  --popover-foreground: #c0caf5;
+  --primary: #7aa2f7;
+  --primary-foreground: #16171f;
+  --secondary: #1f2335;
+  --secondary-foreground: #c0caf5;
+  --muted: #16171f;
+  --muted-foreground: #737aa2;
+  --accent: #2e3a5c;
+  --accent-foreground: #c0caf5;
+  --destructive: #f7768e;
+  --border: #24283b;
+  --input: #24283b;
+  --ring: #7aa2f7;
+  /* Omarchy HAS a green, and it means one thing: finished. The Podium
+     appearances route success through blue because they have no green at all;
+     here the artboard spends #9ece6a on a done row, a done node and the burn
+     readout, and nothing else. */
+  --success: #9ece6a;
+  --success-solid: #9ece6a;
+  --success-foreground: #16171f;
+  --warning: #e0af68;
+  --live: #7aa2f7;
+  --info: #7aa2f7;
+  /* Chart neutrals are mode-independent — the same ramp both Podium blocks use. */
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: #16171f;
+  --sidebar-foreground: #a9b1d6;
+  --sidebar-primary: #7aa2f7;
+  --sidebar-primary-foreground: #16171f;
+  --sidebar-accent: #1f2335;
+  --sidebar-accent-foreground: #c0caf5;
+  --sidebar-border: #24283b;
+  --sidebar-ring: #7aa2f7;
+
+  /* Rule 1's chrome tier. Bar, work list, tab strip, rail and status strip are
+     ONE value on the artboard (#16171f) — the frame is a single object with the
+     work cut out of it, which is why the seams have to carry the structure. */
+  --engraved: #16171f;
+  --bar: #16171f;
+  --tabstrip: #16171f;
+  --rail: #16171f;
+  --chip: #1f2335;
+
+  /* Rule 2's two seams, plus the strong rim. Row rules are a step quieter than
+     panel seams, exactly as in the Podium appearances — #1f2233 under #24283b —
+     and #414868 is the visible box around a chip or an instrument. */
+  --hairline-soft: #1f2233;
+  --hairline-bar: #24283b;
+  --border-strong: #414868;
+
+  /* The text ramp (rule 1). Ratios against the #1a1b26 ground: 11.6 · 8.6 · 4.9
+     · 3.1 · 1.9 — the last two are micro hints and row numbers, which is what
+     the artboard spends them on. */
+  --text-strong: #c0caf5;
+  --text-dim: #565f89;
+  --text-faint: #414868;
+  --label: #565f89;
+
+  /* Rule 4's ask. Amber both fills and writes here: #e0af68 measures 8.6:1 on
+     this ground, so the fill/ink split the Paper appearance needs does not
+     arise, and the artboard writes "needs review" in the same value it fills the
+     row wash with. */
+  --attention: #e0af68;
+  --attention-foreground: #16171f;
+  /* The primary button's rim is its own fill: on this ground a #7aa2f7 chip has
+     a silhouette without help, and a second, lighter edge around it would be the
+     only bevel in a window that has none. */
+  --primary-rim: #7aa2f7;
+
+  /* Claude keeps its clay — the one mark in the design that is not recoloured
+     into the palette (see lib/icons/omarchy). */
+  --claude: #d97757;
+  /* The no-colour flow is the ramp's own tertiary ink, so an issue with no
+     colour assigned tints toward the chrome rather than toward a hue nobody
+     picked. That is the state the artboard is drawn in. */
+  --flow: #737aa2;
+  --flow-foreground: #16171f;
+  --issue: var(--flow);
+
+  /* Ghost preview: the dark appearance's doses — same ground depth, same steps. */
+  --ghost-1: color-mix(in srgb, var(--foreground) 12%, transparent);
+  --ghost-2: color-mix(in srgb, var(--foreground) 9%, transparent);
+  --ghost-3: color-mix(in srgb, var(--foreground) 5.5%, transparent);
+  --ghost-4: color-mix(in srgb, var(--foreground) 2.5%, transparent);
+
+  /* RULE 2, SPELLED IN THE CARVES. Zero, not "quieter": the artboard's columns
+     are parted by a 1px seam and nothing else, and any inset cast at all would
+     put a gradient along an edge the design draws as a line. Literal rgb() with
+     a 0 alpha rather than `transparent` so the shadow geometry in @theme keeps
+     resolving to a valid colour on every engine.
+     The two FLOATING inks stay: a popover and the settings sheet are surfaces
+     the design never draws, and on this ground a menu with no cast reads as a
+     hole punched in the window rather than as something above it. */
+  --carve-engraved: rgb(0 0 0 / 0);
+  --carve-drop: rgb(0 0 0 / 0);
+  --carve-popover-far: rgb(0 0 0 / 0.55);
+  --carve-popover-near: rgb(0 0 0 / 0.35);
+  --carve-sheet-far: rgb(0 0 0 / 0.7);
+
+  /* THE WELL IS A BOX, NOT A GROOVE. The Podium appearances build the instrument
+     well out of a bevel — a dark lip, a lit edge, a floor a shade off the bar.
+     The artboard draws `border:1px solid #24283b` and stops, so the floor, lip
+     and lit edge go to zero and the rim carries the whole object. The raised
+     cell inside it is a FILL (#2e3a5c, the design's own segment colour) for the
+     same reason: there is no bevel here for it to climb out of. */
+  --well-floor: rgb(0 0 0 / 0);
+  --well-lip: rgb(0 0 0 / 0);
+  --well-rim: #24283b;
+  --well-lit: rgb(0 0 0 / 0);
+  --well-hover: rgb(122 162 247 / 0.09);
+  --well-cell: #2e3a5c;
+  --well-cell-lit: rgb(0 0 0 / 0);
+  --well-cell-lip: rgb(0 0 0 / 0);
+
+  /* Issue tints run at the dark appearance's 1:1 dose. The artboard is drawn in
+     the no-colour flow, so no tint is visible on it — but the channel is product
+     behaviour, not decoration, and an operator who has coloured their tasks must
+     still see whose row is whose after switching profile. */
+  --issue-tint-scale: 1%;
+  --issue-line-scale: 1%;
+  --issue-row-tint-scale: 1%;
+
+  /* THE PROFILE'S TYPE (design: Geist + JetBrains Mono). Sans is unchanged —
+     Geist is what both appearances set — so only the mono face moves, and it
+     moves through the one indirection @theme reads (see --font-mono above), so
+     the `.font-mono` utility and every `var(--font-mono)` call site change
+     together. */
+  --font-mono-stack: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace,
+    SFMono-Regular, Menlo, monospace;
+}
+
 /* ── Syntax channel — the code editor's ink [POD-788] ────────────────────────
    ONE palette per MODE. Syntax colour is not chrome: it is a
    set of ~10 hues that have to stay distinguishable from each other while
@@ -548,6 +747,11 @@
    ground (near-black #0e0e12–#16171a in dark, #f2f1ed–#ffffff in light), except
    --syntax-punct, which is deliberately quieter because a comma is not
    information. */
+:root {
+  /* The default mono face — see --font-mono in @theme above. */
+  --font-mono-stack: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 :root {
   --syntax-ink: #38362f;
   --syntax-comment: #6f6d64;

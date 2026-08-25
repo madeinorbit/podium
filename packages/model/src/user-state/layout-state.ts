@@ -159,10 +159,7 @@ export function layoutKeyFromLegacy(legacyKey: string): string | null {
   if (legacyKey.startsWith('podium.') && legacyKey.slice('podium.'.length) === 'panelMode') {
     return 'panelMode'
   }
-  if (
-    legacyKey.startsWith('podium.') &&
-    legacyKey.slice('podium.'.length) === 'panelModeDefault'
-  ) {
+  if (legacyKey.startsWith('podium.') && legacyKey.slice('podium.'.length) === 'panelModeDefault') {
     return 'panelModeDefault'
   }
   // Section collapses: podium:sidebar:<name> except the reserved width/collapsed.
@@ -201,8 +198,13 @@ export const DEVICE_LOCAL_UI_KEYS = [
   'podium:sidebar:width',
 ] as const
 
-/** Pre-auth exception: theme mode is mirrored raw, never namespaced, never a layout row. */
-export const THEME_UI_KEYS = ['podium.theme.mode'] as const
+/** Pre-auth exception: the theme keys are mirrored raw, never namespaced, never
+ *  layout rows. Two of them, because an appearance has two independent axes and
+ *  BOTH are read before React: `mode` is light/dark/system, and `appearance` is
+ *  which palette that mode is resolved against (Podium's own, or the Omarchy
+ *  profile). The anti-flash script needs the pair to pick a first-paint ground —
+ *  reading only the mode would paint Podium's ink under an Omarchy session. */
+export const THEME_UI_KEYS = ['podium.theme.mode', 'podium.theme.appearance'] as const
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -289,7 +291,8 @@ export function layoutRowId(userId: UserId, key: string): string {
   // Local import-free join: escape \ and sep, then join. Same rules as
   // joinKeyParts — duplicated as two lines so this file stays free of a
   // circular import with ids/keys (layout is a consumer of perUserKey only).
-  const esc = (p: string) => p.replaceAll('\\', '\\\\').replaceAll(LAYOUT_ROW_SEP, `\\${LAYOUT_ROW_SEP}`)
+  const esc = (p: string) =>
+    p.replaceAll('\\', '\\\\').replaceAll(LAYOUT_ROW_SEP, `\\${LAYOUT_ROW_SEP}`)
   return `${esc(userId)}${LAYOUT_ROW_SEP}${esc(key)}`
 }
 

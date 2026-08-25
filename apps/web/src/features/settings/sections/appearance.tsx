@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
 import { type ShellDensity, useDensity } from '@/app/density'
-import { type ThemeMode, useTheme } from '@/app/theme'
+import { type ThemeAppearance, type ThemeMode, useTheme } from '@/app/theme'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -12,6 +12,7 @@ import {
   TERMINAL_DEFAULTS,
 } from '@/features/terminal/appearance'
 import { useTerminalAppearance } from '@/features/terminal/use-terminal-appearance'
+import { isLinuxPlatform } from '@/lib/nativeDesktop'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import { useFeature } from '@/lib/use-feature'
 import { Row, Section, Subsection } from './shared'
@@ -19,8 +20,16 @@ import { Row, Section, Subsection } from './shared'
 /** Light/dark switcher. Theme state is UI-local (not part of the settings blob),
  *  so it applies instantly via useTheme and persists on its own. */
 export function AppearanceSection(): JSX.Element {
-  const { mode, setMode } = useTheme()
+  const { mode, setMode, appearance, setAppearance } = useTheme()
   const { density, setDensity } = useDensity()
+  // The Omarchy profile is offered where Omarchy runs and nowhere else — see
+  // isLinuxPlatform. Read once per render rather than held in state: the
+  // platform cannot change under a running window.
+  const omarchyOffered = isLinuxPlatform()
+  const profiles: { value: ThemeAppearance; label: string }[] = [
+    { value: 'podium', label: 'Podium' },
+    { value: 'omarchy', label: 'Omarchy' },
+  ]
   const densityEnabled = useFeature('shell-density')
   const stickyPrompts = useStickyPromptsPreference()
   const modes: { value: ThemeMode; label: string }[] = [
@@ -32,12 +41,41 @@ export function AppearanceSection(): JSX.Element {
     { value: 'balanced', label: 'Balanced' },
     { value: 'compact', label: 'Compact' },
   ]
+  const omarchyOn = appearance === 'omarchy'
   return (
     <Section
       title="Appearance"
       hint="Choose light, dark, or follow your system. Remembered on this device."
     >
-      <Row label="Mode">
+      {omarchyOffered && (
+        <Row
+          label="Profile"
+          description="Omarchy dresses the window for the Omarchy desktop — Tokyo Night, square corners, no title-bar controls, because Hyprland draws the frame. One dark palette, so the mode above does not apply while it is on. This device only."
+        >
+          <div className="flex gap-1">
+            {profiles.map((p) => (
+              <Button
+                key={p.value}
+                type="button"
+                size="sm"
+                variant={appearance === p.value ? 'default' : 'outline'}
+                aria-pressed={appearance === p.value}
+                onClick={() => setAppearance(p.value)}
+              >
+                {p.label}
+              </Button>
+            ))}
+          </div>
+        </Row>
+      )}
+      <Row
+        label="Mode"
+        // Omarchy has one palette and no paper counterpart, so the switch is
+        // disabled rather than hidden: hiding it would leave no sign of where
+        // the light/dark choice went, and the stored mode is still there —
+        // turning the profile off returns the operator to it.
+        description={omarchyOn ? 'The Omarchy profile is dark only.' : undefined}
+      >
         <div className="flex gap-1">
           {modes.map((m) => (
             <Button
@@ -46,6 +84,7 @@ export function AppearanceSection(): JSX.Element {
               size="sm"
               variant={mode === m.value ? 'default' : 'outline'}
               aria-pressed={mode === m.value}
+              disabled={omarchyOn}
               onClick={() => setMode(m.value)}
             >
               {m.label}
@@ -143,7 +182,12 @@ function NumberField({
  * instantly (no remount, the PTY keeps running). Empty inputs = the default.
  */
 function TerminalAppearanceRows(): JSX.Element {
-  const { settings, update } = useTerminalAppearance()
+  const { settings, profileDefaults, update } = useTerminalAppearance()
+  // The placeholders say what an EMPTY field will actually do, which under an
+  // appearance that supplies its own terminal ground and face is not the
+  // terminal-client default (POD-1531). A placeholder reading "13" beside a
+  // terminal drawing at 14 is a settings page lying about the thing it edits.
+  const effective = { ...TERMINAL_DEFAULTS, ...profileDefaults }
   const isDefault =
     settings.fontSize === undefined &&
     settings.fontFamily === undefined &&
@@ -159,7 +203,7 @@ function TerminalAppearanceRows(): JSX.Element {
           min={FONT_SIZE_MIN}
           max={FONT_SIZE_MAX}
           step={1}
-          placeholder={String(TERMINAL_DEFAULTS.fontSize)}
+          placeholder={String(effective.fontSize)}
           stored={settings.fontSize}
           onCommit={(n) => update({ fontSize: n })}
         />
@@ -169,7 +213,7 @@ function TerminalAppearanceRows(): JSX.Element {
           min={LINE_HEIGHT_MIN}
           max={LINE_HEIGHT_MAX}
           step={0.05}
-          placeholder={String(TERMINAL_DEFAULTS.lineHeight)}
+          placeholder={String(effective.lineHeight)}
           stored={settings.lineHeight}
           onCommit={(n) => update({ lineHeight: n })}
         />
@@ -178,7 +222,11 @@ function TerminalAppearanceRows(): JSX.Element {
         <Input
           type="text"
           className="max-w-[320px]"
-          placeholder="System monospace (default)"
+          placeholder={
+            profileDefaults.fontFamily
+              ? `${profileDefaults.fontFamily} (default)`
+              : 'System monospace (default)'
+          }
           value={settings.fontFamily ?? ''}
           onChange={(e) => update({ fontFamily: e.target.value || undefined })}
         />
@@ -189,7 +237,7 @@ function TerminalAppearanceRows(): JSX.Element {
             type="color"
             aria-label="Terminal background color"
             className="h-7 w-10 cursor-pointer rounded border border-border bg-transparent"
-            value={settings.background ?? TERMINAL_DEFAULTS.background}
+            value={settings.background ?? effective.background}
             onChange={(e) => update({ background: e.target.value })}
           />
           {settings.background !== undefined && (

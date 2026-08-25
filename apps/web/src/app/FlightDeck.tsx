@@ -96,6 +96,7 @@ import {
   CapabilityAgentItem,
   candidateFromAvailability,
 } from '@/lib/agent-capability'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import { PhaseTimer, useArrivals, WorkingMark } from '@/lib/motion'
@@ -197,7 +198,7 @@ function MissionAgentMenu({
             disabled={busy}
             aria-label="Add agent to mission"
           >
-            <UserPlus size={13} aria-hidden="true" />
+            <ShellGlyph icon={UserPlus} glyph="person_add" size={13} aria-hidden={true} />
             {busy ? 'Adding…' : 'Add agent'}
             <ChevronDown size={12} aria-hidden="true" />
           </Button>
@@ -1322,7 +1323,7 @@ function SessionRow({
               setMenuAnchor({ x: event.clientX, y: event.clientY })
             }}
           >
-            <Ellipsis size={12} aria-hidden="true" />
+            <ShellGlyph icon={Ellipsis} glyph="more_horiz" size={12} aria-hidden={true} />
           </Button>
         </div>
       )}
@@ -1777,7 +1778,7 @@ const TaskRow = memo(
                 onMenu(event)
               }}
             >
-              <Ellipsis size={12} aria-hidden="true" />
+              <ShellGlyph icon={Ellipsis} glyph="more_horiz" size={12} aria-hidden={true} />
             </Button>
           </div>
         </div>
@@ -3371,7 +3372,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       title="Collapse Flight Deck"
       onClick={onCollapse}
     >
-      <ChevronLeft size={14} aria-hidden="true" />
+      <ShellGlyph icon={ChevronLeft} glyph="chevron_left" size={14} aria-hidden={true} />
     </Button>
   )
 
@@ -3559,7 +3560,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                     if (searchOpen) setQuery('')
                   }}
                 >
-                  <Search size={13} aria-hidden="true" />
+                  <ShellGlyph icon={Search} glyph="search" size={13} aria-hidden={true} />
                 </Button>
                 <Button
                   variant="ghost"
@@ -3582,7 +3583,11 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                     )
                   }
                 >
-                  {allFolded ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
+                  {allFolded ? (
+                    <ShellGlyph icon={ChevronsUpDown} glyph="expand_more" size={13} />
+                  ) : (
+                    <ShellGlyph icon={ChevronsDownUp} glyph="close_fullscreen" size={13} />
+                  )}
                 </Button>
               </div>
             </div>
@@ -3591,7 +3596,13 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 className="relative flex h-8 flex-none items-center gap-2 border-b border-hairline-soft pr-2"
                 style={{ paddingLeft: GUTTER }}
               >
-                <Search size={13} aria-hidden="true" className="flex-none text-text-faint" />
+                <ShellGlyph
+                  icon={Search}
+                  glyph="search"
+                  size={13}
+                  aria-hidden={true}
+                  className="flex-none text-text-faint"
+                />
                 <input
                   // biome-ignore lint/a11y/noAutofocus: the field exists only while searching
                   autoFocus

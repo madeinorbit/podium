@@ -1,9 +1,10 @@
 import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
+import { preloadShellGlyphs } from '@/lib/icons/ShellGlyph'
 import { startWebLogging } from '@/lib/logging'
-import { AppStarted } from './AppStarted'
 import { AppShell } from './AppShell'
+import { AppStarted } from './AppStarted'
 import '@/index.css'
 import '@/styles.css'
 import { redirectPhoneToMobileApp } from './mobile-entry-redirect'
@@ -20,6 +21,14 @@ const MotionDemo = lazy(() =>
 // [spec: 2026-08-11-logging-strategy-design, "Crash capture (end-to-end)"].
 installVitePreloadErrorRecovery()
 startWebLogging()
+
+// THE OMARCHY PROFILE'S GLYPH TABLE, IN FLIGHT BEFORE THE FIRST RENDER
+// (POD-1531). The table is deferred so no Podium session pays for it; the
+// appearance is already on the root element by now (index.html's anti-flash
+// script), so a session that HAS the profile on can start fetching it here
+// rather than on `ShellGlyph`'s first render. Fire-and-forget — the worst case
+// without it is one frame of lucide glyphs behind Suspense.
+if (document.documentElement.getAttribute('data-theme') === 'omarchy') preloadShellGlyphs()
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Podium web root was not found')

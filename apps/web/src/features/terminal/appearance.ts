@@ -5,6 +5,7 @@ import {
   type TerminalAppearance,
 } from '@podium/terminal-client/appearance'
 import { FLOW_SLATE } from '@/lib/issueColors'
+
 /**
  * Per-device terminal appearance (font size/family, line height, background)
  * for native agent/shell panels. Persisted as ONE JSON blob in the ui-state
@@ -21,6 +22,27 @@ export interface TerminalAppearanceSettings {
    *  the panel container around the xterm surface so the two never mismatch. */
   background?: string
 }
+
+/**
+ * THE OMARCHY PROFILE'S TERMINAL [POD-1531].
+ *
+ * The appearance owns the terminal's ground and face the same way it owns the
+ * shell's: the design sets the CLI in JetBrains Mono 14/1.85 on #0f1017, a step
+ * BELOW the stage so the transcript reads as a surface the agent writes on
+ * rather than as more chrome. These are DEFAULTS, not overrides — anything the
+ * operator has set in Settings still wins, because a font size someone chose is
+ * not something a theme gets to take back.
+ *
+ * The ANSI palette is deliberately absent. What the design shows inside the
+ * terminal is Claude Code's own output, coloured by the harness against the
+ * user's own theme; Podium supplies the ground and the face and nothing else.
+ */
+export const OMARCHY_TERMINAL_DEFAULTS = {
+  fontFamily: 'JetBrains Mono Variable',
+  fontSize: 14,
+  lineHeight: 1.85,
+  background: '#0f1017',
+} as const satisfies Required<TerminalAppearanceSettings>
 
 export const FONT_SIZE_MIN = 8
 export const FONT_SIZE_MAX = 28
@@ -90,8 +112,12 @@ export function mixHex(color: string, base: string, pct: number): string {
  * neutral flow. A user-set custom background wins over the tint (Q6) — callers
  * skip this entirely when `settings.background` is set.
  */
-export function paneTintedBackground(issueHex: string | undefined): string {
-  return mixHex(issueHex ?? FLOW_SLATE, TERMINAL_DEFAULTS.background, issueHex ? 12 : 9)
+export function paneTintedBackground(
+  issueHex: string | undefined,
+  /** The profile's own terminal ground — see {@link OMARCHY_TERMINAL_DEFAULTS}. */
+  base: string = TERMINAL_DEFAULTS.background,
+): string {
+  return mixHex(issueHex ?? FLOW_SLATE, base, issueHex ? 12 : 9)
 }
 
 /** Merge a computed background (the pane tint) into an appearance that has no
@@ -101,7 +127,12 @@ export function withBackground(a: TerminalAppearance, background: string): Termi
   return { ...a, theme: { ...DEFAULT_THEME, ...a.theme, background, cursorAccent: background } }
 }
 
-export function toTerminalAppearance(s: TerminalAppearanceSettings): TerminalAppearance {
+export function toTerminalAppearance(
+  settings: TerminalAppearanceSettings,
+  /** Appearance-supplied defaults, under anything the operator has set. */
+  profileDefaults?: TerminalAppearanceSettings,
+): TerminalAppearance {
+  const s = profileDefaults ? { ...profileDefaults, ...settings } : settings
   const a: TerminalAppearance = {}
   if (s.fontSize !== undefined) a.fontSize = s.fontSize
   // Always end the stack in `monospace` — a typo'd or missing font must fall

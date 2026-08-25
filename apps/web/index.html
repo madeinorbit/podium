@@ -6,16 +6,23 @@
       // (no flash). Keys/values mirror src/theme.tsx exactly.
       (() => {
         try {
+          // One entry per appearance block in src/index.css. Omarchy is dark-only,
+          // so both of its slots carry the one ground.
           var BG = {
-            dark: '#16171a',
-            light: '#f2f1ed',
+            podium: { dark: '#16171a', light: '#f2f1ed' },
+            omarchy: { dark: '#1a1b26', light: '#1a1b26' },
           }
           // Retire the old multi-preset preference. Podium now has one theme.
           localStorage.removeItem('podium.theme.preset')
           var m = localStorage.getItem('podium.theme.mode')
           var mode = m === 'light' || m === 'dark' || m === 'system' ? m : 'dark'
+          var a = localStorage.getItem('podium.theme.appearance')
+          var appearance = a === 'omarchy' ? 'omarchy' : 'podium'
           var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-          var isDark = mode === 'system' ? prefersDark : mode === 'dark'
+          // Mirrors resolveDark() in src/app/theme.tsx: the Omarchy profile is one
+          // dark palette, so it answers before the mode is consulted at all.
+          var isDark =
+            appearance === 'omarchy' ? true : mode === 'system' ? prefersDark : mode === 'dark'
           var el = document.documentElement
           // Experimental feature state arrives from the server after boot. Start
           // balanced so a dormant compact preference cannot flash before the gate resolves.
@@ -28,12 +35,15 @@
             // the macOS vibrancy layer follows the window's NSAppearance, not the
             // page theme; null hands system mode back to the OS. Feature-detected —
             // older shells have no setTheme.
-            if (desktop.setTheme) desktop.setTheme(mode === 'system' ? null : mode)
+            if (desktop.setTheme)
+              desktop.setTheme(
+                appearance === 'omarchy' ? 'dark' : mode === 'system' ? null : mode,
+              )
           }
-          el.setAttribute('data-theme', 'podium')
+          el.setAttribute('data-theme', appearance)
           el.classList.toggle('dark', isDark)
           var meta = document.querySelector('meta[name="theme-color"]')
-          if (meta) meta.setAttribute('content', BG[isDark ? 'dark' : 'light'])
+          if (meta) meta.setAttribute('content', BG[appearance][isDark ? 'dark' : 'light'])
         } catch (e) {}
       })()
     </script>

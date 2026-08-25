@@ -78,11 +78,17 @@ vi.mock('@/features/machines/ConnectionIndicator', () => ({
   ConnectionIndicator: () => null,
   useStableConnection: () => ({ health: 'healthy', visible: false }),
 }))
-vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
+// Feature-gated surfaces are OFF by default here. `omarchyPalette` flips only
+// the command palette, which is the one gate the Omarchy tail below depends on.
+let omarchyPalette = false
+vi.mock('@/lib/use-feature', () => ({
+  useFeature: (id: string) => (id === 'command-palette' ? omarchyPalette : false),
+}))
 
 import { resetUsageCache } from '@/features/usage/useUsageFeed'
 import { recentBurnRate } from './StatusPerformanceStats'
 import { StatusStrip } from './StatusStrip'
+import { THEME_APPEARANCE_KEY, ThemeProvider } from './theme'
 
 beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(NOW)
@@ -90,6 +96,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  omarchyPalette = false
+  localStorage.clear()
   resetUsageCache()
   fixture.issue = null
   fixture.extraIssues.length = 0
@@ -244,5 +252,53 @@ describe('StatusStrip token burn', () => {
 
     expect(container.querySelector('.status-strip-history-label')).toBeNull()
     expect(screen.queryAllByText('12h')).toHaveLength(0)
+  })
+})
+
+/**
+ * THE OMARCHY TAIL (POD-1531).
+ *
+ * The strip's admission rule is the thing under test, not the words: both of
+ * these readings exist ONLY under the profile whose design asks for them, so the
+ * assertions that matter are the NEGATIVE ones — the Podium appearance's strip
+ * must be byte-for-byte what it was before the profile existed.
+ */
+describe('StatusStrip Omarchy tail', () => {
+  const renderWithAppearance = (appearance: 'podium' | 'omarchy') => {
+    localStorage.setItem(THEME_APPEARANCE_KEY, appearance)
+    return render(
+      <ThemeProvider>
+        <StatusStrip />
+      </ThemeProvider>,
+    )
+  }
+
+  it('names the appearance under the Omarchy profile', () => {
+    renderWithAppearance('omarchy')
+    expect(screen.getByTestId('status-strip-profile').textContent).toBe('omarchy · tokyo-night')
+  })
+
+  it('says nothing about the appearance under Podium, where there is only one', () => {
+    renderWithAppearance('podium')
+    expect(screen.queryByTestId('status-strip-profile')).toBeNull()
+  })
+
+  it('brings the palette hint back only on Omarchy, and only with a palette', () => {
+    omarchyPalette = true
+    renderWithAppearance('omarchy')
+    expect(screen.getByText(/commands$/)).toBeTruthy()
+    cleanup()
+
+    // Same profile, no palette: a hint for a key that does nothing.
+    omarchyPalette = false
+    renderWithAppearance('omarchy')
+    expect(screen.queryByText(/commands$/)).toBeNull()
+    cleanup()
+
+    // Podium keeps the strip clear whatever the palette is doing — the hint was
+    // cut on the merits there and this profile does not reopen that.
+    omarchyPalette = true
+    renderWithAppearance('podium')
+    expect(screen.queryByText(/commands$/)).toBeNull()
   })
 })

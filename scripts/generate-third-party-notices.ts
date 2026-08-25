@@ -357,6 +357,17 @@ The following third-party sources are vendored (copied) into this repository:
   \`packages/pty/vendor/abduco/LICENSE\` for the full text.
 - Podium compiles abduco at build time and embeds the binary in the compiled daemon as
   its durable PTY session backend. Local changes: none (see the accompanying VENDOR.md).
+
+### Material Symbols
+
+- Path: \`apps/web/src/lib/icons/MaterialSymbols.tsx\`
+- Upstream: https://github.com/google/material-design-icons (Material Symbols Rounded,
+  fetched at \`opsz 20, wght 300, FILL 0, GRAD 0\`)
+- License: Apache-2.0 — Copyright Google LLC.
+- The Omarchy appearance profile draws its shell chrome in Material Symbols Rounded.
+  The twenty-nine glyphs it uses are vendored as SVG path data rather than shipped as
+  the variable font, which is several megabytes. Local changes: none — each path is the
+  upstream 20px/wght300 SVG's own \`d\`, in Material's \`0 -960 960 960\` viewBox.
 `
 
 function render(deps: Dep[]): string {

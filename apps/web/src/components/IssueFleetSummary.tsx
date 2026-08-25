@@ -32,7 +32,9 @@
 import { deriveFleetPresence, FLEET_KIND_LIMIT } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model/browser'
 import type { JSX } from 'react'
+import { useThemeAppearance } from '@/app/theme'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
+import { hasOmarchyMark, OmarchyMark } from '@/lib/icons/OmarchyMarks'
 import { cn } from '@/lib/utils'
 
 export function IssueFleetSummary({
@@ -55,6 +57,7 @@ export function IssueFleetSummary({
   className?: string
 }): JSX.Element | null {
   const { present, tiles, nativeCount, label } = deriveFleetPresence(sessions)
+  const appearance = useThemeAppearance()
   if (present.length === 0) return null
   const shown = tiles.slice(0, FLEET_KIND_LIMIT)
   const glyphs = variant === 'glyphs'
@@ -97,7 +100,11 @@ export function IssueFleetSummary({
               )}
               style={glyphs ? undefined : { zIndex: index + 1, width: size, height: size }}
             >
-              {AgentIcon ? (
+              {appearance === 'omarchy' && hasOmarchyMark(kind) ? (
+                // The supplied mark, at the supplied fill — the row's state
+                // picks which of the six files paints it (omarchy.css).
+                <OmarchyMark kind={kind} size={glyph} />
+              ) : AgentIcon ? (
                 <AgentIcon size={glyph} strokeWidth={1.8} aria-hidden="true" />
               ) : (
                 <span style={glyphs ? { fontSize: size } : undefined}>✳</span>

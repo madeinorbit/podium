@@ -28,6 +28,7 @@
 import { FolderPlus, Plus } from 'lucide-react'
 import type { JSX } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { cn } from '@/lib/utils'
 import { newTaskChordBound, useNewTask } from './new-task'
 import { ID_GUTTER_W } from './WorkRowShell'
@@ -65,7 +66,13 @@ export function NewTaskRow(): JSX.Element {
         title="Start a new task"
         className="shell-spawn-chip flex h-10 w-full min-w-0 items-center gap-[9px] rounded-[8px] border border-border-strong bg-chip px-[11px] text-[12.5px] font-medium tracking-[-0.005em] leading-[normal] text-foreground"
       >
-        <Plus size={14} aria-hidden="true" className="flex-none text-text-dim" />
+        <ShellGlyph
+          icon={Plus}
+          glyph="add"
+          size={14}
+          aria-hidden={true}
+          className="flex-none text-text-dim"
+        />
         <span className="min-w-0 flex-1 truncate text-left">New task</span>
         {chord && (
           <span
@@ -103,7 +110,13 @@ export function AddRepositoryButton({ className }: { className?: string }): JSX.
         className,
       )}
     >
-      <FolderPlus size={13} aria-hidden="true" className="flex-none" />
+      <ShellGlyph
+        icon={FolderPlus}
+        glyph="add"
+        size={13}
+        aria-hidden={true}
+        className="flex-none"
+      />
       {/* The words go first, and only below the column's own 280px — a
           `@container worklist` rule in styles.css, so the width being read is
           the COLUMN's, which is the only width that matters to a control the
@@ -159,7 +172,7 @@ export function StartFirstTaskRow({ repoPath }: { repoPath: string }): JSX.Eleme
           aria-hidden="true"
           className="flex size-[21px] items-center justify-center rounded-[6px] border border-dashed border-(--ghost-1) text-(--ghost-1) transition-colors group-hover/first:border-text-faint group-hover/first:text-text-dim"
         >
-          <Plus size={12} strokeWidth={2.25} />
+          <ShellGlyph icon={Plus} glyph="add" size={12} strokeWidth={2.25} />
         </span>
       </span>
       <span className="ml-[11px] min-w-0 truncate text-[11.5px] text-text-faint transition-colors group-hover/first:text-text-strong">

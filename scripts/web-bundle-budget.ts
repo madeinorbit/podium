@@ -94,10 +94,17 @@ const INTERACTION_ONLY_MODULES = [
   'SessionContextMenu.tsx',
 ] as const
 
-/** Heavy leaf renderers whose callers deliberately load them after the shell. */
+/** Heavy leaf renderers whose callers deliberately load them after the shell.
+ *
+ *  `MaterialSymbols.tsx` is the Omarchy profile's glyph table (POD-1531): ~28KB
+ *  of vendored path data for an appearance that is off by default and offered on
+ *  one platform. `ShellGlyph` loads it through `lazy()` and falls back to the
+ *  lucide icon at the same size while it resolves, so a static import here would
+ *  charge every session that never turns the profile on. */
 const DEFERRED_FIRST_PAINT_MODULES = [
   'src/features/mobile-handoff/MobileHandoffQr.tsx',
   'src/features/chat/TranscriptFeed.tsx',
+  'src/lib/icons/MaterialSymbols.tsx',
 ] as const
 
 /**

@@ -3,6 +3,7 @@ import type { AgentKind, SessionMeta } from '@podium/model/browser'
 import { SquareChevronRight } from 'lucide-react'
 import type React from 'react'
 import type { JSX } from 'react'
+import { useThemeAppearance } from '@/app/theme'
 import { agentChipTint, agentGlyphTone } from '@/lib/agent-tone'
 import {
   ClaudeCodeIcon,
@@ -11,6 +12,7 @@ import {
   OpenAIcon,
   OpenCodeIcon,
 } from '@/lib/icons/AgentIcons'
+import { hasOmarchyMark, OmarchyMark } from '@/lib/icons/OmarchyMarks'
 
 /**
  * Strip a leading status/spinner glyph from a live terminal title. Claude Code
@@ -101,6 +103,23 @@ export function KindIcon({
   compact?: boolean
 }): JSX.Element {
   const Icon = KIND_ICON[kind]
+  const appearance = useThemeAppearance()
+  // THE OMARCHY DESIGN DRAWS NO TILE (POD-1531). Every harness mark on that
+  // artboard is bare — in the work list, in the deck, in the tab strip — because
+  // the profile's separation comes from ruled rows and one accent, not from a
+  // stack of brand-coloured chips. So the chip/compact branch below is skipped
+  // entirely rather than restyled: a 20px tile with its fill removed is still a
+  // 20px hole in a row the design draws at 12.
+  if (appearance === 'omarchy' && hasOmarchyMark(kind)) {
+    return (
+      <OmarchyMark
+        kind={kind}
+        size={compact ? 10 : chip ? 12 : 13}
+        label={panelLabel(kind)}
+        className={dimmed ? 'opacity-60' : undefined}
+      />
+    )
+  }
   // Claude's brand clay for its glyph; other kinds stay text-toned like the mock.
   // Table lookups, not comparisons — see apps/web/src/lib/agent-tone.ts.
   // Chip/fleet tints carry their own text tone (Claude is white-on-clay; Grok

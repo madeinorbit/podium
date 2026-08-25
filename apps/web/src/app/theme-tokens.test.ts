@@ -38,6 +38,7 @@ function block(selector: string): string {
 
 const light = block('[data-theme="podium"]')
 const dark = block('[data-theme="podium"].dark')
+const omarchy = block('[data-theme="omarchy"]')
 
 /** Tokens Daylight introduces. Each must be present in BOTH blocks: in light
  *  because that is the point, in dark to stop the light value leaking. */
@@ -165,17 +166,78 @@ describe('Podium token blocks', () => {
 })
 
 describe('theme inventory', () => {
-  it('contains only the Podium selector', () => {
+  it('contains the Podium appearance and the Omarchy profile, and nothing else', () => {
     const names = [...css.matchAll(/^\[data-theme="([^"]+)"\][^{]*\{/gm)].map((m) => m[1])
-    expect([...new Set(names)]).toEqual(['podium'])
+    expect([...new Set(names)]).toEqual(['podium', 'omarchy'])
+  })
+})
+
+/** The Omarchy profile (POD-1531). `[data-theme="omarchy"]` does NOT match either
+ *  Podium block, so unlike the dark block it inherits nothing — every token the
+ *  appearance graph reads has to be declared in it or the shell resolves that
+ *  token to nothing and paints an unstyled surface. That is the same failure the
+ *  leakage tests above guard, arriving from the opposite direction. */
+describe('Omarchy token block', () => {
+  const declared = (b: string) =>
+    new Set([...b.matchAll(/^\s*(--[a-z0-9-]+):/gm)].map((m) => m[1] ?? ''))
+
+  it('declares every token the Podium appearance does', () => {
+    const missing = [...declared(light)].filter((t) => !declared(omarchy).has(t))
+    expect(missing).toEqual([])
+  })
+
+  it('is square, because Hyprland is', () => {
+    // `rounding 0` is carried inside the window (app/omarchy.css §2). A profile
+    // that quietly regained a radius here would round every derived scale.
+    expect(omarchy).toMatch(/--radius:\s*0px/)
+  })
+
+  it('spends no ink on the carves, because the design draws no shadow', () => {
+    // Every separation on the artboard is a hairline. A non-zero carve would put
+    // a gradient along an edge the design draws as a line — see the block's
+    // rule 2. The two FLOATING inks are deliberately not zero and are not
+    // asserted here.
+    expect(omarchy).toContain('--carve-engraved: rgb(0 0 0 / 0)')
+    expect(omarchy).toContain('--carve-drop: rgb(0 0 0 / 0)')
+  })
+
+  it('keeps Claude its own clay rather than recolouring it into the palette', () => {
+    // The one mark the design does not restate — see lib/icons/omarchy.
+    expect(omarchy).toContain('--claude: #d97757')
+  })
+
+  it('swaps the mono face through the one indirection @theme reads', () => {
+    // If --font-mono ever holds a literal stack again, `.font-mono` bakes Geist
+    // Mono into every utility and half the shell stops following the profile.
+    expect(css).toContain('--font-mono: var(--font-mono-stack)')
+    expect(omarchy).toMatch(/--font-mono-stack:\s*'JetBrains Mono Variable'/)
   })
 })
 
 describe('THEME_BG', () => {
-  it('mirrors each Podium block --background, for the anti-flash script', () => {
+  it('mirrors each appearance block --background, for the anti-flash script', () => {
     // index.html duplicates this map pre-React; a mismatch flashes the wrong
     // colour on every cold load.
-    expect(THEME_BG.light).toBe(/--background:\s*(#[0-9a-f]{6})/i.exec(light)?.[1])
-    expect(THEME_BG.dark).toBe(/--background:\s*(#[0-9a-f]{6})/i.exec(dark)?.[1])
+    expect(THEME_BG.podium.light).toBe(/--background:\s*(#[0-9a-f]{6})/i.exec(light)?.[1])
+    expect(THEME_BG.podium.dark).toBe(/--background:\s*(#[0-9a-f]{6})/i.exec(dark)?.[1])
+    const omarchyBg = /--background:\s*(#[0-9a-f]{6})/i.exec(omarchy)?.[1]
+    expect(THEME_BG.omarchy.dark).toBe(omarchyBg)
+    // Omarchy is dark only, so a stale `mode: 'light'` from before the switch
+    // must not paint the other appearance's stone behind a navy shell.
+    expect(THEME_BG.omarchy.light).toBe(omarchyBg)
+  })
+
+  it('is the ground the anti-flash script would pick, pre-React', () => {
+    // The script in index.html is a hand-written copy of resolveDark + THEME_BG.
+    // Assert the copy still says the same thing as the source it mirrors.
+    const html = readFileSync(
+      ['index.html', 'apps/web/index.html']
+        .map((p) => resolve(process.cwd(), p))
+        .find(existsSync) ?? 'index.html',
+      'utf8',
+    )
+    expect(html).toContain("omarchy: { dark: '#1a1b26', light: '#1a1b26' }")
+    expect(html).toContain("appearance === 'omarchy' ? true")
+    expect(html).toContain("el.setAttribute('data-theme', appearance)")
   })
 })

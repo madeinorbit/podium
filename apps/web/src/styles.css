@@ -1,3 +1,12 @@
+/* The Omarchy appearance profile's chrome (POD-1531). Imported from here
+   rather than from index.css so it lands in the same UNLAYERED cascade as
+   the rest of the shell's stylesheet, after Tailwind's layers — which is what
+   lets it flatten a `rounded-lg` or restate a `text-blue-500` without an
+   `!important` on every line. Every rule inside is scoped to
+   `html[data-theme="omarchy"]`, so on any other appearance this import costs
+   one unmatched attribute selector and nothing else. */
+@import "./app/omarchy.css";
+
 :root {
   /* Safe-area insets — iOS notch / Dynamic Island / home indicator. Non-zero ONLY
      in installed-PWA standalone mode (viewport-fit=cover). Any surface reaching a

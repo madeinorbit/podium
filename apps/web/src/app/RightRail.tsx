@@ -8,6 +8,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { useFeature } from '@/lib/use-feature'
 import { RIGHT_PANELS } from './RightDock'
 import { type RightPanelTab, rightPanelAllowed } from './shell-state'
@@ -126,7 +127,13 @@ export function RightRail({
             // one "you are here" recipe is written in one place.
             className="right-rail-cell relative"
           >
-            <panel.icon size={17} strokeWidth={1.7} aria-hidden="true" />
+            <ShellGlyph
+              icon={panel.icon}
+              glyph={panel.glyph}
+              size={17}
+              strokeWidth={1.7}
+              aria-hidden={true}
+            />
             {isShipping && shipping.unfinishedCount > 0 && (
               <span
                 className="absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full border border-border bg-secondary px-1 font-mono text-[8px] leading-[14px] tabular-nums text-text-dim"

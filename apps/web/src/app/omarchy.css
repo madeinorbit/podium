@@ -1,0 +1,452 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   THE OMARCHY PROFILE'S CHROME [POD-1531]
+   ════════════════════════════════════════════════════════════════════════════
+
+   `index.css` carries the profile's COLOUR — one token block, and most of the
+   artboard falls out of it because the shell already reads every surface, seam
+   and ink from a token. This file carries what a token cannot say: geometry,
+   type roles, the corners, and the handful of places where the design draws a
+   different OBJECT rather than the same object in another colour.
+
+   EVERY RULE IS UNDER `html[data-theme="omarchy"]`. Nothing here is reachable
+   from the Podium appearance, which is what "leave generic Linux unchanged"
+   means in practice — a Linux install that never turns the profile on gets the
+   same stylesheet cascade it got before this file existed, plus one unmatched
+   attribute selector.
+
+   IT IS UNLAYERED, and imported after Tailwind. Utilities live in
+   `@layer utilities`, so an unlayered rule beats them whatever the specificity —
+   which is the only way a profile can flatten `rounded-lg` or restate
+   `text-blue-500` without an `!important` on every line.
+
+   WHAT THE ARTBOARD DOES NOT DRAW, THIS FILE DOES NOT TOUCH. Settings, dialogs,
+   the issue board, the file editor and the git panels have no Omarchy design;
+   they inherit the token block and are correct by construction. Inventing
+   geometry for them would be guessing in the profile's name.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. The window's own measurements ─────────────────────────────────────────
+   The artboard is a 2560×1440 Hyprland tile: a 40px command bar, a 30px status
+   strip, and the work between them. Podium's shell reads all three from
+   variables, so the profile's proportions are four declarations rather than a
+   fork of the layout. */
+html[data-theme="omarchy"] {
+  --topbar-h: 40px;
+  --status-strip-h: 30px;
+  /* The work list's project bands. The artboard sets them at 30px on the
+     column's own ground, with no rule of their own — see §3. */
+  --section-bar-h: 30px;
+
+  /* THE PROFILE'S TYPE ROLES. Omarchy sets the shell a step larger than Podium
+     does and leans harder on the sans/mono split: content is Geist, and every
+     reading the machine produces — a timer, a count, a state word, a label — is
+     JetBrains Mono. The roles below are the artboard's own values, so a
+     component that already asks for a role follows the profile without knowing
+     it exists.
+       reading   14/1.65  the deck's brief, the transcript's prose
+       primary   14.5/1.3 a work-row title
+       secondary 12.5/1.4 a pane header, a tab label
+       micro     11.5/1.4 every mono reading on the artboard
+     The section-band label is smaller still (10.5px, tracked to .18em) and is
+     set where it is drawn, in §3 — it is one label, not a role. */
+  --shell-type-reading: 14px;
+  --shell-leading-reading: 23px;
+  --shell-type-primary: 14.5px;
+  --shell-leading-primary: 19px;
+  --shell-type-secondary: 12.5px;
+  --shell-leading-secondary: 17px;
+  --shell-type-micro: 11.5px;
+  --shell-leading-micro: 16px;
+  --shell-type-column-title: 20px;
+  --shell-leading-column-title: 1.25;
+}
+
+/* THE ROW'S BOX. The artboard's work row is `padding:11px 14px 11px 12px` over a
+   title, 6px, and a status line — 42px of content in a 64px row. Podium's is
+   7px over 36. Both numbers move together or the row rule lands wrong. */
+html[data-theme="omarchy"] .shell-work-row {
+  --work-row-pad: 11px;
+  --work-row-content: 42px;
+}
+/* Line 1 and line 2 run at the artboard's own leading rather than the roles'. */
+html[data-theme="omarchy"] .shell-work-row-title {
+  line-height: 19px;
+}
+html[data-theme="omarchy"] .shell-work-row-status {
+  line-height: 1.4;
+}
+
+/* ── 2. Nothing is rounded ───────────────────────────────────────────────────
+   Omarchy runs Hyprland with `rounding 0`, and the design carries that inside
+   the window: there is not one rounded corner on the artboard.
+
+   `--radius: 0` in the token block handles everything derived from it. This
+   handles the rest — the shell's hardcoded `rounded-[7px]`, `rounded-lg`,
+   `rounded-sm` and friends, which name a pixel value and cannot follow a token.
+
+   THREE THINGS STAY ROUND, and they are named rather than left to chance:
+     · `rounded-full` — the deck's status rings and the done tick ARE circles on
+       the artboard, drawn at `border-radius:50%`. A blanket flatten would square
+       the one shape the design keeps round.
+     · SVG — a glyph's own geometry is not chrome.
+     · Anything opting out with `data-keep-radius`, for a future surface that
+       needs it. Nothing does today; it exists so the next person has a lever
+       that is not `!important`.
+
+   `.dot` is deliberately NOT excluded: the artboard's state dots are 5px and 6px
+   SQUARES, so flattening them is the design, not collateral damage. */
+html[data-theme="omarchy"]
+*:not(svg):not(svg *):not([class*="rounded-full"]):not([data-keep-radius]) {
+  border-radius: 0;
+}
+
+/* ── 3. The command bar ──────────────────────────────────────────────────────
+   Same four zones the Podium bar has — mark, modes, instrument, utilities — at
+   the artboard's 40px with two differences that matter: the mode tabs are
+   FULL-HEIGHT cells underlined by the accent rather than filled pills, and the
+   instrument well is a plain hairline box rather than a machined groove (its
+   bevel is already zeroed in the token block). */
+html[data-theme="omarchy"] .desktop-topbar {
+  border-bottom-color: var(--border);
+}
+/* The mark is identity and the artboard does not hold it back — it is drawn at
+   full strength in the palette's own #c0caf5. */
+html[data-theme="omarchy"] .desktop-topbar-logo {
+  opacity: 1;
+}
+/* Cells, not pills: they meet the bar's top and bottom edges and sit 2px apart,
+   so the active one can be underlined by the accent along the bar's own seam. */
+html[data-theme="omarchy"] .desktop-topbar-nav {
+  align-self: stretch;
+  align-items: stretch;
+  gap: 2px;
+}
+html[data-theme="omarchy"] .topbar-mode {
+  height: auto;
+  align-self: stretch;
+  gap: 8px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+html[data-theme="omarchy"] .topbar-mode:hover {
+  background: var(--well-hover);
+  color: var(--foreground);
+}
+/* THE UNDERLINE IS THE PROFILE'S "YOU ARE HERE" (artboard). It appears on the
+   mode tab, on the deck's tab row, on the stage's active pane tab and along the
+   deck column's own top edge — one 2px accent rule, always on the edge nearest
+   the thing it names, which is why the Podium appearance's filled pill is
+   replaced rather than recoloured. */
+html[data-theme="omarchy"] .topbar-mode[data-active="true"] {
+  background: var(--chip);
+  box-shadow: inset 0 -2px 0 var(--primary);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+/* The instrument: a 24px hairline box, its cells divided by the same hairline
+   and set in mono. The groove is already gone (the --well-* tokens are zeroed);
+   what is left is the box and its 11.5px readings. */
+html[data-theme="omarchy"] .topbar-well {
+  height: 24px;
+  padding: 0;
+  box-shadow: inset 0 0 0 1px var(--well-rim);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+html[data-theme="omarchy"] .header-machine-chip,
+html[data-theme="omarchy"] .header-readout {
+  height: 100%;
+}
+html[data-theme="omarchy"] .desktop-topbar-utilities {
+  gap: 4px;
+}
+
+/* THE WINDOW HAS NO CONTROLS OF ITS OWN. Hyprland frames it — a 2px border in
+   the accent when focused, `gaps_out 10` around it — and closes it with a
+   keybind. The artboard draws no minimise, maximise or close, because on this
+   desktop they would be a second, worse copy of the compositor's own.
+   `display: none` rather than removing the element: the bar is also the drag
+   handle, and the platform check that renders these lives in TopBar, where an
+   appearance has no business reaching. */
+html[data-theme="omarchy"] .native-window-controls {
+  display: none;
+}
+
+/* ── 4. The work list ────────────────────────────────────────────────────────
+   The artboard's column is the shell's own — a spawn row, a filter, banded
+   groups, ruled rows, a tools footer — with the bands quieted to labels and the
+   rows carrying a state wash. */
+
+/* A BAND, NOT A BAR. The artboard sets the project name as a tracked mono label
+   on the column's own ground: no tone step, no rule, 30px tall. Podium's band is
+   a raised strip because its column has no other structure; Omarchy's rows are
+   ruled, so the band can go quiet and the rules can carry the list. */
+html[data-theme="omarchy"] .work-section-band {
+  height: var(--section-bar-h);
+  border-bottom: 0;
+  background: transparent;
+}
+html[data-theme="omarchy"] .work-section-band .label-mono {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--label);
+}
+
+/* THE ROW'S STATE WASH (artboard). Podium tints a row by ISSUE — whose work it
+   is. Omarchy adds a second, much fainter wash that says what STATE the row is
+   in: amber under a row asking something of you, green under one that has
+   landed. Both are drawn at ~5.5% on the artboard, which is a wash you notice
+   scanning the column and cannot name looking at one row — exactly the dose a
+   second channel can afford next to the issue colour.
+
+   `waiting` is the ONLY asking phase the vocabulary has — `MotionPhase` is
+   queued | working | waiting | done, and BOTH of the artboard's amber rows
+   ("needs review", "waiting on decision") are that one value. A selector for a
+   fifth phase would match nothing.
+
+   They compose rather than compete: the issue tint is the row's `background`,
+   the state wash is a gradient painted over it, so a coloured task in review
+   still reads as that task's colour with an amber cast. `:not([data-selected])`
+   keeps both off the one row that is already spoken for. */
+html[data-theme="omarchy"] .shell-work-row[data-phase="waiting"]:not([data-selected="true"]) {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--attention) 5.5%, transparent),
+    color-mix(in srgb, var(--attention) 5.5%, transparent)
+  );
+}
+html[data-theme="omarchy"] .shell-work-row[data-phase="done"]:not([data-selected="true"]) {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--success) 5.5%, transparent),
+    color-mix(in srgb, var(--success) 5.5%, transparent)
+  );
+}
+
+/* THE SELECTED ROW. The artboard's is `#222741` under a 2px accent spine — a
+   blue-cast band, not the neutral raised chip Podium lifts the row onto, and the
+   spine is the ACCENT rather than the text ink. `#222741` is the palette's
+   selection tone and exists nowhere else, so it is written here rather than
+   promoted to a token nothing else would read. */
+html[data-theme="omarchy"] .shell-work-row[data-selected="true"] {
+  background-color: #222741;
+  background-image: none;
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+
+/* The list scrolls on the column's own ground. On the artboard the header, the
+   filter and the footer are all #16171f over a #16171f column — the column is
+   one surface and the rules are the only structure in it. */
+html[data-theme="omarchy"] [data-testid="work-scroll"] {
+  background: transparent;
+}
+
+/* ── 5. The flight deck ──────────────────────────────────────────────────────
+   The one column the artboard marks along its TOP edge: a 2px accent rule where
+   it meets the command bar, which is how the design says "this column is the one
+   the window is about".
+
+   Podium already draws that edge — `inset 0 3px 0 var(--issue)` — over a fade
+   that flattens into the card tone across 240px. Only the NO-COLOUR case is
+   restated here, and it is restated rather than replaced for a reason: an
+   operator who has coloured their tasks must keep seeing which mission the deck
+   is showing, and the artboard is simply drawn in the neutral flow. So a
+   coloured mission keeps its edge and its fade; the neutral one takes the
+   artboard's flat ground and its accent rule.
+
+   The drop under the column needs no rule at all: it is `--carve-drop`, which
+   this profile sets to a zero alpha, so it has already gone (§2 of the token
+   block). */
+html[data-theme="omarchy"] [data-issue-colored="false"] .engraved-column {
+  background: var(--card);
+  box-shadow: inset 0 2px 0 var(--primary);
+}
+
+/* ── 6. The stage ────────────────────────────────────────────────────────────
+   The pane tab strip is a row of CELLS on the artboard — full-height, parted by
+   hairlines, the active one lifted onto the work ground under the accent rule —
+   rather than Podium's content-sized pills floating in a strip. Same elements,
+   same order, same behaviour; the difference is that they meet. */
+html[data-theme="omarchy"] [data-testid="native-tab-strip"] {
+  gap: 0;
+  padding: 0;
+  border-bottom-color: var(--border);
+  background: var(--bar);
+}
+html[data-theme="omarchy"] [data-testid="native-tab-strip"] > div:first-child {
+  gap: 0;
+}
+html[data-theme="omarchy"] [data-testid="native-tab-strip"] [data-session] {
+  height: 100%;
+  padding: 0 14px;
+  border-right: 1px solid var(--border);
+  font-size: 12.5px;
+}
+/* The active tab is UNDERLINED, not ringed. Podium raises it onto the card with
+   a 1px issue ring and a small drop — the sheet's floating idiom, borrowed for
+   the one tab you are looking at. This window has no floating idiom to borrow,
+   so the accent rule does the same job on the strip's own seam. */
+html[data-theme="omarchy"] [data-testid="native-tab-strip"] [data-session].native-tab-active {
+  box-shadow: inset 0 -2px 0 var(--primary);
+  background: var(--background);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+/* THE TERMINAL'S GROUND IS NOT SET HERE, and that is deliberate. The artboard
+   puts the CLI a step below the stage — #0f1017 under #1a1b26 — but the xterm
+   surface and the container around it have to agree on a LITERAL colour (xterm
+   cannot evaluate a CSS variable), so the value lives with the rest of the
+   terminal's appearance in `features/terminal/appearance.ts`
+   (OMARCHY_TERMINAL_DEFAULTS) and reaches both through the same prop. A second
+   copy here would be a second thing to keep in step. */
+
+/* ── 7. The icon rail ────────────────────────────────────────────────────────
+   46px, the chrome ground, 16px between cells and 12px off the top — and the
+   open panel's cell is a hairline BOX in the accent rather than a chip lifted
+   out of the rail on a drop, because this window has no drops. */
+html[data-theme="omarchy"] .right-rail {
+  gap: 16px;
+  padding: 12px 0;
+  border-left: 1px solid var(--border);
+}
+html[data-theme="omarchy"] .right-rail-cell[aria-pressed="true"] {
+  background: var(--chip);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--primary);
+}
+
+/* ── 8. The status strip ─────────────────────────────────────────────────────
+   30px, the chrome ground, mono at 11px, readings spaced 16px apart — one
+   sentence read left to right, with the offers at the far end. */
+html[data-theme="omarchy"] .status-strip {
+  gap: 16px;
+  padding: 0 14px;
+  border-top-color: var(--border);
+  /* The artboard writes the strip at the ramp's TERTIARY step. Podium sets it a
+     rung lower, which on this ground put an 11px mono line at 3.1:1 — readable
+     as a shape, not as a sentence. */
+  color: var(--muted-foreground);
+  font-size: 11px;
+  letter-spacing: normal;
+}
+html[data-theme="omarchy"] .status-strip-seam {
+  background: var(--text-faint);
+}
+/* The phone offer is bare words on the artboard, not a chip — the strip has no
+   filled surfaces on it at all. */
+html[data-theme="omarchy"] .status-strip-phone {
+  padding: 0;
+  background: transparent;
+}
+html[data-theme="omarchy"] .status-strip-phone:hover,
+html[data-theme="omarchy"] .status-strip-phone[data-popup-open] {
+  background: transparent;
+  color: var(--text-strong);
+}
+/* 14px on the artboard, against the strip's 12px lucide glyph — set here rather
+   than as a prop so the Podium appearance keeps the size it already had. */
+html[data-theme="omarchy"] .status-strip-phone > svg {
+  width: 14px;
+  height: 14px;
+}
+/* THE PROFILE'S OWN READOUT (artboard). It passes the strip's admission test —
+   window-scoped, stated nowhere else, and a FACT: which desktop appearance this
+   window is wearing. It exists only under this appearance, which is also the
+   only appearance in which it would be true. */
+html[data-theme="omarchy"] .status-strip-profile {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+}
+html[data-theme="omarchy"] .status-strip-profile::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: var(--primary);
+}
+/* The palette hint comes BACK on this profile, and only on it. Podium cut it
+   from the strip on the grounds that a keycap is instruction rather than a
+   window-scoped fact — which stands, and the artboard overrules it here for a
+   reason particular to this desktop: an Omarchy session is driven from the
+   keyboard, and the strip is where that desktop's other applications put their
+   binds. It is the design's call, in the design's own profile. */
+html[data-theme="omarchy"] .status-strip-hint {
+  flex: none;
+  color: var(--text-dim);
+}
+
+/* ── 9. The issue-status glyph ───────────────────────────────────────────────
+   The deck's status rings are `StatusGlyph`, whose stage colours are Tailwind
+   palette hues rather than tokens — they predate the token graph and are the one
+   place in the shell that names a colour outright. The artboard puts them on the
+   profile's own three: blue for what is running, the quiet ink for what is not
+   started or blocked, green for what is done. Restated here rather than
+   tokenised, because tokenising them would change the Podium appearance too. */
+/* FOUR STAGES, FOUR HUES — collapsing any two of them would be a regression,
+   not a restyle. `in_progress` takes the accent the artboard draws its running
+   rings in; the other three take Tokyo Night's own cyan, purple and orange, so
+   `review`, `shipping` and `proposed` stay as far apart in this palette as they
+   were in the Tailwind ramp they are replacing. */
+html[data-theme="omarchy"] .text-blue-500 {
+  color: var(--primary);
+}
+html[data-theme="omarchy"] .text-sky-500 {
+  color: #7dcfff;
+}
+html[data-theme="omarchy"] .text-violet-500 {
+  color: #bb9af7;
+}
+html[data-theme="omarchy"] .text-fuchsia-500 {
+  color: #ff9e64;
+}
+
+/* ── 10. The supplied marks ──────────────────────────────────────────────────
+   Six files, three outlines, one fill each — see lib/icons/omarchy/README.md.
+   `OmarchyMark` renders an empty span carrying `data-om-mark`; the file it
+   paints is decided HERE, by the same selectors that already know what state the
+   surrounding row is in. Nothing in TypeScript chooses a colour, and every one
+   of the design's six files is reachable.
+
+   Order matters: the amber and header rules below are more specific than the
+   base rules above them, so a mark on a row that is asking takes amber and one
+   named in a header takes the mid tone, exactly as the artboard draws them. */
+html[data-theme="omarchy"] .om-mark {
+  display: inline-block;
+  flex: none;
+  width: var(--om-mark-size, 12px);
+  height: var(--om-mark-size, 12px);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+/* Claude keeps its clay everywhere — the one mark the design never restates. */
+html[data-theme="omarchy"] .om-mark[data-om-mark="claude-code"] {
+  background-image: url("../lib/icons/omarchy/om-claude.svg");
+}
+html[data-theme="omarchy"] .om-mark[data-om-mark="codex"] {
+  background-image: url("../lib/icons/omarchy/om-openai-dim.svg");
+}
+html[data-theme="omarchy"] .om-mark[data-om-mark="grok"] {
+  background-image: url("../lib/icons/omarchy/om-grok-dim.svg");
+}
+/* A ROW THAT IS ASKING TAKES THE AMBER MARK. The row already carries the fact
+   (`data-phase`), so the mark reads it rather than being told. */
+html[data-theme="omarchy"] .shell-work-row[data-phase="waiting"] .om-mark[data-om-mark="codex"] {
+  background-image: url("../lib/icons/omarchy/om-openai-amber.svg");
+}
+html[data-theme="omarchy"] .shell-work-row[data-phase="waiting"] .om-mark[data-om-mark="grok"] {
+  background-image: url("../lib/icons/omarchy/om-grok-amber.svg");
+}
+/* A HARNESS NAMED IN A HEADER takes the mid tone: it is the subject of the row
+   it sits on rather than one of several marks summarising a task. On the
+   artboard that is the column's context header, above the filter. */
+html[data-theme="omarchy"] .new-work-row .om-mark[data-om-mark="codex"] {
+  background-image: url("../lib/icons/omarchy/om-openai-mid.svg");
+}

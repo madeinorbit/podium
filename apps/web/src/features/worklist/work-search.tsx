@@ -19,6 +19,7 @@ import type { UnifiedWorkRow } from '@podium/client-core/viewmodels'
 import { Search, X } from 'lucide-react'
 import type { JSX, ReactNode, RefObject } from 'react'
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { indexWorkRows, matchesIndexedWorkQuery, normalizeWorkQuery } from './work-filter'
 
 export type WorkFilter = {
@@ -110,7 +111,13 @@ export function WorkSearchField({
         data-testid="work-search"
         className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-[7px] border border-input bg-background px-[9px] focus-within:ring-2 focus-within:ring-ring/40"
       >
-        <Search size={14} className="flex-none text-text-faint" aria-hidden="true" />
+        <ShellGlyph
+          icon={Search}
+          glyph="search"
+          size={14}
+          className="flex-none text-text-faint"
+          aria-hidden={true}
+        />
         <input
           ref={inputRef}
           value={query}
@@ -143,7 +150,7 @@ export function WorkSearchField({
               inputRef.current?.focus()
             }}
           >
-            <X size={10} aria-hidden="true" />
+            <ShellGlyph icon={X} glyph="close" size={10} aria-hidden={true} />
           </button>
         )}
         {/* The chord hint and the result count are ONE slot, because they are the

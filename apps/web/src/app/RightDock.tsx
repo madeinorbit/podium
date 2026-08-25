@@ -19,13 +19,15 @@ import {
 import type { JSX } from 'react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { PerspectiveRoad } from '@/features/shipping/PerspectiveRoad'
 import type { ShippingPanelCommands } from '@/features/shipping/ShippingPanel'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
+import type { ShellGlyphName } from '@/lib/icons/MaterialSymbols'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { DockHeaderSlotProvider } from './DockHeaderSlot'
 import { useOperatorFocus } from './operator-focus'
 import type { RightPanelTab } from './shell-state'
 import { useReplicaIssues, useStoreSelector } from './store'
-import { PerspectiveRoad } from '@/features/shipping/PerspectiveRoad'
 
 const WorktreeFileTree = lazy(() =>
   import('@/features/files/WorktreeFileTree').then((module) => ({
@@ -64,23 +66,31 @@ function DockPanelFallback(): JSX.Element {
 /** The right-panel surfaces, including the docked Superagent chat home. */
 export type { RightPanelTab } from './shell-state'
 
-export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
+/** `glyph` is the Material Symbol the Omarchy profile draws in this cell's
+ *  place (POD-1531) — the rail is one of the two rows the design draws whole, so
+ *  every cell in it carries one and the family never mixes. */
+export const RIGHT_PANELS: {
+  id: RightPanelTab
+  label: string
+  icon: LucideIcon
+  glyph: ShellGlyphName
+}[] = [
   // A LIST glyph, not a task glyph (POD-743): this cell opens an explorer
   // over every task in the repo, so an icon that stands for one issue — and,
   // before this, the selected issue's own ID square wearing its status badge —
   // named the wrong thing and claimed a relationship the panel no longer has.
-  { id: 'issue', label: 'Tasks', icon: ListTree },
-  { id: 'superagent', label: 'Superagent', icon: Sparkles },
-  { id: 'git', label: 'Git', icon: GitBranch },
-  { id: 'files', label: 'Files', icon: FolderTree },
+  { id: 'issue', label: 'Tasks', icon: ListTree, glyph: 'format_list_bulleted' },
+  { id: 'superagent', label: 'Superagent', icon: Sparkles, glyph: 'hub' },
+  { id: 'git', label: 'Git', icon: GitBranch, glyph: 'account_tree' },
+  { id: 'files', label: 'Files', icon: FolderTree, glyph: 'folder' },
   // The dock hosts one persistent shell per worktree (#23) [spec:SP-75b1];
   // additional shells can also be opened as workspace tabs from the "+" menu.
-  { id: 'shell', label: 'Shell', icon: SquareTerminal },
+  { id: 'shell', label: 'Shell', icon: SquareTerminal, glyph: 'terminal' },
   // The message ledger (#237) [spec:SP-34d7 web] — the active session's and
   // its issue's delivery ledger ("what happened to my message").
-  { id: 'mail', label: 'Messages', icon: Mail },
-  { id: 'merge-queue', label: 'Queues', icon: ListOrdered },
-  { id: 'shipping', label: 'Shipping', icon: PerspectiveRoad },
+  { id: 'mail', label: 'Messages', icon: Mail, glyph: 'mail' },
+  { id: 'merge-queue', label: 'Queues', icon: ListOrdered, glyph: 'format_list_numbered' },
+  { id: 'shipping', label: 'Shipping', icon: PerspectiveRoad, glyph: 'local_shipping' },
 ]
 
 /** The right dock panel: Files / Git / Issue / Superagent for the active worktree. Opened
@@ -124,6 +134,7 @@ export function RightDock({
     id: tab,
     label: 'Panel',
     icon: FolderTree,
+    glyph: 'folder' as const,
   }
   // The dock title bar is every panel's ONE header (POD-516 item 10): a panel
   // with controls of its own portals them in here instead of growing a second
@@ -180,7 +191,13 @@ export function RightDock({
               {/* Chrome ink, not signal ink: this glyph is lit on every panel, and a
                 permanently-yellow mark where nothing is asked of the operator is
                 the exact spend The Signal Rule guards. */}
-              <panel.icon size={16} className="flex-none text-text-dim" aria-hidden="true" />
+              <ShellGlyph
+                icon={panel.icon}
+                glyph={panel.glyph}
+                size={16}
+                className="flex-none text-text-dim"
+                aria-hidden={true}
+              />
               <span
                 className="truncate text-[13.5px] leading-none font-semibold text-text-strong"
                 data-dock-title="panel"
