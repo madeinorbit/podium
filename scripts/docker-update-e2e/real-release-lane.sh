@@ -445,7 +445,7 @@ arm_real_release_failure() {
       # failed, not because the machine fell over. Nothing else is touched.
       real_exec mkdir -p "$REAL_UNIT_DIR/$REAL_PARENT_UNIT"
       real_exec test -d "$REAL_UNIT_DIR/$REAL_PARENT_UNIT"
-      say "armed: the parent unit path is a directory, so the migration cannot write it"
+      say "armed: the parent unit path is a directory, so the migration sees a parent already present and fails to enable it"
       ;;
   esac
 }

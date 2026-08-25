@@ -1756,7 +1756,8 @@ main() {
   [[ "$PROVE_FAILURE" != real-release-migration || "$ONLY" == real-release ]] ||
     die "PROVE_FAILURE=real-release-migration needs PODIUM_UPDATE_E2E_ONLY=real-release"
   [[ -z "$ONLY" || -z "$PROVE_FAILURE" ||
-    ( "$ONLY" == server && "$PROVE_FAILURE" == server-* ) ]] ||
+    ( "$ONLY" == server && "$PROVE_FAILURE" == server-* ) ||
+    ( "$ONLY" == real-release && "$PROVE_FAILURE" == real-release-* ) ]] ||
     die "failure controls require the complete matrix"
   [[ "$HOLD" == 0 || "$HOLD" == 1 || "$HOLD" == proposal || "$HOLD" == published ]] ||
     die "hold mode must be 0, proposal, published, or the published alias 1"
