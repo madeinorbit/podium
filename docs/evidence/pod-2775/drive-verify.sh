@@ -40,14 +40,29 @@ for name in server daemon; do
   cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)"
   [ "$cwd" = "$(readlink -f "$PODIUM_DRIVE_REPO")" ] \
     || fail "$name (pid $pid) is running from $cwd, not $PODIUM_DRIVE_REPO"
-  # START TIME vs the commit: a daemon that predates the commit cannot be running
-  # it, however clean the tree looks now. This is the leg that a plain cwd check
-  # misses, and it is exactly the mistake this rig exists to prevent.
-  started="$(stat -c %Y "/proc/$pid" 2>/dev/null || echo 0)"
-  committed="$(git -C "$PODIUM_DRIVE_REPO" show -s --format=%ct "$WANT_SHA")"
-  [ "$started" -ge "$committed" ] \
-    || fail "$name (pid $pid) started before $WANT_SHA was committed — it cannot be running it"
-  echo "  ok  $name pid=$pid cwd=$cwd started after the commit"
+  # WHICH COMMIT IT WAS SPAWNED FROM — read, not inferred.
+  #
+  # This leg used to compare `stat -c %Y /proc/<pid>` against the commit's
+  # timestamp, and it was defeated twice over. `%Y` on /proc/<pid> is the INODE
+  # MTIME rather than the process start time: measured on this host, 100 of 240
+  # live pids skew by more than 5s and the worst by 7751s, FORWARD — so a
+  # process older than the commit read as newer than it, which is the direction
+  # that makes a stale rig pass. And `started >= committed` is satisfied by the
+  # PARENT commit too, so it could not separate the build under test from the
+  # one immediately before it — a check that passes on exactly the thing it is
+  # meant to rule out.
+  #
+  # `drive-up.sh` now writes the sha (and the tree's cleanliness) at spawn.
+  # Nothing here is reconstructed from a clock.
+  shafile="$PODIUM_DRIVE_BASE/$name.sha"
+  [ -f "$shafile" ] || fail "no $shafile — this instance was not started by drive-up.sh, so what it is running cannot be established"
+  spawn_sha="$(cut -d' ' -f1 "$shafile")"
+  spawn_tree="$(cut -d' ' -f2 "$shafile")"
+  [ "$spawn_sha" = "$WANT_SHA" ] \
+    || fail "$name (pid $pid) was spawned from $spawn_sha, you named $WANT_SHA — restart the pair"
+  [ "$spawn_tree" = "clean" ] \
+    || fail "$name (pid $pid) was spawned from a DIRTY tree at $spawn_sha, so the sha does not name the bytes it read"
+  echo "  ok  $name pid=$pid cwd=$cwd spawned from $spawn_sha (clean)"
 done
 
 # 2. the worktree those processes read is the named commit, and is clean

@@ -67,14 +67,47 @@ for name in daemon server; do
     kill -9 "$(cat "$pidfile")" 2>/dev/null || true
     echo "stopped previous $name"
   fi
-  rm -f "$pidfile"
+  rm -f "$pidfile" "$PODIUM_DRIVE_BASE/$name.sha"
 done
+
+# THE SPAWN RECORDS WHAT IT SPAWNED FROM (POD-2775, review round 2, finding 6).
+#
+# `drive-verify.sh` used to INFER this: it read a start time out of /proc and
+# compared it with the commit's timestamp. Both halves were defeated, and both
+# were measured on this host rather than argued:
+#
+#   * `stat -c %Y /proc/<pid>` is the INODE MTIME, not the process start time.
+#     100 of 240 live pids skew by more than 5s, worst case 7751s, and the skew
+#     runs FORWARD — so a process older than the commit reads as newer than it,
+#     which is the direction that turns a stale rig into a pass.
+#   * and `started >= committed` is true for the PARENT commit too, so the check
+#     could not tell the build under test from the one before it. A pin that
+#     passes on the commit you are trying to distinguish yourself from is not a
+#     pin.
+#
+# So the fact is WRITTEN AT SPAWN instead of reconstructed afterwards: the sha
+# this process was started from, and whether the tree was clean when it was.
+# Nothing has to be inferred from a clock.
+stamp() { # name
+  local name="$1"
+  local sha dirty
+  sha="$(git -C "$PODIUM_DRIVE_REPO" rev-parse HEAD)"
+  if [ -n "$(git -C "$PODIUM_DRIVE_REPO" status --porcelain | grep -v ' docs/evidence/pod-2775/' | grep -v '^?? docs/evidence/pod-2775/' || true)" ]; then
+    dirty=dirty
+  else
+    dirty=clean
+  fi
+  printf '%s %s\n' "$sha" "$dirty" > "$PODIUM_DRIVE_BASE/$name.sha"
+}
 
 start() { # name, script
   local name="$1" script="$2"
+  # STAMPED BEFORE THE SPAWN, so a stamp can never describe a tree edited while
+  # the process was starting.
+  stamp "$name"
   nohup bun --conditions=@podium/source "$script" >"$LOGS/$name.log" 2>&1 &
   echo "$!" > "$PODIUM_DRIVE_BASE/$name.pid"
-  echo "started $name pid=$(cat "$PODIUM_DRIVE_BASE/$name.pid")"
+  echo "started $name pid=$(cat "$PODIUM_DRIVE_BASE/$name.pid") sha=$(cut -d' ' -f1 "$PODIUM_DRIVE_BASE/$name.sha" | cut -c1-9)"
 }
 
 start server scripts/server.ts
