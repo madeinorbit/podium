@@ -1,3 +1,4 @@
+/** The pre-POD-1659 composer, verbatim from 9e6dfbfb4, for side-by-side capture only. */
 import { BlurView } from 'expo-blur'
 import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from 'lucide-react-native'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
@@ -17,38 +18,28 @@ import {
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
-import { useReduceMotion } from '../hooks/useReduceMotion'
-import { type VoiceInput, useVoiceInput } from '../hooks/useVoiceInput'
-import { onMediaPaste } from '../lib/composer-media'
-import { alpha } from '../theme/mix'
-import { color, font, leading, radius, sans, space, spring } from '../theme/theme'
-import { AttachmentStrip } from './AttachmentStrip'
+import { useKeyboardVisible } from '../src/hooks/useKeyboardVisible'
+import { useReduceMotion } from '../src/hooks/useReduceMotion'
+import { type VoiceInput, useVoiceInput } from '../src/hooks/useVoiceInput'
+import { onMediaPaste } from '../src/lib/composer-media'
+import { alpha } from '../src/theme/mix'
+import { color, font, leading, radius, sans, space, spring } from '../src/theme/theme'
+import { AttachmentStrip } from '../src/components/AttachmentStrip'
 import {
   COMPOSER_LINE,
   COMPOSER_MIN_HEIGHT,
-  composerAtRest,
   composerFieldHeight,
   composerMaxHeight,
   composerScrolls,
-} from './composer-height'
-import { composerKeyAction, hasHardwareKeyboard } from './composer-keys'
-import { useComposerMeasure } from './composer-measure'
-import { Icon } from './Icon'
-import { PressableScale } from './PressableScale'
-import type { ComposerAttachmentsApi, SentAttachment } from './useComposerAttachments'
+} from '../src/components/composer-height'
+import { composerKeyAction, hasHardwareKeyboard } from '../src/components/composer-keys'
+import { useComposerMeasure } from '../src/components/composer-measure'
+import { Icon } from '../src/components/Icon'
+import { PressableScale } from '../src/components/PressableScale'
+import type { ComposerAttachmentsApi, SentAttachment } from '../src/components/useComposerAttachments'
 
 const CONTROL_TARGET = 44
-/** The filled disc inside a control's 44pt target — send, and mic while live. */
-const CONTROL_INK = 32
-/** One glyph size for the whole row: three controls, three weights read as a bug. */
-const GLYPH = 20
-/**
- * How far text sits off the surface padding. Small, because the padding does
- * most of the work — this is the last few points that put the prose on the
- * same left edge as the control glyphs below it.
- */
-const TEXT_INSET = space.xs
+const SEND_INK = 32
 
 export function appendDictation(current: string, phrase: string): string {
   const finalized = phrase.trim()
@@ -67,28 +58,14 @@ export function composerVoiceStatus(
 
 /**
  * Chat composer — one floating rounded surface inset from the screen edges
- * [POD-502], stacked field-over-controls [POD-1659].
+ * [POD-502].
  *
  * It used to be a full-width slab welded to the bottom edge, holding an
  * outlined field with a terminal `>` glyph and a fixed 45px editable area. It
  * is now a frosted capsule in the same material as the floating tab bar: it
  * measures its own content and snaps from one line through six before scrolling
- * inside itself.
- *
- * THE CONTROLS SIT ON THEIR OWN ROW UNDER THE FIELD. They used to flank it —
- * attach and mic to its left, send to its right — which cost the prose three
- * 44pt targets of the line it had to wrap inside. On a phone that left a
- * ~40% column down the middle of the capsule, so a placeholder of ordinary
- * length ("Message — resumes the agent…") wrapped to two lines before a word
- * was typed and the surface opened at double height to say nothing. Stacking
- * gives the text the FULL width and the controls a stable rail, which is the
- * arrangement every reference composer on a phone converges on.
- *
- * The row reads outside-in from each end: attach at the leading edge because
- * it acts on what you are about to write, dictation and send at the trailing
- * edge because they are how you finish. Nothing travels when the field grows —
- * the row hangs off the bottom of the capsule and the text expands upward
- * away from it.
+ * inside itself, with the send control pinned to the bottom of the row so it
+ * never travels while the text grows above it.
  *
  * Two deliberate quietings. THE FIELD IS SANS, not the old mono: a prompt is
  * prose, it renders as sans the moment it lands in the transcript, and every
@@ -99,7 +76,7 @@ export function composerVoiceStatus(
  * this app means "waiting on you"; a permanently accented composer spends the
  * one signal on furniture.
  */
-export function Composer({
+export function OldComposer({
   placeholder,
   onSend,
   disabled,
@@ -184,7 +161,7 @@ export function Composer({
   const height = composerFieldHeight(measured, line)
   const scrolls = composerScrolls(measured, line)
   const maxHeight = composerMaxHeight(line)
-  const atRest = composerAtRest(measured, line)
+  const atRest = height === COMPOSER_MIN_HEIGHT
 
   // Web has to be asked for the content height; native volunteers it through
   // onContentSizeChange below. `fontScale` is a dependency so raising Dynamic
@@ -316,37 +293,7 @@ export function Composer({
         >
           {voiceStatus}
         </Text>
-        <View style={[styles.fieldWrap, { height }]}>
-          <TextInput
-            ref={inputRef}
-            {...composerFieldProps}
-            accessibilityLabel={placeholder}
-            style={[styles.input, { maxHeight }]}
-            value={composedText}
-            onChangeText={changeText}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            placeholder={placeholder}
-            placeholderTextColor={color.textDim}
-            multiline
-            editable={!disabled}
-            onKeyPress={onKeyPress}
-            // react-native-web answers this with a scrollHeight that can only
-            // grow; useComposerMeasure asks the node directly instead.
-            onContentSizeChange={Platform.OS === 'web' ? undefined : onContentSizeChange}
-            scrollEnabled={scrolls}
-            // THE RETURN KEY INSERTS A LINE. It used to be wired to `submit`
-            // with `onSubmitEditing` sending, which is what made a soft
-            // keyboard's Enter fire the message; the hardware-keyboard case is
-            // handled in `onKeyPress` instead, where the modifiers are legible.
-            submitBehavior="newline"
-          />
-        </View>
-        {/* Leading cluster, then the gap, then the trailing cluster. The
-            spacer is a flexing view rather than `justifyContent: space-between`
-            so the row keeps its shape when one end is empty — a composer with
-            no attach control must not centre its send disc. */}
-        <View style={styles.controls}>
+        <View style={styles.row}>
           {attachments?.pick || attachments?.paste ? (
             <AttachButton
               mode={attachments.pick ? 'pick' : 'paste'}
@@ -354,17 +301,42 @@ export function Composer({
               onPress={attachments.pick ?? attachments.paste ?? (() => {})}
             />
           ) : null}
-          <View style={styles.controlGap} pointerEvents="none" />
           {voice.supported ? (
             <VoiceButton
               starting={voice.starting}
               listening={voice.listening}
               failed={voice.error !== null}
               disabled={disabled === true}
+              inset={!(attachments?.pick || attachments?.paste)}
               onStart={startVoice}
               onStop={voice.stop}
             />
           ) : null}
+          <View style={[styles.fieldWrap, { height }]}>
+            <TextInput
+              ref={inputRef}
+              accessibilityLabel={placeholder}
+              style={[styles.input, { maxHeight }]}
+              value={composedText}
+              onChangeText={changeText}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              placeholder={placeholder}
+              placeholderTextColor={color.textDim}
+              multiline
+              editable={!disabled}
+              onKeyPress={onKeyPress}
+              // react-native-web answers this with a scrollHeight that can only
+              // grow; useComposerMeasure asks the node directly instead.
+              onContentSizeChange={Platform.OS === 'web' ? undefined : onContentSizeChange}
+              scrollEnabled={scrolls}
+              // THE RETURN KEY INSERTS A LINE. It used to be wired to `submit`
+              // with `onSubmitEditing` sending, which is what made a soft
+              // keyboard's Enter fire the message; the hardware-keyboard case is
+              // handled in `onKeyPress` instead, where the modifiers are legible.
+              submitBehavior="newline"
+            />
+          </View>
           <SendButton ready={canSend} onPress={send} reduceMotion={reduceMotion} />
         </View>
       </BlurView>
@@ -373,33 +345,12 @@ export function Composer({
   )
 }
 
-/**
- * Names the field for the web shell's one-line placeholder rule [POD-1666].
- *
- * The composer rests at ONE line, so a placeholder that wraps has nowhere to
- * put its second one — it was silently clipped mid-word. The rule that
- * ellipsizes it lives in scripts/patch-web-html.ts with the app's other
- * browser tells, and needs a handle on the node; `dataSet` is
- * react-native-web's escape hatch to a `data-*` attribute, the same one
- * ../lib/selectable.ts uses. On native the placeholder is laid out by the
- * platform and takes no rule.
- */
-const composerFieldProps: object =
-  Platform.OS === 'web' ? { dataSet: { composerField: 'true' } } : {}
-
-/**
- * Dictation — a bare mic at rest, a stop square on an ink disc while it runs.
- *
- * The active fill is the SAME 32pt disc the send control draws, not the full
- * 44pt target it used to flood: two round controls sitting side by side on the
- * trailing edge have to agree about how big a filled control is, or the row
- * looks like it has two different button sizes in it.
- */
 function VoiceButton({
   starting,
   listening,
   failed,
   disabled,
+  inset,
   onStart,
   onStop,
 }: {
@@ -407,6 +358,7 @@ function VoiceButton({
   listening: boolean
   failed: boolean
   disabled: boolean
+  inset: boolean
   onStart: () => void
   onStop: () => void
 }) {
@@ -423,26 +375,23 @@ function VoiceButton({
     <PressableScale
       accessibilityRole="button"
       accessibilityLabel={label}
-      // BOTH spellings on purpose. `accessibilityState` is what React Native
-      // reads on device; react-native-web stopped mapping it to ARIA in 0.21
-      // and takes the `aria-*` props directly, so web dropped the busy state
-      // silently — the control announced "start dictation" while it was
-      // already opening the microphone. [POD-1659]
       accessibilityState={{ busy: starting, disabled }}
-      aria-busy={starting}
       testID="composer-voice"
       disabled={disabled}
       onPress={active ? onStop : onStart}
       scaleTo={0.9}
-      style={({ pressed }) => [styles.control, pressed && styles.controlPressed]}
+      style={({ pressed }) => [
+        styles.voice,
+        inset && styles.voiceInset,
+        listening && styles.voiceListening,
+        failed && styles.voiceFailed,
+        pressed && styles.voicePressed,
+      ]}
     >
-      {listening || failed ? (
-        <View style={[styles.controlDisc, failed ? styles.voiceFailed : styles.voiceListening]} />
-      ) : null}
       <Icon
         as={listening ? Square : failed ? MicOff : Mic}
-        size={listening ? 14 : GLYPH}
-        color={listening ? color.bg : failed ? color.danger : color.textDim}
+        size={listening ? 15 : 19}
+        color={listening ? color.bg : failed ? color.danger : color.textFaint}
       />
     </PressableScale>
   )
@@ -452,9 +401,9 @@ function VoiceButton({
  * The attach control — a paperclip where a file dialog exists, a clipboard where
  * the only route is the OS pasteboard (native, whose text field reports no paste
  * event of its own).
- * It sits alone at the LEADING end of the control row, under the field rather
- * than beside it, so a growing prompt pushes nothing around. Ink weight, never
- * accent: this is furniture, and the one filled control in the capsule is the
+ * It sits at the LEFT end of the control row, bottom-aligned with the send
+ * target, so the growing field pushes neither of them around. Ink weight, never
+ * accent: this is furniture, and the one coloured control in the capsule is the
  * send disc.
  */
 function AttachButton({
@@ -474,9 +423,9 @@ function AttachButton({
       disabled={disabled}
       onPress={onPress}
       scaleTo={0.9}
-      style={({ pressed }) => [styles.control, pressed && styles.controlPressed]}
+      style={({ pressed }) => [styles.attach, pressed && styles.attachPressed]}
     >
-      <Icon as={mode === 'pick' ? Paperclip : ClipboardPaste} size={GLYPH} color={color.textDim} />
+      <Icon as={mode === 'pick' ? Paperclip : ClipboardPaste} size={18} color={color.textFaint} />
     </PressableScale>
   )
 }
@@ -520,11 +469,10 @@ function SendButton({
       disabled={!ready}
       onPress={onPress}
       scaleTo={0.9}
-      style={styles.control}
+      style={styles.send}
     >
       <Animated.View
         style={[
-          styles.controlDisc,
           styles.sendDisc,
           {
             opacity: fill,
@@ -538,10 +486,10 @@ function SendButton({
           { opacity: fill.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) },
         ]}
       >
-        <Icon as={ArrowUp} size={GLYPH} color={color.textDim} />
+        <Icon as={ArrowUp} size={18} color={color.textFaint} />
       </Animated.View>
       <Animated.View style={[styles.sendGlyph, { opacity: fill }]}>
-        <Icon as={ArrowUp} size={GLYPH} color={color.bg} />
+        <Icon as={ArrowUp} size={18} color={color.bg} />
       </Animated.View>
     </PressableScale>
   )
@@ -552,13 +500,6 @@ const styles = StyleSheet.create({
   dock: {
     paddingHorizontal: space.lg,
   },
-  /**
-   * One padding on all four sides now that nothing is welded to an edge. The
-   * old asymmetry (18 left for text, 10 right for a round control) existed
-   * because the field and the send target shared a row; with the controls on
-   * their own rail below, the row hangs its own glyphs back out to the curve
-   * through `controls` and the surface can be square about it.
-   */
   surface: {
     borderRadius: radius.xxl,
     borderWidth: StyleSheet.hairlineWidth,
@@ -567,11 +508,11 @@ const styles = StyleSheet.create({
     // same arrangement as the tab-bar capsule.
     overflow: 'hidden',
     boxShadow: '0 6px 24px rgba(0, 0, 0, 0.5)',
-    paddingHorizontal: space.md,
-    paddingTop: space.md,
-    // The control row's 44pt target already carries ~12 of air under its
-    // glyph; paying the full inset again would hang the capsule open.
-    paddingBottom: space.xs,
+    // Text sits a comfortable inset off the curve; a round control needs less
+    // than text does to look equally inset.
+    paddingLeft: space.lg + 2,
+    paddingRight: space.sm + 2,
+    paddingVertical: space.sm + 1,
   },
   // Focus lifts the seam one tier. It does not change hue: the caret is in the
   // field and the keyboard is already up — the signal has been sent.
@@ -595,7 +536,6 @@ const styles = StyleSheet.create({
     fontSize: font.micro,
     lineHeight: leading(font.micro),
     paddingBottom: space.xs + 1,
-    marginHorizontal: TEXT_INSET,
   },
   captionAttention: {
     color: color.needsYouText,
@@ -606,7 +546,6 @@ const styles = StyleSheet.create({
     fontSize: font.micro,
     lineHeight: leading(font.micro),
     paddingBottom: space.xs + 1,
-    marginHorizontal: TEXT_INSET,
   },
   voiceStatusError: {
     color: color.danger,
@@ -619,14 +558,25 @@ const styles = StyleSheet.create({
     opacity: 0,
   },
   /**
+   * `flex-end` is what makes the control row stable: the field grows upward off
+   * the bottom edge and the send control stays exactly where it was.
+   */
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: space.sm,
+  },
+  /**
    * Height is set on the wrapper rather than the input, leaving the input's own
    * node free for web measurement to collapse. It snaps to each measurement:
    * typing and paste are too frequent to drive layout frames under the blur.
-   * Full width: the whole point of the stack is that prose never shares a line
-   * with a control.
+   * The bottom margin centres a single line against the taller send control and
+   * then simply rides up with the text.
    */
   fieldWrap: {
-    marginHorizontal: TEXT_INSET,
+    flex: 1,
+    minWidth: 0,
+    marginBottom: (CONTROL_TARGET - COMPOSER_MIN_HEIGHT) / 2,
   },
   input: {
     ...sans(400),
@@ -641,39 +591,28 @@ const styles = StyleSheet.create({
     lineHeight: leading(font.body),
     padding: 0,
   },
-  /**
-   * The control rail. The negative inset pulls the 44pt targets back out so the
-   * GLYPHS — not the invisible boxes around them — line up with the text above:
-   * a 20pt glyph centred in a 44pt box carries 12 of its own padding, which is
-   * exactly the surface inset it has to cancel to sit at {@link TEXT_INSET}.
-   */
-  controls: {
-    flexDirection: 'row',
+  attach: {
+    width: CONTROL_TARGET,
+    height: CONTROL_TARGET,
+    borderRadius: radius.full,
     alignItems: 'center',
-    marginHorizontal: -(CONTROL_TARGET - GLYPH) / 2 + TEXT_INSET,
-    marginTop: space.xs,
+    justifyContent: 'center',
+    // Pulls the glyph back toward the capsule's curve: the field's own text
+    // inset is generous, and a round control needs less of it than text does.
+    marginLeft: -(space.sm + 2),
   },
-  controlGap: {
-    flex: 1,
+  attachPressed: {
+    opacity: 0.55,
   },
-  control: {
+  voice: {
     width: CONTROL_TARGET,
     height: CONTROL_TARGET,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  controlPressed: {
-    opacity: 0.55,
-  },
-  /** The one filled shape a control is allowed: centred, and never the target. */
-  controlDisc: {
-    position: 'absolute',
-    top: (CONTROL_TARGET - CONTROL_INK) / 2,
-    left: (CONTROL_TARGET - CONTROL_INK) / 2,
-    width: CONTROL_INK,
-    height: CONTROL_INK,
-    borderRadius: radius.full,
+  voiceInset: {
+    marginLeft: -(space.sm + 2),
   },
   voiceListening: {
     backgroundColor: color.text,
@@ -681,7 +620,23 @@ const styles = StyleSheet.create({
   voiceFailed: {
     backgroundColor: alpha(color.danger, 0.12),
   },
+  voicePressed: {
+    opacity: 0.65,
+  },
+  send: {
+    width: CONTROL_TARGET,
+    height: CONTROL_TARGET,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sendDisc: {
+    position: 'absolute',
+    top: (CONTROL_TARGET - SEND_INK) / 2,
+    left: (CONTROL_TARGET - SEND_INK) / 2,
+    width: SEND_INK,
+    height: SEND_INK,
+    borderRadius: radius.full,
     backgroundColor: color.text,
   },
   sendGlyph: {
