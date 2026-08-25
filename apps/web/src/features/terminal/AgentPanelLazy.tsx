@@ -1,4 +1,5 @@
 import { lazy } from 'react'
+import { throughRestarts } from '@/lib/chunk-recovery'
 
 /**
  * THE PANEL BODY IS NOT THE FIRST PAINT (POD-2730).
@@ -20,7 +21,7 @@ import { lazy } from 'react'
  * again — see PANEL_BODY_MODULES there.
  */
 export const AgentPanel = lazy(() =>
-  import('./AgentPanel').then((module) => ({ default: module.AgentPanel })),
+  throughRestarts(() => import('./AgentPanel')).then((module) => ({ default: module.AgentPanel })),
 )
 
 /** Warm the panel chunk once the shell is up; see prefetchAfterFirstPaint. */

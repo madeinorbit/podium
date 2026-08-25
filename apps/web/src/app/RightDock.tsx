@@ -19,22 +19,26 @@ import {
 import type { JSX } from 'react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { WaitingForServer } from '@/components/WaitingForServer'
 import { PerspectiveRoad } from '@/features/shipping/PerspectiveRoad'
 import type { ShippingPanelCommands } from '@/features/shipping/ShippingPanel'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { DockHeaderSlotProvider } from './DockHeaderSlot'
 import { useOperatorFocus } from './operator-focus'
 import type { RightPanelTab } from './shell-state'
 import { useReplicaIssues, useStoreSelector } from './store'
 
 const WorktreeFileTree = lazy(() =>
-  import('@/features/files/WorktreeFileTree').then((module) => ({
+  throughRestarts(() => import('@/features/files/WorktreeFileTree')).then((module) => ({
     default: module.WorktreeFileTree,
   })),
 )
 const GitPanelView = lazy(() =>
-  import('@/features/git/GitPanelView').then((module) => ({ default: module.GitPanelView })),
+  throughRestarts(() => import('@/features/git/GitPanelView')).then((module) => ({
+    default: module.GitPanelView,
+  })),
 )
-const RightDockIssuePanel = lazy(() => import('./RightDockIssuePanel'))
+const RightDockIssuePanel = lazy(() => throughRestarts(() => import('./RightDockIssuePanel')))
 /**
  * The seventh dock panel, deferred like the other six (POD-2730). It used to be
  * the one static import in this list, with the note "changing xterm's
@@ -47,33 +51,33 @@ const RightDockIssuePanel = lazy(() => import('./RightDockIssuePanel'))
  * tab, because this is one of the two doors xterm came through.
  */
 const DockShellPanel = lazy(() =>
-  import('@/features/terminal/DockShellPanel').then((module) => ({
+  throughRestarts(() => import('@/features/terminal/DockShellPanel')).then((module) => ({
     default: module.DockShellPanel,
   })),
 )
 const MergeQueuePanel = lazy(() =>
-  import('@/features/merge-queue/MergeQueuePanel').then((module) => ({
+  throughRestarts(() => import('@/features/merge-queue/MergeQueuePanel')).then((module) => ({
     default: module.MergeQueuePanel,
   })),
 )
 const ShippingPanel = lazy(() =>
-  import('@/features/shipping/ShippingPanel').then((module) => ({
+  throughRestarts(() => import('@/features/shipping/ShippingPanel')).then((module) => ({
     default: module.ShippingPanel,
   })),
 )
 const MessageLedgerView = lazy(() =>
-  import('@/features/messages/MessageLedgerView').then((module) => ({
+  throughRestarts(() => import('@/features/messages/MessageLedgerView')).then((module) => ({
     default: module.MessageLedgerView,
   })),
 )
 const SuperagentView = lazy(() =>
-  import('@/features/superagent/SuperagentView').then((module) => ({
+  throughRestarts(() => import('@/features/superagent/SuperagentView')).then((module) => ({
     default: module.SuperagentView,
   })),
 )
 
 function DockPanelFallback(): JSX.Element {
-  return <div className="min-h-0 flex-1" aria-hidden="true" />
+  return <WaitingForServer className="flex min-h-0 flex-1" />
 }
 
 /** The right-panel surfaces, including the docked Superagent chat home. */

@@ -7,6 +7,7 @@ import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { WaitingForServer } from '@/components/WaitingForServer'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import {
   hasActivationState,
@@ -24,6 +25,7 @@ import { UpdatesProvider } from '@/features/updates/updates-context'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
@@ -72,27 +74,45 @@ import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
 import { Workspace } from './Workspace'
 
+/**
+ * EVERY LAZY SURFACE GOES THROUGH `throughRestarts` (POD-2762).
+ *
+ * The incident was Settings, and nothing about it was about Settings: any chunk
+ * fetched after first paint can be asked for during the seconds a server is
+ * handing over, and every one of them took the interface down when it was. So
+ * the wrapper goes on all of them rather than on the one that happened to be
+ * clicked, and it is deliberately shaped to leave these declarations reading
+ * the way they always did.
+ */
 const SettingsView = lazy(() =>
-  import('@/features/settings/SettingsView').then((module) => ({ default: module.SettingsView })),
+  throughRestarts(() => import('@/features/settings/SettingsView')).then((module) => ({
+    default: module.SettingsView,
+  })),
 )
 const UsageView = lazy(() =>
-  import('@/features/usage/UsageView').then((module) => ({ default: module.UsageView })),
+  throughRestarts(() => import('@/features/usage/UsageView')).then((module) => ({
+    default: module.UsageView,
+  })),
 )
 // FlightDeck already unmounts when folded. Deferring its module in exactly that
 // state changes no subscriptions or retained component state.
 const FlightDeck = lazy(() =>
-  import('./FlightDeck').then((module) => ({ default: module.FlightDeck })),
+  throughRestarts(() => import('./FlightDeck')).then((module) => ({ default: module.FlightDeck })),
 )
 const OnboardingWizard = lazy(() =>
-  import('@/features/setup/OnboardingWizard').then((module) => ({
+  throughRestarts(() => import('@/features/setup/OnboardingWizard')).then((module) => ({
     default: module.OnboardingWizard,
   })),
 )
 const ApprovalDialog = lazy(() =>
-  import('./ApprovalDialog').then((module) => ({ default: module.ApprovalDialog })),
+  throughRestarts(() => import('./ApprovalDialog')).then((module) => ({
+    default: module.ApprovalDialog,
+  })),
 )
 const AutoContinueDialog = lazy(() =>
-  import('./AutoContinueDialog').then((module) => ({ default: module.AutoContinueDialog })),
+  throughRestarts(() => import('./AutoContinueDialog')).then((module) => ({
+    default: module.AutoContinueDialog,
+  })),
 )
 /**
  * THE HOVER PREVIEW IS A GESTURE SURFACE, and it was the eager graph's single
@@ -112,13 +132,17 @@ const AutoContinueDialog = lazy(() =>
  * mounts so that in practice it has already arrived.
  */
 const RefMiniviewHost = lazy(() =>
-  import('@/components/RefMiniview').then((module) => ({ default: module.RefMiniviewHost })),
+  throughRestarts(() => import('@/components/RefMiniview')).then((module) => ({
+    default: module.RefMiniviewHost,
+  })),
 )
 const RefPrefixSync = lazy(() =>
-  import('@/components/RefMiniview').then((module) => ({ default: module.RefPrefixSync })),
+  throughRestarts(() => import('@/components/RefMiniview')).then((module) => ({
+    default: module.RefPrefixSync,
+  })),
 )
 function RouteFallback(): JSX.Element {
-  return <div className="flex min-h-0 min-w-0 flex-1" aria-hidden="true" />
+  return <WaitingForServer className="flex min-h-0 min-w-0 flex-1" />
 }
 
 function SheetFallback({
@@ -134,7 +158,9 @@ function SheetFallback({
 }): JSX.Element {
   return (
     <AppSheet label={label} title={title} onClose={onClose} className={className}>
-      <div className="min-h-0 flex-1" aria-hidden="true" />
+      {/* The sheet chrome is already up, so this is the one place the operator
+          is looking when a restart eats the chunk behind it (POD-2762). */}
+      <WaitingForServer className="flex min-h-0 flex-1" />
     </AppSheet>
   )
 }
@@ -610,16 +636,30 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     if (rightPanel === 'superagent') setSuperOpen(true)
   }, [])
   /**
-   * The two surfaces POD-2730 moved out of the eager graph that the operator is
+   * The surfaces POD-2730 moved out of the eager graph that the operator is
    * LIKELY to reach, warmed on the first idle after the shell paints. Deferring
    * them is about what the browser must parse before it can render; it is not an
    * argument for making the operator wait for a chunk later. See
    * prefetchAfterFirstPaint.
+   *
+   * SETTINGS JOINED THEM ON DIFFERENT GROUNDS (POD-2762). The other two are
+   * warmed because a hitch would be felt; this one is warmed because of WHEN it
+   * is reached. Settings is where a person goes to look at an update — which is
+   * to say, the surface most likely to be opened during the exact seconds its
+   * chunk cannot be fetched. Warming it moves that fetch into the quiet minutes
+   * beforehand.
+   *
+   * It is a COMPLEMENT AND NOT A SUBSTITUTE, and the distinction is the reason
+   * this is only one line of this issue: it narrows the window, it does not
+   * close it. A tab opened mid-handover never gets a quiet minute, and every
+   * other lazy surface still has the same exposure. `throughRestarts` is what
+   * addresses the class; this just makes the common case commoner.
    */
   useEffect(() => {
     const cancels = [
       prefetchAfterFirstPaint(loadAgentPanel),
       prefetchAfterFirstPaint(() => import('@/components/RefMiniview')),
+      prefetchAfterFirstPaint(() => import('@/features/settings/SettingsView')),
     ]
     return () => {
       for (const cancel of cancels) cancel()

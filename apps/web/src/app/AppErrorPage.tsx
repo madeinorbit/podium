@@ -54,6 +54,8 @@ export function AppErrorPage({
   trace,
   onRetry,
   retryLabel = 'Try again',
+  pending = false,
+  reassurance,
   win,
 }: {
   title?: string
@@ -68,12 +70,24 @@ export function AppErrorPage({
   trace?: BootTrace
   onRetry?: () => void
   retryLabel?: string
+  /**
+   * Podium is still trying behind this screen (POD-2762). Not decoration: a
+   * server that is restarting is a WAIT, not a fault, and the screen that says
+   * so must not look identical to the one that means the interface is finished.
+   * The trace's far node breathes in the waiting colour instead of the alert
+   * one, which is the difference between "hold on" and "it stopped".
+   */
+  pending?: boolean
+  /** One line under the console fields, in the trace's own ink. */
+  reassurance?: string
   win?: ReloadWindow
 }): JSX.Element {
   return (
     <BootScreen
       eyebrow={eyebrow}
       headline={title}
+      pending={pending}
+      {...(reassurance ? { reassurance } : {})}
       // This screen only means the interface is down. Agents run in the daemon,
       // not in this window, so the first thing an operator needs to know is that
       // nothing they started has stopped.

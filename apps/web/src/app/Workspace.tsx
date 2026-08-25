@@ -55,6 +55,7 @@ import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { AgentPanel } from '@/features/terminal/AgentPanelLazy'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { AgentStatusGlyph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -88,7 +89,7 @@ import { closeActiveWorkspaceTab } from './workspace-close'
 // and it fronts the whole first-run setup graph — loading it on demand keeps
 // that graph out of the eager bundle.
 const ColdStartComposer = lazy(() =>
-  import('@/features/setup/ColdStartComposer').then((module) => ({
+  throughRestarts(() => import('@/features/setup/ColdStartComposer')).then((module) => ({
     default: module.ColdStartComposer,
   })),
 )

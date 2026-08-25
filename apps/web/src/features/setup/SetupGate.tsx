@@ -1,16 +1,17 @@
-import { lazy, type ReactNode, Suspense, useEffect, useState } from 'react'
 import { isServerReadiness, type ServerReadiness } from '@podium/model'
+import { lazy, type ReactNode, Suspense, useEffect, useState } from 'react'
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { hasSyncedReplica } from '@/lib/replica-presence'
-import { SetupStaleBuild } from './SetupStaleBuild'
-import { SetupUnreachable } from './SetupUnreachable'
 import { isTooOldForLocalData, localBuildStamp } from './local-build-guard'
 import { restartPodiumShell } from './restart-shell'
+import { SetupStaleBuild } from './SetupStaleBuild'
+import { SetupUnreachable } from './SetupUnreachable'
 import { checkServedAssets, checkServerVersion } from './version-guard'
 
 const SetupView = lazy(() =>
-  import('./SetupView').then((module) => ({ default: module.SetupView })),
+  throughRestarts(() => import('./SetupView')).then((module) => ({ default: module.SetupView })),
 )
 
 type Phase =

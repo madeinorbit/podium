@@ -1,8 +1,11 @@
 import type { JSX } from 'react'
 import { lazy, Suspense } from 'react'
+import { throughRestarts } from '@/lib/chunk-recovery'
 
 const MobileHandoffQr = lazy(() =>
-  import('./MobileHandoffQr').then((module) => ({ default: module.MobileHandoffQr })),
+  throughRestarts(() => import('./MobileHandoffQr')).then((module) => ({
+    default: module.MobileHandoffQr,
+  })),
 )
 
 /**

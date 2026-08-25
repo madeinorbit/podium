@@ -25,6 +25,7 @@ import {
   candidateFromAvailability,
 } from '@/lib/agent-capability'
 import { agentBrandText, agentIconFor } from '@/lib/agent-tone'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { MENU_HINT } from '@/lib/menu-surface'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
@@ -35,7 +36,7 @@ import { NewAgentMenu } from './NewAgentMenu'
 // it — its form, its stage vocabulary, its repo picker — is needed to paint the
 // row that opens it. Same trade as the deferred context menus.
 const NewIssueDialog = lazy(() =>
-  import('@/features/issues/NewIssueDialog').then((module) => ({
+  throughRestarts(() => import('@/features/issues/NewIssueDialog')).then((module) => ({
     default: module.NewIssueDialog,
   })),
 )

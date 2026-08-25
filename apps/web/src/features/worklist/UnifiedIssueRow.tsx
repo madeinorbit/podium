@@ -28,6 +28,7 @@ import { lazy, Suspense, useMemo, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { idSquareLabel } from '@/components/IdSquare'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { issueIdTitle } from '@/lib/issue-labels'
 import { issueColorHex } from '@/lib/issueColors'
 import { PhaseTimer, WorkingMark } from '@/lib/motion'
@@ -43,7 +44,7 @@ import { WorkRowShell } from './WorkRowShell'
 // the work list rendered it eagerly, so the first paint paid for a gesture no
 // one had made yet.
 const IssueContextMenu = lazy(() =>
-  import('@/features/issues/IssueContextMenu').then((module) => ({
+  throughRestarts(() => import('@/features/issues/IssueContextMenu')).then((module) => ({
     default: module.IssueContextMenu,
   })),
 )

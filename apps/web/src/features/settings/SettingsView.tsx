@@ -8,6 +8,8 @@ import { AppSheet } from '@/app/AppSheet'
 import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
+import { WaitingForServer } from '@/components/WaitingForServer'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { refusalMessage, saveSettingsAsCommands } from './save-settings'
@@ -29,15 +31,26 @@ import { WorkLlmSection } from './sections/workllm'
 import { SETTINGS_SURFACES, type SettingsSurface, SURFACE_COPY, tabsOnSurface } from './surfaces'
 
 const MachinesPanel = lazy(() =>
-  import('./MachinesPanel').then((module) => ({ default: module.MachinesPanel })),
+  throughRestarts(() => import('./MachinesPanel')).then((module) => ({
+    default: module.MachinesPanel,
+  })),
 )
 const ConnectedDevicesSection = lazy(() =>
-  import('./sections/connected-devices').then((module) => ({
+  throughRestarts(() => import('./sections/connected-devices')).then((module) => ({
     default: module.ConnectedDevicesSection,
   })),
 )
+/**
+ * The section a person opens to WATCH an update, whose chunk is therefore the
+ * one most likely to be asked for while the server that serves it is restarting
+ * (POD-2762). If any single import in the app had to survive that, it is this
+ * one — a page that cannot show the update because of the update is the joke
+ * this issue exists to stop telling.
+ */
 const UpdatesSection = lazy(() =>
-  import('./sections/updates').then((module) => ({ default: module.UpdatesSection })),
+  throughRestarts(() => import('./sections/updates')).then((module) => ({
+    default: module.UpdatesSection,
+  })),
 )
 
 export type SettingsTab =
@@ -727,7 +740,11 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                   explain — the secrets promise — now lives on that section's
                   own hint, on the one tab where it is true. */}
               {settings ? (
-                <Suspense fallback={<div className="min-h-24" aria-hidden="true" />}>
+                // The tab body is a whole surface, and a lazy section that
+                // cannot be fetched leaves it blank — which is what the
+                // operator is staring at during a handover (POD-2762). It says
+                // so, and only when it is true.
+                <Suspense fallback={<WaitingForServer className="flex min-h-24" />}>
                   {SECTION_VIEWS[tab]({
                     settings,
                     accounts,

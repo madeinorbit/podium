@@ -30,10 +30,13 @@
  */
 import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense } from 'react'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { isIterationMode } from '@/lib/iteration-mode'
 
 const UpdatesEngine = lazy(() =>
-  import('./UpdatesEngine').then((module) => ({ default: module.UpdatesEngine })),
+  throughRestarts(() => import('./UpdatesEngine')).then((module) => ({
+    default: module.UpdatesEngine,
+  })),
 )
 
 export interface UpdatesProviderProps {

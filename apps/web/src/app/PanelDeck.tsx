@@ -9,11 +9,14 @@ import {
   useCallback,
 } from 'react'
 import { AgentPanel } from '@/features/terminal/AgentPanelLazy'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { cn } from '@/lib/utils'
 import { type DeckItem, type PaneRect, panelBoxStyle } from './panel-deck'
 
 const FilePanel = lazy(() =>
-  import('@/features/files/FilePanel').then((m) => ({ default: m.FilePanel })),
+  throughRestarts(() => import('@/features/files/FilePanel')).then((m) => ({
+    default: m.FilePanel,
+  })),
 )
 
 /** Keys that are only ever a modifier being held — pressing one alone is not input. */

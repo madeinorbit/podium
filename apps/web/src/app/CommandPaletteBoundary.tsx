@@ -1,9 +1,12 @@
 import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useState } from 'react'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { useStoreSelector } from './store'
 
 const CommandPalette = lazy(() =>
-  import('./CommandPalette').then((module) => ({ default: module.CommandPalette })),
+  throughRestarts(() => import('./CommandPalette')).then((module) => ({
+    default: module.CommandPalette,
+  })),
 )
 
 /**

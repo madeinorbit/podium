@@ -3,10 +3,11 @@ import { lazy, StrictMode, Suspense, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
 import { SetupGate } from '@/features/setup/SetupGate'
-import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { startWebLogging } from '@/lib/logging'
-import { AppStarted } from './AppStarted'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { AppShell } from './AppShell'
+import { AppStarted } from './AppStarted'
 import { BootScreen } from './BootScreen'
 import '@/index.css'
 import '@/styles.css'
@@ -15,14 +16,16 @@ import { ThemeProvider } from './theme'
 import { WireSkewBanner } from './WireSkewBanner'
 
 const MotionDemo = lazy(() =>
-  import('@/lib/motion/MotionDemo').then((module) => ({
+  throughRestarts(() => import('@/lib/motion/MotionDemo')).then((module) => ({
     default: module.MotionDemo,
   })),
 )
 
 const IterationModeFrame = import.meta.env.PODIUM_ITERATION_MODE
   ? lazy(() =>
-      import('./IterationModeFrame').then((module) => ({ default: module.IterationModeFrame })),
+      throughRestarts(() => import('./IterationModeFrame')).then((module) => ({
+        default: module.IterationModeFrame,
+      })),
     )
   : null
 

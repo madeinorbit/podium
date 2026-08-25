@@ -7,6 +7,7 @@ import { ArrowDownToLine } from 'lucide-react'
 import type { JSX, MutableRefObject } from 'react'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useSessionDraft } from '@/app/store'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { cn } from '@/lib/utils'
 import { handleChatMdClick } from './ChatBlockView'
 import { ChatComposer } from './ChatComposer'
@@ -18,7 +19,9 @@ import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatSurface } from './use-chat-surface'
 
 const TranscriptFeed = lazy(() =>
-  import('./TranscriptFeed').then((module) => ({ default: module.TranscriptFeed })),
+  throughRestarts(() => import('./TranscriptFeed')).then((module) => ({
+    default: module.TranscriptFeed,
+  })),
 )
 
 /**

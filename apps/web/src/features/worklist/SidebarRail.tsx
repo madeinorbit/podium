@@ -89,6 +89,7 @@ import { useStoreSelector } from '@/app/store'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { agentBrandText, agentIconFor } from '@/lib/agent-tone'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { MENU_HOVER_CARD } from '@/lib/menu-surface'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
@@ -103,7 +104,7 @@ import { useUnifiedWork } from './use-unified-work'
 // Deferred here for the same reason as in `spawn-row`: the rail's `+` opens it,
 // and nothing before that click needs it.
 const NewIssueDialog = lazy(() =>
-  import('@/features/issues/NewIssueDialog').then((module) => ({
+  throughRestarts(() => import('@/features/issues/NewIssueDialog')).then((module) => ({
     default: module.NewIssueDialog,
   })),
 )

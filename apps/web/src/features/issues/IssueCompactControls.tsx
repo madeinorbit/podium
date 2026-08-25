@@ -40,6 +40,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_RULE } from '@/lib/menu-surface'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
@@ -52,7 +53,7 @@ import { LaunchBox, type LaunchCommands } from './LaunchBox'
 // The right-click menu exists only after a right-click; loading it on demand
 // keeps the menu (and its handoff machinery) out of the eager bundle.
 const SessionContextMenu = lazy(() =>
-  import('@/lib/SessionContextMenu').then((module) => ({
+  throughRestarts(() => import('@/lib/SessionContextMenu')).then((module) => ({
     default: module.SessionContextMenu,
   })),
 )

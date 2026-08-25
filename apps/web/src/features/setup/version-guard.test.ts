@@ -604,10 +604,35 @@ describe('checkServedAssets', () => {
     expect(currentSkew()).toBeNull()
   })
 
-  it('stays quiet when /version is unreachable rather than guessing', async () => {
+  /**
+   * STILL QUIET, BUT NO LONGER MUTE (POD-2762).
+   *
+   * An unreachable `/version` used to answer `unknown`, which threw away the one
+   * thing it does know: the server is not there. That mattered because the
+   * caller has to choose between two opposite remedies — offer a reload because
+   * the assets moved, or wait because the server is coming back — and `unknown`
+   * cannot pick either, so a page mid-handover got the crash screen.
+   *
+   * What has NOT changed is that it says nothing to the user: no skew notice, no
+   * banner, no reload. A socket that is briefly down is not a build
+   * disagreement, and this function only reports those.
+   */
+  it('reports an unreachable server as unreachable, and still says nothing', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
-    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unknown')
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unreachable')
     expect(currentSkew()).toBeNull()
+    expect(reload).not.toHaveBeenCalled()
+  })
+
+  /**
+   * And the OTHER silence keeps its own answer. A server that answers but cannot
+   * name what it serves is `unknown` — a different situation from one that does
+   * not answer at all, and the whole point of the split is that they stop being
+   * the same word.
+   */
+  it('keeps "unknown" for a server that answers without naming a build', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(SAME_WIRE)))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unknown')
   })
 
   it('does not shout down a live severe wire notice with a milder one', async () => {
@@ -641,7 +666,11 @@ describe('checkServedAssets and pages this server did not serve', () => {
     wireVersion: WIRE_VERSION,
     wireSchemaDigest: wireSchemaDigest(),
     web: { present: true, appVersion: '0.1.1', bundle: 'bundle+CFyX4Q_p' },
-    mobileWeb: { present: true, appVersion: '0.1.1', bundle: 'bundle+a833d1a61f7a6d85a8c7fe49922500f0' },
+    mobileWeb: {
+      present: true,
+      appVersion: '0.1.1',
+      bundle: 'bundle+a833d1a61f7a6d85a8c7fe49922500f0',
+    },
   }
 
   it('stays quiet for a desktop shell running its own baked bundle', async () => {
@@ -661,9 +690,7 @@ describe('checkServedAssets and pages this server did not serve', () => {
   it('measures a phone page against the phone export, which it matches', async () => {
     vi.stubGlobal('location', { reload, origin: ORIGIN, pathname: '/mobile/sessions' })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
-    expect(
-      await checkServedAssets(ORIGIN, 'bundle+a833d1a61f7a6d85a8c7fe49922500f0'),
-    ).toBe('ok')
+    expect(await checkServedAssets(ORIGIN, 'bundle+a833d1a61f7a6d85a8c7fe49922500f0')).toBe('ok')
     expect(currentSkew()).toBeNull()
   })
 

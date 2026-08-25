@@ -38,7 +38,7 @@ import {
 } from '@podium/protocol'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isServerUnavailable, makeTrpc } from '@/app/trpc'
-import { servedWebsiteForPage } from '@/lib/served-website'
+import { noteActiveUpdate } from '@/lib/active-update'
 import { pageBuildDigest, pageBuildVersion, pageBundleVersion } from '@/lib/logging/build-version'
 import {
   isNativeDesktopUpdateError,
@@ -49,6 +49,7 @@ import {
   persistNativeDesktopUpdateChannel,
 } from '@/lib/nativeDesktop'
 import { RELOAD_BUDGET_SENTENCE, reloadBudgetSpent } from '@/lib/reload-budget'
+import { servedWebsiteForPage } from '@/lib/served-website'
 import { usePolledQuery } from '@/lib/use-polled-query'
 import {
   type ActionError,
@@ -523,6 +524,22 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         watched.current.add(live.id)
         rememberWatched(live.id, at)
       }
+      /**
+       * THE ONE FACT A PAGE CANNOT ASK FOR ONCE IT NEEDS IT (POD-2762).
+       *
+       * When the server stops answering, the chunk-recovery path has to decide
+       * how patient to be, and the only thing that could tell it — "is this a
+       * handover or is something wrong?" — is the server that has just gone
+       * quiet. This poll is where that was last knowable, so it leaves the
+       * answer somewhere a code path with no store, no context and no socket
+       * can still read it.
+       *
+       * Only on an arm that actually ANSWERED: `undefined` means the read
+       * failed, and a failed read is not evidence that nothing is running. It
+       * would be exactly the wrong moment to conclude that, because a read
+       * failing is the first sign of the outage this fact exists to explain.
+       */
+      if (live !== undefined) noteActiveUpdate(isOperationActive(live), at)
       // A failed arm is not a negative answer. Keep the last fact — including
       // the initial unknown — until that arm itself succeeds.
       if (live !== undefined) setOperation(live)

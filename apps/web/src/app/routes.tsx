@@ -1,25 +1,33 @@
 import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense } from 'react'
+import { WaitingForServer } from '@/components/WaitingForServer'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { useFeature } from '@/lib/use-feature'
 import { type MainView, useStoreSelector } from './store'
 
 const AutomationsView = lazy(() =>
-  import('@/features/automations/AutomationsView').then((module) => ({
+  throughRestarts(() => import('@/features/automations/AutomationsView')).then((module) => ({
     default: module.AutomationsView,
   })),
 )
 const IssuesView = lazy(() =>
-  import('@/features/issues/IssuesView').then((module) => ({ default: module.IssuesView })),
+  throughRestarts(() => import('@/features/issues/IssuesView')).then((module) => ({
+    default: module.IssuesView,
+  })),
 )
 const WorkflowsView = lazy(() =>
-  import('@/features/workflows/WorkflowsView').then((module) => ({ default: module.WorkflowsView })),
+  throughRestarts(() => import('@/features/workflows/WorkflowsView')).then((module) => ({
+    default: module.WorkflowsView,
+  })),
 )
 const SpecsView = lazy(() =>
-  import('@/features/specs/SpecsView').then((module) => ({ default: module.SpecsView })),
+  throughRestarts(() => import('@/features/specs/SpecsView')).then((module) => ({
+    default: module.SpecsView,
+  })),
 )
 
 function ViewFallback(): JSX.Element {
-  return <div className="flex min-h-0 min-w-0 flex-1" aria-hidden="true" />
+  return <WaitingForServer className="flex min-h-0 min-w-0 flex-1" />
 }
 
 function lazyView(view: ReactNode): JSX.Element {

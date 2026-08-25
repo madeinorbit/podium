@@ -1,8 +1,6 @@
 import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
 import {
-  type AssetVerdict,
-  classifyAssets,
   classifySkew,
   parseServerVersion,
   type ServerVersion,
@@ -14,7 +12,7 @@ import { reportSkew } from '@/app/skew-notice'
 import { isIterationMode } from '@/lib/iteration-mode'
 import { pageBundleVersion } from '@/lib/logging/build-version'
 import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/lib/reload-budget'
-import { servedWebsiteForPage } from '@/lib/served-website'
+import { askServedAssets, type ServedAssetsAnswer } from '@/lib/served-assets'
 
 /**
  * Wire-version handshake for the web client. A cached PWA shell can outlive a server redeploy
@@ -37,6 +35,9 @@ const MAX_RELOADS = 2
 
 /** Result of a version check: matched, a hard-reload was triggered, or the loop guard tripped. */
 export type VersionCheck = 'ok' | 'reloaded' | 'blocked' | 'server-behind' | 'iteration'
+
+/** Re-exported so callers of `checkServedAssets` need only this module. */
+export type { ServedAssetsAnswer }
 
 /**
  * Evict the PWA service worker + every cache, then hard-reload. Best-effort: a failure in
@@ -319,24 +320,30 @@ export async function checkServedAssets(
   httpOrigin: string,
   /** Injected for the test; production reads the entry script off this document. */
   page: string | undefined = pageBundleVersion(),
-): Promise<AssetVerdict> {
-  let server: ReturnType<typeof parseServerVersion>
-  try {
-    const res = await fetch(`${httpOrigin}/version`)
-    server = parseServerVersion(await res.json())
-  } catch {
-    // An unreachable `/version` is not evidence of anything. Say nothing.
-    return 'unknown'
-  }
-
-  const served = servedWebsiteForPage(server, httpOrigin)
-  const verdict = classifyAssets(served, { bundle: page })
-  if (verdict !== 'replaced') return verdict
+): Promise<ServedAssetsAnswer> {
+  const { answer, servedBundle, servedVersion } = await askServedAssets(httpOrigin, page)
+  /**
+   * NOT REACHABLE IS NOT THE SAME AS NOT KNOWN (POD-2762).
+   *
+   * Both used to answer `unknown`, and folding them together cost the
+   * interface: a chunk that failed while the server was mid-restart was
+   * indistinguishable from a chunk that failed for a reason nobody could name,
+   * so both landed on the crash page. They are opposite situations. A server
+   * that ANSWERS and is serving a different build has moved the assets, and the
+   * page should be offered a reload. A server that answers NOTHING has not
+   * moved anything — it is coming back, usually within seconds, and the page
+   * should wait for it.
+   *
+   * An unreachable server still says NOTHING here: `reportSkew` is for a build
+   * disagreement, and a socket that is briefly down is not one. All that
+   * changed is that the caller can now tell the two apart.
+   */
+  if (answer !== 'replaced') return answer
 
   log.warn('served web bundle has been replaced under this page', {
     page,
-    served: served?.bundle,
-    servedVersion: served?.appVersion,
+    served: servedBundle,
+    servedVersion,
   })
   reportSkew({
     source: 'assets-replaced',

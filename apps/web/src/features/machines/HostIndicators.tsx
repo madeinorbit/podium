@@ -16,6 +16,7 @@ import type { JSX } from 'react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { cn } from '@/lib/utils'
 import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
@@ -31,10 +32,12 @@ import { SEVERITY, TONE_KEY } from './severity'
 // popover opens (Base UI mounts popup content only then). Loading those on
 // interaction keeps ~40k of panel UI out of the eager bundle the budget prices.
 const HostInfoView = lazy(() =>
-  import('./HostMemoryView').then((module) => ({ default: module.HostInfoView })),
+  throughRestarts(() => import('./HostMemoryView')).then((module) => ({
+    default: module.HostInfoView,
+  })),
 )
 const LoadPanel = lazy(() =>
-  import('./LoadPanel').then((module) => ({ default: module.LoadPanel })),
+  throughRestarts(() => import('./LoadPanel')).then((module) => ({ default: module.LoadPanel })),
 )
 
 /**
