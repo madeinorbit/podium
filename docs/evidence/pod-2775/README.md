@@ -475,6 +475,57 @@ must not (finding 4). Those pull against each other because the entry holds
   `resume()` does, so the old credential is never presented again — visible in
   the table above as the port moving with it.
 
+## Round four — "resurrect leaves the row exited", which I cannot reproduce
+
+POD-1761's acceptance drive re-drove the opencode resume cell on the fixed tip
+and flipped FAIL → PASS, confirming the fix live from outside this rig. It
+reported one caveat: the session comes back via `resumeAndSend` but
+`sessions.resurrect` still leaves the row `exited` — and resurrect is what the
+web context menu calls.
+
+**THE TWO ENTRIES ARE NOT TWO PATHS. `resumeAndSend`'s wake IS `resurrect`.**
+
+| entry | route |
+| --- | --- |
+| `sessions.resurrect` | `command-plane.ts:620` → `resurrectSession` (`session-revival.ts:266`) |
+| `sessions.resumeAndSend` | `command-plane.ts:627` `sendHandler('wake')` → `substrateSend` (`command-plane.ts:448`) → `mailSend({lifecycle:'wake'})` → the steward's `sendTextWhenReady` → `queueText` → **`resurrectSession`** (`steward.ts:209` says so in its own words) |
+
+Both build ONE spawn frame (`session-revival.ts:345-390`) and the daemon
+dispatches it to `resumeJournalledServerSession` (`control/session.ts:993`).
+`resumeSession` takes the same route for a parked row — it calls
+`resurrectSession` directly at `session-revival.ts:125`. So `resumeAndSend`
+cannot succeed by a path `resurrect` does not take, because it calls it.
+
+### What was measured here, at the tip they named
+
+Seven shapes, every one of them woken by `sessions.resurrect`:
+
+| shape | resurrect result |
+| --- | --- |
+| opencode, no `runtimeContract` | live in 8s |
+| opencode, `runtimeContract: 'opencode-server'` | live in 6s |
+| opencode, `runtimeContract: true` | live in 6s |
+| opencode, resurrect IMMEDIATELY after the park (no delay) | live in 8s |
+| opencode, resurrect 3s after the park | live in 6s |
+| opencode, full `drive-resurrect.sh` | live in 6s, same `ses_…`, both witnesses |
+| **codex**, full `drive-resurrect.sh` | live in 2s, same thread, both witnesses |
+
+`spawnFailure` was `null` on every one. The hypotheses ruled out are the ones
+worth recording: a per-spawn `runtimeContract` that `resurrectSession` drops (it
+does omit the field — `session-revival.ts` never sets it — but the wake works
+with and without it), and a race between the park's teardown and an immediate
+wake.
+
+### Grok is not drivable on this host, and that is stated rather than glossed
+
+The grok arm refuses at CREATE, before any park:
+`grok ACP session/new failed (-32000): Authentication required`, even with
+`~/.grok/auth.json` seeded into the isolated agent home. So its wake is pinned
+in the conformance corpus (`park and come back — hibernate, then adopt`, which
+grok passes) and is NOT driven live here. Its `adopt` was already
+resume-not-rebind — `loadSession` on the journalled id — which is the shape this
+issue moved opencode to.
+
 ## What a screenshot would not have shown
 
 Nothing here is drawn. The park's receipt is two lines in the daemon's log
