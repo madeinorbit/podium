@@ -65,30 +65,63 @@ function isInside(parent: string, child: string): boolean {
 }
 
 /**
- * One record per linked entry of one node_modules tree, plus the node_modules trees that
- * tree leads to. `@scope` and `.bin` are containers rather than packages, so they are
- * opened one level; everything deeper is reached by being an install root in its own
- * right, which keeps this enumeration one level deep everywhere and lets the caller
- * deduplicate. That matters: in an isolated layout `node_modules/foo` and
- * `node_modules/.bun/foo@1.0.0/node_modules/foo` are the same directory by two names.
+ * What the INSTALLER wrote, and only that.
+ *
+ * A node_modules root also accumulates tool output — `.cache`, `.vite`, `.vite-temp`
+ * appear the first time something builds or tests. Folding those into the cache identity
+ * would be self-defeating in both directions: a worktree's own second run would miss
+ * because its first run created them, and a freshly installed sibling could never match a
+ * worktree that had already been used. So an entry counts as install topology only when it
+ * is a symlink (a link IS the topology, and a dangling one is the fault this refuses), one
+ * of the installer's own containers (`.bin`, `.bun`, an `@scope` directory), or a directory
+ * that carries a package.json. Everything else is somebody's scratch space.
+ *
+ * A package directory that has lost its package.json is skipped by that rule. It is not a
+ * silent pass: nothing there resolves, so the typecheck it would have served goes red on
+ * its own rather than green from the cache.
+ */
+type RootKind = 'modules' | 'store'
+interface Discovered {
+  path: string
+  kind: RootKind
+}
+
+/**
+ * One node_modules tree, one level deep. `@scope` and `.bin` are containers rather than
+ * packages so they are opened here; anything deeper arrives by being an install root in
+ * its own right, which lets the caller deduplicate. That matters: in an isolated layout
+ * `node_modules/foo` and `.bun/foo@1.0.0/node_modules/foo` are one directory under two
+ * names. The store (`kind: 'store'`) holds `<pkg>@<version>` roots rather than packages,
+ * so the package.json rule does not apply to its entries.
  */
 function describeEntries(
   checkout: string,
   installRoot: string,
+  kind: RootKind,
   layout: string[],
   errors: string[],
-): string[] {
+): Discovered[] {
   const rootLabel = portable(relative(checkout, installRoot))
-  const children: string[] = []
+  const discovered: Discovered[] = []
+  const record = (name: string, type: string, detail: string): void => {
+    layout.push(`${rootLabel}\t${name}\t${type}\t${detail}`)
+  }
+  const follow = (path: string): void => {
+    if (existsSync(join(path, 'node_modules'))) {
+      discovered.push({ path: join(path, 'node_modules'), kind: 'modules' })
+    }
+  }
   const visit = (directory: string, prefix: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) =>
       a.name.localeCompare(b.name),
     )) {
       const name = `${prefix}${entry.name}`
       const path = join(directory, entry.name)
+      const container = prefix === '' && entry.name.startsWith('@')
+
       if (entry.isSymbolicLink()) {
         const linkText = readlinkSync(path)
-        layout.push(`${rootLabel}\t${name}\tl\t${classify(checkout, path, linkText)}`)
+        record(name, 'l', classify(checkout, path, linkText))
         try {
           statSync(path)
         } catch {
@@ -97,30 +130,31 @@ function describeEntries(
           )
           continue
         }
-        if (existsSync(join(path, 'node_modules'))) children.push(join(path, 'node_modules'))
+        follow(path)
         continue
       }
-      if (entry.isDirectory()) {
-        layout.push(`${rootLabel}\t${name}\td\t-`)
-        if (prefix === '' && entry.name === '.bun') {
-          // An isolated install's store: a directory of `<pkg>@<version>` roots rather
-          // than of packages, so it is walked as a root of its own and each entry there
-          // leads on to that package's own link farm.
-          children.push(path)
-          continue
-        }
-        if (prefix === '' && (entry.name.startsWith('@') || entry.name === '.bin')) {
-          visit(path, `${name}/`)
-          continue
-        }
-        if (existsSync(join(path, 'node_modules'))) children.push(join(path, 'node_modules'))
+
+      if (!entry.isDirectory()) continue
+
+      if (prefix === '' && kind === 'modules' && entry.name === '.bun') {
+        // An isolated install's store: walked as a root of its own, where each entry
+        // leads on to that package's link farm.
+        record(name, 'd', '-')
+        discovered.push({ path, kind: 'store' })
         continue
       }
-      layout.push(`${rootLabel}\t${name}\t${entry.isFile() ? 'f' : 'o'}\t-`)
+      if (container || (prefix === '' && kind === 'modules' && entry.name === '.bin')) {
+        record(name, 'd', '-')
+        visit(path, `${name}/`)
+        continue
+      }
+      if (kind === 'modules' && !existsSync(join(path, 'package.json'))) continue
+      record(name, 'd', '-')
+      follow(path)
     }
   }
   visit(installRoot, '')
-  return children
+  return discovered
 }
 
 /**
@@ -145,23 +179,24 @@ export function readInstallTopology(root: string, home = homedir()): InstallTopo
   const layout: string[] = []
   const errors: string[] = []
   // Every node_modules an install wrote, reached from the checkout root and each
-  // workspace: nested hoisted trees, the isolated `.bun` store, and its per-package
-  // link farms all arrive here by being pointed at. Deduplicating by realpath keeps a
+  // workspace: nested hoisted trees, the isolated `.bun` store, and its per-package link
+  // farms all arrive here by being pointed at. Deduplicating by realpath keeps a
   // symlinked alias from being walked twice and makes a link cycle terminate.
-  const pending = [root, ...workspaceDirectories(checkout)].map((directory) =>
-    join(directory, 'node_modules'),
-  )
+  const pending: Discovered[] = [root, ...workspaceDirectories(checkout)].map((directory) => ({
+    path: join(directory, 'node_modules'),
+    kind: 'modules' as RootKind,
+  }))
   if (!existsSync(join(checkout, 'node_modules'))) {
     errors.push('install topology: node_modules is missing; there is no install to trust')
   }
   const seen = new Set<string>()
   while (pending.length > 0) {
-    const installRoot = pending.shift() as string
-    if (!existsSync(installRoot)) continue
-    const identity = realpathSync(installRoot)
+    const next = pending.shift() as Discovered
+    if (!existsSync(next.path)) continue
+    const identity = realpathSync(next.path)
     if (seen.has(identity)) continue
     seen.add(identity)
-    pending.push(...describeEntries(checkout, installRoot, layout, errors))
+    pending.push(...describeEntries(checkout, next.path, next.kind, layout, errors))
   }
   return {
     config: configSources(checkout, home),

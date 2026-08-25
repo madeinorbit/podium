@@ -113,6 +113,41 @@ describe('install topology as cache identity', () => {
   })
 })
 
+describe('only what the installer wrote', () => {
+  it('ignores the scratch directories a build or test run leaves behind', () => {
+    // The self-defeating case: if .cache counted, a worktree's own second run would miss
+    // because its first run created it, and a freshly installed sibling could never match.
+    const root = checkout('isolated')
+    const before = readInstallTopology(root, scratch('home'))
+
+    for (const scratchDirectory of ['.cache/podium-test-schema', '.vite/deps', '.vite-temp']) {
+      mkdirSync(join(root, 'node_modules', scratchDirectory), { recursive: true })
+    }
+    writeFileSync(join(root, 'node_modules/.vite/deps/chunk.js'), 'export {}\n')
+    symlinkSync('../../evaporated', join(root, 'node_modules/.cache/stale'))
+
+    expect(readInstallTopology(root, scratch('home')).layout).toEqual(before.layout)
+    expect(readInstallTopology(root, scratch('home')).errors).toEqual([])
+  })
+
+  it('records a package by its package.json, and nothing else by anything', () => {
+    const root = checkout('hoisted')
+    mkdirSync(join(root, 'node_modules/not-a-package/src'), { recursive: true })
+    const layout = readInstallTopology(root, scratch('home')).layout
+
+    expect(layout).toContain('node_modules\tleft-pad\td\t-')
+    expect(layout.some((record) => record.includes('not-a-package'))).toBe(false)
+  })
+
+  it('still records store roots, which carry no package.json of their own', () => {
+    // .bun/<pkg>@<version> is a container for a package, not a package. The rule that
+    // keeps scratch directories out must not take the store with it.
+    const layout = readInstallTopology(checkout('isolated'), scratch('home')).layout
+    expect(layout).toContain('node_modules/.bun\tleft-pad@1.3.0\tl\texternal')
+    expect(layout).toContain('node_modules/.bun/left-pad@1.3.0/node_modules\tleft-pad\td\t-')
+  })
+})
+
 describe('install topology admission', () => {
   it.each([
     'hoisted',
