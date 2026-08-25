@@ -12,14 +12,16 @@
  * only readable against the column's real width and its real chrome ends — and
  * `?fold=1` puts the two of them either side of the REAL fold (POD-1584), so
  * the gesture between them can be watched and sampled. That mode drives
- * `useColumnFold`, the same hook the shell drives; the wrapper and its two
- * branches are copied from `AppShell` because there is nothing else in them.
+ * `useColumnFold`, the same hook the shell drives, and renders the same
+ * `CollapsedSidebar` and the same dissolving ghost (POD-1658) — the fold's
+ * worst frame is the SWAP at its end, so a harness that hand-rolled either side
+ * of it would be measuring the one thing it is here to check.
  */
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { SidebarRail } from '@/features/worklist/SidebarRail'
+import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import {
   ResizableAside,
@@ -45,12 +47,7 @@ if (params.get('density'))
 function RailHarness(): JSX.Element {
   return (
     <div style={{ height: '100dvh', display: 'flex', background: 'var(--background)' }}>
-      <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
-        <button type="button" className="collapsed-sidebar-expand" aria-label="Expand sidebar">
-          <ChevronRight size={15} aria-hidden="true" />
-        </button>
-        <SidebarRail />
-      </aside>
+      <CollapsedSidebar />
     </div>
   )
 }
@@ -104,17 +101,7 @@ function FoldHarness(): JSX.Element {
         style={{ width: fold.width ?? undefined }}
       >
         {collapsed && !fold.folding ? (
-          <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
-            <button
-              type="button"
-              className="collapsed-sidebar-expand"
-              aria-label="Expand sidebar"
-              onClick={() => fold.fold(false)}
-            >
-              <ChevronRight size={15} aria-hidden="true" />
-            </button>
-            <SidebarRail />
-          </aside>
+          <CollapsedSidebar onExpand={() => fold.fold(false)} />
         ) : (
           <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
             <ResizableAside>
@@ -128,6 +115,11 @@ function FoldHarness(): JSX.Element {
             >
               <ChevronLeft size={12} aria-hidden="true" />
             </button>
+          </div>
+        )}
+        {fold.folding && (
+          <div ref={fold.ghostRef} className="sidebar-fold-ghost" aria-hidden="true">
+            <CollapsedSidebar />
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { selectedMissionRoot } from '@podium/client-core/viewmodels'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
@@ -22,7 +22,7 @@ import { recoverFromWireSkew } from '@/features/setup/version-guard'
 import { vpsIntroState } from '@/features/setup/vps-activation'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
-import { SidebarRail } from '@/features/worklist/SidebarRail'
+import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import {
   COLLAPSE_EASE,
@@ -40,11 +40,11 @@ import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
-import { useReducedMotion } from '@/lib/use-reduced-motion'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
 import { type AuthBootstrap, useKernelReplica } from '@/lib/use-kernel-replica'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { AppErrorPage } from './AppErrorPage'
 import { AppSheet } from './AppSheet'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
@@ -773,22 +773,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
               style={{ width: sidebarFold.width ?? undefined }}
             >
               {sidebarCollapsed && !sidebarFold.folding ? (
-                <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
-                  <button
-                    data-pressable
-                    type="button"
-                    className="collapsed-sidebar-expand"
-                    aria-label="Expand sidebar"
-                    title="Expand sidebar"
-                    onClick={() => sidebarFold.fold(false)}
-                  >
-                    {/* 15px, not 13: the control is the column's whole header
-                        band now (POD-1178), and a 13px glyph read as a speck
-                        parked in the middle of it. */}
-                    <ChevronRight size={15} aria-hidden="true" />
-                  </button>
-                  <SidebarRail />
-                </aside>
+                <CollapsedSidebar onExpand={() => sidebarFold.fold(false)} />
               ) : (
                 <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
                   <ResizableAside>
@@ -804,6 +789,19 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
                   >
                     <ChevronLeft size={12} aria-hidden="true" />
                   </button>
+                </div>
+              )}
+              {/* THE GHOST OF THE FOLDED COLUMN (POD-1658). Rendered only while
+                  the fold runs, pinned over the clip, and dissolved in or out by
+                  the hook. It is what the swap at the end of the gesture happens
+                  UNDERNEATH: by then this is already an opaque rail sitting on
+                  the pixels the real one is about to occupy, so the frame where
+                  the work list becomes the rail has nothing visible in it. Inert
+                  and aria-hidden — there are briefly two rails in the tree and
+                  only one of them is the column. */}
+              {sidebarFold.folding && (
+                <div ref={sidebarFold.ghostRef} className="sidebar-fold-ghost" aria-hidden="true">
+                  <CollapsedSidebar />
                 </div>
               )}
             </div>

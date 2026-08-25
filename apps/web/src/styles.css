@@ -2283,6 +2283,7 @@ html[data-density="balanced"] .header-quota-pools {
    open column itself used to declare here, so a narrow window still squeezes
    the sidebar the way it always did. */
 .sidebar-shell {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -2328,6 +2329,32 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .sidebar-shell[data-sidebar-folding="true"] .sidebar-collapse-control {
   opacity: 0;
+  /* And not merely invisible (POD-1658). It stayed hit-testable through the
+     whole fold, so the only thing a pointer could reach mid-gesture was a
+     button nobody could see, firing the direction already in progress. */
+  pointer-events: none;
+}
+/* THE FOLDED COLUMN'S GHOST (POD-1658) — see `use-column-fold.ts` rule 3. It
+   covers the clip rather than just the rail's 58px: the sliver of work list
+   still to the right of the rail late in a collapse has to be covered by
+   something, and the column's own ground is what is about to be there. The hook
+   owns its opacity; the value here is only the state it mounts in, which is
+   whichever end the dissolve is about to leave. */
+.sidebar-fold-ghost {
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  display: flex;
+  background: var(--sidebar);
+  /* The mount state, immediately overwritten by the hook. Invisible is the safe
+     default of the two: a stray frame with the rail missing is a glimpse of the
+     column behind it, one with the rail opaque is a rail laid over a 306px
+     sidebar. */
+  opacity: 0;
+  /* Cosmetic, and briefly duplicated in the DOM — never a hit target and never
+     a tab stop. `aria-hidden` keeps it out of the a11y tree; this keeps it out
+     of the pointer's way. */
+  pointer-events: none;
 }
 .sidebar-collapse-control:hover,
 .collapsed-sidebar-expand:hover,
@@ -9069,7 +9096,7 @@ a.ref-link--session::before {
 .deck-mark-active {
   background: var(--issue);
 }
-[data-issue-colored='false'] .deck-mark-active {
+[data-issue-colored="false"] .deck-mark-active {
   background: var(--text-strong);
 }
 .deck-mark-pointed {
@@ -9122,7 +9149,7 @@ a.ref-link--session::before {
    pointer and the tab strip's `data-pointed` land here, so the row cannot tell
    which one reached it — and should not. */
 .deck-agent-row.deck-agent-active:hover,
-.deck-agent-row.deck-agent-active[data-pointed='true'] {
+.deck-agent-row.deck-agent-active[data-pointed="true"] {
   background: color-mix(
     in oklab,
     var(--issue) calc(18 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))),
