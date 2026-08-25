@@ -1,207 +1,156 @@
 # POD-1761 release milestones
 
-*How the runtime epic gets over the finish line: small releasable chunks, each with
-a real user benefit, none waiting for the catalogue to be fully proven.*
+*Rewritten 2026-08-25 after operator feedback. The first draft cut releases by
+harness (flip one driver at a time, keep the rest on the old path). That was
+wrong: keeping harnesses on the old drivers means fully testing paths we intend
+to throw away — double work, no benefit. This version cuts by **capability**:
+what must be rock-solid, what only has to be no worse than today, and what
+doesn't exist today and therefore isn't v1's problem.*
 
-Written 2026-08-25. Companion to `docs/architecture/driver-capability-catalog.md`
-(the full capability inventory) and `docs/plans/pod-1761-agent-runtime-plan.md`
-(the original W-item plan). The catalogue is the map; this document is the route.
-The catalogue stays the long-term ledger — milestones consume rows from it, they do
-not replace it.
+Companion documents: `docs/architecture/driver-capability-catalog.md` is the full
+inventory of everything a driver can do (the long-term ledger). This document is
+the release route through it. Plain language throughout, on purpose.
 
-## Principles
+## Ground rules
 
-1. **Every milestone is a release.** It merges to main, the operator instance is
-   repinned, and its checklist is driven live before the milestone closes. No
-   milestone depends on a later one to be safe.
-2. **The bar is relative, not absolute.** A flipped harness must be *better than
-   its headed driver* on a short measurable checklist — not feature-complete
-   against the catalogue. Harnesses left on headed drivers must be *provably
-   unchanged* (driven, not assumed).
-3. **Old paths stay until a milestone explicitly retires them.** Retirement is its
-   own milestone with its own ledger, never a rider on a feature.
-4. **One harness at a time.** The selection function is a one-line, per-harness,
-   instantly revertible knob (`select:` in the manifest; `PODIUM_RUNTIME_DRIVER`
-   as the machine-level escape hatch). Flipping three at once triples the blast
-   radius for zero extra benefit.
-5. **Stability is a user benefit.** A milestone made entirely of bug fixes is a
-   legitimate release.
+1. **All three new drivers ship in v1** (codex, grok, opencode). They are already
+   the default on this branch; un-flipping them would create work, not save it.
+   Claude is untouched — it stays on its terminal path permanently (that is the
+   only way to use a Claude subscription), so it adds no new testing burden.
+2. **The bar is set per capability, relative to today.**
+   - *Tier A (non-negotiable):* works today, used every hour. Any regression
+     blocks release.
+   - *Tier B (weak or broken today):* the bar is "not worse than today" — and
+     today is bad, so shipping imperfect is fine. Improvements are their own
+     small releases after v1.
+   - *Tier C (doesn't exist today):* explicitly out of v1. Zero test burden.
+3. **Old code paths may keep running** as long as they work; deleting them is a
+   late milestone, never a rider on a feature.
+4. **Every milestone releases.** Merge, deploy the test instance, drive the
+   checklist by hand or script before calling it done. A milestone that is pure
+   bug-fixing is a legitimate release — stability is a benefit.
 
-## The key fact this plan exploits
+## The capability tiers
 
-On the current tip, **all three server drivers are already the default** for a
-logged-in, version-admitted harness (`manifests/{codex,grok,opencode}.ts
-select()`). The epic branch as it stands would release codex + grok + opencode
-simultaneously. Milestone 0 therefore *narrows* the tip to one harness rather than
-building anything new — the fastest possible route to "something out".
+### Tier A — non-negotiable (regression here blocks any release)
 
----
+| # | capability, in plain words |
+|---|---|
+| A1 | A sent message arrives, or you are told why not. Never silently lost. A queued message shows as queued and survives a reload. |
+| A2 | The status you see is true: working / idle / waiting for you. |
+| A3 | Stop and interrupt work. |
+| A4 | Permission prompts show up and can be answered — from chat where safe, always in the terminal. Answering twice is an error, not a double action. |
+| A5 | The conversation renders in chat. |
+| A6 | The terminal view works: attach, type, resize, multiple viewers, take-over. |
+| A7 | Restarts don't lose sessions: restart the background service or reboot, and the session comes back as the *same conversation* — never a blank session wearing the old name. |
+| A8 | A logged-out harness gets a working login path. |
+| A9 | Killing a session actually kills it, and dead helper processes don't pile up on the machine. |
+| A10 | Hibernate (park) and wake work without wedging the session. |
 
-## M0 — A releasable tip (stability only, no behaviour change)
+### Tier B — weak, flaky or embarrassing today (ship at "not worse", improve after v1)
 
-**User benefit:** the product on the epic branch works again; "green means green".
+| # | capability | today's reality |
+|---|---|---|
+| B1 | Provider failure messages | chat says the bare words "provider error" (fixed for grok's quota case; others still vague) |
+| B2 | Out-of-memory reporting | an OOM-killed session can look like it just finished |
+| B3 | Mail delivery into a running session | held together by hook tricks; grok's version sacrifices a denied tool call |
+| B4 | Live streaming of the reply into chat | partial; proven working on codex only |
+| B5 | Cost / token usage display | mostly absent in the UI |
+| B6 | Draft sync between devices and the terminal | flaky screen-scraping |
+| B7 | An agent blocked on something invisible (login screens, setup dialogs) | often undetected — the session just sits there |
+| B8 | Chat/terminal view switching cosmetics | scrollback glitches |
 
-**Content**
-- Fix the hard release blockers on the tip: web UI dead (POD-2470), stale wire
-  goldens (POD-2714, POD-2035), the gates that cannot be trusted (POD-2759
-  typecheck blind to tests/e2e, POD-2778 typecheck exhausts the machine, POD-2728
-  `test` runs four files), baseline reds beyond the epic (POD-2040).
-- **Stage the flip:** pin codex and grok `select()` back to `['generic-pty']`
-  (logged-in included), leaving exactly one harness — M1's — on its server
-  driver. Two one-line manifest edits, each trivially revertible.
-- Document the escape hatch (`PODIUM_RUNTIME_DRIVER=generic-pty`) in the release
-  notes so any machine can opt out without a build.
+### Tier C — doesn't exist today (explicitly not in v1)
 
-**Exit test:** all gates green; instance repinned to the tip; one turn driven
-end-to-end on every family (claude, shell, and the three staged harnesses on
-whatever driver M0 leaves them).
+Moving a session between machines (import/export), switching model mid-session,
+session forking, rewind/checkpoints, "send this when the turn ends", a
+machine-level process inventory command, streaming for harnesses that never had
+it. These stay in the capability catalogue as backlog; no release below waits on
+them.
 
-**Explicitly not in M0:** any new capability. This is the shortest path to a
-mergeable branch.
+## Sorting the open bugs by tier
 
----
+Initial sort — the coordinator confirms each call. **Tier A = v1 blocker.**
 
-## M1 — First harness flipped: opencode, "better than headed"
+**Blocks v1 (Tier A violations):**
+- POD-2470 — the web app doesn't load on this branch at all (blocks everything).
+- POD-2116 — a live session accepts input and silently discards it (A1).
+- POD-2775 — hibernating a codex session wedges it (A10).
+- POD-2761 — switching to the terminal view restarts it and fakes continuity (A6).
+- POD-2602 — terminal view mis-sized until manually resized (A6).
+- POD-2691 — dead agent server processes survive for days (A9; the old path left
+  no servers behind, so this is a regression).
+- POD-2772 — the login gate wrongly blocks server drivers (A8).
+- POD-2631 / POD-2692 — the machine forgets an installed harness / login readout
+  wrong (A8: sessions can't start or show wrongly logged-out).
+- POD-2432 — sessions must survive a daemon restart on all three drivers (A7);
+  for codex and grok this means auto-resume, since their server child dies with
+  the daemon while the old path survived.
+- POD-2298 — a refused send must not stay displayed as delivered (A1).
 
-**User benefit:** opencode sessions stop lying. Typed receipts instead of
-fire-and-hope, provider errors named in chat, sessions that survive both a daemon
-restart and their own server's death.
+**Does not block v1 (Tier B, or invisible to users):**
+- POD-2604 / POD-2693 (error wording and design — B1), POD-2603 (undetected
+  login dialogs — B7), POD-2293 / POD-2773 (streaming — B4), POD-2043 / POD-2026
+  (mail mechanics — B3), POD-2030 (discarded exit info on a side path — B1),
+  POD-2746 (message duplication analysis — triage first), plus all
+  test/tooling/docs issues.
 
-**Why opencode first.** It is the only server driver that is a durable workload —
-it survives a daemon restart, which is the one thing the headed (abduco) path
-already guaranteed. Codex and grok run as daemon children on the new path, so
-flipping them before auto-resume-on-restart exists would *regress* restart
-behaviour relative to headed — disqualifying under principle 2. Opencode also has
-the no-exemptions conformance run (W5's bar) and the pinned per-session-secret
-story. Grok would give a bigger delta; opencode gives zero regression risk. Swap
-is cheap if evidence says otherwise.
+**Also not blocking:** everything filed against gates and infrastructure
+(POD-2714, POD-2759, POD-2778, POD-2728, POD-2040, POD-2031…) — those belong to
+M0 below, since without them we cannot *know* a release is safe.
 
-**The release checklist** (the whole bar — driven live on the operator instance;
-this is POD-2777's scope for this milestone):
-1. A send gets a truthful receipt: delivered or queued, never silently discarded
-   (the POD-2116 class), and a queued row survives reload with its position.
-2. Interrupt from chat stops the turn.
-3. A permission ask surfaces as an answerable card in chat; answering twice is a
-   typed error; the terminal shows the same ask.
-4. A provider failure is named in chat (the POD-2604 class), with retry/resume
-   offered where retryable.
-5. Kill the daemon → the session survives and re-adopts. Kill the opencode server
-   process → resume continues the same conversation.
-6. An OOM kill renders red as OOM, never as "finished".
-7. Input sent during a human take-over queues and drains on release.
+## The milestones
 
-**The parity legs** (equal weight with the checklist):
-- Claude and shell journeys driven unchanged (they never leave the terminal path
-  — the permanent tier, not a deprecation).
-- Codex and grok driven on their pinned PTY path: no regression from the staging
-  edits.
-- Flag-off suites zero-diff.
+### M0 — we can trust a release again
 
-**Explicitly not in M1:** streaming in chat, native-view polish beyond today's
-behaviour, import/handoff, machine-runtime verbs, any legacy retirement.
+No behaviour changes. Two things only:
+1. The web app loads on this branch (POD-2470).
+2. The automated checks mean something: today several fail for reasons unrelated
+   to this project (outdated test snapshots, a type-checker that misses folders
+   or exhausts the machine, a "test" command that runs almost nothing). Fix
+   those so that **green = safe to ship** (POD-2714, POD-2759, POD-2778,
+   POD-2728, POD-2040, POD-2031).
 
----
+Exit: checks green; test instance runs this branch; one message sent and
+answered on each of claude, codex, grok, opencode, and a shell session.
 
-## M2 — Grok flipped (fast follow, same shape)
+### M1 = v1 — the new drivers release, Tier A verified
 
-**User benefit:** the biggest single delta in the fleet. Headed grok today is a
-700 ms file tail, mail delivered by sacrificially denying a tool call, and no
-per-turn cost. ACP grok has protocol receipts, 10 ms interrupt, structured
-permission asks, 300 ms resume, and per-turn cost.
+Work through the Tier-A blocker list above. Then the release test is the tier
+table itself: **every A-row driven live on every shipped driver** (a written
+drive script per row, so re-verification is cheap next time), and spot-checks
+that Tier B is not worse than today. Claude and shell sessions driven unchanged.
 
-**Content**
-- Revert the M0 staging pin for grok; run the same seven-point checklist.
-- **The restart gate, honestly:** grok's server child dies with the daemon. The
-  milestone ships only when a daemon restart auto-resumes the conversation
-  (`session/load`; POD-2432 restart-safe inventory is the vehicle) — because
-  headed grok survived restarts under abduco and principle 2 forbids the
-  regression.
-- Retire the sacrificial-deny mail hack **on the ACP route only** — mail collapses
-  into `send()` (the POD-2043 shape). Headed grok keeps the old path untouched.
-- Ride-along cheap win, independent of the driver: stop discarding the
-  `stopReason`/`sessionId` grok's own JSON output already returns (POD-2030).
+User benefit: codex, grok and opencode sessions on plumbing that tells the
+truth — receipts instead of hope, real status, survivable restarts — with
+nothing users rely on today lost.
 
-**Explicitly not in M2:** the blocking-stop-hook question (POD-2026) beyond what
-mail-in-send needs; grok streaming to chat.
+### M2 — truth upgrades (Tier B, part 1)
 
----
+Small, independent releases; order by pain:
+- Provider failures named in chat everywhere, and "errored" visible as a state
+  (B1, B2 — POD-2604 pattern, POD-2693).
+- Blocked-but-invisible sessions detected and surfaced (B7 — POD-2603, and the
+  POD-2414 work that turns failures into answerable prompt cards).
+- Mail into sessions without the hook tricks, on the new-driver path (B3).
 
-## M3 — Codex flipped (the bug-debt milestone)
+### M3 — streaming (Tier B, part 2)
 
-**User benefit:** the most-used harness gets truthful chat, and the machine stops
-accumulating corpses.
+Replies stream live into chat for all three drivers, including the first turn a
+viewer joins (POD-2293, POD-2773). The most visible feature of the epic,
+deliberately after v1.
 
-Codex carries the native-view and lifecycle debt, so its milestone is mostly
-existing bugs — that is the point, they become *release-gated* instead of
-open-ended:
-- POD-2761 — switching views must not cold-start into faked continuity.
-- POD-2775 — hibernating a codex session must not wedge it.
-- POD-2691 — dead agent servers reaped, not surviving for days.
-- POD-2772 — the login gate must not block server drivers wrongly.
-- Same seven-point checklist + the native-attach journeys (take-over, queued
-  drain on release, spectators).
-- Same restart gate as M2 (codex is a daemon child too).
+### M4 — new capabilities (Tier C, pick by demand)
 
-**Explicitly not in M3:** the shared-ACP-substrate idea, pooled placement,
-`codex --remote`.
+Cross-machine session handoff (import/export), machine process inventory,
+mid-session model switching — each its own release, each pulled from the
+capability catalogue when someone actually needs it.
 
----
+### M5 — deletion
 
-## M4 — Streaming (the first strictly-new milestone)
-
-**User benefit:** live text in chat while the agent works — the most visible
-feature of the whole epic, deliberately *not* in the first release.
-
-- POD-2293 — stream replies to chat viewers (the wire + UI half).
-- POD-2773 — drive streaming on grok and opencode (proven today only on codex).
-- First-turn-a-viewer-joins streams, proven ×3 with controls.
-- In-progress tool-call previews where the harness needs them (the codex
-  `partial` arm), so long tool calls stop looking like a hang.
-
----
-
-## M5 — Never invisibly stuck (the background-agent trust milestone)
-
-**User benefit:** a background agent cannot silently wedge. This is what makes
-"fully reliable background agents" true, and it is worth a milestone of its own.
-
-- POD-2414 — every needs-human failure materializes as a durable
-  PendingInteraction (`auth-expired` → login card, `context-overflow` → recovery).
-- POD-2603 — claude login/setup dialogs detected and surfaced, not invisible.
-- Blocked cards answerable from every shell that renders sessions; expiry
-  escalates rather than auto-denies.
-- POD-2298 — refused receipts correct optimistic delivered rows.
-
----
-
-## M6 — One machine truth, then retirement
-
-**User benefit:** fleet-scale operation and one code path to maintain.
-
-- POD-2410 / POD-2412 — the concrete machine runtime and its wire; `podium
-  runtime ps`, process-table `list()`.
-- Process-ownership phases: typed stop verdicts, positive-evidence kills, the
-  15-orphan acceptance fixture.
-- POD-2415 — archive import and cross-machine handoff.
-- POD-2416 — the retirement ledger: headless-drivers, durable-headless, raw PTY
-  injection visibility, the second streaming plane — each marked absorbed /
-  deliberately dropped / still load-bearing, and the absorbed ones deleted.
-- The spec's fleet acceptance (50 executors, one week, zero stuck, zero
-  collateral OOM) closes the epic here, not earlier.
-
----
-
-## What this buys
-
-- **Something out after M0+M1**, with one harness measurably better and nothing
-  else changed — the minimum bar, met early.
-- **A repeating shape.** M1→M3 are the same milestone three times; the checklist,
-  the drive scripts and the staging knob amortize. Each flip is one manifest line
-  to revert.
-- **The scary work is quarantined.** Streaming, interaction materialization and
-  machine-runtime consolidation each get a milestone where they are the only
-  risk, instead of riding a driver flip.
-- **The catalogue keeps its job** as the ledger of everything; the milestones are
-  the order in which its rows actually turn proven. Rows no milestone consumes
-  (forking, rewind, send-on-stop, pooled placement) are visibly post-M6 backlog,
-  not silent scope.
+Retire the old code paths the new drivers replaced (the old headless subsystem,
+raw terminal injection, the second streaming plane): each marked absorbed /
+deliberately dropped / still needed, and the absorbed ones deleted. This is the
+milestone where maintenance cost actually drops. The epic's fleet-scale
+acceptance (50 agents, one week, nothing stuck, no collateral OOM kills) closes
+the epic here.
