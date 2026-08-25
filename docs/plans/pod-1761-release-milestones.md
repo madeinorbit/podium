@@ -41,7 +41,7 @@ the release route through it. Plain language throughout, on purpose.
 | A3 | Stop and interrupt work. |
 | A4 | Permission prompts show up and can be answered — from chat where safe, always in the terminal. Answering twice is an error, not a double action. |
 | A5 | The conversation renders in chat. |
-| A6 | The terminal view works: attach, type, resize, multiple viewers, take-over. |
+| A6 | Both views work and switching is safe: the chat view and the native terminal view each function on every session that offers them, and switching between them — repeatedly, in both directions — never restarts, corrupts, or kills the session. |
 | A7 | Restarts don't lose sessions: restart the background service or reboot, and the session comes back as the *same conversation* — never a blank session wearing the old name. |
 | A8 | A logged-out harness gets a working login path. |
 | A9 | Killing a session actually kills it, and dead helper processes don't pile up on the machine. |
@@ -54,7 +54,6 @@ the release route through it. Plain language throughout, on purpose.
 | B1 | Provider failure messages | chat says the bare words "provider error" (fixed for grok's quota case; others still vague) |
 | B2 | Out-of-memory reporting | an OOM-killed session can look like it just finished |
 | B3 | Mail delivery into a running session | held together by hook tricks; grok's version sacrifices a denied tool call |
-| B4 | Live streaming of the reply into chat | partial; proven working on codex only |
 | B5 | Cost / token usage display | mostly absent in the UI |
 | B6 | Draft sync between devices and the terminal | flaky screen-scraping |
 | B7 | An agent blocked on something invisible (login screens, setup dialogs) | often undetected — the session just sits there |
@@ -62,11 +61,12 @@ the release route through it. Plain language throughout, on purpose.
 
 ### Tier C — doesn't exist today (explicitly not in v1)
 
-Moving a session between machines (import/export), switching model mid-session,
-session forking, rewind/checkpoints, "send this when the turn ends", a
-machine-level process inventory command, streaming for harnesses that never had
-it. These stay in the capability catalogue as backlog; no release below waits on
-them.
+**Live streaming of replies into chat** (chat shows completed messages today —
+token-by-token streaming to viewers does not exist for any harness), moving a
+session between machines (import/export), switching model mid-session, session
+forking, rewind/checkpoints, "send this when the turn ends", a machine-level
+process inventory command. These stay in the capability catalogue as backlog;
+no release below waits on them.
 
 ## Sorting the open bugs by tier
 
@@ -137,11 +137,12 @@ Small, independent releases; order by pain:
   POD-2414 work that turns failures into answerable prompt cards).
 - Mail into sessions without the hook tricks, on the new-driver path (B3).
 
-### M3 — streaming (Tier B, part 2)
+### M3 — streaming (the first Tier C capability)
 
 Replies stream live into chat for all three drivers, including the first turn a
-viewer joins (POD-2293, POD-2773). The most visible feature of the epic,
-deliberately after v1.
+viewer joins (POD-2293, POD-2773). Strictly new — no harness streams into chat
+today — which is exactly why it is a milestone of its own after v1 rather than
+a v1 requirement. First in the Tier C queue because it is the most visible.
 
 ### M4 — new capabilities (Tier C, pick by demand)
 

@@ -99,12 +99,16 @@ columns prove the untouched paths stayed untouched.
 | A4b | answer twice | ☐ | ☐ | ☐ | ☐ | n/a | second answer is a typed error, not a double action |
 | A5 | transcript | ☐ | ☐ | ☐ | ☐ | n/a | turns render with tool calls paired to results; reload shows same history |
 | A6a | terminal attach + type | ☐ | ☐ | ☐ | ☐ | ☐ | keystrokes echo; resize refits; second viewer sees the same screen |
-| A6b | chat↔CLI switch | ☐ | ☐ | ☐ | ☐ | n/a | switch and back: no restart, no scrollback corruption, correct size (POD-2761/2602 fixed) |
+| A6b | chat↔CLI switch, both directions, twice | ☐ | ☐ | ☐ | ☐ | n/a | chat→CLI→chat→CLI: no restart, no scrollback corruption, correct size (POD-2761/2602 fixed); after the switches, a chat send still answers AND typing in the CLI still echoes — the session is fully functional in BOTH views |
 | A7a | daemon restart | ☐ | ☐ | ☐ | ☐ | ☐ | session survives or auto-resumes as the SAME conversation (asks it to recall a codeword from before) |
 | A7b | hibernate + wake | ☐ | ☐ | ☐ | ☐ | n/a | wakes with context intact; never wedges (POD-2775 fixed) |
 | A8 | logged-out spawn | ☐ | ☐ | ☐ | ☐ | n/a | gets a working login path; after login, next session lands on the server driver (POD-2772 fixed) |
 | A9 | kill session | ☐ | ☐ | ☐ | ☐ | ☐ | process tree gone (check the process table, not the UI); no orphan servers after 5 min |
 | A10 | driver identity | n/a | ☐ | ☐ | ☐ | n/a | session reports server family; `PODIUM_RUNTIME_DRIVER=generic-pty` demotes it (escape hatch works) |
+
+Rows A5 + A6a + A6b together are the "both views work and can be switched"
+guarantee: chat functions (A5, A1, A4), the native view functions (A6a), and
+switching never costs the session (A6b).
 
 Plus two Tier-B not-worse spot-checks (no pass bar beyond "today's behavior"):
 provoke a provider error (should at least match today's wording; grok's names
@@ -143,7 +147,7 @@ Grouped by catalogue section. "Measured by" is the gate that keeps it true.
 | failure detail verbatim | confident | driver tests + Tier-B error spot-check |
 | graceful stop drains queue | **check** | A9 with a queued message pending |
 
-### §2 Streaming → M3, except the correctness substrate
+### §2 Streaming → M3 (Tier C — streaming into chat exists for nobody today), except the correctness substrate
 
 | row | action | measured by |
 |---|---|---|
@@ -257,6 +261,53 @@ drivers bypass the old path and parity must be checked once:
 `disposition`, echo reconciliation, `driverFamily`, `outputSeen`, OOM stop
 reason, transcript cursor semantics — all exercised by matrix rows A1, A2, A6,
 A9, A10. Thinking/todos/plan-body surfaces: defer(M4), recorded decisions.
+
+---
+
+## Spec reconciliation — every open spec commitment has a milestone
+
+The normative spec (`docs/2026-08-07-agent-runtime-architecture.html`, rev 10)
+was audited commitment-by-commitment in
+`docs/architecture/pod-1761-spec-gap-audit.md`: 66 commitments — 17
+implemented, 25 partial, 18 missing, 6 diverged. This section places every
+MISSING and DIVERGED commitment so the spec and the milestones cannot drift
+apart. (The spec's own conformance sentence — send outcomes, ask lifecycle,
+interrupt fencing, snapshot round-trip, causality under restart, per-family
+permitted failures — is implemented as the conformance corpus and is
+"confident" above.)
+
+**Missing → milestone:**
+
+| audit id | commitment | milestone |
+|---|---|---|
+| IS4 | needs-human failures materialize as interactions | M2 (POD-2414, in review) |
+| IS5 | escalation deadlines + superagent triage | M2 (deadline) / M4 (triage) |
+| AS2 | attach as a runtime wire command | M4 — v1 attaches through the legacy PTY relay, which works and stays |
+| IS12 | generic procedures (oneShot / askAndAwait / interruptAndSend) | M4 |
+| LD1 | one concrete per-machine AgentRuntime | M4 (POD-2410) |
+| LD2 | import + process-table list | M4 (POD-2415, POD-2432; the restart-survival *behaviour* is M1 via matrix row A7a) |
+| LD8 | Claude SDK embedded driver in a worker child | M4 (POD-2753, in review rounds) |
+| LD11 | macOS/Windows degradation declared | M4 |
+| CLI2 / CLI3 | `podium attach`, `podium runtime ps` | M4 |
+| XT1 | every primitive on the daemon wire | M4 (POD-2412) |
+| XT2 | server-family handoff via export/import | M4 |
+| SA3 | accounts/login/logout/credential primitives | M4 — legacy login detection carries v1 |
+| LD12 | retire headless/exec legacy axes | M5 (POD-2416) |
+| XT6 | fleet acceptance (50 executors, one week) | M5 — closes the epic |
+| XT4 / XT5 | cloud supervisor, cloud credential seeding | out of epic — recorded plan non-goals |
+
+**Diverged → resolution:**
+
+| audit id | divergence | status |
+|---|---|---|
+| IS2 | `stageAttachment` threw in every driver | **resolved on the tip** — POD-2408/POD-2574 landed typed staging; matrix row "promptForm" verifies it live in M1 |
+| SA5 | grok server default vs spec's terminal-only row | resolved — spec rev 10 amended |
+| AS6 / G1 | which projection owns state fields | accepted post-audit ruling; no work |
+| LD3 | opencode archive not byte-faithful | accepted ruling — semantic archive is the universal guarantee; byte-faithful is capability-gated (matters in M4) |
+| LD13 | codex/attach landed without the rollout proof | the debt this ledger pays: the M1 matrix IS the missed proof, and POD-2413 landed the OOM/budget half |
+
+Ongoing owner: POD-2690 (spec-to-code conformance audit) keeps this table
+honest as the tip moves.
 
 ---
 
