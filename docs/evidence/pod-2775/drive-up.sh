@@ -127,7 +127,13 @@ echo "server healthy on :$PODIUM_PORT"
 AGENT_HOME="$PODIUM_STATE_DIR/agent-home"
 mkdir -p "$AGENT_HOME/.claude" "$AGENT_HOME/.codex"
 mkdir -p "$AGENT_HOME/.local/share/opencode" "$AGENT_HOME/.config/opencode"
+mkdir -p "$AGENT_HOME/.grok"
 chmod 700 "$AGENT_HOME"
+#
+# GROK TOO, since review round 4 asked the same wake question of all three
+# families. Its adopt was already resume-not-rebind (loadSession on the
+# journalled id), so it is the family most likely to be fine — which is exactly
+# why it is worth measuring rather than asserting.
 #
 # OPENCODE TOO, since POD-2775's review round: the fix under measurement is one
 # daemon route serving three families, and the first round drove only codex — so
@@ -147,7 +153,8 @@ for pair in \
   "$HOME/.codex/auth.json:$AGENT_HOME/.codex/auth.json" \
   "$HOME/.codex/config.toml:$AGENT_HOME/.codex/config.toml" \
   "$HOME/.local/share/opencode/auth.json:$AGENT_HOME/.local/share/opencode/auth.json" \
-  "$HOME/.config/opencode/opencode.jsonc:$AGENT_HOME/.config/opencode/opencode.jsonc"
+  "$HOME/.config/opencode/opencode.jsonc:$AGENT_HOME/.config/opencode/opencode.jsonc" \
+  "$HOME/.grok/auth.json:$AGENT_HOME/.grok/auth.json"
 do
   from="${pair%%:*}"; to="${pair#*:}"
   if [ -f "$from" ] && [ ! -f "$to" ]; then cp "$from" "$to" && chmod 600 "$to"; fi

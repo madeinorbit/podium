@@ -4,7 +4,7 @@
 #
 #   bash docs/evidence/pod-2775/drive-up.sh
 #   bash docs/evidence/pod-2775/drive-verify.sh HEAD
-#   bash docs/evidence/pod-2775/drive-resurrect.sh [opencode|codex]
+#   bash docs/evidence/pod-2775/drive-resurrect.sh [opencode|codex|grok]
 #
 # WHY A SECOND SEQUENCE EXISTS AT ALL. `drive.ts` wakes a parked session with
 # `sessions.resumeAndSend`; POD-1761's acceptance drive uses `sessions.resurrect`
@@ -33,7 +33,8 @@ KIND="${1:-opencode}"
 case "$KIND" in
   opencode) JDIR=opencode-servers; IDKEY=opencodeSessionId ;;
   codex)    JDIR=codex-app-servers; IDKEY=threadId ;;
-  *) echo "unknown arm '$KIND' — expected opencode or codex" >&2; exit 2 ;;
+  grok)     JDIR=grok-acp-servers; IDKEY=grokSessionId ;;
+  *) echo "unknown arm '$KIND' — expected opencode, codex or grok" >&2; exit 2 ;;
 esac
 
 [ "$PODIUM_PORT" != "19797" ] || { echo "refusing to drive the operator's instance" >&2; exit 1; }
