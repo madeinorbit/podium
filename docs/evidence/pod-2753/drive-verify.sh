@@ -54,15 +54,39 @@ curl -fsS "http://$PODIUM_HOST:$PODIUM_PORT/health" >/dev/null \
   || fail "server does not answer /health on :$PODIUM_PORT"
 echo "  ok  server answers on :$PODIUM_PORT"
 
-# 4. THE PROPERTY UNDER TEST, read off the LIVE DAEMON.
-# The SDK is loaded from node_modules/@anthropic-ai/..., so if the daemon process
-# had it loaded, that path would be among its open files. A source-tree grep
-# would prove nothing about a process that started before your last edit.
-DPID="$(cat "$PODIUM_DRIVE_BASE/daemon.pid")"
-LOADED="$(ls -l "/proc/$DPID/map_files" 2>/dev/null | grep -c 'claude-agent-sdk' || true)"
-OPEN="$(ls -l "/proc/$DPID/fd" 2>/dev/null | grep -c 'claude-agent-sdk' || true)"
-[ "$LOADED" = "0" ] && [ "$OPEN" = "0" ] \
-  || fail "the live daemon (pid $DPID) has the Claude SDK open: map_files=$LOADED fd=$OPEN"
-echo "  ok  live daemon pid=$DPID has no Claude SDK file open"
+# 4. THE PROPERTY UNDER TEST.
+#
+# THIS CHECK USED TO BE VACUOUS AND IS THE REASON THIS COMMENT IS LONG. It grepped
+# /proc/<daemon>/map_files and /proc/<daemon>/fd for "claude-agent-sdk" and printed
+# "ok" when it found nothing. An adversarial review pointed out it could not fail;
+# I then reproduced it directly. A bun process that has imported the SDK and holds
+# a CALLABLE query() shows:
+#
+#     /proc/<pid>/maps       matching claude-agent-sdk : 0
+#     /proc/<pid>/map_files  matching                  : 0
+#     /proc/<pid>/fd         matching                  : 0
+#     /proc/<pid>/maps       mentioning anthropic      : 0
+#
+# A JS module is read() and closed; it is never left mmapped. So the old check
+# passed on a daemon that HAD the SDK loaded — a negative assertion with no
+# control, inside the very script whose job is to refuse unproven measurements.
+# There is no external detector for "this process has a JS module loaded", so the
+# honest move is to stop pretending there is one.
+#
+# WHAT REPLACES IT. The property is STATIC — it is about the module graph of the
+# code these processes are running — so it is checked where it can actually fail:
+# the isolation test walks that graph from every daemon-hosting entry point and
+# goes red when the SDK is reachable. Checks 1 and 2 above are what make that
+# relevant HERE: the running processes were started from this worktree, and this
+# worktree is at the named commit with a clean tree. So "the test passes at this
+# commit" is a statement about the bytes those processes actually loaded.
+echo "  .. running the SDK isolation walk against this commit (this is the real check)"
+if ! ( cd "$PODIUM_DRIVE_REPO" && ./node_modules/.bin/vitest run \
+        apps/daemon/src/claude-sdk-isolation.test.ts >/tmp/pod-2753-isolation.log 2>&1 ); then
+  echo "  ---- isolation test output ----" >&2
+  tail -40 /tmp/pod-2753-isolation.log >&2
+  fail "the SDK is reachable from a daemon-hosting entry point at $HAVE_SHA"
+fi
+echo "  ok  the SDK is unreachable from every daemon-hosting entry point at this commit"
 
 echo "VERIFIED: p2753 is running $WANT_SHA"

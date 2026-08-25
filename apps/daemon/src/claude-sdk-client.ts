@@ -127,7 +127,15 @@ export function runClaudeSdkChildTurn(
         break
       case 'done':
         harnessSessionId = frame.harnessSessionId
-        succeed({ harnessSessionId: frame.harnessSessionId, output: frame.output })
+        // A TIMED-OUT TURN IS NEVER A SUCCESS, however gracefully it ended.
+        // `interrupt` asks the SDK to wind down, and a wound-down stream reports
+        // `done` with whatever text it had — so without this branch a turn cut
+        // off at its deadline arrived as the assistant's complete reply, and the
+        // human read half a sentence as the whole answer. The in-process driver
+        // this replaced ended with `if (interrupted) fail('turn timed out')`
+        // for exactly this reason; losing it was a regression, not a redesign.
+        if (timedOut) fail('turn timed out')
+        else succeed({ harnessSessionId: frame.harnessSessionId, output: frame.output })
         break
       case 'error':
         if (frame.harnessSessionId) harnessSessionId = frame.harnessSessionId

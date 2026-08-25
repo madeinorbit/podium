@@ -26,6 +26,9 @@ import {
 } from './claude-sdk-protocol.js'
 import { type HeadlessTurnSpec, headlessChildEnv } from './headless-drivers.js'
 
+/** How long the SDK gets to wind a turn down after the daemon disappears. */
+const ORPHAN_GRACE_MS = 5_000
+
 const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const PERMISSION_MODES = new Set([
   'default',
@@ -162,9 +165,23 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
         else pendingInterrupt = true
       }
     }
-    // stdin ended before any turn arrived: the daemon is gone, so is our reason
-    // to exist.
-    if (!spec) finish()
+    // STDIN ENDED: the daemon is gone. Nothing upstream is listening, so this
+    // process has no reason to keep an agent running — and an agent that keeps
+    // running is a real cost, not a tidiness point: it holds a model session, a
+    // working directory and whatever the CLI spawned, with nobody to stop it.
+    //
+    // The previous version only handled the no-turn-yet case (`if (!spec)`), so
+    // once a turn had started EOF did nothing at all and the host outlived its
+    // daemon indefinitely — while the comment above `main()` claimed otherwise.
+    if (!spec) {
+      finish()
+      return
+    }
+    if (interrupt) interrupt()
+    // Give the SDK a moment to end the turn cleanly, then go regardless: a host
+    // that refuses to die on its parent's death is the orphan we are avoiding.
+    const grace = setTimeout(finish, ORPHAN_GRACE_MS)
+    grace.unref?.()
   })()
   commandLoop.catch(() => finish())
 

@@ -216,6 +216,44 @@ describe('a Claude turn in a child process', () => {
     expect((err as HeadlessTurnError).harnessSessionId).toBe('sess-wedged')
   }, 30_000)
 
+  it('never reports a timed-out turn as a successful one', async () => {
+    // THE REGRESSION AN ADVERSARIAL REVIEW FOUND. `interrupt` asks the SDK to wind
+    // down, and a wound-down stream reports `done` with whatever text it had. So a
+    // host that answers `done` AFTER the deadline used to resolve the turn as a
+    // success carrying a truncated answer — and the human was shown half a
+    // sentence as the assistant's complete reply, with no timeout reported.
+    //
+    // Reachable in production: a superagent budget clamps the turn timeout as low
+    // as 30 seconds, so this is an ordinary short turn, not an exotic case.
+    const handle = runClaudeSdkChildTurn({ ...spec, timeoutMs: 300 }, () => {}, {
+      spawnHost: fakeHost(`
+        let buf = ''
+        process.stdout.write(JSON.stringify({ t: 'session', harnessSessionId: 'sess-cut' }) + '\\n')
+        process.stdin.on('data', (d) => {
+          buf += d
+          if (!buf.includes('interrupt')) return
+          // Exactly what a gracefully-interrupted SDK stream does.
+          process.stdout.write(JSON.stringify({
+            t: 'done', harnessSessionId: 'sess-cut', output: 'half an ans',
+          }) + '\\n')
+          process.exit(0)
+        })
+      `),
+    })
+    const err = await handle.done.then(
+      (ok) => ({ resolved: ok }),
+      (e: unknown) => ({ rejected: e as Error }),
+    )
+    expect(
+      'rejected' in err,
+      `a turn cut off at its deadline resolved as success: ${JSON.stringify(err)}`,
+    ).toBe(true)
+    const e = (err as { rejected: Error }).rejected
+    expect(e.message).toBe('turn timed out')
+    // And the conversation still comes out, so the thread is not orphaned.
+    expect((e as HeadlessTurnError).harnessSessionId).toBe('sess-cut')
+  }, 20_000)
+
   it("ignores non-protocol noise on the host's stdout", async () => {
     // A dependency that logs to stdout must not be able to fail a live turn.
     const handle = runClaudeSdkChildTurn(spec, () => {}, {
