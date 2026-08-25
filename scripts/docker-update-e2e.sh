@@ -13,6 +13,19 @@ PROVE_FAILURE="${PODIUM_UPDATE_E2E_PROVE_FAILURE:-}"
 ONLY="${PODIUM_UPDATE_E2E_ONLY:-}"
 HOLD="${PODIUM_UPDATE_E2E_HOLD:-0}"
 HOLD_REF="${PODIUM_UPDATE_E2E_HOLD_REF:-worktree-pod-2462-update-path}"
+# THE COORDINATOR'S OWN SHAPE. Defaults to `server`, which is what the scenario
+# rows assert against: a server-only coordinator is the shape that exposed
+# POD-2668 (the machine running the server could not update itself) and the rows
+# below are written for it.
+#
+# `all-in-one` gives the coordinator a daemon alongside its server, which is the
+# topology a real operator usually runs — one machine with both, the rest
+# daemon-only. It is a DIFFERENT shape, not a better one: with a daemon present
+# the coordinator becomes eligible for things a daemonless one is refused, repo
+# hosting among them (POD-2700), so rows that assert a refusal on this machine
+# will legitimately read differently. Use it for a hold-mode instance someone
+# will drive by hand, not to make a red row green.
+COORDINATOR_MODE="${PODIUM_UPDATE_E2E_COORDINATOR_MODE:-server}"
 # THE DECISION LOGS ARE INFO, AND INFO WAS BEING THROWN AWAY.
 #
 # The coordinator already logs every convergence decision its local participant
@@ -573,7 +586,7 @@ prepare_legacy_machine() {
 setup_source() {
   container_http_request "$SOURCE" POST \
     http://127.0.0.1:18787/trpc/setup.complete \
-    '{"publicUrl":"http://source:18787","mode":"server","port":18787,"acknowledgeNoPassword":true}' ||
+    "{\"publicUrl\":\"http://source:18787\",\"mode\":\"$COORDINATOR_MODE\",\"port\":18787,\"acknowledgeNoPassword\":true}" ||
     return 1
   ! jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"
 }
