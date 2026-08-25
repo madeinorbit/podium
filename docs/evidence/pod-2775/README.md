@@ -318,6 +318,89 @@ a regression from this round (before it, a parked opencode session could not
 come back at all, and codex shipped the same shape), and the repair is a
 contract change across four drivers. Filed as POD-2795 with the analysis.
 
+## The second review round — findings 4, 5 and 6
+
+The same reviewer's list was six, not three. The last three are all on code from
+round one, and two of them are mine.
+
+**4 — the retire lost its only retry of the verb that clears the journal.**
+Round one narrowed the escalation branch so a verb that failed beside a process
+that DIED is not escalated. The argument for that is entirely about `stop`:
+repeating a park's stop re-runs the path that flushes codex's rollout JSONL. It
+does not transfer to `kill`, and a retire's `kill()` is the only thing on the
+handle path that clears the binding journal — `reapByIdentity` clears it
+explicitly, `reapViaHandle` never did, because `kill()` always got there. So a
+retire whose `kill()` threw left the entry on disk, and for opencode that entry
+holds the server's baseUrl **and** its secret. The verb runs again on the retire
+arm. The test asserts the JOURNAL, not the call count: counting `['kill','kill']`
+would stay green against a repeat that cleared nothing.
+
+**5 — the bound's declaration was wrong in the other direction.** It claimed the
+handle-verb timeout was "strictly greater than everything those verbs are DEFINED
+to spend". False by 14 seconds: codex's `stop()` may spend the graceful window
+plus two `systemctl` calls at 8s each, 18s against a 4s bound. Exactly the defect
+this file was created for, sign flipped — an assertion about two numbers that the
+numbers do not support.
+
+The fix is the declaration, not the number. Raising the bound to cover systemd's
+worst case adds 16s to a receipt an operator is watching and buys nothing,
+because nothing reads an expired bound as "wedged" any more: the reap escalates
+on the measured process. So the comment now says what it can back — above the
+graceful window, which is the one CONTRACT inside the verb, and deliberately not
+above the reclaim, whose duration belongs to systemd. The 8s per-call bound was
+spelled separately in all three server hosts and is now one exported constant, so
+the worst case is computable instead of rediscovered, with the inequality pinned
+in both directions.
+
+**6 — this rig's own pin check was defeated, twice.** `drive-verify.sh`
+established which commit the running pair was built from by reading a start time
+out of `/proc` and comparing it against the commit's timestamp.
+
+Both halves fail, and both were measured on this host rather than argued:
+
+- `stat -c %Y /proc/<pid>` is the **inode mtime**, not the process start time.
+  Sampling every live pid against `btime + starttime` from `/proc/<pid>/stat`:
+  **100 of 240 pids skew by more than 5s, worst 7751s** — and the skew runs
+  FORWARD, so a process OLDER than the commit reads as newer than it. That is the
+  direction that turns a stale rig into a pass.
+- and `started >= committed` is satisfied by the **parent** commit too.
+  Demonstrated on the same running pair rather than reasoned about:
+
+  ```
+  new check, named the PARENT   -> VERIFY FAILED: server was spawned from 470c54f1d, you named c47650df4
+  what the OLD check would say  -> inode-mtime=1787689220 parent-commit-time=1787688987 → PASS
+  new check, named HEAD         -> VERIFIED: p2775 is running 470c54f1d
+  ```
+
+  For an A/B whose entire claim is which of two commits produced a row, that is
+  the check failing at precisely its job — and this rig's own before-arms were
+  guarded by it.
+
+`drive-up.sh` now writes the sha it spawned from, and whether the tree was clean
+at the time, beside the pidfile; verify compares that. Nothing is reconstructed
+from a clock, and an instance nobody started through `drive-up.sh` is refused
+rather than guessed at.
+
+### Re-driven after all six
+
+Both arms, at `afab5e749`, after findings 4-6 landed on top of 1-3:
+
+| arm | park receipt | park process | resume | conversation |
+| --- | --- | --- | --- | --- |
+| codex | CLEAN | REAPED | LIVE in 1.8s on a new pid | same thread, model `{gpt-5-codex, high}` both sides |
+| opencode | CLEAN | REAPED | LIVE on a new pid | same `ses_…` |
+
+### The round-two mutants
+
+| mutant | test that went red | what stayed green |
+| --- | --- | --- |
+| the retire's second `kill()` removed again | `a RETIRE whose kill threw runs it AGAIN — that verb is what clears the journal` | the other 42, including the park's `['stop']` pin |
+| `threadId` → a foreign literal, re-measured across 19 files at the tip | 9 tests in 2 files | 592 passed, 5 skipped |
+
+The second row is the number worth carrying: the reviewer measured zero red for
+that mutant across nine driver files and both daemon lanes. After the fake was
+taught to refuse a thread it never started, the same mutation reds nine.
+
 ## What a screenshot would not have shown
 
 Nothing here is drawn. The park's receipt is two lines in the daemon's log
