@@ -34,7 +34,6 @@ vi.mock('@/app/store', () => {
         },
       },
       hub: { onIssues: () => () => {} },
-      repos: [],
       machines: [],
       // The launch box reads the fleet to grey harnesses this repo's hosts
       // cannot run; an absent slice crashes `reposToViews` rather than

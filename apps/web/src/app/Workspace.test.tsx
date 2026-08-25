@@ -715,7 +715,6 @@ describe('Workspace splitting', () => {
   ] as const)(
     'keeps the cold $name action connected through focus and click',
     ({ name, pane, action }) => {
-      featureEnabled['tab-splitting'] = true
       const runtime = delayedDragRuntime()
       render(<Workspace loadDragRuntime={runtime.load} />)
       const control = within(strips()[pane] as HTMLElement).getByRole('button', { name })
@@ -762,7 +761,6 @@ describe('Workspace splitting', () => {
   ] as const)(
     'holds an in-flight drag runtime through the $name press',
     async ({ name, pane, action }) => {
-      featureEnabled['tab-splitting'] = true
       const runtime = delayedDragRuntime()
       render(<Workspace loadDragRuntime={runtime.load} />)
 
@@ -818,7 +816,6 @@ describe('Workspace splitting', () => {
   )
 
   it('keeps New panel open when the pending runtime resolves after its click', async () => {
-    featureEnabled['tab-splitting'] = true
     const runtime = delayedDragRuntime()
     render(<Workspace loadDragRuntime={runtime.load} />)
     const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
@@ -861,7 +858,6 @@ describe('Workspace splitting', () => {
   })
 
   it('holds an in-flight drag runtime through a fixed action keyboard activation', async () => {
-    featureEnabled['tab-splitting'] = true
     const runtime = delayedDragRuntime()
     render(<Workspace loadDragRuntime={runtime.load} />)
     const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
@@ -897,7 +893,6 @@ describe('Workspace splitting', () => {
   })
 
   it('does not replay a cold Space pickup after a fixed action takes ownership', async () => {
-    featureEnabled['tab-splitting'] = true
     const runtime = delayedDragRuntime()
     render(<Workspace loadDragRuntime={runtime.load} />)
     const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
@@ -933,7 +928,6 @@ describe('Workspace splitting', () => {
   })
 
   it('keeps fixed-control focus when the runtime resolves before keydown', async () => {
-    featureEnabled['tab-splitting'] = true
     const runtime = delayedDragRuntime()
     render(<Workspace loadDragRuntime={runtime.load} />)
     const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
@@ -956,7 +950,6 @@ describe('Workspace splitting', () => {
   })
 
   it('releases a fixed pointer hold when pointer capture is lost', async () => {
-    featureEnabled['tab-splitting'] = true
     const runtime = delayedDragRuntime()
     render(<Workspace loadDragRuntime={runtime.load} />)
     const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
@@ -985,7 +978,6 @@ describe('Workspace splitting', () => {
   })
 
   it('releases a fixed keyboard hold when the window loses focus', async () => {
-    featureEnabled['tab-splitting'] = true
     const runtime = delayedDragRuntime()
     render(<Workspace loadDragRuntime={runtime.load} />)
     const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
@@ -1007,7 +999,6 @@ describe('Workspace splitting', () => {
   })
 
   it('clears a fixed pointer hold when the runtime request rejects', async () => {
-    featureEnabled['tab-splitting'] = true
     const runtime = delayedDragRuntime()
     render(<Workspace loadDragRuntime={runtime.load} />)
     const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
@@ -1033,7 +1024,6 @@ describe('Workspace splitting', () => {
   })
 
   it('publishes a runtime requested during an existing fixed pointer hold', async () => {
-    featureEnabled['tab-splitting'] = true
     const runtime = delayedDragRuntime()
     render(<Workspace loadDragRuntime={runtime.load} />)
     const intentTab = strips()[0]?.querySelector<HTMLElement>('[data-session="s1"]')
