@@ -395,12 +395,22 @@ leaves the previous `latest.json` sitting on the rolling release at its own olde
 which is exactly the mismatch the old rule refuses. An absent staged manifest is therefore
 not "no pairing claim"; it is "the previous claim stands".
 
-`scripts/release.ts` now REFUSES to publish such a release (`legacyPairingRefusal`), naming
-the consequence and offering `--accept-legacy-stranding` to record the decision. It refuses
-rather than repairs, and it is checked only on the publishing path — staging a release
-locally strands nobody. The obligation is scoped to feeds an OLD install reads, which is
-`stable` and `edge`; `dev` is published by the server's own publisher and is consumed only
-by installs running the new resolver, so it is untouched.
+`scripts/release.ts` STATES this at publish time (`legacyPairingNotice`), naming the
+consequence, on the publishing path only — staging a release locally strands nobody.
+
+**It says it rather than refusing, and that is a correction.** It was a refusal with an
+`--accept-legacy-stranding` waiver until POD-2796 measured what that would cost: §5 has an
+unchanged shell carry its OWN older version forward, so the mismatch is the normal state of
+every release that did not rebuild the shell, and the waiver would have been passed on
+essentially all of them. A refusal waived by default is ceremony, and ceremony is what the
+next real refusal hides behind — POD-2796's own carry-forward check is the refusal that
+would have hidden there. The stranding is a known, documented, one-time migration fact, so
+the proportionate instrument is to say it where whoever cuts the release reads it, every
+time, with no way to switch it off.
+
+The obligation is scoped to feeds an OLD install reads, which is `stable` and `edge`; `dev`
+is published by the server's own publisher and is consumed only by installs running the new
+resolver, so it is untouched.
 
 This is **one** release, not every release, so it does not reintroduce the coupling §6
 exists to remove — a dev mint still never needs a darwin runner. The alternative was
