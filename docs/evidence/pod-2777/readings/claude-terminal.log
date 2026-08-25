@@ -1,0 +1,38 @@
+ok  server pid=910606 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at f90c538
+  ok  daemon pid=910784 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at f90c538
+  ok  exactly one daemon (pid 910784) on state root /tmp/pod-2777/state
+  ok  worktree at f90c53804924e0b365bd0893d39ad545ccfce89f, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at f90c538
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='generic-pty', server STREAMING=1
+PINJSON {"want":"f90c53804924e0b365bd0893d39ad545ccfce89f","short":"f90c538","spawnedSha":"f90c53804924e0b365bd0893d39ad545ccfce89f","serverPid":910606,"daemonPid":910784,"webSourceSha":"f90c538","contract":"1","streaming":"1","driver":"generic-pty"}
+VERIFIED: p2777 (server + daemon + web bundle) is running f90c53804924e0b365bd0893d39ad545ccfce89f in arm CONTRACT=1 STREAMING=1 DRIVER='generic-pty'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=claude  arm=terminal  expecting driver 'a terminal-family driver'
+PIN                f90c53804924e0b365bd0893d39ad545ccfce89f (web bundle f90c538, server pid 910606, daemon pid 910784)
+==============================================================================
+session f1a9475b-e9ed-44a6-aca4-89a1f1aca948 created; giving the harness 25000ms to come up
+no driver bound after 91s
+BOUND DRIVER       (unknown) (family ?)
+
+WRONG BINDING — this arm asked for a terminal-family driver and the session bound '(unknown)' (family ?).
+A headless arm that quietly degraded to a PTY measures the terminal path and
+reports it in the headless column. REFUSING every probe in this run.
+
+==============================================================================
+RESULT  claude / terminal / driver=(unknown)
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           REFUSED   MISSING   the arm did not bind the driver it claims — nothing here measures what it says
+stream          REFUSED   MISSING   the arm did not bind the driver it claims — nothing here measures what it says
+interrupt       REFUSED   MISSING   the arm did not bind the driver it claims — nothing here measures what it says
+stop            REFUSED   MISSING   the arm did not bind the driver it claims — nothing here measures what it says
+resume          REFUSED   MISSING   the arm did not bind the driver it claims — nothing here measures what it says
+attach          REFUSED   MISSING   the arm did not bind the driver it claims — nothing here measures what it says
+interaction     REFUSED   MISSING   the arm did not bind the driver it claims — nothing here measures what it says
+provider-error  REFUSED   MISSING   the arm did not bind the driver it claims — nothing here measures what it says
+model-switch    REFUSED   MISSING   the arm did not bind the driver it claims — nothing here measures what it says
+==============================================================================
+written /tmp/pod-2777/results/claude.terminal.json

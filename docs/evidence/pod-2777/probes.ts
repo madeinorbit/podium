@@ -362,9 +362,27 @@ export const interrupt: Probe = {
   catalogRow: '§1 interrupt a running turn (WIRED — declared capability, no conformance property)',
   async run(ctx) {
     await settle(ctx.sid)
-    const baseline = ctx.chat.assistantText().length
-    const framesBaseline = ctx.chat.previews.length
-    const baselineScreen = ctx.chat.screenBytes
+
+    /**
+     * ITS OWN SOCKET, OPENED BEFORE ITS OWN TURN.
+     *
+     * The probe inherited the chat the streaming section had opened, which is
+     * subscribed but was attached for a DIFFERENT turn — and preview frames are
+     * live-only and lossy, so a socket that joined someone else's turn can sit
+     * at zero for this one. That is what happened: `phase=working` with 0
+     * previews, 0 transcript chars and 0 terminal bytes for 90 seconds, and the
+     * cell refused for want of a control while the turn was plainly running.
+     *
+     * A fresh subscription taken immediately before the send removes the
+     * question. The control's bar is unchanged — prove tokens are being produced
+     * right now, or refuse — but it is no longer contingent on which turn some
+     * earlier probe happened to be watching.
+     */
+    const chat = new Chat(ctx.sid)
+    await chat.open()
+    const baseline = chat.assistantText().length
+    const framesBaseline = chat.previews.length
+    const baselineScreen = chat.screenBytes
     await mutate('sessions.sendText', {
       sessionId: ctx.sid,
       text:
@@ -402,30 +420,50 @@ export const interrupt: Probe = {
     let producing = false
     let phase = 'unknown'
     let signal = 'none'
-    let screenPrev = ctx.chat.screenBytes
+    let screenPrev = chat.screenBytes
     const spinUp = now() + 90_000
     while (now() < spinUp) {
       const row = await sessionRow(ctx.sid)
       phase = row?.agentState?.phase ?? 'unknown'
       working = phase === 'working'
-      const previews = ctx.chat.previews.length > framesBaseline
-      const chars = ctx.chat.assistantText().length > baseline
-      const screenNow = ctx.chat.screenBytes
-      const screenGrew = screenNow > screenPrev + 200
+      // PROPERLY UNDER WAY, not merely begun. Interrupting on the FIRST preview
+      // frame catches the turn in its opening moment: the run that did so
+      // measured 0 durable chars, 0 frames after, and a phase stuck at working —
+      // a reading about a turn that had barely started, which cannot separate
+      // "the abort raced the start" from "the abort was ignored". Requiring a
+      // few frames or some real text puts the interrupt unambiguously mid-flight,
+      // which is the case the row is about.
+      const previews = chat.previews.length >= framesBaseline + 3
+      const chars = chat.assistantText().length > baseline + 200
+      const screenNow = chat.screenBytes
       screenPrev = screenNow
-      if (working && (previews || chars)) {
+      /**
+       * A TUI REPAINT IS ALSO BYTES, and letting them count cost a FALSE PASS on
+       * the row POD-2792 depends on.
+       *
+       * The terminal control used to accept "PTY output bytes growing" as proof a
+       * turn was in flight. A codex session stuck on its hooks-need-review modal
+       * redraws continuously, so +8108 bytes arrived with NO turn running — and
+       * the product said so plainly, refusing the call with
+       * `{ok:false, "Codex only takes an interrupt while it is working, and it is
+       * not working right now"}`. Output then "stopped", and the cell scored
+       * PASS. That is precisely the failure this control exists to prevent,
+       * arriving through the control itself.
+       *
+       * Tokens are what must be proven, so the evidence must be token-shaped:
+       * preview fragments, or the DURABLE TRANSCRIPT growing. Screen bytes are
+       * kept as supporting detail and are no longer sufficient on their own. If
+       * neither token signal moves, the cell refuses — which is the right answer
+       * for a session sitting on a modal.
+       */
+      if (previews || chars) {
         producing = true
-        signal = `phase=working with ${ctx.chat.previews.length - framesBaseline} preview frame(s)`
-        break
-      }
-      if (screenGrew) {
-        producing = true
-        signal = `terminal output bytes growing (+${screenNow - baselineScreen} since the send)`
+        signal = `${chat.previews.length - framesBaseline} preview frame(s) and ${chat.assistantText().length - baseline} new transcript chars — tokens are being produced`
         break
       }
       await wait(500)
     }
-    const observedDetail = `${signal}; phase=${phase}, ${ctx.chat.previews.length - framesBaseline} preview frame(s), ${ctx.chat.assistantText().length - baseline} new transcript chars, ${ctx.chat.screenBytes - baselineScreen} new terminal bytes`
+    const observedDetail = `${signal}; phase=${phase}, ${chat.previews.length - framesBaseline} preview frame(s), ${chat.assistantText().length - baseline} new transcript chars, ${chat.screenBytes - baselineScreen} new terminal bytes`
     const control: ControlReading = {
       fired: producing,
       what: 'the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)',
@@ -443,7 +481,7 @@ export const interrupt: Probe = {
       }
     }
 
-    const before = ctx.chat.assistantText().length
+    const before = chat.assistantText().length
     // FRAMES ARE THE READING THAT SEPARATES THE TWO FAILURES. A phase stuck at
     // `working` can mean the agent kept generating (the interrupt did nothing)
     // or that generation stopped and only the STATE never cleared. Those are
@@ -451,22 +489,22 @@ export const interrupt: Probe = {
     // apart — so count what arrives AFTER the call. On a coarse-only terminal
     // arm there are no preview frames, so the transcript's own growth is the
     // stand-in and both are reported.
-    const framesAtInterrupt = ctx.chat.previews.length
-    const screenAtInterrupt = ctx.chat.screenBytes
+    const framesAtInterrupt = chat.previews.length
+    const screenAtInterrupt = chat.screenBytes
     const t0 = now()
     const res = await mutate('sessions.interrupt', { sessionId: ctx.sid })
     const settled = await until(ctx.sid, (r) => r?.agentState?.phase !== 'working', IDLE_MS, 500)
-    const after = ctx.chat.assistantText().length
-    const framesAfter = ctx.chat.previews.length - framesAtInterrupt
+    const after = chat.assistantText().length
+    const framesAfter = chat.previews.length - framesAtInterrupt
 
     // ON THE TERMINAL ARM `phase` IS VACUOUSLY SATISFIED — it never said
     // `working` in the first place, so "it left working" proves nothing. The
     // reading there is whether the OUTPUT STOPPED: sample the PTY bytes twice,
     // a few seconds apart, after the call.
     await wait(6_000)
-    const screenAfterA = ctx.chat.screenBytes
+    const screenAfterA = chat.screenBytes
     await wait(6_000)
-    const screenAfterB = ctx.chat.screenBytes
+    const screenAfterB = chat.screenBytes
     const outputStopped = screenAfterB <= screenAfterA + 200
     const phaseNeverWorked = phase !== 'working'
     const honoured = phaseNeverWorked ? outputStopped : settled.ok
@@ -475,23 +513,41 @@ export const interrupt: Probe = {
     // parser synthesizes for "[Request interrupted by user]". A driver that
     // merely went idle looks identical by phase alone; this is the reading that
     // says the interrupt was an ACTION and not a coincidence.
-    const marked = ctx.chat.items.some((i) => i.event === 'interrupt')
-    const stopped = honoured
+    /**
+     * A REFUSED CALL IS NOT A HONOURED ONE. `sessions.interrupt` can answer
+     * `{ok:false}` — codex declines when it is not working — and a probe that
+     * only watches whether output stopped will score that as success, because
+     * output that was never flowing trivially stops. The product's own verdict on
+     * its own call comes first.
+     */
+    const callOk = (res.result?.data as { ok?: boolean; reason?: string } | undefined)?.ok !== false
+    const callReason = (res.result?.data as { reason?: string } | undefined)?.reason
+    const marked = chat.items.some((i) => i.event === 'interrupt')
+    // What the product says the session IS after the call — POD-2792's fix is
+    // about an aborted turn reading as interrupted rather than broken, so the
+    // error class (or its absence) is part of the reading, not a footnote.
+    const afterRow = await sessionRow(ctx.sid)
+    await chat.close()
+    const stopped = honoured && callOk
     return {
       control,
       outcome: {
         verdict: stopped ? 'PASS' : 'FAIL',
         summary: stopped
           ? `turn stopped ${settled.ms}ms after interrupt${marked ? ', transcript marks it' : ', but nothing marks it'}`
-          : `still working ${IDLE_MS / 1000}s after interrupt`,
+          : callOk
+            ? `still working ${IDLE_MS / 1000}s after interrupt`
+            : `the product REFUSED the call: ${callReason ?? 'ok:false'}`,
         evidence: [
           `WAS RUNNING       ${observedDetail}`,
           `INTERRUPT SENT    ${JSON.stringify(res.result?.data ?? res.error ?? null).slice(0, 200)}`,
+          ...(callOk ? [] : ['                  ^ ok:false — the product declined its own call, so nothing was interrupted and a "stopped" reading below means only that nothing was running.']),
           `SETTLED           ${stopped ? `phase left 'working' after ${settled.ms}ms` : `NEVER — phase=${settled.row?.agentState?.phase}`}`,
           `TRANSCRIPT MARK   ${marked ? "an item carries event:'interrupt' — the product recorded a user action" : "no item carries event:'interrupt'"}`,
           `TEXT              ${before} chars at the call -> ${after} chars at settle`,
           `FRAMES AFTER      ${framesAfter} preview frame(s) arrived AFTER the call`,
           `TERMINAL BYTES    ${screenAtInterrupt - baselineScreen} at the call -> +${screenAfterA - screenAtInterrupt} after 6s -> +${screenAfterB - screenAtInterrupt} after 12s`,
+          `AFTER THE CALL    phase=${afterRow?.agentState?.phase ?? '?'} status=${afterRow?.status ?? '?'} error=${afterRow?.agentState?.error?.class ?? 'none'}`,
           `SCORED ON         ${phaseNeverWorked ? 'output stopping — this arm never publishes phase=working, so "left working" would be vacuously true' : "phase leaving 'working'"}`,
           ...(stopped
             ? []

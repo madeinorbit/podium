@@ -4,20 +4,19 @@
   "driverId": "opencode-server",
   "driverFamily": "server",
   "pin": {
-    "want": "e28013a8526ee454ca6b49296b9902daa6bbe1e2",
-    "short": "e28013a",
-    "serverPid": 584704,
-    "daemonPid": 584780,
-    "webSourceSha": "e28013a",
+    "want": "f3691cf95e33692d6c0ca192e455b31753238952",
+    "short": "f3691cf",
+    "spawnedSha": "f3691cf95e33692d6c0ca192e455b31753238952",
+    "serverPid": 893437,
+    "daemonPid": 893504,
+    "webSourceSha": "f3691cf",
     "contract": "1",
     "streaming": "1",
     "driver": ""
   },
-  "at": "2026-08-25T18:51:21.545Z",
+  "at": "2026-08-25T21:55:04.145Z",
   "partial": [
-    "stream",
-    "interrupt",
-    "resume"
+    "interrupt"
   ],
   "results": [
     {
@@ -239,65 +238,28 @@
       "at": "2026-08-25T18:51:21.539Z"
     },
     {
-      "id": "interrupt",
-      "title": "interrupt a running turn",
-      "catalogRow": "§1 interrupt a running turn (WIRED — declared capability, no conformance property)",
-      "control": {
-        "fired": true,
-        "what": "the turn observed IN FLIGHT (phase=working, output growing) immediately before the interrupt",
-        "detail": "phase=working, 26 preview frame(s), 0 chars on the transcript"
-      },
-      "ms": 120308,
-      "verdict": "FAIL",
-      "summary": "still working 120s after interrupt",
-      "evidence": [
-        "WAS RUNNING       phase=working, 26 preview frame(s), 0 chars on the transcript",
-        "INTERRUPT SENT    {\"ok\":true}",
-        "SETTLED           NEVER — phase=working",
-        "TRANSCRIPT MARK   no item carries event:'interrupt'",
-        "TEXT AT INTERRUPT 0 chars → 0 chars at settle (durable transcript)",
-        "FRAMES AFTER      0 preview frame(s) arrived AFTER the interrupt was sent",
-        "PREVIEW CHARS     2105 at the interrupt → 2105 at settle",
-        "READING           generation STOPPED (no frame arrived after the call) but the",
-        "                  phase never left `working`. The turn is over and the product",
-        "                  still shows it running — a stuck state rather than an",
-        "                  unhonoured interrupt. Different defect, different owner."
-      ],
-      "data": {
-        "settledMs": null,
-        "marked": false,
-        "charsBefore": 0,
-        "charsAfter": 0,
-        "framesAfterInterrupt": 0,
-        "previewCharsAtInterrupt": 2105,
-        "previewCharsAtSettle": 2105
-      },
-      "pin": "e28013a",
-      "at": "2026-08-25T18:51:21.539Z"
-    },
-    {
       "id": "resume",
       "title": "resume after a kill",
       "catalogRow": "§4 resume() brings the CONVERSATION back, not just the ref (proven)",
       "control": {
         "fired": true,
         "what": "a conversation existing to restore — the pre-park turn answered with the secret",
-        "detail": "the session repeated REMEMBER-BABU9L before it was parked"
+        "detail": "the session repeated REMEMBER-QZ7RQ2 before it was parked"
       },
-      "ms": 366012,
-      "verdict": "FAIL",
-      "summary": "resumed, but the conversation did not come back",
+      "ms": 76218,
+      "verdict": "PASS",
+      "summary": "THIS conversation came back — REMEMBER-QZ7RQ2 recalled, original exchange intact, same pointer",
       "evidence": [
-        "SECRET            REMEMBER-BABU9L — spoken only in the pre-kill conversation",
-        "HIBERNATE         {\"ok\":true}; PARKED after 42ms (status=hibernated)",
+        "SECRET            REMEMBER-QZ7RQ2 — spoken only in the pre-kill conversation",
+        "HIBERNATE         {\"ok\":true}; PARKED after 25ms (status=hibernated)",
         "RESURRECT         {\"ok\":true}",
         "  → back live?    NO — status=exited",
         "RESUMEANDSEND     {\"ok\":true,\"queued\":true,\"disposition\":\"queued\"}",
-        "  → back live?    NO — status=exited",
+        "  → back live?    YES after 6217ms",
         "TWO VERBS         POD-2775 fixed resumeAndSend, not resurrect. A probe that drove",
         "                  only resurrect would report that landed fix as broken.",
-        "RECALL            the secret never came back",
-        "SAME CONVERSATION YES — pointer conv_638af1d7-c1ed-4c30- unchanged across the park",
+        "RECALL            the secret came back after 5023ms",
+        "SAME CONVERSATION YES — pointer conv_3e9c0f69-4eb6-4836- unchanged across the park",
         "ORIGINAL EXCHANGE present — the transcript still carries the prompt that planted the secret",
         "WHY THREE CHECKS  a resume mutated to a STRANGER'S thread id passed 269 tests,",
         "                  partly because the drive-level check was \"both strings appear\".",
@@ -309,18 +271,47 @@
         "                  hibernate/resurrect round trip a person actually performs."
       ],
       "data": {
-        "secret": "REMEMBER-BABU9L",
-        "recalled": false,
-        "recallMs": null,
+        "secret": "REMEMBER-QZ7RQ2",
+        "recalled": true,
+        "recallMs": 5023,
         "backLiveAfterResurrect": false,
-        "backLiveAfterResumeAndSend": false,
+        "backLiveAfterResumeAndSend": true,
         "sameConversation": true,
         "carriesOriginal": true,
-        "conversationBefore": "conv_638af1d7-c1ed-4c30-b78f-452078396681",
-        "conversationAfter": "conv_638af1d7-c1ed-4c30-b78f-452078396681"
+        "conversationBefore": "conv_3e9c0f69-4eb6-4836-bbc6-3e7bc301b8a3",
+        "conversationAfter": "conv_3e9c0f69-4eb6-4836-bbc6-3e7bc301b8a3"
       },
-      "pin": "e28013a",
-      "at": "2026-08-25T18:51:21.539Z"
+      "pin": "f3691cf",
+      "at": "2026-08-25T21:41:43.562Z"
+    },
+    {
+      "id": "interrupt",
+      "title": "interrupt a running turn",
+      "catalogRow": "§1 interrupt a running turn (WIRED — declared capability, no conformance property)",
+      "control": {
+        "fired": false,
+        "what": "the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)",
+        "detail": "none; phase=working, 1 preview frame(s), 0 new transcript chars, 0 new terminal bytes"
+      },
+      "ms": 271113,
+      "verdict": "REFUSED",
+      "summary": "control did not fire — refusing to report this measurement",
+      "evidence": [
+        "CONTROL WATCHED   the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)",
+        "CONTROL SAW       none; phase=working, 1 preview frame(s), 0 new transcript chars, 0 new terminal bytes",
+        "The signal that must arrive whether or not this behaviour works did not",
+        "arrive, so a result here cannot be told apart from a dead rig. The",
+        "probe's own reading was: FAIL — could not get a running turn to interrupt",
+        "REFUSING to report it, including as a failure.",
+        "",
+        "--- what the probe saw anyway (diagnostic, not a result) ---",
+        "WATCHED           none; phase=working, 1 preview frame(s), 0 new transcript chars, 0 new terminal bytes"
+      ],
+      "data": {
+        "refusedProbeVerdict": "FAIL"
+      },
+      "pin": "f3691cf",
+      "at": "2026-08-25T21:55:04.144Z"
     }
   ]
 }
