@@ -1,7 +1,6 @@
-import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { asSessionId, type SessionId } from '@podium/model'
 import { createReplica } from '@podium/client-core/replica'
+import { asSessionId, asUserId, type SessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -22,8 +21,7 @@ const TEST_PRINCIPAL = asClientPrincipal(asUserId('operator'))
 //
 // `visible`  = tab-visible ? the active tab of every pane ON SCREEN : []
 // `focused`  = tab-visible ? the active tab of the focused on-screen pane : null
-// "On screen" is every leaf of the current workspace's layout when the view has
-// said splitting is on, and the FIRST leaf only when it has not.
+// "On screen" is every leaf of the current workspace's layout.
 // ---------------------------------------------------------------------------
 
 interface ViewStateCall {
@@ -107,7 +105,6 @@ const { StoreProvider, useStore } = await import('./store')
 let api: {
   setPane: (p: 'A' | 'B', id: SessionId | null) => void
   setFocusedPane: (p: 'A' | 'B') => void
-  setSplitEnabled: (enabled: boolean) => void
   toggleSplit: () => void
   splitWorkspacePane: (paneId: string, axis: 'row' | 'column') => void
   focusWorkspacePane: (paneId: string) => void
@@ -118,21 +115,11 @@ function Consumer(): null {
   api = {
     setPane: s.setPane,
     setFocusedPane: s.setFocusedPane,
-    setSplitEnabled: s.setSplitEnabled,
     toggleSplit: s.toggleSplit,
     splitWorkspacePane: s.splitWorkspacePane,
     focusWorkspacePane: s.focusWorkspacePane,
   }
   return null
-}
-
-/** Mount and stand in for the Workspace view, which is what tells the engine
- *  that a second pane is on screen (`tab-splitting` is its flag, not the
- *  engine's — see EngineState.splitEnabled). Every case below that drives a
- *  real split does this first; the one that does NOT is the flag-off case. */
-function mountWithSplitting(): void {
-  mount()
-  act(() => api?.setSplitEnabled(true))
 }
 
 let container: HTMLDivElement
@@ -204,7 +191,7 @@ describe('store reports viewState', () => {
   // splitting/closing panes, not a scalar flip. These cases drive the real thing
   // and assert the same reported tuple.
   it('split on: both panes visible; focus follows focusedPane', () => {
-    mountWithSplitting()
+    mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
       api?.splitWorkspacePane('p1', 'row') // the new pane p2 takes focus
@@ -217,7 +204,7 @@ describe('store reports viewState', () => {
   })
 
   it('selecting a pane focuses it (setPane drives focusedPane)', () => {
-    mountWithSplitting()
+    mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
       api?.splitWorkspacePane('p1', 'row')
@@ -230,7 +217,7 @@ describe('store reports viewState', () => {
   })
 
   it('clamps focus to A when split turns off while focusedPane was B', () => {
-    mountWithSplitting()
+    mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
       api?.splitWorkspacePane('p1', 'row')
@@ -244,7 +231,7 @@ describe('store reports viewState', () => {
   })
 
   it('drops nulls from visible (an empty pane is not reported)', () => {
-    mountWithSplitting()
+    mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
       api?.toggleSplit() // splits the one-tab pane, so the new pane is empty
@@ -252,29 +239,6 @@ describe('store reports viewState', () => {
     // The new pane takes focus and has nothing in it: one visible session, and
     // no focused one — the operator's pane genuinely holds no session.
     expect(last()).toEqual({ visible: ['s1'], focused: null })
-  })
-
-  // A split layout is PRESERVED when `tab-splitting` goes off — the view then
-  // renders its first leaf only. The engine cannot read the flag, so until the
-  // view says otherwise it must not report the hidden pane: doing so gave that
-  // session PTY-relay priority and let the mark-read reaction clear the unread
-  // badge on a session the operator could not see.
-  it('reports only the first pane when the view has not said splitting is on', () => {
-    mountWithSplitting()
-    act(() => {
-      api?.setPane('A', asSessionId('s1'))
-      api?.splitWorkspacePane('p1', 'row')
-      api?.setPane('B', asSessionId('s2'))
-    })
-    expect(last()).toEqual({ visible: ['s1', 's2'], focused: 's2' })
-
-    // The flag goes off: the layout keeps both panes, the screen does not.
-    act(() => api?.setSplitEnabled(false))
-    expect(last()).toEqual({ visible: ['s1'], focused: 's1' })
-
-    // …and turning it back on restores the arrangement, focus included.
-    act(() => api?.setSplitEnabled(true))
-    expect(last()).toEqual({ visible: ['s1', 's2'], focused: 's2' })
   })
 
   it('hiding the tab clears view-state via the visibilitychange listener', () => {

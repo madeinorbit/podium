@@ -259,7 +259,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Close a VIEW. Never touches the session — that lives in the flight deck. */
   closeWorkspaceTab: (tabId: TabId) => void
   moveWorkspaceTab: (tabId: TabId, toPaneId: PaneId, toIndex: number) => void
-  /** `row` = Split Right, `column` = Split Down. Behind `tab-splitting`. */
+  /** `row` = Split Right, `column` = Split Down. */
   splitWorkspacePane: (paneId: PaneId, axis: SplitAxis, opts?: { tabId?: TabId }) => void
   closeWorkspacePane: (paneId: PaneId) => void
   focusWorkspacePane: (paneId: PaneId) => void
@@ -279,15 +279,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  relay. Only meaningful when `split` is on; clamps to 'A' otherwise. */
   focusedPane: 'A' | 'B'
   setFocusedPane: (pane: 'A' | 'B') => void
-  /**
-   * TELL THE ENGINE WHAT IS ON SCREEN.
-   *
-   * A layout keeps its panes when `tab-splitting` is off, and the web renders
-   * its first leaf only. The engine must not read a feature flag, and must not
-   * report a pane nobody can see — so the surface that owns the flag says so
-   * here, once, and every "what is visible" derivation consults it.
-   */
-  setSplitEnabled: (enabled: boolean) => void
   /** One modeled per-session rendered mode. AgentPanel resolves defaults and capability, then records the effective value here; the same value persists and is reported to the server. */
   panelMode: Record<string, 'chat' | 'native'>
   setPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => void

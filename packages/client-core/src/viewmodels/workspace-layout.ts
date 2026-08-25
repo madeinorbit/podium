@@ -49,7 +49,7 @@ export interface Pane {
   activeTabId: TabId | null
 }
 
-/** Split tree. Only ever deeper than a single leaf when `tab-splitting` is on. */
+/** Split tree. A single leaf until the operator splits a pane. */
 export type SplitNode =
   | { kind: 'leaf'; paneId: PaneId }
   | { kind: 'split'; axis: SplitAxis; children: SplitNode[]; sizes: number[] }

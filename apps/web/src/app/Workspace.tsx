@@ -20,14 +20,12 @@ import {
   allTabIds,
   emptyWorkspace,
   isCoordinatorSession,
-  leafPaneIds,
   missionIssueIds,
   missionRootFor,
   orphanSessionFor,
   reposToViews,
   resizeSplit,
   type SplitAxis,
-  type SplitNode,
   selectedMissionRoot,
 } from '@podium/client-core/viewmodels'
 import { asSessionId, type IssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
@@ -43,9 +41,9 @@ import {
 } from 'lucide-react'
 import {
   type JSX,
+  lazy,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
-  lazy,
   Suspense,
   useEffect,
   useRef,
@@ -58,7 +56,6 @@ import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { AgentStatusGlyph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
-import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { NewPanelMenu } from './NewPanelMenu'
@@ -124,7 +121,6 @@ export function Workspace(): JSX.Element {
     dockShells,
     workspaces,
     workspaceKey,
-    setSplitEnabled,
     openSessionTab,
     promoteWorkspaceTab,
     activateWorkspaceTab,
@@ -148,7 +144,6 @@ export function Workspace(): JSX.Element {
       workspaces: s.workspaces,
       // The engine's own resolver, not a second spelling of it (POD-710).
       workspaceKey: s.workspaceKey(),
-      setSplitEnabled: s.setSplitEnabled,
       openSessionTab: s.openSessionTab,
       promoteWorkspaceTab: s.promoteWorkspaceTab,
       activateWorkspaceTab: s.activateWorkspaceTab,
@@ -163,7 +158,6 @@ export function Workspace(): JSX.Element {
   )
   const issues = useReplicaIssues()
   const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
-  const tabSplittingEnabled = useFeature('tab-splitting')
   // The tab being dragged, for the overlay and for mounting the drop zones only
   // while a drag is in flight.
   const [dragTabId, setDragTabId] = useState<string | null>(null)
@@ -223,51 +217,22 @@ export function Workspace(): JSX.Element {
   const layout = workspaces[workspaceKey] ?? emptyWorkspace(workspaceKey)
   const previewTabId = layout.previewTabId
 
-  // THE FLAG BOUNDARY (POD-710 wave 2). Splitting is behind `tab-splitting`, and
-  // "off" means the layout renders its FIRST leaf only — the tree itself is left
-  // exactly as it is. A workspace split with the flag on, then hidden by turning
-  // the flag off, comes back whole when it is turned on again; nothing collapses
-  // panes on the operator's behalf.
+  // Splitting is ordinary now (POD-1649): every leaf of the tree is on screen,
+  // so the geometry is the layout's own root. There is no second, narrower
+  // notion of "shown" for anything downstream to disagree with.
   const shownLayout = dragSizes ? resizeSplit(layout, dragSizes.path, dragSizes.sizes) : layout
-  const allLeafIds = leafPaneIds(shownLayout.root)
-  const visibleRoot: SplitNode = tabSplittingEnabled
-    ? shownLayout.root
-    : { kind: 'leaf', paneId: allLeafIds[0] as string }
-  const geometry = deckGeometry(visibleRoot)
+  const geometry = deckGeometry(shownLayout.root)
   const visiblePanes: Pane[] = geometry.panes.flatMap((rect) => {
     const found = layout.panes[rect.paneId]
     return found ? [found] : []
   })
   // The pane every pane-less gesture lands in: the focused one when it is on
-  // screen, else the first (the flag can hide the focused pane).
+  // screen, else the first — `focusedPaneId` can outlive the pane it names.
   const activePane =
     visiblePanes.find((candidate) => candidate.id === layout.focusedPaneId) ?? visiblePanes[0]
   const focusPane = (paneId: string): void => {
     if (paneId !== layout.focusedPaneId) focusWorkspacePane(paneId)
   }
-
-  // TELL THE ENGINE WHAT IS ON SCREEN. The engine may not read a feature flag,
-  // and it may not assume every leaf of a preserved split layout is rendered —
-  // with the flag off it is not, and reporting those panes as visible gives the
-  // hidden session PTY-relay priority and clears its unread badge. This is the
-  // one place that knows, so this is the place that says so.
-  useEffect(() => {
-    setSplitEnabled(tabSplittingEnabled)
-  }, [tabSplittingEnabled, setSplitEnabled])
-
-  // FOCUS FOLLOWS THE SCREEN. Turning the flag off can leave `focusedPaneId`
-  // naming a pane that is no longer rendered, so the pane the operator was
-  // typing in is not the pane they are looking at. The engine no longer trusts
-  // that field blindly (it clamps focus to a VISIBLE pane), but the layout
-  // should still record where the operator actually is. The tree, its tabs and
-  // its sizes are untouched, so turning the flag back on restores the
-  // arrangement.
-  const firstLeafId = allLeafIds[0]
-  useEffect(() => {
-    if (tabSplittingEnabled || !firstLeafId) return
-    if (layout.focusedPaneId === firstLeafId) return
-    focusWorkspacePane(firstLeafId)
-  }, [tabSplittingEnabled, firstLeafId, layout.focusedPaneId, focusWorkspacePane])
 
   // Dock-owned shells (#23) live in the right dock's Shell panel, never as tabs.
   const dockShellIds = new Set<string>(Object.values(dockShells))
@@ -517,7 +482,6 @@ export function Workspace(): JSX.Element {
                   focused={paneOf.id === activePane?.id}
                   alone={geometry.panes.length === 1}
                   previewTabId={previewTabId}
-                  splitting={tabSplittingEnabled}
                   coordinatorIds={coordinatorIds}
                   // biome-ignore lint/style/noNonNullAssertion: the early return above guarantees worktree or issue (which makes panelTarget defined)
                   panelTarget={panelTarget!}
@@ -591,7 +555,6 @@ function PaneChrome({
   focused,
   alone,
   previewTabId,
-  splitting,
   coordinatorIds,
   panelTarget,
   issueId,
@@ -614,7 +577,6 @@ function PaneChrome({
    *  empty state shows — `otherTabs` does (POD-1058). */
   alone: boolean
   previewTabId: string | null
-  splitting: boolean
   coordinatorIds: ReadonlySet<string>
   panelTarget: WorktreeView
   issueId?: IssueId
@@ -673,7 +635,6 @@ function PaneChrome({
                 tab={t}
                 active={t.id === activeTabId}
                 preview={t.id === previewTabId}
-                splitting={splitting}
                 coordinator={coordinatorIds.has(t.id)}
                 onSelect={() => onSelectTab(t)}
                 onClose={() => onCloseTab(t.id)}
@@ -711,22 +672,20 @@ function PaneChrome({
               </button>
             }
           />
-          {splitting && (
-            <button
-              data-pressable
-              type="button"
-              className="flex size-[26px] cursor-pointer items-center justify-center rounded-lg text-text-dim hover:bg-secondary hover:text-foreground"
-              title="Split Right"
-              aria-label="Split Right"
-              onClick={() => onSplit('row')}
-            >
-              <Columns2 size={13} aria-hidden="true" />
-            </button>
-          )}
+          <button
+            data-pressable
+            type="button"
+            className="flex size-[26px] cursor-pointer items-center justify-center rounded-lg text-text-dim hover:bg-secondary hover:text-foreground"
+            title="Split Right"
+            aria-label="Split Right"
+            onClick={() => onSplit('row')}
+          >
+            <Columns2 size={13} aria-hidden="true" />
+          </button>
           {/* A pane emptied by closing its tabs collapses on its own; this is the
               way out of a pane that never had one — the empty half a split of a
               single-tab pane leaves behind. */}
-          {splitting && !alone && (
+          {!alone && (
             <button
               data-pressable
               type="button"
@@ -905,7 +864,6 @@ function SortableTab({
   tab,
   active,
   preview,
-  splitting,
   coordinator = false,
   onSelect,
   onClose,
@@ -918,8 +876,6 @@ function SortableTab({
   active: boolean
   /** The workspace's ONE temporary tab — italic, replaced by the next preview. */
   preview: boolean
-  /** `tab-splitting` is on, so the menu offers Split Right / Split Down. */
-  splitting: boolean
   /** M6: issue's designated coordinator session — elevated marker on the tab. */
   coordinator?: boolean
   onSelect: () => void
@@ -1090,7 +1046,6 @@ function SortableTab({
         <TabContextMenu
           anchor={menuAnchor}
           preview={preview}
-          splitting={splitting}
           {...(tab.kind === 'session' ? { sessionId: tab.session.sessionId } : {})}
           onClose={() => setMenuAnchor(null)}
           onCloseTab={onClose}
@@ -1122,7 +1077,6 @@ function SortableTab({
 function TabContextMenu({
   anchor,
   preview,
-  splitting,
   sessionId,
   onClose,
   onCloseTab,
@@ -1133,7 +1087,6 @@ function TabContextMenu({
 }: {
   anchor: ContextMenuAnchor
   preview: boolean
-  splitting: boolean
   /** Set when this tab is a SESSION view — file tabs have no row to reveal. */
   sessionId?: SessionId
   onClose: () => void
@@ -1231,7 +1184,7 @@ function TabContextMenu({
       >
         Keep Open
       </button>
-      {splitting && onSplit && (
+      {onSplit && (
         <>
           <hr className={MENU_RULE} />
           <button

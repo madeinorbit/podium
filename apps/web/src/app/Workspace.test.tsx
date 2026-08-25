@@ -26,9 +26,8 @@ vi.mock('./operator-focus', () => ({
   useOperatorFocus: () => ({ focusedIssueId: null, setFocusedIssueId: vi.fn() }),
 }))
 
-const featureEnabled = { 'tab-splitting': false } as Record<string, boolean>
 vi.mock('@/lib/use-feature', () => ({
-  useFeature: (id: string) => featureEnabled[id] === true,
+  useFeature: () => false,
 }))
 
 const task = {
@@ -84,7 +83,6 @@ const makeSplitLayout = () => ({
 const actions = {
   setPane: vi.fn(),
   toggleSplit: vi.fn(),
-  setSplitEnabled: vi.fn(),
   closeFileTab: vi.fn(),
   markSessionRead: vi.fn(),
   renameSession: vi.fn(),
@@ -116,7 +114,6 @@ const { DesktopCloseTab } = await import('./use-desktop-close-tab')
 const { getHoveredSession, setHoveredSession } = await import('./session-hover')
 
 beforeEach(() => {
-  featureEnabled['tab-splitting'] = false
   replicaIssues = [task]
   state = {
     sessions: [session('s1'), session('s2'), session('s3')],
@@ -316,6 +313,8 @@ describe('Workspace tab closing', () => {
       'Close Others',
       'Close All',
       'Keep Open',
+      'Split Right',
+      'Split Down',
       'Reveal in flight deck',
     ])
     // The POD-710 invariant this test exists for, asserted directly rather than
@@ -346,8 +345,7 @@ describe('Workspace tab closing', () => {
     window.removeEventListener(REVEAL_IN_DECK_EVENT, revealed)
   })
 
-  it('offers the split items only under the tab-splitting flag', () => {
-    featureEnabled['tab-splitting'] = true
+  it('offers the split items in the tab menu', () => {
     render(<Workspace />)
 
     fireEvent.contextMenu(label('s2'))
@@ -417,8 +415,7 @@ describe('Workspace splitting', () => {
     state.workspaces = { 'mission:task-1': makeSplitLayout() }
   })
 
-  it('renders every pane with its own strip when the flag is on', () => {
-    featureEnabled['tab-splitting'] = true
+  it('renders every pane with its own strip', () => {
     render(<Workspace />)
 
     expect(strips().map((s) => s.getAttribute('data-pane'))).toEqual(['p1', 'p2'])
@@ -429,50 +426,16 @@ describe('Workspace splitting', () => {
     expect(visiblePane('s3')).toBe('p2')
   })
 
-  // The flag boundary: the layout is PRESERVED and only its first leaf is drawn.
-  // Nothing collapses panes, and the hidden pane's panel stays mounted so
-  // turning the flag back on is a reveal rather than a remount.
-  it('renders the first leaf only when the flag is off, without touching the layout', () => {
-    featureEnabled['tab-splitting'] = false
+  // A pane that is off screen keeps its panel MOUNTED but hidden, so the tabs
+  // of a pane the operator is not looking at cost no remount when it comes back.
+  it('keeps a non-active tab mounted but off screen', () => {
     render(<Workspace />)
 
-    expect(strips()).toHaveLength(1)
-    expect(strips()[0]?.getAttribute('data-pane')).toBe('p1')
-    expect(visiblePane('s1')).toBe('p1')
-    expect(visiblePane('s3')).toBeNull()
-    expect(panel('s3')?.className).toContain('hidden')
-    expect(actions.closeWorkspacePane).not.toHaveBeenCalled()
-    expect(actions.moveWorkspaceTab).not.toHaveBeenCalled()
-    expect(actions.splitWorkspacePane).not.toHaveBeenCalled()
-  })
-
-  // An off-screen focused pane would have the client report a session the
-  // operator cannot see as focused — clearing its unread badge and claiming PTY
-  // relay for it. Focus follows the screen instead.
-  it('moves focus onto the visible pane when the flag hides the focused one', () => {
-    featureEnabled['tab-splitting'] = false
-    render(<Workspace />)
-
-    expect(actions.focusWorkspacePane).toHaveBeenCalledWith('p1')
-  })
-
-  // The engine may not read a feature flag, and it may not assume a preserved
-  // split layout is all on screen — so the surface that owns the flag tells it.
-  // Without this the hidden pane's session took PTY-relay priority and had its
-  // unread badge cleared by the mark-read reaction.
-  it('tells the engine whether the second pane is on screen', () => {
-    featureEnabled['tab-splitting'] = false
-    const { unmount } = render(<Workspace />)
-    expect(actions.setSplitEnabled).toHaveBeenLastCalledWith(false)
-
-    unmount()
-    featureEnabled['tab-splitting'] = true
-    render(<Workspace />)
-    expect(actions.setSplitEnabled).toHaveBeenLastCalledWith(true)
+    expect(visiblePane('s2')).toBeNull()
+    expect(panel('s2')?.className).toContain('hidden')
   })
 
   it('focuses a pane when the operator points into its strip', () => {
-    featureEnabled['tab-splitting'] = true
     render(<Workspace />)
 
     fireEvent.pointerDown(strips()[0] as HTMLElement)
@@ -481,7 +444,6 @@ describe('Workspace splitting', () => {
   })
 
   it('splits and closes the pane whose strip the control belongs to', () => {
-    featureEnabled['tab-splitting'] = true
     render(<Workspace />)
 
     fireEvent.click(within(strips()[0] as HTMLElement).getByRole('button', { name: 'Split Right' }))
@@ -491,17 +453,7 @@ describe('Workspace splitting', () => {
     expect(actions.closeWorkspacePane).toHaveBeenCalledWith('p2')
   })
 
-  it('offers no split controls at all with the flag off', () => {
-    featureEnabled['tab-splitting'] = false
-    render(<Workspace />)
-
-    expect(screen.queryByRole('button', { name: 'Split Right' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Close pane' })).toBeNull()
-    expect(screen.queryByRole('separator', { name: 'Resize panes' })).toBeNull()
-  })
-
   it('resizes the split from the keyboard, into the layout', () => {
-    featureEnabled['tab-splitting'] = true
     render(<Workspace />)
 
     fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize panes' }), {

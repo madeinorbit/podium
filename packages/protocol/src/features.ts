@@ -67,12 +67,6 @@ export const FEATURES = [
     visibility: 'edge',
   },
   {
-    id: 'tab-splitting',
-    name: 'Tab splitting',
-    description: 'Show two workspace tabs side by side.',
-    visibility: 'edge',
-  },
-  {
     id: 'session-handoff',
     name: 'Session handoff',
     description: 'Move a live session to another Podium server.',

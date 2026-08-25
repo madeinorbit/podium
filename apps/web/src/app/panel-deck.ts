@@ -30,7 +30,7 @@ export interface DeckItem {
   file?: FileTab
   /** The VISIBLE pane this panel fills — it is that pane's active tab. `null`
    *  means the panel is mounted but not on screen: a background tab, a tab in a
-   *  pane the `tab-splitting` flag is hiding, or a foreign warm panel. */
+   *  pane that is not rendered, or a foreign warm panel. */
   paneId: PaneId | null
   /** Keep this panel mounted while hidden. Foreign warm panels are always true;
    *  a local hidden session tab is true only while inside the warm cap; file
@@ -64,9 +64,9 @@ export function composeDeck(opts: {
   /** Currently-live (non-archived, non-dock) session ids — the eviction gate for
    *  foreign panels. */
   knownSessionIds: Set<string>
-  /** The panes ON SCREEN, in leaf order. A pane the `tab-splitting` flag is
-   *  hiding is simply absent, which is what keeps its tabs mounted-but-hidden
-   *  instead of unmounted — flipping the flag back must not cost a remount. */
+  /** The panes ON SCREEN, in leaf order. A pane that is not listed is simply
+   *  absent, which is what keeps its tabs mounted-but-hidden instead of
+   *  unmounted — a pane coming back must not cost a remount. */
   panes: readonly { id: PaneId; activeTabId: TabId | null }[]
 }): DeckItem[] {
   const { tabs, warm, knownSessionIds, panes } = opts

@@ -115,9 +115,9 @@ describe('composeDeck', () => {
     expect(deck.map((d) => d.id)).toEqual(['s2'])
   })
 
-  // A pane the `tab-splitting` flag is hiding is simply absent from `panes`: its
-  // active tab stays MOUNTED (warm) but claims no box, which is what makes
-  // flipping the flag back on a reveal rather than a remount.
+  // A pane that is not on screen is simply absent from `panes`: its active tab
+  // stays MOUNTED (warm) but claims no box, which is what makes its return a
+  // reveal rather than a remount.
   it('gives each on-screen pane its active tab, and a hidden pane none', () => {
     const on = composeDeck({
       tabs: [sessionTab('s1'), sessionTab('s2')],
