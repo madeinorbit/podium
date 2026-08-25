@@ -220,18 +220,28 @@ await wait(300)
 ws.close()
 
 // --- the binding, read off the API as well as the socket --------------------
-// BACKSTOP, not the source of truth: the socket's session meta is what a
-// browser reads, so that is what the report leans on. This only fills a gap,
-// and a router that does not expose this shape must not take the drive down
-// after the measurement has already been taken.
+// THE BINDING IS A REQUIRED READING, not a nicety. An isolated agent home
+// with no credential for the harness does not fail loudly — the server driver
+// declines, the session degrades to a generic PTY, and a PTY declares
+// watchLevels ['coarse'] and so produces exactly zero fragments. By frame
+// count alone that is indistinguishable from a broken feature, so the report
+// refuses to stand without naming which driver actually bound.
+//
+// A tRPC QUERY, so GET with the input in the query string: posting to one
+// answers METHOD_NOT_SUPPORTED, which is a 405 and not the data.
 try {
-  const detail = (await trpc('sessions.get', { sessionId: sid })) as {
-    result?: { data?: { driverId?: string | null; status?: string } }
+  const res = await fetch(`${BASE}/trpc/sessions.list?input=%7B%7D`, { headers: { cookie } })
+  const body = (await res.json()) as {
+    result?: { data?: { sessionId?: string; driverId?: string | null; driverFamily?: string | null; status?: string }[] }
   }
-  driverId ??= detail.result?.data?.driverId ?? undefined
-  sessionStatus ??= detail.result?.data?.status
+  const mine = (body.result?.data ?? []).find((s) => s.sessionId === sid)
+  if (mine) {
+    driverId ??= mine.driverId ?? undefined
+    driverFamily ??= mine.driverFamily ?? undefined
+    sessionStatus ??= mine.status
+  }
 } catch {
-  /* the socket already answered, or nothing can */
+  /* the socket may still have answered; the report says so either way */
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +278,8 @@ line('-'.repeat(72))
 
 const first = samples[0]
 const last = samples.at(-1)
+line(`FRAMES SEEN        ${[...rawTypes.entries()].sort((a, b) => b[1] - a[1]).map(([t, n]) => `${t}=${n}`).join(' ')}`)
+line('-'.repeat(72))
 line(`PREVIEW  frames=${samples.length}`)
 if (samples.length > 0 && first && last) {
   line(`         first  +${first.atMs}ms  epoch=${first.turnEpoch} seq=${first.seq} rows=${first.rows} chars=${first.chars}`)
@@ -292,6 +304,7 @@ if (samples.length > 0 && first && last) {
   line(`         growth: ${grew}/${Math.max(0, samples.length - 1)} transitions increased the visible character count`)
   line(`         monotonic per row: ${shrinks.length === 0 ? 'YES — no row ever shrank' : `NO — ${shrinks.length} shrink(s): ${shrinks.slice(0, 3).join('; ')}`}`)
   line(`         distinct rows seen: ${seenPerItem.size}`)
+  line(`         turn fence (done frame): ${samples.some((s) => s.done) ? 'YES' : 'NOT within the sampling window'}`)
 
   // The shape of the build, sampled so a reader can see it rather than take the
   // summary's word for it.
