@@ -346,6 +346,7 @@ real_release_data_intact() {
 
 prepare_real_target_release() {
   local release=/work/source/dist-bun/release
+  arm_real_release_pairing_coupling
   container_exec "$SOURCE" env BUN_INSTALL_CACHE_DIR=/bun-cache-cow/merged \
     PODIUM_APP_VERSION="$REAL_TARGET_VERSION" \
     PODIUM_UPDATE_SIGNING_KEY="$SERVER_RELEASE_PRIVATE" \
@@ -512,6 +513,37 @@ EOF
 # ---------------------------------------------------------------------------
 # arming
 
+# RESTORE THE COUPLING POD-2794 REMOVED, in the source the target build compiles.
+#
+# Armed BEFORE `prepare_real_target_release`, because what it changes is the
+# 0.2.0 binary the upgraded machine will be running — and that machine is the one
+# `real-release-headless-only` interrogates. It cannot disturb the two rows above
+# it: those are answered by v0.1.0's OWN resolver, inside the released artifact,
+# which no edit to this checkout can reach.
+#
+# The substitution is asserted to hit exactly one site, for the same reason
+# patch-trust-root.ts asserts its byte delta: a control that silently matched
+# nothing would leave the row green and be read as the row being unarmable.
+arm_real_release_pairing_coupling() {
+  [[ "$PROVE_FAILURE" == real-release-pairing-coupled ]] || return 0
+  container_exec "$SOURCE" \
+    env FILE=/work/source/apps/server/src/modules/updates/release-target.ts \
+    bun -e '
+      const file = process.env.FILE
+      const coupled = "if (feed.desktopManifestUrl) {"
+      const decoupled =
+        "if (feed.desktopManifestUrl && (minimumShell !== undefined || minimumBridge !== undefined)) {"
+      const src = await Bun.file(file).text()
+      const hits = src.split(decoupled).length - 1
+      if (hits !== 1) {
+        console.error("expected exactly one decoupled pairing condition, found " + hits)
+        process.exit(1)
+      }
+      await Bun.write(file, src.replace(decoupled, coupled))
+    ' || die "could not arm the pairing coupling: the condition it rewrites has moved"
+  say "armed: the resolver consults latest.json unconditionally again, so a release with no desktop build must retract the headless target"
+}
+
 arm_real_release_failure() {
   case "$PROVE_FAILURE" in
     real-release-migration)
@@ -549,7 +581,7 @@ real_release_converged() {
 # ---------------------------------------------------------------------------
 
 run_real_release_lane() {
-  local started id operation
+  local started id operation detail
 
   CURRENT_SCENARIO=real-release-install
   fetch_real_release
@@ -706,8 +738,29 @@ run_real_release_lane() {
       "with NO desktop manifest published at all, the upgraded install still resolved the stable target — the missing shell no longer retracts the headless offer"
   else
     real_rpc GET updates.fleet >"$WORK/logs/real-release-headless-only-fleet.json" 2>&1 || true
+    # WHY it refused, not just that it did. Under the deliberate control this is
+    # the whole evidence: the row has to go red naming the desktop manifest, not
+    # merely go red.
+    detail="$(real_channel_check)"
+    printf '%s\n' "$detail" >"$WORK/logs/real-release-headless-only-refusal.txt"
     fail real-release-headless-only \
-      "a release with no desktop build was not offered; the channel check said '$(real_stable_check_status)' and its reason is in logs/real-release-headless-only-fleet.json"
+      "a release with no desktop build was not offered; the channel check said: ${detail:-<no reason recorded>}"
+    [[ "$PROVE_FAILURE" == real-release-pairing-coupled ]] || return 1
+  fi
+  if [[ "$PROVE_FAILURE" == real-release-pairing-coupled ]]; then
+    if [[ "${RESULT[real-release-headless-only]:-}" != FAIL ]]; then
+      fail real-release-headless-only \
+        "the restored pairing coupling unexpectedly left the headless-only row green, so that row cannot be proving what it claims"
+      return 1
+    fi
+    # Red is not enough on its own — it must be red for THIS cause. A container
+    # that merely fell over would also produce a red row.
+    if ! grep -Fq 'desktop manifest' "$WORK/logs/real-release-headless-only-refusal.txt"; then
+      fail real-release-headless-only \
+        "the row went red under the restored coupling but did not name the desktop manifest; it said: $(cat "$WORK/logs/real-release-headless-only-refusal.txt" 2>/dev/null)"
+      return 1
+    fi
+    say "the restored coupling turned the headless-only row red, naming the desktop manifest — the row is armed"
     return 1
   fi
 

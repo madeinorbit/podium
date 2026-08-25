@@ -214,6 +214,10 @@ PODIUM_UPDATE_E2E_ONLY=server         update a packaged all-in-one server from
                                       a run-local production-shaped edge feed
 PODIUM_UPDATE_E2E_ONLY=real-release   install the REAL published 0.1.0 artifact and
                                       let ITS OWN updater take a new release
+PODIUM_UPDATE_E2E_PROVE_FAILURE=real-release-pairing-coupled
+                                      restore the desktop pairing POD-2794
+                                      removed; `real-release-headless-only` must
+                                      go red naming the desktop manifest
 PODIUM_UPDATE_E2E_REAL_RELEASE=X.Y.Z  which published release to start from (0.1.0)
 PODIUM_UPDATE_E2E_REAL_RELEASE_CACHE=PATH
                                       a directory already holding that release's
@@ -1927,7 +1931,8 @@ main() {
     "$PROVE_FAILURE" == server-migration || "$PROVE_FAILURE" == server-client ||
     "$PROVE_FAILURE" == server-handover || "$PROVE_FAILURE" == server-agent ||
     "$PROVE_FAILURE" == server-rollback ||
-    "$PROVE_FAILURE" == real-release-migration ]] || die "unknown deliberate failure control"
+    "$PROVE_FAILURE" == real-release-migration ||
+    "$PROVE_FAILURE" == real-release-pairing-coupled ]] || die "unknown deliberate failure control"
   [[ -z "$ONLY" || "$ONLY" == legacy || "$ONLY" == positive || "$ONLY" == server ||
     "$ONLY" == real-release ]] ||
     die "focused lane must be legacy, positive, server, or real-release"
@@ -1935,6 +1940,8 @@ main() {
   # else would mutate a host no row is watching and report nothing.
   [[ "$PROVE_FAILURE" != real-release-migration || "$ONLY" == real-release ]] ||
     die "PROVE_FAILURE=real-release-migration needs PODIUM_UPDATE_E2E_ONLY=real-release"
+  [[ "$PROVE_FAILURE" != real-release-pairing-coupled || "$ONLY" == real-release ]] ||
+    die "PROVE_FAILURE=real-release-pairing-coupled needs PODIUM_UPDATE_E2E_ONLY=real-release"
   [[ -z "$ONLY" || -z "$PROVE_FAILURE" ||
     ( "$ONLY" == server && "$PROVE_FAILURE" == server-* ) ||
     ( "$ONLY" == real-release && "$PROVE_FAILURE" == real-release-* ) ]] ||

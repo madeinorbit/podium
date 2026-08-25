@@ -90,6 +90,25 @@ describe('real-release row expectations still match the code they describe', () 
     expect(lane).toMatch(/if container_http_probe "\$REAL_CONSUMER" GET \\\n\s+"[^"]*latest\.json"/)
   })
 
+  it('arms the pairing control against the condition the resolver actually has', () => {
+    // The control rewrites one exact line of release-target.ts. If that line is
+    // reworded, the control dies loudly -- but only for whoever runs the gate
+    // with it armed, which is rare and expensive. This says so in seconds, and
+    // it is the difference between a red row nobody can reproduce and a red row
+    // that names its own cause.
+    const resolver = readFileSync(
+      join(root, 'apps/server/src/modules/updates/release-target.ts'),
+      'utf8',
+    )
+    const decoupled =
+      'if (feed.desktopManifestUrl && (minimumShell !== undefined || minimumBridge !== undefined)) {'
+    expect(resolver.split(decoupled)).toHaveLength(2)
+    expect(lane).toContain(decoupled)
+    expect(lane).toContain('if (feed.desktopManifestUrl) {')
+    // Red alone is not the claim; red NAMING the desktop manifest is.
+    expect(lane).toContain("grep -Fq 'desktop manifest'")
+  })
+
   it('serves the feed paths a v0.1.0 stable install fetches', () => {
     const resolver = fromTag('apps/server/src/modules/updates/release-target.ts')
     expect(resolver).toContain('${RELEASE_BASE}/latest/download/podium-update.json')
