@@ -138,6 +138,35 @@ release notes name: what flipped (three server drivers), the escape hatch
 *Exit: main is the tip; instance repinned to main; matrix re-run spot-check
 (A1, A7) passes.*
 
+## FIRST REAL DRIVE READINGS (POD-2777, 2026-08-25 ~21:00)
+
+The acceptance drive is running and has produced the epic's first measured
+column. **opencode HEADLESS, all controls fired:**
+
+| probe | result |
+| --- | --- |
+| reply | PASS |
+| attach | PASS |
+| stream | PASS |
+| stop | PASS |
+| **interrupt** | **FAIL** — `{ok:true}` returned while the turn keeps running, no interrupt marker. Four consistent observations. Filed POD-2792. |
+| **resume** | **FAIL** — hibernate accepted, `hibernated` in 42ms (a genuine park), then resurrect returns ok and the row goes `exited` and stays there. Independently confirms POD-2775's F1. |
+| interaction, model-switch, provider-error | n/a with reasons |
+
+**Two corrections the drive made against itself, both worth copying.** It first
+reported a late-join streaming regression from a single preview frame; re-driving
+the same cell at the same pin gave 26 frames (seq 145→512, 25/25 transitions
+growing). The single frame carried seq=512 — *the same final seq the passing run
+ends on* — so the viewer had arrived at the tail. Timing miss, not a dead plane,
+and it now reports BLOCKED with the seq printed so the claim is checkable. And
+its first opencode `resume` PASS was **vacuous**; with the park control in place
+the corrected answer is a true red.
+
+Its refusal machinery also caught its own operator error: a terminal-column run
+without a declared arm exited 4, because the rig compared the daemon's live
+`generic-pty` against the arm claimed. It refused rather than quietly measuring
+the wrong driver in the wrong column.
+
 ## The scorecard — Tier A drive matrix
 
 One cell = one live drive on the operator instance. Pass criteria are exact;
