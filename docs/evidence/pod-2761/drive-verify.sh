@@ -39,14 +39,15 @@ for name in server daemon; do
   cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)"
   [ "$cwd" = "$(readlink -f "$PODIUM_DRIVE_REPO")" ] \
     || fail "$name (pid $pid) is running from $cwd, not $PODIUM_DRIVE_REPO"
-  # START TIME vs the commit: a daemon that predates the commit cannot be running
-  # it, however clean the tree looks now. This is the leg that a plain cwd check
-  # misses, and it is exactly the mistake this rig exists to prevent.
-  started="$(stat -c %Y "/proc/$pid" 2>/dev/null || echo 0)"
-  committed="$(git -C "$PODIUM_DRIVE_REPO" show -s --format=%ct "$WANT_SHA")"
-  [ "$started" -ge "$committed" ] \
-    || fail "$name (pid $pid) started before $WANT_SHA was committed — it cannot be running it"
-  echo "  ok  $name pid=$pid cwd=$cwd started after the commit"
+  # The launcher records HEAD immediately before each process starts. Unlike a
+  # commit timestamp, this proves which checkout state the long-lived process
+  # actually loaded even when the worktree moves backwards or forwards later.
+  shafile="$PODIUM_DRIVE_BASE/$name.sha"
+  [ -f "$shafile" ] || fail "no $name launch SHA — instance provenance is unknown"
+  started_sha="$(cat "$shafile")"
+  [ "$started_sha" = "$WANT_SHA" ] \
+    || fail "$name (pid $pid) started at $started_sha, not $WANT_SHA"
+  echo "  ok  $name pid=$pid cwd=$cwd started at $started_sha"
 done
 
 # 2. the worktree those processes read is the named commit, and is clean

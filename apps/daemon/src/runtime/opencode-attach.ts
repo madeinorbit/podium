@@ -333,28 +333,28 @@ export function createOpencodeClientTerminals(
   async function start(record: Attachment, target: ClientTerminalTarget): Promise<AgentSession> {
     const kind = targetKind(target)
     /**
-     * A NEW CLIENT MUST NOT PAINT INTO THE OLD ONE'S SCROLLBACK (POD-2761).
+     * A NEW CLIENT MUST NOT PAINT INTO THE OLD ONE'S SCROLLBACK (POD-2761),
+     * BUT A REATTACHED CLIENT MUST KEEP THE SCROLLBACK IT ALREADY OWNS.
      *
-     * Leaving Native closes the client terminal — for codex because the lease
-     * gate demands the direct writer be revoked, and for every other harness
-     * because the release arm closes unconditionally. So the next Native view is
-     * a COLD START in every case: a brand-new TUI process whose first act is to
-     * draw its whole interface, header to footer.
+     * `start()` serves both cases. A view-switch reclaims the abduco master, so
+     * no master exists and spawn creates a new TUI generation. After a daemon
+     * restart or lost client handle, the master and its TUI survive; spawn
+     * reconnects to that same generation instead. Capture that distinction
+     * BEFORE spawn, because a cold spawn creates the master itself.
      *
-     * What it draws into is not blank. The browser terminal is addressed by
-     * SESSION, not by attachment (POD-2108), so one stream outlives every client
-     * generation — and the server's replay log is truncated only by a frame that
-     * carries a screen reset. Without one here the second generation's interface
-     * lands BELOW the first, and both the live view and every later attach show
-     * the whole thing twice, the older copy reading as scrollback from a
-     * conversation that never scrolled.
+     * A new generation draws into a browser terminal addressed by SESSION, not
+     * by attachment (POD-2108), so one stream outlives every client generation.
+     * Without a reset the next full interface lands below the first. A reattach
+     * is the opposite: `[3J` would delete the surviving TUI's history from both
+     * the browser and replay log, while its resize redraw restores only the
+     * viewport.
      *
-     * Emitted BEFORE the spawn, which is what makes it an anchor rather than a
-     * race: no frame of the generation it introduces can precede it. `[3J` takes
-     * the scrollback the duplicate would have hidden in, and the pair matches the
-     * server's own reset test, so the replay log re-anchors here too.
+     * Emit only after spawn succeeds, so a refusal cannot blank a terminal, and
+     * before subscribing to client frames, so every observable byte from a new
+     * generation follows its anchor. The pair also matches the server's reset
+     * test, so the replay log re-anchors with the browser.
      */
-    ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET).toString('base64'))
+    const reattaching = hasMaster(record.label)
     const launch =
       target.kind === 'codex'
         ? agentLaunchCommand('codex', {
@@ -426,8 +426,10 @@ export function createOpencodeClientTerminals(
       // serve half (POD-2247).
       env: spawnEnv({ podiumEnv }),
     })
-    record.session = session
+    if (!reattaching)
+      ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET).toString('base64'))
     session.onFrame((frame) => ports.frames(record.streamId, frame.data))
+    record.session = session
     session.onExit(() => {
       // THE CLIENT EXITING IS NOT THE ATTACHMENT ENDING. abduco's master (and the
       // TUI inside it) survives a client that was disposed, crashed or was killed

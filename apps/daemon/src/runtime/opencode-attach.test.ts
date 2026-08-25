@@ -40,7 +40,10 @@ const target = {
 }
 
 /** A stand-in for the abduco client PTY: records what was wired to it. */
-function fakeClient(redrawFrame?: string): AgentSession & {
+function fakeClient(
+  redrawFrame?: string,
+  subscribeFrame?: string,
+): AgentSession & {
   emit(data: string): void
   disposed: boolean
   writes: string[]
@@ -57,6 +60,7 @@ function fakeClient(redrawFrame?: string): AgentSession & {
     redraws: 0,
     onFrame(cb: (f: AgentFrame) => void) {
       frameCbs.push(cb)
+      if (subscribeFrame) client.emit(subscribeFrame)
       return () => {}
     },
     onTitle() {
@@ -86,6 +90,15 @@ function fakeClient(redrawFrame?: string): AgentSession & {
   return client
 }
 
+interface HarnessOptions {
+  hasMaster?: (label: string) => boolean
+  redrawFrame?: string
+  subscribeFrame?: string
+  /** Browser/replay history already owned by a master that survived the daemon. */
+  priorFrames?: { streamId: string; data: string }[]
+  spawnError?: Error
+}
+
 interface Harness {
   spawns: {
     label: string
@@ -103,14 +116,12 @@ interface Harness {
   cleared: number
 }
 
-function harness(
-  opts: { hasMaster?: (label: string) => boolean; redrawFrame?: string; spawnFrame?: string } = {},
-) {
+function harness(opts: HarnessOptions = {}) {
   const state: Harness = {
     spawns: [],
     reclaimed: [],
     released: [],
-    frames: [],
+    frames: [...(opts.priorFrames ?? [])],
     clients: [],
     armed: 0,
     cleared: 0,
@@ -127,9 +138,9 @@ function harness(
         ...(o.env ? { env: o.env } : {}),
         ...(o.stripEnv ? { stripEnv: o.stripEnv } : {}),
       })
-      const client = fakeClient(opts.redrawFrame)
+      if (opts.spawnError) throw opts.spawnError
+      const client = fakeClient(opts.redrawFrame, opts.subscribeFrame)
       state.clients.push(client)
-      if (opts.spawnFrame) state.frames.push({ streamId: SESSION, data: opts.spawnFrame })
       return client
     },
     reclaim: async (label) => {
@@ -252,12 +263,22 @@ describe('the client terminal a server-family attach produces', () => {
    */
   it('clears the screen and scrollback BEFORE a cold-started client can paint', async () => {
     const paint = Buffer.from('paint').toString('base64')
-    const { terminals, state } = harness({ spawnFrame: paint })
+    const { terminals, state } = harness({ subscribeFrame: paint })
     await terminals.attach({ sessionId: SESSION, target })
-    const decoded = state.frames.map((frame) => Buffer.from(frame.data, 'base64').toString('latin1'))
+    const decoded = state.frames.map((frame) =>
+      Buffer.from(frame.data, 'base64').toString('latin1'),
+    )
     expect(decoded[0]).toContain('\x1b[2J')
     expect(decoded[0]).toContain('\x1b[3J')
     expect(decoded.indexOf('paint')).toBeGreaterThan(0)
+  })
+
+  it('does not clear the terminal when the client spawn is refused', async () => {
+    const { terminals, state } = harness({ spawnError: new Error('spawn refused') })
+
+    await expect(terminals.attach({ sessionId: SESSION, target })).rejects.toThrow('spawn refused')
+
+    expect(state.frames).toEqual([])
   })
 
   it('re-anchors on EVERY generation, which is the one the duplicate came from', async () => {
@@ -267,7 +288,9 @@ describe('the client terminal a server-family attach produces', () => {
     await terminals.close(SESSION)
     await terminals.attach({ sessionId: SESSION, target })
     state.clients[1]?.emit('c2Vjb25k')
-    const decoded = state.frames.map((frame) => Buffer.from(frame.data, 'base64').toString('latin1'))
+    const decoded = state.frames.map((frame) =>
+      Buffer.from(frame.data, 'base64').toString('latin1'),
+    )
     const resets = decoded.filter((data) => data.includes('\x1b[2J') && data.includes('\x1b[3J'))
     expect(resets).toHaveLength(2)
     // The second client's paint follows the second reset, so nothing of the first
@@ -324,11 +347,13 @@ describe('the client terminal a server-family attach produces', () => {
       'grok',
       true,
     ],
-  ] as const)('%s %s client subscribes before requesting its initial paint', async (_harnessKind, _startKind, paintTarget, clientKind, adopted) => {
+  ] as const)('%s %s client anchors only new generations before initial paint', async (_harnessKind, _startKind, paintTarget, clientKind, adopted) => {
     const initialPaint = Buffer.from('\x1b[2Jopencode ready').toString('base64')
+    const priorHistory = Buffer.from('older scrollback').toString('base64')
     const { terminals, state } = harness({
       redrawFrame: initialPaint,
       hasMaster: () => adopted,
+      priorFrames: adopted ? [{ streamId: SESSION, data: priorHistory }] : [],
     })
 
     if (adopted) {
@@ -342,11 +367,22 @@ describe('the client terminal a server-family attach produces', () => {
 
     const endpoint = await terminals.attach({ sessionId: SESSION, target: paintTarget })
 
-    // The browser's attach-time redraw can arrive before an asynchronous
-    // server-family client exists. Every harness, including a master adopted
-    // after daemon restart, gets the request replayed after relay subscription.
-    // The paint is the LAST frame: the generation reset (POD-2761) is emitted
-    // before the spawn, so it can only ever precede the client it introduces.
+    // The old fixture began with an empty stream, so it could bless a reset on
+    // adoption. This one carries the surviving master's prior history. A cold
+    // client gets a reset before its first observable paint; an adopted
+    // master already owns a running TUI and browser history: its viewport redraw
+    // follows that history without a scrollback-clearing reset between them.
+    const decoded = state.frames.map((frame) =>
+      Buffer.from(frame.data, 'base64').toString('latin1'),
+    )
+    const resets = decoded.filter((data) => data.includes('\x1b[2J') && data.includes('\x1b[3J'))
+    expect(resets).toHaveLength(adopted ? 0 : 1)
+    if (adopted) {
+      expect(decoded[0]).toBe('older scrollback')
+      expect(decoded).toEqual(['older scrollback', '\x1b[2Jopencode ready'])
+    } else {
+      expect(decoded[0]).toContain('\x1b[3J')
+    }
     expect(state.frames.at(-1)).toEqual({ streamId: endpoint.streamId, data: initialPaint })
     expect(state.frames.every((frame) => frame.streamId === endpoint.streamId)).toBe(true)
     expect(state.clients[0]?.redraws).toBe(1)

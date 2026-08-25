@@ -69,11 +69,13 @@ for name in daemon server; do
     kill -9 "$(cat "$pidfile")" 2>/dev/null || true
     echo "stopped previous $name"
   fi
-  rm -f "$pidfile"
+  rm -f "$pidfile" "$PODIUM_DRIVE_BASE/$name.sha"
 done
 
 start() { # name, script
-  local name="$1" script="$2"
+  local name="$1" script="$2" running_sha
+  running_sha="$(git -C "$PODIUM_DRIVE_REPO" rev-parse HEAD)"
+  printf '%s\n' "$running_sha" > "$PODIUM_DRIVE_BASE/$name.sha"
   nohup bun --conditions=@podium/source "$script" >"$LOGS/$name.log" 2>&1 &
   echo "$!" > "$PODIUM_DRIVE_BASE/$name.pid"
   echo "started $name pid=$(cat "$PODIUM_DRIVE_BASE/$name.pid")"
