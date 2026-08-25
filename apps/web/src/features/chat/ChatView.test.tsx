@@ -979,6 +979,55 @@ describe('ChatView composer', () => {
   })
 })
 
+describe('ChatView delivered send boundary', () => {
+  beforeEach(() => {
+    storeSessions = [meta({ status: 'live' })]
+    storeDrafts = { s1: 'already delivered' }
+    fakeTrpc.messages.ledger.query.mockResolvedValue([])
+  })
+
+  it('does not rewrite a delivered bubble as failed when a provider error follows', async () => {
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+    })
+    await flush()
+
+    const delivered = container.querySelector('.transcript-pending')
+    expect(delivered?.textContent).toContain('already delivered')
+    expect(delivered?.classList.contains('transcript-pending--failed')).toBe(false)
+
+    storeSessions = [
+      meta({
+        status: 'live',
+        agentState: {
+          phase: 'errored',
+          error: { class: 'usage_limit', retryable: false, detail: 'balance exhausted' },
+        },
+      }),
+    ]
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    expect(container.querySelector('.transcript-pending--failed')).toBeNull()
+    expect(container.querySelector('.transcript-pending')?.textContent).toContain(
+      'already delivered',
+    )
+  })
+})
+
 /**
  * SENDING INTO A HIBERNATED AGENT (POD-762).
  *

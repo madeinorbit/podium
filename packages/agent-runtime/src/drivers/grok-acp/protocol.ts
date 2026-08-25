@@ -3,8 +3,9 @@
  *
  * ACP is JSON-RPC 2.0 over newline-delimited stdio.  Core method names are
  * stable; Grok's `_x.ai/*` additions are deliberately treated as optional
- * side-channel frames except for `_x.ai/session/update`, whose payload is the
- * same update vocabulary Podium already consumes from `updates.jsonl`.
+ * side-channel frames except for `_x.ai/session/update` and
+ * `_x.ai/session_notification`, whose payloads use the same update vocabulary
+ * Podium already consumes from `updates.jsonl`.
  */
 import { z } from 'zod'
 
@@ -108,7 +109,7 @@ export const GrokAcpPermissionRequest = z
 export type GrokAcpPermissionRequest = z.infer<typeof GrokAcpPermissionRequest>
 
 export const GrokAcpSessionUpdate = z.object({
-  method: z.enum(['session/update', '_x.ai/session/update']),
+  method: z.enum(['session/update', '_x.ai/session/update', '_x.ai/session_notification']),
   params: z
     .object({
       sessionId: z.string().min(1),
@@ -154,11 +155,16 @@ export class GrokAcpProtocolError extends Error {
   }
 }
 
-/** Parse only the cursor-bearing update stream. Other `_x.ai/*` frames are
- * intentionally ignored: the W7 probe found that they carry no eventId and do
- * not feed the existing Grok reducer. */
+/** Parse only the cursor-bearing update stream. Other `_x.ai/*` frames remain
+ * intentionally ignored; Grok's live failure notifications are accepted here
+ * because this build gives them the same cursor envelope as ordinary updates. */
 export function parseGrokAcpSessionUpdate(frame: GrokAcpFrame): GrokAcpSessionUpdate | null {
-  if (frame.method !== 'session/update' && frame.method !== '_x.ai/session/update') return null
+  if (
+    frame.method !== 'session/update' &&
+    frame.method !== '_x.ai/session/update' &&
+    frame.method !== '_x.ai/session_notification'
+  )
+    return null
   const parsed = GrokAcpSessionUpdate.safeParse({ method: frame.method, params: frame.params })
   return parsed.success ? parsed.data : null
 }

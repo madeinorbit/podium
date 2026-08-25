@@ -45,6 +45,7 @@ export interface FakeGrokAcpServer {
   streamAgentText(chunks: readonly string[]): void
   completeTurn(stopReason?: 'end_turn' | 'cancelled' | 'refusal'): void
   failProviderTurn(detail: string): void
+  failProviderAttempt(detail: string): void
   failNextPrompt(detail?: string): void
   crash(): void
 }
@@ -79,14 +80,17 @@ export function startFakeGrokAcpServer(
   /** Everything the client is told about a session is also what a later
    *  `session/load` must be able to replay — so recording happens here, at the
    *  one place updates leave the server. */
-  const notifyUpdate = (update: Record<string, unknown>): void => {
+  const notifyUpdate = (
+    update: Record<string, unknown>,
+    method: 'session/update' | '_x.ai/session_notification' = 'session/update',
+  ): void => {
     const log = store.get(sessionId) ?? []
     log.push(update)
     store.set(sessionId, log)
     eventSeq += 1
     push({
       jsonrpc: '2.0',
-      method: 'session/update',
+      method,
       params: {
         sessionId,
         update,
@@ -286,14 +290,45 @@ export function startFakeGrokAcpServer(
       const id = pendingPrompt
       if (id === undefined) return
       pendingPrompt = undefined
-      notifyUpdate({
-        sessionUpdate: 'turn_completed',
-        stop_reason: 'error',
-        agent_result: detail,
-      })
+      notifyUpdate(
+        {
+          sessionUpdate: 'retry_state',
+          type: 'failed',
+          error_type: 'api',
+          message: detail,
+        },
+        '_x.ai/session_notification',
+      )
+      notifyUpdate(
+        {
+          sessionUpdate: 'hook_execution',
+          event_name: 'stop_failure',
+        },
+        '_x.ai/session_notification',
+      )
+      notifyUpdate(
+        {
+          sessionUpdate: 'turn_completed',
+          stop_reason: 'error',
+          agent_result: detail,
+        },
+        '_x.ai/session_notification',
+      )
       const result = { stopReason: 'refusal' as const }
       lastPromptResult = { id, result }
       response(id, result)
+    },
+    failProviderAttempt(detail) {
+      if (pendingPrompt === undefined) return
+      notifyUpdate(
+        {
+          sessionUpdate: 'retry_state',
+          type: 'failed',
+          error_type: 'api',
+          message: detail,
+        },
+        '_x.ai/session_notification',
+      )
     },
     failNextPrompt(detail = 'fixture prompt failure') {
       failNext = true

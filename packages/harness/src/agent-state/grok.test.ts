@@ -144,6 +144,22 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
     ])
   })
 
+  it('accepts live failure notifications and ignores empty stop hook markers', async () => {
+    const detail = 'API error (status 402 Payment Required): Grok Build usage balance exhausted'
+    const update = (sessionUpdate: string, fields: Record<string, unknown>) =>
+      translateGrokUpdatePayload({
+        method: '_x.ai/session_notification',
+        params: { update: { sessionUpdate, ...fields } },
+      })
+
+    await expect(
+      update('retry_state', { type: 'failed', error_type: 'api', message: detail }),
+    ).resolves.toEqual([
+      { kind: 'turn_failed', errorClass: 'usage_limit', retryable: false, detail },
+    ])
+    await expect(update('hook_execution', { event_name: 'stop_failure' })).resolves.toEqual([])
+  })
+
   it('maps native camelCase Grok hooks and classifies Stop from chat history', async () => {
     await expect(
       translateGrokUpdatePayload({ hookEventName: 'SessionStart', sessionId: 'g-native' }),

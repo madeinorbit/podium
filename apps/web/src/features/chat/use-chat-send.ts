@@ -15,6 +15,7 @@ import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import type { DeadLetteredChatMessage, PendingItem, QueuedChatMessage } from './chat'
 import {
   deadLetteredOperatorMessages,
+  markPendingSendingDelivered,
   markPendingSendingFailed,
   queuedOperatorMessages,
   reconcilePending,
@@ -302,7 +303,12 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
 
   /** Deliver `text` along the decided route. Throws on rejection. */
   const deliver = useCallback(
-    async (text: string, onQueued: () => void, attachments?: readonly RuntimeAttachmentRef[]) => {
+    async (
+      text: string,
+      onQueued: () => void,
+      attachments?: readonly RuntimeAttachmentRef[],
+      onDelivered?: () => void,
+    ) => {
       // THE SURFACE YOU SENT FROM IS THE SURFACE YOU STAY ON (POD-762).
       //
       // A parked session shows its transcript no matter which mode is persisted
@@ -366,7 +372,8 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
             mutationId: randomUUID(),
           })
           assertSendAccepted(result)
-          if (result.disposition === 'queued' || result.disposition === 'accepted') onQueued()
+          if (result.disposition === 'delivered') onDelivered?.()
+          else if (result.disposition === 'queued' || result.disposition === 'accepted') onQueued()
           refreshQueuedMessages()
           return
         }
@@ -430,6 +437,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           fullText,
           () => setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
           attachments,
+          () => setPending((p) => markPendingSendingDelivered(p, id)),
         )
       } catch (cause) {
         const failure = sendFailureText(cause)
@@ -452,8 +460,11 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       setJustSent(true)
       pinToBottom()
       try {
-        await deliver(prompt, () =>
-          setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
+        await deliver(
+          prompt,
+          () => setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
+          undefined,
+          () => setPending((p) => markPendingSendingDelivered(p, id)),
         )
       } catch (cause) {
         const failure = sendFailureText(cause)

@@ -153,8 +153,12 @@ describe('Grok ACP protocol pins', () => {
     await expect(pending).resolves.toMatchObject({ protocolVersion: 1 })
   })
 
-  it('takes the durable cursor from _meta.eventId on either update method', () => {
-    for (const method of ['session/update', '_x.ai/session/update'] as const) {
+  it('takes the durable cursor from _meta.eventId on every cursor-bearing method', () => {
+    for (const method of [
+      'session/update',
+      '_x.ai/session/update',
+      '_x.ai/session_notification',
+    ] as const) {
       const parsed = parseGrokAcpSessionUpdate({
         jsonrpc: '2.0',
         method,

@@ -6,6 +6,7 @@ import {
   buildChatRows,
   dedupeByCursor,
   freshOlderPage,
+  markPendingSendingDelivered,
   markPendingSendingFailed,
   isBatchableTool,
   mergeByCursor,
@@ -35,6 +36,21 @@ describe('markPendingSendingFailed', () => {
   })
 })
 
+describe('markPendingSendingDelivered', () => {
+  it('settles only the matching in-flight bubble before a later provider error', () => {
+    const pending = [
+      { id: 'delivered', text: 'one', at: 1, state: 'sending' as const },
+      { id: 'other', text: 'two', at: 2, state: 'sending' as const },
+    ]
+    const delivered = markPendingSendingDelivered(pending, 'delivered')
+
+    expect(markPendingSendingFailed(delivered, 'quota exhausted')).toEqual([
+      { id: 'delivered', text: 'one', at: 1, state: 'sent' },
+      { id: 'other', text: 'two', at: 2, state: 'failed', failure: 'quota exhausted' },
+    ])
+    expect(markPendingSendingDelivered(pending, 'missing')).toBe(pending)
+  })
+})
 const tool = (toolName: string, id: string): TranscriptItem => ({
   id,
   role: 'tool',

@@ -64,6 +64,8 @@ interface WorldOptions {
 function makeWorld(options: WorldOptions = {}): {
   target: ConformanceTarget
   failProviderTurn(sessionId: SessionId, detail: string): void
+  failProviderAttempt(sessionId: SessionId, detail: string): void
+  completeProviderTurn(sessionId: SessionId): void
   failNextPrompt(sessionId: SessionId, detail?: string): void
   rawFrames: unknown[]
 } {
@@ -247,6 +249,8 @@ function makeWorld(options: WorldOptions = {}): {
   }
   return {
     failProviderTurn: (sessionId, detail) => serverFor(sessionId).failProviderTurn(detail),
+    failProviderAttempt: (sessionId, detail) => serverFor(sessionId).failProviderAttempt(detail),
+    completeProviderTurn: (sessionId) => serverFor(sessionId).completeTurn(),
     failNextPrompt: (sessionId, detail) => serverFor(sessionId).failNextPrompt(detail),
     rawFrames,
     target: {
@@ -312,6 +316,9 @@ describe('grok-acp provider failure detail', () => {
         'API error (status 402 Payment Required): Grok Build usage balance exhausted',
       )
       const observed = await eventsThroughTurnFailure(handle)
+      expect(
+        observed.filter((entry) => entry.t === 'state' && entry.change.kind === 'turn_failed'),
+      ).toHaveLength(1)
 
       expect(observed).toContainEqual(
         expect.objectContaining({
@@ -342,6 +349,28 @@ describe('grok-acp provider failure detail', () => {
           detail: 'API error (status 402 Payment Required): Grok Build usage balance exhausted',
         },
       })
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('clears a transient retry failure when the same turn later completes', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    const detail = 'API error (status 429 Too Many Requests): retry succeeded'
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      world.failProviderAttempt(handle.binding.sessionId, detail)
+      world.completeProviderTurn(handle.binding.sessionId)
+
+      const observed: RuntimeEvent[] = []
+      for await (const event of handle.events('bootstrap')) {
+        observed.push(event)
+        if (event.t === 'turn' && event.ev.ev === 'completed') break
+      }
+      expect(observed.filter((event) => event.t === 'turn' && event.ev.ev === 'failed')).toEqual([])
+      await expect(handle.state()).resolves.toMatchObject({ phase: 'idle' })
     } finally {
       world.target.reset()
     }

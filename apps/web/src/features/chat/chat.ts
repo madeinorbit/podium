@@ -351,6 +351,19 @@ export function markPendingSendingFailed(pending: PendingItem[], failure: string
   return changed ? next : pending
 }
 
+/** Mark the exact optimistic send delivered synchronously by the authority.
+ * This closes the window where a provider failure could arrive after the bytes
+ * reached the agent but before a transcript echo changed `sending` to `sent`. */
+export function markPendingSendingDelivered(pending: PendingItem[], id: string): PendingItem[] {
+  let changed = false
+  const next = pending.map((item) => {
+    if (item.id !== id || item.state !== 'sending') return item
+    changed = true
+    return { ...item, state: 'sent' as const }
+  })
+  return changed ? next : pending
+}
+
 /** A human chat message durably held in the unified message ledger until the
  * agent reaches its next turn boundary. These rows are separate from the
  * sessions queued_messages outbox, so ChatView must restore them explicitly. */

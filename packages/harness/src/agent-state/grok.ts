@@ -99,7 +99,12 @@ export async function translateGrokUpdatePayload(
   if (directEvent) return grokLifecycleEvents(directEvent, payload, payload, options)
 
   const method = stringField(payload, 'method')
-  if (method !== 'session/update' && method !== '_x.ai/session/update') return []
+  if (
+    method !== 'session/update' &&
+    method !== '_x.ai/session/update' &&
+    method !== '_x.ai/session_notification'
+  )
+    return []
   const params = recordField(payload, 'params')
   const update = recordField(params, 'update')
   if (!update) return []
@@ -575,7 +580,12 @@ async function grokLifecycleEvents(
       return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
     }
     case 'stop_failure': {
-      return [classifyGrokProviderFailure(fields)]
+      const failure = classifyGrokProviderFailure(fields)
+      // Grok emits this hook as a lifecycle marker even when it carries no
+      // provider error. The live marker is `{ errorClass: 'unknown', detail:
+      // 'unknown' }` if classified; emitting that synthetic failure after the
+      // real retry_state/turn_completed records would clobber the 402 reason.
+      return failure.errorClass === 'unknown' && failure.detail === 'unknown' ? [] : [failure]
     }
     case 'pre_compact':
       return [{ kind: 'compaction', phase: 'start' }]

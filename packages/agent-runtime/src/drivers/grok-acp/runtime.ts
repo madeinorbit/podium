@@ -272,13 +272,31 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     native?: { eventId?: string; ordinal?: number },
   ): void {
     if (change.kind === 'turn_failed') {
-      session.lastTurnFailure = {
-        turnEpoch: session.openTurnEpoch ?? session.turnEpoch,
-        change,
-      }
+      const turnEpoch = session.openTurnEpoch ?? session.turnEpoch
+      const previous = session.lastTurnFailure
+      if (
+        previous?.turnEpoch === turnEpoch &&
+        previous.change.errorClass === change.errorClass &&
+        previous.change.retryable === change.retryable &&
+        previous.change.detail === change.detail
+      )
+        return
+      if (
+        previous?.turnEpoch === turnEpoch &&
+        (change.errorClass === 'unknown' || !change.detail) &&
+        previous.change.errorClass !== 'unknown' &&
+        !!previous.change.detail
+      )
+        return
+      session.lastTurnFailure = { turnEpoch, change }
     }
     const next = reduceAgentState(session.state, change, at)
     if (next === session.state) return
+    // A failed retry attempt is not the outcome of the turn if Grok later
+    // reports a successful completion. Clear the causal failure only after the
+    // completion actually wins the reducer, so a stale replay cannot erase a
+    // live error.
+    if (change.kind === 'turn_completed') session.lastTurnFailure = undefined
     session.state = next
     emit(session, { t: 'state', change }, at, provenance, native)
   }
@@ -871,6 +889,9 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     session.openTurnEpoch = undefined
     session.interruptPending = false
     if (result) updateUsage(session, result)
+    // A retry_state failure may describe an attempt that Grok recovered before
+    // the prompt response. Do not carry that attempt into a successful turn.
+    if (result?.stopReason === 'end_turn') session.lastTurnFailure = undefined
     const translatedFailure =
       session.lastTurnFailure?.turnEpoch === epoch
         ? causalTurnFailure(session.lastTurnFailure.change)
