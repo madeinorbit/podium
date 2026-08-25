@@ -153,18 +153,42 @@ real_target_is() {
   real_rpc GET updates.fleet | jq -e --arg target "$1" '.targetVersion==$target' >/dev/null
 }
 
-# The stable channel's LAST recorded check outcome, as a bare word. `unavailable`
-# is how every form of "we looked and there is nothing to offer you" is recorded,
-# which is precisely why the stranding is silent: the operator's Update surface
-# has no target and no error, and reads as up to date.
-real_stable_check_status() {
+# The stable channel's last recorded check, as "<checkedAt> <status>".
+#
+# `unavailable` is how every form of "we looked and there is nothing to offer
+# you" is recorded, which is precisely why the stranding is silent: the
+# operator's Update surface has no target and no error, and reads as up to date.
+#
+# THE TIMESTAMP IS AS LOAD-BEARING AS THE STATUS, and leaving it out is what let
+# the first armed run look green while proving nothing. `updates.checkNow`
+# rate-limits a forced check to one feed request per channel per 30s and hands
+# back the RECORDED outcome inside that window, so a poll reading only
+# `.outcome.status` can be answered entirely from a record made BEFORE this row
+# deleted anything. Green would then mean "we have not looked again yet" - the
+# exact confusion between a stale answer and a fresh one that the defect under
+# test is made of.
+real_stable_check() {
   real_check_now
   real_rpc GET updates.fleet |
-    jq -r '[.channelChecks[]? | select(.channel=="stable")] | last | .outcome.status // ""'
+    jq -r '[.channelChecks[]? | select(.channel=="stable")] | last
+           | "\(.checkedAt // 0) \(.outcome.status // "")"'
 }
 
+real_stable_check_status() { real_stable_check | cut -d" " -f2; }
+
+# Recorded by the row before it mutates the feed; every later reading must be NEWER.
+REAL_STABLE_CHECK_BASELINE=0
+
 real_headless_only_is_offered() {
-  [[ "$(real_stable_check_status)" == ok ]]
+  local reading at status
+  reading="$(real_stable_check)" || return 1
+  at="${reading%% *}"
+  status="${reading##* }"
+  [[ -n "$at" && "$at" != 0 ]] || return 1
+  # `ok` recorded AFTER the desktop manifest was deleted, never a surviving `ok`
+  # from before it.
+  (( at > REAL_STABLE_CHECK_BASELINE )) || return 1
+  [[ "$status" == ok ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -740,6 +764,12 @@ run_real_release_lane() {
   # assertion could not, because the machine is already on that version and
   # "offered it again" and "offered nothing" look identical from there.
   CURRENT_SCENARIO=real-release-headless-only
+  # THE BASELINE, TAKEN BEFORE THE FEED MOVES. Everything this row concludes has
+  # to come from a check recorded after the deletion; without this the 30s forced-
+  # check window can answer the whole poll from the record made a moment ago.
+  REAL_STABLE_CHECK_BASELINE="$(real_stable_check | cut -d' ' -f1)"
+  printf 'baseline %s\n' "$REAL_STABLE_CHECK_BASELINE" \
+    >"$WORK/logs/real-release-headless-only-baseline.txt"
   container_exec "$SOURCE" bash -lc "rm -f /work/source/dist-bun/release/latest.json"
   # PROVE THE MUTATION LANDED BEFORE BELIEVING THE GREEN. If the feed kept
   # serving latest.json — from a cache, or because the release dir moved — the
@@ -750,7 +780,11 @@ run_real_release_lane() {
       "the feed still serves latest.json after it was deleted, so this row would be green without testing anything"
     return 1
   fi
-  if wait_for 120 "a headless-only release to be offered" real_headless_only_is_offered; then
+  # ALWAYS captured, pass or fail. The first armed run produced a green row and no
+  # evidence at all, so there was nothing to read afterwards but the verdict.
+  real_rpc GET updates.fleet >"$WORK/logs/real-release-headless-only-fleet.json" 2>&1 || true
+  if wait_for 150 "a headless-only release to be offered" real_headless_only_is_offered; then
+    real_rpc GET updates.fleet >"$WORK/logs/real-release-headless-only-fleet.json" 2>&1 || true
     pass real-release-headless-only \
       "with NO desktop manifest published at all, the upgraded install still resolved the stable target — the missing shell no longer retracts the headless offer"
   else

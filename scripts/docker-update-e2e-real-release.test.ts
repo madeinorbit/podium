@@ -82,6 +82,21 @@ describe('real-release row expectations still match the code they describe', () 
     expect(lane).toContain('real_headless_only_is_offered')
   })
 
+  it('requires a check recorded AFTER the deletion, not a surviving one', () => {
+    // The first armed run went green with the coupling restored, which is
+    // impossible if the row were reading a fresh check -- `updates.checkNow`
+    // rate-limits to one feed request per channel per 30s and returns the
+    // RECORDED outcome inside that window, so the poll could be answered from
+    // before the row deleted anything. A row that cannot tell "we looked and it
+    // is fine" from "we have not looked yet" is the defect under test wearing a
+    // test's clothes.
+    const service = readFileSync(join(root, 'apps/server/src/modules/updates/service.ts'), 'utf8')
+    expect(service).toContain('checkedAt')
+    expect(service).toMatch(/FORCED_CHECK_INTERVAL_MS = 30_000/)
+    expect(lane).toContain('REAL_STABLE_CHECK_BASELINE')
+    expect(lane).toContain('(( at > REAL_STABLE_CHECK_BASELINE )) || return 1')
+  })
+
   it('deletes the desktop manifest and proves the deletion before asserting on it', () => {
     // A row that removes a file and then asserts a green is only worth something
     // if the removal actually reached the thing under test. Without the probe
