@@ -86,6 +86,8 @@ export interface MessageGateDeps {
     machineId?: MachineId
     accountId?: AccountId | null
   }
+  /** Wait for the current daemon connection's first inventory before spawning. */
+  awaitMachineInventory?(machineId: MachineId): Promise<void>
   /** Resolve a named workflow execution profile. When a run + step are present,
    *  the workflow service returns the immutable snapshot pinned to that run. */
   resolveExecutionProfile?(input: {

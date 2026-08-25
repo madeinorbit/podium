@@ -1600,6 +1600,7 @@ export class SessionRegistry {
         // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
         // child is a FULL Podium session through the one spawn path; --new is the
         // deliberate issue-create path (never automatic).
+        awaitMachineInventory: (machineId) => machines.waitForInventory(machineId),
         spawnSession: (o) =>
           sessionsSvc.createSession({
             ownerUserId: o.ownerUserId,

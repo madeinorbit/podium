@@ -125,7 +125,7 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
     expect(refusal([{ id: MACHINE, name: 'vmi', online: true }])).toMatchObject({
       code: 'PRECONDITION_FAILED',
       message:
-        "could not determine whether codex is installed on machine 'vmi' (inventory not reported yet); retry shortly",
+        "machine 'vmi' is still probing whether codex is installed; wait for the probe or run `podium machine reprobe vmi`",
     })
     const timedOut = {
       id: MACHINE,
@@ -328,6 +328,45 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect(svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex:fp-b'))).toBe(
       'native:codex:fp-b',
     )
+  })
+
+  test('a reconnect treats persisted absence as probing and a spawn wait joins the report', async () => {
+    const { svc, store } = makeStoreService()
+    store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'Builder',
+      hostname: 'vmi',
+      tokenHash: 'x',
+      ownerUserId: asUserId('user:sole'),
+    })
+    svc.recordInventory(MACHINE, {
+      ...INV,
+      agents: [{ kind: 'claude-code', installed: false, login: { state: 'unknown' } }],
+    })
+    const daemon = recorder()
+    svc.attach(MACHINE, daemon.send)
+
+    expect(svc.listMachines().find((machine) => machine.id === MACHINE)?.inventory).toBeUndefined()
+    expect(() => svc.requireAgent(MACHINE, 'claude-code')).toThrow(
+      "machine 'Builder' is still probing whether claude-code is installed",
+    )
+
+    const waiting = svc.waitForInventory(MACHINE)
+    expect(daemon.got).toEqual([{ type: 'inventoryRequest' }])
+    svc.recordInventory(MACHINE, {
+      ...INV,
+      agents: [
+        {
+          kind: 'claude-code',
+          installed: true,
+          version: '2.1.231 (Claude Code)',
+          login: { state: 'in' },
+        },
+      ],
+    })
+    await waiting
+
+    expect(svc.resolveMachineForAgent(MACHINE, '/repo', 'claude-code')).toBe(MACHINE)
   })
 
   test('explicit session placement rejects a missing harness but starts logged out', () => {
