@@ -50,10 +50,16 @@ a rig cannot. `drive-up.sh` writes the one field readiness reads.
 
 ## What the drive found
 
-Re-run on 2026-08-25 against `badd8a9c350e6aa2f72a676548eb944f66bad2f3` — after the
-round-2 fixes changed timeout and shutdown behaviour, so the drive is evidence about
-the code that ships rather than about an earlier commit. Verified by
-`drive-verify.sh` before any measurement was taken.
+Re-run on 2026-08-25 against `badd8a9c350e6aa2f72a676548eb944f66bad2f3`, after the
+round-2 fixes changed timeout and shutdown behaviour. Verified by `drive-verify.sh`
+before any measurement was taken.
+
+**On why a drive at that commit still describes what ships**, since a reviewer
+rightly questioned an earlier, sloppier version of this sentence: everything landed
+after `badd8a9c3` is test and evidence.
+`git diff badd8a9c3 HEAD -- claude-sdk-client.ts claude-sdk-host.ts
+claude-sdk-protocol.ts headless-drivers.ts cli-compiled.ts` is **empty**. Run that
+before trusting this paragraph rather than trusting it.
 
 ```
 PASS  CONTROL a Claude turn completes through the child host — the assistant replied "ALIVE"
@@ -227,6 +233,48 @@ table in `claude-sdk-isolation.test.ts` so they run in CI, plus
 file. Removing the ban turns nine of the table entries red. There is also a
 false-positive control on ordinary code, because a ban that fires on everything
 is not a guard — it is noise that gets deleted.
+
+### Round 4: the allowance list had a weaker check than the ban
+
+The ban's argument is that you cannot hide a capability you were never allowed to
+obtain. Inside an **allowed** file you are allowed to obtain it — and there, every
+parking trick worked again:
+
+| shape, in an allowed file | before |
+| --- | --- |
+| `let r; r = createRequire(…)` — assignment, no declarator | GREEN |
+| `const io = { r: createRequire(…) }` — property | GREEN |
+| `const [r] = [createRequire(…)]` — destructured | GREEN |
+| `function mk(){ return createRequire(…) }` — returned | GREEN |
+| an allowed file `export`s its requirer; the borrower names no token | GREEN |
+| `Module._load`, `Module.prototype.require`, `new Function('return require')()` | GREEN |
+
+All six put the SDK in the daemon's heap with a green suite. The last row is a
+separate point: `createRequire` was never the only door, and a ban that names one
+door is a ban on one door.
+
+**The fix was not to widen the requirer capture**, which is the arms race the ban
+was written to end — chase the assignment and the property is still open, chase the
+property and the destructure is still open. Instead, a third layer: **the SDK's name
+may not appear as a string literal anywhere in the daemon's graph.** Every shape
+above still has to write the name down; a borrowed loader has to be told what to
+fetch. Measured before adopting it — zero occurrences today outside the host and
+comments, so it costs nothing.
+
+It is a name check, and it would lose to `'@anthropic-ai/' + 'claude-agent-sdk'`.
+That is exactly why it is the third layer rather than the only one. The three
+mechanisms have three different blind spots:
+
+- the **graph walk** sees renames and re-exports a name check cannot;
+- the **capability ban** sees loaders a graph walk cannot follow;
+- the **specifier ban** sees what survives both.
+
+An allowed file may also no longer export its requirer, detected by the binding's
+NAME rather than by its initialiser — matching the initialiser found nothing,
+because what leaves a module is the name, not the call that produced it.
+
+Removing the specifier layer turns all eight round-4 shapes green again; removing
+the lending ban turns the lending test red. Both are in the CI table.
 
 ### The harness had the defect it was testing for
 

@@ -10,6 +10,22 @@
 // after an adversarial review defeated the first version — calls through a
 // `createRequire` alias.
 //
+// THREE LAYERS, BECAUSE NO ONE OF THEM IS ENOUGH AND EACH SEES WHAT THE OTHERS
+// CANNOT. Four rounds of adversarial review defeated every single-layer version:
+//
+//   1. THE GRAPH WALK follows real edges — static, dynamic, require, `export … from`
+//      — from every daemon-hosting entry point. Catches renames and re-exports that
+//      no name check can see. Blind to anything not spelled as an import.
+//   2. THE CAPABILITY BAN refuses a daemon module the right to OBTAIN a module
+//      loader at all. Catches every place a loader can be parked — alias, property,
+//      destructure, return, rebound binding — because it must be obtained before it
+//      can be hidden. Blind inside the five files that are legitimately allowed one.
+//   3. THE SPECIFIER BAN refuses the SDK's NAME as a string literal anywhere in the
+//      graph. Catches what survives both: a loader borrowed from an allowed file, a
+//      parking trick inside one, `Module._load`, `new Function('return require')`.
+//      Every one of those still has to write the name down. Blind to string
+//      concatenation — which is why it is the third layer and not the only one.
+//
 // TWO THINGS THIS FILE LEARNED THE HARD WAY, both from guards that could not fail:
 //
 //   ROOTS ARE DERIVED, NOT LISTED. The first version carried a hand-written root
@@ -153,7 +169,11 @@ const REQUIRER_ALLOWANCE: Record<string, readonly string[]> = {
 }
 
 /** Every specifier this file loads through a requirer, plus unresolvable ones. */
-function requirerLoads(source: string): { specifiers: string[]; unresolvable: string[] } {
+function requirerLoads(source: string): {
+  specifiers: string[]
+  unresolvable: string[]
+  names: string[]
+} {
   const specifiers: string[] = []
   const unresolvable: string[] = []
   const names = new Set<string>()
@@ -194,14 +214,69 @@ function requirerLoads(source: string): { specifiers: string[]; unresolvable: st
     const v = literalOf(m, 1)
     if (v) specifiers.push(v)
   }
-  return { specifiers, unresolvable }
+  return { specifiers, unresolvable, names: [...names] }
 }
+
+/**
+ * Other doors to the same room. `createRequire` is the one the codebase uses, but
+ * it is not the only way to get a require-like function, and a ban that names one
+ * door is a ban on one door. These are real Node APIs people write for ordinary
+ * reasons, not obfuscation — all three currently have ZERO occurrences in the
+ * daemon's graph, so banning them costs nothing today and closes the class.
+ */
+const CAPABILITY_TOKENS = [
+  /\bcreateRequire\b/,
+  /\bModule\s*\.\s*_load\b/,
+  /\bModule\s*\.\s*prototype\s*\.\s*require\b/,
+  /\bnew\s+Function\b/,
+  /\bgetBuiltinModule\b/,
+]
+
+/**
+ * LAYER THREE, and the reason there is a third layer at all.
+ *
+ * An adversarial review's round 4 showed the capability ban has a floor: inside an
+ * ALLOWED file you are permitted to obtain a loader, so every parking trick works
+ * again there — an assignment with no declarator, a property, a destructure, a
+ * function return — and an allowed file can `export` its requirer to a borrower
+ * that never mentions the token at all. Both put the SDK in the daemon's heap with
+ * a green suite. Widening the requirer capture chases those shapes one at a time,
+ * which is the arms race the ban was written to end.
+ *
+ * So: the SDK's NAME may not appear as a string literal anywhere in the daemon's
+ * graph. Every one of those shapes needs the specifier to be written down
+ * somewhere — a borrowed requirer still has to be handed the string. This costs
+ * nothing (measured: zero occurrences outside the host and comments) and closes
+ * the parking tricks, the lending, and the other doors in one rule.
+ *
+ * IT IS A NAME CHECK AND IT WOULD LOSE TO `'@anthropic-ai/' + 'claude-agent-sdk'`.
+ * That is precisely why it is the THIRD layer and not the only one: the graph walk
+ * catches renames and re-exports a name check cannot see, the capability ban
+ * catches loaders a graph walk cannot follow, and this catches what survives both.
+ * Three mechanisms with three different blind spots, which is the only honest way
+ * to guard something that cannot be decided statically.
+ */
+const FORBIDDEN_LITERALS = [SDK]
 
 /** Files that hold a module-loading capability without an allowance. */
 function requirerViolations(file: string, source: string): string[] {
   const out: string[] = []
   const allowed = REQUIRER_ALLOWANCE[file]
-  const holdsCapability = /\bcreateRequire\b/.test(source)
+  for (const spec of FORBIDDEN_LITERALS) {
+    if (
+      source.includes(`'${spec}'`) ||
+      source.includes(`"${spec}"`) ||
+      source.includes(`\`${spec}\``)
+    ) {
+      out.push(
+        `${file} names '${spec}' as a string literal. Nothing in the daemon's graph ` +
+          `should need to: it is loaded only by apps/daemon/src/claude-sdk-host.ts, ` +
+          `in a child process. A literal here is how a borrowed or re-parked module ` +
+          `loader gets told what to fetch.`,
+      )
+    }
+  }
+  const holdsCapability = CAPABILITY_TOKENS.some((t) => t.test(source))
   if (holdsCapability && !allowed) {
     out.push(
       `${file} obtains a module loader (createRequire). That capability loads ` +
@@ -212,6 +287,30 @@ function requirerViolations(file: string, source: string): string[] {
     )
   }
   const loads = requirerLoads(source)
+  // LENDING. An allowed file obtains the loader legally and can hand it to anyone;
+  // the borrower has no token to ban and no binding to find, so it is invisible to
+  // every other rule here. Detected by NAME — what leaves the module is the
+  // requirer's BINDING, not the createRequire call that produced it, which is why
+  // matching on the initialiser found nothing.
+  const lendable = new Set(loads.names)
+  for (const m of source.matchAll(
+    /export\s+(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*([A-Za-z_$][\w$]*)|export\s*\{([^}]*)\}|export\s+default\s+([A-Za-z_$][\w$]*)/g,
+  )) {
+    const named = [
+      m[1],
+      ...(m[2] ?? '').split(',').map((x) => (x.split(/\s+as\s+/)[0] ?? '').trim()),
+      m[3],
+    ].filter((x): x is string => Boolean(x))
+    if (named.some((n) => lendable.has(n))) {
+      out.push(
+        `${file} EXPORTS its module loader. The ban rests on the capability having ` +
+          `to be obtained before it can be hidden — an exported requirer hands it to ` +
+          `callers that never mention the token, and there is nothing left to ban in ` +
+          `them. Keep it module-private.`,
+      )
+      break
+    }
+  }
   if (allowed) {
     for (const spec of loads.specifiers) {
       if (!allowed.includes(spec)) {
@@ -553,6 +652,71 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
       banned || resolved || imported,
       `this shape puts ${SPEC} in the daemon's heap and nothing here objects:\n${code}`,
     ).toBe(true)
+  })
+
+  // ROUND 4's SHAPES. An adversarial review found the capability ban has a floor:
+  // inside an ALLOWED file every parking trick works again, an allowed file can
+  // lend its requirer to a borrower that never names the token, and createRequire
+  // is not the only door. These are those shapes, evaluated in an ALLOWED file —
+  // the configuration where the earlier layers are by design silent.
+  const ALLOWED_FILE = 'apps/daemon/src/claude-sdk-protocol.ts'
+  const ROUND4: readonly { id: string; what: string; code: string }[] = [
+    {
+      id: 'G1',
+      what: 'assignment with no declarator, in an allowed file',
+      code: `let r\nr = createRequire(import.meta.url)\nconst m = r('${SPEC}')`,
+    },
+    {
+      id: 'G4',
+      what: 'requirer on a property, in an allowed file',
+      code: `const io = { r: createRequire(import.meta.url) }\nconst m = io.r('${SPEC}')`,
+    },
+    {
+      id: 'G5',
+      what: 'destructured requirer, in an allowed file',
+      code: `const [r] = [createRequire(import.meta.url)]\nconst m = r('${SPEC}')`,
+    },
+    {
+      id: 'G6',
+      what: 'requirer returned from a function, in an allowed file',
+      code: `function mk() { return createRequire(import.meta.url) }\nconst m = mk()('${SPEC}')`,
+    },
+    {
+      id: 'R2',
+      what: 'borrower of a lent requirer, naming no capability token',
+      code: `import { lentReq } from '@podium/pty/backends/node-pty-backend'\nconst m = lentReq('${SPEC}')`,
+    },
+    {
+      id: 'F1',
+      what: 'Module._load — a different door',
+      code: `import Module from 'node:module'\nconst m = Module._load('${SPEC}', null, false)`,
+    },
+    {
+      id: 'F3',
+      what: 'new Function returning require',
+      code: `const m = new Function('return require')()('${SPEC}')`,
+    },
+    {
+      id: 'F6',
+      what: 'Module.prototype.require',
+      code: `import Module from 'node:module'\nconst m = Module.prototype.require.call(module, '${SPEC}')`,
+    },
+  ]
+
+  it.each(ROUND4)('catches $id — $what', ({ code }) => {
+    // Evaluated as an ALLOWED file on purpose: that is where the capability ban is
+    // deliberately silent, so anything caught here is caught by a different layer.
+    const banned = requirerViolations(ALLOWED_FILE, stripComments(code)).length > 0
+    expect(banned, `an allowed file can do this and nothing objects:\n${code}`).toBe(true)
+  })
+
+  it('refuses an allowed file that lends its requirer out', () => {
+    // The premise of the ban is that a capability must be obtained before it can be
+    // hidden. An export hands it to callers with no token left to ban.
+    const lending = `const req = createRequire(import.meta.url)\nexport const lentReq = req`
+    expect(
+      requirerViolations('packages/pty/src/backends/node-pty-backend.ts', lending).join(' '),
+    ).toContain('EXPORTS it')
   })
 
   it('does not object to the ordinary code around it', () => {
