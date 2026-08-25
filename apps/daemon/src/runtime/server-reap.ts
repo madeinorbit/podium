@@ -352,8 +352,43 @@ async function reapViaHandle(
    */
   const measuredSurvivor = dead === false
   const unmeasurable = dead === undefined && verbError !== undefined
+  /** Run the verb again, tolerating a second failure. Both arms below use it. */
+  const repeatVerb = async (): Promise<void> => {
+    try {
+      await runBoundedHandleVerb(verbName, verb)
+    } catch (err) {
+      if (verbError === undefined) verbError = err
+      log.warn('could not complete the server-driver escalation verb', {
+        err,
+        sessionId,
+        verb: verbName,
+      })
+    }
+  }
   if (!measuredSurvivor && !unmeasurable) {
-    if (verbError !== undefined) await reclaimScope(identity, io)
+    if (verbError !== undefined) {
+      await reclaimScope(identity, io)
+      /**
+       * AND A RETIRE RUNS ITS VERB AGAIN — the park's argument does not
+       * transfer (POD-2775, review round 2, finding 4).
+       *
+       * The branch above exists because repeating a PARK's `stop()` is not
+       * free: codex's stop is the path that flushes the rollout JSONL the next
+       * resume reads. That reasoning is entirely about `stop`. A retire's
+       * `kill()` is the only thing on this path that CLEARS THE BINDING
+       * JOURNAL — `reapByIdentity` clears it explicitly, `reapViaHandle` never
+       * did and never had to, because `kill()` always got there.
+       *
+       * So a retire whose `kill()` threw beside a process that died left the
+       * entry on disk. For opencode that entry holds the server's baseUrl AND
+       * its secret, and the host is required to keep those only as long as the
+       * session exists. A retired session's credential outliving it is a worse
+       * failure than the double-verb this branch was written to avoid — and
+       * `kill()` on an already-killed session is idempotent driver cleanup,
+       * which is what makes running it again the cheap side of that trade.
+       */
+      if (opts.retire) await repeatVerb()
+    }
   } else {
     log.warn('the server-driver process needs measured escalation', {
       sessionId,
@@ -371,19 +406,7 @@ async function reapViaHandle(
     // A RETIRE may run `kill()` again to finish the driver cleanup. A PARK
     // must repeat `stop()` instead: `kill()` clears the binding journal, which
     // is the address the next daemon uses to resume this parked session.
-    try {
-      await runBoundedHandleVerb(
-        opts.retire ? 'kill' : 'stop',
-        opts.retire ? () => handle.kill() : () => handle.stop(),
-      )
-    } catch (err) {
-      if (verbError === undefined) verbError = err
-      log.warn('could not complete the server-driver escalation verb', {
-        err,
-        sessionId,
-        verb: opts.retire ? 'kill' : 'stop',
-      })
-    }
+    await repeatVerb()
     dead = await pollDead(identity, KILL_GRACE_MS, io)
   }
   sendKillResult(

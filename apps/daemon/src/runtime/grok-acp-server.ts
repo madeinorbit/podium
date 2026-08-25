@@ -32,7 +32,7 @@ import {
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
-import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
+import { SERVER_GRACEFUL_EXIT_MS, SERVER_SYSTEMCTL_CALL_TIMEOUT_MS } from './server-teardown-budget'
 import {
   createVersionProbeCache,
   execVersionProbe,
@@ -190,7 +190,7 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
       const child = spawn('systemctl', [...args], { stdio: 'ignore' })
       child.once('exit', () => resolve())
       child.once('error', () => resolve())
-      const timer = setTimeout(resolve, 8_000)
+      const timer = setTimeout(resolve, SERVER_SYSTEMCTL_CALL_TIMEOUT_MS)
       timer.unref?.()
     })
   }

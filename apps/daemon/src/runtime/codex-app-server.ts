@@ -60,7 +60,7 @@ import { stateDir } from '@podium/runtime/config'
 import WebSocket, { type RawData } from 'ws'
 import { serverChildEnv } from '../control/session-env'
 import { stageRuntimeAttachment } from './attachment-staging'
-import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
+import { SERVER_GRACEFUL_EXIT_MS, SERVER_SYSTEMCTL_CALL_TIMEOUT_MS } from './server-teardown-budget'
 import {
   createVersionProbeCache,
   execVersionProbe,
@@ -466,7 +466,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       const done = (): void => resolve()
       child.once('exit', done)
       child.once('error', done)
-      const timer = setTimeout(done, 8000)
+      const timer = setTimeout(done, SERVER_SYSTEMCTL_CALL_TIMEOUT_MS)
       timer.unref?.()
     })
   }

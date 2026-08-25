@@ -28,6 +28,8 @@ import {
   SERVER_GRACEFUL_EXIT_MS,
   SERVER_HANDLE_VERB_TIMEOUT_MS,
   SERVER_SCOPE_RECLAIM_ALLOWANCE_MS,
+  SERVER_SCOPE_RECLAIM_WORST_MS,
+  SERVER_SYSTEMCTL_CALL_TIMEOUT_MS,
 } from './server-teardown-budget'
 
 const SESSION = 'sess-1' as SessionId
@@ -338,13 +340,30 @@ describe('teardown through a live handle — once per driver registry', () => {
    * the timeout structural; the second pins that a failed verb is no longer
    * read as a surviving process when the process was measured dead.
    */
-  it('bounds the verb ABOVE every graceful ending the drivers are defined to spend', () => {
-    // The declaration, stated as the inequality it exists to hold. Cheap, and it
-    // reads as the intent — but on its own it would survive someone giving
+  it('bounds the verb ABOVE the graceful ending, and NOT above the scope reclaim', () => {
+    // The declaration, stated as the inequalities it exists to hold. Cheap, and
+    // it reads as the intent — but on its own it would survive someone giving
     // `server-reap.ts` a local bound again, which is exactly how this defect
     // arrived. The behavioural pin below is the one that cannot.
     expect(SERVER_HANDLE_VERB_TIMEOUT_MS).toBeGreaterThan(SERVER_GRACEFUL_EXIT_MS)
     expect(SERVER_SCOPE_RECLAIM_ALLOWANCE_MS).toBeGreaterThan(0)
+    /**
+     * AND THE HALF THE ORIGINAL DECLARATION DENIED (POD-2775, review round 2,
+     * finding 5). It claimed the bound was above "everything those verbs are
+     * DEFINED to spend", which was false by 14 seconds: codex's `stop()` may
+     * spend the graceful window plus TWO `systemctl` calls, each carrying
+     * `SERVER_SYSTEMCTL_CALL_TIMEOUT_MS`.
+     *
+     * Asserting the allowance is BELOW that worst case is not pedantry — it is
+     * the difference between a bound that means "this driver is misbehaving" and
+     * one that means "the reclaim outran its allowance". Only the second is true
+     * here, and only the second is safe, because the reap decides escalation on
+     * the measured process rather than on this timer. Anyone raising the bound
+     * to cover systemd's worst case has to come through this line and read why
+     * it was not.
+     */
+    expect(SERVER_SCOPE_RECLAIM_ALLOWANCE_MS).toBeLessThan(SERVER_SCOPE_RECLAIM_WORST_MS)
+    expect(SERVER_SCOPE_RECLAIM_WORST_MS).toBe(2 * SERVER_SYSTEMCTL_CALL_TIMEOUT_MS)
   })
 
   it(
@@ -411,6 +430,56 @@ describe('teardown through a live handle — once per driver registry', () => {
     expect(io.systemctl.flat().join(' ')).toContain('podium-x-sess-1.scope')
     expect(killResult(sent)).toMatchObject({ killed: true })
     expect(killResult(sent)?.reason).toMatch(/timed out/)
+  })
+
+  it('a RETIRE whose kill threw runs it AGAIN — that verb is what clears the journal', async () => {
+    /**
+     * THE OTHER HALF OF THE TEST ABOVE, and the half that was lost when it
+     * landed (POD-2775, review round 2, finding 4).
+     *
+     * "Do not repeat the verb beside a dead process" is an argument about
+     * `stop`: repeating a park's stop re-runs the path that flushes codex's
+     * rollout JSONL. It does not transfer to `kill`. A retire's `kill()` is the
+     * ONLY thing on the handle path that clears the binding journal —
+     * `reapByIdentity` clears it explicitly, this path never did, because
+     * `kill()` always got there.
+     *
+     * So the assertion is on the JOURNAL rather than on the call count. A test
+     * that only counted `['kill','kill']` would stay green against a repeat
+     * that no longer clears anything, and the entry is the thing that matters:
+     * for opencode it holds the server's baseUrl AND its secret.
+     */
+    const journal = new Map<string, { baseUrl: string; secret: string }>([
+      [SESSION, { baseUrl: 'http://127.0.0.1:41234', secret: 'per-session-secret' }],
+    ])
+    const state: FakeProcessState = { alive: true, diesOn: 'never' }
+    let kills = 0
+    const { handle, calls } = fakeHandle({
+      pid: 4321,
+      scopeUnit: 'podium-x-sess-1.scope',
+      onKill: () => {
+        kills += 1
+        if (kills === 1) {
+          // The first kill overruns its bound — the child dies, the verb never
+          // gets to the journal clear at the end of its own body.
+          state.alive = false
+          return new Promise<void>(() => {})
+        }
+        journal.delete(SESSION)
+        return undefined
+      },
+    })
+    const { ctx, sent } = fakeCtx('opencodeRuntime', { handle })
+    const io = fakeIo(state)
+
+    await beginServerDriverReap(ctx, SESSION, { retire: true }, io)
+    await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
+
+    expect(calls).toEqual(['kill', 'kill'])
+    expect(journal.has(SESSION)).toBe(false)
+    // Still no raw signal at a corpse — the measurement is what decides that,
+    // and it decided the process was gone.
+    expect(io.signals).toHaveLength(0)
   })
 
   it('with no recorded pid the verbs are trusted, not measured — and nothing touches the process table', async () => {

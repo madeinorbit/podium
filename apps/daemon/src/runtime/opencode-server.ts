@@ -75,6 +75,7 @@ import {
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
+import { SERVER_SYSTEMCTL_CALL_TIMEOUT_MS } from './server-teardown-budget'
 import { stageRuntimeAttachment } from './attachment-staging'
 import type { OpencodeClientTerminals } from './opencode-attach'
 import {
@@ -448,7 +449,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       const done = (): void => resolve()
       child.once('exit', done)
       child.once('error', done)
-      const timer = setTimeout(done, 8000)
+      const timer = setTimeout(done, SERVER_SYSTEMCTL_CALL_TIMEOUT_MS)
       timer.unref?.()
     })
   }
