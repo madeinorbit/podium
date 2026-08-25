@@ -106,11 +106,17 @@ export function classifySetupStatus(
     : 'setup'
 }
 
-async function probeSetup(
-  httpOrigin: string,
-): Promise<Exclude<Phase, 'loading' | 'unreachable' | 'stale-build'>> {
+/** The phase, plus the readiness fact it was derived from when there was one.
+ *  The restart-required screen has to NAME what is stale (POD-2766), and the
+ *  phase alone cannot carry that. */
+interface ProbeResult {
+  readonly phase: Exclude<Phase, 'loading' | 'unreachable' | 'stale-build'>
+  readonly readiness?: ServerReadiness
+}
+
+async function probeSetup(httpOrigin: string): Promise<ProbeResult> {
   const res = await fetch(`${httpOrigin}/setup/config`) // rejects only when unreachable → caller retries
-  if (res.status === 404) return 'ready' // backend without the route → don't block the app
+  if (res.status === 404) return { phase: 'ready' } // backend without the route → don't block the app
   if (!res.ok) throw new Error(`setup probe failed: ${res.status}`)
   // A backend without the setup route serves the SPA's index.html for /setup/config (a 200 whose
   // body is HTML, not JSON) — e.g. a relay older than the route, or one out of sync with this
@@ -120,29 +126,35 @@ async function probeSetup(
   try {
     data = (await res.json()) as SetupStatus
   } catch {
-    return 'ready'
+    return { phase: 'ready' }
   }
   const localSetupHint = res.headers?.get('X-Podium-Local-Setup') === 'all-in-one'
-  return classifySetupStatus(data, window.location, undefined, localSetupHint)
+  return {
+    phase: classifySetupStatus(data, window.location, undefined, localSetupHint),
+    ...(isServerReadiness(data) ? { readiness: data } : {}),
+  }
 }
 
 /** Remote desktop modes must not expose setup mutations, but they still need the server-owned
  * readiness boundary. Older servers predate the public CORS-enabled endpoint, so an absent,
  * invalid, or unreachable probe retains their historical pass-through behavior. */
-async function probeRemoteReadiness(
-  httpOrigin: string,
-): Promise<Exclude<Phase, 'loading' | 'unreachable' | 'stale-build'>> {
+async function probeRemoteReadiness(httpOrigin: string): Promise<ProbeResult> {
   try {
     const response = await fetch(`${httpOrigin}/readiness`)
-    if (!response.ok) return 'ready'
+    if (!response.ok) return { phase: 'ready' }
     const status: unknown = await response.json()
     if (!isServerReadiness(status)) {
-      return status && typeof status === 'object' && 'state' in status ? 'remote-setup' : 'ready'
+      return {
+        phase:
+          status && typeof status === 'object' && 'state' in status ? 'remote-setup' : 'ready',
+      }
     }
-    if (status.state === 'ready' || status.state === 'degraded') return 'ready'
-    return status.state === 'activation_pending' ? 'restart-required' : 'remote-setup'
+    if (status.state === 'ready' || status.state === 'degraded') return { phase: 'ready' }
+    return status.state === 'activation_pending'
+      ? { phase: 'restart-required', readiness: status }
+      : { phase: 'remote-setup', readiness: status }
   } catch {
-    return 'ready'
+    return { phase: 'ready' }
   }
 }
 
@@ -151,6 +163,9 @@ async function probeRemoteReadiness(
 /** Gates the app on setup: shows SetupView until a deployment mode is configured. */
 export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   const [phase, setPhase] = useState<Phase>('loading')
+  /** The readiness behind the phase, so the restart-required screen can say WHICH
+   *  setting this process is stale on instead of "something changed" (POD-2766). */
+  const [readiness, setReadiness] = useState<ServerReadiness | undefined>(undefined)
   const [attempt, setAttempt] = useState(0)
   const httpOrigin = serverConfig(window.location).httpOrigin
 
@@ -165,7 +180,9 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
       let alive = true
       setPhase('loading')
       void probeRemoteReadiness(httpOrigin).then((next) => {
-        if (alive) setPhase(next)
+        if (!alive) return
+        setPhase(next.phase)
+        setReadiness(next.readiness)
       })
       return () => {
         alive = false
@@ -179,7 +196,9 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
     const run = (tries: number): void => {
       probeSetup(httpOrigin)
         .then((next) => {
-          if (alive) setPhase(next)
+          if (!alive) return
+          setPhase(next.phase)
+          setReadiness(next.readiness)
         })
         .catch(() => {
           if (!alive) return
@@ -255,7 +274,9 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
     const reprobe = (): void => {
       probeSetup(httpOrigin)
         .then((next) => {
-          if (alive) setPhase(next)
+          if (!alive) return
+          setPhase(next.phase)
+          setReadiness(next.readiness)
         })
         .catch(() => {})
     }
@@ -301,7 +322,12 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   if (phase === 'restart-required') {
     return (
       <Suspense fallback={null}>
-        <SetupView httpOrigin={httpOrigin} onSaved={onSetupSaved} blockedState="restart-required" />
+        <SetupView
+          httpOrigin={httpOrigin}
+          onSaved={onSetupSaved}
+          blockedState="restart-required"
+          {...(readiness?.stale ? { staleFields: readiness.stale } : {})}
+        />
       </Suspense>
     )
   }

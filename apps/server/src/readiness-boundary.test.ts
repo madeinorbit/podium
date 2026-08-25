@@ -12,6 +12,17 @@ const blocked: ServerReadiness = {
   state: 'unconfigured',
   reason: 'setup_required',
   dataPlane: 'blocked',
+  controlPlane: 'blocked',
+}
+
+/** Setup was SAVED and this process has not adopted it. Both planes differ from
+ *  `unconfigured`, and that difference is the whole of POD-2766. */
+const pending: ServerReadiness = {
+  state: 'activation_pending',
+  reason: 'restart_required',
+  dataPlane: 'blocked',
+  controlPlane: 'available',
+  stale: ['persistence'],
 }
 
 function appFor(isHostLocal: boolean, readiness: ServerReadiness = blocked) {
@@ -54,12 +65,13 @@ describe('server readiness boundary', () => {
       state: 'degraded',
       reason: 'agent_unavailable',
       dataPlane: 'available',
+      controlPlane: 'available',
     })
     expect((await app.request('/trpc/issues.list')).status).toBe(200)
     expect((await app.request('/files/asset/a')).status).toBe(200)
   })
 
-  it('keeps auth status public but blocks login/session mutation before activation', async () => {
+  it('keeps auth status public but blocks login/session mutation on an unconfigured server', async () => {
     const app = new Hono()
     app.use(
       '/auth/*',
@@ -69,6 +81,48 @@ describe('server readiness boundary', () => {
     expect((await app.request('/auth/status')).status).toBe(200)
     expect((await app.request('/auth/login', { method: 'POST' })).status).toBe(503)
     expect((await app.request('/auth/logout', { method: 'POST' })).status).toBe(503)
+  })
+
+  it('lets the operator log in while activation is pending, from anywhere [POD-2766]', async () => {
+    // THE LOCKOUT. The remedy for `activation_pending` is a restart, the restart
+    // needs an admin, and becoming one needs a login — which used to 503 exactly
+    // like the work it was protecting. The person who could fix the instance was
+    // the one person the guard kept out.
+    const app = new Hono()
+    app.use(
+      '/auth/*',
+      authReadinessBoundary(() => pending),
+    )
+    app.all('*', (c) => c.json({ ok: true }))
+    expect((await app.request('/auth/status')).status).toBe(200)
+    expect((await app.request('/auth/login', { method: 'POST' })).status).toBe(200)
+    expect((await app.request('/auth/logout', { method: 'POST' })).status).toBe(200)
+    // NOT all of /auth/*. Minting an account writes the live database, which is
+    // work, and work stays blocked until this process runs the config it was
+    // asked to run.
+    expect((await app.request('/auth/users', { method: 'POST' })).status).toBe(503)
+  })
+
+  it('serves the restart over the control plane while the data plane stays shut [POD-2766]', async () => {
+    // Remote, deliberately: `isHostLocal: false`. The locked-out operator was in
+    // a browser on the other side of the internet, so a host-local-only remedy is
+    // not a remedy — the login guard downstream is what keeps this authenticated.
+    const remote = appFor(false, pending)
+    expect((await remote.request('/trpc/setup.activate', { method: 'POST' })).status).toBe(200)
+    // Everything that is WORK is still refused, with the reason attached.
+    const refused = await remote.request('/trpc/sessions.list')
+    expect(refused.status).toBe(503)
+    expect(await refused.json()).toEqual({ error: 'server_not_ready', readiness: pending })
+    expect((await remote.request('/files/asset/a')).status).toBe(503)
+    // And a batch cannot smuggle work through beside the restart.
+    expect((await remote.request('/trpc/setup.activate,sessions.list')).status).toBe(503)
+  })
+
+  it('offers no control plane at all before the instance is configured', async () => {
+    // `unconfigured` has no account to authenticate and nothing saved to activate.
+    // Opening the restart here would be a free unauthenticated bounce lever.
+    const remote = appFor(false, blocked)
+    expect((await remote.request('/trpc/setup.activate', { method: 'POST' })).status).toBe(503)
   })
 
   it('recognizes direct host-local bootstrap but rejects proxy and public origins', () => {
@@ -97,7 +151,7 @@ describe('server readiness boundary', () => {
     expect(isHostSetupBootstrap(blocked, '/trpc/setup.complete', request, () => false)).toBe(false)
     expect(
       isHostSetupBootstrap(
-        { state: 'ready', reason: null, dataPlane: 'available' },
+        { state: 'ready', reason: null, dataPlane: 'available', controlPlane: 'available' },
         '/trpc/setup.complete',
         request,
         () => true,

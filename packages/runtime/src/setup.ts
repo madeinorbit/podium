@@ -186,7 +186,22 @@ export function applySetup(input: {
     // `podium` invocation sees a managed config whose backend is not up and
     // brings it up; there is no separate "intent" field and no plan state for
     // the gap (issue #20, retired). A box that already chose keeps its choice.
-    ...(prev.persistence ? {} : { persistence: 'systemd' as const }),
+    //
+    // ONLY ON FIRST RUN, and this condition is load-bearing (POD-2766). `persistence`
+    // is BOOT-RELEVANT: the running server compares it against the value it booted
+    // with and declares itself stale when they differ. Back-filling it on EVERY
+    // call meant `setup.complete` — which also carries the login password — wrote a
+    // process-shape field on a box that had never asked for one, and a password
+    // change tripped a topology guard and blocked the data plane behind it.
+    //
+    // It is not merely a redundant write either. POD-333 made absence an ANSWER at
+    // config v2: a configured box that names no `persistence` is one that is not
+    // headless-managed (the desktop sidecar, a container running the binary
+    // directly). Writing `systemd` over that answer tells the box something untrue
+    // about itself. `prev.mode` unset is the only moment nobody has answered yet.
+    ...(prev.mode === undefined && prev.persistence === undefined
+      ? { persistence: 'systemd' as const }
+      : {}),
   }
   saveConfig(cfg)
   return cfg

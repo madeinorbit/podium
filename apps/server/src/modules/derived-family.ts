@@ -149,6 +149,21 @@ export interface FamilyState {
    */
   readonly cloud?: Context['cloud']
   /**
+   * THE INSTANCE'S OWN LIFECYCLE, and the ability to turn it over (POD-2766).
+   *
+   * The pair `setup.activate` needs, and the two members that make this bundle
+   * widen in a diff a reviewer sees — which is what the header above asks for.
+   * `readiness` is a live reader rather than a value: the command refuses an
+   * instance that is not activation-pending, and a snapshot would let a stale
+   * screen restart a deployment that had already recovered.
+   *
+   * Both optional. A server assembled without them (tests, the in-process MCP
+   * caller) refuses to activate rather than reporting a restart that never
+   * happened.
+   */
+  readonly readiness?: Context['readiness']
+  readonly requestCoordinatorRestart?: Context['requestCoordinatorRestart']
+  /**
    * WHO IS ASKING — IDENTITY ONLY, and the shape is narrow on purpose.
    *
    * Four reads need to know whose rows to return or whose access to log:
@@ -401,6 +416,10 @@ export const familyState = (ctx: Context): FamilyState => ({
   ...(ctx.users ? { users: ctx.users } : {}),
   ...(ctx.loginRequired ? { loginRequired: ctx.loginRequired } : {}),
   cloud: ctx.cloud,
+  ...(ctx.readiness ? { readiness: ctx.readiness } : {}),
+  ...(ctx.requestCoordinatorRestart
+    ? { requestCoordinatorRestart: ctx.requestCoordinatorRestart }
+    : {}),
   caller: {
     userId: callerUserId(ctx),
     sessionState: sessionStatePrincipalFor(ctx.principal),

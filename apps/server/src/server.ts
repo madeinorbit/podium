@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { trpcServer } from '@hono/trpc-server'
 import { createLogger } from '@podium/logger'
-import { asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, controlPlaneAvailable, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   type LocalDaemonLink,
   MIN_SUPPORTED_VERSION,
@@ -955,8 +955,15 @@ export async function startServer(
     users: store.users,
     // One principal resolver for every human-client transport. The status route
     // reports this result; it does not recreate the open/dev bootstrap fallback.
+    //
+    // GATED ON THE CONTROL PLANE, not the data plane (POD-2766). While
+    // `activation_pending` the operator CAN log in — that is the whole point of
+    // the split — so a session that exists has to be reported as authed, or the
+    // login screen loops forever against a server that just accepted the
+    // password. It buys nothing else: every data-plane call is still 503 at the
+    // readiness boundary, whoever is holding the cookie.
     resolveUserId: (headers) =>
-      readiness().dataPlane === 'available' ? requestPrincipal(headers)?.user : undefined,
+      controlPlaneAvailable(readiness()) ? requestPrincipal(headers)?.user : undefined,
     loginRequired: credentialsRequired,
     trustedProxyHops,
     readiness,
@@ -1075,6 +1082,10 @@ export async function startServer(
           ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
           ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
           serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
+          // POD-2766: `setup.activate` — the restart an operator can reach while
+          // the data plane is blocked — reads this live and refuses any instance
+          // that is not activation-pending, so it never becomes a bounce lever.
+          readiness,
           // The web build is the server's own step now, not a systemd unit to
           // restart (POD-1985) — but the context shape is unchanged, so the
           // Update panel's "the website is behind" path still just calls this.

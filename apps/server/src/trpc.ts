@@ -1,4 +1,5 @@
 import { createLogger } from '@podium/logger'
+import type { ServerReadiness } from '@podium/model'
 import type { MobileWebIdentity, ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import type { TelemetryEmitter } from '@podium/telemetry'
 import { initTRPC } from '@trpc/server'
@@ -73,6 +74,10 @@ export interface Context {
   requestCoordinatorRestart?: () => void
   /** This coordinator's own install shape; absent remains unknown and visible. */
   serverInstallKind?: 'installed' | 'source'
+  /** This deployment's lifecycle projection, read live (POD-2766). `setup.activate`
+   *  needs it to refuse an instance that is not actually activation-pending, which
+   *  is what keeps a control-plane restart from being a remote bounce lever. */
+  readiness?: () => ServerReadiness
   /** This server process is supervised and replaced by the native desktop shell. */
   desktopSupervised?: boolean
   /** Installed coordinator-only exact-target delivery before the process-manager restart. */

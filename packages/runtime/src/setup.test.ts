@@ -84,6 +84,27 @@ describe('setup core', () => {
     applySetup({ publicUrl: 'https://box.ts.net' })
     expect(loadConfig().persistence).toBe('detached')
   })
+  it('applySetup invents no persistence for a box that already answered "none" [POD-2766]', () => {
+    // A CONFIGURED box with no `persistence` HAS answered: since config v2 that
+    // absence means "not headless-managed" — a desktop sidecar, or a container
+    // running the binary in the foreground.
+    //
+    // The back-fill used to run on every call, so `setup.complete` — which is
+    // also how a password is set — wrote `systemd` over that answer. Two things
+    // went wrong at once: the box was told something untrue about how it is
+    // supervised, and `persistence` is BOOT-RELEVANT, so the running server saw
+    // its config change underneath it, declared itself stale and shut the data
+    // plane. Login is behind the data plane, so setting a password locked the
+    // operator out of their own server.
+    saveConfig({ mode: 'all-in-one', publicUrl: 'https://sandbox.example.com' })
+    applySetup({ publicUrl: 'https://sandbox.example.com' })
+    expect(loadConfig().persistence).toBeUndefined()
+    // Everything the caller DID ask for still lands.
+    expect(loadConfig()).toMatchObject({
+      mode: 'all-in-one',
+      publicUrl: 'https://sandbox.example.com',
+    })
+  })
   it('applyJoin writes a daemon config from a join token', () => {
     const token = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1', name: 'box' })
     expect(applyJoin(token)).toEqual({ name: 'box' })

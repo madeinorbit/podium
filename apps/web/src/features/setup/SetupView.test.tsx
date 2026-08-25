@@ -10,6 +10,7 @@ const trpcMock = vi.hoisted(() => ({
   complete: vi.fn(),
   join: vi.fn(),
   connect: vi.fn(),
+  activate: vi.fn(),
   authStatus: vi.fn(),
 }))
 
@@ -26,6 +27,7 @@ vi.mock('@/app/trpc', async (importOriginal) => {
         complete: { mutate: trpcMock.complete },
         join: { mutate: trpcMock.join },
         connect: { mutate: trpcMock.connect },
+        activate: { mutate: trpcMock.activate },
       },
       auth: {
         status: { query: trpcMock.authStatus },
@@ -114,7 +116,63 @@ describe('SetupView', () => {
     )
     expect(screen.getByText(/setup is saved; podium needs to restart/i)).toBeTruthy()
     expect(screen.queryByText(/how should this install run/i)).toBeNull()
-    expect(screen.getByRole('button', { name: /retry after restart/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /retry/i })).toBeTruthy()
+  })
+
+  it('names the stale setting in words an operator can act on [POD-2766]', () => {
+    // "Something changed, restart" is what this screen used to say, and it left
+    // an operator unable to tell a change they made from one an unrelated call
+    // made for them — which is exactly how this state was reached.
+    render(
+      <SetupView
+        httpOrigin="http://localhost:18787"
+        onSaved={() => {}}
+        blockedState="restart-required"
+        staleFields={['persistence']}
+      />,
+    )
+    expect(screen.getByText(/how podium is kept running/i)).toBeTruthy()
+    // The config key itself is not what a human is shown.
+    expect(screen.queryByText(/^persistence$/)).toBeNull()
+  })
+
+  it('restarts the server from the browser, where no desktop shell exists [POD-2766]', async () => {
+    // THE REMEDY, ON THE SAME SCREEN AS THE PROBLEM. The locked-out operator was
+    // in a browser pointed at a remote box: a desktop-shell restart hook does not
+    // exist there, and "restart it on the server" was advice they could not take.
+    trpcMock.activate.mockResolvedValue({ state: 'restarting', stale: ['persistence'], from: 'dev' })
+    render(
+      <SetupView
+        httpOrigin="https://sandbox.example.com"
+        onSaved={() => {}}
+        blockedState="restart-required"
+        staleFields={['persistence']}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /restart podium now/i }))
+    await act(async () => {
+      await flush()
+    })
+    expect(trpcMock.activate).toHaveBeenCalled()
+    expect(screen.getByText(/restarting/i)).toBeTruthy()
+  })
+
+  it('tells an unauthenticated operator to sign in rather than reporting a crash', async () => {
+    // `setup.activate` is served while the data plane is blocked but still needs
+    // an admin session. A raw 401 on this screen reads as "the restart is broken".
+    trpcMock.activate.mockRejectedValue(new Error('UNAUTHORIZED'))
+    render(
+      <SetupView
+        httpOrigin="https://sandbox.example.com"
+        onSaved={() => {}}
+        blockedState="restart-required"
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /restart podium now/i }))
+    await act(async () => {
+      await flush()
+    })
+    expect(screen.getByText(/sign in as an admin/i)).toBeTruthy()
   })
 
   it('offers the native restart hook for activation pending in desktop', () => {

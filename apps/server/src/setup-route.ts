@@ -8,7 +8,8 @@ import type { Hono } from 'hono'
  * — one authenticated surface for every setup mutation — so there is no POST here.
  *
  * SECURITY: this route is unauthenticated by design (it must answer before login exists), so
- * it must never echo the config back. The config can hold credentials — `upstream.token` (a
+ * it must never echo the config back. The readiness projection it forwards is the only config
+ * fact allowed through, and `stale` forwards field NAMES rather than values for that reason. The config can hold credentials — `upstream.token` (a
  * hub-minted long-lived client-session token) and `pairCode` — which would otherwise be
  * readable by anyone who can reach the URL. Only setup-gating fields leave this route;
  * authenticated readers use the `setup.info` tRPC procedure. The local launcher capability
@@ -31,6 +32,13 @@ export function registerSetupRoute(
       state: readiness.state,
       reason: readiness.reason,
       dataPlane: readiness.dataPlane,
+      // The plane split and the stale field NAMES (POD-2766). Both are already
+      // public on /readiness and neither is a secret — `stale` carries config
+      // KEYS, never their values, which is what keeps it safe on an
+      // unauthenticated route while still letting the blocked screen say what it
+      // is waiting on.
+      ...(readiness.controlPlane ? { controlPlane: readiness.controlPlane } : {}),
+      ...(readiness.stale?.length ? { stale: readiness.stale } : {}),
     })
   })
 }
