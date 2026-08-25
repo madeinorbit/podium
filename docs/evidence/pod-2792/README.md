@@ -46,9 +46,47 @@ recorded rather than quietly fixed.
 
 ## The answer to the first question: does interrupt work on the terminal arm?
 
-**Unmeasured, and I am not going to pretend otherwise.** Seven runs across four
-harnesses; the control never fired once, each time for a reason that has nothing
-to do with interrupt:
+**No — and that makes this a PRE-EXISTING GAP, not a regression.** This section
+originally said the opposite, and the correction is kept in place rather than
+rewritten over, because how the wrong answer was reached is the useful part.
+
+POD-1761's acceptance drive measured the terminal arm while this work was in
+flight, using the signal that arm actually publishes — the PTY's own output
+bytes — where the measurement below could only reach for a phase that arm never
+sends. Their reading, control fired, same rig and commit:
+
+```
+INTERRUPT SENT    {"ok":true}
+TERMINAL BYTES    257 at the call -> +44049 after 6s -> +72080 after 12s
+TRANSCRIPT MARK   no item carries event:'interrupt'
+```
+
+72 KB of output after a call that reported success. So the stop was already
+broken on the old path, and the headless work inherited it rather than causing
+it. **It does not block the release**, and a fix that mends only the new path
+would leave the old one lying in exactly the same way.
+
+### What I got wrong, and what survives
+
+I reported REGRESSION. That was wrong at the OUTCOME level. The delivery finding
+below is a different defect and still stands on its own measurement: on the
+headless arm the stop never reached the driver **at all** — the daemon said so,
+naming the session. What I did was infer the outcome from the delivery: the
+discard branch exists only for contract sessions, so on main the key always
+reached a terminal, so — I reasoned — the stop worked there. "The key arrived"
+is not "the stop worked", and I had already written down that the terminal
+outcome was unmeasured. The inference was one step too far past my own evidence.
+
+One thing not to generalise in the other direction either: **that reading is
+opencode only.** POD-1214 measured and pinned the per-harness keys — Esc cancels
+claude-code and grok, codex ignores Esc and cancels on Ctrl-C — so "equally
+broken on main" is established for opencode-on-terminal and not yet for the
+other three.
+
+### Why this rig could not take that reading
+
+Seven runs across four harnesses; the control never fired once, each time for a
+reason that has nothing to do with interrupt:
 
 | harness | why the terminal cell could not be measured | reading |
 |---|---|---|
@@ -57,13 +95,66 @@ to do with interrupt:
 | grok | the session errors instead of running a turn | `readings/grok-terminal-interrupt-cell.log` |
 | claude | the session exits immediately in the isolated agent home | `readings/claude-terminal-phase-trace-exited.log` |
 
-POD-2777 hit the same wall from the other side: its terminal-arm interrupt cell
-REFUSED, and its terminal column is still marked INCOMPLETE.
+POD-2777 hit the same wall, and then went round it: they changed WHO establishes
+the control rather than what it is, so on the terminal arm flight is proved by
+the PTY's output bytes growing instead of by a phase that arm never publishes.
+That is the reading above, and it is the one this section should have waited
+for.
 
-**So the question was answered a different way, by measuring the delivery
-instead of the outcome** — see below. That reading is decisive and it needs no
+**The delivery reading below still stands on its own**, and it needs no
 in-flight phase on the terminal side at all, because the asymmetry is in the
 daemon and is visible in its own log.
+
+## Why the terminal stop does not land: it is the KEY, not the delivery
+
+Their reading says the outcome is wrong; it does not say why, and the two
+candidate whys need different fixes. So four keys were driven at one running
+terminal opencode turn, each on its own fresh turn, each measured the same way
+(`terminal-key-probe.ts`, reading `readings/opencode-terminal-keys-AB.log`):
+
+| what was sent | PTY bytes after | reading |
+|---|---|---|
+| `sessions.interrupt` — the product's own path | +98,145 over 14 s | kept generating |
+| a raw `\x1b` typed as client terminal input | (round refused — no running turn) | — |
+| `\x03` (Ctrl-C) | 6,770 in the first 2 s, then **nothing for 18 s** | output stopped — but see below |
+
+**The ESC does reach the PTY.** `grep 'bridgeless contract session'` over the
+daemon log for this whole run: **0**. A terminal-family session has a bridge and
+the byte is written to it, which is the difference from the headless arm.
+
+**And opencode's TUI advertises the key.** Its own footer, read off the screen
+tail: `esc interrupt`. The binary agrees —
+`session_interrupt: H("escape", "Interrupt current session")`. So the manifest's
+`interruptKey: 'esc'` is right, the byte arrives, and the turn runs on anyway.
+
+**Ctrl-C is not the answer, and reading it as one would have been the worse
+bug.** The screen tail after that round is opencode's EXIT screen —
+`Session … / Continue  opencode -s ses_…` — and every later round found no
+running turn. Ctrl-C did not cancel the turn; it quit the CLI, while the session
+was BUSY. That is precisely the failure POD-1214's `interruptQuitsWhenIdle`
+guard exists to prevent, and opencode declares that flag `false`. Nothing is at
+risk today, because opencode's key is Esc and Ctrl-C is never sent to it — but
+the flag is measured wrong, and it is one manifest edit away from mattering.
+
+So the remaining terminal-arm defect is in the TUI's key handling, not in
+anything this repo delivers to it. `opentui` — opencode's input layer — carries
+both a kitty-keyboard path and an escape-disambiguation timeout, either of which
+would explain a lone `0x1b` being read as an incomplete sequence rather than as
+the Escape key. Chasing that is an upstream input-parser investigation and it is
+filed rather than guessed at.
+
+### What this rig learned about its own measurement
+
+A first pass let each round inherit the previous round's session, and produced a
+result I nearly believed: rounds 2 and 4 read as STOPPED while 1 and 3 kept
+generating, which looked like the product's path being broken where a plain
+keypress was not. **A TUI redraw is also output bytes** — cancelling a turn
+repaints a long transcript, tens of KB of it — so a round could fire its control
+on the repaint of an already-finished turn and then "stop" something that had
+already stopped. That is the trap the control exists to prevent, reached through
+the one signal this arm publishes. Every round now starts its own turn and
+requires growth in TWO consecutive samples. Both readings are kept:
+`opencode-terminal-keys-round1-flawed.log` and `opencode-terminal-keys-AB.log`.
 
 ## The answer to the second question: does the frame reach the server?
 
@@ -154,6 +245,12 @@ reach `idle`.
 ## Two things this drive found and did not fix
 
 - **POD-2793** — opencode on the terminal path never reports it is working. The
-  reason the terminal column above is empty.
+  reason this rig could not measure the terminal column itself.
 - **POD-2804** — a stopped headless turn leaves no `event:'interrupt'` mark in
   the transcript. The turn stops; the record does not say you stopped it.
+- **POD-2809** — the terminal-arm stop does not cancel an opencode turn. The key
+  arrives, the TUI advertises it, nothing happens; Ctrl-C quits the CLI instead
+  of cancelling. Not a regression, not a release blocker, and superseded for
+  anyone on the headless path — but the old path still lies about it in the one
+  way this issue has not closed: `ok` there means "the key was typed", which is
+  true, and the operator still has no signal that it did nothing.
