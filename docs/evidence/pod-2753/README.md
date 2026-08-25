@@ -138,7 +138,7 @@ exists without a real session behind it, and one live turn per thread is enforce
 That claim is proven in `apps/daemon/src/claude-sdk-client.test.ts`, which runs two
 real child processes, kills one mid-turn and requires the other to complete.
 
-## Round 2: four things an adversarial review broke, and one claim I overstated
+## What an adversarial review broke, over three rounds
 
 An independent reviewer in its own checkout broke this change four ways. All four
 are fixed and every fix is mutation-checked. They are recorded here rather than
@@ -178,6 +178,55 @@ quietly repaired, because the shape they share is the point.
 Plus one the reviewer found in the host: **it did not wind down when its daemon
 died mid-turn**, though its own comment said it did — the EOF branch only handled
 the no-turn-yet case, so an orphaned host kept a live model session running.
+
+### Round 3: the defeat battery, and my first fix failing it
+
+The reviewer then derived, **before this fix was written**, the full set of ways
+to get a module into the daemon's heap past an import-graph walk. Two results
+matter more than the rest.
+
+**A0 — one character.** `extractImports`'s specifier group is `['"]`, so
+``await import(`@anthropic-ai/claude-agent-sdk`)`` is invisible to it. No
+indirection, no new idiom: a backtick instead of a quote, which is what a
+half-finished interpolation or an argument about autoformatting leaves behind.
+Nothing else in the repo caught it either.
+
+**And my first fix for the `createRequire` finding failed its own battery.** It
+followed `const req = createRequire(…)` and was defeated by
+`createRequire as cr` — a guard pinned to one spelling of the thing it guards,
+which is the same defect a third time, in the fix for the second one. I found
+that by building the reviewer's battery and running it against my own work,
+which is the only reason it is not still there.
+
+So the fix is a **ban, not a parser**. Three of the thirteen shapes
+(`require(a + b)`, `await import(r.resolve(x))`, a requirer exported across a
+module boundary) cannot be resolved by any static walker, and the rest differ
+only in where the requirer is parked — a const, an alias, a property, a rebound
+binding. Chasing them is an arms race the walker loses. The daemon's graph may
+not hold the capability at all: `createRequire` must be obtained before it can
+be hidden, so banning the token bans every spelling of every shape at once.
+Files that need it are listed with the exact specifiers they may load, and that
+list is checked — an allowance that does not pin its own specifiers is a hole
+with a comment on it.
+
+Measured after the fix, all fourteen shapes red including the three controls:
+
+```
+S0   RED  quoted static import          A3   RED  alias of the requirer
+S0b  RED  quoted await import()         A4   RED  requirer on a property
+S0c  RED  quoted require()              A5   RED  resolve then import
+A0   RED  template-literal import       A6   RED  concatenated specifier
+A0b  RED  template-literal requirer     A7   RED  requirer exported across modules
+A1   RED  direct createRequire call     A8   RED  rebound requirer
+A2   RED  the house idiom               A2b  RED  house idiom under an import alias
+```
+
+Before the fix: **3 controls red, 10 defeats green.** The shapes now live as a
+table in `claude-sdk-isolation.test.ts` so they run in CI, plus
+`defeat-battery.sh` here which drives the whole test against a really-modified
+file. Removing the ban turns nine of the table entries red. There is also a
+false-positive control on ordinary code, because a ban that fires on everything
+is not a guard — it is noise that gets deleted.
 
 ### A claim I overstated, corrected
 
