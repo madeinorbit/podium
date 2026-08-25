@@ -50,16 +50,18 @@ a rig cannot. `drive-up.sh` writes the one field readiness reads.
 
 ## What the drive found
 
-Run on 2026-08-25 against `bd5d991ae22609e8553a5450e28b6133e0c331c5`, verified by
+Re-run on 2026-08-25 against `badd8a9c350e6aa2f72a676548eb944f66bad2f3` — after the
+round-2 fixes changed timeout and shutdown behaviour, so the drive is evidence about
+the code that ships rather than about an earlier commit. Verified by
 `drive-verify.sh` before any measurement was taken.
 
 ```
 PASS  CONTROL a Claude turn completes through the child host — the assistant replied "ALIVE"
-PASS  TOPOLOGY the SDK runs in an OS child of the daemon — host pid 2785510, parent 2763359
+PASS  TOPOLOGY the SDK runs in an OS child of the daemon — host pid 2879184, parent 2876993
       host argv: bun --conditions=@podium/source .../apps/daemon/src/claude-sdk-host.ts
-PASS  the daemon survived the kill — pid 2763359
+PASS  the daemon survived the kill — pid 2876993
 PASS  the instance still serves after the kill
-PASS  the killed turn ended rather than hanging — 2.3s after the kill
+PASS  the killed turn ended rather than hanging — 2.1s after the kill
 PASS  the killed turn told its human what happened
 PASS  the daemon ran Claude again normally after losing a host
 ```
@@ -90,8 +92,8 @@ assertion:
    that module is spawned by exactly one thing in product code —
    `claude-sdk-client.ts`. The durable driver spawns the claude CLI under abduco
    and never spawns this.
-2. **The pid.** The pid killed (`2785510`) is the same pid observed as a child of
-   the daemon (`2763359`), not a different process that happened to die nearby.
+2. **The pid.** The pid killed (`2879184`) is the same pid observed as a child of
+   the daemon (`2876993`), not a different process that happened to die nearby.
 3. **The message.** What the human was shown —
    "the Claude model host process exited on SIGKILL before the turn finished" —
    is emitted at exactly one place in product code, `claude-sdk-client.ts:159`.
@@ -136,7 +138,58 @@ exists without a real session behind it, and one live turn per thread is enforce
 That claim is proven in `apps/daemon/src/claude-sdk-client.test.ts`, which runs two
 real child processes, kills one mid-turn and requires the other to complete.
 
-## Three wrong observables, recorded because the next person will reach for them
+## Round 2: four things an adversarial review broke, and one claim I overstated
+
+An independent reviewer in its own checkout broke this change four ways. All four
+are fixed and every fix is mutation-checked. They are recorded here rather than
+quietly repaired, because the shape they share is the point.
+
+**Every one was a guard whose coverage was an inventory rather than a property.**
+
+1. **`createRequire` is an import edge and the walker could not see it.**
+   `const req = createRequire(import.meta.url)` then `req('pkg')` loads into this
+   process's heap, and the walker needs a literal after a `require`/`import`
+   token. Two lines at module scope in `headless-drivers.ts` put a callable
+   `query` in the daemon's heap with the suite **7/7 green**. Worse: the idiom is
+   already live in three files in this graph, and **node-pty — a native addon in
+   the daemon's address space — was visible to the walk only because an unrelated
+   `typeof import('node-pty')` type annotation sat beside it.** Deleting that
+   annotation as a tidy-up would have removed a native addon from the walk in
+   silence. The walker now follows `createRequire` aliases and *refuses* a call
+   whose specifier it cannot resolve.
+
+2. **The roots were a hand-written list.** `scripts/cli.ts` and `scripts/host.ts`
+   each host a daemon in-process and were in nobody's list, so a static SDK import
+   in either left the suite green. Roots are now **derived** from what a module
+   does — calls `startDaemon`, imports the daemon module, or reads `parentPort`.
+
+3. **The compiled-binary pin was a spelling check**, defeated by one hop: a new
+   `scripts/` module re-exporting the host, statically imported by
+   `cli-compiled.ts`. Zero name-grep matches, 59.8 MB of heap, suite green. The
+   compiled entry is now *walked*; only its direct, dynamic, sentinel-guarded edge
+   is dropped.
+
+4. **A timed-out turn reported SUCCESS with truncated output.** `interrupt` ends
+   the SDK stream gracefully, so the host sends `done`, and the client resolved
+   it. A 30-second superagent budget was enough to show a human half a sentence as
+   the assistant's complete reply. The driver this replaced ended with
+   `if (interrupted) fail('turn timed out')`; losing that was a regression.
+
+Plus one the reviewer found in the host: **it did not wind down when its daemon
+died mid-turn**, though its own comment said it did — the EOF branch only handled
+the no-turn-yet case, so an orphaned host kept a live model session running.
+
+### A claim I overstated, corrected
+
+Commit `4cef94ec1` says the isolation test was "proven to go red four ways,
+including a two-hop re-export on which a grep scores zero matches". **The fourth
+way did not test that.** Its chain was a plain two-hop *import*; blinding
+re-export edges entirely left the suite green — a vacuity control that was itself
+vacuous. The control now builds a real `export … from` chain on disk. The
+capability was never unguarded (the boundary suite catches it 16 ways), but the
+sentence in that commit message was wrong and this is the correction.
+
+## Five wrong observables, recorded because the next person will reach for them
 
 The drive was wrong three times before it was right, each time in the direction of
 a **false negative** — a passing system reported as broken:
@@ -153,3 +206,27 @@ a **false negative** — a passing system reported as broken:
    successful reply is written by the harness to its own JSONL. `watermarkItemId`
    does not advance per turn either. Success has to be read from the transcript,
    which is where the human's answer actually lands.
+4. **`drive-verify.sh`'s own check 4 could not fail** — the worst one, because it
+   was in the script whose stated job is refusing unproven measurements. It
+   grepped `/proc/<daemon>/map_files` and `/proc/<daemon>/fd` for the package
+   name. A JS module is `read()` and closed, never mmapped, so a process holding a
+   **callable `query()`** shows:
+
+   ```
+   /proc/<pid>/maps      matching claude-agent-sdk : 0
+   /proc/<pid>/map_files matching                  : 0
+   /proc/<pid>/fd        matching                  : 0
+   /proc/<pid>/maps      mentioning anthropic      : 0
+   ```
+
+   Measured directly, not argued. There is no external detector for "this process
+   has a JS module loaded", so the script stopped pretending: the property is
+   static, and check 4 now runs the isolation walk against the commit the running
+   processes were started from — which checks 1 and 2 have already tied to those
+   processes. Side by side on the same live daemon with the SDK reintroduced
+   through `createRequire`: the old check printed `map_files=0 fd=0 → VERIFIED`;
+   the new one exits non-zero with *the SDK is reachable from a daemon-hosting
+   entry point*.
+5. A vacuity control that was itself vacuous — see the round-2 section above. If
+   you write a control to prove a walker can see mechanism X, break X and watch
+   the control go red, or you have tested nothing.
