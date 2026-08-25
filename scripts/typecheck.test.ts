@@ -4,6 +4,8 @@ import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   assessWorkspaceLinks,
+  availableMb,
+  decideConcurrency,
   decideForce,
   fingerprint,
   sharedTurboCacheDir,
@@ -172,5 +174,60 @@ describe('assessWorkspaceLinks', () => {
     expect(assessWorkspaceLinks(['model:packages/model', 'runtime!EXTERNAL']).error).toContain(
       'outside this checkout',
     )
+  })
+})
+
+describe('decideConcurrency', () => {
+  // The machine this was measured on: 6 cores, 11.9GB, ~817MB peak per tsgo.
+  const box = (mb: number) => ({ cores: 6, availableMb: mb })
+
+  it('caps by MEMORY when memory is the scarce thing', () => {
+    // The incident: load 90, 859MB available, turbo happily starting ten.
+    expect(decideConcurrency([], box(859)).cap).toBe(1)
+    // 5GB looks roomy and is not: the cap must not spend all of it, because the
+    // daemon and every other session are in the same 12GB.
+    expect(decideConcurrency([], box(5000)).cap).toBe(3)
+  })
+
+  it('reserves headroom for everything else on the box', () => {
+    // Without a reserve, 2000MB would read as "two compilers", i.e. 1.8GB of the
+    // 2GB left, and the daemon dies instead of the gate.
+    expect(decideConcurrency([], box(2000)).cap).toBe(1)
+  })
+
+  it('caps by CORES when memory is plentiful, leaving one for everything else', () => {
+    // 32GB would allow 35 by memory; the box still has six cores, and the daemon,
+    // the live sessions and any running instance are on them too.
+    expect(decideConcurrency([], box(32_000)).cap).toBe(5)
+  })
+
+  it('never proposes zero, however starved the box is', () => {
+    // Refusing to run at all is the failure this cap exists to avoid, not a
+    // safety feature: one at a time is slow, but it finishes.
+    expect(decideConcurrency([], box(0)).cap).toBe(1)
+    expect(decideConcurrency([], box(10)).cap).toBe(1)
+  })
+
+  it('gets out of the way when the caller sets --concurrency, in either spelling', () => {
+    expect(decideConcurrency(['--concurrency=8'], box(859)).cap).toBeNull()
+    expect(decideConcurrency(['--concurrency', '8'], box(859)).cap).toBeNull()
+    // A different flag that merely starts the same way must NOT count as one.
+    expect(decideConcurrency(['--concurrency-limit=8'], box(32_000)).cap).toBe(5)
+  })
+})
+
+describe('availableMb', () => {
+  it('reads MemAvailable, not MemFree', () => {
+    // MemFree ignores reclaimable page cache and undercounts badly; a cap built on
+    // it would serialise a machine that is actually fine. This box reported 221MB
+    // free and 1540MB available at the same instant.
+    const meminfo = ['MemTotal:       12244000 kB', 'MemFree:          226000 kB', 'MemAvailable:    1577000 kB', ''].join('\n')
+    expect(availableMb(meminfo)).toBe(1540)
+  })
+
+  it('falls back rather than returning zero when the field is absent', () => {
+    // A kernel without MemAvailable must not read as "no memory", which would
+    // pin concurrency at 1 forever on every non-Linux host.
+    expect(availableMb('MemTotal: 12244000 kB\n')).toBeGreaterThan(0)
   })
 })
