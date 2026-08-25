@@ -384,6 +384,18 @@ write_real_desktop_manifest() {
 }
 
 start_real_release_feed() {
+  # SERVE WITH THE HOST'S FEED SCRIPT, NOT THE SOURCE CHECKOUT'S.
+  #
+  # `/work/source` is whatever ref the run selected — HEAD normally, but
+  # `HOLD_REF` in hold mode — so the copy of `edge-feed.ts` in there is not
+  # necessarily the one this lane was written against. It bit exactly that way:
+  # a hold run served the epic branch's feed, which only knows the rolling `edge`
+  # directory, so every stable URL 404'd and the old resolver reported
+  # "release manifest returned HTTP 404" instead of the pairing refusal. The row
+  # was right to stay red — it requires the SPECIFIC refusal — but the cause had
+  # nothing to do with the product. The harness travels with the harness.
+  docker cp "$ROOT/scripts/docker-update-e2e/edge-feed.ts" \
+    "$SOURCE:/tmp/real-release-feed.ts"
   container_exec "$SOURCE" bash -lc '
     set -euo pipefail
     mkdir -p /tmp/server-edge
@@ -402,7 +414,7 @@ start_real_release_feed() {
     "$SOURCE" bash -lc '
       set -e
       test -d "$PODIUM_EDGE_FEED_ROOT"
-      nohup /home/podium/.local/bin/bun /work/source/scripts/docker-update-e2e/edge-feed.ts \
+      nohup /home/podium/.local/bin/bun /tmp/real-release-feed.ts \
         >>/tmp/server-edge.log 2>&1 </dev/null &
       echo $! >/tmp/server-edge.pid
     '
@@ -556,12 +568,27 @@ run_real_release_lane() {
   point_real_release_at_feed
   seed_real_release_data ||
     { fail real-release-install "the real $REAL_RELEASE_VERSION install could not record pre-upgrade data"; return 1; }
+  # THE FEED IS REACHING IT, PROVEN SEPARATELY. Without this the refusal row's own
+  # failure message offers two hypotheses — "the feed is not reaching it or the
+  # refusal moved" — and distinguishes neither, which is how a harness fault reads
+  # as a product finding.
+  if ! wait_for 60 "the spoofed stable feed from the consumer" \
+      container_http_probe "$REAL_CONSUMER" GET \
+      "https://github.com/madeinorbit/podium/releases/latest/download/podium-update.json"; then
+    container_http_capture "$REAL_CONSUMER" GET \
+      "https://github.com/madeinorbit/podium/releases/latest/download/podium-update.json" || true
+    printf '%s\n' "$HTTP_STATUS $HTTP_BODY" >"$WORK/logs/real-release-feed-probe.txt"
+    fail real-release-pairing-refusal \
+      "the run-local stable feed never served podium-update.json to the consumer, so nothing downstream is a statement about the old resolver; see logs/real-release-feed-probe.txt"
+    return 1
+  fi
   if wait_for 120 "the old resolver's refusal" real_refusal_names_desktop_pairing; then
     pass real-release-pairing-refusal \
       "with the desktop manifest at a different version the real $REAL_RELEASE_VERSION resolver refused the whole target, naming the desktop pairing — the stranding POD-2789 records, reproduced by the old code itself"
   else
+    real_rpc GET updates.fleet >"$WORK/logs/real-release-refusal-fleet.json" 2>&1 || true
     fail real-release-pairing-refusal \
-      "the real $REAL_RELEASE_VERSION resolver did not refuse a divergent desktop pairing; either the feed is not reaching it or the refusal moved"
+      "the real $REAL_RELEASE_VERSION resolver did not name the desktop pairing; it said: $(real_channel_check)"
     return 1
   fi
 

@@ -86,6 +86,20 @@ describe('real-release row expectations still match the code they describe', () 
     expect(baked).toHaveLength(60)
   })
 
+  it('serves the feed with the HOST script, not whatever ref the source checkout is on', () => {
+    // `/work/source` is HEAD normally and HOLD_REF in hold mode, so the copy of
+    // edge-feed.ts in there is not necessarily the one this lane needs. A hold run
+    // served the epic branch's copy, which knows only the rolling `edge` directory,
+    // and every stable URL 404'd.
+    expect(lane).not.toContain('/work/source/scripts/docker-update-e2e/edge-feed.ts')
+    expect(lane).toMatch(/docker cp "\$ROOT\/scripts\/docker-update-e2e\/edge-feed\.ts"/)
+  })
+
+  it('proves the feed reaches the consumer before blaming the old resolver', () => {
+    // Otherwise a harness fault reads as a product finding.
+    expect(lane).toContain('the run-local stable feed never served podium-update.json')
+  })
+
   it('installs the DEFAULT instance, because a released 0.1.0 cannot complete a named one', () => {
     // Guarding the reason rather than the symptom: a later edit that reintroduces
     // `--instance` would reintroduce the adoption wedge and the port divergence
