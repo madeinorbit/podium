@@ -4,9 +4,14 @@
 #   bash docs/evidence/pod-2753/defeat-battery.sh
 #
 # Derived by an independent reviewer BEFORE the fix was written — thirteen ways to
-# get a module into the daemon's heap past an import-graph walk. It injects each
-# shape at module scope into headless-drivers.ts, runs claude-sdk-isolation.test.ts,
-# reverts, and reports by name. Refuses a dirty tree and re-checks at the end.
+# get a module into the daemon's heap past an import-graph walk, plus A2b, which is
+# the spelling that defeated the first attempt at the fix. FOURTEEN shapes; the
+# count is not written down anywhere on purpose, because it was wrong here once —
+# the reconciliation at the bottom derives it from the CI table instead.
+#
+# It injects each shape at module scope into headless-drivers.ts, runs
+# claude-sdk-isolation.test.ts, reverts, and reports by name. Refuses a dirty tree
+# and re-checks at the end.
 #
 # The shapes also live as a TABLE in claude-sdk-isolation.test.ts, which is what
 # runs in CI. This script exists because the table asserts against the scanners
@@ -29,12 +34,13 @@ BROKEN=0
 # import sitting in headless-drivers.ts twice. The sentinel below is the only
 # protection that survives being killed uncatchably: it is written before the
 # first mutation and removed after the last restore, so its presence at startup
-# means a previous run did not finish, and the pristine copy beside it is what the
-# file should be. Sequenced ahead of the dirty-tree refusal deliberately — that
-# refusal cannot tell this script's own leftover from somebody's work in progress.
-# Repairs from GIT, not from a copy in /tmp. The target is a committed file, so
-# git is the authority on what it should be; a backup beside the sentinel is one
-# more thing that can be stale or missing when it is needed most.
+# means a previous run did not finish. Sequenced ahead of the dirty-tree refusal
+# deliberately — that refusal cannot tell this script's own leftover from
+# somebody's work in progress.
+#
+# Repairs from GIT, not from a copy in /tmp: the target is a committed file, so
+# git is the authority on what it should be, and a backup file is one more thing
+# that can be stale or missing exactly when it is needed.
 MARK=/tmp/battery-in-progress
 if [ -f "$MARK" ]; then
   if ! git diff --quiet -- "$TARGET" 2>/dev/null; then
