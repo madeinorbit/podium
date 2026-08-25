@@ -757,8 +757,19 @@ advertised_url_reachable() {
   fi
   host="${advertised#*://}"
   host="${host%%/*}"
-  host="${host%%:*}"
-  if [[ "$host" == localhost || "$host" == 127.* || "$host" == '[::1]' ]]; then
+  if [[ "$host" == \[*\]* ]]; then
+    # An IPv6 literal is bracketed, so the port is not simply "after the colon";
+    # cutting at the first colon would leave `[` and the check below would never
+    # fire for `http://[::1]:<port>`.
+    host="${host%%\]*}]"
+  else
+    host="${host%%:*}"
+  fi
+  # `0.0.0.0` belongs here and is the least obvious member: on Linux curl dials
+  # it as localhost, so an instance advertising the address it BOUND rather than
+  # the one it is reached at would answer this row's fetch and reach nobody.
+  if [[ "$host" == localhost || "$host" == 127.* || "$host" == 0.0.0.0 ||
+    "$host" == '[::1]' ]]; then
     fail advertised-url \
       "the coordinator advertises $advertised — a loopback address, which answers here and reaches no client anywhere else"
     return 1

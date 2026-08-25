@@ -205,6 +205,29 @@ describe('the advertised-url row', () => {
     expect(verdict.detail).toContain('loopback')
   })
 
+  it('reddens on 0.0.0.0, the least obvious loopback of the three', async () => {
+    // Measured, not assumed: `curl http://0.0.0.0:<port>` answers 200 on Linux.
+    // So an instance that advertised the address it BOUND instead of the one it
+    // is reached at would pass a fetch-only row while reaching nobody.
+    const verdict = await row({ info: '{"publicUrl":"http://0.0.0.0:32780"}', fetchOk: true })
+    expect(verdict.result).toBe('FAIL')
+    expect(verdict.detail).toContain('loopback')
+  })
+
+  it('reddens on a bracketed IPv6 loopback, port and all', async () => {
+    // The bracket is why this needs its own case: cutting the host at the first
+    // colon leaves `[`, and the check would silently never fire.
+    const verdict = await row({ info: '{"publicUrl":"http://[::1]:32780"}', fetchOk: true })
+    expect(verdict.result).toBe('FAIL')
+    expect(verdict.detail).toContain('loopback')
+  })
+
+  it('does not mistake a routable IPv6 address for the loopback', async () => {
+    const verdict = await row({ info: '{"publicUrl":"http://[fd7a:115c:a1e0::1]:32780"}' })
+    expect(verdict.result).toBe('PASS')
+    expect(verdict.fetched).toBe('http://[fd7a:115c:a1e0::1]:32780/version')
+  })
+
   it('reddens when setup completed with no advertised address at all', async () => {
     const verdict = await row({ info: '{"publicUrl":null}' })
     expect(verdict.result).toBe('FAIL')
