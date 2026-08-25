@@ -99,6 +99,84 @@ measures the easy ordering and would have passed on the broken build. The delay
 is 8.5 s because that is what POD-2745's codex drive and POD-2773's used, kept
 identical so three drives' numbers stay comparable.
 
+## THE CLAUDE CLAIM, DECOMPOSED — what is driven and what is not
+
+The epic's central promise is that harnesses staying on the terminal path are no
+worse. That promise cannot rest on an untouched diff: **against main this epic
+adds `packages/agent-runtime/src/drivers/terminal` ENTIRELY** — 1,554 lines
+across `index.ts`, `injection.ts` (571 lines), `paste.ts`, `capabilities.ts`,
+`envelope.ts`, `permitted-failures.ts`. Claude runs on brand-new code.
+
+**THE SHARED SUBSTRATE IS DRIVEN.** `codex/generic-pty` and `grok/generic-pty`
+exercise the same `injection.ts`, `paste.ts` and `index.ts` that `claude-pty`
+uses. Every cell scored on a terminal harness is coverage of the code claude
+depends on, which is why finishing the codex terminal column matters beyond
+codex.
+
+**THE CLAUDE COLUMN ITSELF IS DRIVEN** — reply, stop and resume PASS, attach
+FAIL. See the matrix.
+
+**THE UNTESTED DELTA, named precisely.** What remains claude-specific and is NOT
+covered by any terminal-harness cell:
+
+| file | lines changed | what it does |
+|---|---|---|
+| `packages/harness/src/manifests/claude-code.ts` | +56 | claude's launch/probe manifest |
+| `packages/harness/src/agent-state/claude-screen.ts` | +83 (new) | screen classification for claude's TUI |
+| `packages/harness/src/agent-state/claude-code.ts` | +15 | claude's agent-state folding |
+
+A named residual is a releasable risk. An unmeasured column is not — which is
+why the list is here rather than a sentence saying "claude is mostly fine".
+
+### Why claude cannot simply be driven harder
+
+Recorded so nobody tries to fix this by copying credentials more carefully.
+**claude authenticates by OAuth only** — no `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY`
+or `ANTHROPIC_AUTH_TOKEN` exists on this box. The rig's isolated agent home holds
+a COPY of the operator's token, and **a refresh in either home ROTATES the
+refresh token and invalidates the other holder**. That is how the rig's copy came
+back `401 OAuth access token has been revoked`.
+
+Re-seeding is safe only inside the access token's validity window (a refresh
+fires near expiry, not on use), and this column was driven with 439 minutes
+remaining — verified afterwards: the rig's copy stayed byte-identical to the
+live one, so the rig never refreshed and never rotated the operator's token, and
+their sessions stayed up. Outside such a window the honest answer is a second
+account, not a more careful copy: the failure mode is logging the operator out of
+their daily driver to obtain a test result.
+
+## resurrect: RETRACTED — it does not reproduce at the tip
+
+My opencode `resume` FAIL reported `resurrect` returning ok and leaving the row
+`exited`. Re-driven on the current tip with the three artefacts POD-1761 asked
+for — status series, daemon log, binding journal — it is **`starting` → `live`**,
+the healthy path:
+
+```
+resurrect returned in 27ms: {"ok":true}
+  + 0s status=starting   + 5s status=starting
+  + 1s status=starting   +10s status=live
+  + 2s status=starting   +15s status=live
+```
+
+The binding journal is unchanged across the cycle
+(`ses_fc4b7e9fcffejD5kXy66zATxkK`, `conv_ee8a183a…`), and the daemon log names
+what happened: *"resumed a parked server-family session from its binding
+journal", driver opencode-server*.
+
+**Closed as fixed-in-flight, with both readings recorded.** The earlier reading
+was real for the build it was taken on; the difference between the two rigs was
+TIME, not environment.
+
+What made this settleable was a fact from POD-2775 rather than more sampling: **a
+healthy wake never passes through `exited`** — `starting` is the intermediate
+state and `exited` is terminal. Without it, `starting` at +2s and `exited` at +2s
+are the same "read it too early" story and the dispute is unresolvable. With it,
+a drive that read `exited` read a genuine failure, and a drive that reads
+`starting` is watching a healthy wake. Two hypotheses died on the way — mine
+(resumeAndSend blocks, resurrect does not: false, both settle asynchronously) and
+the stale-build one (false, `f3691cf95` contained the fix).
+
 ## THE MATRIX
 
 Rendered by `report.ts` from the results files, per-cell pinned. Full output in
@@ -325,6 +403,41 @@ Every cell reports which signal fired.
 The success reading had to change with it. On an arm that never says `working`,
 "it left `working`" is vacuously TRUE, so the terminal cell is scored on whether
 output actually stopped, sampled 6s and 12s after the call.
+
+## A TUI REPAINT IS ALSO BYTES — read this before building a drive
+
+The single most useful thing this rig learned, and the next person will reach for
+byte growth exactly as I did.
+
+The terminal arm cannot use `phase: 'working'` to prove a turn is running: two
+harnesses never publish it (POD-2801). The obvious substitute is the PTY's own
+output — bytes are arriving, so something is generating. **It is wrong.** A
+session sitting on a modal REDRAWS. codex stuck on `hooks-need-review` produced
+**+8108 bytes** of pure repaint, indistinguishable from generation by any
+byte-counting control.
+
+What it cost: the interrupt cell scored codex/terminal **PASS** while the product
+had refused the call in the same breath —
+
+```
+INTERRUPT SENT  {"ok":false,"reason":"Codex only takes an interrupt while it is
+                 working, and it is not working right now"}
+PASS  turn stopped 29ms after interrupt
+```
+
+Output "stopped" because it had never started. That is precisely the failure the
+control was written to prevent — *interrupting nothing always looks like success*
+— arriving through the control itself.
+
+**The repair: flight must be proven by TOKEN-SHAPED evidence.** Preview
+fragments, or the durable transcript growing. Screen bytes are supporting detail
+and never sufficient alone. And the product's own verdict on its own call is
+consulted first: `ok:false` can never score PASS.
+
+The same modal explains the opposite symptom elsewhere — six of nine
+codex/terminal cells REFUSED, because a session on a dialog produces no
+transcript and no control can fire. One cause, two presentations: a false PASS on
+the row that could read repaint, refusals everywhere that needed real tokens.
 
 ## Where this drive was WRONG, and how it found out
 
