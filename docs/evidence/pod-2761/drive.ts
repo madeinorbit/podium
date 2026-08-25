@@ -78,6 +78,29 @@ for (const word of ['BRAVO', 'CHARLIE']) {
   await wait(10_000)
 }
 
+/**
+ * RESUME IT, BECAUSE THE OPERATOR'S SESSION WAS RESUMED.
+ *
+ * Their report is specific: a session that ALREADY HAD several exchanges, then
+ * resumed, then a new message sent in Chat, then the switch to CLI. A drive that
+ * only ever talks to a live session skips the two steps that distinguish their
+ * case, and a live-only drive shows no duplicate either with the fix or without
+ * it — so those steps are not decoration, they are the difference between
+ * reproducing the report and measuring something adjacent to it.
+ *
+ * `--live-only` keeps the simpler path for comparison.
+ */
+if (!process.argv.includes('--live-only')) {
+  console.log('  hibernating, then resuming with a new message (the operator’s setup)')
+  await trpc('sessions.hibernate', { sessionId: sid })
+  await wait(10_000)
+  await trpc('sessions.resumeAndSend', {
+    sessionId: sid,
+    text: 'Say the word DELTA and nothing else.',
+  })
+  await wait(20_000)
+}
+
 // --- 1. process topology ----------------------------------------------------
 const clientProcs = (): string[] => {
   const ps = spawnSync('ps', ['-eo', 'pid,args'], { encoding: 'utf8' }).stdout ?? ''
@@ -215,6 +238,7 @@ console.log('3. SCREEN: what the buffer (screen + scrollback) ends up holding')
 console.log(`     interface headers : ${banners}`)
 console.log(`     input boxes       : ${count(input)}`)
 console.log(`     ALPHA/BRAVO/CHARLIE: ${count(/ALPHA/g)}/${count(/BRAVO/g)}/${count(/CHARLIE/g)}`)
+console.log(`     DELTA (the post-resume exchange): ${count(/DELTA/g)}`)
 console.log(`\nVERDICT: the interface appears ${banners} time(s) — ${banners <= 1 ? 'PASS' : 'DUPLICATED'}`)
 console.log('\n--- the screen a person would be looking at ---')
 for (const l of screen.split('\n').map((s) => s.trimEnd()).filter(Boolean)) console.log('  |', l)
