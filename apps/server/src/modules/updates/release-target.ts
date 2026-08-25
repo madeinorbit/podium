@@ -602,15 +602,43 @@ export async function resolveReleaseTarget(
     }
   }
 
-  // Shell and payload versions intentionally diverge. The desktop manifest contributes
-  // reachable, signed shell assets; compatibility is the explicit minimum-version window.
-  // Dev has no resolver-side pair because its shell manifest is consumed by the shell itself.
-  if (feed.desktopManifestUrl) {
+  // THE DESKTOP LEG CANNOT WITHDRAW THE HEADLESS OFFER (POD-2794).
+  //
+  // The two payloads are different things for different surfaces on different
+  // version lines, and a headless machine — a VPS, a Linux server, anything with
+  // no shell — has no stake whatsoever in whether a shell was built. Yet until
+  // this, every edge and stable resolve fetched `latest.json` unconditionally
+  // and then HEADed the shell assets it named, so THREE unrelated facts could
+  // each retract a perfectly good headless target: no desktop build published at
+  // this version (404), a manifest that failed to parse, and a shell artifact
+  // pruned from an old release. Each surfaced as the channel having no target,
+  // which an operator reads as "I am up to date" — the silent stranding.
+  //
+  // So the shell contributes to the headless target through exactly ONE fact,
+  // and only when the release itself states it: `minRequired.desktop` /
+  // `minRequired.desktopBridge`, which is this payload SAYING it needs a shell
+  // at least that new. When nothing is stated the manifest is not consulted at
+  // all — deliberately not "fetched and forgiven", because a fetch whose answer
+  // is ignored is one refactor away from mattering again.
+  //
+  // Reachability of the shell assets is likewise not this resolver's business:
+  // it returns the HEADLESS target, which never names them. The shell fetches
+  // `latest.json` itself, and the dev feed's re-serving path keeps its own
+  // origin fence in `validateDesktopFeedManifest`.
+  //
+  // Dev reaches this with no `desktopManifestUrl` at all (spec §1): dev never
+  // mints a shell, so pairing it here would block every dev release on a darwin
+  // builder — the coupling in the other direction.
+  const minimumShell = target.minRequired?.desktop
+  const minimumBridge = target.minRequired?.desktopBridge
+  if (feed.desktopManifestUrl && (minimumShell !== undefined || minimumBridge !== undefined)) {
+    // A stated requirement that cannot be checked is NOT waived. The refusal
+    // here is the honest one: this release says it needs a shell and the
+    // document that would prove it is missing or unreadable.
     const desktop = parseDesktopManifest(
       channel,
       await fetchFeedJson(channel, feed, 'desktop', feed.desktopManifestUrl, fetchImpl),
     )
-    const minimumShell = target.minRequired?.desktop
     if (minimumShell !== undefined) {
       const order = compareVersions(desktop.version, minimumShell)
       if (order === null || order < 0) {
@@ -623,7 +651,6 @@ export async function resolveReleaseTarget(
         )
       }
     }
-    const minimumBridge = target.minRequired?.desktopBridge
     if (minimumBridge !== undefined && (desktop.bridgeVersion ?? 0) < minimumBridge) {
       throw new Error(
         channel +
@@ -632,9 +659,6 @@ export async function resolveReleaseTarget(
           ' is below required ' +
           minimumBridge,
       )
-    }
-    for (const [platform, artifact] of Object.entries(desktop.platforms)) {
-      namedArtifacts.push({ place: `desktop ${platform}`, url: artifact.url })
     }
   }
 

@@ -119,30 +119,77 @@ function devFetchFixture(input: {
 }
 
 describe('resolveReleaseTarget', () => {
-  it('publishes the target only after the standing desktop build and named artifacts exist', async () => {
+  it('publishes the target once the headless artifacts it names exist', async () => {
     const fetchImpl = fetchFixture({})
 
     await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
       version: '0.4.2',
     })
 
-    expect(fetchImpl).toHaveBeenCalledTimes(4)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
     const calls = fetchImpl.mock.calls
-    expect(calls.map(([url]) => String(url))).toEqual([
-      releaseManifestUrl('edge'),
-      desktopReleaseManifestUrl('edge'),
-      HEADLESS_URL,
-      DESKTOP_URL,
-    ])
-    expect(calls.slice(0, 2).every(([, init]) => init?.cache === 'no-store')).toBe(true)
+    expect(calls.map(([url]) => String(url))).toEqual([releaseManifestUrl('edge'), HEADLESS_URL])
+    expect(calls.slice(0, 1).every(([, init]) => init?.cache === 'no-store')).toBe(true)
     expect(
       calls
-        .slice(2)
+        .slice(1)
         .every(
           ([, init]) =>
             init?.method === 'HEAD' && init?.cache === 'no-store' && init?.redirect === 'manual',
         ),
     ).toBe(true)
+  })
+
+  it('offers the headless payload when no desktop build was ever published', async () => {
+    // THE STRANDING THIS ROW EXISTS FOR (POD-2794). A headless-only release
+    // uploads no `latest.json`, so the desktop leg 404s. That must not be able
+    // to withdraw the headless offer: a machine with no shell has no stake in
+    // whether a shell exists.
+    const fetchImpl = vi.fn<typeof fetch>(async (request) => {
+      const url = String(request)
+      if (url === releaseManifestUrl('edge')) return json(releaseManifest())
+      if (url === desktopReleaseManifestUrl('edge')) return new Response(null, { status: 404 })
+      return new Response(null, { status: 200 })
+    })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
+      version: '0.4.2',
+    })
+  })
+
+  it('never asks for the desktop manifest when the release requires no shell', async () => {
+    // Not merely tolerating the 404 — not depending on the answer at all. The
+    // shell fetches `latest.json` itself; the only thing the desktop leg owes
+    // the HEADLESS target is a `minRequired.desktop*` this release actually
+    // stated. Asserting the call LIST rather than a count is what makes the
+    // decoupling visible when someone reintroduces the fetch.
+    const fetchImpl = fetchFixture({})
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
+      version: '0.4.2',
+    })
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).not.toContain(
+      desktopReleaseManifestUrl('edge'),
+    )
+  })
+
+  it('offers the headless payload when the standing shell artifact has been pruned', async () => {
+    // Was the inverse assertion until POD-2794: a desktop artifact returning 404
+    // used to fail the whole target, so pruning an old shell silently stopped
+    // every headless install from being offered anything.
+    const fetchImpl = fetchFixture({ artifactStatus: { [DESKTOP_URL]: 404 } })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
+      version: '0.4.2',
+    })
+  })
+
+  it('offers the headless payload when the desktop manifest is unreadable', async () => {
+    const fetchImpl = fetchFixture({ desktop: { version: 7, platforms: 'nonsense' } })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
+      version: '0.4.2',
+    })
   })
 
   it('keeps advertising a headless release while latest.json references the standing shell', async () => {
@@ -151,7 +198,23 @@ describe('resolveReleaseTarget', () => {
     await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
       version: '0.4.2',
     })
-    expect(fetchImpl).toHaveBeenCalledTimes(4)
+  })
+
+  it('refuses a stated shell requirement it cannot verify', async () => {
+    // The mirror of the rows above, and what keeps them from being a blanket
+    // "ignore the desktop leg": a release that SAYS it needs a shell must not be
+    // handed out when the manifest that would prove it is missing.
+    const release = { ...releaseManifest(), minRequired: { desktop: '0.4.2' } }
+    const fetchImpl = vi.fn<typeof fetch>(async (request) => {
+      const url = String(request)
+      if (url === releaseManifestUrl('edge')) return json(release)
+      if (url === desktopReleaseManifestUrl('edge')) return new Response(null, { status: 404 })
+      return new Response(null, { status: 200 })
+    })
+
+    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+      'desktop manifest returned HTTP 404',
+    )
   })
 
   it('refuses a standing shell outside the declared compatibility window', async () => {
@@ -172,14 +235,6 @@ describe('resolveReleaseTarget', () => {
 
     await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
       'desktop bridge 1 is below required 2',
-    )
-  })
-
-  it('does not advertise a target whose desktop artifact is not fetchable', async () => {
-    const fetchImpl = fetchFixture({ artifactStatus: { [DESKTOP_URL]: 404 } })
-
-    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-      'desktop darwin-aarch64 artifact returned HTTP 404',
     )
   })
 
@@ -268,9 +323,11 @@ describe('resolveReleaseTarget trust root', () => {
       await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
         /headless linux-x86_64 artifact is served from outside the edge feed/,
       )
+      // The point of the list: the refusal lands at RESOLVE time, before a
+      // single artifact byte is requested. Reading the manifest is the only
+      // fetch a fenced-out release gets to cause.
       expect(fetchImpl.mock.calls.map(([request]) => String(request))).toEqual([
         releaseManifestUrl('edge'),
-        desktopReleaseManifestUrl('edge'),
       ])
     }
 
