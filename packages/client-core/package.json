@@ -130,7 +130,8 @@
     "@podium/sync": "workspace:*",
     "@tanstack/db": "^0.6.16",
     "@tanstack/db-sqlite-persistence-core": "^0.2.8",
-    "@tanstack/react-db": "^0.1.94"
+    "@tanstack/react-db": "^0.1.94",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "typescript": "^6.0.3",

@@ -1,0 +1,197 @@
+{
+  "acceptance": {
+    "sharedCacheIsOneDirectory": true,
+    "trackedBunfigIsIdentical": true,
+    "layoutSeparatesCacheIdentity": true,
+    "independentCandidatesShareIdentity": true,
+    "installsGreen": true,
+    "hoistedProducesCache": true,
+    "hoistedToCandidateMiss": false,
+    "candidateTypecheckHit": false,
+    "candidateTestHit": false,
+    "sourceChangeMiss": false,
+    "brokenInstallRefused": true,
+    "refusalIsRecoverable": false,
+    "noFullSuiteRequired": true
+  },
+  "bun": "1.3.14",
+  "brokenEntry": "drizzle-kit",
+  "candidateConfig": "[install]\nexact = false\nlinker = \"isolated\"\nglobalStore = true\nlinkWorkspacePackages = true\n",
+  "commit": "6c900ec290b0c1ecb418fcd40e90fab275136779",
+  "finishedAt": "2026-08-25T15:19:32.279Z",
+  "host": "flatblock",
+  "identity": {
+    "hoisted": {
+      "envHash": "b7a0e20863d9ff84afffb7df81b22d3d97d7114276fa932f344e99e2bc87da28",
+      "cacheDir": "/home/mgw/.cache/podium/global-store-cache-admission/runs/flatblock-2026-08-25c/xdg/podium/turbo/17845d685f8ffd44",
+      "admissionErrors": [],
+      "bunfigHash": "0f0b45d74e7ada6a9f12f60e12e2524f6c71b4a583a48ffb9c1d810c8303fafb"
+    },
+    "producer": {
+      "envHash": "c8e7181df28ce1393906eae740b226c41a544c03e307d09eb22d163e3f1eae0a",
+      "cacheDir": "/home/mgw/.cache/podium/global-store-cache-admission/runs/flatblock-2026-08-25c/xdg/podium/turbo/17845d685f8ffd44",
+      "admissionErrors": [],
+      "bunfigHash": "0f0b45d74e7ada6a9f12f60e12e2524f6c71b4a583a48ffb9c1d810c8303fafb"
+    },
+    "reader": {
+      "envHash": "c8e7181df28ce1393906eae740b226c41a544c03e307d09eb22d163e3f1eae0a",
+      "cacheDir": "/home/mgw/.cache/podium/global-store-cache-admission/runs/flatblock-2026-08-25c/xdg/podium/turbo/17845d685f8ffd44",
+      "admissionErrors": [],
+      "bunfigHash": "0f0b45d74e7ada6a9f12f60e12e2524f6c71b4a583a48ffb9c1d810c8303fafb"
+    }
+  },
+  "installs": {
+    "hoisted": {
+      "command": [
+        "/home/mgw/.bun/bin/bun",
+        "install",
+        "--frozen-lockfile",
+        "--cache-dir=/home/mgw/.cache/podium/global-store-cache-admission/runs/flatblock-2026-08-25c/hoisted",
+        "--linker=hoisted"
+      ],
+      "cwd": "/home/mgw/.cache/podium/global-store-cache-admission-worktrees/podium-cache-admission-flatblock-2026-08-25c-ivhZNZ/hoisted",
+      "durationMs": 71446,
+      "exitCode": 0,
+      "stdoutTail": "bun install v1.3.14 (0d9b296a)\n\n+ @biomejs/biome@2.4.16\n+ @changesets/cli@2.31.0\n+ @playwright/test@1.60.0\n+ @testing-library/dom@10.4.1\n+ @testing-library/react@16.3.2\n+ @types/node@25.9.1\n+ @typescript/native-preview@7.0.0-dev.20260707.2\n+ drizzle-kit@1.0.0-rc.4\n+ drizzle-orm@1.0.0-rc.4\n+ happy-dom@20.10.2\n+ react@19.2.7\n+ react-dom@19.2.7\n+ tsup@8.5.1\n+ tsx@4.22.4\n+ turbo@2.10.5\n+ typescript@6.0.3\n+ vitest@5.0.0-beta.6\n\n1354 packages installed [71.40s]\n",
+      "stderrTail": "Resolving dependencies\nResolved, downloaded and extracted [2]\n",
+      "timedOut": false,
+      "lockfileBefore": "0e20ca9ff8698c2df96befaff381bf1d29480b7c15fafda9b40b7629d84bec3e",
+      "lockfileAfter": "0e20ca9ff8698c2df96befaff381bf1d29480b7c15fafda9b40b7629d84bec3e"
+    },
+    "producer": {
+      "command": [
+        "/home/mgw/.bun/bin/bun",
+        "install",
+        "--frozen-lockfile",
+        "--cache-dir=/home/mgw/.cache/podium/global-store-cache-admission/runs/flatblock-2026-08-25c/global-store",
+        "--config=/home/mgw/.cache/podium/global-store-cache-admission-worktrees/podium-cache-admission-flatblock-2026-08-25c-ivhZNZ/global-store.bunfig.toml",
+        "--linker=isolated"
+      ],
+      "cwd": "/home/mgw/.cache/podium/global-store-cache-admission-worktrees/podium-cache-admission-flatblock-2026-08-25c-ivhZNZ/candidate-producer",
+      "durationMs": 17560,
+      "exitCode": 0,
+      "stdoutTail": "bun install v1.3.14 (0d9b296a)\n\n+ @biomejs/biome@2.4.16\n+ @changesets/cli@2.31.0\n+ @playwright/test@1.60.0\n+ @testing-library/dom@10.4.1\n+ @testing-library/react@16.3.2\n+ @types/node@25.9.1\n+ @typescript/native-preview@7.0.0-dev.20260707.2\n+ drizzle-kit@1.0.0-rc.4\n+ drizzle-orm@1.0.0-rc.4\n+ happy-dom@20.10.2\n+ react@19.2.7\n+ react-dom@19.2.7\n+ tsup@8.5.1\n+ tsx@4.22.4\n+ turbo@2.10.5\n+ typescript@6.0.3\n+ vitest@5.0.0-beta.6\n\n2731 packages installed [17.42s]\n",
+      "stderrTail": "Resolving dependencies\nResolved, downloaded and extracted [2]\n",
+      "timedOut": false,
+      "lockfileBefore": "0e20ca9ff8698c2df96befaff381bf1d29480b7c15fafda9b40b7629d84bec3e",
+      "lockfileAfter": "0e20ca9ff8698c2df96befaff381bf1d29480b7c15fafda9b40b7629d84bec3e"
+    },
+    "reader": {
+      "command": [
+        "/home/mgw/.bun/bin/bun",
+        "install",
+        "--frozen-lockfile",
+        "--cache-dir=/home/mgw/.cache/podium/global-store-cache-admission/runs/flatblock-2026-08-25c/global-store",
+        "--config=/home/mgw/.cache/podium/global-store-cache-admission-worktrees/podium-cache-admission-flatblock-2026-08-25c-ivhZNZ/global-store.bunfig.toml",
+        "--linker=isolated"
+      ],
+      "cwd": "/home/mgw/.cache/podium/global-store-cache-admission-worktrees/podium-cache-admission-flatblock-2026-08-25c-ivhZNZ/candidate-reader",
+      "durationMs": 6718,
+      "exitCode": 0,
+      "stdoutTail": "bun install v1.3.14 (0d9b296a)\n\n+ drizzle-kit@1.0.0-rc.4\n+ drizzle-orm@1.0.0-rc.4\n+ tsup@8.5.1\n+ tsx@4.22.4\n+ vitest@5.0.0-beta.6\n\n46 packages installed [6.68s]\n",
+      "stderrTail": "Resolving dependencies\nResolved, downloaded and extracted [2]\n",
+      "timedOut": false,
+      "lockfileBefore": "0e20ca9ff8698c2df96befaff381bf1d29480b7c15fafda9b40b7629d84bec3e",
+      "lockfileAfter": "0e20ca9ff8698c2df96befaff381bf1d29480b7c15fafda9b40b7629d84bec3e"
+    }
+  },
+  "paths": {
+    "globalStore": "/home/mgw/.cache/podium/global-store-cache-admission/runs/flatblock-2026-08-25c/global-store",
+    "hoistedCache": "/home/mgw/.cache/podium/global-store-cache-admission/runs/flatblock-2026-08-25c/hoisted",
+    "runCache": "/home/mgw/.cache/podium/global-store-cache-admission/runs/flatblock-2026-08-25c",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2774-global-store-cache-admission",
+    "xdgCacheHome": "/home/mgw/.cache/podium/global-store-cache-admission/runs/flatblock-2026-08-25c/xdg"
+  },
+  "probes": {
+    "hoistedTypecheck": {
+      "summary": {
+        "successful": 24,
+        "total": 24,
+        "cached": 0
+      },
+      "durationMs": 228313,
+      "exitCode": 0,
+      "stderrTail": "$ bun scripts/typecheck.ts\n• turbo 2.10.5\n WARNING  the `daemon` configuration option is deprecated and will be removed in version 3.0. The daemon is no longer used for `turbo run`.\n"
+    },
+    "candidateTypecheckCold": {
+      "summary": {
+        "successful": 14,
+        "total": 19,
+        "cached": 0
+      },
+      "durationMs": 90112,
+      "exitCode": 1,
+      "stderrTail": "$ bun scripts/typecheck.ts\n• turbo 2.10.5\n WARNING  the `daemon` configuration option is deprecated and will be removed in version 3.0. The daemon is no longer used for `turbo run`.\n@podium/client-core#typecheck:  ERROR  command (/home/mgw/.cache/podium/global-store-cache-admission-worktrees/podium-cache-admission-flatblock-2026-08-25c-ivhZNZ/candidate-producer/packages/client-core) /home/mgw/.bun/bin/bun run typecheck exited (1)\n ERROR  run failed: command  exited (1)\nerror: script \"typecheck\" exited with code 1\n"
+    },
+    "candidateTestCold": {
+      "summary": {
+        "successful": 0,
+        "total": 1,
+        "cached": 0
+      },
+      "durationMs": 50798,
+      "exitCode": 1,
+      "stderrTail": "• turbo 2.10.5\n WARNING  the `daemon` configuration option is deprecated and will be removed in version 3.0. The daemon is no longer used for `turbo run`.\n@podium/protocol#test:  WARNING  command finished with error, but continuing...\n@podium/protocol#test:  ERROR  command (/home/mgw/.cache/podium/global-store-cache-admission-worktrees/podium-cache-admission-flatblock-2026-08-25c-ivhZNZ/candidate-producer/packages/protocol) /home/mgw/.bun/bin/bun run test exited (1)\n ERROR  run failed: command  exited (1)\n"
+    },
+    "readerTypecheck": {
+      "summary": {
+        "successful": 15,
+        "total": 19,
+        "cached": 14
+      },
+      "durationMs": 41717,
+      "exitCode": 1,
+      "stderrTail": "$ bun scripts/typecheck.ts\n• turbo 2.10.5\n WARNING  the `daemon` configuration option is deprecated and will be removed in version 3.0. The daemon is no longer used for `turbo run`.\n@podium/client-core#typecheck:  ERROR  command (/home/mgw/.cache/podium/global-store-cache-admission-worktrees/podium-cache-admission-flatblock-2026-08-25c-ivhZNZ/candidate-reader/packages/client-core) /home/mgw/.bun/bin/bun run typecheck exited (1)\n ERROR  run failed: command  exited (1)\nerror: script \"typecheck\" exited with code 1\n"
+    },
+    "readerTest": {
+      "summary": {
+        "successful": 0,
+        "total": 1,
+        "cached": 0
+      },
+      "durationMs": 60185,
+      "exitCode": 1,
+      "stderrTail": "• turbo 2.10.5\n WARNING  the `daemon` configuration option is deprecated and will be removed in version 3.0. The daemon is no longer used for `turbo run`.\n@podium/protocol#test:  WARNING  command finished with error, but continuing...\n@podium/protocol#test:  ERROR  command (/home/mgw/.cache/podium/global-store-cache-admission-worktrees/podium-cache-admission-flatblock-2026-08-25c-ivhZNZ/candidate-reader/packages/protocol) /home/mgw/.bun/bin/bun run test exited (1)\n ERROR  run failed: command  exited (1)\n"
+    },
+    "changedTypecheck": {
+      "summary": {
+        "successful": 15,
+        "total": 19,
+        "cached": 2
+      },
+      "durationMs": 92894,
+      "exitCode": 1,
+      "stderrTail": "$ bun scripts/typecheck.ts\n• turbo 2.10.5\n WARNING  the `daemon` configuration option is deprecated and will be removed in version 3.0. The daemon is no longer used for `turbo run`.\n@podium/client-core#typecheck:  ERROR  command (/home/mgw/.cache/podium/global-store-cache-admission-worktrees/podium-cache-admission-flatblock-2026-08-25c-ivhZNZ/candidate-reader/packages/client-core) /home/mgw/.bun/bin/bun run typecheck exited (1)\n ERROR  run failed: command  exited (1)\nerror: script \"typecheck\" exited with code 1\n"
+    },
+    "changedTest": {
+      "summary": {
+        "successful": 0,
+        "total": 1,
+        "cached": 0
+      },
+      "durationMs": 106346,
+      "exitCode": 1,
+      "stderrTail": "• turbo 2.10.5\n WARNING  the `daemon` configuration option is deprecated and will be removed in version 3.0. The daemon is no longer used for `turbo run`.\n@podium/protocol#test:  WARNING  command finished with error, but continuing...\n@podium/protocol#test:  ERROR  command (/home/mgw/.cache/podium/global-store-cache-admission-worktrees/podium-cache-admission-flatblock-2026-08-25c-ivhZNZ/candidate-reader/packages/protocol) /home/mgw/.bun/bin/bun run test exited (1)\n ERROR  run failed: command  exited (1)\n"
+    },
+    "refusal": {
+      "summary": null,
+      "durationMs": 2788,
+      "exitCode": 1,
+      "stderrTail": "$ bun scripts/typecheck.ts\ntypecheck refused: this install cannot produce or replay a trustworthy cached result (POD-1343, POD-2774).\n- install topology: node_modules/.bin/drizzle-kit is a dangling symlink (-> ../drizzle-kit/bin.cjs)\n- install topology: node_modules/drizzle-kit is a dangling symlink (-> .evaporated/drizzle-kit)\nerror: script \"typecheck\" exited with code 1\n"
+    },
+    "restored": {
+      "summary": {
+        "successful": 15,
+        "total": 19,
+        "cached": 15
+      },
+      "durationMs": 36402,
+      "exitCode": 1,
+      "stderrTail": "$ bun scripts/typecheck.ts\n• turbo 2.10.5\n WARNING  the `daemon` configuration option is deprecated and will be removed in version 3.0. The daemon is no longer used for `turbo run`.\n@podium/client-core#typecheck:  ERROR  command (/home/mgw/.cache/podium/global-store-cache-admission-worktrees/podium-cache-admission-flatblock-2026-08-25c-ivhZNZ/candidate-reader/packages/client-core) /home/mgw/.bun/bin/bun run typecheck exited (1)\n ERROR  run failed: command  exited (1)\nerror: script \"typecheck\" exited with code 1\n"
+    }
+  },
+  "refusalStderr": "$ bun scripts/typecheck.ts\ntypecheck refused: this install cannot produce or replay a trustworthy cached result (POD-1343, POD-2774).\n- install topology: node_modules/.bin/drizzle-kit is a dangling symlink (-> ../drizzle-kit/bin.cjs)\n- install topology: node_modules/drizzle-kit is a dangling symlink (-> .evaporated/drizzle-kit)\nerror: script \"typecheck\" exited with code 1\n",
+  "representativePackage": "@podium/protocol",
+  "runId": "flatblock-2026-08-25c",
+  "startedAt": "2026-08-25T15:05:17.035Z"
+}
