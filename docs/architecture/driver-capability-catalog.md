@@ -295,10 +295,24 @@ work.** Send-on-stop, rich harness state, provider error vocabulary, attachment
 retention policy and process ownership are each one design away from being four
 implementations away.
 
-**`declared` is the dangerous column.** `configure` announces that a driver can
-switch model, effort and permission mode, and nothing anywhere checks that the
-announcement is true. That is the same shape as every defect this epic has found:
-a property that holds by accident rather than by declaration.
+**CORRECTION, 2026-08-25 — I had this backwards, and it was the wrong way to be
+wrong.** I wrote that `configure` announces every driver can switch model, effort
+and permission mode with nothing checking the announcement. POD-2777's drive read
+`capabilities.ts` instead of taking my word and found the announcement is not
+there: configure is **UNSUPPORTED** for codex ("model and effort are set at thread
+start and per turn"), UNSUPPORTED for opencode, UNSUPPORTED for terminal ("a TUI
+takes its model at launch"), and grok declares `supported({fields:['permissionMode']})`
+— explicitly **not** model or effort. No server or daemon code calls
+`handle.configure()` at all, and `sessions.sendText` carries no per-turn override.
+So the declaration and the behaviour AGREE, and there is no product surface to
+drive on either arm. The `declared` rows below overstate what is announced; read
+them against `capabilities.ts`, not against this table.
+
+The error mattered because this document is a checklist other agents work from,
+and it sent a drive after a cell that does not exist. What survives is the
+narrower point: **`declared` is the column to distrust**, because a declaration is
+a claim about behaviour and only a test makes it a fact. Just not this example —
+here, the declaration was the honest part and my summary of it was not.
 
 **`wired` is the honest gap.** Interrupt is wired on all four and pinned on none.
 Streaming is proven on one and wired on two.
