@@ -69,6 +69,26 @@ RCODESIGN_BIN=""
 SOURCE_PORT=""
 TAILNET_IP=""
 TAILNET_PORT=""
+# THE ADDRESS THE INSTANCE HANDS OUT (POD-2767).
+#
+# `publicUrl` is not a label. It is the address this instance tells every other
+# party to come back to: the join token embeds its ws-ified form as the daemon's
+# `serverUrl`, and the browser and the desktop shell are pointed at it. So it has
+# to be an address that answers from where a client actually is.
+#
+# It used to be `http://source:18787` — `source` being the container's NAME ON
+# THE RUN'S PRIVATE DOCKER NETWORK. That resolves for a joining fleet daemon and
+# nowhere else, so the first human to open a held sandbox got a URL their browser
+# could not resolve and had to correct it by hand. Advertising an address only
+# the advertiser can reach is the same defect that strands a real machine behind
+# a NAT; here it happened to be the sandbox we point humans at.
+#
+# `resolve_advertised_url` picks the best address the run WAS ACTUALLY EXPOSED
+# ON, and `advertised_url_reachable` is the row that will not let it drift back.
+ADVERTISED_URL=""
+ADVERTISED_VIA=""
+NETWORK_GATEWAY=""
+GATEWAY_PORT=""
 # THE ONLY ORIGIN THIS SANDBOX CAN BE HONESTLY TESTED FROM (POD-2762).
 #
 # A service worker exists only in a secure context. Held sandboxes were reached
@@ -97,14 +117,14 @@ SERVER_TARGET_VERSION=""
 SERVER_MIGRATION="20991231235959_update-e2e-packaged-server"
 
 if [[ "$ONLY" == server ]]; then
-  SCENARIOS=(environment resource-safety coordinator-install server-install server-assets server-migration
+  SCENARIOS=(environment resource-safety coordinator-install advertised-url server-install server-assets server-migration
     server-client-reconnect server-handover server-agent-survival server-rollback cleanup host-disk)
 elif [[ "$ONLY" == real-release ]]; then
   # THE ONLY LANE THAT DOES NOT START AT CURRENT SOURCE (POD-2769).
   SCENARIOS=(environment resource-safety coordinator-install real-release-install
     real-release-pairing-refusal real-release-resolve real-release-converged cleanup host-disk)
 else
-  SCENARIOS=(environment resource-safety coordinator-install fresh-install diagnostic-version fleet-join
+  SCENARIOS=(environment resource-safety coordinator-install advertised-url fresh-install diagnostic-version fleet-join
     fleet-join-refusal version-display dev-release update-offer schema-refusal tampered-refusal
     unsigned-refusal ui-acceptance agent-survival rollout legacy-migration legacy-sigkill rollback cleanup host-disk)
 fi
@@ -199,6 +219,10 @@ PODIUM_UPDATE_E2E_PROVE_FAILURE=real-release-migration
 PODIUM_UPDATE_E2E_PROVE_FAILURE=server-*  arm one server assertion (see docs)
 PODIUM_UPDATE_E2E_PROVE_FAILURE=coordinator-participant
                                       restore the old server-only no-participant shape
+PODIUM_UPDATE_E2E_PROVE_FAILURE=advertised-url
+                                      complete setup with the container-internal
+                                      `http://source:18787` again; `advertised-url`
+                                      must go red for that reason and nothing else
 PODIUM_UPDATE_E2E_ONLY=positive       run the offer, rollout, survival, and
                                       rollback path without refusal controls
 PODIUM_UPDATE_E2E_HOLD=proposal       leave a release proposal pending for a
@@ -620,12 +644,131 @@ prepare_legacy_machine() {
   fresh_install "$LEGACY" >"$WORK/logs/legacy-fresh-install.log" 2>&1
 }
 
+# THE LADDER, MOST USEFUL ANSWER FIRST (POD-2767).
+#
+# Every rung is an address that answers from BOTH sides: from outside the run,
+# where the human's browser and the desktop shell are, and from inside the run's
+# own network, where the joining fleet daemons are. Both halves are load-bearing
+# and neither is incidental — the join token embeds the ws-ified `publicUrl` as
+# each daemon's `serverUrl`, so a rung that only the outside can reach breaks the
+# fleet exactly as thoroughly as `http://source:18787` broke the browser. All
+# three rungs were measured from a container and from the host before this went
+# in; the row below re-measures the chosen one on every run.
+#
+# 1. THE TAILNET HTTPS FRONT, and it is first on purpose. It is the only rung
+#    that is a TRUSTED SECURE ORIGIN, and a service worker is defined only in a
+#    secure context — so it is the only address where the precache, the offline
+#    shell and the reload handshake exist AT ALL (POD-2762), and the only one the
+#    macOS desktop webview will accept. The plain-HTTP rungs below are not a
+#    slightly worse URL for the same product; they are a different product.
+# 2. The host's tailnet address. Still reachable from every device on the
+#    tailnet, just without the secure context. This is where a host that has
+#    Tailscale but no working `serve` lands.
+# 3. The run's own docker gateway. The host owns that address and every container
+#    on this run's network routes to it, so it always exists: no Tailscale, no
+#    account, nobody's particular machine. It is reachable from THIS host only,
+#    which is the honest answer for a run that was never exposed any further.
+#
+# The tailnet name is read from the node itself and the gateway from the network
+# this run just created. No hostname belonging to any person appears here, and a
+# fixture that only worked on one person's machine would not be a fixture.
+resolve_advertised_url() {
+  if [[ "$PROVE_FAILURE" == advertised-url ]]; then
+    # The deliberate control: the exact value that shipped before POD-2767.
+    ADVERTISED_URL="http://source:18787"
+    ADVERTISED_VIA="the source container's name on this run's private docker network (deliberate control)"
+    return 0
+  fi
+  if [[ -n "$TAILNET_HTTPS_URL" ]]; then
+    ADVERTISED_URL="$TAILNET_HTTPS_URL"
+    ADVERTISED_VIA="this node's own tailnet HTTPS front, a trusted secure origin"
+    return 0
+  fi
+  if [[ -n "$TAILNET_IP" && -n "$TAILNET_PORT" ]]; then
+    ADVERTISED_URL="http://$TAILNET_IP:$TAILNET_PORT"
+    ADVERTISED_VIA="this host's tailnet address; plain HTTP, so no service worker"
+    return 0
+  fi
+  if [[ -n "$NETWORK_GATEWAY" && -n "$GATEWAY_PORT" ]]; then
+    ADVERTISED_URL="http://$NETWORK_GATEWAY:$GATEWAY_PORT"
+    ADVERTISED_VIA="this run's own docker gateway; plain HTTP, reachable from this host only"
+    return 0
+  fi
+  # Nothing exposed this run anywhere. Say so and keep the old value, so the row
+  # below reddens on the real defect instead of the run dying before it prints a
+  # matrix — but do NOT let the value pass itself off as a considered choice.
+  ADVERTISED_URL="http://source:18787"
+  ADVERTISED_VIA=""
+  say "this run was exposed on no address reachable from outside its container network" >&2
+}
+
 setup_source() {
+  [[ -n "$ADVERTISED_URL" ]] || die "setup_source ran before the advertised address was resolved"
   container_http_request "$SOURCE" POST \
     http://127.0.0.1:18787/trpc/setup.complete \
-    "{\"publicUrl\":\"http://source:18787\",\"mode\":\"$COORDINATOR_MODE\",\"port\":18787,\"acknowledgeNoPassword\":true}" ||
+    "{\"publicUrl\":\"$ADVERTISED_URL\",\"mode\":\"$COORDINATOR_MODE\",\"port\":18787,\"acknowledgeNoPassword\":true}" ||
     return 1
   ! jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"
+}
+
+# THE ROW THAT WILL NOT LET IT DRIFT BACK (POD-2767).
+#
+# Twenty-one rows watched this gate and not one asked whether the address the
+# instance HANDS OUT is an address anybody can reach, so a coordinator advertised
+# a name that resolved on its own private network and nowhere else for as long as
+# the harness existed. The first person to notice was a human who had to retype
+# the URL by hand.
+#
+# Two decisions make this row mean something rather than agree with itself:
+#
+# It reads the address back FROM THE INSTANCE (`setup.info` — what the machine
+# says about itself) rather than from `$ADVERTISED_URL`. Asserting the value this
+# script just sent would only prove the script remembers its own variable; the
+# question is what the instance now tells clients.
+#
+# It fetches that address FROM THE HOST, outside the container network. Fetching
+# it from inside is what made the old value look fine: `http://source:18787`
+# answers perfectly from within the run and is unreachable from everywhere a
+# client actually is.
+#
+# The loopback check is not belt-and-braces either. `http://127.0.0.1:<mapped>`
+# would answer this row's fetch from the host and is exactly as useless to every
+# other client as `http://source:18787` was, so the fetch alone would call the
+# same class of defect green.
+advertised_url_reachable() {
+  local advertised host
+  if ! rpc GET setup.info >"$WORK/logs/advertised-url.json"; then
+    fail advertised-url \
+      "the coordinator would not say what address it advertises; raw response: logs/advertised-url.json"
+    return 1
+  fi
+  advertised="$(jq -r '.publicUrl // empty' <"$WORK/logs/advertised-url.json")"
+  if [[ -z "$advertised" ]]; then
+    fail advertised-url \
+      "setup completed but the coordinator advertises no address at all; raw response: logs/advertised-url.json"
+    return 1
+  fi
+  host="${advertised#*://}"
+  host="${host%%/*}"
+  host="${host%%:*}"
+  if [[ "$host" == localhost || "$host" == 127.* || "$host" == '[::1]' ]]; then
+    fail advertised-url \
+      "the coordinator advertises $advertised — a loopback address, which answers here and reaches no client anywhere else"
+    return 1
+  fi
+  if ! http_request GET "$advertised/version"; then
+    fail advertised-url \
+      "the coordinator advertises $advertised, and that address did not answer /version from the host — outside its container network is where every real client is"
+    return 1
+  fi
+  printf '%s\n' "$HTTP_BODY" >"$WORK/logs/advertised-url-fetch.json"
+  if ! jq -e --arg id "$INSTANCE" '.instanceId==$id' >/dev/null <<<"$HTTP_BODY"; then
+    fail advertised-url \
+      "$advertised answered from the host but as a different instance than $INSTANCE; raw response: logs/advertised-url-fetch.json"
+    return 1
+  fi
+  pass advertised-url \
+    "the coordinator advertises $advertised ($ADVERTISED_VIA), and that exact address answered /version as $INSTANCE when fetched from the host, outside the run's container network"
 }
 
 coordinator_healthy() {
@@ -1596,7 +1739,12 @@ verify_served_crash_artifact() {
 # gets a usable sandbox. What it must never do is fail silently — if the front
 # does not come up, the access block says so and says what is missing from the
 # run, rather than printing a plain URL as though it were equivalent.
+# Idempotent because the front is now raised BEFORE setup rather than at the
+# hold (POD-2767): the address the instance advertises is chosen from it, so it
+# has to exist before `setup.complete`, and the hold points still call this in
+# case that early attempt found no tailnet.
 start_https_front() {
+  [[ -z "$TAILNET_HTTPS_URL" ]] || return 0
   [[ -n "$SOURCE_PORT" ]] || return 0
   local line
   if ! line="$("$ROOT/scripts/sandbox-https.sh" up "$SOURCE_PORT" 2>&1)"; then
@@ -1636,6 +1784,11 @@ print_hold_access() {
   fi
   cat <<EOF
 $secure
+Advertised address: $ADVERTISED_URL
+  What this instance hands OUT — the origin a joining machine is told to dial and
+  the one the desktop shell is pointed at. It is $ADVERTISED_VIA, and the
+  \`advertised-url\` row fetched it from the host before this block printed
+  (POD-2767). If it does not match the secure URL above, the run fell back a rung.
 Host-only UI: http://127.0.0.1:$SOURCE_PORT
 $tailnet
 Diagnostic entry: $(if [[ -n "$TAILNET_HTTPS_URL" ]]; then
@@ -1747,6 +1900,7 @@ main() {
     "$PROVE_FAILURE" == tampered || "$PROVE_FAILURE" == canary ||
     "$PROVE_FAILURE" == server-assets ||
     "$PROVE_FAILURE" == coordinator-participant ||
+    "$PROVE_FAILURE" == advertised-url ||
     "$PROVE_FAILURE" == server-migration || "$PROVE_FAILURE" == server-client ||
     "$PROVE_FAILURE" == server-handover || "$PROVE_FAILURE" == server-agent ||
     "$PROVE_FAILURE" == server-rollback ||
@@ -1824,9 +1978,19 @@ main() {
   prepare_image
   require_disk_margin "image preparation"
   docker network create --label "$LABEL" "$NETWORK" >/dev/null
+  # The bottom rung of the advertised-address ladder (POD-2767). The host owns
+  # this address and every container on this network routes to it, so publishing
+  # the coordinator here gives the run one address both sides can reach on any
+  # machine — no Tailscale, no account, nobody's particular hostname.
+  NETWORK_GATEWAY="$(docker network inspect "$NETWORK" |
+    jq -r 'first(.[0].IPAM.Config[]? | .Gateway // empty |
+      select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$"))) // empty')"
 
   local repo_root candidate
   local -a source_ports=(-p "127.0.0.1::18787")
+  if [[ -n "$NETWORK_GATEWAY" ]]; then
+    source_ports+=(-p "$NETWORK_GATEWAY::18787")
+  fi
   repo_root="$(dirname "$(git -C "$ROOT" rev-parse --git-common-dir)")"
   if hold_enabled; then
     candidate="$(git -C "$ROOT" rev-parse "$HOLD_REF^{commit}")"
@@ -1878,6 +2042,11 @@ main() {
   if [[ -n "$TAILNET_IP" ]]; then
     TAILNET_PORT="$(docker inspect "$SOURCE" |
       jq -r --arg ip "$TAILNET_IP" '.[0].NetworkSettings.Ports["18787/tcp"][] |
+        select(.HostIp==$ip) | .HostPort')"
+  fi
+  if [[ -n "$NETWORK_GATEWAY" ]]; then
+    GATEWAY_PORT="$(docker inspect "$SOURCE" |
+      jq -r --arg ip "$NETWORK_GATEWAY" '.[0].NetworkSettings.Ports["18787/tcp"][] |
         select(.HostIp==$ip) | .HostPort')"
   fi
 
@@ -1964,6 +2133,11 @@ main() {
   install_podium "$SOURCE" >"$WORK/logs/coordinator-install.log" 2>&1
   launch_coordinator_setup
   wait_for 120 "coordinator setup server" coordinator_healthy
+  # Both before `setup_source`, and in this order: the address the instance is
+  # about to advertise is chosen from whatever the run was actually exposed on,
+  # and the HTTPS front is the rung we want it to land on (POD-2767).
+  start_https_front
+  resolve_advertised_url
   setup_source
   container_exec "$SOURCE" bash -lc \
     "jq 'del(.persistence)' '$(state_path)/config.json' >'$(state_path)/config.json.new' &&
@@ -1984,6 +2158,15 @@ main() {
       "coordinator did not report the installed $BOOTSTRAP_VERSION build; raw response: logs/coordinator-version.json"
     exit 1
   fi
+
+  # Straight after the coordinator is a real installed build and before anything
+  # joins it, because what it advertises is what a joining daemon will be handed
+  # (POD-2767). Red here stops the run the way `coordinator-install` does: an
+  # instance nobody can reach is not a base to test an update path on, and a hold
+  # that reached this point would be handing a human the broken URL again.
+  CURRENT_SCENARIO=advertised-url
+  advertised_url_reachable || exit 1
+
   rpc POST setup.setChannel '{"channel":"dev"}' >/dev/null
   # The checkout is the publisher source via PODIUM_DEV_SOURCE_ROOT; it must
   # NOT be registered as a hosted repo. The sandbox coordinator is server-only
