@@ -94,6 +94,7 @@ the only thing that differs between the two rows is the fix.
 | --- | --- | --- | --- | --- |
 | before (`380456dab`) | verb timed out at 1000ms, then escalated | child gone, scope inactive | `exited`, `already has a persisted server journal` | ALPHA yes, BRAVO **no** — the session never came back |
 | after (`b17983ec5`) | **clean** — 0 verb failures, 0 escalations | child gone, scope inactive | **`live` in 3.6s**, a NEW app-server pid | ALPHA **and** BRAVO both in the transcript |
+| after, re-driven at the branch tip (`6b155b5ec`) | clean | child gone, scope inactive | `live` in 2.4s, a NEW app-server pid | ALPHA and BRAVO both present |
 
 Read the `park process` column across both rows: the child died and the scope
 went inactive on BOTH builds. That is defect 3 shown to be independent — the
@@ -143,6 +144,11 @@ hibernating…
   resume       : LIVE — a fresh app-server resumed the thread and took a turn
   overall      : PASS
 ```
+
+The after arm was driven twice — once on the fix commit and again on the branch
+tip after the tests and this document landed — because a rig that only ever
+measured an intermediate commit is a rig that measured something nobody will
+merge.
 
 The resumed pid is a DIFFERENT process from the parked one, which is the point:
 this family's adopt is a resume, not a rebind, and the fresh child says so by
