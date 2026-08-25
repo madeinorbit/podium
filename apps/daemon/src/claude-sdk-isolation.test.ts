@@ -28,7 +28,15 @@
 //   because an unrelated `typeof import('node-pty')` type annotation happened to
 //   sit next to it. Delete the annotation as a tidy-up and it vanished silently.
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -91,7 +99,7 @@ const ALIAS_DECL = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*createRequire\s
  * `req.resolve('x')` is deliberately NOT an edge: it returns a path and loads
  * nothing. Only `req('x')` puts a module in this process's heap.
  */
-export function createRequireEdges(source: string): {
+function createRequireEdges(source: string): {
   specifiers: string[]
   computed: string[]
 } {
@@ -212,7 +220,7 @@ function sourceFiles(): string[] {
   const walk = (dir: string): void => {
     let entries: string[]
     try {
-      entries = require('node:fs').readdirSync(dir) as string[]
+      entries = readdirSync(dir)
     } catch {
       return
     }
@@ -243,7 +251,7 @@ function sourceFiles(): string[] {
  * a static SDK import in either was invisible. The three rules below are
  * properties, so the next entry point is covered on the day it is written.
  */
-export function daemonAddressSpaceRoots(): string[] {
+function daemonAddressSpaceRoots(): string[] {
   const roots = new Set<string>([
     'apps/daemon/src/index.ts',
     'apps/daemon/src/daemon.ts',
