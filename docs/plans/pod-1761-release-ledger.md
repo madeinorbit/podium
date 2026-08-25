@@ -67,6 +67,33 @@ unblocks judging POD-2761.
   `/tmp` (it died with every reboot), and `bun run typecheck` caps its own
   concurrency from free memory. Both were burning this box.
 
+**Step 1, second pass — what the independent reviews found (2026-08-25 ~20:30):**
+- POD-2470 **CLOSE.** All three properties hold and the rule is wired into the
+  real gate, not merely unit-tested — the reviewer checked that too, correctly
+  calling a rule that is only unit-tested "the other vacuity". Two-hop leak
+  mutation RED with the full chain printed.
+- POD-2631 **fixed and pinned.** Root cause: daemon attach marked the machine
+  online while keeping the PREVIOUS connection's inventory authoritative, so a
+  stale `installed: false` became a confident false negative; re-probes also
+  superseded the authoritative wave and completed results were discarded. Now
+  reports `probing`, spawn WAITS 25s, `podium machine reprobe` exists, and
+  opencode discovery pins `~/.opencode/bin/opencode`. I ran its regression test
+  (28 passed) and broke it (1 failed / 27) — it had never been executed, because
+  the per-file vitest command collects ZERO tests under `apps/server`.
+- POD-2761 **both rounds verified by my own mutation**, not by report: the
+  ordering pin bites, and forcing `reattaching = false` goes RED across the
+  opencode, codex AND grok adopted rows. Its A/B is still null and says so.
+- POD-2775 **REOPENED — the most important finding of the night.** Two things:
+  **(a) a parked OPENCODE session still cannot come back.** Its `adopt()` needs
+  `probeHealth` against a server the park killed; codex is fixed, grok is fine,
+  opencode is not. A codex-shaped route was generalised to three families and
+  one was checked. **(b) NOTHING asserts the resumed session is the RIGHT
+  conversation** — mutating a resume to a stranger's thread id left 269 tests
+  green, because the conformance suite compares ids and generations but never
+  the conversation, the fake app-server ECHOES BACK whatever thread id it is
+  handed, and the drive checked only that both strings appeared. The single
+  property resume exists to deliver has no automated defence at any level.
+
 **Step 2 — gates green, and meaningful.** Run on the tip, stating whether
 `PODIUM_TEST_WORKERS` was set (it changes the outcome):
 `bun scripts/typecheck.ts` (25/25), `bun scripts/test.ts` (full suite, under
