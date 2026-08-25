@@ -1,18 +1,22 @@
 /**
- * ⌘-hold row shortcuts for the work sidebar (POD-790).
+ * Modifier-hold row shortcuts for the work sidebar (POD-790).
  *
- * Hold Command and every task in the column wears the digit that jumps to it;
- * ⌘5 selects the fifth. The numbers are POSITIONAL and momentary on purpose —
- * they are a reading of the list you are already looking at, not an identifier
- * the operator has to learn and not a second name competing with the ID square
- * underneath (which is exactly what the badge covers while it is up).
+ * Hold the platform modifier and every task in the column wears the digit that
+ * jumps to it; ⌘5 (Ctrl+5 off Apple) selects the fifth. The numbers are
+ * POSITIONAL and momentary on purpose — they are a reading of the list you are
+ * already looking at, not an identifier the operator has to learn and not a
+ * second name competing with the ID square underneath (which is exactly what
+ * the badge covers while it is up).
  *
- * macOS shell only (`isMacNativeShell`). In a browser tab ⌘1…⌘9 belong to the
- * browser's own tab strip and never reach the page, so the hint would promise
- * something the page cannot deliver.
+ * NATIVE SHELLS ONLY. In a browser tab ⌘1…⌘9 belong to the browser's own tab
+ * strip and never reach the page, so the hint would promise something the page
+ * cannot deliver. Inside a shell there is no tab strip to lose them to — which
+ * is as true of the Linux and Windows shells as it is of macOS, and POD-1532 is
+ * where they stopped being macOS-only.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { isMacNativeShell } from '@/lib/nativeDesktop'
+import { terminalOwnsChord, usesCommandKey } from '@/app/desktop-commands'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 
 /** ⌘1…⌘9. ⌘0 is deliberately absent: it reads as "the tenth" to nobody, and on
  *  macOS the 0 of a ⌘-digit run is conventionally "the last one" — a meaning a
@@ -22,14 +26,20 @@ export const MAX_ROW_SHORTCUTS = 9
 type ModifierState = Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>
 
 /**
- * Command alone — no Shift, Option or Control riding along.
+ * The platform modifier alone — no Shift, Option or the other modifier riding
+ * along.
  *
  * The bare chord is the only one we claim. ⇧⌘, ⌥⌘ and ⌃⌘ digits are the system's
  * and other apps' (⇧⌘3/4/5 are screenshots), and a hint that lit up for them
  * would be inviting the operator to press something we then refuse to handle.
+ *
+ * Off Apple the modifier is Ctrl and `metaKey` is REFUSED rather than accepted
+ * alongside it: on Linux that key is Super, which the window manager owns
+ * (Hyprland binds the range), so Super+5 is never a keystroke meant for us.
  */
 export function isCommandChord(event: ModifierState): boolean {
-  return event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
+  const mod = usesCommandKey() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+  return mod && !event.altKey && !event.shiftKey
 }
 
 /**
@@ -84,7 +94,7 @@ export function useRowShortcuts(targets: readonly RowShortcutTarget[]): {
   numbers: ReadonlyMap<string, number>
   holding: boolean
 } {
-  const enabled = isMacNativeShell()
+  const enabled = nativeDesktopBridge() !== undefined
   const [holding, setHolding] = useState(false)
   // The listener is registered once and reads the CURRENT order through a ref.
   // Re-subscribing on every render of a list that re-renders on every clock tick
@@ -97,6 +107,14 @@ export function useRowShortcuts(targets: readonly RowShortcutTarget[]): {
   useEffect(() => {
     if (!enabled) return
     const onKeyDown = (event: KeyboardEvent): void => {
+      // A FOCUSED TERMINAL KEEPS THE MODIFIER. Off Apple the hold is Ctrl, which
+      // an operator inside a shell is pressing at the terminal, not at this
+      // column — lighting nine badges every time they reach for Ctrl+C would
+      // make the sidebar flicker under someone who is not looking at it.
+      if (terminalOwnsChord(event.target)) {
+        setHolding(false)
+        return
+      }
       setHolding(isCommandChord(event))
       const digit = rowShortcutDigit(event)
       if (digit === null) return
@@ -110,7 +128,8 @@ export function useRowShortcuts(targets: readonly RowShortcutTarget[]): {
     // Command's own keyup reports metaKey false, which ends the hold. Releasing
     // a Shift that was riding along reports it true, which restores it — so the
     // badges come back rather than staying dark until Command is re-pressed.
-    const onKeyUp = (event: KeyboardEvent): void => setHolding(isCommandChord(event))
+    const onKeyUp = (event: KeyboardEvent): void =>
+      setHolding(!terminalOwnsChord(event.target) && isCommandChord(event))
     // ⌘Tab away and the keyup lands in the other app: without these the column
     // would still be wearing its digits when the operator comes back.
     window.addEventListener('keydown', onKeyDown)

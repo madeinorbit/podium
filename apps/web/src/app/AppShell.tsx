@@ -51,6 +51,7 @@ import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPaletteBoundary } from './CommandPaletteBoundary'
 import { DesktopMenuHost } from './DesktopMenuHost'
 import { DensityProvider } from './density'
+import { desktopCommandForEvent, terminalOwnsChord } from './desktop-commands'
 import { ErrorBoundary } from './ErrorBoundary'
 import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import { LoadingScreen } from './LoadingScreen'
@@ -637,18 +638,21 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     return () => window.removeEventListener(OPEN_RIGHT_PANEL_EVENT, onOpenPanel)
   })
 
+  // ⌘K / Ctrl+K. The chord is declared with the rest of the shell's commands so
+  // the rail's `Search` button can name it correctly on both platforms, but the
+  // palette is AppShell state and answers its own keystroke rather than
+  // publishing a hook — it is the one command with nowhere else to live.
+  //
+  // A focused terminal keeps Ctrl+K (kill line): off macOS the shell's chords
+  // are the terminal's control codes, and xterm has already sent the byte by
+  // the time this listener runs.
   useEffect(() => {
+    if (!commandPaletteEnabled) return
     const onKey = (event: KeyboardEvent): void => {
-      if (
-        commandPaletteEnabled &&
-        (event.metaKey || event.ctrlKey) &&
-        !event.altKey &&
-        !event.shiftKey &&
-        event.key.toLowerCase() === 'k'
-      ) {
-        event.preventDefault()
-        setPaletteOpen(!paletteOpen)
-      }
+      if (desktopCommandForEvent(event)?.id !== 'command-palette') return
+      if (terminalOwnsChord(event.target)) return
+      event.preventDefault()
+      setPaletteOpen(!paletteOpen)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

@@ -164,10 +164,15 @@ async function expectTitles(expected: string[]): Promise<void> {
 afterEach(() => {
   cleanup()
   ui.reset()
+  delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
 })
 
 describe('SidebarUnified inline filter (POD-1078)', () => {
   it('advertises the chord until there is a query, then counts the hits', async () => {
+    // The macOS shell — the hint is spelled for the keyboard in front of it
+    // (POD-1532), and happy-dom's own platform is not Apple.
+    const bridge = globalThis as { __PODIUM_DESKTOP__?: { platform: string } }
+    bridge.__PODIUM_DESKTOP__ = { platform: 'macos' }
     render(<SidebarUnified />)
     // The counter IS the affordance: it names the shortcut that focuses the
     // field, so nothing else has to carry a hint for it.
@@ -175,6 +180,13 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
     type('rocket')
     expect(field().value).toBe('rocket')
     await waitFor(() => expect(screen.getByTestId('work-search-count').textContent).toBe('2/3'))
+  })
+
+  it('spells that chord Ctrl+F on Linux, where there is no Command key', () => {
+    const bridge = globalThis as { __PODIUM_DESKTOP__?: { platform: string } }
+    bridge.__PODIUM_DESKTOP__ = { platform: 'linux' }
+    render(<SidebarUnified />)
+    expect(screen.getByTestId('work-search-count').textContent).toBe('Ctrl+F')
   })
 
   it('narrows the list to matching rows, across the pinned section and the groups', async () => {

@@ -202,19 +202,21 @@ describe('⌘N — the shell menu’s New Task (POD-790, POD-1469)', () => {
     expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 
-  it('opens a new task from a ⌘N that actually reaches the page', () => {
+  // ONE LISTENER FOR THE WHOLE SHELL (POD-1532). The column used to bind its
+  // own window keydown beside the hook, which meant the chord had two owners
+  // the moment `DesktopMenuHost` started routing every command off macOS —
+  // and two owners answer one press twice. The column publishes; the shell's
+  // keyboard presses.
+  it('does not bind a second listener of its own for the chord', () => {
     macShell()
     render(<SidebarUnified />)
     fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
-    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
-    expect(spawnDraftAgent).not.toHaveBeenCalled()
+    expect(setSelectedIssueId).not.toHaveBeenCalled()
   })
 
   it('registers nothing in a browser tab, which never surrenders ⌘N', () => {
     render(<SidebarUnified />)
     expect(newAgentCommand()).toBeUndefined()
-    fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
-    expect(setSelectedIssueId).not.toHaveBeenCalled()
   })
 
   it('takes the command back down with the sidebar', () => {
@@ -232,7 +234,7 @@ describe('⌘N — the shell menu’s New Task (POD-790, POD-1469)', () => {
     macShell()
     render(<SidebarRail />)
     expect(typeof newAgentCommand()).toBe('function')
-    fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
+    newAgentCommand()?.()
     expect(setSelectedIssueId).toHaveBeenCalledWith(null)
     expect(spawnDraftAgent).not.toHaveBeenCalled()
   })

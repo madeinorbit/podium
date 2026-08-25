@@ -6,9 +6,10 @@
  * than no hint, so the chord lives here rather than in the shell's menu wiring:
  * the thing that shows it and the thing that answers it are the same module.
  *
- * WHICH CHORD IT NAMES IS NOT THE SAME EVERYWHERE — see {@link chordLabel}. The
- * macOS shell already focuses the prompt with ⌘L from its View menu, so that is
- * what the hint says there; ⌘/ is what it says where ⌘L belongs to the browser.
+ * WHICH CHORD IT NAMES IS NOT THE SAME EVERYWHERE — see {@link chordLabel}. A
+ * native shell has a `Focus Session Prompt` command of its own (⌘L / Ctrl+L),
+ * so that is what the hint says there; ⌘/ is what it says in a browser tab,
+ * where ⌘L belongs to the address bar.
  *
  * WHY A REGISTRY. A split workspace mounts more than one composer, and each of
  * them would otherwise bind its own window listener and fight over the same
@@ -18,7 +19,8 @@
  * and otherwise the most recently mounted one, which is the pane you last opened.
  */
 import { useEffect } from 'react'
-import { isMacNativeShell } from '@/lib/nativeDesktop'
+import { chordHint, commandShortcutLabel, usesCommandKey } from '@/app/desktop-commands'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 
 type Entry = { root: HTMLElement | null; focus: () => void }
 
@@ -29,33 +31,28 @@ let bound = false
  *  answers itself, in every shell and every browser tab. */
 function isChord(e: KeyboardEvent): boolean {
   if (e.key !== '/') return false
-  return isApple() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
-}
-
-function isApple(): boolean {
-  if (typeof navigator === 'undefined') return false
-  return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+  return usesCommandKey() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
 }
 
 /**
  * What the composer's corner advertises — the chord the reader in FRONT of it
  * would actually press, which is not the same chord everywhere.
  *
- * On the macOS shell it is ⌘L: `View > Focus Session Prompt` owns that
- * accelerator (apps/desktop/src-tauri/src/main.rs), the focused session panel
- * answers it, and it is the only one of the two that also appears in a menu.
- * The hint said ⌘/ there, which named the lesser of two working chords and made
- * the app look like it had two answers for one job.
+ * In a NATIVE SHELL it is the `Focus Session Prompt` command: ⌘L on macOS,
+ * where the View menu owns the accelerator, and Ctrl+L on Linux and Windows,
+ * where `DesktopMenuHost` binds the same command from the keyboard (POD-1532 —
+ * before that the command did not exist off macOS, which is why this hint used
+ * to fall back to ⌘/ there). It is the chord that also appears in the menu and
+ * in command search, so it is the one worth naming.
  *
- * A browser tab never gets ⌘L — the address bar takes it before the page does,
+ * A BROWSER TAB never gets ⌘L — the address bar takes it before the page does,
  * and it is not ours to advertise — so there the hint names the chord this
- * module implements. Ditto the Linux and Windows shells, which build no menu at
- * all. ⌘/ keeps working everywhere regardless; the label just stops leading
- * with it where something better exists.
+ * module implements itself. ⌘/ keeps working everywhere regardless; the label
+ * just stops leading with it where something better exists.
  */
 export function chordLabel(): string {
-  if (isMacNativeShell()) return '⌘L'
-  return isApple() ? '⌘/' : 'Ctrl /'
+  if (nativeDesktopBridge()) return commandShortcutLabel('focus-session-prompt') ?? chordHint('/')
+  return chordHint('/')
 }
 
 /**

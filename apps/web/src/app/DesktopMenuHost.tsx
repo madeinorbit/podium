@@ -2,13 +2,13 @@ import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { AboutPodium } from './AboutPodium'
+import { desktopCommandForEvent, runDesktopCommand, terminalOwnsChord } from './desktop-commands'
 import {
   ABOUT_EVENT,
   ADD_PROJECT_EVENT,
   installDesktopMenuHooks,
   openAboutPodium,
   openAddProject,
-  sidebarToggleFromEvent,
 } from './desktop-menu'
 import { DesktopCloseTab } from './use-desktop-close-tab'
 
@@ -55,19 +55,33 @@ export function DesktopMenuHost({
     })
   })
 
-  // ⌘B / ⇧⌘B — same chords as View > Toggle Right/Left Sidebar. The rebuilt
-  // macOS menu owns them (an unclaimed accelerator never reaches the webview)
-  // and evals the hooks above. This keydown covers Linux/Windows and a macOS
-  // binary old enough that no menu item claimed them yet. Browser tabs are
-  // left alone: ⌘B is bookmarks there.
+  // THE KEYBOARD FOR EVERY SHELL WITHOUT A MENU BAR (POD-1532).
+  //
+  // On macOS these chords arrive as menu accelerators and never reach the
+  // webview at all — an accelerator no menu item claims is swallowed, which is
+  // why the menu exists. Linux and Windows build no menu, so the same commands
+  // have to be claimed here or they do not exist: before this, Ctrl+, Ctrl+W,
+  // Ctrl+Alt+F, Ctrl+L and Shift+Ctrl+L did nothing at all off macOS.
+  //
+  // It stays bound on macOS too. The chords are already spoken for there, so
+  // this listener normally never fires — but a shell older than the rebuilt
+  // menu has no item claiming them, and this is what keeps that build working.
+  //
+  // BROWSER TABS ARE LEFT ALONE. ⌘W closes the tab, ⌘N opens a window, ⌘B is
+  // bookmarks: none of them are ours to take, and a page that swallowed them
+  // would be breaking the browser to advertise a shortcut.
   useEffect(() => {
     if (!nativeDesktopBridge()) return
     const onKey = (event: KeyboardEvent): void => {
-      const which = sidebarToggleFromEvent(event)
-      if (!which) return
-      event.preventDefault()
-      if (which === 'left') toggleLeftSidebar()
-      else toggleRightSidebar()
+      if (event.defaultPrevented) return
+      const command = desktopCommandForEvent(event)
+      // A command with no hook is answered by its own owner (the palette is
+      // AppShell state), and a focused terminal keeps the whole Ctrl range.
+      if (!command?.hook || terminalOwnsChord(event.target)) return
+      // preventDefault only once something answered: an unowned command — no
+      // session focused for ⌘L, no tab open for ⌘W — leaves the keystroke to
+      // whoever else wants it rather than swallowing it into silence.
+      if (runDesktopCommand(command.id)) event.preventDefault()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

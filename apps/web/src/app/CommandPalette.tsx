@@ -24,6 +24,7 @@ import {
   FileText,
   FolderPlus,
   GitBranch,
+  Keyboard,
   LayoutPanelLeft,
   Mail,
   MailOpen,
@@ -43,6 +44,12 @@ import {
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import {
+  commandShortcutLabel,
+  DESKTOP_COMMANDS,
+  desktopCommandBound,
+  runDesktopCommand,
+} from '@/app/desktop-commands'
 import { openAddProject } from '@/app/desktop-menu'
 import { IssueReference } from '@/components/IssueReference'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -58,6 +65,7 @@ import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { SETTINGS_TABS } from '@/features/settings/SettingsView'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
+import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { AgentStatusGlyph, WorkingMark } from '@/lib/motion'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useFeature } from '@/lib/use-feature'
@@ -101,6 +109,22 @@ const SEARCH_MIN_QUERY_LEN = 2
  * runs the braille spinner while — and only while — a search is genuinely in
  * flight, which is the same predicate the agent-state grammar gates on.
  */
+/**
+ * The mark on the shell's own command rows.
+ *
+ * Routed through `ShellGlyph` (POD-1531) rather than drawn straight from
+ * lucide: the Omarchy profile draws the shell in Material Symbols, and a
+ * control added after that profile shipped should not be the one that ignores
+ * it. One mark for the whole group, because the group IS one thing — a chord
+ * you can type — and giving each row its own icon would say the rows differ in
+ * a way they do not.
+ */
+function ShellCommandIcon({ size, className }: { size?: number; className?: string }): JSX.Element {
+  return (
+    <ShellGlyph icon={Keyboard} glyph="terminal" size={size} className={className} aria-hidden />
+  )
+}
+
 function useIssueSearch(query: string, enabled: boolean): { hits: IssueWire[]; pending: boolean } {
   const trpc = useStoreSelector((s) => s.trpc)
   const [hits, setHits] = useState<IssueWire[]>([])
@@ -671,6 +695,12 @@ function PaletteDialog({
         label,
         keywords: [...keywords, 'switch', 'view', 'go to'],
         icon,
+        // `Go to Settings` and the shell's own `Settings…` command land in the
+        // same place, so this row wears that chord rather than the palette
+        // carrying two rows for one destination.
+        ...(view === 'settings'
+          ? { hint: commandShortcutLabel('open-settings') ?? undefined }
+          : {}),
         run: () => setView(view),
       })
     }
@@ -705,6 +735,34 @@ function PaletteDialog({
       icon: PanelRightClose,
       run: () => openRightPanel(null),
     })
+
+    // ── Actions: the shell's own commands ─────────────────────────────────
+    // THE MENU BAR ONLY EXISTS ON MACOS (POD-1532). Toggle Flight Deck, Close
+    // Tab, Focus Session Prompt and the rest were discoverable there and NOWHERE
+    // else — a Linux operator had no way to find out the commands existed, let
+    // alone which key ran them. Here they are rows like any other, wearing the
+    // chord this platform actually answers.
+    //
+    // Sourced from the registry, so a command added to the shell arrives in
+    // search for free, and dispatched through the same hook the menu evals —
+    // one implementation, three ways in. An UNBOUND command is left out rather
+    // than listed dead: `Focus Session Prompt` with no session focused would be
+    // a row that does nothing when you pick it.
+    for (const command of DESKTOP_COMMANDS) {
+      if (!command.palette || !desktopCommandBound(command.id)) continue
+      const shortcut = commandShortcutLabel(command.id)
+      out.push({
+        id: `action:shell-${command.id}`,
+        group: 'action',
+        label: command.label,
+        keywords: [...command.keywords, 'shell', 'window', 'command'],
+        icon: ShellCommandIcon,
+        ...(shortcut ? { hint: shortcut } : {}),
+        run: () => {
+          runDesktopCommand(command.id)
+        },
+      })
+    }
 
     // ── Actions: settings destinations ────────────────────────────────────
     for (const tab of SETTINGS_TABS) {

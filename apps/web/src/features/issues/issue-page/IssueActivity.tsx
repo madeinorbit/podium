@@ -26,7 +26,6 @@
  * pixels of history is a reply box nobody reaches.
  */
 
-import type { IssueId } from '@podium/model'
 import { relativeTime } from '@podium/client-core/focus'
 import {
   type ActivityDay,
@@ -38,6 +37,7 @@ import {
   type IssueEventIcon,
   type IssueEventLine,
 } from '@podium/client-core/viewmodels'
+import type { IssueId } from '@podium/model'
 import {
   ArrowRight,
   CheckCircle2,
@@ -57,6 +57,7 @@ import {
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
+import { chordHint } from '@/app/desktop-commands'
 import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -435,7 +436,9 @@ export function CommentComposer({
             Post
           </Button>
         ) : (
-          <span className="mb-2 select-none font-mono shell-type-micro text-text-faint">⌘↵</span>
+          <span className="mb-2 select-none font-mono shell-type-micro text-text-faint">
+            {chordHint('Enter')}
+          </span>
         )}
       </div>
     </div>

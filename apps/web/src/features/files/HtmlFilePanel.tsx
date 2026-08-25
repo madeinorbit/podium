@@ -8,6 +8,7 @@ import {
 import { type FileScope, scopeKey } from '@podium/client-core/viewmodels'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { chordHint } from '@/app/desktop-commands'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { scopedAssetUrl } from '@/lib/asset-url'
@@ -180,7 +181,7 @@ export function HtmlFilePanel({
           pendingLabel={<span className="sr-only">Saving file…</span>}
           aria-label={doc.saving ? 'Saving file…' : 'Save'}
           aria-describedby={saveFeedbackId}
-          title="Save (⌘S)"
+          title={`Save (${chordHint('s')})`}
         >
           <Save size={14} />
         </Button>

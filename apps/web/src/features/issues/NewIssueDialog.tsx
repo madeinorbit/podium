@@ -14,6 +14,7 @@ import { resolveRole } from '@podium/runtime'
 import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, Server, X, Zap } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { chordHint } from '@/app/desktop-commands'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -544,7 +545,7 @@ export function NewIssueDialog({
               role="img"
               aria-label="Alt S"
             >
-              ⌥S
+              {chordHint('s', { alt: true, mod: false })}
             </span>
           </div>
 
@@ -617,7 +618,7 @@ export function NewIssueDialog({
             role="img"
             aria-label="Command Enter"
           >
-            ⌘↵
+            {chordHint('Enter')}
           </span>
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
             Cancel

@@ -85,6 +85,7 @@ import {
 import { FolderPlus, GitBranch, Plus, Search } from 'lucide-react'
 import { Fragment, type JSX, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { commandShortcutLabel } from '@/app/desktop-commands'
 import { openAddProject } from '@/app/desktop-menu'
 import { useStoreSelector } from '@/app/store'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
@@ -233,6 +234,9 @@ export function SidebarRail(): JSX.Element {
   const { startNewTask } = useNewTask({ bindChord: true })
   const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
   const commandPaletteEnabled = useFeature('command-palette')
+  // ⌘K on macOS, Ctrl+K everywhere else — named from the shell's own registry
+  // rather than typed in, so the glyph follows the platform (POD-1532).
+  const searchChord = commandShortcutLabel('command-palette')
   // What the pointer is on, and where that tile was when it arrived. The rect
   // is captured on enter rather than read on render because the card is fixed
   // to the viewport: a scroll invalidates it, and a scroll also dismisses.
@@ -461,7 +465,7 @@ export function SidebarRail(): JSX.Element {
             data-pressable
             type="button"
             className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-text-strong"
-            title="Search (⌘K)"
+            title={searchChord ? `Search (${searchChord})` : 'Search'}
             aria-label="Search"
             onClick={() => setPaletteOpen(true)}
           >

@@ -185,20 +185,6 @@ export function nativeDesktopBridge(): NativeDesktopBridge | undefined {
 }
 
 /**
- * Is this the macOS native shell, as opposed to a browser tab?
- *
- * The gate for Command chords the browser will never hand over. ⌘1…⌘9 switch
- * BROWSER TABS and ⌘N opens a browser window: in a tab those keystrokes never
- * reach the page, so an app that drew ⌘-hold hints there would be advertising
- * shortcuts it cannot honour. Inside the shell the same chords are ours — the
- * webview gets ⌘-digit because no menu item claims it, and ⌘N arrives as a menu
- * accelerator (`File > New Agent`, apps/desktop/src-tauri/src/main.rs).
- */
-export function isMacNativeShell(): boolean {
-  return nativeDesktopBridge()?.platform === 'macos'
-}
-
-/**
  * Is this session running on Linux — the native shell there, or a browser on a
  * Linux box?
  *

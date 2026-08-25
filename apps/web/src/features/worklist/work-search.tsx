@@ -4,7 +4,7 @@
  *
  * A 30px well between the new-task row and the list: search glyph, the field, and a
  * mono counter holding the right end. The counter is the whole affordance — it
- * reads `⌘F` while the field is empty, so the shortcut is advertised by the
+ * reads `⌘F` (Ctrl+F off Apple) while the field is empty, so the shortcut is advertised by the
  * thing it focuses rather than by a tooltip nobody opens, and it flips to
  * `hits/total` the moment there is a query, which is the one number you want
  * while typing.
@@ -19,6 +19,7 @@ import type { UnifiedWorkRow } from '@podium/client-core/viewmodels'
 import { Search, X } from 'lucide-react'
 import type { JSX, ReactNode, RefObject } from 'react'
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { chordHint } from '@/app/desktop-commands'
 import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { indexWorkRows, matchesIndexedWorkQuery, normalizeWorkQuery } from './work-filter'
 
@@ -159,7 +160,7 @@ export function WorkSearchField({
           className="shell-type-micro mono-timer flex-none text-text-faint"
           data-testid="work-search-count"
         >
-          {filtering ? `${hits}/${total}` : '⌘F'}
+          {filtering ? `${hits}/${total}` : chordHint('f')}
         </span>
       </div>
       {trailing}

@@ -27,6 +27,7 @@
  */
 import { FolderPlus, Plus } from 'lucide-react'
 import type { JSX } from 'react'
+import { commandShortcutLabel } from '@/app/desktop-commands'
 import { openAddProject } from '@/app/desktop-menu'
 import { ShellGlyph } from '@/lib/icons/ShellGlyph'
 import { cn } from '@/lib/utils'
@@ -55,7 +56,7 @@ export function NewTaskRow(): JSX.Element {
   // The hint is rendered only where the chord exists (see `newTaskChordBound`).
   // It also replaces the ⌘K the deleted footer used to advertise: the column now
   // states one shortcut, on the control that answers it.
-  const chord = newTaskChordBound()
+  const chord = newTaskChordBound() ? commandShortcutLabel('new-agent') : null
   return (
     <div className="flex flex-none items-center gap-2 px-[10px] pt-[9px]">
       <button
@@ -80,7 +81,7 @@ export function NewTaskRow(): JSX.Element {
             aria-hidden="true"
             data-testid="new-task-chord"
           >
-            ⌘N
+            {chord}
           </span>
         )}
       </button>

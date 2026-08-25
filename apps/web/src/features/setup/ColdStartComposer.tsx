@@ -16,6 +16,7 @@ import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { chordHint } from '@/app/desktop-commands'
 import { useStoreSelector } from '@/app/store'
 import { AttachmentStrip } from '@/features/chat/AttachmentStrip'
 import { useAttachments } from '@/features/chat/use-attachments'
@@ -844,7 +845,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                       className="font-mono text-[12.5px] leading-none text-primary-foreground/60"
                       aria-hidden="true"
                     >
-                      ⌘↵
+                      {chordHint('Enter')}
                     </span>
                   </>
                 )}

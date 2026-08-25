@@ -26,6 +26,7 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { useEffect, useRef } from 'react'
+import { installDesktopCommandHook } from '@/app/desktop-commands'
 import { useStoreSelector } from '@/app/store'
 import {
   EMPTY_FIRST_TASK_DRAFT,
@@ -41,11 +42,11 @@ export interface NewTask {
 
 export function useNewTask(
   /**
-   * Whether this caller owns the ⌘N chord. Exactly ONE mounted caller may
-   * (POD-1058, inherited from the spawn row it replaces): the binding is a
-   * window keydown listener plus a global `__PODIUM_NEW_AGENT__` slot the macOS
-   * shell evals, so two live owners answer one press twice. The wide column's
-   * button takes it; the empty-project rows and the composer do not.
+   * Whether this caller owns the new-task chord. Exactly ONE mounted caller may
+   * (POD-1058, inherited from the spawn row it replaces): the binding is the
+   * single `new-agent` hook the shell's keyboard and menu both dispatch to, so
+   * two live owners would leave one of them holding a slot nothing calls. The
+   * wide column's button takes it; the empty-project rows and the composer do not.
    */
   { bindChord = false }: { bindChord?: boolean } = {},
 ): NewTask {
@@ -82,45 +83,30 @@ export function useNewTask(
     setView('workspace')
   }
 
-  // ⌘N — the chord the spawn row used to answer with a spawn (POD-790). Two
-  // deliveries, one action: a rebuilt macOS shell owns the accelerator (an
-  // unclaimed one never reaches the webview) and evals `__PODIUM_NEW_AGENT__`;
-  // a keydown covers every other native shell. Browser tabs are left alone —
-  // ⌘N / Ctrl+N open a window there.
+  // ⌘N / Ctrl+N — the chord the spawn row used to answer with a spawn
+  // (POD-790). This publishes the HOOK and nothing else: a rebuilt macOS shell
+  // owns the accelerator (an unclaimed one never reaches the webview) and evals
+  // it, and off macOS `DesktopMenuHost`'s keydown calls the same global for
+  // every command at once. Owning a second listener here is how the ⌘N path
+  // drifted from the rest of the shell's keyboard in the first place.
+  //
+  // Browser tabs are left alone — ⌘N / Ctrl+N open a window there — which is
+  // what the `nativeDesktopBridge()` gate says.
   const ref = useRef<() => void>(() => {})
   ref.current = () => startNewTask()
   useEffect(() => {
     if (!bindChord) return
     if (!nativeDesktopBridge()) return
-    const g = globalThis as { __PODIUM_NEW_AGENT__?: () => void }
     const handler = (): void => ref.current()
-    g.__PODIUM_NEW_AGENT__ = handler
-    const onKey = (event: KeyboardEvent): void => {
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        !event.altKey &&
-        !event.shiftKey &&
-        event.key.toLowerCase() === 'n'
-      ) {
-        event.preventDefault()
-        handler()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      // Only ours: an expand/collapse swaps rail and row, and React mounts the
-      // arriving one before unmounting the leaving one.
-      if (g.__PODIUM_NEW_AGENT__ === handler) delete g.__PODIUM_NEW_AGENT__
-      window.removeEventListener('keydown', onKey)
-    }
+    return installDesktopCommandHook('new-agent', handler)
   }, [bindChord])
 
   return { startNewTask }
 }
 
-/** Whether ⌘N is actually bound on this build. The hint is only rendered where
- *  the chord exists — a made-up shortcut on a button is worse than none, and in
- *  a browser tab the OS owns ⌘N. */
+/** Whether the new-task chord is actually bound on this build. The hint is only
+ *  rendered where the chord exists — a made-up shortcut on a button is worse
+ *  than none, and in a browser tab the OS owns ⌘N. */
 export function newTaskChordBound(): boolean {
   return nativeDesktopBridge() !== undefined
 }

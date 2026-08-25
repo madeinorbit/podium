@@ -47,6 +47,7 @@ import { AgentStatusGlyph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
+import { installDesktopCommandHook } from './desktop-commands'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useOperatorFocus } from './operator-focus'
 import { PanelDeck } from './PanelDeck'
@@ -169,8 +170,7 @@ const resolveFixedStripControlTarget = (
   workspace: HTMLElement | null,
   target: FixedStripControlTarget,
 ): HTMLElement | null => {
-  const strips =
-    workspace?.querySelectorAll<HTMLElement>('[data-testid="native-tab-strip"]') ?? []
+  const strips = workspace?.querySelectorAll<HTMLElement>('[data-testid="native-tab-strip"]') ?? []
   const strip = [...strips].find((candidate) => candidate.dataset.pane === target.paneId)
   return (
     [...(strip?.querySelectorAll<HTMLElement>('[data-pressable]') ?? [])].find(
@@ -730,12 +730,7 @@ export function Workspace({
         document.removeEventListener('keydown', onKeyDown, true)
       preloadDragRuntime(target, true)
     },
-    [
-      DragRuntime,
-      captureColdFixedStripKeyPress,
-      clearPendingDragActivation,
-      preloadDragRuntime,
-    ],
+    [DragRuntime, captureColdFixedStripKeyPress, clearPendingDragActivation, preloadDragRuntime],
   )
 
   const preparePendingDragActivation = useCallback((): PendingTabDragActivation | null => {
@@ -890,19 +885,18 @@ export function Workspace({
     else closeWorkspaceTab(tabId)
   }
 
-  // Cmd+W in the desktop shell [POD-93]: the native menu owns the accelerator (the
-  // webview never sees the keypress), so the shell's "Close Tab" item evals this
-  // hook instead. Returning false is reserved for no tab / an unmounted Workspace.
+  // Close Tab in the desktop shell [POD-93]: on macOS the native menu owns the
+  // accelerator (the webview never sees the keypress) and evals this hook; off
+  // macOS `DesktopMenuHost` calls the same hook from its keydown. Returning
+  // false is reserved for no tab / an unmounted Workspace, and is what keeps
+  // the keystroke unclaimed rather than swallowed.
   // Re-registered every render so it always sees the current pane; no deps array
   // on purpose.
-  useEffect(() => {
-    const g = globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }
-    g.__PODIUM_CLOSE_TAB__ = () =>
-      closeActiveWorkspaceTab(activeTabId && byId.has(activeTabId) ? activeTabId : null, closeTab)
-    return () => {
-      delete g.__PODIUM_CLOSE_TAB__
-    }
-  })
+  useEffect(() =>
+    installDesktopCommandHook('close-tab', () =>
+      closeActiveWorkspaceTab(activeTabId && byId.has(activeTabId) ? activeTabId : null, closeTab),
+    ),
+  )
 
   /**
    * NO MISSION AND NOTHING OPEN IS THE COLD DECK (POD-1153).

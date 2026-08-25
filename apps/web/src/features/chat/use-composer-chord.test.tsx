@@ -105,9 +105,10 @@ describe('the composer focus chord', () => {
 
 // THE LABEL NAMES THE CHORD THE READER WOULD PRESS, WHICH IS SHELL-DEPENDENT.
 //
-// On the macOS shell that is ⌘L — `View > Focus Session Prompt` owns the
-// accelerator and the focused panel answers it. In a browser tab ⌘L is the
-// address bar's, so the hint names the one this module implements instead.
+// In a native shell that is the `Focus Session Prompt` command — ⌘L on macOS,
+// where the View menu owns the accelerator, and Ctrl+L on Linux and Windows,
+// where the shell binds it from the keyboard (POD-1532). In a browser tab ⌘L is
+// the address bar's, so the hint names the one this module implements instead.
 describe('the chord label', () => {
   const bridge = globalThis as { __PODIUM_DESKTOP__?: unknown }
 
@@ -121,13 +122,17 @@ describe('the chord label', () => {
   })
 
   it("names this module's own chord in a browser tab", () => {
-    // jsdom is not Apple hardware, so this is the Ctrl arm.
-    expect(chordLabel()).toBe('Ctrl /')
+    // happy-dom is not Apple hardware, so this is the Ctrl arm.
+    expect(chordLabel()).toBe('Ctrl+/')
   })
 
-  it('leaves the Linux shell on the chord it can actually deliver', () => {
-    // No menu is built off macOS, so there is no ⌘L to advertise there.
+  it('names the Linux shell command, in the spelling that machine reads', () => {
     bridge.__PODIUM_DESKTOP__ = { platform: 'linux' }
-    expect(chordLabel()).toBe('Ctrl /')
+    expect(chordLabel()).toBe('Ctrl+L')
+  })
+
+  it('names the Windows shell command too', () => {
+    bridge.__PODIUM_DESKTOP__ = { platform: 'windows' }
+    expect(chordLabel()).toBe('Ctrl+L')
   })
 })

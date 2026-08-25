@@ -12,6 +12,7 @@ import { asSessionId, type SessionId } from '@podium/model/browser'
 import { Columns2, Eye, Flower2, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { chordHint } from '@/app/desktop-commands'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
@@ -194,7 +195,7 @@ export function MarkdownFilePanel({
           pendingLabel={<span className="sr-only">Saving file…</span>}
           aria-label={doc.saving ? 'Saving file…' : 'Save'}
           aria-describedby={saveFeedbackId}
-          title="Save (⌘S)"
+          title={`Save (${chordHint('s')})`}
         >
           <Save size={14} />
         </Button>

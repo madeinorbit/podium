@@ -1,10 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   assignRowShortcuts,
   isCommandChord,
   MAX_ROW_SHORTCUTS,
   rowShortcutDigit,
 } from './row-shortcuts'
+
+const bridge = globalThis as { __PODIUM_DESKTOP__?: { platform: string } }
+
+// The hold is ⌘ on macOS and Ctrl everywhere else (POD-1532), so which
+// modifier these events carry depends on the shell they are pressed in.
+beforeEach(() => {
+  bridge.__PODIUM_DESKTOP__ = { platform: 'macos' }
+})
+
+afterEach(() => {
+  delete bridge.__PODIUM_DESKTOP__
+})
 
 function chord(over: Partial<KeyboardEvent> = {}): KeyboardEvent {
   return {
@@ -29,6 +41,22 @@ describe('isCommandChord', () => {
     expect(isCommandChord(chord({ shiftKey: true }))).toBe(false)
     expect(isCommandChord(chord({ altKey: true }))).toBe(false)
     expect(isCommandChord(chord({ ctrlKey: true }))).toBe(false)
+  })
+
+  // Off Apple the hold is Ctrl, and Super — which is what `metaKey` reports on
+  // Linux — belongs to the window manager, so it is refused rather than
+  // accepted as a second spelling of the same chord.
+  it('is Ctrl ALONE on Linux, and never Super', () => {
+    bridge.__PODIUM_DESKTOP__ = { platform: 'linux' }
+    expect(isCommandChord(chord({ metaKey: false, ctrlKey: true }))).toBe(true)
+    expect(isCommandChord(chord())).toBe(false)
+    expect(isCommandChord(chord({ ctrlKey: true, shiftKey: true }))).toBe(false)
+  })
+
+  it('is Ctrl ALONE on Windows', () => {
+    bridge.__PODIUM_DESKTOP__ = { platform: 'windows' }
+    expect(isCommandChord(chord({ metaKey: false, ctrlKey: true }))).toBe(true)
+    expect(isCommandChord(chord())).toBe(false)
   })
 })
 

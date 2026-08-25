@@ -35,6 +35,7 @@ import {
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
+import { chordHint } from '@/app/desktop-commands'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
@@ -558,7 +559,7 @@ function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element 
       />
       {active && (
         <div className="mt-1.5 flex items-center justify-end gap-2">
-          <span className="font-mono shell-type-micro text-text-faint">⌘↵</span>
+          <span className="font-mono shell-type-micro text-text-faint">{chordHint('Enter')}</span>
           <Button type="button" size="sm" disabled={busy || !body.trim()} onClick={post}>
             {busy ? 'Posting…' : 'Post'}
           </Button>

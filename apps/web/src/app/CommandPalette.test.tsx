@@ -111,6 +111,8 @@ afterEach(() => {
   fixture.issues = []
   fixture.paneA = null
   fixture.store.openIssueId = null
+  delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
+  delete (globalThis as { __PODIUM_TOGGLE_FLIGHT_DECK__?: unknown }).__PODIUM_TOGGLE_FLIGHT_DECK__
 })
 
 describe('CommandPalette', () => {
@@ -234,5 +236,50 @@ describe('CommandPalette', () => {
     expect(fixture.store.closeIssue).toHaveBeenCalledWith('i1', 'done')
     expect(screen.queryByTestId('issue-close-concerns')).toBeNull()
     expect(screen.queryByText('Close this issue?')).toBeNull()
+  })
+})
+
+// THE SHELL'S OWN COMMANDS (POD-1532). Off macOS there is no menu bar, so
+// search is the ONLY place `Toggle Flight Deck` and its siblings are
+// discoverable — and the chord it names has to be the one that machine answers.
+describe('the shell commands', () => {
+  const g = globalThis as {
+    __PODIUM_DESKTOP__?: { platform: string }
+    __PODIUM_TOGGLE_FLIGHT_DECK__?: () => void
+  }
+
+  function findFlightDeck(): HTMLElement | undefined {
+    return screen
+      .queryAllByRole('option')
+      .find((row) => row.textContent?.includes('Toggle Flight Deck'))
+  }
+
+  it("offers a bound command, wearing this platform's spelling of its chord", () => {
+    g.__PODIUM_DESKTOP__ = { platform: 'linux' }
+    const toggle = vi.fn()
+    g.__PODIUM_TOGGLE_FLIGHT_DECK__ = toggle
+    render(<CommandPalette />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'flight deck' } })
+
+    const row = findFlightDeck()
+    expect(row?.textContent).toContain('Ctrl+Alt+F')
+    fireEvent.click(row as HTMLElement)
+    expect(toggle).toHaveBeenCalledOnce()
+  })
+
+  it('names the macOS chord on the macOS shell', () => {
+    g.__PODIUM_DESKTOP__ = { platform: 'macos' }
+    g.__PODIUM_TOGGLE_FLIGHT_DECK__ = vi.fn()
+    render(<CommandPalette />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'flight deck' } })
+    expect(findFlightDeck()?.textContent).toContain('⌥⌘F')
+  })
+
+  // A row that does nothing when you pick it is worse than no row.
+  it('leaves out a command nothing is answering', () => {
+    g.__PODIUM_DESKTOP__ = { platform: 'linux' }
+    render(<CommandPalette />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'flight deck' } })
+    expect(findFlightDeck()).toBeUndefined()
   })
 })

@@ -7,9 +7,9 @@ import { ConnectionIndicator, useStableConnection } from '@/features/machines/Co
 import { MobileHandoffChip } from '@/features/mobile-handoff/MobileHandoffChip'
 import { UpdateIndicator } from '@/features/updates/UpdateIndicator'
 import { useUpdates } from '@/features/updates/updates-panel-context'
-import { isMacNativeShell } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { AgentConcurrencyHistory } from './AgentConcurrencyHistory'
+import { commandShortcutLabel } from './desktop-commands'
 import { StatusPerformanceStats } from './StatusPerformanceStats'
 import { useReplicaIssues, useStoreSelector } from './store'
 import { useThemeAppearance } from './theme'
@@ -141,7 +141,7 @@ export function StatusStrip(): JSX.Element {
       {omarchy && paletteEnabled && (
         <>
           <span className="status-strip-hint">
-            {isMacNativeShell() ? '⌘ K' : 'CTRL K'} commands
+            {commandShortcutLabel('command-palette')} commands
           </span>
           <span className="status-strip-seam" aria-hidden="true" />
         </>

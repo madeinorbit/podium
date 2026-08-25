@@ -39,6 +39,7 @@ import {
 import type { JSX } from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { installDesktopCommandHook } from '@/app/desktop-commands'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useSession, useSessionDraft, useStoreSelector } from '@/app/store'
 import { GitStamp } from '@/components/GitStamp'
@@ -156,11 +157,6 @@ function SessionDraftRef({
 }): null {
   valueRef.current = useSessionDraft(sessionId)
   return null
-}
-
-type DesktopSessionGlobals = {
-  __PODIUM_FOCUS_SESSION_PROMPT__?: () => void
-  __PODIUM_TOGGLE_SESSION_VIEW__?: () => void
 }
 
 export function AgentPanel({
@@ -586,11 +582,17 @@ export function AgentPanel({
     },
   })
 
-  // macOS menu accelerators are consumed before WKWebView sees a keydown. The
-  // focused panel therefore publishes the two hooks the native menu evaluates.
+  // THE FOCUSED PANEL IS WHAT ANSWERS THE SESSION COMMANDS. macOS menu
+  // accelerators are consumed before WKWebView sees a keydown, and off macOS
+  // `DesktopMenuHost` routes the same chords; both dispatch through these two
+  // hooks, so publishing them here is what makes `Focus Session Prompt` and
+  // `Toggle Chat / Native View` mean "the session you are looking at".
+  //
+  // Unpublished when no panel is focused, which is deliberate: an unbound
+  // command leaves the keystroke alone instead of firing at some arbitrary
+  // session offscreen, and the command palette hides the row entirely.
   useEffect(() => {
     if (!active || !focused) return
-    const globals = globalThis as DesktopSessionGlobals
     const focusPrompt = (): void => {
       if (effectiveMode === 'chat') {
         panelRootRef.current?.querySelector<HTMLTextAreaElement>('textarea:not(:disabled)')?.focus()
@@ -602,13 +604,11 @@ export function AgentPanel({
       if (!gates.modeSwitchOffered) return
       pickModeWithTrace(effectiveMode === 'chat' ? 'native' : 'chat')
     }
-    globals.__PODIUM_FOCUS_SESSION_PROMPT__ = focusPrompt
-    globals.__PODIUM_TOGGLE_SESSION_VIEW__ = toggleView
+    const uninstallFocus = installDesktopCommandHook('focus-session-prompt', focusPrompt)
+    const uninstallToggle = installDesktopCommandHook('toggle-session-view', toggleView)
     return () => {
-      if (globals.__PODIUM_FOCUS_SESSION_PROMPT__ === focusPrompt)
-        delete globals.__PODIUM_FOCUS_SESSION_PROMPT__
-      if (globals.__PODIUM_TOGGLE_SESSION_VIEW__ === toggleView)
-        delete globals.__PODIUM_TOGGLE_SESSION_VIEW__
+      uninstallFocus()
+      uninstallToggle()
     }
   }, [active, focused, gates.terminalActive, gates.modeSwitchOffered, effectiveMode, mountedRef])
 
