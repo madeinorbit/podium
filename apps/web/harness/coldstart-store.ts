@@ -32,6 +32,9 @@ const listeners = new Set<() => void>()
   },
 }
 
+const panelModes: { sessionId: string; mode: string }[] = []
+;(globalThis as { __harnessPanelModes?: unknown }).__harnessPanelModes = panelModes
+
 const harness = new URLSearchParams(location.search).get('agent') ?? 'claude-code'
 
 const machine = {
@@ -78,7 +81,10 @@ const store = {
       return () => listeners.delete(listener)
     },
   },
-  focusIssueSession: async () => null,
+  /** POD-1669: the composer sets the new session's panel surface from the
+   *  session `focusIssueSession` hands back, so the harness has to hand one
+   *  back or the chat half of that rule has nothing to act on. */
+  focusIssueSession: async () => 'session-harness',
   // POD-1469: a promptless Launch starts the agent instead of creating a
   // mission, so the harness has to carry the four store writes that path makes
   // — otherwise the shot of the closed box is of a button that would throw.
@@ -86,6 +92,12 @@ const store = {
   setSelectedIssueId: () => {},
   setSelectedWorktree: () => {},
   setPane: () => {},
+  /** POD-1669: which surface the launch asked the panel to open on is the
+   *  behaviour under test and it is a pure store write, so the harness records
+   *  it where a browser probe can read it back. */
+  setPanelMode: (sessionId: string, mode: string) => {
+    panelModes.push({ sessionId, mode })
+  },
   setView: () => {},
   trpc: {
     settings: {
