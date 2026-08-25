@@ -426,7 +426,13 @@ export async function primeTerminalTui(chat: Chat, sid: string): Promise<string[
     chat.send({
       type: 'input',
       sessionId: sid,
-      data: Buffer.from(keys).toString('binary'),
+      // BASE64, NOT 'binary'. The input frame carries base64 — it is the same
+      // encoding `outputFrame` is DECODED from a few lines above, and getting it
+      // wrong is silent: the frame is well-formed, the server accepts it, and the
+      // keystroke simply never reaches the TUI. Every modal this primer "cleared"
+      // for hours was still on screen afterwards, which is why `t` and then `Esc`
+      // both appeared to do nothing three rounds running.
+      data: Buffer.from(keys).toString('base64'),
       inputOrigin: 'human',
     })
     cleared.push(label)
@@ -436,10 +442,25 @@ export async function primeTerminalTui(chat: Chat, sid: string): Promise<string[
   await wait(10_000)
   for (let round = 0; round < 3; round++) {
     const screen = chat.screenTail(4_000)
-    if (/Hooks need review/i.test(screen)) {
-      // POD-2761's exact answer: option 2, then Enter.
-      await press('2', 'codex hooks-need-review: chose 2')
-      await press('\r', 'codex hooks-need-review: Enter')
+    if (/Press t to trust all|Hooks need review/i.test(screen)) {
+      // THE MODAL TELLS YOU THE KEY, AND IT HAS CHANGED. POD-2761's rig answered
+      // codex's hooks prompt with "2, Enter"; this codex (0.149.1) renders
+      // "Press t to trust all; enter to review hooks; esc to close" — so "2" is
+      // swallowed and "enter" opens the REVIEW rather than dismissing anything.
+      // The primer pressed 2/Enter three times, reported success, and left the
+      // session sitting on the dialog: nine cells refused for want of a
+      // transcript that could never arrive. Read the affordance off the screen
+      // rather than replaying a key that worked on an older build.
+      // `t` FIRST, AND FOR EITHER SPELLING. The dialog's header ("Hooks need
+      // review") and its key hint ("Press t to trust all") do not always land in
+      // the same screen sample, and keying off the header alone replayed the old
+      // build's `2, Enter` — which this codex swallows, leaving the dialog up and
+      // every content probe refusing. Press what the current build accepts, then
+      // Esc as a fallback for a dialog that is showing something else entirely.
+      await press('t', 'codex hooks: pressed t (trust all)')
+      if (/Press t to trust all|Hooks need review/i.test(chat.screenTail(4_000))) {
+        await press('\u001b', 'codex hooks: Esc (t did not clear it)')
+      }
     } else if (/Set it up[\s\S]{0,40}Not now|1\.\s*Set it up/i.test(screen)) {
       // claude's first-run onboarding: "Telling it which repos you trust ...
       // 1. Set it up  2. Not now  3. Don't show again". A fresh agent home opens

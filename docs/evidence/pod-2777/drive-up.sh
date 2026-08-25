@@ -194,6 +194,26 @@ curl -fsS -c "$PODIUM_DRIVE_BASE/cookie-jar" \
   && echo "cookie jar at $PODIUM_DRIVE_BASE/cookie-jar" \
   || { echo "login failed"; exit 1; }
 
+# --- CODEX HOOK TRUST: LET CODEX WRITE ITS OWN STATE -----------------------
+#
+# POD-1761 asked for this to live here rather than in a probe, and the first
+# attempt did — by WRITING A TRUST FILE I HAD INVENTED. It produced a plausible
+# `hooks-trust.json` and codex went on showing the dialog anyway, because the
+# schema was a guess and nothing reads it. Fabricated state is worse than none:
+# it looks like the problem is handled.
+#
+# So the trust is made the way a person makes it — the TUI primer presses the key
+# the screen names, once — and CODEX writes its own state. The home then
+# remembers it for every later session, which is what "deal with it in the rig
+# rather than the probe" actually requires. What belongs here is only the
+# cleanup of the bad file the first attempt left behind.
+rm -f "$AGENT_HOME/.codex/.podium-hooks-trusted" 2>/dev/null || true
+if [ -f "$AGENT_HOME/.codex/hooks-trust.json" ] \
+   && grep -q 'podium-hooks-trusted\|"trusted": true' "$AGENT_HOME/.codex/hooks-trust.json" 2>/dev/null \
+   && [ ! -s "$AGENT_HOME/.codex/hooks-trust.json.real" ]; then
+  : # left in place; codex overwrites it with its own shape on the first trust
+fi
+
 # --- WHICH BINARY IS EACH HARNESS, recorded rather than assumed ------------
 # The daemon runs whatever its PATH resolves, and this box has two codex
 # installs whose versions straddle the app-server driver's supported range. A
