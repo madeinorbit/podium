@@ -205,6 +205,9 @@ PODIUM_UPDATE_E2E_HOLD=proposal       leave a release proposal pending for a
                                       human to approve and build
 PODIUM_UPDATE_E2E_HOLD=published      publish a cold signed release and leave
                                       it for consumer testing (`1` alias)
+PODIUM_UPDATE_E2E_HOLD=real-release   leave a REAL published 0.1.0 install standing
+                                      with the new release offered to it, to drive
+                                      the upgrade by hand (needs ONLY=real-release)
 PODIUM_UPDATE_E2E_HOLD_REF=REF        source ref for hold mode (defaults to the
                                       updater epic integration branch)
 EOF
@@ -1759,9 +1762,18 @@ main() {
     ( "$ONLY" == server && "$PROVE_FAILURE" == server-* ) ||
     ( "$ONLY" == real-release && "$PROVE_FAILURE" == real-release-* ) ]] ||
     die "failure controls require the complete matrix"
-  [[ "$HOLD" == 0 || "$HOLD" == 1 || "$HOLD" == proposal || "$HOLD" == published ]] ||
-    die "hold mode must be 0, proposal, published, or the published alias 1"
-  if hold_enabled && [[ -n "$ONLY" || -n "$PROVE_FAILURE" ]]; then
+  [[ "$HOLD" == 0 || "$HOLD" == 1 || "$HOLD" == proposal || "$HOLD" == published ||
+    "$HOLD" == real-release ]] ||
+    die "hold mode must be 0, proposal, published, real-release, or the published alias 1"
+  # THE ONE HOLD THAT IS A FOCUSED LANE, because the thing being held IS the lane:
+  # a machine that starts at a real released install. It cannot be reached from the
+  # complete matrix, which has no such machine in it.
+  if [[ "$HOLD" == real-release ]]; then
+    [[ "$ONLY" == real-release ]] ||
+      die "hold mode real-release needs PODIUM_UPDATE_E2E_ONLY=real-release"
+    [[ -z "$PROVE_FAILURE" ]] ||
+      die "hold mode cannot be combined with a deliberate-red control"
+  elif hold_enabled && [[ -n "$ONLY" || -n "$PROVE_FAILURE" ]]; then
     die "hold mode cannot be combined with focused or deliberate-red lanes"
   fi
   bash -n "$ROOT/scripts/docker-update-e2e/provision.sh"

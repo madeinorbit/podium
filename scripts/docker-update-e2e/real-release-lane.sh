@@ -427,6 +427,62 @@ point_real_release_at_feed() {
   wait_for 120 "real $REAL_RELEASE_VERSION server on the run-local feed" real_healthy
 }
 
+# THE SANDBOX THAT STARTS AT A REAL RELEASE.
+#
+# Every sandbox anyone has held starts at current source, which is why the
+# old-to-new hop has never been driven by hand. This one stops with a REAL
+# published install standing, its data seeded, and the new release already
+# offered to it — so the next move is the same click a user would make.
+print_real_release_hold_instructions() {
+  cat <<EOF
+
+MANUAL REAL-RELEASE UPGRADE READY — OBJECTS PERSIST UNTIL TORN DOWN
+
+This machine is a REAL published $REAL_RELEASE_TAG install. It was verified against
+the production release key, installed by its own installer, and its own code wrote
+its own three systemd units. One constant differs from the published bytes: the
+baked trust root, so this run can sign the release it offers.
+  trust-root substitution: $REAL_TRUST_PATCH
+
+Installed: $REAL_RELEASE_VERSION (default instance, channel stable)
+Offered:   $REAL_TARGET_VERSION, through the stable feed URL a released install fetches
+Seeded:    one shell session and a real_release_probe row, both of which must survive
+
+UI: http://127.0.0.1:$REAL_PORT
+
+Drive it by hand:
+  1. Open Settings -> Updates. The offer is already there.
+  2. Accept it. The FIRST HOP IS PERFORMED BY THE OLD UPDATER — that is the point
+     of this sandbox and the one thing no other fixture exercises.
+  3. Watch the three units become one:
+       docker exec -u podium $REAL_CONSUMER \
+         find $REAL_UNIT_DIR -maxdepth 1 -name 'podium*.service' -printf '%f\n'
+     It should end as $REAL_PARENT_UNIT alone.
+  4. Check the data survived:
+       docker exec -u podium $REAL_CONSUMER \
+         sqlite3 $REAL_STATE/podium.db 'SELECT * FROM real_release_probe;'
+
+To watch it refuse instead, put the desktop manifest back on a different version
+(this is POD-2789, and it is what a headless-only release looks like to this install):
+  docker exec $SOURCE bash -lc "cd /work/source/dist-bun/release &&
+    jq '.version=\"$REAL_RELEASE_VERSION\"' latest.json >l && mv l latest.json"
+  curl -sS -X POST -H 'content-type: application/json' -d '{}' \
+    http://127.0.0.1:$REAL_PORT/trpc/updates.checkNow | jq .
+
+Run label: $LABEL
+Scratch directory: $WORK
+
+Container shells:
+  docker exec -it $REAL_CONSUMER bash
+  docker exec -it $SOURCE bash
+
+One-line teardown (only this run's labeled containers, exact network, image, and scratch):
+  docker ps -aq --filter 'label=$LABEL' | xargs -r docker rm -f && docker network rm '$NETWORK' && docker image rm '$IMAGE' && rm -rf -- '$WORK'
+
+These objects deliberately remain running and consume disk until that teardown succeeds.
+EOF
+}
+
 # ---------------------------------------------------------------------------
 # arming
 
@@ -526,6 +582,28 @@ run_real_release_lane() {
   fi
   pass real-release-resolve \
     "the real $REAL_RELEASE_VERSION resolver read a paired release through the stable feed URL a released install actually fetches, and offered $REAL_TARGET_VERSION"
+
+  if [[ "$HOLD" == real-release ]]; then
+    # KEEP THE UI REACHABLE ACROSS THE VERY HOP THIS SANDBOX EXISTS TO WATCH.
+    #
+    # The drop-in that makes this machine reachable from the host sits on the
+    # SERVER unit, and the upgrade retires that unit — so without this the human
+    # loses the UI at the exact moment they click Update, which reads as the
+    # upgrade having broken the machine. A released install's units carry no
+    # PODIUM_HOST, so the parent would otherwise bind loopback inside the
+    # container. systemd applies a drop-in written before its unit exists, and
+    # `.service.d` is not a `.service`, so the migration's own unit listing does
+    # not see it.
+    real_exec mkdir -p "$REAL_UNIT_DIR/$REAL_PARENT_UNIT.d"
+    real_exec bash -lc \
+      "printf '[Service]\nEnvironment=NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/update-e2e.crt\nEnvironment=PODIUM_HOST=0.0.0.0\n' >'$REAL_UNIT_DIR/$REAL_PARENT_UNIT.d/sandbox.conf'"
+    real_exec systemctl --user daemon-reload
+    require_disk_margin "held real-release sandbox"
+    print_real_release_hold_instructions
+    CURRENT_SCENARIO=""
+    HOLD_READY=1
+    return 0
+  fi
 
   arm_real_release_failure
 
