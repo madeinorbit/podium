@@ -130,7 +130,12 @@ export function classifyProbe(p: {
     }
   }
   if (/\(HTTP 404\)/.test(p.stderr)) return { kind: 'none' }
-  const detail = p.stderr.trim() || p.stdout.trim() || `gh exited ${p.status}`
+  // Collapsed to one line: this becomes one sentence inside the refusal, and gh's
+  // multi-line advice reads as a broken message when it is spliced in verbatim.
+  const detail = (p.stderr.trim() || p.stdout.trim() || `gh exited ${p.status}`).replace(
+    /\s+/g,
+    ' ',
+  )
   return { kind: 'unreadable', detail }
 }
 
