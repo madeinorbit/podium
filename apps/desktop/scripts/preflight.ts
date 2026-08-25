@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { nodePrerequisiteProblem } from './node-prerequisite'
 
 const os = platform() // 'darwin' | 'linux' | 'win32' | ...
 const isMac = os === 'darwin'
@@ -32,7 +33,20 @@ const runs = (bin: string, args: string[]): boolean => {
 type Problem = { what: string; fix: string }
 const problems: Problem[] = []
 
-// 1. Rust / cargo — the thing Tauri shells out to. Distinguish "not installed" from
+// 1. Vite runs through the `node` executable on PATH even though this preflight itself runs
+//    under Bun. Catch an absent or incompatible Node before Vite fails with a runtime error.
+const nodeVersion = (() => {
+  try {
+    const result = spawnSync('node', ['--version'], { encoding: 'utf8' })
+    return result.status === 0 && result.stdout.trim() ? result.stdout.trim() : null
+  } catch {
+    return null
+  }
+})()
+const nodeProblem = nodePrerequisiteProblem(nodeVersion)
+if (nodeProblem) problems.push(nodeProblem)
+
+// 2. Rust / cargo — the thing Tauri shells out to. Distinguish "not installed" from
 //    "installed but this shell didn't load ~/.cargo/env" (a very common first-run snag).
 if (!runs('cargo', ['--version'])) {
   const cargoBin = join(homedir(), '.cargo', 'bin', 'cargo')
@@ -49,7 +63,7 @@ if (!runs('cargo', ['--version'])) {
   }
 }
 
-// 2. A C compiler — build-bun.ts compiles the vendored abduco (cc/gcc/clang) during
+// 3. A C compiler — build-bun.ts compiles the vendored abduco (cc/gcc/clang) during
 //    `package:headless`, which stage-sidecar.ts runs. No compiler => the build dies there.
 if (!['cc', 'gcc', 'clang'].some((c) => runs(c, ['--version']))) {
   problems.push({
@@ -62,7 +76,7 @@ if (!['cc', 'gcc', 'clang'].some((c) => runs(c, ['--version']))) {
   })
 }
 
-// 3. Linux-only: the webkit/gtk system libs Tauri links against. Probe via pkg-config.
+// 4. Linux-only: the webkit/gtk system libs Tauri links against. Probe via pkg-config.
 if (isLinux) {
   const havePkgConfig = runs('pkg-config', ['--version'])
   if (!havePkgConfig) {
@@ -83,7 +97,7 @@ if (isLinux) {
   }
 }
 
-// 4. Bundle targets must include something the host OS can actually produce, or
+// 5. Bundle targets must include something the host OS can actually produce, or
 //    `tauri build` exits without a usable artifact. Flag a host mismatch rather than letting
 //    the user chase an empty output directory.
 try {
