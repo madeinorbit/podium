@@ -122,7 +122,8 @@ if [[ "$ONLY" == server ]]; then
 elif [[ "$ONLY" == real-release ]]; then
   # THE ONLY LANE THAT DOES NOT START AT CURRENT SOURCE (POD-2769).
   SCENARIOS=(environment resource-safety coordinator-install real-release-install
-    real-release-pairing-refusal real-release-resolve real-release-converged cleanup host-disk)
+    real-release-pairing-refusal real-release-resolve real-release-converged
+    real-release-headless-only cleanup host-disk)
 else
   SCENARIOS=(environment resource-safety coordinator-install advertised-url fresh-install diagnostic-version fleet-join
     fleet-join-refusal version-display dev-release update-offer schema-refusal tampered-refusal

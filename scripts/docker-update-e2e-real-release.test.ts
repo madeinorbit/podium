@@ -67,6 +67,29 @@ describe('real-release row expectations still match the code they describe', () 
     expect(lane).toContain('.outcome.reason')
   })
 
+  it('reads the headless-only row where CURRENT code records the outcome', () => {
+    // The one row in this lane that asks about current code rather than v0.1.0,
+    // so it is the one whose field names rot against THIS checkout instead of
+    // against a tag. `unavailable` is how the silent stranding was recorded, so
+    // the row's whole claim is that the status stays `ok`.
+    const service = readFileSync(
+      join(root, 'apps/server/src/modules/updates/service.ts'),
+      'utf8',
+    )
+    expect(service).toContain("{ status: 'ok' } | { status: 'unavailable'; reason: string }")
+    expect(lane).toContain('.outcome.status // ""')
+    expect(lane).toContain('real_headless_only_is_offered')
+  })
+
+  it('deletes the desktop manifest and proves the deletion before asserting on it', () => {
+    // A row that removes a file and then asserts a green is only worth something
+    // if the removal actually reached the thing under test. Without the probe
+    // this row would pass just as happily against a feed that never stopped
+    // serving latest.json.
+    expect(lane).toContain('rm -f /work/source/dist-bun/release/latest.json')
+    expect(lane).toMatch(/if container_http_probe "\$REAL_CONSUMER" GET \\\n\s+"[^"]*latest\.json"/)
+  })
+
   it('serves the feed paths a v0.1.0 stable install fetches', () => {
     const resolver = fromTag('apps/server/src/modules/updates/release-target.ts')
     expect(resolver).toContain('${RELEASE_BASE}/latest/download/podium-update.json')

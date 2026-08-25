@@ -153,6 +153,20 @@ real_target_is() {
   real_rpc GET updates.fleet | jq -e --arg target "$1" '.targetVersion==$target' >/dev/null
 }
 
+# The stable channel's LAST recorded check outcome, as a bare word. `unavailable`
+# is how every form of "we looked and there is nothing to offer you" is recorded,
+# which is precisely why the stranding is silent: the operator's Update surface
+# has no target and no error, and reads as up to date.
+real_stable_check_status() {
+  real_check_now
+  real_rpc GET updates.fleet |
+    jq -r '[.channelChecks[]? | select(.channel=="stable")] | last | .outcome.status // ""'
+}
+
+real_headless_only_is_offered() {
+  [[ "$(real_stable_check_status)" == ok ]]
+}
+
 # ---------------------------------------------------------------------------
 # 1. the published bytes
 
@@ -656,6 +670,47 @@ run_real_release_lane() {
       "deliberate $PROVE_FAILURE mutation unexpectedly produced a green convergence"
     return 1
   fi
+
+  # THE OTHER HALF OF THE STORY (POD-2794), asked of the machine this lane just
+  # built. It is now running CURRENT code, and it got there along the real
+  # upgrade path rather than by being installed from source — so it is the
+  # honest consumer for the question the pairing-refusal row above leaves open:
+  # once an install is off v0.1.0, does a release with NO desktop build reach it?
+  #
+  # Deleting the served `latest.json` is the entire mutation, and it is the real
+  # shape of a headless-only release: a dev-driven mint publishes the headless
+  # payload and never runs a darwin builder, so the desktop manifest is simply
+  # not there. Before POD-2794 the resolver fetched it unconditionally and the
+  # 404 retracted the whole target — recorded as the channel having nothing,
+  # which an operator reads as being up to date. That is the silence.
+  #
+  # This row is deliberately NOT a version bump. Building a second release in the
+  # container costs another full build and another disk margin for no extra
+  # claim: what is under test is whether the resolve SURVIVES a missing desktop
+  # manifest, and the check outcome says that directly. A `targetVersion`
+  # assertion could not, because the machine is already on that version and
+  # "offered it again" and "offered nothing" look identical from there.
+  CURRENT_SCENARIO=real-release-headless-only
+  container_exec "$SOURCE" bash -lc "rm -f /work/source/dist-bun/release/latest.json"
+  # PROVE THE MUTATION LANDED BEFORE BELIEVING THE GREEN. If the feed kept
+  # serving latest.json — from a cache, or because the release dir moved — the
+  # row would pass while testing nothing at all.
+  if container_http_probe "$REAL_CONSUMER" GET \
+      "https://github.com/madeinorbit/podium/releases/latest/download/latest.json"; then
+    fail real-release-headless-only \
+      "the feed still serves latest.json after it was deleted, so this row would be green without testing anything"
+    return 1
+  fi
+  if wait_for 120 "a headless-only release to be offered" real_headless_only_is_offered; then
+    pass real-release-headless-only \
+      "with NO desktop manifest published at all, the upgraded install still resolved the stable target — the missing shell no longer retracts the headless offer"
+  else
+    real_rpc GET updates.fleet >"$WORK/logs/real-release-headless-only-fleet.json" 2>&1 || true
+    fail real-release-headless-only \
+      "a release with no desktop build was not offered; the channel check said '$(real_stable_check_status)' and its reason is in logs/real-release-headless-only-fleet.json"
+    return 1
+  fi
+
   require_disk_margin "real-release upgrade"
   CURRENT_SCENARIO=""
   [[ -z "$PROVE_FAILURE" ]] || return 1
