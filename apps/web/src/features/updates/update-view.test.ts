@@ -561,6 +561,45 @@ describe('every token the daemon can produce reaches copy, on both entry points'
     }
   })
 
+  /**
+   * THE SENTENCE THIS ISSUE IS ABOUT (POD-2783).
+   *
+   * The checks above this one are all shape: not the fallback, long enough, no
+   * raw token, nothing claiming a machine went quiet. Every one of them passes
+   * for "Ask the server operator to check the release includes that machine's
+   * platform, then try again" — which is what a human was actually shown, and
+   * which is false twice over. The release is immutable, so there is nothing
+   * for an operator to check; and the machine's platform can never be added to
+   * it, so trying again returns here forever.
+   *
+   * Naming the exact prose is the only thing that can say no to it coming back.
+   */
+  it('sends nobody to an operator over a platform nobody can add to a release', () => {
+    for (const token of ['unsupported-platform', 'platform-not-published'] as const) {
+      const v = describeUpdateFailure(UPDATE_FAILURE_EXAMPLES[token], 'ludovico')
+      const said = `${v.message} ${v.guidance}`
+      expect(said, token).not.toMatch(/operator/i)
+      expect(said, token).not.toMatch(/try again/i)
+    }
+  })
+
+  /**
+   * …and the two arms say opposite things about the future, which is the whole
+   * reason they are two arms. Promising a later release for a platform Podium
+   * builds nothing for would be the same confident lie in a new place.
+   */
+  it('promises a later release only where one is actually coming', () => {
+    const absent = describeUpdateFailure(UPDATE_FAILURE_EXAMPLES['unsupported-platform'], 'mini')
+    expect(`${absent.message} ${absent.guidance}`).toMatch(/next one built will include it/i)
+
+    const never = describeUpdateFailure(
+      UPDATE_FAILURE_EXAMPLES['platform-not-published'],
+      'surface',
+    )
+    expect(`${never.message} ${never.guidance}`).not.toMatch(/next one built|will include it/i)
+    expect(`${never.message} ${never.guidance}`).toMatch(/now or later/i)
+  })
+
   /** §7's layers stay separated: vocabulary in the diagnostic, never in the copy. */
   it('keeps the raw token out of the two layers a person reads', () => {
     for (const token of UPDATE_FAILURE_TOKENS) {
