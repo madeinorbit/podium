@@ -1,5 +1,15 @@
 import { chromium, type Locator, type Page } from '@playwright/test'
-import { formatDisplayedVersion } from '../../apps/web/src/lib/machine-version-skew'
+// The formatting rule is protocol's, not the web app's: `formatDisplayedVersion`
+// is a one-line passthrough of `formatDevVersionShort` that exists to give the
+// browser bundle its own vocabulary. Reaching into `apps/web` for it dragged the
+// whole browser module graph — `@/app/store` and all — into the scripts project,
+// which maps no `@/` alias (POD-2807). Depending on the shared package instead
+// keeps the alias out rather than teaching scripts/tsconfig.json to resolve it.
+//
+// This does not silently drift from what the UI renders: the assertions below
+// compute the expected string and compare it against the DOM, so a web-only
+// change to the label fails this lane loudly instead of passing on a stale rule.
+import { formatDevVersionShort as formatDisplayedVersion } from '@podium/protocol/update-dev-version'
 
 const origin = process.env.PODIUM_UPDATE_E2E_ORIGIN
 const mode = process.env.PODIUM_UPDATE_E2E_UI_MODE ?? 'accept'

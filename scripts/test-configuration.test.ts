@@ -6,10 +6,11 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import desktopConfig from '../apps/desktop/vitest.config'
@@ -100,6 +101,119 @@ const smokeTestFiles = (dir: URL, prefix = ''): string[] =>
     }
     return /\.smoke\.test\.(?:ts|tsx)$/.test(entry.name) ? [relative] : []
   })
+interface WorkspacePackage {
+  name: string
+  /** repo-relative, e.g. `apps/web` */
+  dir: string
+  scripts: Record<string, string>
+  dependencies: string[]
+}
+
+/** Every workspace package, resolved from the root `workspaces` globs. */
+const workspacePackageDirs = (root: string): WorkspacePackage[] => {
+  const rootPkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+    workspaces: string[]
+  }
+  const dirs = rootPkg.workspaces.flatMap((workspace) => {
+    if (!workspace.endsWith('/*')) return [workspace]
+    const parent = workspace.slice(0, -2)
+    return readdirSync(join(root, parent), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => `${parent}/${entry.name}`)
+  })
+  return dirs.flatMap((dir) => {
+    const file = join(root, dir, 'package.json')
+    if (!existsSync(file)) return []
+    const pkg = JSON.parse(readFileSync(file, 'utf8')) as {
+      name?: string
+      scripts?: Record<string, string>
+      dependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
+    }
+    if (!pkg.name) return []
+    return [
+      {
+        name: pkg.name,
+        dir,
+        scripts: pkg.scripts ?? {},
+        dependencies: [
+          ...Object.keys(pkg.dependencies ?? {}),
+          ...Object.keys(pkg.devDependencies ?? {}),
+        ],
+      },
+    ]
+  })
+}
+
+/** Closure of workspace dependencies — what `^typecheck` folds into the hash. */
+const transitiveWorkspaceDeps = (name: string, packages: WorkspacePackage[]): string[] => {
+  const byName = new Map(packages.map((pkg) => [pkg.name, pkg]))
+  const seen = new Set<string>()
+  const walk = (current: string) => {
+    for (const dep of byName.get(current)?.dependencies ?? []) {
+      if (!byName.has(dep) || seen.has(dep)) continue
+      seen.add(dep)
+      walk(dep)
+    }
+  }
+  walk(name)
+  return [...seen]
+}
+
+/**
+ * `from '…'`, `import('…')`, `require('…')` and bare side-effect `import '…'`.
+ * Deliberately textual: this asks "what could this package pull in", and a
+ * resolution check below discards specifiers that name nothing real.
+ */
+const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"]([^'"]+)['"]/g
+
+const RESOLUTION_SUFFIXES = ['', '.ts', '.tsx', '.d.ts', '/index.ts', '/index.tsx']
+
+/**
+ * Repo-relative paths this package imports by relative specifier from OUTSIDE
+ * its own directory. Only specifiers that resolve to a file that exists count —
+ * a path spelled inside a fixture string names nothing and is not a real read.
+ */
+const escapingImports = (packageDir: string, root: string): string[] => {
+  const absolutePackageDir = join(root, packageDir)
+  const found = new Set<string>()
+  const visit = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (['node_modules', 'dist', 'build', '.turbo', 'ios', 'android'].includes(entry.name)) {
+          continue
+        }
+        visit(full)
+        continue
+      }
+      if (!/\.(?:ts|tsx)$/.test(entry.name)) continue
+      const source = readFileSync(full, 'utf8')
+      for (const match of source.matchAll(SPECIFIER)) {
+        const specifier = match[1] as string
+        if (!specifier.startsWith('.')) continue
+        const target = resolve(dirname(full), specifier)
+        if (target.startsWith(`${absolutePackageDir}/`)) continue
+        const hit = RESOLUTION_SUFFIXES.map((suffix) => `${target}${suffix}`).find(
+          (candidate) => existsSync(candidate) && statSync(candidate).isFile(),
+        )
+        if (hit === undefined || !hit.startsWith(`${root}/`)) continue
+        found.add(hit.slice(root.length + 1))
+      }
+    }
+  }
+  visit(absolutePackageDir)
+  return [...found].sort()
+}
+
+/** Turbo input/globalDependency globs, matched against a repo-relative path. */
+const coveredByInputGlob = (globs: string[], target: string): boolean =>
+  globs.some((glob) => {
+    const bare = glob.startsWith('$TURBO_ROOT$/') ? glob.slice('$TURBO_ROOT$/'.length) : glob
+    const star = bare.indexOf('*')
+    return star === -1 ? target === bare : target.startsWith(bare.slice(0, star))
+  })
+
 const namedProject = (value: unknown, name: string) => {
   const project = config(value).test?.projects?.find(
     (candidate): candidate is Exclude<Project, string> =>
@@ -597,6 +711,58 @@ describe('test lane configuration', () => {
       if (!name.endsWith('#test') && name !== 'test') continue
       expect(task.dependsOn ?? [], `${name} gained a cross-package test dependency`).toEqual([])
     }
+  })
+
+  it('keeps every typecheck cache key over the sources that task actually reads [POD-2807]', () => {
+    // A check that cannot say NO is worse than no check. Turbo hashes
+    // `$TURBO_DEFAULT$` — the package's own tracked files — plus the task hashes
+    // of the packages named in its `^typecheck` dependencies. Neither follows a
+    // relative import that climbs OUT of the package directory. So a package
+    // that reaches into a sibling it does not depend on gets a cache key blind
+    // to sources it genuinely typechecks, and Turbo replays a green computed
+    // against a world that no longer exists.
+    //
+    // That is not hypothetical: `scripts/docker-update-e2e/ui-update.ts` reached
+    // into `apps/web` for one formatter, `apps/web` gained an unresolvable
+    // `@/app/store` import on 2026-08-22, and `@podium/scripts:typecheck` stayed
+    // cached green for three days while `bun run test` — the sanctioned agent
+    // gate — reported success to every lane that ran it.
+    //
+    // The rule this pins: if a package's typecheck can reach outside its own
+    // directory, its cache key has to follow. Coverage may come from an explicit
+    // `$TURBO_ROOT$` input, from `globalDependencies`, or from a workspace
+    // dependency (whose own typecheck hash rides in via `^typecheck`) — but it
+    // has to come from somewhere, and this fails loudly when it does not.
+    const turbo = JSON.parse(readFileSync(new URL('../turbo.json', import.meta.url), 'utf8')) as {
+      globalDependencies?: string[]
+      tasks: Record<string, { dependsOn?: string[]; inputs?: string[] }>
+    }
+    const root = fileURLToPath(repoRoot).replace(/\/$/, '')
+
+    const packages = workspacePackageDirs(root)
+    const dirByName = new Map(packages.map((pkg) => [pkg.name, pkg.dir]))
+
+    const failures: string[] = []
+    for (const pkg of packages) {
+      if (!pkg.scripts.typecheck) continue
+      // `<pkg>#typecheck` overrides the generic `typecheck` entry outright —
+      // Turbo does not merge them, so the override is the whole key.
+      const task = turbo.tasks[`${pkg.name}#typecheck`] ?? turbo.tasks.typecheck ?? {}
+      const globs = [...(task.inputs ?? []), ...(turbo.globalDependencies ?? [])]
+      // `^typecheck` carries the dependency's task hash, which recursively
+      // carries its own — so the whole transitive closure is inside the key.
+      const viaDependencies = (task.dependsOn ?? []).includes('^typecheck')
+        ? transitiveWorkspaceDeps(pkg.name, packages).map((name) => dirByName.get(name) ?? '')
+        : []
+
+      for (const read of escapingImports(pkg.dir, root)) {
+        const covered =
+          coveredByInputGlob(globs, read) ||
+          viaDependencies.some((dir) => dir && read.startsWith(`${dir}/`))
+        if (!covered) failures.push(`${pkg.name}#typecheck reads ${read}, uncovered by its key`)
+      }
+    }
+    expect(failures.sort()).toEqual([])
   })
 
   it('builds browser workspace dependencies in the lane, not under webServer [POD-1389][POD-535]', () => {
