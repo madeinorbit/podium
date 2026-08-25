@@ -51,7 +51,18 @@ unset CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH
 
 # --- code under test ------------------------------------------------------
 export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2761-bug-switching-to-cli-restarts-the-codex
-export PATH="$HOME/.bun/bin:$PATH"
+
+# THE RIG'S OWN PATH CHOSE THE HARNESS VERSION, AND CHOSE WRONG.
+# 2753's env prepends ~/.bun/bin, which it needs for `bun`. But that directory
+# also holds a `codex` shim — 0.146.0, an old global install — while the codex a
+# person actually runs is ~/.local/bin/codex (0.149.1). Prepending bun's bin
+# therefore handed the daemon a codex the app-server driver's version gate
+# REFUSES, and the refusal does not look like a version problem from the outside:
+# the driver degrades to `generic-pty` behind one warn line, the session still
+# answers prompts, and no client terminal is ever started. The drive then has
+# nothing to measure while looking like it worked.
+# So ~/.local/bin goes first and bun's bin stays available behind it.
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
 
 mkdir -p "$PODIUM_STATE_DIR" "$ABDUCO_SOCKET_DIR" "$TMUX_TMPDIR"
 chmod 700 "$PODIUM_DRIVE_BASE"

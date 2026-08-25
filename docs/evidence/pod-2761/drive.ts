@@ -141,11 +141,27 @@ console.log(`\n1. PROCESS: the CLI client is ${sameProcess ? 'THE SAME process' 
  */
 const drewSomething = /* the harness banner reached the byte stream */ stream.length > 2_000
 if (first.length === 0 || !drewSomething) {
+  // NAME THE DEGRADE RATHER THAN POINTING AT A LOG. This check has failed twice
+  // for two different reasons — a logged-out harness, then a codex the version
+  // gate refuses because the rig's own PATH picked an old shim — and both times
+  // the only clue was one warn line among thousands. Read it out here.
+  const log = `${process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-2761'}/logs/daemon.log`
+  const degraded = (spawnSync('grep', ['preferred runtime driver', log], { encoding: 'utf8' }).stdout ?? '')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .at(-1)
+  let why = 'no driver-degrade line in the daemon log — look further up it'
+  if (degraded) {
+    const parsed = JSON.parse(degraded) as { preferred?: string; resolved?: string; reason?: string }
+    why = `the daemon wanted '${parsed.preferred}' and got '${parsed.resolved}' — ${parsed.reason}`
+  }
   console.error(
     `\nNO MEASUREMENT: the path under test never ran — ` +
-      `client pids seen: ${first.length}, bytes captured: ${stream.length}. ` +
-      `Check the driver actually resolved (a logged-out harness degrades to generic-pty ` +
-      `and starts no client terminal): grep 'preferred runtime driver' ${process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-2761'}/logs/daemon.log`,
+      `client pids seen: ${first.length}, bytes captured: ${stream.length}.\n` +
+      `  ${why}\n` +
+      `  A degraded driver still answers prompts, so the session looks fine while starting no\n` +
+      `  client terminal at all. Nothing here is evidence for or against the fix.`,
   )
   await trpc('sessions.kill', { sessionId: sid })
   ws.close()
