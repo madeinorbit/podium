@@ -90,13 +90,7 @@ function terminalMark(status: 'done' | 'cancelled' | 'duplicate' | 'superseded')
     )
   }
   return (
-    <path
-      d="M5 5l4 4M9 5l-4 4"
-      stroke={ko}
-      strokeWidth="1.55"
-      fill="none"
-      strokeLinecap="round"
-    />
+    <path d="M5 5l4 4M9 5l-4 4" stroke={ko} strokeWidth="1.55" fill="none" strokeLinecap="round" />
   )
 }
 
@@ -109,11 +103,26 @@ function terminalMark(status: 'done' | 'cancelled' | 'duplicate' | 'superseded')
 export function StatusGlyph({
   status,
   size = 14,
+  decorative = false,
 }: {
   status: IssueStatus
   size?: number
+  /**
+   * Hide the glyph from assistive tech, for the surfaces that already spell the
+   * status out in text right beside it — a status menu's rows, where the named
+   * graphic made every item announce its word twice ("Backlog Backlog") and put
+   * the item's accessible name out of reach of anything asking for it by name
+   * (POD-1646).
+   */
+  decorative?: boolean
 }): JSX.Element {
   const label = ISSUE_STATUS_LABELS[status]
+  // The name STAYS on the element and `aria-hidden` is what does the hiding: an
+  // aria-hidden subtree is skipped whole when a name is computed, so the row
+  // above is named by its word and nothing else. Dropping `role`/`aria-label`
+  // instead would read more plainly here, but it leaves the lint rule that
+  // guards every OTHER caller's alternative text unable to see one.
+  const hidden = decorative || undefined
   const cls = cn('shrink-0', STATUS_CLASS[status])
   if (
     status === 'done' ||
@@ -129,6 +138,7 @@ export function StatusGlyph({
         className={cls}
         role="img"
         aria-label={label}
+        aria-hidden={hidden}
       >
         <circle cx="7" cy="7" r="6" fill="currentColor" />
         {terminalMark(status)}
@@ -150,6 +160,7 @@ export function StatusGlyph({
       className={cls}
       role="img"
       aria-label={label}
+      aria-hidden={hidden}
     >
       <circle
         cx="7"

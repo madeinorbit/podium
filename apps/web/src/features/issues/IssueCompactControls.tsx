@@ -727,7 +727,7 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
                   className="whitespace-nowrap"
                   onClick={() => selectStatus(entry.value)}
                 >
-                  <StatusGlyph status={entry.status} size={12} />
+                  <StatusGlyph status={entry.status} size={12} decorative />
                   {entry.label}
                   {currentStatusValue === entry.value && (
                     <Check size={12} className="ml-auto text-text-faint" aria-hidden="true" />

@@ -57,6 +57,32 @@ describe('IssueStatusPicker', () => {
     expect(screen.getByLabelText('Status: Duplicate')).toBeTruthy()
   })
 
+  /**
+   * POD-1646 — the glyph in a menu row is decoration, and saying otherwise cost
+   * the flight deck a check.
+   *
+   * `StatusGlyph` is a NAMED graphic (`role="img"`, `aria-label="Backlog"`)
+   * because in a list row it is the only thing that states the status. In this
+   * menu the word is right beside it, so the name landed twice: every item
+   * announced "Backlog Backlog" and answered to neither half, which is why the
+   * deck's own test could not find the item it clicks.
+   */
+  it('names a menu row by its word alone, not twice over', async () => {
+    render(<Row stage="backlog" onPick={vi.fn()} onRowClick={vi.fn()} />)
+
+    fireEvent.click(screen.getByLabelText('Status: Backlog'))
+    expect(await screen.findByRole('menuitem', { name: 'In Progress' })).toBeTruthy()
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Backlog',
+      'Planning',
+      'In Progress',
+      'Review',
+      'Done',
+      'Cancelled',
+      'Duplicate',
+    ])
+  })
+
   it('leaves shipping custody alone — a readout, not a door', () => {
     render(<Row stage="shipping" onPick={vi.fn()} onRowClick={vi.fn()} />)
     expect(screen.queryByTestId('issue-status-picker')).toBeNull()

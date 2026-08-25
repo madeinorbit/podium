@@ -130,7 +130,7 @@ export function IssueStatusPicker({
           <Fragment key={entry.status}>
             {entry.startsGroup && <DropdownMenuSeparator />}
             <DropdownMenuItem onClick={() => onPick(entry.value)}>
-              <StatusGlyph status={entry.status} size={12} />
+              <StatusGlyph status={entry.status} size={12} decorative />
               <span className="min-w-0 flex-1 truncate">{entry.label}</span>
               {current === entry.value && (
                 <Check className="ml-auto size-3 flex-none text-text-faint" aria-hidden="true" />
