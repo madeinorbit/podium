@@ -37,3 +37,42 @@ them. That is the gap POD-2694 specifies and POD-2691 implements.
 A first attempt grouped by stripping only the last hyphenated segment, which produced 75
 distinct "slices" for 75 scopes — a number equal to the total is a derivation that is not
 grouping anything. Recorded here because the wrong number was plausible.
+
+---
+
+# Addendum: a session that cannot be stopped, 2026-08-25 03:52
+
+Recorded from the coordinator's side, because it is the same defect as the scopes above seen
+from the other end: the record and the reality disagree, and the instrument that claims to stop
+a thing reports success while the thing keeps running.
+
+## What was attempted, in order
+
+1. `podium session stop <id>` — returned `stopped …; worktree freed (branch kept)`.
+   The session was `live` again on the next check, with a **new** abduco pid.
+2. `kill` on that abduco pid directly. A replacement appeared within seconds, again with a new
+   pid.
+3. `podium issue update --stage planning`, then `stop`. Settled at `hibernated`.
+4. On the next sweep both sessions were `live/needs_user` again, with the issue still at
+   `planning`.
+
+## State at the time of writing
+
+Issue stage `planning`. Both sessions report `live`. Four abduco processes survive across the
+two sessions:
+
+    881e53b9  pids 2459841 (master) and 2459844 (attach client)
+    986a0b43  pids 2452609 (master) and 2452612 (attach client)
+
+Every one of these pids is newer than the stop that was supposed to end it.
+
+## Why it belongs in this issue's evidence
+
+The 75 scopes above are units nobody can attribute. This is the same problem one layer up: a
+supervisor that cannot make a stop *stick*, and cannot tell the caller that it failed. Four
+stop attempts returned success. None of them was true for longer than a sweep.
+
+The design's answer — a service manager as the single authority for birth, inventory and kill,
+with the outcome VERIFIED rather than assumed — is aimed exactly here. This addendum is the
+before-picture for the kill half, as the scope census is the before-picture for the inventory
+half.
