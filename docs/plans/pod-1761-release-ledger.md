@@ -138,6 +138,36 @@ release notes name: what flipped (three server drivers), the escape hatch
 *Exit: main is the tip; instance repinned to main; matrix re-run spot-check
 (A1, A7) passes.*
 
+**Step 5's must-fix is DONE: POD-2772 landed (`2d641120b`).** It was three
+causes behind one red lane, and the headline is that **the login gate was telling
+the truth** — it is not what to change:
+
+1. **The home.** The lane pointed `discovery.homeDir` at a bare mkdtemp. That is
+   not only the scanner's root: host-runtime makes it `ctx.homeDir`, the home
+   inventory reads harness login from, AND the HOME every server-driver child is
+   spawned with. Under an empty home opencode is *genuinely* logged out, a
+   logged-out harness has no headless path to admit, and the spawn naming
+   `opencode-server` is refused before any server starts. The isolated home now
+   carries `auth.json` and nothing else — the move `applyRealAgentCodexEnv`
+   already makes for codex — leaving the 243MB conversation store behind.
+2. **The model.** Suspected to be the same empty home one layer down; it is not.
+   `opencode/laguna-s-2.1-free` has been RETIRED from opencode's gateway and
+   answers `UnknownError` under the isolated home and a real one alike, which no
+   credential story survives. The lane now resolves a free model the gateway
+   still lists, and throws naming what it *did* list rather than handing that to
+   a `waitFor`.
+3. **The reaper — a false-red generator across the whole e2e suite.**
+   `SuperagentService` is built from `registry.modules`, so it exists only after
+   the registry and is not among the modules `SessionRegistry.dispose()` names.
+   Its turn reaper kept firing into a closed database, and every e2e file ended
+   with two or three `RangeError: Cannot use a closed database`, which Vitest
+   counts as unhandled and fails the FILE on. **A lane whose every assertion
+   passed still reported red.** Anyone who has chased an e2e red on this epic may
+   have been chasing this.
+
+Measured live on opencode 1.18.16: before, 1 failed with 3 errors; after,
+1 passed, 0 errors, 31s of assertions against 184s of timeouts.
+
 ## FIRST REAL DRIVE READINGS (POD-2777, 2026-08-25 ~21:00)
 
 The acceptance drive is running and has produced the epic's first measured
