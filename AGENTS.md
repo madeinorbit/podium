@@ -86,6 +86,21 @@ instead of `test` when it already covers the relevant basic check; otherwise run
 does not take `test:heavy`: it neither waits behind nor delays heavyweight suites.
 Never overlap other validation commands in one session.
 
+**Running ONE test file: `apps/server` needs `bun --bun`.** The obvious command —
+`./node_modules/.bin/vitest run --config vitest.unit.config.ts <file>` — collects **zero
+tests** for anything under `apps/server`, failing with *"Only URLs with a scheme in: file,
+data, and node are supported by the default ESM loader. Received protocol 'bun:'"*. Those
+suites import `bun:` builtins, so they must run under Bun's runtime, not Node's:
+
+```
+cd apps/server && bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.services.config.ts <file>
+```
+
+That is what the package's own scripts already do. Two agents have written a server test,
+been unable to collect it, and reported the change with the test unexecuted — a test nobody
+has seen go red is not evidence. Elsewhere in the repo the plain `vitest.unit.config.ts` form
+is correct.
+
 **The typecheck cache is SHARED across worktrees — trust it.** `scripts/typecheck.ts` points
 turbo at one cache keyed by the repository's common git dir, so every worktree of this repo
 reuses it. Measured in a worktree with no local cache at all: **22 of 28 tasks HIT**. A fresh
