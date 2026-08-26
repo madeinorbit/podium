@@ -42,3 +42,8 @@ codex socket on 25-char instance	codex-headless	PASS nonce+native pane, pre-fix 
 web bundle builds after merge repair	n/a-build	PASS build:dist exit 0, 0/236 files broken	aad84ec2	yes	yes	2026-08-26	POD-2777
 reattach under custom agent home	generic-pty	PASS pre-fix control FAILED, both safe edges hold	31ac081b	yes	yes	2026-08-26	POD-2873
 long turn completes POST-MERGE	codex-headless	FAIL wedged 426s previews froze at 80	372ae4d	yes	yes	2026-08-26	POD-2885
+A8 post-login binds server driver	grok-headless	PASS fresh grok-acp binding	e222e9cb	yes	yes	2026-08-26 16:10 CEST	POD-2877
+A10 driver identity	grok-headless	PASS grok-acp/server	e222e9cb	yes	yes	2026-08-26 16:10 CEST	POD-2877
+A10 driver identity + escape hatch	grok-terminal	PASS generic-pty under override	e222e9cb	yes	yes	2026-08-26 16:10 CEST	POD-2877
+TierB provider error names quota	grok-headless	PASS usage_limit retryable:false 402	e222e9cb	yes	yes	2026-08-26 16:10 CEST	POD-2877
+TierB provider error names quota	grok-terminal	PASS Weekly limit left: 0%	e222e9cb	yes	yes	2026-08-26 16:10 CEST	POD-2877

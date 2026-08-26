@@ -119,7 +119,10 @@ driver, because nothing is observably in flight to interrupt.
 ---
 
 ## 7. Half of the logged-out check cannot be driven without touching your real credentials.
-**Raised 2026-08-26. Status: OPEN. Needs an operator answer, not more testing.**
+**Raised 2026-08-26. RESOLVED 2026-08-26 16:10 CEST — the operator logged Grok in, and the drive then
+completed the half no agent could: A8 post-login PASSES on headless, binding a fresh
+grok-acp server driver. No decision left; recorded because the resolution took a human
+and that is worth knowing next time.**
 
 The check has two halves. The first is driven: a logged-out opencode session takes the
 old driver, and the product **does** record it — requested driver beside actual driver,
@@ -142,3 +145,26 @@ than report an untested half as passing.
 **Recommendation: you drive it once.** It is the only item on the entire matrix that a
 human can settle faster than an agent can, and no amount of further automation changes
 that.
+
+
+---
+
+## 10. Grok's quota exhaustion was captured, and headless reports it better than terminal.
+**Recorded 2026-08-26 16:10 CEST. No decision needed — evidence for the release note.**
+
+A real exhausted quota is a rare condition and it expires when the quota resets. It was
+driven on both arms before that window closed:
+
+| arm | what the user sees |
+| --- | --- |
+| headless (grok-acp) | `usage_limit`, `retryable:false`, **402 Payment Required: Grok Build usage balance exhausted** |
+| terminal (generic-pty) | `Weekly limit left: 0%` |
+
+Both surface it, so this is not a regression either way. But the headless reading is
+**typed and structured** — a machine-readable class, an explicit non-retryable flag, and the
+provider's own message — where the terminal reading is a line of prose the user has to
+interpret. That is a third cell where the new drivers are *better*, and unlike the other two
+it costs nothing to claim, because both arms pass.
+
+Worth a line in the release note: quota exhaustion is now reported as a typed provider error
+rather than only as screen text.
