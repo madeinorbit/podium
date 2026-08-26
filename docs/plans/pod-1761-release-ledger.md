@@ -3749,3 +3749,36 @@ loaded host is flake; and the known closed-database unhandled errors named and s
 explicitly rather than padding either side. **Only a name that fails on the fix and passes on the
 parent blocks landing.** Told it to take `test:heavy` and queue rather than contend — the drive
 result is banked, so there is no hurry.
+
+### POD-2902 CLOSED — the latency defect is measured out, not argued out (2026-08-27 00:13 CEST)
+
+I sent this back two hours ago because it was handed over as a unit test asserting event ORDER
+for a defect that was found by a pair of latency numbers. It came back with the numbers.
+
+**Five interleaved parent/fix pairs, server and daemon respawned and pinned on every arm**, the
+served bundle unchanged across arms (the fix touches no web code, so no build was needed — the
+same reasoning I gave POD-2913 an hour later):
+
+| | parent (pre-fix) | fix |
+| --- | --- | --- |
+| first working | 2058–3754 ms | 277–647 ms |
+| mean | 2752.6 ms | 364.8 ms |
+| cleared the 2s bar | **0 of 5** | **5 of 5** |
+
+**The ranges do not overlap at all** — the slowest fix reading (647ms) is three times faster than
+the fastest parent reading (2058ms). All ten controls fired. Four of the five fix readings land
+inside the original codex band of 205–398ms; the fifth stayed under 2s during the run's
+highest-load interval.
+
+**The interleaving is what makes this survive scrutiny.** Load moved between 11 and 32 during the
+run and both arms took it: pair 3 ran at load 28.94/32.37 and pair 1 at 15.28/17.16, and the
+separation holds in both. A sequential A/B on this box would have measured the hour, not the
+change. Five paired readings all in the same direction is p = 0.031 one-sided, which is as strong
+as n=5 can be.
+
+**Landed as `ffa2fadcd`** (cherry-picked; ff-only refused because the branch predated the tip).
+Per my own rule I ran `git range-diff` against the driven commit before accepting the evidence:
+`1: d1998426f = 1: ffa2fadcd` — the `=` means the patch is byte-identical, so the drive carries.
+
+**Two defects closed tonight by measurement rather than by argument** (this and POD-2878's parked
+send, the latter pending gate attribution). Open: cross-session transcript isolation.

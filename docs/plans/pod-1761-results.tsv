@@ -115,3 +115,5 @@ review-stage audit	git-cherry	NO CODE EXPECTED; review	none	n/a	n/a	2026-08-26 2
 parked send survives a real restart (POST-REBASE)	codex-headless	PASS queued pos=1, restart 4004323->4013566, nonce arrived once, C3 answered SURVIVED	68d2c3ba	yes C1 fired 45s	no 2871+2902+2913 live	2026-08-26 23:53 CEST	POD-2878
 parked send survives a real restart (PRE-FIX CONTROL)	codex-headless	FAIL delivered receipt, restart 3038442->3045364, nonce ABSENT, LOST	aad84ec2	yes C1 parked	unknown	2026-08-26 23:53 CEST	POD-2878
 direct terminal delivery unaffected (POST-REBASE)	generic-pty	PASS delivered, 2 items/2 deltas, nonce present, probe refused C1	68d2c3ba	yes probe refusal	no 2871+2902+2913 live	2026-08-26 23:53 CEST	POD-2878
+badge working within 2s (PRE-FIX arm, 5 interleaved)	opencode-headless	FAIL 2058-3754ms mean 2752.6ms, missed 2s bar 5/5	61218957	yes 5/5 controls fired	no interleaved same window	2026-08-27 00:13 CEST	POD-2902
+badge working within 2s (FIX arm, 5 interleaved)	opencode-headless	PASS 277-647ms mean 364.8ms, cleared bar 5/5, ranges do not overlap	ffa2fadc	yes 5/5 controls fired	no interleaved same window	2026-08-27 00:13 CEST	POD-2902
