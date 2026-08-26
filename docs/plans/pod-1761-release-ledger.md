@@ -3142,3 +3142,42 @@ while the plane stops early — which the interval drive was meant to rule out.
 when real code absorbed its behaviour, so the corpus must still **fail when it should**. It is
 the last unverified surface on an otherwise finished fix, and a failure now means backing out a
 landed commit — a decision better made early.
+
+
+## TICK 2026-08-26 20:47 CEST — LANDING THE WEDGE FIX INVALIDATED 30 OF 67 RESULTS, AND THAT IS THE COST OF A SHARED-LAYER FIX
+
+    driven          69 of 80 cells        product fixes 24 landed today
+    defects         8 found, 3 CLOSED AND DRIVEN, 5 open
+    recorded rows   67 — of which 30 now STALE and 37 still count
+
+**`fdfbe9343` touched all four driver runtimes and the shared events layer:**
+
+    apps/daemon/src/runtime/terminal-driver.ts
+    packages/agent-runtime/src/drivers/{codex,grok-acp,opencode}/runtime.ts
+    packages/agent-runtime/src/events.ts
+    packages/agent-runtime/src/testing/fake-driver.ts
+
+**So every reading that consumed the event stream, preview plane, transcript or attach path is
+now stale** — 30 rows, including **18 PASSes**. Narrowed by AREA rather than by commit age: the
+naive check says all 67 predate the fix, which is true and useless. Rows measuring
+presence/absence — kill, restart, driver identity, login state — do not read that layer and
+still count.
+
+**This is the price of fixing a defect in shared code, and it was predictable.** I wrote the
+rule this afternoon for someone else's merge — *re-drive only the rows whose code moved* — and
+it now applies to a landing I made myself. **A shared-layer fix buys correctness across four
+drivers and spends the evidence of all four.**
+
+**It is still the right trade**, and worth stating why: the alternative was four separate
+driver fixes, each needing its own drive anyway, plus the risk that they diverge. One fix and
+one re-drive round is cheaper than four fixes and four re-drives.
+
+### The box belongs to another epic right now
+
+`test:heavy` is held by **issue #2781** — not this epic. Swap-in climbing 7,868 → 13,856 KB/s,
+free falling 545MB → 309MB, load 14.6 → 29.1. **Nothing dispatched.** Three of my sessions are
+doing agent-turn work that needs no instance, two are hibernated, and the one drive that could
+run is holding correctly.
+
+**This is contention I cannot schedule around** — a different epic's gate on a shared machine —
+and the honest response is to wait rather than compete.
