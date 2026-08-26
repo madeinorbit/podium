@@ -4110,3 +4110,70 @@ this box hit 100% and killed a live measurement mid-run. The two defects are the
 **The liveness check has now saved a running process three times tonight** — once across the 38
 worktrees, once for POD-2691's own census, and once here. `readlink /proc/<pid>/cwd` before any
 removal, every time.
+
+## COVERAGE, DERIVED FROM results.tsv RATHER THAN ASSERTED (2026-08-27 01:38 CEST)
+
+The `☐` matrix earlier in this file has not been maintained — it still shows empty boxes
+for cells that have results, and `BLOCKED (H/T)` for a grok column whose blocker was a quota
+that expires at 11:03. **So I stopped reading it and computed the grid from the results file,
+taking the LATEST verdict per cell by timestamp.**
+
+| cell | claude | codex | grok | opencode | shell |
+|---|---|---|---|---|---|
+| A1a | – | PASS | – | – | – |
+| A1b | – | PARTIAL | – | – | n/a |
+| A1c | – | PASS | – | – | – |
+| A2a | – | PASS | – | PASS | n/a |
+| A2b | – | PASS | – | – | – |
+| A3 | REFUSED | REFUSED | – | – | n/a |
+| A4a | BLOCKED | BLOCKED | – | PASS | n/a |
+| A4b | BLOCKED | – | – | PASS | n/a |
+| A5 | – | PASS | – | – | n/a |
+| A6a | – | PASS | – | – | – |
+| A6b | – | UNMEASURED | – | UNMEASURED | n/a |
+| A7a | – | PASS | – | – | – |
+| A7b | – | PASS | – | PASS | n/a |
+| A8 | – | – | PASS | PARTIAL | n/a |
+| A9 | – | PASS | – | – | – |
+| A10 | n/a | PASS | PASS | – | n/a |
+
+**25 of 69 real cells have a result (36%) — 16 PASS, 5 red, 4 partial/unmeasured.**
+
+- `claude` 3/15
+- `codex` 14/16
+- `grok` 2/16
+- `opencode` 6/16
+- `shell` 0/6
+
+### Three corrections to my own earlier numbers
+
+**1. The denominator was wrong.** The 2026-08-26 projection said *"17 of 80 cells (21%)"*.
+80 is 16 rows x 5 columns including cells the matrix marks `n/a` — a cell that can never be
+driven should not sit in the denominator making coverage look worse. **The real count is 69.**
+On that basis the earlier figure was 25%, not 21%, and tonight's is **36%** — so the honest
+progress claim is +8 cells, not +15%.
+
+**2. My first pass took the FIRST verdict per cell, not the latest.** It reported A2a/opencode
+as FAIL — a result POD-2902 overturned and landed hours ago. An instrument that reads a
+history in the wrong direction reports the oldest news as current, and I would have published
+it if I had not looked at a cell I happened to know the answer to.
+
+**3. A ROW THAT DOES NOT NAME ITS CELL IS INVISIBLE TO COVERAGE, and I wrote such rows
+myself tonight.** POD-2902's session told me "A2a re-drive complete"; the two rows I wrote
+for it said "badge working within 2s" with no cell id, so its PASS could not be counted and
+the cell kept the old FAIL. Relabelled. **The cell id belongs in the `what` column of every
+row that measures one.**
+
+### What the grid actually says
+
+**codex is nearly done at 14/16; everything else is barely started.** `shell` is **0 of 6**
+— not one row in the entire results file so much as mentions it. claude is 3/15 and all three
+are BLOCKED or REFUSED rather than measured. grok is 2/16 and unblocks at 11:03.
+
+**The release bar is every driver at least as good as main, so codex being at 88% moves the
+epic much less than it feels like it does.** The remaining 44 cells are concentrated in the
+three columns nobody has driven, and two of those columns are the ones the operator uses.
+
+**This 36% is a LOWER BOUND.** 93 of the 131 rows do not name a cell — 31 are the review-queue
+audit and about 50 are defect drives that certainly exercise cells without saying which.
+Rather than guess, I am leaving them uncounted and fixing the labelling going forward.
