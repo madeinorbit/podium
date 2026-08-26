@@ -4448,3 +4448,158 @@ describe('delivery trigger isolation and observability [POD-842]', () => {
     svc.dispose()
   })
 })
+
+/**
+ * The duplicate half of POD-1703: one operator message reached an agent EIGHT
+ * times across 23h. Three defects compounded — a queue-parked row parked on an
+ * echo it could never produce, a sweep that re-pushed it while the first copy
+ * was still queued, and a cap that lived only in process memory.
+ */
+describe('duplicate delivery of a queue-parked message [POD-1703]', () => {
+  /** A `starting` target takes the durable boot queue for next-turn input. */
+  const parking = () => [session({ sessionId: asSessionId('s1'), status: 'starting' })]
+
+  it('never re-pushes an unwrapped operator body: it has no echo to wait for', () => {
+    let clock = Date.parse('2026-08-26T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const { svc, queued, sent, store } = harness(parking(), { now })
+
+    const r = svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'Land the offer overlay fix on main',
+        urgency: 'next-turn',
+      },
+    )
+    expect(queued).toHaveLength(1)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+
+    // An operator body renders UNWRAPPED — no `[podium message <id>]` frame — so
+    // ECHO_ID_RE can never match it and no echo will ever arrive. Pre-fix the
+    // window expired and the sweep typed the person's own message again, every
+    // 90 seconds, until the cap.
+    clock += ECHO_CONFIRM_WINDOW_MS * 6
+    svc.sweep()
+    svc.sweep()
+
+    expect(queued).toHaveLength(1)
+    expect(sent).toHaveLength(0)
+    expect(
+      store.events.listEventsSince(0, { kinds: ['message.requeued'], subject: r.message.id }),
+    ).toEqual([])
+    // Still retractable — the point of leaving it `queued` rather than calling
+    // the enqueue a delivery.
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+  })
+
+  it('never re-pushes a row that is still sitting in the physical queue', () => {
+    let clock = Date.parse('2026-08-26T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    // An ENVELOPED agent message: it could echo, but it has not been typed yet.
+    const queuedSourceIds = new Set<string>()
+    const { svc, queued, sent, store } = harness(parking(), { now, queuedSourceIds })
+
+    const r = svc.send(
+      { kind: 'superagent' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'still waiting',
+        urgency: 'next-turn',
+      },
+    )
+    expect(queued).toHaveLength(1)
+    queuedSourceIds.add(r.message.id)
+
+    clock += ECHO_CONFIRM_WINDOW_MS * 4
+    svc.sweep()
+
+    // The drain owns the row until it settles it; a second copy would be typed
+    // behind the first and would survive a cancellation meant to remove both.
+    expect(queued).toHaveLength(1)
+    expect(sent).toHaveLength(0)
+    expect(
+      store.events.listEventsSince(0, { kinds: ['message.requeued'], subject: r.message.id }),
+    ).toEqual([])
+
+    // Once it HAS left the queue unconfirmed, the lost-push retry still works.
+    queuedSourceIds.delete(r.message.id)
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    svc.sweep()
+    expect(
+      store.events.listEventsSince(0, { kinds: ['message.requeued'], subject: r.message.id }),
+    ).toHaveLength(1)
+  })
+
+  it('counts requeues from the durable ledger, so a restart cannot hand back a fresh cap', () => {
+    let clock = Date.parse('2026-08-26T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const store = new SessionStore(':memory:')
+    const live = [session({ sessionId: asSessionId('s1') })]
+
+    const first = harness(live, { now, store })
+    const r = first.svc.send(
+      { kind: 'superagent' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'mid-turn casualty',
+        urgency: 'next-turn',
+      },
+    )
+    expect(first.sent).toHaveLength(1)
+    for (let i = 0; i < MAX_ECHO_REQUEUES; i++) {
+      clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+      first.svc.sweep()
+    }
+    expect(first.sent).toHaveLength(1 + MAX_ECHO_REQUEUES)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+
+    // RESTART: a brand-new service over the same durable store. The in-memory
+    // map is gone; the `message.requeued` events are not. Pre-fix this granted
+    // the row another two copies, and every restart granted two more — which is
+    // how one operator message reached eight.
+    const second = harness(live, { now, store })
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    second.svc.sweep()
+
+    expect(second.sent).toHaveLength(0)
+    const row = store.messages.getMessage(r.message.id)!
+    expect(row.status).toBe('delivered')
+    const kinds = store.events
+      .listEventsSince(0)
+      .filter((e) => e.subject === r.message.id)
+      .map((e) => e.kind)
+    expect(kinds).toContain('message.echo_capped')
+  })
+
+  it('surfaces a stuck row when the wake never happens, instead of only logging', () => {
+    const { svc, store, attention } = harness(parking())
+
+    const r = svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'Merge this issue to main.',
+        urgency: 'next-turn',
+      },
+    )
+    expect(attention).toHaveLength(0)
+
+    // POD-1650 gave the refusal a log line; the sender still saw a bubble that
+    // said pending and a session that never came back.
+    svc.onWakeUnavailable(asSessionId('s1'), 'refused: revoked')
+
+    expect(attention.map((a) => a.messageId)).toContain(r.message.id)
+    const kinds = store.events
+      .listEventsSince(0)
+      .filter((e) => e.subject === r.message.id)
+      .map((e) => e.kind)
+    expect(kinds).toContain('message.needs_attention')
+    // Refusing a wake must not DROP input — the row waits for an explicit resume.
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+
+    // Deduped per (message, reason): the sweep repeats the refusal every pass.
+    svc.onWakeUnavailable(asSessionId('s1'), 'refused: revoked')
+    expect(attention).toHaveLength(1)
+  })
+})

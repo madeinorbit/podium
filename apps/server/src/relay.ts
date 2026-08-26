@@ -121,6 +121,7 @@ import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
 import { ServerTransferService } from './modules/server-transfer/service'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
+import { QUEUED_INPUT_SWEEP_MS } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
@@ -341,6 +342,10 @@ export class SessionRegistry {
   private readonly ledger: Ledger
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
   private readonly messageSweep: ReturnType<typeof setInterval>
+  /** Queued-INPUT sweep (POD-1703) — the PTY queue's own backstop. The sweep
+   *  above walks the message LEDGER; this one re-arms the drains that actually
+   *  move bytes, which had no timer at all. */
+  private readonly queuedInputSweep: ReturnType<typeof setInterval>
   /** Stalled-approval deadline (POD-2223) — modules/approvals. */
   private readonly approvalStallSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
@@ -1274,24 +1279,37 @@ export class SessionRegistry {
       // the sender is told its message was queued, the session never comes back,
       // and nothing anywhere records why. A refused wake looked identical to a
       // broken one for as long as it took to read this line (POD-1650).
+      // A LOG IS NOT A SIGNAL (POD-1703). The line below records why; it does not
+      // tell the person who sent the message, who is still looking at a bubble
+      // that says pending. `onWakeUnavailable` raises the same needs-attention
+      // the spawn-budget path raises, on every row addressed to this session.
       if (!authorized.ok) {
-        log.warn('wake refused — input stays queued for an explicit resume', {
-          sessionId,
-          reason: authorized.reason ?? 'not authorized',
-        })
+        const reason = authorized.reason ?? 'not authorized'
+        log.warn('wake refused — input stays queued for an explicit resume', { sessionId, reason })
+        messagesSvc.onWakeUnavailable(sessionId, `refused: ${reason}`)
         return
       }
       void issueSessionLifecycle
         .resurrectSession({ sessionId })
         .then((result) => {
-          if (!result.ok)
+          if (!result.ok) {
             log.warn('wake-on-queue failed', {
               sessionId,
               reason: result.reason,
             })
+            messagesSvc.onWakeUnavailable(sessionId, result.reason ?? 'wake failed')
+            return
+          }
+          // THE WAKE IS AN ELIGIBILITY EDGE (POD-1703). A bind normally re-arms
+          // the drain, but a resume that comes back without one — an already-live
+          // session, a race with the daemon's own bind — left the row waiting for
+          // the next reconnect. Re-arming here costs a no-op when the bind path
+          // already ran.
+          sessionsSvc.inbox.drain(sessionId)
         })
         .catch((err) => {
           log.warn('wake-on-queue failed', { sessionId, err })
+          messagesSvc.onWakeUnavailable(sessionId, 'wake threw')
         })
     })
     // The `session.listChanged` republish tail is GONE (POD-1574). It re-derived
@@ -2484,6 +2502,15 @@ export class SessionRegistry {
     })
     this.messageSweep = setInterval(() => messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
     this.messageSweep.unref?.()
+    // The PTY queue's backstop (POD-1703). Faster than the ledger sweep because
+    // it is cheap — `drain` is single-flight and returns immediately on a
+    // session with an empty queue or one already draining — and because what it
+    // heals is a person waiting on a message that has already been accepted.
+    this.queuedInputSweep = setInterval(
+      () => sessionsSvc.inbox.sweepQueuedInputs(),
+      QUEUED_INPUT_SWEEP_MS,
+    )
+    this.queuedInputSweep.unref?.()
     // An approved op whose daemon takes the frame and never answers must not sit
     // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
     // daemon in the fleet is one that drops it.
@@ -2581,6 +2608,7 @@ export class SessionRegistry {
     this.eventRetention.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)
+    clearInterval(this.queuedInputSweep)
     clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
     this.issueAutoArchive.dispose()

@@ -358,8 +358,19 @@ export class MessageDeliveryService {
    *  delivery, cleared when the session goes idle (turn ended). Messages the
    *  session sends within that turn carry hop + 1 (brake 3). */
   private readonly turnHop = new Map<string, number>()
-  /** Lost-echo requeues per message id [POD-853 stopgap]; in-memory is fine —
-   *  a restart resets the count and the row simply earns its cap again. */
+  /**
+   * Lost-echo requeues per message id [POD-853 stopgap].
+   *
+   * A CACHE OVER THE DURABLE LEDGER, NOT INSTEAD OF IT (POD-1703). "In-memory is
+   * fine — a restart resets the count and the row simply earns its cap again"
+   * was the old note, and it was wrong in exactly the way that matters: a row
+   * whose echo can never arrive is requeued on a 90s timer forever, and every
+   * server start handed it a fresh budget. One operator message reached EIGHT
+   * copies across 23h that way, three times the cap. `message.requeued` is
+   * already written to `podium_events` on every requeue, so the true count
+   * survives a restart — {@link requeueCountFor} reads it. Same shape as brake
+   * 2's spawn count.
+   */
   private readonly requeueCounts = new Map<string, number>()
   /** needs-attention already emitted per `${messageId}|${reason}` — the sweep
    *  re-attempts every 60s and must not spam the event log / notify path. */
@@ -1212,6 +1223,39 @@ export class MessageDeliveryService {
     this.markInjected(message, sessionId)
   }
 
+  /**
+   * The wake this delivery asked for did not happen (POD-1703).
+   *
+   * `queueText` accepts the row, requests a wake and answers `ok: true, queued`.
+   * The wake is dispatched by a reaction that may legitimately refuse — a
+   * revoked principal — or simply fail, and BOTH outcomes only reached a
+   * `log.warn`. POD-1650 called that out ("the sender is told its message was
+   * queued, the session never comes back, and nothing anywhere records why") and
+   * fixed the silence in the logs; the sender still saw nothing. Every row
+   * addressed to that session is now surfaced the same way an exhausted spawn
+   * budget is: a durable `message.needs_attention` transition plus the notify
+   * path, deduped per (message, reason) so a refusal that repeats every sweep
+   * does not spam either.
+   *
+   * The rows stay queued — refusing a wake must not drop input, and an explicit
+   * resume still delivers them.
+   */
+  onWakeUnavailable(sessionId: SessionId, reason: string): void {
+    let after: MessagePageCursor | undefined
+    while (true) {
+      const page = this.deps.messages.listQueuedPage({
+        ...(after ? { after } : {}),
+        limit: DELIVERY_TARGET_PAGE_LIMIT,
+      })
+      for (const message of page) {
+        if (message.deliveredTo !== sessionId) continue
+        this.needsAttention(message, `wake did not happen (${reason}); message stays queued`)
+      }
+      if (page.length < DELIVERY_TARGET_PAGE_LIMIT) break
+      after = cursorOf(page.at(-1)!)
+    }
+  }
+
   /** Brake 2 + the spawn seam: unresumable wake → spawn a fresh agent on the
    *  target issue (deferred wiring) within the per-issue daily budget; no seam
    *  or budget exhausted → ledger + needs-attention, row stays queued. */
@@ -1372,6 +1416,22 @@ export class MessageDeliveryService {
   private awaitingConfirmation(m: MessageRow, nowMs: number): boolean {
     if (!m.injectedAt) return false
     if (this.render.isPointer(m)) return true
+    // STILL IN THE PHYSICAL QUEUE IS NOT A LOST PUSH (POD-1703). `injectAndMark`
+    // stamps injectedAt for a durable boot/busy enqueue too — acceptance, not
+    // arrival — so the echo timer below would call a row that has not yet
+    // crossed the PTY boundary lost and push a SECOND copy of the same text
+    // behind the first. The drain owns the row until it settles it; this is the
+    // same discriminator the turn-boundary confirm already uses.
+    const sessionId = m.deliveredTo ? asSessionId(m.deliveredTo) : undefined
+    if (sessionId && this.deps.sessions.hasQueuedMessage?.(sessionId, m.id)) return true
+    // NO ECHO WILL EVER COME for an unwrapped operator body (POD-1703): it
+    // carries no `[podium message <id>]` frame, so ECHO_ID_RE cannot match it in
+    // any transcript. Only the durable-queue path reaches here with one — a
+    // live-PTY push of the same row is marked delivered on injection — and its
+    // confirmation is `onQueuedInputApplied` at the drain boundary, never a
+    // transcript echo. Letting the echo timer expire against it is what re-sent
+    // the operator's own chat message every 90 seconds.
+    if (this.render.confirmedOnInjection(m)) return true
     // A TURN IN FLIGHT IS NOT A LOST PUSH (POD-1242). The echo window is sized
     // against the drain deadline plus tail latency — a turn's own length is a
     // different order entirely, and a mid-turn injection cannot echo as a user
@@ -1379,9 +1439,36 @@ export class MessageDeliveryService {
     // how one offer click reached an agent eight times: MAX_ECHO_REQUEUES capped
     // the damage but the requeues themselves were never the right reading of a
     // busy target. While it is computing, the copy it is holding IS the push.
-    const target = m.deliveredTo ? this.targetOf(asSessionId(m.deliveredTo)) : undefined
+    const target = sessionId ? this.targetOf(sessionId) : undefined
     if (target && isAgentComputing(target)) return true
     return nowMs - Date.parse(m.injectedAt) < ECHO_CONFIRM_WINDOW_MS
+  }
+
+  /**
+   * How many times this row has already been requeued, counting the DURABLE
+   * ledger and not just this process (POD-1703).
+   *
+   * `message.requeued` is emitted on every requeue, so the event log is the
+   * authority and the map is only a cache in front of it. Without this the
+   * MAX_ECHO_REQUEUES cap bounded copies per server lifetime rather than per
+   * message, and a row that could never confirm collected another two copies
+   * after every restart.
+   */
+  private requeueCountFor(messageId: string): number {
+    const cached = this.requeueCounts.get(messageId)
+    if (cached !== undefined) return cached
+    let count = 0
+    try {
+      // Indexed by subject, and bounded: the cap is a small number, so a row
+      // that somehow ran past it does not need an exact tally to stay capped.
+      count = this.deps.events.listEventsSince(0, {
+        kinds: ['message.requeued'],
+        subject: messageId,
+        limit: MAX_ECHO_REQUEUES + 1,
+      }).length
+    } catch {}
+    this.requeueCounts.set(messageId, count)
+    return count
   }
 
   /** One recipient's live meta, through the narrow read when the composition
@@ -1400,7 +1487,7 @@ export class MessageDeliveryService {
     if (message.toKind === 'operator') return false
     if (message.injectedAt) {
       if (this.awaitingConfirmation(message, nowMs)) return false
-      const requeues = this.requeueCounts.get(message.id) ?? 0
+      const requeues = this.requeueCountFor(message.id)
       if (requeues >= MAX_ECHO_REQUEUES && message.deliveredTo) {
         this.emitTransition(message, 'message.echo_capped')
         this.markDelivered(message, message.deliveredTo, 'injection')
@@ -1802,6 +1889,10 @@ export class MessageDeliveryService {
     via: 'echo' | 'boundary' | 'injection' | 'ack',
   ): void {
     const at = this.deps.now()
+    // Frees the cache entry, and no longer RESETS the budget (POD-1703): the
+    // count lives in `message.requeued` events now, so a re-read would recover
+    // it. Harmless either way — a delivered row is not pending and is never
+    // re-attempted — but do not read this line as handing back a fresh cap.
     this.requeueCounts.delete(message.id)
     if (this.deps.messages.markDelivered(message.id, sessionId, at)) {
       // Delivery consumes the legacy issue_messages mirror row too, or
