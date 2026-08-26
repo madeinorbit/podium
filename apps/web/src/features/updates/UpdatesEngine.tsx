@@ -48,7 +48,6 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null)
   const {
     needRefresh: [needRefresh, setNeedRefresh],
-    updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(_swUrl, next) {
       if (next) setRegistration(next)
@@ -74,20 +73,21 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   /**
    * Reloading is a STEP THE USER TAKES (§6.2.3), so it is the panel's primary
    * action rather than something that happens to them. Take over the new worker
-   * first, then reload on controllerchange; the timeout is still needed for a
-   * normal browser tab the new worker never claims.
+   * first, then reload only once the replacement is safe to navigate through.
+   * A page with no waiting worker is an ordinary refresh and reloads directly.
    *
-   * The sequence moved into `reload-handshake.ts` for one reason: which of its
-   * two paths actually ran was invisible, and the answer turned out to be "the
-   * fallback, always" (POD-2762). It says so now.
+   * The handshake logs whether takeover completed or exceeded its diagnostic
+   * budget, preserving the path instrumentation introduced for POD-2762.
    */
-  const reload = useCallback(() => {
+  const reload = useCallback(async () => {
+    const serviceWorker = typeof navigator === 'undefined' ? undefined : navigator.serviceWorker
+    const currentRegistration = registration ?? (await serviceWorker?.getRegistration())
     startReloadHandshake({
-      serviceWorker: typeof navigator === 'undefined' ? undefined : navigator.serviceWorker,
-      requestTakeover: () => void updateServiceWorker(true),
+      serviceWorker,
+      waitingWorker: currentRegistration?.waiting,
       reload: () => window.location.reload(),
     })
-  }, [updateServiceWorker])
+  }, [registration])
 
   const resolvedOrigin = httpOrigin ?? serverConfig(window.location).httpOrigin
   const {

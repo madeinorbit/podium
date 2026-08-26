@@ -1,133 +1,139 @@
 import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   RELOAD_HANDSHAKE_BUDGET_MS,
   type ReloadHandshakeDeps,
   startReloadHandshake,
 } from './reload-handshake'
 
-let logged: LogRecord[] = []
+type Listener = () => void
+
+function eventTarget() {
+  const listeners = new Map<string, Listener[]>()
+  return {
+    addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+      const current = listeners.get(type) ?? []
+      current.push(listener as Listener)
+      listeners.set(type, current)
+    },
+    dispatch(type: string) {
+      for (const listener of listeners.get(type) ?? []) listener()
+    },
+  }
+}
+
+function waitingWorker() {
+  const events = eventTarget()
+  const postMessage = vi.fn()
+  let state: ServiceWorkerState = 'installed'
+  return {
+    worker: {
+      addEventListener: events.addEventListener,
+      postMessage,
+      get state() {
+        return state
+      },
+    } as ReloadHandshakeDeps['waitingWorker'],
+    postMessage,
+    setState(next: ServiceWorkerState) {
+      state = next
+      events.dispatch('statechange')
+    },
+  }
+}
+
+function harness(options: { withContainer?: boolean; withWaiting?: boolean } = {}) {
+  const containerEvents = eventTarget()
+  const waiting = waitingWorker()
+  const reload = vi.fn()
+  let fireTimer: (() => void) | undefined
+  let timerBudget: number | undefined
+  startReloadHandshake({
+    serviceWorker:
+      options.withContainer === false
+        ? undefined
+        : ({
+            addEventListener: containerEvents.addEventListener,
+          } as ReloadHandshakeDeps['serviceWorker']),
+    waitingWorker: options.withWaiting === false ? null : waiting.worker,
+    reload,
+    setTimer: (run, ms) => {
+      fireTimer = run
+      timerBudget = ms
+    },
+  })
+  return { containerEvents, waiting, reload, fireTimer: () => fireTimer?.(), timerBudget }
+}
+
+let logged: LogRecord[]
 
 beforeEach(() => {
   resetLogging()
   logged = []
-  // The fallback's whole point is that it is a WARNING, so the capture has to
-  // sit below that or the test could not tell the two paths apart either.
   setLogLevel('info')
-  addSink({ name: 'capture', write: (record) => void logged.push(record) })
+  addSink({ name: 'capture', write: (record) => logged.push(record) })
 })
 
-afterEach(() => resetLogging())
-
-/** A fake `navigator.serviceWorker` whose one event can be fired on demand. */
-function fakeServiceWorker() {
-  const listeners: Array<() => void> = []
-  return {
-    container: {
-      addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => {
-        if (type === 'controllerchange') listeners.push(listener as () => void)
-      },
-    } as unknown as ReloadHandshakeDeps['serviceWorker'],
-    takeControl: () => {
-      for (const listener of listeners) listener()
-    },
-    listenerCount: () => listeners.length,
-  }
-}
-
-function harness(serviceWorker: ReloadHandshakeDeps['serviceWorker']) {
-  const reloads: number[] = []
-  let fireTimer: (() => void) | undefined
-  let budget: number | undefined
-  let takeovers = 0
-  startReloadHandshake({
-    serviceWorker,
-    requestTakeover: () => {
-      takeovers += 1
-    },
-    reload: () => void reloads.push(Date.now()),
-    setTimer: (run, ms) => {
-      fireTimer = run
-      budget = ms
-    },
-  })
-  return {
-    reloads,
-    takeovers: () => takeovers,
-    budget: () => budget,
-    fireTimer: () => fireTimer?.(),
-  }
-}
-
-const paths = (): unknown[] => logged.map((record) => (record as { via?: unknown }).via)
+afterEach(() => {
+  vi.useRealTimers()
+  resetLogging()
+})
 
 describe('startReloadHandshake', () => {
-  it('always asks the waiting worker to take over, and arms the fallback', () => {
-    const sw = fakeServiceWorker()
-    const run = harness(sw.container)
-    expect(run.takeovers()).toBe(1)
-    expect(run.budget()).toBe(RELOAD_HANDSHAKE_BUDGET_MS)
-    // Nothing has reloaded yet: the takeover is a request, not the outcome.
-    expect(run.reloads).toHaveLength(0)
-  })
+  it('waits for a slow replacement worker instead of reloading the old shell on a timer', () => {
+    const run = harness()
 
-  it('reloads through the handshake when the worker takes control', () => {
-    const sw = fakeServiceWorker()
-    const run = harness(sw.container)
-    sw.takeControl()
-    expect(run.reloads).toHaveLength(1)
-    expect(paths()).toEqual(['handshake'])
-    expect(logged[0]?.level).toBe('info')
-  })
-
-  it('reloads through the fallback when the worker never takes control', () => {
-    const sw = fakeServiceWorker()
-    const run = harness(sw.container)
+    expect(run.waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' })
+    expect(run.timerBudget).toBe(RELOAD_HANDSHAKE_BUDGET_MS)
     run.fireTimer()
-    expect(run.reloads).toHaveLength(1)
-    expect(paths()).toEqual(['fallback'])
-    // A page that HAS a worker and still fell through is the case worth
-    // noticing, so it must not be logged as routine.
-    expect(logged[0]?.level).toBe('warn')
-    expect(logged[0]?.msg).toContain('did not take control')
+    expect(run.reload).not.toHaveBeenCalled()
+    expect(logged.at(-1)).toMatchObject({ level: 'warn', via: 'waiting' })
+
+    run.waiting.setState('activating')
+    expect(run.reload).not.toHaveBeenCalled()
+    run.waiting.setState('activated')
+    expect(run.reload).toHaveBeenCalledTimes(1)
+    expect(logged.at(-1)).toMatchObject({ level: 'info', via: 'handshake', signal: 'activated' })
   })
 
-  /**
-   * The configuration every hands-on test has actually run in (POD-2762): a
-   * plain-HTTP origin, where `navigator.serviceWorker` is undefined. There is
-   * nothing to listen to and nothing to claim the tab, so the fallback is the
-   * only path there is — and it says which case it is rather than blaming a
-   * worker that was never there.
-   */
-  it('names the no-worker context rather than accusing a worker of being slow', () => {
-    const run = harness(undefined)
+  it('reloads when the browser reports that the replacement controls the page', () => {
+    const run = harness()
+    run.containerEvents.dispatch('controllerchange')
+    expect(run.reload).toHaveBeenCalledTimes(1)
+    expect(logged.at(-1)).toMatchObject({
+      level: 'info',
+      via: 'handshake',
+      signal: 'controllerchange',
+    })
+  })
+
+  it('latches activation and controllerchange into one reload', () => {
+    const run = harness()
+    run.waiting.setState('activated')
+    run.containerEvents.dispatch('controllerchange')
+    expect(run.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('reloads directly when this is not a waiting-worker update', () => {
+    const run = harness({ withWaiting: false })
+    expect(run.reload).toHaveBeenCalledTimes(1)
+    expect(run.waiting.postMessage).not.toHaveBeenCalled()
+    expect(logged.some((record) => (record as { via?: unknown }).via === 'direct')).toBe(true)
+  })
+
+  it('reloads directly in a context without service-worker support', () => {
+    const run = harness({ withContainer: false })
+    expect(run.reload).toHaveBeenCalledTimes(1)
+    expect(run.waiting.postMessage).not.toHaveBeenCalled()
+    expect(logged.at(-1)?.msg).toContain('no service worker')
+  })
+
+  it('does not reload through a replacement worker whose activation failed', () => {
+    const run = harness()
+    run.waiting.setState('redundant')
     run.fireTimer()
-    expect(run.reloads).toHaveLength(1)
-    expect(paths()).toEqual(['fallback'])
-    expect(logged[0]?.msg).toContain('no service worker')
-  })
-
-  it('reloads once even when the handshake lands as the fallback fires', () => {
-    const sw = fakeServiceWorker()
-    const run = harness(sw.container)
-    sw.takeControl()
-    run.fireTimer()
-    expect(run.reloads).toHaveLength(1)
-    expect(paths()).toEqual(['handshake'])
-  })
-
-  it('reloads once even when the fallback fires first', () => {
-    const sw = fakeServiceWorker()
-    const run = harness(sw.container)
-    run.fireTimer()
-    sw.takeControl()
-    expect(run.reloads).toHaveLength(1)
-    expect(paths()).toEqual(['fallback'])
-  })
-
-  it('listens for controllerchange exactly once', () => {
-    const sw = fakeServiceWorker()
-    harness(sw.container)
-    expect(sw.listenerCount()).toBe(1)
+    expect(run.reload).not.toHaveBeenCalled()
+    expect(logged.filter((record) => record.level === 'warn')).toHaveLength(1)
+    expect(logged.at(-1)).toMatchObject({ via: 'waiting' })
   })
 })
