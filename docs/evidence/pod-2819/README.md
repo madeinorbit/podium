@@ -189,10 +189,18 @@ ever refreshed, and the operator's sessions were never touched.
 
 Same rig, same probes, same controls; per-cell pinned.
 
-| arm | before (`35c1d1e`) | after (`5b25f9a`) |
-|---|---|---|
-| codex / **headless** (`codex-app-server`) | **FAIL** — text refused as declared, and the image it does declare was not read back | **PASS** — read the file and echoed `FILESECRET-4CQAWS` in 33.0s |
-| codex / **terminal** (`generic-pty`) | PASS | **PASS** — echoed `FILESECRET-BHVPQL` in 19.1s |
+| arm | before (`35c1d1e`) | after (`5b25f9a`) | re-driven at the landing commit (`88348eb`) |
+|---|---|---|---|
+| codex / **headless** (`codex-app-server`) | **FAIL** — text refused as declared, and the image it does declare was not read back | **PASS** — `FILESECRET-4CQAWS` in 33.0s | **PASS** — `FILESECRET-8VI3I5` in 20.4s |
+| codex / **terminal** (`generic-pty`) | PASS | **PASS** — `FILESECRET-BHVPQL` in 19.1s | **PASS** — `FILESECRET-CLUGUB` in 19.0s |
+
+The third column is not decoration. The epic tip moved under this branch while it
+was being driven (`35c1d1e` → `fccd20d`, five commits touching harness discovery,
+session env and the runtime event gate), so the `5b25f9a` readings were taken on
+a base that no longer exists. Both arms were re-driven after the rebase and the
+pin in those logs reads `88348eb`, which is the commit directly beneath this one
+— its only difference from the landed tip is this paragraph and the two logs it
+points at. Every line of code being landed was driven at that sha.
 
 Both arms now score on the STRONG falsifier — a secret present in the file's
 bytes and nowhere else — rather than on an image the model reads four digits of.
