@@ -40,7 +40,7 @@ see "why not just the probe" below.
 **So: the epic makes this cell BETTER on the arm it introduces, and leaves the
 old arm EXACTLY as it was.** Neither reading is a regression the epic caused.
 The terminal arm's silence is a defect *on main*, reachable with or without this
-work, and it is now POD-2812.
+work, and it is now POD-2868.
 
 The terminal number is the harder one to read, and it is worse than "no error":
 the harness said in plain English, on screen, four seconds in, that the model was
@@ -110,7 +110,7 @@ seconds of nothing. So `fault-watch.ts` drives one session at a time and prints
 every opencode session in the directory with its message counts beside the
 verdict — the reading and the thing that could contaminate it, together. A
 Podium session displaying another session's conversation is its own defect and
-is now POD-2813; this file only claims what it measured.
+is now POD-2869; this file only claims what it measured.
 
 ## RUNNING IT
 
@@ -137,7 +137,7 @@ up as `p2777` did, and no control, probe or pin leg changed.
 ## WHAT IS NOT CLAIMED
 
 - **The terminal arm is not fixed.** Surfacing a TUI's own error text needs
-  screen classification opencode does not have, which is POD-2812's subject and
+  screen classification opencode does not have, which is POD-2868's subject and
   a different piece of work. It is measured here, not repaired.
 - **codex's arm is code-verified, not driven.** No accepted-then-never-settles
   fault is known for codex, and POD-2777's probe refuses to invent one — a
@@ -147,5 +147,5 @@ up as `p2777` did, and no control, probe or pin leg changed.
   said so here rather than blurred into the opencode numbers.
 - **The cross-session reading's mechanism is not established.** It reproduced
   twice through POD-2777's probe; an attempt to reproduce it deliberately, with a
-  companion session, failed because the companion never answered. POD-2813 has
+  companion session, failed because the companion never answered. POD-2869 has
   the open question.
