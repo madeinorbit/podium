@@ -1156,7 +1156,27 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     })
   })
 
-  it('does not settle a Claude input while the transcript is unavailable', () => {
+  /**
+   * REWRITTEN, AND THE REWRITE IS THE POINT (POD-2828).
+   *
+   * This test used to assert that a Claude send is NEVER typed while the
+   * transcript is unavailable, and that it dead-letters with "the agent
+   * transcript is not available…". That rule had no reachable case in which it
+   * was correct. `transcriptAvailable` is a one-way latch, so false means the
+   * session has never had a transcript ITEM — and for claude-code that is every
+   * session that has not taken a turn yet, because `claudeRecordToItems` drops
+   * the `isMeta` records SessionStart writes. The write being refused was the
+   * only thing that could produce the evidence being demanded: the first chat
+   * send to a Claude session started without a creation prompt could never be
+   * delivered at all. Three `must-not-change` oracle characterizations went red
+   * on it (`oracle-idempotency.test.ts`), which is how it was found.
+   *
+   * What survives is the property that mattered: NOTHING IS CLAIMED DELIVERED.
+   * The row is typed once — at-most-once, so a re-drain cannot put a second
+   * copy in the composer — and then held. If no turn appears the row stays
+   * durable, stays the operator's, and dead-letters visibly at the deadline.
+   */
+  it('types an unwitnessable Claude input once and holds the row for its turn', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
     const h = harness({ agentKind: 'claude-code', transcriptAvailable: false })
@@ -1164,7 +1184,8 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     h.inbox.sendText({ sessionId: SID, text: PROMPT, principal: agentPrincipal() })
     vi.advanceTimersByTime(60_500)
 
-    expect(typedTexts(h.sent)).toEqual([])
+    // ONCE. The whole 60s window elapsed; a retry would have shown a second copy.
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
     expect(h.rows).toHaveLength(1)
     expect(h.applied).not.toHaveBeenCalled()
     expect(h.promptFailed).toHaveBeenCalledWith({
@@ -1174,6 +1195,54 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
       reason: `the agent transcript is not available to confirm this ${harnessDisplayName('claude-code')} input`,
       initialPrompt: false,
     })
+  })
+
+  /**
+   * THE OTHER EDGE OF THE SAME CLASS. A row that has ALREADY been typed blind
+   * must not be typed again: the composer may be holding the bytes with no
+   * transcript to say so, and a re-drain that retypes turns one uncertain
+   * prompt into two visible ones. This is the same at-most-once fence the
+   * creation prompt has carried since POD-2116, and the reason the fix
+   * generalized that fence rather than only its exemption.
+   */
+  it('never retypes a Claude input that was already typed blind', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'claude-code', transcriptAvailable: false })
+
+    h.inbox.sendText({ sessionId: SID, text: PROMPT, principal: agentPrincipal() })
+    vi.advanceTimersByTime(60_500)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+
+    // A later bind, reconnect or enqueue re-arms the drain over the same row.
+    h.inbox.drain(SID, { justBound: true })
+    vi.advanceTimersByTime(60_500)
+
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+    expect(h.rows).toHaveLength(1)
+    // THE MECHANISM, not a proxy for it: the fence is the DURABLE attempt count,
+    // and the bind's `resetAttempts` sweep is what used to hand it back. If that
+    // sweep reaches this row again the count returns to 0 and the second copy
+    // follows, whatever the typed list happens to show on one pass.
+    expect(h.rows[0]?.attempts).toBeGreaterThan(0)
+  })
+
+  /**
+   * A SHORT FIRST MESSAGE IS STILL A MESSAGE (POD-2828). "ok" is below
+   * `CONFIRM_NEEDLE_MIN_CHARS`, so as an ordinary row it is "too short to
+   * witness" and refused. A transcript-creating write is matched EXACTLY
+   * against the tail rather than by prefix, so short input stays witnessable
+   * and stays deliverable.
+   */
+  it('types a short first Claude input rather than refusing it as unwitnessable', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'claude-code', transcriptAvailable: false })
+
+    h.inbox.sendText({ sessionId: SID, text: 'ok', principal: agentPrincipal() })
+    vi.advanceTimersByTime(7_000)
+
+    expect(typedTexts(h.sent)).toEqual(['ok'])
   })
 
   it('keeps the row queued when the typed prompt never becomes a turn', () => {
@@ -1482,7 +1551,10 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     expect(typedTexts(h.sent)).toHaveLength(10)
   })
 
-  it('keeps a Claude row when the transcript cannot witness the send', () => {
+  /** POD-2828: the send is TYPED (it may be the write that creates the
+   *  transcript), but nothing about it is settled — the row is still queued and
+   *  the ledger still says pending until a turn confirms it. */
+  it('types a blind Claude send but settles nothing the transcript cannot witness', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
     const h = harness({ agentKind: 'claude-code', transcriptAvailable: false })
@@ -1496,7 +1568,7 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     })
     vi.advanceTimersByTime(7_000)
 
-    expect(typedTexts(h.sent)).toEqual([])
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
     expect(h.rows).toHaveLength(1)
     expect(h.applied).not.toHaveBeenCalled()
   })

@@ -32,7 +32,33 @@ import {
 
 afterEach(() => disposeOracles())
 
-/** Bind a claude-code session live and idle so a send lands immediately. */
+/**
+ * HOW LONG THE FIRST SEND AFTER A BIND MAY TAKE TO REACH THE PTY (POD-2828).
+ *
+ * These three characterizations are about DEDUP, and they used to reach the PTY
+ * inside the helper's 2s default because a chat send to a live claude-code
+ * session was typed synchronously. POD-2116 changed that deliberately: a bind
+ * makes a session live before its composer is mounted, typing into an unmounted
+ * composer is the POD-549 no-op, so the first send after a bind now rides the
+ * durable queue and waits for the composer to prove itself. In a fixture whose
+ * PTY never paints there is nothing to settle against, so the drain waits out
+ * `READY_MAX_MS` (6s in `inbox.ts`) before typing.
+ *
+ * SO THE TIMEOUT MOVED AND NOTHING ELSE DID. Every assertion below is the one
+ * it always was — exact frame sequences, the counterfactual, the applied-
+ * mutation record — because the invariant they pin is that a REPLAY does not
+ * type twice, which has nothing to do with how long the FIRST send takes. The
+ * wait is the setup, and the setup's old assumption ("live and idle means the
+ * bytes go now") is the thing POD-2116 retired.
+ *
+ * The delay itself is not endorsed here. It is measured, and filed: the
+ * readiness clock starts at the SEND rather than at the bind, so a session
+ * bound an hour ago still waits the full window. That is POD-2829's, not this
+ * file's — this file only stops asserting a latency it was never about.
+ */
+const FIRST_SEND_AFTER_BIND_MS = 10_000
+
+/** Bind a claude-code session live and idle so a send is accepted for delivery. */
 function goIdle(o: ReturnType<typeof makeOracle>, sessionId: string): void {
   o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'bind',
@@ -213,14 +239,18 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     o.daemon.length = 0
 
     await o.call.sessions.resumeAndSend({ sessionId, text: 'wake once', mutationId: 'm-wake' })
-    await waitFor(() => ptyFrames(o.daemon).length > 0, 'the first wake send to reach the PTY')
+    await waitFor(
+      () => ptyFrames(o.daemon).length > 0,
+      'the first wake send to reach the PTY',
+      FIRST_SEND_AFTER_BIND_MS,
+    )
     const afterFirst = ptyFrames(o.daemon)
 
     await o.call.sessions.resumeAndSend({ sessionId, text: 'wake once', mutationId: 'm-wake' })
 
     expect(ptyFrames(o.daemon)).toEqual(afterFirst)
     expect(o.store.sync.getAppliedMutation(asMutationId('m-wake'))).toBeDefined()
-  })
+  }, 30_000)
 
   /**
    * THE DUPLICATE-DELIVERY TEST (POD-729's acceptance criterion).
@@ -243,7 +273,11 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     o.daemon.length = 0
 
     await o.call.sessions.sendText({ sessionId, text: 'run it once', mutationId: 'm-send' })
-    await waitFor(() => ptyFrames(o.daemon).length > 0, 'the first chat send to reach the PTY')
+    await waitFor(
+      () => ptyFrames(o.daemon).length > 0,
+      'the first chat send to reach the PTY',
+      FIRST_SEND_AFTER_BIND_MS,
+    )
     const afterFirst = ptyFrames(o.daemon)
     // The instrument can say YES: something actually got delivered.
     expect(afterFirst.length).toBeGreaterThan(0)
@@ -260,9 +294,10 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     await waitFor(
       () => ptyFrames(o.daemon).length > afterFirst.length,
       'the second, distinctly-keyed send to reach the PTY',
+      FIRST_SEND_AFTER_BIND_MS,
     )
     expect(ptyFrames(o.daemon).length).toBeGreaterThan(afterFirst.length)
-  })
+  }, 30_000)
 
   it(`${MUST_NOT_CHANGE}: a replay returns the value RECORDED at first apply, not a fresh read`, async () => {
     const o = makeOracle()
@@ -307,7 +342,11 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     o.daemon.length = 0
 
     await o.call.sessions.sendText({ sessionId, text: 'only once', mutationId: 'm-send' })
-    await waitFor(() => ptyFrames(o.daemon).length > 0, 'the first send to reach the PTY')
+    await waitFor(
+      () => ptyFrames(o.daemon).length > 0,
+      'the first send to reach the PTY',
+      FIRST_SEND_AFTER_BIND_MS,
+    )
 
     await o.call.sessions.sendText({ sessionId, text: 'only once', mutationId: 'm-send' })
 
@@ -316,7 +355,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     expect(ptyFrames(o.daemon)).toEqual([
       { inputOrigin: 'controller', data: `${PASTE_START}only once${PASTE_END}` },
     ])
-  })
+  }, 30_000)
 
   it(`${MUST_NOT_CHANGE}: an ASYNC proc records its RESOLVED value — a replayed create returns the same id and spawns once`, async () => {
     const o = makeOracle()

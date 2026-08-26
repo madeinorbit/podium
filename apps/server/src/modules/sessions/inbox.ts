@@ -830,7 +830,14 @@ export class SessionInbox {
     // The CLI that was typed into is gone; whatever it was holding went with it.
     // Give this process the full attempt budget rather than the exhausted one the
     // dead process left behind (POD-1242).
-    if (woken && this.deps.queue.resetAttempts) {
+    // THE SAME CLASS THE DRAIN EXEMPTS FROM RETYPING (POD-2828). A row typed
+    // blind — into a session with no transcript to witness it — is at-most-once
+    // for the reason the creation prompt is: the composer may be holding the
+    // bytes with nothing able to say so, and the durable attempt count is the
+    // only fence against a second copy. Resetting it on a bind hands that fence
+    // back to whichever event re-armed the drain.
+    const attemptsAreTheFence = this.needsInputReadiness(session) && !session.transcriptAvailable
+    if (woken && this.deps.queue.resetAttempts && !attemptsAreTheFence) {
       for (const row of this.deps.queue.list(sessionId)) {
         // A creation prompt may already have been typed by the old process. Its
         // durable attempt count is the duplicate-prevention fence; resetting it
@@ -1040,26 +1047,55 @@ export class SessionInbox {
         stop()
         return
       }
-      const needle = confirmationNeedle(head.text, firstPromptNeedsProof)
+      const needsReadinessProof = this.needsInputReadiness(current)
+      /**
+       * THE WRITE THAT MAY CREATE THE TRANSCRIPT (POD-2828).
+       *
+       * A harness whose composer is proven from a CONFIRMED TURN has a
+       * bootstrap problem, and the creation prompt is not the only row that
+       * hits it. `transcriptAvailable` is a one-way latch: false means this
+       * server has never seen a transcript ITEM for the session, and for
+       * claude-code a session that has not taken a turn yet has none —
+       * `claudeRecordToItems` drops the `isMeta` records SessionStart writes,
+       * so the JSONL exists and maps to nothing. So the very first chat send
+       * to a Claude session started WITHOUT a creation prompt is in exactly
+       * the position the creation prompt is in: the transcript that would
+       * witness it is the one it is about to create.
+       *
+       * Refusing that write is not caution, it is a state with no exit — the
+       * only thing that can produce the missing evidence is the write being
+       * refused. The generalization is the one POD-2116 already wrote for the
+       * creation row, applied to the class rather than to the instance it
+       * happened to have: type ONCE, then watch for the turn. Nothing here
+       * claims delivery — `confirm` below holds the row while the transcript
+       * is unavailable and dead-letters it at the deadline, so an unwitnessed
+       * write is still visibly the operator's.
+       */
+      const transcriptCreatingWrite =
+        firstPromptNeedsProof || (needsReadinessProof && !current.transcriptAvailable)
+      const needle = confirmationNeedle(head.text, transcriptCreatingWrite)
       // A retry exists ONLY because the last attempt went unwitnessed. If the
       // turn has appeared since, it landed late — settle it rather than send the
       // same prompt twice. This check is what makes retrying safe at all.
       if (
         needle !== null &&
-        tailUserTurnMatches(current, needle, firstPromptNeedsProof) &&
-        (attempt > 1 || firstPromptNeedsProof)
+        tailUserTurnMatches(current, needle, transcriptCreatingWrite) &&
+        (attempt > 1 || transcriptCreatingWrite)
       ) {
         settleHead(current, head, true)
         return
       }
-      // The creation row is at-most-once across process restarts. Its attempt
-      // count is durable because the old native composer may still hold the
-      // bytes even when the server never saw a transcript turn.
-      if (firstPromptNeedsProof && head.attempts > 0) {
+      // A transcript-creating write is at-most-once across process restarts. Its
+      // attempt count is durable because the old native composer may still hold
+      // the bytes even when the server never saw a transcript turn — retyping
+      // would turn one uncertain prompt into two in the composer.
+      if (transcriptCreatingWrite && head.attempts > 0) {
         reportPromptFailure(
           current,
           head,
-          'the creation prompt was already typed but has not appeared in the transcript',
+          firstPromptNeedsProof
+            ? 'the creation prompt was already typed but has not appeared in the transcript'
+            : 'this input was already typed but has not appeared in the transcript',
         )
         return
       }
@@ -1073,25 +1109,15 @@ export class SessionInbox {
           return
         }
       }
-      const needsReadinessProof = this.needsInputReadiness(current)
+      // A needle short enough to match half the transcript is evidence of
+      // nothing. A transcript-creating write is exempt: `confirmationNeedle`
+      // gives it the WHOLE normalized text and `tailUserTurnMatches` compares
+      // it exactly, so "ok" is still witnessable without a prefix.
       if (needsReadinessProof && needle === null) {
         reportPromptFailure(
           current,
           head,
           `this ${this.deps.harnessName(current.agentKind)} input is too short to witness in the transcript`,
-        )
-        return
-      }
-      // A send from a harness that needs a CONFIRMED TURN cannot safely be
-      // typed while there is no transcript to witness it. A creation row is the
-      // exception: its first prompt may be the write that creates the
-      // transcript in the first place. The harness is named in the refusal
-      // because an operator reads it, never to decide anything (POD-2823).
-      if (needsReadinessProof && !current.transcriptAvailable && !firstPromptNeedsProof) {
-        reportPromptFailure(
-          current,
-          head,
-          `the agent transcript is not available to confirm this ${this.deps.harnessName(current.agentKind)} input`,
         )
         return
       }
@@ -1101,7 +1127,7 @@ export class SessionInbox {
       const witnessable =
         needle !== null &&
         current.transcriptAvailable &&
-        !tailUserTurnMatches(current, needle, firstPromptNeedsProof)
+        !tailUserTurnMatches(current, needle, transcriptCreatingWrite)
       const sent = this.typeText({
         sessionId,
         text: head.text,
@@ -1132,7 +1158,7 @@ export class SessionInbox {
       if (head.sourceMessageId) {
         this.deps.authorization.injected?.({ sourceMessageId: head.sourceMessageId, sessionId })
       }
-      if (needle !== null && (witnessable || firstPromptNeedsProof || needsReadinessProof)) {
+      if (needle !== null && (witnessable || transcriptCreatingWrite || needsReadinessProof)) {
         confirm(head, needle, attempt)
       } else if (needsReadinessProof) {
         reportPromptFailure(
