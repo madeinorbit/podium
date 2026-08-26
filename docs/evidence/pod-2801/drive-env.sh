@@ -11,7 +11,8 @@
 
 export PODIUM_INSTANCE=p2801
 export PODIUM_DRIVE_BASE=/tmp/pod-2801
-export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
+
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rig-path-guard.sh"
 
 # PORT BASE 19877. Distinct from the operator's 19797 and from POD-2245/2290/
 # 2753/2761/2773/2777 (19797/19807/19817/19827/19837/19847).
@@ -66,5 +67,5 @@ export PODIUM_DRIVE_REPO="${P2801_REPO:-/home/mgw/src/podium/.worktrees/issue-28
 # prints the bound driverId for every session it drives.
 export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR"
+mkdir -p "$PODIUM_RIG_STATE_ROOT"
 chmod 700 "$PODIUM_DRIVE_BASE"

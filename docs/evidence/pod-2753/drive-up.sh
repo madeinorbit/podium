@@ -42,6 +42,7 @@ cd "$PODIUM_DRIVE_REPO"
 # The web setup procedures are behind the unconfigured data-plane guard, so the
 # rig uses the same runtime config writer as podium setup without fabricating
 # the state marker. It claims the named root before writing mode=all-in-one.
+( cd "$PODIUM_DRIVE_REPO" && bun --conditions=@podium/source "$HERE/../state-root-check.ts" )
 bash "$HERE/../claim-instance.sh"
 
 # Stop a previous pair first — this script's re-run IS the restart path.
@@ -77,7 +78,7 @@ echo "server healthy on :$PODIUM_PORT"
 # AFTER the server, and the order is not incidental: a named instance isolates
 # the agent home to <state>/agent-home, and the first process to boot refuses a
 # state root that is non-empty but unmarked. Auth files ONLY.
-AGENT_HOME="$PODIUM_STATE_DIR/agent-home"
+AGENT_HOME="$PODIUM_RIG_STATE_ROOT/agent-home"
 mkdir -p "$AGENT_HOME/.claude"
 chmod 700 "$AGENT_HOME"
 for pair in \
@@ -91,7 +92,7 @@ echo "agent home seeded at $AGENT_HOME"
 
 # DAEMON UNDER THE ISOLATED HOME: driver children get ctx.homeDir explicitly
 # since POD-2247, but daemon-side writes still follow the daemon's own $HOME.
-( export HOME="$AGENT_HOME"; start daemon scripts/daemon.ts )
+start daemon scripts/daemon.ts
 
 if [ ! -d "$PODIUM_DRIVE_BASE/repo/.git" ]; then
   mkdir -p "$PODIUM_DRIVE_BASE/repo"
@@ -112,5 +113,5 @@ curl -fsS -c "$PODIUM_DRIVE_BASE/cookie-jar" \
 echo
 echo "instance '$PODIUM_INSTANCE' up"
 echo "  API    http://$PODIUM_HOST:$PODIUM_PORT   (password: p2753; loopback only)"
-echo "  state  $PODIUM_STATE_DIR"
+echo "  state  $PODIUM_RIG_STATE_ROOT"
 echo "  logs   $LOGS"

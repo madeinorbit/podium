@@ -90,7 +90,7 @@ export PODIUM_WEB_DIR="$PODIUM_DRIVE_REPO/apps/web/dist"
 # computation is checked against the product's own function before a single byte
 # is written into it. Exits non-zero if they disagree, or if any path override
 # survived into this shell.
-bun "$HERE/state-root-check.ts" || exit 1
+bun --conditions=@podium/source "$HERE/state-root-check.ts" || exit 1
 
 # Claim the named state root through the same runtime writer used by `podium
 # setup`; the rig must not fabricate instance.json or config.json.

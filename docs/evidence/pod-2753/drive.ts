@@ -138,7 +138,7 @@ async function globalThread(): Promise<Thread> {
  * answer actually lands, so that is what "the turn worked" has to mean.
  */
 function assistantText(harnessSessionId: string): string {
-  const root = `${process.env.PODIUM_STATE_DIR ?? `${BASE}/state`}/agent-home/.claude/projects`
+  const root = `${process.env.PODIUM_RIG_STATE_ROOT ?? `${BASE}/state`}/agent-home/.claude/projects`
   const files: string[] = []
   const walk = (dir: string): void => {
     let entries: string[]

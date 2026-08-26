@@ -79,7 +79,7 @@ function controlFromRig(): { fired: boolean; detail: string } {
 /** Every opencode session in the drive repo, newest first. The fault session's
  *  own row AND anything that could have been mistaken for it. */
 function opencodeSessions(): string[] {
-  const db = `${process.env.PODIUM_STATE_DIR}/agent-home/.local/share/opencode/opencode.db`
+  const db = `${process.env.P2777_STATE_ROOT}/agent-home/.local/share/opencode/opencode.db`
   if (!existsSync(db)) return [`(no opencode db at ${db})`]
   const sql = `SELECT s.id || '  ' || COALESCE(json_extract(s.model,'$.id'),'(no model)')
        || '  created=' || datetime(s.time_created/1000,'unixepoch','localtime')

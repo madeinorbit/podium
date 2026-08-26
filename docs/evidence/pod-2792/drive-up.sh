@@ -88,6 +88,7 @@ export PODIUM_WEB_DIR="$PODIUM_DRIVE_REPO/apps/web/dist"
 #
 # Claim the named state root through the same runtime writer used by `podium
 # setup`; the rig must not fabricate instance.json or config.json.
+( cd "$PODIUM_DRIVE_REPO" && bun --conditions=@podium/source "$HERE/../state-root-check.ts" )
 bash "$HERE/../claim-instance.sh"
 
 # Stop a previous pair first — this script's re-run IS the restart path, and the
@@ -130,7 +131,7 @@ echo "server healthy on :$PODIUM_PORT"
 # session degrades to a generic PTY, which is a PERFECT false negative for a
 # drive whose whole subject is headless-vs-terminal. drive.ts refuses any probe
 # whose session did not bind the driver its arm asked for, for this reason.
-AGENT_HOME="$PODIUM_STATE_DIR/agent-home"
+AGENT_HOME="$PODIUM_RIG_STATE_ROOT/agent-home"
 mkdir -p "$AGENT_HOME/.claude" "$AGENT_HOME/.grok" "$AGENT_HOME/.codex" \
          "$AGENT_HOME/.local/share/opencode" "$AGENT_HOME/.config/opencode"
 chmod 700 "$AGENT_HOME"
@@ -150,7 +151,7 @@ echo "agent home seeded at $AGENT_HOME"
 
 # DAEMON UNDER THE ISOLATED HOME: driver children get ctx.homeDir explicitly
 # since POD-2247, but daemon-side writes still follow the daemon's own $HOME.
-( export HOME="$AGENT_HOME"; start daemon scripts/daemon.ts )
+start daemon scripts/daemon.ts
 
 if [ ! -d "$PODIUM_DRIVE_BASE/repo/.git" ]; then
   mkdir -p "$PODIUM_DRIVE_BASE/repo"
@@ -190,5 +191,5 @@ echo "instance '$PODIUM_INSTANCE' up"
 echo "  API      http://$PODIUM_HOST:$PODIUM_PORT   (password: p2777; loopback only)"
 echo "  ARM      CONTRACT=$PODIUM_RUNTIME_CONTRACT STREAMING=$PODIUM_CHAT_STREAMING DRIVER=${PODIUM_RUNTIME_DRIVER:-(policy)}"
 echo "  web      $PODIUM_WEB_DIR"
-echo "  state    $PODIUM_STATE_DIR"
+echo "  state    $PODIUM_RIG_STATE_ROOT"
 echo "  logs     $LOGS"

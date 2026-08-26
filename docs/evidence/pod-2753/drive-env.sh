@@ -22,7 +22,8 @@ export PODIUM_INSTANCE=p2753
 
 # The base contains only this rig's state, logs and scratch repository.
 export PODIUM_DRIVE_BASE=/tmp/pod-2753
-export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
+
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rig-path-guard.sh"
 
 # --- endpoints ------------------------------------------------------------
 # Distinct from the live instance, from POD-2245's operator (19797/46797/46798)
@@ -73,5 +74,5 @@ export PODIUM_ABDUCO=/nonexistent/abduco-forced-off-for-pod-2753
 export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2753-move-the-claude-sdk-out-of-the-daemon
 export PATH="$HOME/.bun/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR"
+mkdir -p "$PODIUM_RIG_STATE_ROOT"
 chmod 700 "$PODIUM_DRIVE_BASE"

@@ -23,7 +23,8 @@ export PODIUM_INSTANCE=p2792
 # This rig deliberately leaves those choices untouched so its result matches
 # an ordinary installation.
 export PODIUM_DRIVE_BASE=/tmp/pod-2792
-export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
+
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rig-path-guard.sh"
 
 # --- endpoints ------------------------------------------------------------
 # PORT BASE 19847. Distinct from the OPERATOR'S 19797 — which this rig must
@@ -109,5 +110,5 @@ export PODIUM_DRIVE_REPO="${P2777_REPO:-/home/mgw/src/podium/.worktrees/issue-27
 # this reorder changes nothing else — bun still resolves from ~/.bun/bin.
 export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR"
+mkdir -p "$PODIUM_RIG_STATE_ROOT"
 chmod 700 "$PODIUM_DRIVE_BASE"

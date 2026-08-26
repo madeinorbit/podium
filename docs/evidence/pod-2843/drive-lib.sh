@@ -3,13 +3,12 @@
 # code — a restart path that differs from the boot path is a rig that measures
 # itself.
 #
-# THE DAEMON RUNS UNDER THE ISOLATED AGENT HOME. Driver children get
-# ctx.homeDir explicitly since POD-2247, but daemon-side writes still follow the
-# daemon's own $HOME, and a hermetic home with no seeded credential reads as
-# logged-out — a claude that never boots is a perfect false positive for "the
-# send never arrived".
+# The named-instance runtime derives the isolated agent home from its state
+# root. Driver children receive that resolved home through the product, while
+# this daemon keeps the real HOME so instanceStateDir() stays shared with the
+# server.
 
-p2843_agent_home() { echo "$PODIUM_STATE_DIR/agent-home"; }
+p2843_agent_home() { echo "$PODIUM_RIG_STATE_ROOT/agent-home"; }
 
 p2843_stop() { # name
   local name="$1" pidfile="$PODIUM_DRIVE_BASE/$1.pid" pid
@@ -37,7 +36,6 @@ p2843_start() { # name
   # of it, and a fresh file would throw away the half that came before.
   (
     cd "$PODIUM_DRIVE_REPO"
-    if [ "$name" = daemon ]; then export HOME="$(p2843_agent_home)"; fi
     nohup bun --conditions=@podium/source "$script" >>"$log" 2>&1 &
     echo "$!" > "$PODIUM_DRIVE_BASE/$name.pid"
   )
@@ -65,7 +63,7 @@ p2843_wait_server() {
 # daemon that never came back would read as up.
 p2843_wait_daemon() {
   local log="$PODIUM_DRIVE_BASE/logs/daemon.log" marker
-  marker="$(grep -c '^=== restarting daemon' "$log" 2>/dev/null || echo 0)"
+  marker="$(grep -c '^=== restarting daemon' "$log" 2>/dev/null || true)"
   for _ in $(seq 1 120); do
     # Lines after the LAST restart marker (or the whole file on a first boot).
     if awk -v m="$marker" '

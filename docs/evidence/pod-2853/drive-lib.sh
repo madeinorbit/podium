@@ -1,16 +1,16 @@
 # Shared start/stop for the p2853 halves. Sourced by drive-up.sh and drive.ts's
 # restart helper so "restart" and "start" are the SAME code.
 #
-# THE DAEMON RUNS UNDER THE ISOLATED AGENT HOME. Driver children get ctx.homeDir
-# explicitly since POD-2247, but daemon-side writes still follow the daemon's own
-# $HOME, and a hermetic home with no seeded credential reads as logged-out.
+# The named-instance runtime derives the agent home from the state root. Driver
+# children receive that resolved home through the product; this daemon stays
+# under real HOME so its instanceStateDir() matches the server's.
 
 # Honours PODIUM_AGENT_HOME so the seeding below lands in the home the agent
 # actually gets. docs/multi-instance.md documents that override, and it is the
 # ONE way to change the `HOME` rung of abduco's socket-directory chain: the
 # abduco child's HOME is ctx.homeDir (POD-2247), the AGENT home — not the
 # daemon's own, which reaches nothing the durable spawn resolves.
-p2853_agent_home() { echo "${PODIUM_AGENT_HOME:-$PODIUM_STATE_DIR/agent-home}"; }
+p2853_agent_home() { echo "${PODIUM_AGENT_HOME:-$P2853_STATE_ROOT/agent-home}"; }
 
 p2853_stop() { # name
   local name="$1" pidfile="$PODIUM_DRIVE_BASE/$1.pid" pid
@@ -42,7 +42,6 @@ p2853_start() { # name
     # POD-2247, so the abduco child's HOME is the AGENT home. This one only
     # decides where daemon-side writes land, and a hermetic home with no seeded
     # credential reads as logged-out.
-    if [ "$name" = daemon ]; then export HOME="$(p2853_agent_home)"; fi
     nohup bun --conditions=@podium/source "$script" >>"$log" 2>&1 &
     echo "$!" > "$PODIUM_DRIVE_BASE/$name.pid"
   )

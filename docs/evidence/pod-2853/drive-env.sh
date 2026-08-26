@@ -25,11 +25,14 @@
 # --- identity -------------------------------------------------------------
 export PODIUM_INSTANCE=p2853
 
-# THE DOCUMENTED DEFAULT for a named instance, spelled out rather than derived,
-# so the drive's evidence names the exact root it ran against.
-export PODIUM_STATE_DIR="$HOME/.local/state/podium/p2853"
 # Scratch repo, logs, pidfiles and cookie jar — NOT the socket root.
 export PODIUM_DRIVE_BASE=/tmp/pod-2853
+
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rig-path-guard.sh"
+# The product-derived root is carried under a rig-only name. The conditional
+# path overrides below are the one deliberate POD-2853 exception arm; the
+# default arm leaves every product-selected path unset.
+export P2853_STATE_ROOT="$PODIUM_RIG_STATE_ROOT"
 
 # --- endpoints ------------------------------------------------------------
 # PORT BASE 19887. Distinct from the operator's 19797 and from POD-2245
@@ -49,6 +52,7 @@ export PODIUM_HOST=127.0.0.1
 # because that manoeuvre is itself an arm: it is what the reporter did to get
 # past the length error and reach the second defect underneath it.
 unset ABDUCO_SOCKET_DIR TMUX_TMPDIR
+unset PODIUM_AGENT_HOME
 if [ -n "${P2853_ABDUCO_SOCKET_DIR:-}" ]; then
   export ABDUCO_SOCKET_DIR="$P2853_ABDUCO_SOCKET_DIR"
   # P2853_ABDUCO_SOCKET_DIR_NOMKDIR is the DEFECT 2 arm, and it is a real
@@ -112,5 +116,5 @@ export PODIUM_DRIVE_REPO="${P2853_REPO:-/home/mgw/src/podium/.worktrees/issue-28
 # THE HARNESS BINARY IS NOT ON A LOGIN PATH.
 export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR" "$PODIUM_DRIVE_BASE"
+mkdir -p "$P2853_STATE_ROOT" "$PODIUM_DRIVE_BASE"
 chmod 700 "$PODIUM_DRIVE_BASE"

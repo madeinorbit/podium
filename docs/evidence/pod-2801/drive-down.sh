@@ -16,7 +16,7 @@ for name in daemon server; do
 done
 # Durable terminals are matched on this rig's vendored binary path, never on
 # a shared bare process name or a socket-dir override.
-if pkill -f "$PODIUM_STATE_DIR/bin/abduco -n" 2>/dev/null; then
+if pkill -f "$PODIUM_RIG_STATE_ROOT/bin/abduco -n" 2>/dev/null; then
   echo "reaped p2801 durable terminals"
 fi
 echo "instance '$PODIUM_INSTANCE' down"

@@ -17,7 +17,8 @@ export PODIUM_INSTANCE=p2775
 # This rig deliberately leaves those choices untouched so its result matches
 # an ordinary installation.
 export PODIUM_DRIVE_BASE=/tmp/pod-2775
-export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
+
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rig-path-guard.sh"
 
 # --- endpoints ------------------------------------------------------------
 # MOVED OFF 19847/46847/46848 — POD-2777's acceptance rig picked the same three,
@@ -66,5 +67,5 @@ export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2775-bug-hibernat
 # the arm degrades exactly like a refused codex — quietly.
 export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR"
+mkdir -p "$PODIUM_RIG_STATE_ROOT"
 chmod 700 "$PODIUM_DRIVE_BASE"

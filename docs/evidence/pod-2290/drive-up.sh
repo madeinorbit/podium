@@ -25,6 +25,7 @@ cd "$PODIUM_DRIVE_REPO"
 
 # The runtime setup writer claims the named state root before the first server
 # boot and creates the minimal host config without fabricating instance.json.
+( cd "$PODIUM_DRIVE_REPO" && bun --conditions=@podium/source "$HERE/../state-root-check.ts" )
 bash "$HERE/../claim-instance.sh"
 
 # Stop a previous pair first — this script's re-run IS the restart path.
@@ -85,7 +86,7 @@ echo "server healthy on :$PODIUM_PORT"
 # the agent home to <state>/agent-home, and the first process to boot refuses a
 # state root that is non-empty but unmarked. Auth files ONLY — no history, no
 # config, no projects.
-AGENT_HOME="$PODIUM_STATE_DIR/agent-home"
+AGENT_HOME="$PODIUM_RIG_STATE_ROOT/agent-home"
 mkdir -p "$AGENT_HOME/.claude" "$AGENT_HOME/.local/share/opencode" \
          "$AGENT_HOME/.codex" "$AGENT_HOME/.grok"
 chmod 700 "$AGENT_HOME"
@@ -104,7 +105,7 @@ echo "agent home seeded at $AGENT_HOME"
 # DAEMON UNDER THE ISOLATED HOME: driver children get ctx.homeDir explicitly
 # since POD-2247, but DAEMON-side writes (grok hook installs at boot, opencode
 # probe caches) still follow the daemon's own $HOME and belong here too.
-( export HOME="$AGENT_HOME"; start daemon scripts/daemon.ts )
+start daemon scripts/daemon.ts
 
 if [ ! -d "$PODIUM_DRIVE_BASE/repo/.git" ]; then
   mkdir -p "$PODIUM_DRIVE_BASE/repo"
@@ -126,5 +127,5 @@ curl -fsS -c "$PODIUM_DRIVE_BASE/cookie-jar" \
 echo
 echo "instance '$PODIUM_INSTANCE' up"
 echo "  web/API  http://$PODIUM_HOST:$PODIUM_PORT   (password: p2290; loopback only)"
-echo "  state    $PODIUM_STATE_DIR"
+echo "  state    $PODIUM_RIG_STATE_ROOT"
 echo "  logs     $LOGS"

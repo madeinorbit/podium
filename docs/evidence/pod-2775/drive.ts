@@ -56,7 +56,7 @@ const PASSWORD = process.env.PODIUM_PASSWORD ?? 'p2775'
 const DRIVE_BASE = process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-2775'
 const REPO = `${DRIVE_BASE}/repo`
 const DAEMON_LOG = `${DRIVE_BASE}/logs/daemon.log`
-const STATE_DIR = process.env.PODIUM_STATE_DIR ?? `${DRIVE_BASE}/state`
+const STATE_DIR = process.env.PODIUM_RIG_STATE_ROOT ?? `${DRIVE_BASE}/state`
 
 /**
  * THE WITNESSES, NONCED. `ALPHA`/`BRAVO` as bare words are satisfied by any

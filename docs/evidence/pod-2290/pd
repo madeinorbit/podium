@@ -12,7 +12,6 @@ REPO=/home/mgw/src/podium/.worktrees/issue-2290-bug-native-view-stuck-on-headles
 exec env -i \
   HOME="$HOME" PATH="$PATH" TERM="${TERM:-dumb}" \
   PODIUM_INSTANCE=p2290 \
-  PODIUM_STATE_DIR=/tmp/pod-2290/state \
   PODIUM_HOST=127.0.0.1 \
   PODIUM_PORT=19807 \
   PODIUM_HOOK_PORT=46807 \

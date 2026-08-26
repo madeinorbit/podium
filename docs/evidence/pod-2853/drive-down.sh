@@ -13,18 +13,13 @@ p2853_stop server
 
 # HARNESS PROCESSES WE ORPHANED, matched on OUR agent-home path and never on the
 # binary name — other sessions on this box run their own claude out of $HOME.
-if pkill -f "$PODIUM_STATE_DIR/agent-home" 2>/dev/null; then
-  echo "reaped harness processes spawned from $PODIUM_STATE_DIR/agent-home"
+if pkill -f "$P2853_STATE_ROOT/agent-home" 2>/dev/null; then
+  echo "reaped harness processes spawned from $P2853_STATE_ROOT/agent-home"
 fi
-# THE DURABLE TERMINALS, MATCHED ON THE VENDORED BINARY'S PATH. The master's
-# command line is `<state>/bin/abduco -n <label> …` and names the SOCKET dir
-# nowhere, so a pattern on ABDUCO_SOCKET_DIR hits nothing and reaps nothing.
-if pkill -f "$PODIUM_STATE_DIR/bin/abduco -n" 2>/dev/null; then
+# THE DURABLE TERMINALS, MATCHED ON THE INSTANCE-PREFIXED LABEL. The master
+# command line names the session label, not the socket directory, so matching
+# the label remains valid whichever product-selected root it uses.
+if pkill -f "abduco -n podium-$PODIUM_INSTANCE-" 2>/dev/null; then
   echo "reaped p2853 durable terminals"
 fi
-# Same for a master that resolved abduco from the shared cache rather than this
-# state root: match the LABEL, which is instance-prefixed and cannot collide.
-if pkill -f "abduco -n podium-$PODIUM_INSTANCE-" 2>/dev/null; then
-  echo "reaped p2853 durable terminals (shared-binary masters)"
-fi
-echo "instance '$PODIUM_INSTANCE' down; state kept at $PODIUM_STATE_DIR"
+echo "instance '$PODIUM_INSTANCE' down; state kept at $P2853_STATE_ROOT"

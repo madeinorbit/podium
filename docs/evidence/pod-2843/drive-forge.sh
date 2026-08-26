@@ -26,7 +26,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/drive-env.sh"
 half="${1:-server}"
 
-SETTINGS="$PODIUM_STATE_DIR/agent-home/.claude/settings.json"
+SETTINGS="$PODIUM_RIG_STATE_ROOT/agent-home/.claude/settings.json"
 STASH="$PODIUM_DRIVE_BASE/settings.json.stashed"
 restore() {
   if [ -f "$STASH" ]; then mv "$STASH" "$SETTINGS"; echo "restored $SETTINGS"; fi

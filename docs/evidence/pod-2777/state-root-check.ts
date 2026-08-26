@@ -22,7 +22,12 @@ if (!claimed) {
   process.exit(2)
 }
 
-for (const name of ['ABDUCO_SOCKET_DIR', 'TMUX_TMPDIR', 'PODIUM_STATE_DIR'] as const) {
+for (const name of [
+  'ABDUCO_SOCKET_DIR',
+  'TMUX_TMPDIR',
+  'PODIUM_STATE_DIR',
+  'PODIUM_AGENT_HOME',
+] as const) {
   if (process.env[name]) {
     console.error(
       `state-root-check: ${name}=${process.env[name]} is set.\n` +
@@ -32,6 +37,17 @@ for (const name of ['ABDUCO_SOCKET_DIR', 'TMUX_TMPDIR', 'PODIUM_STATE_DIR'] as c
     )
     process.exit(2)
   }
+}
+
+const inherited = process.env.PODIUM_RIG_INHERITED_PATH_OVERRIDES
+if (inherited) {
+  console.error(
+    'state-root-check: path override(s) were inherited before the rig scrubbed them: ' +
+      inherited +
+      '\n' +
+      '  This run is refused so a caller setting a product path cannot hide a real failure (POD-2856).',
+  )
+  process.exit(2)
 }
 
 const instanceId = resolveInstanceId()

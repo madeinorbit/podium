@@ -32,9 +32,9 @@ done
 # this box run their own opencode and grok servers out of $HOME and out of other
 # instances' state roots, and a bare `pkill -f opencode` would take all of them
 # down with it.
-if pkill -f "$PODIUM_STATE_DIR/agent-home" 2>/dev/null; then
-  echo "reaped harness servers spawned from $PODIUM_STATE_DIR/agent-home"
+if pkill -f "$PODIUM_RIG_STATE_ROOT/agent-home" 2>/dev/null; then
+  echo "reaped harness servers spawned from $PODIUM_RIG_STATE_ROOT/agent-home"
 fi
 pkill -f "podium-oc-attach" 2>/dev/null && echo "reaped stray opencode clients" || true
 pkill -f "podium-gk-attach" 2>/dev/null && echo "reaped stray grok clients" || true
-echo "instance '$PODIUM_INSTANCE' down; state kept at $PODIUM_STATE_DIR"
+echo "instance '$PODIUM_INSTANCE' down; state kept at $PODIUM_RIG_STATE_ROOT"

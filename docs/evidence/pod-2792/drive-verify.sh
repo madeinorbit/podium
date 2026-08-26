@@ -70,18 +70,18 @@ done
 DAEMON_PIDS="$(pgrep -f 'scripts/daemon.ts' 2>/dev/null || true)"
 MINE=""
 for pid in $DAEMON_PIDS; do
-  env_root="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^PODIUM_STATE_DIR=//p' | tail -1)"
-  [ "$env_root" = "$PODIUM_STATE_DIR" ] && MINE="$MINE $pid"
+  env_instance="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^PODIUM_INSTANCE=//p' | tail -1)"
+  [ "$env_instance" = "$PODIUM_INSTANCE" ] && MINE="$MINE $pid"
 done
 MINE="$(echo "$MINE" | tr -s ' ' | sed 's/^ //;s/ $//')"
 COUNT="$(printf '%s' "$MINE" | wc -w)"
 [ "$COUNT" -eq 1 ] \
-  || fail "expected EXACTLY ONE daemon on state root $PODIUM_STATE_DIR, found $COUNT (pids: ${MINE:-none}).
-Two daemons on one state root serve sessions from code this script never checked,
+  || fail "expected EXACTLY ONE daemon on instance '$PODIUM_INSTANCE', found $COUNT (pids: ${MINE:-none}).
+Two daemons on one named instance serve sessions from code this script never checked,
 and every number they touch is a false negative wearing the right clothes."
 [ "$MINE" = "$(cat "$PODIUM_DRIVE_BASE/daemon.pid")" ] \
-  || fail "the only daemon on $PODIUM_STATE_DIR is pid $MINE, but daemon.pid names $(cat "$PODIUM_DRIVE_BASE/daemon.pid") — the rig is not talking to the process it thinks it is"
-echo "  ok  exactly one daemon (pid $MINE) on state root $PODIUM_STATE_DIR"
+  || fail "the only daemon on instance '$PODIUM_INSTANCE' is pid $MINE, but daemon.pid names $(cat "$PODIUM_DRIVE_BASE/daemon.pid") — the rig is not talking to the process it thinks it is"
+echo "  ok  exactly one daemon (pid $MINE) on instance '$PODIUM_INSTANCE' (state root $PODIUM_RIG_STATE_ROOT)"
 
 # 2. the worktree those processes read is the named commit, and is clean
 HAVE_SHA="$(git -C "$PODIUM_DRIVE_REPO" rev-parse HEAD)"

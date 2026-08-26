@@ -38,13 +38,13 @@ done
 # drive it was supposed to protect gone with it. pgrep + an explicit self/parent
 # filter is the form that cannot do that.
 reaped=0
-for pid in $(pgrep -f "$PODIUM_STATE_DIR/agent-home" 2>/dev/null || true); do
+for pid in $(pgrep -f "$PODIUM_RIG_STATE_ROOT/agent-home" 2>/dev/null || true); do
   [ "$pid" = "$$" ] && continue
   [ "$pid" = "$PPID" ] && continue
   kill "$pid" 2>/dev/null && reaped=$((reaped + 1))
 done
-[ "$reaped" -gt 0 ] && echo "reaped $reaped harness server(s) spawned from $PODIUM_STATE_DIR/agent-home"
+[ "$reaped" -gt 0 ] && echo "reaped $reaped harness server(s) spawned from $PODIUM_RIG_STATE_ROOT/agent-home"
 pkill -f "podium-oc-attach" 2>/dev/null && echo "reaped stray opencode clients" || true
 pkill -f "podium-gk-attach" 2>/dev/null && echo "reaped stray grok clients" || true
 pkill -f "podium-cx-attach" 2>/dev/null && echo "reaped stray codex clients" || true
-echo "instance '$PODIUM_INSTANCE' down; state kept at $PODIUM_STATE_DIR"
+echo "instance '$PODIUM_INSTANCE' down; state kept at $PODIUM_RIG_STATE_ROOT"

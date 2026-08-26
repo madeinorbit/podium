@@ -45,6 +45,8 @@ export PODIUM_INSTANCE="${P2777_INSTANCE:-p2777}"
 # looks perfect and belongs to someone else's run.
 export PODIUM_DRIVE_BASE="${P2777_BASE:-/tmp/pod-2777}"
 
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rig-path-guard.sh"
+
 # --- THE OVERRIDES ARE GONE ------------------------------------------------
 # This rig used to export PODIUM_STATE_DIR, ABDUCO_SOCKET_DIR and TMUX_TMPDIR to
 # short paths under /tmp. All three are removed, on POD-1761's order and
@@ -76,7 +78,7 @@ export PODIUM_DRIVE_BASE="${P2777_BASE:-/tmp/pod-2777}"
 # RIG-ONLY name computed by the same rule as instanceStateDir(); drive-up.sh
 # asserts it against the product's own function before writing anything, so a
 # drift in either direction stops the rig instead of silently splitting it.
-P2777_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/podium/$PODIUM_INSTANCE"
+P2777_STATE_ROOT="$PODIUM_RIG_STATE_ROOT"
 export P2777_STATE_ROOT
 
 # --- endpoints ------------------------------------------------------------
@@ -90,19 +92,12 @@ export PODIUM_AGENT_RELAY_PORT="${P2777_RELAY_PORT:-46848}"
 export PODIUM_HOST=127.0.0.1
 
 # --- durable-terminal containment: NOT OURS TO SET ------------------------
-# ABDUCO_SOCKET_DIR and TMUX_TMPDIR are unset here, and unset DELIBERATELY —
-# applyInstanceRuntimeEnv() only fills them in when they are absent, so setting
-# them is exactly how a rig stops testing the product's own choice. They are
-# unset rather than merely not-exported because this shell runs inside a Podium
-# session on the default instance, which may already carry them.
-unset ABDUCO_SOCKET_DIR TMUX_TMPDIR
-
 # --- scrub the inherited session ------------------------------------------
 # This shell runs INSIDE a Podium session on the developer's default instance,
 # which exports these; inheriting any of them routes CLI calls back into the
 # live server.
 unset PODIUM_SESSION_ID PODIUM_SESSION_INSTANCE PODIUM_SESSION_RELAY
-unset PODIUM_AGENT_RELAY PODIUM_HOME PODIUM_WEB_DIR PODIUM_STATE_DIR
+unset PODIUM_AGENT_RELAY PODIUM_HOME PODIUM_WEB_DIR
 unset ABDUCO_SESSION ABDUCO_SOCKET
 export PODIUM_NO_RELAY=1
 

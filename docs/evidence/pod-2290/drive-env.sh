@@ -17,7 +17,9 @@ export PODIUM_INSTANCE=p2290
 # The base contains only this rig's state, logs and scratch repository.
 export PODIUM_DRIVE_BASE=/tmp/pod-2290
 
-export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
+# Record and remove inherited product path overrides, then derive the real
+# named-instance root under a rig-only name.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rig-path-guard.sh"
 
 # --- endpoints ------------------------------------------------------------
 # The coordinator's ports, explicit rather than id-derived, and distinct from
@@ -55,5 +57,5 @@ export PODIUM_NO_RELAY=1
 # drive-up.sh is safe to re-run for exactly that.
 export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2290-bug-native-view-stuck-on-headless-sessio
 
-mkdir -p "$PODIUM_STATE_DIR"
+mkdir -p "$PODIUM_RIG_STATE_ROOT"
 chmod 700 "$PODIUM_DRIVE_BASE"

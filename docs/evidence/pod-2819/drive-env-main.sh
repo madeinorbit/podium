@@ -21,7 +21,8 @@
 
 export PODIUM_INSTANCE=p2819
 export PODIUM_DRIVE_BASE=/tmp/pod-2819
-export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
+
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rig-path-guard.sh"
 
 # PORT BASE 19857. Distinct from the OPERATOR'S 19797 and from POD-2777's 19847,
 # so this baseline and the rig it is compared against can be up at once.
@@ -55,5 +56,5 @@ export PODIUM_DRIVE_REPO="${POD2819_REPO:-/home/mgw/pod2819-main-baseline}"
 
 export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR"
+mkdir -p "$PODIUM_RIG_STATE_ROOT"
 chmod 700 "$PODIUM_DRIVE_BASE"

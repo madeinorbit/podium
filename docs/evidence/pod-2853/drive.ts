@@ -46,7 +46,7 @@ const PASSWORD = process.env.PODIUM_PASSWORD ?? 'p2853'
 const DRIVE_BASE = process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-2853'
 const REPO = `${DRIVE_BASE}/repo`
 const INSTANCE = process.env.PODIUM_INSTANCE ?? 'p2853'
-const STATE = process.env.PODIUM_STATE_DIR ?? `${DRIVE_BASE}/state`
+const STATE = process.env.P2853_STATE_ROOT ?? `${DRIVE_BASE}/state`
 // The agent home is where abduco's `HOME` rung points, and it is overridable
 // (docs/multi-instance.md). Reading the instance default here would have made
 // the drive report "no socket under ANY root" for a master sitting in an

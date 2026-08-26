@@ -29,9 +29,9 @@ for name in daemon server; do
 done
 
 echo "sessions recorded in this instance:"
-ls "$PODIUM_STATE_DIR"/*-servers/ 2>/dev/null | head -20 || echo "  (none)"
+ls "$PODIUM_RIG_STATE_ROOT"/*-servers/ 2>/dev/null | head -20 || echo "  (none)"
 
 if [ "${1:-}" = "--purge" ]; then
-  rm -rf "$PODIUM_DRIVE_BASE"
-  echo "purged $PODIUM_DRIVE_BASE"
+  rm -rf "$PODIUM_RIG_STATE_ROOT" "$PODIUM_DRIVE_BASE"
+  echo "purged $PODIUM_RIG_STATE_ROOT and $PODIUM_DRIVE_BASE"
 fi

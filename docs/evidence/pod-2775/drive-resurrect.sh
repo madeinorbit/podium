@@ -54,7 +54,7 @@ r=[x for x in json.load(sys.stdin)['result']['data'] if x['sessionId']=='$1']
 print(((r[0].get('agentState') or {}).get('phase') or '?') if r else '?')"; }
 JR(){ python3 -c "
 import json,urllib.parse
-f='$PODIUM_STATE_DIR/$JDIR/'+urllib.parse.quote('$1',safe='')+'.json'
+f='$PODIUM_RIG_STATE_ROOT/$JDIR/'+urllib.parse.quote('$1',safe='')+'.json'
 try:
   d=json.load(open(f))
   print('conversation=%s baseUrl=%s secret=%s' % (d.get('$IDKEY'), d.get('baseUrl','n/a'), 'present' if d.get('secret') else 'n/a'))

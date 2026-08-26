@@ -22,7 +22,8 @@ export PODIUM_INSTANCE=p2773
 # This rig deliberately leaves those choices untouched so its result matches
 # an ordinary installation.
 export PODIUM_DRIVE_BASE=/tmp/pod-2773
-export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
+
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rig-path-guard.sh"
 
 # --- endpoints ------------------------------------------------------------
 # PORT BASE 19837. Distinct from the OPERATOR'S 19797 — which is repinned to the
@@ -105,5 +106,5 @@ export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2773-drive-stream
 # session did not bind the driver the arm asked for, for this reason.
 export PATH="$HOME/.bun/bin:$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR"
+mkdir -p "$PODIUM_RIG_STATE_ROOT"
 chmod 700 "$PODIUM_DRIVE_BASE"

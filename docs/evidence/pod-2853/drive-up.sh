@@ -16,19 +16,20 @@ mkdir -p "$PODIUM_DRIVE_BASE/logs"
 export PODIUM_PASSWORD=p2853
 
 # --- first-run configuration ----------------------------------------------
-# A fresh state root reports readiness `unconfigured` and BLOCKS the data plane.
-# THE MARKER COMES FIRST: a NAMED instance refuses to adopt a state root that is
-# non-empty but unmarked.
-if [ ! -f "$PODIUM_STATE_DIR/instance.json" ]; then
-  printf '{\n  "version": 1,\n  "instanceId": "%s"\n}\n' "$PODIUM_INSTANCE" \
-    > "$PODIUM_STATE_DIR/instance.json"
-  chmod 600 "$PODIUM_STATE_DIR/instance.json"
-  echo "claimed the state root for instance '$PODIUM_INSTANCE'"
+# The default arm uses the product-derived root and claims it through the same
+# runtime writer as `podium setup`. The optional override arms are deliberately
+# POD-2853's own controls for reaching the second defect beneath the path
+# failure, so the no-override guard is skipped only when one is selected.
+if [ -n "${P2853_ABDUCO_SOCKET_DIR:-}" ] || [ -n "${P2853_AGENT_HOME:-}" ]; then
+  [ -z "${PODIUM_RIG_INHERITED_PATH_OVERRIDES:-}" ] || {
+    echo "refusing POD-2853 override arm: inherited product path override(s) were present: $PODIUM_RIG_INHERITED_PATH_OVERRIDES" >&2
+    exit 2
+  }
+  echo "known POD-2853 override arm: retaining its explicit path override"
+else
+  ( cd "$PODIUM_DRIVE_REPO" && bun --conditions=@podium/source "$HERE/../state-root-check.ts" )
 fi
-if [ ! -f "$PODIUM_STATE_DIR/config.json" ]; then
-  printf '{"configVersion":2,"mode":"all-in-one"}\n' > "$PODIUM_STATE_DIR/config.json"
-  echo "wrote first-run config (mode=all-in-one)"
-fi
+bash "$HERE/../claim-instance.sh"
 
 p2853_stop daemon
 p2853_stop server
@@ -114,7 +115,7 @@ curl -fsS -c "$PODIUM_DRIVE_BASE/cookie-jar" \
 echo
 echo "instance '$PODIUM_INSTANCE' up"
 echo "  API      http://$PODIUM_HOST:$PODIUM_PORT   (password: p2853; loopback only)"
-echo "  state    $PODIUM_STATE_DIR"
+echo "  state    $P2853_STATE_ROOT"
 echo "  arm      $PODIUM_DRIVE_REPO"
 echo "  ABDUCO_SOCKET_DIR  ${ABDUCO_SOCKET_DIR:-<unset — the instance must compose its own>}"
 echo "  logs     $PODIUM_DRIVE_BASE/logs"

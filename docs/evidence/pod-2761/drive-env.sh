@@ -16,7 +16,8 @@ export PODIUM_INSTANCE=p2761
 # This rig deliberately leaves those choices untouched so its result matches
 # an ordinary installation.
 export PODIUM_DRIVE_BASE=/tmp/pod-2761
-export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
+
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rig-path-guard.sh"
 
 # --- endpoints ------------------------------------------------------------
 export PODIUM_PORT=19827
@@ -59,5 +60,5 @@ export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2761-bug-switchin
 # So ~/.local/bin goes first and bun's bin stays available behind it.
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR"
+mkdir -p "$PODIUM_RIG_STATE_ROOT"
 chmod 700 "$PODIUM_DRIVE_BASE"

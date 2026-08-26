@@ -37,7 +37,7 @@ const PORT = process.env.PODIUM_PORT ?? '19877'
 const BASE = `http://${HOST}:${PORT}`
 const PASSWORD = process.env.PODIUM_PASSWORD ?? 'p2843'
 const DRIVE_BASE = process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-2843'
-const AGENT_HOME = `${process.env.PODIUM_STATE_DIR ?? `${DRIVE_BASE}/state`}/agent-home`
+const AGENT_HOME = `${process.env.PODIUM_RIG_STATE_ROOT ?? `${DRIVE_BASE}/state`}/agent-home`
 if (PORT === '19797' || PORT === '3000') throw new Error(`refusing to drive port ${PORT}`)
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))

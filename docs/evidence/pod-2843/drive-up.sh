@@ -25,6 +25,7 @@ export PODIUM_PASSWORD=p2843
 # A fresh state root reports readiness `unconfigured` and blocks the data plane.
 # Claim it through the same runtime writer used by `podium setup`; the rig must
 # not fabricate instance.json or config.json.
+( cd "$PODIUM_DRIVE_REPO" && bun --conditions=@podium/source "$HERE/../state-root-check.ts" )
 bash "$HERE/../claim-instance.sh"
 
 p2843_stop daemon
@@ -146,5 +147,5 @@ curl -fsS -c "$PODIUM_DRIVE_BASE/cookie-jar" \
 echo
 echo "instance '$PODIUM_INSTANCE' up"
 echo "  API      http://$PODIUM_HOST:$PODIUM_PORT   (password: p2843; loopback only)"
-echo "  state    $PODIUM_STATE_DIR"
+echo "  state    $PODIUM_RIG_STATE_ROOT"
 echo "  logs     $PODIUM_DRIVE_BASE/logs"

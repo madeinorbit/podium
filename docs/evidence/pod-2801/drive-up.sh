@@ -33,6 +33,7 @@ bash "$HERE/link-node-modules.sh" >/dev/null
 # A fresh state root reports readiness `unconfigured` and blocks the data plane.
 # Claim it through the same runtime writer used by `podium setup`; the rig must
 # not fabricate instance.json or config.json.
+( cd "$PODIUM_DRIVE_REPO" && bun --conditions=@podium/source "$HERE/../state-root-check.ts" )
 bash "$HERE/../claim-instance.sh"
 
 for name in daemon server; do
@@ -71,7 +72,7 @@ echo "server healthy on :$PODIUM_PORT"
 # the harness starts logged out and the session sits at a login screen producing
 # no output at all, which on THIS rig would read as "the phase was right to say
 # idle". Auth files only.
-AGENT_HOME="$PODIUM_STATE_DIR/agent-home"
+AGENT_HOME="$PODIUM_RIG_STATE_ROOT/agent-home"
 mkdir -p "$AGENT_HOME/.claude" "$AGENT_HOME/.grok" "$AGENT_HOME/.codex" \
          "$AGENT_HOME/.local/share/opencode" "$AGENT_HOME/.config/opencode" \
          "$AGENT_HOME/.cursor"
@@ -91,7 +92,7 @@ do
 done
 echo "agent home seeded at $AGENT_HOME"
 
-( export HOME="$AGENT_HOME"; start daemon scripts/daemon.ts )
+start daemon scripts/daemon.ts
 
 if [ ! -d "$PODIUM_DRIVE_BASE/repo/.git" ]; then
   mkdir -p "$PODIUM_DRIVE_BASE/repo"

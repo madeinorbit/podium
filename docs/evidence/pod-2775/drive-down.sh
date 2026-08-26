@@ -20,4 +20,4 @@ for name in daemon server; do
 done
 # Any SDK host we orphaned by killing its daemon.
 pkill -f "claude-sdk-host" 2>/dev/null && echo "reaped stray SDK hosts" || true
-echo "instance '$PODIUM_INSTANCE' down; state kept at $PODIUM_STATE_DIR"
+echo "instance '$PODIUM_INSTANCE' down; state kept at $PODIUM_RIG_STATE_ROOT"

@@ -79,6 +79,7 @@ export PODIUM_WEB_DIR="$REPO/apps/web/dist"
 
 # Claim the named state root through the same runtime writer used by `podium
 # setup`; the baseline must not fabricate instance.json or config.json.
+( cd "$PODIUM_DRIVE_REPO" && bun --conditions=@podium/source "$HERE/../state-root-check.ts" )
 bash "$HERE/../claim-instance.sh"
 
 for name in daemon server; do
@@ -111,7 +112,7 @@ echo "server healthy on :$PODIUM_PORT"
 
 # THE SAME AGENT HOME SEEDING AS THE RIG, and for the same reason: an isolated
 # home with no credential does not fail loudly, it degrades.
-AGENT_HOME="$PODIUM_STATE_DIR/agent-home"
+AGENT_HOME="$PODIUM_RIG_STATE_ROOT/agent-home"
 mkdir -p "$AGENT_HOME/.claude" "$AGENT_HOME/.codex"
 chmod 700 "$AGENT_HOME"
 for pair in \
@@ -125,7 +126,7 @@ do
 done
 echo "agent home seeded at $AGENT_HOME"
 
-( export HOME="$AGENT_HOME"; start daemon scripts/daemon.ts )
+start daemon scripts/daemon.ts
 
 if [ ! -d "$PODIUM_DRIVE_BASE/repo/.git" ]; then
   mkdir -p "$PODIUM_DRIVE_BASE/repo"
@@ -145,5 +146,5 @@ curl -fsS -c "$PODIUM_DRIVE_BASE/cookie-jar" \
 echo
 echo "instance '$PODIUM_INSTANCE' up on main $(git -C "$REPO" rev-parse --short=7 HEAD)"
 echo "  API      http://$PODIUM_HOST:$PODIUM_PORT   (password: p2819; loopback only)"
-echo "  state    $PODIUM_STATE_DIR"
+echo "  state    $PODIUM_RIG_STATE_ROOT"
 echo "  logs     $LOGS"

@@ -23,7 +23,8 @@ export PODIUM_INSTANCE=p2843
 # This rig deliberately leaves those choices untouched so its result matches
 # an ordinary installation.
 export PODIUM_DRIVE_BASE=/tmp/pod-2843
-export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
+
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rig-path-guard.sh"
 
 # --- endpoints ------------------------------------------------------------
 # PORT BASE 19877. Distinct from the operator's 19797 and from POD-2245
@@ -70,5 +71,5 @@ export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2843-bug-a-reatta
 # THE HARNESS BINARY IS NOT ON A LOGIN PATH.
 export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR"
+mkdir -p "$PODIUM_RIG_STATE_ROOT"
 chmod 700 "$PODIUM_DRIVE_BASE"
