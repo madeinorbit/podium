@@ -187,6 +187,42 @@ the truth** — it is not what to change:
 Measured live on opencode 1.18.16: before, 1 failed with 3 errors; after,
 1 passed, 0 errors, 31s of assertions against 184s of timeouts.
 
+## THE BAR IS MET — ZERO CELLS WHERE HEADLESS IS WORSE (POD-2819, landed)
+
+The one `worse` cell is now **PASS on both arms**, re-driven on POD-2777's rig
+unchanged, per-cell pinned, controls fired:
+
+```
+codex / headless   FAIL -> PASS   read the file, echoed FILESECRET-4CQAWS in 33.0s
+codex / terminal   PASS -> PASS   echoed FILESECRET-BHVPQL in 19.1s
+```
+
+Both now score on the **strong falsifier** — a secret in the file's bytes and
+nowhere else — rather than on an image the model reads four digits of.
+
+**Two of the three things I put in that brief were wrong, and the fix says so.**
+
+- **Right:** the declaration *was* the regression. The app-server enumerates
+  **seven** input kinds when handed one it does not know, so "image only" was
+  never true of codex.
+- **Wrong — the image half was not broken.** They reproduced the FAIL, then read
+  the transcript back: the secret in pixels was `139665` and the agent answered
+  `179625` — **six digits, four right, where chance is 1 in 10 each. Across nine
+  readings the mean is 4.1 of 6 against 0.6 expected, with one exact match.** The
+  pixels reach the model; POD-2777's blocky nonce font is what cannot be scored.
+  Filed as POD-2825 rather than repaired in place, because POD-2777's published
+  readings were taken with that file as it stands.
+- **Wrong — claude's attach is neither a regression nor a gap.** A second instance
+  on *today's main* reads an attached file, and so does the epic tip: both shapes,
+  four PASSes. POD-2777's `claude / attach` FAIL was **claude's auto-mode
+  onboarding dialog arriving mid-session and eating the injected turn**,
+  identically on both builds.
+
+**And it re-drove after a rebase rather than trusting its own readings.** The tip
+moved under the branch mid-drive — five commits touching harness discovery,
+session env and the runtime event gate — so it re-ran both arms at the exact sha
+it lands as, with the pin line in both logs naming that commit.
+
 ## THE FINAL MATRIX — all three harnesses driven (`15cdfa0ea`)
 
 Claude IS measured after all. Its **resume row is the strongest single reading in
