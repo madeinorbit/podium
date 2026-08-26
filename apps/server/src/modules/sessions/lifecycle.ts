@@ -370,6 +370,12 @@ export class SessionLifecycle {
     // Ahead of everything else: it owns coalescing timers, and a timer that
     // fires into a half-disposed registry publishes into sessions that are gone.
     this.turnPreviews?.dispose()
+    // Same hazard, one step further out (POD-2842): the outbox drain re-arms
+    // itself on a timer and every wake-up reads the queue table, so a shutdown
+    // taken while a row is in flight woke into the store `server.ts` closes
+    // right after this call. Stopping it loses nothing — the row is durable and
+    // the next bind re-drains it.
+    this.inbox.dispose()
     this.concurrencyHistory.dispose()
     this.autoContinue.dispose()
     clearInterval(this.activityFlushTimer)

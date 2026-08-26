@@ -526,8 +526,39 @@ export class SessionInbox {
   private readonly boundAtMs = new WeakMap<Session, number>()
   /** One durable attention event per queued row and failure episode. */
   private readonly reportedPromptFailures = new Set<string>()
+  /** Set by {@link dispose}; read at every drain re-entry point. */
+  private disposed = false
 
   constructor(private readonly deps: SessionInboxDeps) {}
+
+  /**
+   * THE DRAIN IS A LOOP, AND A LOOP OUTLIVES THE REGISTRY THAT STARTED IT
+   * (POD-2842).
+   *
+   * `drain` re-arms itself on a timer — `READY_POLL_MS` while it waits for the
+   * composer, `CONFIRM_POLL_MS` while it waits for the transcript turn that
+   * proves the row landed — and every one of those wake-ups reads
+   * `deps.queue.list(...)`, which is a read against the SQLite handle.
+   * `server.ts` closes that handle one step after `registry.dispose()`, for the
+   * reason its own shutdown comment gives: "a late write against a closed DB
+   * would throw". Nothing was stopping this loop, so a shutdown taken while a
+   * row was in flight woke into a closed store and threw
+   * `RangeError: Cannot use a closed database` out of a detached timer.
+   *
+   * IT BECAME REACHABLE WHEN THE QUEUE BECAME THE CONTRACT. A claude-code row
+   * is held after it is typed until a transcript user turn confirms it
+   * (POD-2116), so the window in which a drain is still polling is now the
+   * ordinary case rather than a rare one — `relay.outbox.test.ts`'s restart
+   * check reproduces it verbatim, disposing one registry and closing its store
+   * while the row it queued is still waiting.
+   *
+   * A stopped drain loses nothing: the row is durable, and the next bind,
+   * reconnect or enqueue re-arms a fresh pass over it.
+   */
+  dispose(): void {
+    this.disposed = true
+    this.activeDrains.clear()
+  }
 
   isDraining(sessionId: SessionId): boolean {
     return this.activeDrains.has(sessionId)
@@ -989,6 +1020,8 @@ export class SessionInbox {
         this.deps.now() + (initialPrompt ? INITIAL_PROMPT_CONFIRM_TIMEOUT_MS : CONFIRM_TIMEOUT_MS)
       const heldUntil = this.deps.now() + HELD_CONFIRM_CEILING_MS
       const poll = (): void => {
+        // A disposed registry has no store to read (see `dispose`): stand down.
+        if (this.disposed) return
         const current = this.deps.getSession(sessionId)
         if (!current || (current.status !== 'live' && current.status !== 'starting')) {
           reportPromptFailure(
@@ -1075,6 +1108,8 @@ export class SessionInbox {
       setTimeout(poll, CONFIRM_POLL_MS).unref?.()
     }
     const attemptDelivery = (head: QueuedInboxMessage, attempt: number): void => {
+      // A disposed registry has no store to read (see `dispose`): stand down.
+      if (this.disposed) return
       const firstPromptNeedsProof = isInitialPromptRow(sessionId, head)
       const current = this.deps.getSession(sessionId)
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
@@ -1236,6 +1271,8 @@ export class SessionInbox {
       } else settleHead(current, head)
     }
     const deliverNext = (): void => {
+      // A disposed registry has no store to read (see `dispose`): stand down.
+      if (this.disposed) return
       const current = this.deps.getSession(sessionId)
       const head = this.deps.queue.list(sessionId)[0]
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
@@ -1417,6 +1454,8 @@ export class SessionInbox {
       return settled || now - liveAtMs >= READY_MAX_MS
     }
     const tick = (): void => {
+      // A disposed registry has no store to read (see `dispose`): stand down.
+      if (this.disposed) return
       const current = this.deps.getSession(sessionId)
       const head = this.deps.queue.list(sessionId)[0]
       if (!current || current.status === 'exited' || current.status === 'hibernated') {
