@@ -67,7 +67,16 @@ export interface PodiumLinkModifiers {
   direct: boolean
 }
 
-export type PodiumTargetActivator = (target: PodiumTarget, mods: PodiumLinkModifiers) => void
+/**
+ * Open a target. RETURNS WHETHER IT DID — not whether it was asked.
+ *
+ * The resolver deliberately answers null for a target this client cannot open:
+ * an issue the replica has not received, an artifact id that is not on the
+ * issue, a page this build does not route. A caller that cancels the anchor on
+ * "an activator exists" turns every one of those into a click that does
+ * nothing, which is strictly worse than the plain navigation it replaced.
+ */
+export type PodiumTargetActivator = (target: PodiumTarget, mods: PodiumLinkModifiers) => boolean
 
 /** Inert until the app installs one: a link nobody can route stays a no-op
  *  rather than a navigation to a page that does not exist. */
@@ -82,11 +91,11 @@ export function canActivatePodiumTargets(): boolean {
   return activator !== null
 }
 
+/** Whether the target was actually opened. False means: leave the anchor alone. */
 export function activatePodiumTarget(
   target: PodiumTarget,
   e: { metaKey?: boolean; ctrlKey?: boolean } = {},
 ): boolean {
   if (!activator) return false
-  activator(target, { direct: Boolean(e.metaKey || e.ctrlKey) })
-  return true
+  return activator(target, { direct: Boolean(e.metaKey || e.ctrlKey) })
 }

@@ -45,7 +45,7 @@ export type PodiumOpen =
       worktreePath?: string
     }
   | { kind: 'file'; path: string; root: string; machineId?: MachineId }
-  | { kind: 'view'; path: string; search: string }
+  | { kind: 'view'; path: string; search: string; hash: string }
 
 /** Last path segment — an artifact whose panel entry is a bare path opens by name. */
 function basename(path: string): string {
@@ -113,6 +113,6 @@ export function resolvePodiumTarget(
       }
     }
     default:
-      return { kind: 'view', path: target.path, search: target.search }
+      return { kind: 'view', path: target.path, search: target.search, hash: target.hash }
   }
 }

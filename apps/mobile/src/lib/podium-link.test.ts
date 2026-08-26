@@ -1,12 +1,23 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { internalPodiumTarget, mobilePodiumRoute, setKnownPodiumOrigins } from './podium-link'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  followPodiumLink,
+  internalPodiumTarget,
+  mobilePodiumRoute,
+  setActivePodiumOrigin,
+  setKnownPodiumOrigins,
+  setPodiumTargetActivator,
+} from './podium-link'
 
 const PAIRED = 'https://ludovico.example'
 
 const issues = [{ id: 'iss_abc', prefix: 'POD', seq: 1606, displayRef: 'POD-1606' }]
 const sessions = [{ sessionId: 'sess-1', displayRef: 'POD-1606-A' }]
 
-afterEach(() => setKnownPodiumOrigins([]))
+afterEach(() => {
+  setKnownPodiumOrigins([])
+  setActivePodiumOrigin(null)
+  setPodiumTargetActivator(null)
+})
 
 describe('a link on a paired server', () => {
   it('is ours once the server is paired, and nobody else’s before that', () => {
@@ -68,5 +79,61 @@ describe('mobilePodiumRoute', () => {
     expect(
       mobilePodiumRoute({ kind: 'session', session: 'POD-9999-A' }, { issues, sessions }),
     ).toBeNull()
+  })
+})
+
+describe('followPodiumLink', () => {
+  it('prefers the screen, and falls back to the browser for what has none', async () => {
+    const { Linking } = await import('react-native')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    const activate = vi.fn(() => true)
+    setKnownPodiumOrigins([PAIRED])
+    setPodiumTargetActivator(activate)
+
+    followPodiumLink(`${PAIRED}/issues/POD-1606`)
+    expect(activate).toHaveBeenCalledWith({ kind: 'issue', issue: 'POD-1606' })
+    expect(openURL).not.toHaveBeenCalled()
+
+    // An artifact has no screen on the phone; the browser can render the bytes,
+    // which beats a tap that does nothing.
+    activate.mockReturnValue(false)
+    followPodiumLink(`${PAIRED}/issues/POD-1606/artifacts/art1`)
+    expect(openURL).toHaveBeenCalledWith(`${PAIRED}/issues/POD-1606/artifacts/art1`)
+
+    setPodiumTargetActivator(null)
+    openURL.mockRestore()
+  })
+
+  it('drops a host-less address rather than handing the OS a broken URL', async () => {
+    const { Linking } = await import('react-native')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    setPodiumTargetActivator(() => false)
+    followPodiumLink('podium://issues/POD-1606')
+    expect(openURL).not.toHaveBeenCalled()
+    setPodiumTargetActivator(null)
+    openURL.mockRestore()
+  })
+})
+
+describe('the two origin slots (POD-1606 finding 4)', () => {
+  it('survives the profile gate rewriting its list after the host set the active one', () => {
+    // <PodiumLinkHost> is a DESCENDANT of <ServerProfileGate>, so its effect
+    // runs first; a single shared array meant the gate's next write erased the
+    // active server — and with EXPO_PUBLIC_PODIUM_SERVER there is no profile
+    // row to put it back.
+    setActivePodiumOrigin('https://configured.example')
+    setKnownPodiumOrigins([])
+    expect(internalPodiumTarget('https://configured.example/issues/POD-1606')).not.toBeNull()
+
+    setKnownPodiumOrigins([PAIRED])
+    expect(internalPodiumTarget('https://configured.example/issues/POD-1606')).not.toBeNull()
+    expect(internalPodiumTarget(`${PAIRED}/issues/POD-1606`)).not.toBeNull()
+    setActivePodiumOrigin(null)
+  })
+
+  it('forgets the active server when the client provider goes away', () => {
+    setActivePodiumOrigin('https://configured.example')
+    setActivePodiumOrigin(null)
+    expect(internalPodiumTarget('https://configured.example/issues/POD-1606')).toBeNull()
   })
 })

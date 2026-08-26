@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest'
 import { renderMarkdown } from './markdown'
-import { setKnownPodiumOrigins } from './podium-link'
+import { internalPodiumTarget, setKnownPodiumOrigins } from './podium-link'
 
 const HOME = 'http://127.0.0.1:8787'
 
@@ -44,10 +44,18 @@ describe('a transcript link that points at this Podium (POD-1606)', () => {
 
   it('reads an href through the entities the sanitizer wrote', () => {
     setKnownPodiumOrigins([HOME])
-    const html = renderMarkdown(`[f](${HOME}/file?path=%2Fw%2Fa.ts&root=%2Fw)`)
-    // `&` is `&amp;` in the attribute; a resolver reading it raw would see a
-    // query with no root and classify a real file address as a plain page.
+    const href = `${HOME}/file?path=%2Fw%2Fa.ts&root=%2Fw`
+    const html = renderMarkdown(`[f](${href})`)
+    // `&` is `&amp;` in the attribute. Asserting only that the anchor is marked
+    // proves nothing: URLSearchParams still finds `path` in `?path=…&amp;root=…`,
+    // so the target is `file` either way and only `root` is lost. Root is the
+    // assertion that fails without the entity decode.
     expect(html).toContain('&amp;')
-    expect(html).toContain('data-podium-link')
+    expect(internalPodiumTarget(href)).toEqual({
+      kind: 'file',
+      path: '/w/a.ts',
+      root: '/w',
+      machineId: null,
+    })
   })
 })

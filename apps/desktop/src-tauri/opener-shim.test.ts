@@ -131,6 +131,18 @@ describe('desktop opener shim', () => {
     })
   })
 
+  it('answers a userinfo host the same way the protocol resolver does', () => {
+    // `http://anything@127.0.0.1:8787/x` is not our server, whatever the tail of
+    // it looks like. The protocol layer calls it external and the page stamps
+    // target="_blank"; if this half called it OURS it would decline, and
+    // WKWebView would drop the click with nothing to show for it.
+    injectServer('ws://127.0.0.1:8787')
+    expect(clickOfferLink('http://anything@127.0.0.1:8787/issues/POD-1606')).toBe(true)
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', {
+      url: 'http://anything@127.0.0.1:8787/issues/POD-1606',
+    })
+  })
+
   it('does not install outside the desktop shell, where the anchor already works', () => {
     // Asserted through `window.open` rather than a click: the shim installed
     // for this test's siblings is still on the document and would answer first.
