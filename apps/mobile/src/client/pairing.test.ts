@@ -131,7 +131,7 @@ describe('server preflight', () => {
       transport: 'insecure-lan',
     })
     expect(
-      fetchMock.mock.calls.map(
+      (fetchMock.mock.calls as unknown as Array<Parameters<typeof fetch>>).map(
         (call: Parameters<typeof fetch>) => (call[1] as RequestInit).credentials,
       ),
     ).toEqual([
@@ -209,7 +209,7 @@ describe('server preflight', () => {
       kind: 'not-podium',
     })
     expect(
-      fetchMock.mock.calls.map(
+      (fetchMock.mock.calls as unknown as Array<Parameters<typeof fetch>>).map(
         (call: Parameters<typeof fetch>) => (call[1] as RequestInit).credentials,
       ),
     ).toEqual([
