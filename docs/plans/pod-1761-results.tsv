@@ -121,3 +121,4 @@ POD-2622 hermetic env reaches the child (READ, not driven)	harness-manifests	FAI
 server suite attribution: services	n/a-gate	PASS 34 failed on the tip WITHOUT the fix = 34 reported WITH it	0d00f6c34	yes 1822 passed	no 3 sessions live	2026-08-27 00:39 CEST	POD-2878
 server suite attribution: boundary	n/a-gate	PASS 45 failed on the tip WITHOUT the fix = 45 reported WITH it	0d00f6c34	yes 2032 passed	no 3 sessions live	2026-08-27 00:39 CEST	POD-2878
 server suite attribution: contracts	n/a-gate	PASS 1 failed on the tip WITHOUT the fix = 1 reported WITH it	0d00f6c34	yes 1303 passed	no 3 sessions live	2026-08-27 00:39 CEST	POD-2878
+cross-session transcript leak (PRE-FIX arm)	opencode-headless	NO_MEASUREMENT companion produced 0 rows, positive control never fired	4a18e7d2	no	no 2913+2914 live	2026-08-27 00:40 CEST	POD-2871
