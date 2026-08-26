@@ -43,11 +43,12 @@ filed from this drive. There are **2 PARTIAL attention cells** (A8 H and T) and
 are both BLOCKED on both arms. If the release dashboard treats PARTIAL as red,
 the attention count is 2; the strict FAIL-red count is 0.
 
-The blocker is the rig's available credential, not a claimed Grok runtime
-result: `/home/mgw/.grok/auth.json` was absent, no `XAI_API_KEY` was present,
-and the derived agent home was intentionally left logged out. The login path
-itself was observed; no browser/device-code login was performed, and the
-restored-session claim was not rounded up to PASS.
+At drive time no usable Grok authentication was available: `/home/mgw/.grok/auth.json`
+was absent and no `XAI_API_KEY` was present. The operator subsequently confirmed
+that Grok is out of quota until **2026-08-27 11:03 CEST**; this lane is deferred
+until then, not treated as a product-red finding. The login path itself was
+observed; no browser/device-code login was performed, and the restored-session
+claim was not rounded up to PASS.
 
 ## Pins and rig
 
@@ -64,6 +65,53 @@ HOME was `/home/mgw`; the derived port was `30374`.
 
 The web bundle stamp was `apps/web/dist/podium-build.json`, source SHA
 `6c10b66`. Final checks found zero Grok2877 probe sessions left behind.
+
+## Credential-only re-drive
+
+The rig is ready for a re-drive once quota returns. From this worktree, with
+the operator's normal HOME inherited and no state/socket/HOME override:
+
+```sh
+# Supply exactly one normal Grok credential, without printing it:
+#   either /home/mgw/.grok/auth.json (the normal $HOME/.grok/auth.json),
+#   or XAI_API_KEY in the environment below.
+
+# Keep this shell alive for the runtime; on this host the acceptance launcher
+# reaps descendants when a short command exits. Use a second shell for the
+# runner after this command reports server and daemon PIDs.
+bash docs/evidence/pod-2877/grok-rig.sh up headless; sleep 3600
+env -u PODIUM_INSTANCE -u PODIUM_STATE_DIR -u PODIUM_HOME \
+  -u PODIUM_WEB_DIR -u PODIUM_AGENT_RELAY -u ABDUCO_SESSION \
+  -u ABDUCO_SOCKET -u ABDUCO_SOCKET_DIR \
+  PODIUM_HOST=127.0.0.1 PODIUM_PORT=30374 \
+  PODIUM_PASSWORD=grok2877 PODIUM_DRIVE_BASE=/tmp/pod-2877-grok \
+  /home/mgw/.bun/bin/bun --conditions=@podium/source \
+  docs/evidence/pod-2877/grok-drive.ts headless
+
+bash docs/evidence/pod-2877/grok-rig.sh up terminal; sleep 3600
+env -u PODIUM_INSTANCE -u PODIUM_STATE_DIR -u PODIUM_HOME \
+  -u PODIUM_WEB_DIR -u PODIUM_AGENT_RELAY -u ABDUCO_SESSION \
+  -u ABDUCO_SOCKET -u ABDUCO_SOCKET_DIR \
+  PODIUM_HOST=127.0.0.1 PODIUM_PORT=30374 \
+  PODIUM_PASSWORD=grok2877 PODIUM_DRIVE_BASE=/tmp/pod-2877-grok \
+  /home/mgw/.bun/bin/bun --conditions=@podium/source \
+  docs/evidence/pod-2877/grok-drive.ts terminal
+```
+
+`grok-rig.sh` derives `/home/mgw/.local/state/podium/grok2877` and copies the
+normal-home `$HOME/.grok/auth.json` into its derived agent home at `up`; it
+does not set HOME or any state/socket directory. `XAI_API_KEY`, when supplied
+by the operator, is passed through to the daemon without being recorded. The
+headless re-drive should bind `grok-acp`; the terminal command intentionally
+binds `generic-pty` for the comparison arm. Every cell will re-check its own
+SHA pin and memory gate.
+
+The logged-out signature to distinguish from a still-blocked run is: the
+daemon resolves requested `grok-acp` to `generic-pty` with reason
+`harness is logged out; terminal provides interactive login`, and the native
+screen says `Approve in your browser to finish signing in` with a device code
+and `Waiting for approval`. A successful credential-only re-drive should not
+show that signature and should produce authenticated positive controls.
 
 Raw per-cell readings, including controls, memory, pins, session IDs, and A8
 screen evidence:

@@ -957,6 +957,9 @@ could not fire. A8 is PARTIAL on both arms: the device-code/browser login path
 appeared, but no credential was available to complete login and demonstrate the
 post-login server binding. Full evidence and per-cell pins are in
 `docs/evidence/pod-2877/GROK-REPORT.md`.
+The operator subsequently confirmed Grok is out of quota until 2026-08-27
+11:03 CEST, so this column is deferred for a credential-only re-drive rather
+than treated as a product red.
 
 Rows A5 + A6a + A6b together are the "both views work and can be switched"
 guarantee: chat functions (A5, A1, A4), the native view functions (A6a), and
