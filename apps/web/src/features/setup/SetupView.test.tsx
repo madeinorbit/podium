@@ -198,6 +198,7 @@ describe('SetupView', () => {
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       mode: 'all-in-one',
+      networkOption: 'tailscale-funnel',
       acknowledgeNoPassword: true,
     })
     expect(onSaved).toHaveBeenCalled()
@@ -225,6 +226,7 @@ describe('SetupView', () => {
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       mode: 'all-in-one',
+      networkOption: 'tailscale-funnel',
       password: 'launch-code',
     })
   })
@@ -254,6 +256,7 @@ describe('SetupView', () => {
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       mode: 'all-in-one',
+      networkOption: 'tailscale-funnel',
     })
   })
 
@@ -384,6 +387,7 @@ describe('SetupView', () => {
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://relay.ts.net',
       mode: 'server',
+      networkOption: 'tailscale-funnel',
       password: 'pw',
     })
     // …and takes a cookie for it before handing back, or the guard the password just enabled

@@ -154,6 +154,7 @@ interface SectionContext {
   hostMetrics: HostMetricsWire[]
   startTelegramSetup: () => void
   resetTelegramSetup: () => void
+  openNetworkSettings: () => void
   /** Replace the local blob with DEFAULT_SETTINGS (still needs Save). */
   resetToDefaults: () => void
   /** The secret surface: presence + fingerprint, or the single unavailable
@@ -198,7 +199,9 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   ),
   workflow: ({ settings, patch }) => <WorkflowSection settings={settings} patch={patch} />,
   network: () => <NetworkSection />,
-  devices: ({ trpc }) => <ConnectedDevicesSection trpc={trpc} />,
+  devices: ({ trpc, openNetworkSettings }) => (
+    <ConnectedDevicesSection trpc={trpc} onOpenNetwork={openNetworkSettings} />
+  ),
   repos: () => <ReposSection />,
   machines: () => <MachinesPanel />,
   security: ({ trpc }) => <LoginPasswordSection trpc={trpc} />,
@@ -732,6 +735,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                     hostMetrics,
                     startTelegramSetup: () => void startTelegramSetup(),
                     resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
+                    openNetworkSettings: () => setSettingsTab('network'),
                     resetToDefaults: () => setSettings(DEFAULT_SETTINGS),
                     secrets,
                     canManageSecrets: permitted['settings.setSecret'] === true,

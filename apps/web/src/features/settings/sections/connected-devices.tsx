@@ -10,10 +10,12 @@ import {
   RevokeMobileClientSessionRequest,
 } from '@podium/protocol'
 import {
+  ArrowRight,
   CheckCircle2,
   Copy,
   ExternalLink,
   RefreshCw,
+  ShieldAlert,
   ShieldCheck,
   Smartphone,
   TriangleAlert,
@@ -86,9 +88,9 @@ type PairingFlow =
 type StartFailure = 'public-url' | 'transport' | 'auth' | 'unavailable' | 'invalid-response'
 
 const SAFE_START_ERRORS: Record<StartFailure, string> = {
-  'public-url': 'Set a valid Podium URL under Settings → Network before pairing a phone.',
+  'public-url': 'Set the address this phone can reach before pairing. Add it in Network settings.',
   transport:
-    'Mobile pairing requires trusted HTTPS. Set up Tailscale Serve or a trusted HTTPS reverse proxy under Settings → Network.',
+    'Phone pairing works only over trusted HTTPS. Choose Tailscale Serve or add an HTTPS reverse proxy in Network settings.',
   auth: 'Your sign-in is no longer authorized. Sign in again, then create a new code.',
   unavailable: 'Couldn’t reach this server. Check the connection and try again.',
   'invalid-response':
@@ -98,6 +100,11 @@ const SAFE_ACTION_ERROR = 'Couldn’t update this pairing request. Create a new 
 const SAFE_CANCEL_ERROR =
   'Couldn’t cancel this request. Keep the link private; it will expire automatically.'
 const SAFE_REVOKE_ERROR = 'Couldn’t revoke this device. Nothing changed.'
+
+const BLOCKED_START_TITLES: Record<'public-url' | 'transport', string> = {
+  'public-url': 'Podium URL needed',
+  transport: 'Secure connection needed',
+}
 
 /** Open mode has no credential ceremony: its QR is exactly this URL. */
 export function mobileServerUrl(canonicalOrigin: string): string {
@@ -369,6 +376,40 @@ function Readiness({ origin, readiness }: { origin: string; readiness: MobileTra
           <p className="settings-label break-all font-mono">{origin}</p>
           <p className="settings-prose mt-1 font-medium text-foreground">{readiness.title}</p>
           <p className="settings-prose mt-1">{readiness.guidance}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PairingSetupRequired({
+  reason,
+  onOpenNetwork,
+}: {
+  reason: 'public-url' | 'transport'
+  onOpenNetwork?: () => void
+}): JSX.Element {
+  return (
+    <div role="alert" className="mt-4 rounded-lg border border-warning/30 bg-warning/5 p-4">
+      <div className="flex items-start gap-3">
+        <span className="flex size-8 flex-none items-center justify-center rounded-md bg-warning/10 text-warning">
+          <ShieldAlert aria-hidden="true" className="size-4" strokeWidth={2} />
+        </span>
+        <div className="min-w-0">
+          <p className="settings-label text-foreground">{BLOCKED_START_TITLES[reason]}</p>
+          <p className="settings-prose mt-1 max-w-[58ch]">{SAFE_START_ERRORS[reason]}</p>
+          {onOpenNetwork && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-3"
+              onClick={onOpenNetwork}
+            >
+              Open Network settings
+              <ArrowRight aria-hidden="true" />
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -693,9 +734,11 @@ function MobileSessions({
 export function ConnectedDevicesSection({
   trpc,
   api: injectedApi,
+  onOpenNetwork,
 }: {
   trpc?: Trpc
   api?: MobilePairingApi
+  onOpenNetwork?: () => void
 }): JSX.Element {
   const httpOrigin = serverConfig(window.location).httpOrigin
   const api = useMemo(
@@ -973,13 +1016,16 @@ export function ConnectedDevicesSection({
             </div>
           )}
 
-          {flow.kind === 'error' && (
-            <div className="mt-4">
-              <p role="alert" className="settings-prose text-destructive">
-                {SAFE_START_ERRORS[flow.reason]}
-              </p>
-            </div>
-          )}
+          {flow.kind === 'error' &&
+            (flow.reason === 'public-url' || flow.reason === 'transport' ? (
+              <PairingSetupRequired reason={flow.reason} onOpenNetwork={onOpenNetwork} />
+            ) : (
+              <div className="mt-4">
+                <p role="alert" className="settings-prose text-destructive">
+                  {SAFE_START_ERRORS[flow.reason]}
+                </p>
+              </div>
+            ))}
 
           {flow.kind === 'pair' && (
             <div className="mt-5">

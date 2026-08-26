@@ -467,11 +467,9 @@ function NetworkStepForm({
           {err}
         </p>
       )}
-      {saved && (
-        <p role="status" className="text-[12px] text-success">
-          Network settings saved.
-        </p>
-      )}
+      <p role="status" className="min-h-4 text-[12px] text-success">
+        {saved ? 'Network settings saved.' : ''}
+      </p>
       <div className="flex items-center justify-between gap-2">
         {onBack ? (
           <Button type="button" variant="ghost" size="sm" onClick={onBack}>

@@ -194,6 +194,7 @@ describe('NetworkStep', () => {
     const serve = (await screen.findByRole('radio', {
       name: /tailscale serve/i,
     })) as HTMLInputElement
+    expect(screen.getByRole('status').textContent).toBe('')
     expect(serve.checked).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: /save network settings/i }))
 

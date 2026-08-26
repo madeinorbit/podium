@@ -18,6 +18,48 @@ afterEach(() => {
 })
 
 describe('NetworkSection', () => {
+  it('does not show host controls while the machine mode is loading', () => {
+    storeState.trpc = {
+      setup: { info: { query: vi.fn(() => new Promise(() => {})) } },
+    } as unknown as Store['trpc']
+
+    render(<NetworkSection />)
+
+    expect(screen.getByText('Loading network settings…')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Save network settings' })).toBeNull()
+  })
+
+  it('shows a retryable error instead of host controls when mode cannot be loaded', async () => {
+    storeState.trpc = {
+      setup: { info: { query: vi.fn().mockRejectedValue(new Error('offline')) } },
+    } as unknown as Store['trpc']
+
+    render(<NetworkSection />)
+
+    expect(await screen.findByText('Couldn’t load network settings.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Save network settings' })).toBeNull()
+  })
+
+  it('shows connection details without host controls on a worker', async () => {
+    storeState.trpc = {
+      setup: {
+        info: {
+          query: vi.fn().mockResolvedValue({
+            mode: 'daemon',
+            publicUrl: null,
+            serverUrl: 'wss://relay.example',
+          }),
+        },
+      },
+    } as unknown as Store['trpc']
+
+    render(<NetworkSection />)
+
+    expect(await screen.findByText('wss://relay.example')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Save network settings' })).toBeNull()
+  })
+
   it('shows the saved network settings without a separate disclosure step', async () => {
     storeState.trpc = {
       setup: {
