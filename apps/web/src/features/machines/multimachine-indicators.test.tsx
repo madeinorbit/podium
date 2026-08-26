@@ -9,7 +9,8 @@
 import type { MachineQuotaWire } from '@podium/model'
 import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { HeaderHostIndicators, HostIndicators } from './HostIndicators'
 import { QuotaIndicator } from './QuotaIndicator'
 
@@ -164,6 +165,7 @@ const machineQuota = (
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetPolledQueryCache()
   maxIdleSessions = 8
   sessions = []
   memoryBreakdown.mockResolvedValue(breakdownFor('vmi'))
@@ -180,11 +182,19 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('memory chip is machine-aware', () => {
+  beforeAll(async () => {
+    // HostIndicators opens HostInfoView through React.lazy. A cold click otherwise
+    // pays the chunk transform inside waitFor's 1s window, so the mutate is
+    // never observed when this describe runs first or on its own.
+    await import('./HostMemoryView')
+  })
+
   it('requests the clicked machine breakdown, not the first machine', async () => {
     render(<HostIndicators />)
     // The vmi chip (second host) — its accessible name carries the hostname.
     const chip = screen.getByRole('button', { name: /vmi — memory/i })
     fireEvent.click(chip)
+    await screen.findByLabelText('Host info')
     await waitFor(() =>
       expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('vmi34') }),
     )
@@ -195,6 +205,7 @@ describe('memory chip is machine-aware', () => {
     render(<HostIndicators />)
     const chip = screen.getByRole('button', { name: /podium-host — memory/i })
     fireEvent.click(chip)
+    await screen.findByLabelText('Host info')
     await waitFor(() =>
       expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('podium-host') }),
     )
