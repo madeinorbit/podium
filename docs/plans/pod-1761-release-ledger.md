@@ -215,6 +215,41 @@ address rides on argv, and whether per-session server credentials ride in the en
 The last three are all `launch()`, and the address/secret split was not a new axis
 at all — it is `ServerRuntimeSpec.transport`, which W1 had already declared.
 
+## THE SWEEP'S RED, ATTRIBUTED — most of the remainder is MAIN'S
+
+Re-run per file against a detached main worktree, using the corrected method
+(does it EXIST on main, and does it FAIL there):
+
+| file | main | verdict |
+| --- | --- | --- |
+| `protocol/wire-golden.test.ts` | **7 failed** | main's |
+| `sync/outbox/outbox.test.ts` | **1 failed** | main's |
+| `runtime/settings.classification.test.ts` | **1 failed** | main's |
+| `client-core/engine/runtime.test.ts` | **1 failed** | main's |
+
+Ten tests that are not this epic's debt. The `scripts/*` audits are the POD-2040
+baseline already recorded.
+
+**`relay.test.ts` is 189/189** (POD-2837), from 8 failed / 187. And rewriting it
+turned up a **real product defect**, fixed as POD-2838:
+`SessionAuthz.authorizeQueuedInputAtApply` **threw instead of returning its
+verdict** — out of `deliverNext` into `tick`, killing the drain pass with the row
+**neither delivered, nor removed, nor reported**. The reachable case is the
+superagent: `authorityOf({kind:'superagent'})` mints a delegationRef that is a
+literal and never a session id, so **every superagent send delivered by the drain
+took that path**. It surfaced only now because a claude-code send always rides the
+queue, and the synchronous path had never consulted that gate at all.
+
+**And three of the checks it "preserved" had never pinned anything.** The fake
+clock does not run a timer scheduled DURING a tick until the next advance, so
+*"the paste is alone on the wire"* was **equally true of a CR sent with no delay**
+— setting `SUBMIT_CR_DELAY_MS` to 0 left every one of them green on the old shape
+too. The `needs_user` guard had stopped being reachable at all, because `sendText`
+refuses an open menu first. Both are now pinned on the order the queue creates.
+
+Two files still assert the retired contract, one of them **in a gated lane** —
+POD-2842, started.
+
 ## A FLAW IN MY OWN ATTRIBUTION METHOD, found by the work it produced
 
 POD-2839 corrected me twice and the second one matters more than the issue.
