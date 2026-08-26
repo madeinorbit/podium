@@ -215,6 +215,46 @@ address rides on argv, and whether per-session server credentials ride in the en
 The last three are all `launch()`, and the address/secret split was not a new axis
 at all — it is `ServerRuntimeSpec.transport`, which W1 had already declared.
 
+## THE DECISION THE REGRESSIONS FORCED — the readiness queue IS the contract
+
+Chasing the write-path regressions turned up the real finding underneath them:
+**the tip holds two directly contradictory assertions about one call.**
+`relay.test.ts` says a claude-code `sendText` to a bound session returns
+`{ok:true}` and types now. POD-2116's `inbox.test.ts` says it returns
+`{ok:true, queued:true}` and types nothing. **Only one lane is gated** — which is
+exactly why an eleven-test regression sat invisible for three days.
+
+**RULED, 26 Aug: the readiness queue is the contract. POD-2116's diversion
+stands.** The eight remaining `relay.test.ts` failures get rewritten to drive the
+queue, keeping every byte-level assertion (POD-2837, started).
+
+The reasoning, recorded so it can be checked rather than taken:
+- **The queue exists to stop a silent loss.** Bytes typed into a composer the CLI
+  has not mounted are accepted by the pty and dropped by the app. The synchronous
+  contract is faster and loses messages; a user who waits has recourse, a user who
+  sees nothing has none.
+- **POD-2823 reached the same model independently**, from a different issue in a
+  different direction: `composerReadiness`, with claude declaring `confirmed-turn`
+  — claude's composer readiness is **invisible**, so the only proof it will accept
+  typing is a user turn in the transcript. A synchronous contract cannot be
+  honoured for a harness whose readiness cannot be observed.
+
+**Two conditions attached.** POD-2829 is promoted to a blocker and started as
+POD-2836: 6.3s on *every* first send after a bind, because `liveAtMs` is assigned
+in the drain's first tick, so the clock starts at the **send** rather than the
+**bind** and never expires. That is a bug in the clock, not the design — *the
+window is right, its start is wrong; do not shorten `READY_MAX_MS`.* And the
+rewrite must make both lanes agree explicitly, or the repo drifts back to
+whichever answer nobody runs.
+
+**The best thing in that round was a fix its author talked themselves out of.**
+Their first instinct on the `#473` pair was to reach for the same exemption; it
+would have been wrong. Diverting a claude-code send to the queue moved it **past
+the guards `typeText` applies**, so a send at a live AskUserQuestion menu returned
+ok instead of refusing — and a submitting CR typed at that menu **answers the
+highlighted default, picking an option on the human's behalf.** A safety guard
+that had been jumped over, not an exemption that needed widening.
+
 ## THREE REGRESSIONS ATTRIBUTED, EACH TO ITS OWN COMMIT, BY BISECT
 
 The method that works: per-file A/B against a detached main worktree to confirm,
