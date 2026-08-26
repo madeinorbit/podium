@@ -25,26 +25,39 @@ import {
 } from '@podium/protocol'
 import { Linking } from 'react-native'
 
-let knownOrigins: readonly string[] = []
+/**
+ * TWO SLOTS, NOT ONE LIST. The paired profiles and the active server are
+ * written by two different components whose effects run in an order neither
+ * controls — <PodiumLinkHost> is a descendant of <ServerProfileGate>, so the
+ * child's write lands first and a single shared array would be flattened by the
+ * parent's next write. That is not a rare race: the gate rewrites on every
+ * pair, rename and purge, and the active server can come from
+ * EXPO_PUBLIC_PODIUM_SERVER with no profile row at all — in which case the list
+ * would be emptied for good and every link home would go to Safari, which is
+ * the exact bug this module exists to fix. Keeping the sources apart and
+ * unioning them at READ time makes the write order irrelevant.
+ */
+let pairedOrigins: readonly string[] = []
+let activeOrigin: string | null = null
 
 /** Record every paired server's origin. Called from the profile gate. */
 export function setKnownPodiumOrigins(origins: Iterable<string>): void {
-  knownOrigins = [...origins].filter(Boolean)
+  pairedOrigins = [...origins].filter(Boolean)
 }
 
-/** Add one origin without disturbing the paired list — the ACTIVE server, which
- *  the client provider knows before the profile list has settled. */
-export function addKnownPodiumOrigin(origin: string): void {
-  if (!origin || knownOrigins.includes(origin)) return
-  knownOrigins = [...knownOrigins, origin]
+/** Record the server this app is talking to right now. Owned by the link host. */
+export function setActivePodiumOrigin(origin: string | null): void {
+  activeOrigin = origin || null
 }
 
 export function knownPodiumOrigins(): readonly string[] {
-  return knownOrigins
+  if (!activeOrigin) return pairedOrigins
+  if (pairedOrigins.includes(activeOrigin)) return pairedOrigins
+  return [...pairedOrigins, activeOrigin]
 }
 
 export function classifyPodiumLink(href: string): PodiumLink | null {
-  return parsePodiumLink(href, { knownOrigins })
+  return parsePodiumLink(href, { knownOrigins: knownPodiumOrigins() })
 }
 
 /** The target `href` names on a paired server, or null when it names elsewhere. */

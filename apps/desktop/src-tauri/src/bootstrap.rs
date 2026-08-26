@@ -560,6 +560,11 @@ pub fn opener_shim_script() -> &'static str {
     try {
       const u = new URL(raw, window.location.href);
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      // Userinfo is how a link disguises its real host. The protocol resolver
+      // refuses it outright, and the two halves have to answer alike: if this
+      // one called it ours it would decline, the page would have stamped
+      // target=_blank, and WKWebView would drop the click on the floor.
+      if (u.username || u.password) return u.href;
       return isOurs(httpOrigin(u.href)) ? null : u.href;
     } catch { return null; }
   };

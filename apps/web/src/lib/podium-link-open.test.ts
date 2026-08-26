@@ -117,8 +117,11 @@ describe('resolvePodiumTarget', () => {
 
   it('passes a plain page through', () => {
     expect(
-      resolvePodiumTarget({ kind: 'view', path: '/settings/general', search: '' }, { issues }),
-    ).toEqual({ kind: 'view', path: '/settings/general', search: '' })
+      resolvePodiumTarget(
+        { kind: 'view', path: '/settings/general', search: '', hash: '#advanced' },
+        { issues },
+      ),
+    ).toEqual({ kind: 'view', path: '/settings/general', search: '', hash: '#advanced' })
   })
 
   it('resolves nothing for an issue this replica has not seen', () => {

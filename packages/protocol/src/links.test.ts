@@ -161,6 +161,7 @@ describe('podiumTargetForPath', () => {
       kind: 'view',
       path: '/settings/general',
       search: '',
+      hash: '',
     })
     // An address a newer build understands is still inside Podium.
     expect(podiumTargetForPath('/some/future/page').kind).toBe('view')
@@ -187,14 +188,18 @@ describe('podiumTargetPath / formatPodiumLink', () => {
       { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: 'shots/a b.png' },
       { kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1' },
       { kind: 'file', path: '/w/src/a.ts', root: null, machineId: null },
+      { kind: 'view', path: '/settings/general', search: '?tab=x', hash: '#advanced' },
     ] as const
     for (const target of targets) {
       const path = podiumTargetPath(target)
       const query = path.indexOf('?')
-      const parsed =
-        query === -1
-          ? podiumTargetForPath(path)
-          : podiumTargetForPath(path.slice(0, query), path.slice(query))
+      const fragment = path.indexOf('#')
+      const end = fragment === -1 ? path.length : fragment
+      const parsed = podiumTargetForPath(
+        query === -1 || query > end ? path.slice(0, end) : path.slice(0, query),
+        query === -1 || query > end ? '' : path.slice(query, end),
+        fragment === -1 ? '' : path.slice(fragment),
+      )
       expect(parsed, path).toEqual(target)
     }
   })
@@ -216,5 +221,70 @@ describe('canonicalPodiumOrigin', () => {
   it('declines anything that is not an http(s) origin', () => {
     expect(canonicalPodiumOrigin('tauri://localhost')).toBeNull()
     expect(canonicalPodiumOrigin('not a url')).toBeNull()
+  })
+})
+
+describe('the guards the reviewer went looking for', () => {
+  it('refuses every spelling of a pairing URL, not just the lowercase host', () => {
+    // `podium:` is not a special scheme, so the parser leaves its host's case
+    // alone and `podium:///pair` moves the same word into the path. Both carry a
+    // credential and both belong to parseMobilePairingUrl.
+    expect(parsePodiumLink('podium://pair?token=abc')).toBeNull()
+    expect(parsePodiumLink('podium://PAIR?token=abc')).toBeNull()
+    expect(parsePodiumLink('podium:///pair?token=abc')).toBeNull()
+    expect(parsePodiumLink('podium:///Pair/eyJ2IjoyfQ')).toBeNull()
+  })
+
+  it('keeps the fragment, which names the part of the page the writer meant', () => {
+    expect(parsePodiumLink(`${HOME}/settings/general#advanced`, known)).toEqual({
+      kind: 'internal',
+      origin: HOME,
+      target: { kind: 'view', path: '/settings/general', search: '', hash: '#advanced' },
+    })
+    expect(parsePodiumLink('/usage#by-agent')).toEqual({
+      kind: 'internal',
+      origin: null,
+      target: { kind: 'view', path: '/usage', search: '', hash: '#by-agent' },
+    })
+  })
+
+  it('sees the address the BROWSER will see, not the one the text spells', () => {
+    // A URL parser strips tab/LF/CR and reads a backslash as a slash, so both of
+    // these resolve to evil.example — they are not root-relative at all, and
+    // "root-relative is always ours" would hand an attacker the internal path.
+    expect(parsePodiumLink('/\\evil.example/issues/POD-1', known)?.kind).toBe('external')
+    expect(parsePodiumLink('/\t/evil.example/issues/POD-1', known)?.kind).toBe('external')
+    expect(parsePodiumLink('\\\\evil.example/issues/POD-1', known)?.kind).toBe('external')
+    // And a path that only LOOKS like one of those is still an ordinary page:
+    // `/evil.example/x` is one slash and names something on this server.
+    expect(parsePodiumLink('/evil.example/issues/POD-1', known)?.kind).toBe('internal')
+  })
+
+  it('hands a malformed http address to the OS rather than dropping the click', () => {
+    // A trailing-dot host fails the IPv4 parse. null means "not a link at all",
+    // which on the phone is a tap that does nothing; external is a tap the
+    // browser can answer.
+    expect(parsePodiumLink('http://127.0.0.1:8787./issues/POD-1', known)).toEqual({
+      kind: 'external',
+      href: 'http://127.0.0.1:8787./issues/POD-1',
+    })
+    expect(parsePodiumLink('not a url at all', known)).toBeNull()
+  })
+
+  it('drops a knownOrigins entry that is not an origin instead of matching on it', () => {
+    for (const bogus of ['', 'evil', '/relative', 'tauri://localhost']) {
+      expect(isInternalPodiumLink(`${HOME}/issues/POD-1`, { knownOrigins: [bogus] }), bogus).toBe(
+        false,
+      )
+    }
+  })
+
+  it('cannot round-trip a slash inside one artifact entry segment, and says so', () => {
+    // `entry` is a slash-separated relpath; a segment containing a literal slash
+    // has no spelling in the address. Asserted so the round-trip test above is
+    // not read as proof of a property that does not hold.
+    const target = { kind: 'artifact', issue: 'i', artifactId: 'a', entry: 'x/y' } as const
+    expect(podiumTargetPath(target)).toBe('/issues/i/artifacts/a/x/y')
+    expect(podiumTargetForPath('/issues/i/artifacts/a/x%2Fy')).toEqual(target)
   })
 })

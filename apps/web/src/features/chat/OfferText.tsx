@@ -1,6 +1,7 @@
 import { segmentOfferText } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
-import { activatePodiumTarget, internalPodiumTarget } from '@/lib/podium-link'
+import { internalPodiumTarget } from '@/lib/podium-link'
+import { handlePodiumLinkClick } from '@/lib/podium-link-click'
 
 /**
  * An offer's detail prose, with the URLs an agent wrote rendered as links.
@@ -17,9 +18,10 @@ import { activatePodiumTarget, internalPodiumTarget } from '@/lib/podium-link'
  * client knows — an issue, a session, an artifact, a file — a new browser tab is
  * the wrong answer twice over: it leaves the app for a page the app already is,
  * and in the packaged macOS app it used to leave for Safari entirely. Those
- * navigate in place. The href stays real so ⌘-click, middle-click and "copy
- * link address" keep working, and the anchor falls back to plain navigation if
- * no activator is installed.
+ * navigate in place, through the same handler the transcript uses, which also
+ * owns what a held modifier means. The href stays real so ⌘-click, middle-click
+ * and "copy link address" keep working, and an address this client cannot
+ * resolve falls back to plain navigation rather than becoming a dead click.
  *
  * The click is stopped from bubbling: the fold's own controls sit around this
  * prose, and following a link is not also a request to collapse the offer.
@@ -43,13 +45,7 @@ export function OfferText({ text, className }: { text: string; className?: strin
             {...(target ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
             onClick={(event) => {
               event.stopPropagation()
-              // A held modifier is a request for a new window; leave it to the
-              // browser (and, in the shell, to the shim).
-              if (event.metaKey || event.ctrlKey || event.shiftKey) return
-              // Re-read rather than trust `target`: this card may have rendered
-              // before the client resolved which server it is talking to.
-              const now = internalPodiumTarget(segment.href)
-              if (now && activatePodiumTarget(now, event)) event.preventDefault()
+              handlePodiumLinkClick(event)
             }}
             className="offer-fold-link"
           >

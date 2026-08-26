@@ -74,11 +74,16 @@ const LINKABLE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
 export type PodiumTarget =
   | { kind: 'issue'; issue: string }
   | { kind: 'session'; session: string }
+  /** `entry` is a slash-separated relpath INSIDE the artifact bundle. Its
+   *  segments cannot themselves contain a slash — the address has no way to say
+   *  so, and no filesystem has such a name either. */
   | { kind: 'artifact'; issue: string; artifactId: string; entry: string | null }
   | { kind: 'file'; path: string; root: string | null; machineId: string | null }
   /** An ordinary in-app page (`/settings/general`, `/usage`, `/`). The client's
-   *  own router owns the meaning; this only says it is inside Podium. */
-  | { kind: 'view'; path: string; search: string }
+   *  own router owns the meaning; this only says it is inside Podium. The
+   *  fragment rides along: `#advanced` is which part of the page the writer
+   *  meant, and dropping it lands the reader at the top of the right page. */
+  | { kind: 'view'; path: string; search: string; hash: string }
 
 /**
  * What a URL turned out to be.
@@ -130,13 +135,13 @@ function decodeSegment(segment: string): string {
  * `view`, never a failure — an address this build does not know yet is still
  * inside Podium, and handing it to the client's router is the right answer.
  */
-export function podiumTargetForPath(pathname: string, search = ''): PodiumTarget {
+export function podiumTargetForPath(pathname: string, search = '', hash = ''): PodiumTarget {
   const segments = pathname.split('/').filter(Boolean).map(decodeSegment)
   const [head, second, third, fourth, ...rest] = segments
   // Every `view` answer hands back the path AS WRITTEN, for the client's own
   // router to parse. Re-encoding a decoded copy would be a second opinion about
   // escaping in the one branch that has no opinion about the path at all.
-  const view = { kind: 'view', path: pathname === '' ? '/' : pathname, search } as const
+  const view = { kind: 'view', path: pathname === '' ? '/' : pathname, search, hash } as const
 
   if ((head === 'issues' || head === 'issue') && second) {
     if (third === 'artifacts' || third === 'artifact') {
@@ -175,36 +180,54 @@ export function podiumTargetForPath(pathname: string, search = ''): PodiumTarget
  * which is also why this takes no page URL to resolve against.
  */
 export function parsePodiumLink(href: string, options: PodiumLinkOptions = {}): PodiumLink | null {
-  const raw = href.trim()
+  // Tab, LF and CR are STRIPPED by every URL parser before it looks at the
+  // string, so `/<TAB>/evil.example` is `//evil.example` to a browser and would
+  // be a relative path to a naive reader of the raw text. Removing them here
+  // makes this function see what the browser will see.
+  const raw = href.replace(/[\t\n\r]/g, '').trim()
   if (!raw) return null
 
-  // Protocol-relative (`//evil.example/x`) is a cross-origin address wearing a
-  // relative link's clothes. It is never ours, and its scheme is not knowable
-  // here, so it goes back out as written for the page to resolve.
-  if (raw.startsWith('//')) return { kind: 'external', href: raw }
+  // Protocol-relative is a cross-origin address wearing a relative link's
+  // clothes. It is never ours, and its scheme is not knowable here, so it goes
+  // back out as written for the page to resolve. A BACKSLASH COUNTS: URL parsers
+  // treat `/\evil.example/x` exactly like `//evil.example/x`.
+  if (/^[/\\][/\\]/.test(raw)) return { kind: 'external', href: raw }
 
   if (raw.startsWith('/')) {
     const query = raw.indexOf('?')
-    const hash = raw.indexOf('#')
-    const end = hash === -1 ? raw.length : hash
+    const fragment = raw.indexOf('#')
+    const end = fragment === -1 ? raw.length : fragment
     const path = query === -1 || query > end ? raw.slice(0, end) : raw.slice(0, query)
     const search = query === -1 || query > end ? '' : raw.slice(query, end)
-    return { kind: 'internal', origin: null, target: podiumTargetForPath(path, search) }
+    const hash = fragment === -1 ? '' : raw.slice(fragment)
+    return { kind: 'internal', origin: null, target: podiumTargetForPath(path, search, hash) }
   }
 
   let parsed: InstanceType<typeof URL>
   try {
     parsed = new URL(raw)
   } catch {
-    return null
+    // NULL IS RESERVED FOR SCHEMES WE REFUSE TO FOLLOW. A malformed http(s)
+    // address — `http://host.:80/x`, which the IPv4 path rejects — is still a
+    // link the browser can try, and returning null here made the phone drop the
+    // tap entirely rather than hand it to the OS.
+    return /^https?:\/\//i.test(raw) ? { kind: 'external', href: raw } : null
   }
 
   if (parsed.protocol === PODIUM_SCHEME) {
-    // Credentialed pairing keeps its own parser; navigation must not touch it.
-    if (parsed.hostname === 'pair') return null
     if (parsed.username || parsed.password) return null
     const path = parsed.hostname ? `/${parsed.hostname}${parsed.pathname}` : parsed.pathname
-    return { kind: 'internal', origin: null, target: podiumTargetForPath(path, parsed.search) }
+    // Credentialed pairing keeps its own parser; navigation must not touch it.
+    // `podium:` is not a special scheme, so the parser does NOT lowercase its
+    // host — and `podium:///pair` puts the same word in the path instead. Both
+    // spellings reach parseMobilePairingUrl, so both are refused here.
+    const head = path.split('/').filter(Boolean)[0]
+    if (head?.toLowerCase() === 'pair') return null
+    return {
+      kind: 'internal',
+      origin: null,
+      target: podiumTargetForPath(path, parsed.search, parsed.hash),
+    }
   }
 
   if (!LINKABLE_PROTOCOLS.has(parsed.protocol)) return null
@@ -221,7 +244,11 @@ export function parsePodiumLink(href: string, options: PodiumLinkOptions = {}): 
     if (canonical) known.add(canonical)
   }
   if (origin && known.has(origin)) {
-    return { kind: 'internal', origin, target: podiumTargetForPath(parsed.pathname, parsed.search) }
+    return {
+      kind: 'internal',
+      origin,
+      target: podiumTargetForPath(parsed.pathname, parsed.search, parsed.hash),
+    }
   }
   return { kind: 'external', href: parsed.href }
 }
@@ -254,7 +281,7 @@ export function podiumTargetPath(target: PodiumTarget): string {
       return `/file?${parts.join('&')}`
     }
     default:
-      return target.search ? `${target.path}${target.search}` : target.path
+      return `${target.path}${target.search}${target.hash}`
   }
 }
 
