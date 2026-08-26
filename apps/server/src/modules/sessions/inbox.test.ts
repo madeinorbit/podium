@@ -245,6 +245,9 @@ const PASTE_CLOSE = '\x1b[201~'
 
 /** Decoded payloads the daemon gateway received, bracketed paste unwrapped and
  *  the submitting CR dropped — i.e. the prompts an operator actually sent. */
+/** `MAX_DELIVERY_ATTEMPTS` in inbox.ts — the ordinary unconfirmed-send budget. */
+const MAX_DELIVERY_ATTEMPTS_FOR_TEST = 5
+
 const typedTexts = (sent: unknown[]): string[] =>
   sent
     .map((entry) => Buffer.from((entry as { data: string }).data, 'base64').toString())
@@ -562,6 +565,79 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.inbox.sendText({ sessionId: SID, text: 'first' })).toEqual({ ok: true, queued: true })
     expect(h.sent).toEqual([])
     expect(h.rows).toHaveLength(1)
+  })
+
+  /**
+   * THE READINESS QUEUE MUST NOT SWALLOW A REFUSAL (POD-2828), AND #473 IS WHY
+   * THAT IS A SAFETY PROPERTY RATHER THAN A SHAPE ONE.
+   *
+   * A submitting CR typed at a live AskUserQuestion menu ANSWERS THE
+   * HIGHLIGHTED DEFAULT — it picks an option on the human's behalf. `typeText`
+   * refuses that outright and the design is that the human resends once the
+   * menu resolves. Once the readiness rework diverted the send to the queue
+   * BEFORE that guard, the same send came back `{ok: true, queued: true}`:
+   * accepted, held, and then typed when the menu cleared — a message the caller
+   * was told was fine, delivered into a conversation that had moved on.
+   *
+   * "Not yet" and "no" are not the same answer, and the queue is only ever the
+   * first one.
+   */
+  it('refuses a Claude send at a live menu rather than queueing it (#473)', () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'claude-code', phase: 'needs_user' })
+
+    expect(h.inbox.sendText({ sessionId: SID, text: 'this must NOT submit the menu' })).toEqual({
+      ok: false,
+    })
+    // Refused, not deferred: nothing typed AND nothing left holding a turn.
+    expect(h.sent).toEqual([])
+    expect(h.rows).toHaveLength(0)
+  })
+
+  it('refuses a Claude send to a session that has exited rather than queueing it', () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'claude-code', status: 'exited' })
+
+    expect(h.inbox.sendText({ sessionId: SID, text: 'hello?' })).toEqual({ ok: false })
+    expect(h.sent).toEqual([])
+    expect(h.rows).toHaveLength(0)
+  })
+
+  /**
+   * THE EDGE THAT KEEPS THE REFUSAL FROM BECOMING A BAN. A menu is a reason to
+   * refuse a send; it is not a reason to stop queueing generally. Once the
+   * phase leaves needs_user the same send queues as it did before.
+   */
+  it('queues a Claude send again once the menu has resolved', () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'claude-code', phase: 'idle' })
+
+    expect(h.inbox.sendText({ sessionId: SID, text: 'now ok' })).toEqual({
+      ok: true,
+      queued: true,
+    })
+    expect(h.rows).toHaveLength(1)
+  })
+
+  /**
+   * A SHORT SEND IS STILL A SEND (POD-2828).
+   *
+   * The 12-character floor on a confirmation needle exists because a short
+   * needle used with `includes` matches too much of a transcript to be evidence
+   * of anything. A row that must be witnessed is compared EXACTLY against the
+   * whole tail user turn instead, which is unambiguous at any length — so the
+   * floor was refusing short sends for a weakness the exact comparison does not
+   * have. "quick one" is nine characters, and it was dead-lettered as "too
+   * short to witness in the transcript" rather than delivered.
+   */
+  it('types a short first Claude send instead of refusing it as unwitnessable', () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'claude-code', transcriptAvailable: true })
+
+    h.inbox.sendText({ sessionId: SID, text: 'quick one', principal: agentPrincipal() })
+    vi.advanceTimersByTime(7_000)
+
+    expect(typedTexts(h.sent)).toEqual(['quick one'])
   })
 
   it('types a later Grok send directly, though Grok verifies submits too', () => {
@@ -1126,7 +1202,33 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     })
   })
 
-  it('does not settle a short Claude input or arm later sends without a witness', () => {
+  /**
+   * REWRITTEN, AND THE ARGUMENT IS POD-2116'S OWN, TWICE (POD-2828).
+   *
+   * This used to assert that a short Claude input is NEVER typed and is
+   * dead-lettered as "too short to witness in the transcript". The floor it
+   * enforced — `CONFIRM_NEEDLE_MIN_CHARS` — exists because a short needle used
+   * with `includes` matches too much of a transcript to be evidence of
+   * anything. But a row that must be witnessed is not matched with `includes`:
+   * `tailUserTurnMatches(…, exact)` compares the WHOLE normalized tail user
+   * turn against the WHOLE normalized text, which is unambiguous at any
+   * length. POD-2116 had already reached that conclusion and built it —
+   * `confirmationNeedle`'s `allowShort` IS exact matching, and it gave it to
+   * the creation prompt for exactly this reason. The floor was being applied to
+   * rows that do not use the form it protects.
+   *
+   * SO THE COST WAS PAID BY THE USER FOR NOTHING: "hi", "ok", "yes" — a first
+   * chat send short enough to be a reply was refused outright rather than
+   * delivered. That is the same never-arrives family as the transcript
+   * deadlock, one member further out.
+   *
+   * WHAT SURVIVES IS THE PROPERTY THE TEST WAS NAMED FOR: nothing is SETTLED
+   * without a witness. The row is typed, retried on the ordinary budget like
+   * any other unconfirmed send — no special case, because short text is no
+   * longer a special case — and it stays queued, unapplied and visibly
+   * dead-lettered when the transcript never confirms it.
+   */
+  it('types a short Claude input but settles nothing without a witness', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
     const h = harness({ agentKind: 'claude-code', transcriptAvailable: true })
@@ -1140,18 +1242,23 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
       }),
     ).toEqual({ ok: true, queued: true })
     vi.advanceTimersByTime(20_000)
+    // Typed, and retried on the ORDINARY budget — no special case, because
+    // short text is no longer a special case.
+    expect(typedTexts(h.sent)).toEqual(['hi', 'hi'])
+    expect(h.rows).toHaveLength(1)
+    expect(h.applied).not.toHaveBeenCalled()
 
-    expect(typedTexts(h.sent)).toEqual([])
+    // Nothing confirms it, so the budget runs out and the operator is told.
+    vi.advanceTimersByTime(180_000)
+    expect(typedTexts(h.sent)).toHaveLength(MAX_DELIVERY_ATTEMPTS_FOR_TEST)
     expect(h.rows).toHaveLength(1)
     expect(h.applied).not.toHaveBeenCalled()
     expect(h.promptFailed).toHaveBeenCalledWith({
       ownerUserId: ALICE,
       sessionId: SID,
       text: 'hi',
-      // NAMED FROM THE MANIFEST, not spelled into the string (POD-2823): the
-      // path is chosen by capability now, so a second harness declaring
-      // `confirmed-turn` must not be told it is Claude.
-      reason: `this ${harnessDisplayName('claude-code')} input is too short to witness in the transcript`,
+      reason:
+        'the agent transcript did not confirm this input after the retry budget was exhausted',
       initialPrompt: false,
     })
   })

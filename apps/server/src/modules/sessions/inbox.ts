@@ -442,10 +442,12 @@ const normalizeForMatch = (text: string): string => text.replace(/\s+/g, ' ').tr
  * long paste; the complete normalized prompt when its identity must be exact;
  * null when the prompt is too short to be evidence of anything.
  */
-const confirmationNeedle = (text: string, allowShort = false): string | null => {
+const confirmationNeedle = (text: string, exact = false): string | null => {
   const normalized = normalizeForMatch(text)
-  if (normalized.length < CONFIRM_NEEDLE_MIN_CHARS && !allowShort) return null
-  return allowShort ? normalized : normalized.slice(0, CONFIRM_NEEDLE_CHARS)
+  // Nothing to look for. The only genuinely unwitnessable send.
+  if (normalized.length === 0) return null
+  if (normalized.length < CONFIRM_NEEDLE_MIN_CHARS && !exact) return null
+  return exact ? normalized : normalized.slice(0, CONFIRM_NEEDLE_CHARS)
 }
 
 const initialPromptQueueId = (sessionId: SessionId): string =>
@@ -573,18 +575,48 @@ export class SessionInbox {
     )
   }
 
+  /**
+   * The refusals `typeText` would give this send, asked BEFORE the readiness
+   * queue can turn them into an acceptance. Deliberately only the ones that are
+   * about the session being un-typeable right now, and deliberately NOT the
+   * server-family case: a server-driven session has no PTY, and queueing is how
+   * its row is delivered rather than a way of losing it — the drain's contract
+   * branch is the path that carries it (POD-2291).
+   */
+  private readinessQueueRefusal(session: Session): { ok: false } | undefined {
+    if (this.deps.serverDriven?.(session) === true) return undefined
+    if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
+    if (session.agentState?.phase === 'needs_user') return { ok: false }
+    return undefined
+  }
+
   sendText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
     const session = this.deps.getSession(input.sessionId)
     const blockedReason = session
       ? sessionSendRefusalReason(session, input.allowErrored === true)
       : undefined
     if (blockedReason) return { ok: false, reason: blockedReason }
-    if (
-      session &&
-      (session.queuedMessageCount > 0 ||
-        this.isDraining(input.sessionId) ||
-        this.needsInputReadiness(session))
-    ) {
+    if (session && (session.queuedMessageCount > 0 || this.isDraining(input.sessionId))) {
+      return this.queueText(input)
+    }
+    if (session && this.needsInputReadiness(session)) {
+      // THE READINESS QUEUE MUST NOT SWALLOW A REFUSAL (POD-2828).
+      //
+      // Diverting to the queue moved this send PAST the guards `typeText`
+      // applies, so a send that had to be REFUSED came back `{ok: true,
+      // queued: true}` instead. The queue is a place to wait for a composer
+      // that is coming, not a place to put a send that must not happen — and
+      // "not yet" and "no" are not the same answer to give a caller.
+      //
+      // #473 IS WHY THIS IS A SAFETY FIX AND NOT A SHAPE ONE. A submitting CR
+      // typed at a live AskUserQuestion menu ANSWERS THE HIGHLIGHTED DEFAULT:
+      // it picks an option on the human's behalf. `typeText` refuses that, and
+      // the design is that the human resends once the menu resolves. Queued,
+      // the same send is accepted, held, and then typed when the menu clears —
+      // a message the caller was told was fine, delivered into a conversation
+      // that has since moved on.
+      const refusal = this.readinessQueueRefusal(session)
+      if (refusal) return refusal
       return this.queueText(input)
     }
     // THE SAME QUESTION AS `needsInputReadiness`, ASKED OF A HARNESS THAT CAN
@@ -1073,13 +1105,33 @@ export class SessionInbox {
        */
       const transcriptCreatingWrite =
         firstPromptNeedsProof || (needsReadinessProof && !current.transcriptAvailable)
-      const needle = confirmationNeedle(head.text, transcriptCreatingWrite)
+      /**
+       * A SEND THAT MUST BE WITNESSED IS MATCHED EXACTLY (POD-2828).
+       *
+       * The 12-character floor exists because a short needle used with
+       * `includes` matches too much of a transcript to be evidence of
+       * anything. `tailUserTurnMatches(…, exact)` does not use `includes` — it
+       * compares the WHOLE normalized tail user turn against the WHOLE
+       * normalized text, which is unambiguous at any length. So the floor is a
+       * property of the PREFIX form, not of witnessing, and applying it to a
+       * row that is going to be confirmed anyway refused short sends for a
+       * weakness the exact comparison does not have: "quick one" is nine
+       * characters, and a first chat send of "quick one" was dead-lettered as
+       * "too short to witness in the transcript" rather than delivered.
+       *
+       * This is the same class the transcript-creating exemption named, at its
+       * actual boundary rather than stretched past it: every row here is one
+       * whose delivery is proven from the transcript, and exact matching only
+       * ever ADDS to what such a row can prove.
+       */
+      const exactNeedle = firstPromptNeedsProof || needsReadinessProof
+      const needle = confirmationNeedle(head.text, exactNeedle)
       // A retry exists ONLY because the last attempt went unwitnessed. If the
       // turn has appeared since, it landed late — settle it rather than send the
       // same prompt twice. This check is what makes retrying safe at all.
       if (
         needle !== null &&
-        tailUserTurnMatches(current, needle, transcriptCreatingWrite) &&
+        tailUserTurnMatches(current, needle, exactNeedle) &&
         (attempt > 1 || transcriptCreatingWrite)
       ) {
         settleHead(current, head, true)
@@ -1127,7 +1179,7 @@ export class SessionInbox {
       const witnessable =
         needle !== null &&
         current.transcriptAvailable &&
-        !tailUserTurnMatches(current, needle, transcriptCreatingWrite)
+        !tailUserTurnMatches(current, needle, exactNeedle)
       const sent = this.typeText({
         sessionId,
         text: head.text,
