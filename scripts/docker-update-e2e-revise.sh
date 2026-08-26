@@ -28,7 +28,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 usage() {
   cat <<'EOF'
 Usage:
-  docker-update-e2e-revise.sh --run RUN_ID [--ref REF] [--accept]
+  docker-update-e2e-revise.sh --run RUN_ID [--ref REF] [--build] [--accept]
   docker-update-e2e-revise.sh --run RUN_ID --swap-bundle TARBALL --into CONTAINER
 
 Put a new version into a sandbox that is already running, without rebuilding it.
@@ -37,6 +37,9 @@ RUN_ID is the `Run label:` value the hold printed, minus the label key.
   --run RUN_ID       the standing run to act on (required)
   --ref REF          host git ref to move the coordinator's source onto
                      (default: the current HEAD of this worktree)
+  --build            approve the proposal, which BUILDS it inside the sandbox.
+                     Without this the run stops at a pending proposal, because
+                     the Build button belongs to the operator.
   --accept           after the offer appears, start the update and wait for the
                      fleet to converge on it. Without this the offer is left
                      pending so it can be accepted by hand in the UI, which is
@@ -55,13 +58,20 @@ EOF
 RUN_TARGET=""
 REF=""
 ACCEPT=0
+# Approving a release BUILDS it, and that button belongs to the operator. This
+# tool took it by default once and built on a human who had asked, explicitly,
+# to press it themselves — so both privileged acts are now opt-in, and the
+# default stops at a proposal.
+BUILD=0
 SWAP_BUNDLE=""
 SWAP_INTO=""
 while (( $# > 0 )); do
   case "$1" in
     --run) RUN_TARGET="${2:-}"; shift 2 ;;
     --ref) REF="${2:-}"; shift 2 ;;
-    --accept) ACCEPT=1; shift ;;
+    --build) BUILD=1; shift ;;
+    # Accepting an update you never built makes no sense, so --accept implies it.
+    --accept) ACCEPT=1; BUILD=1; shift ;;
     --swap-bundle) SWAP_BUNDLE="${2:-}"; shift 2 ;;
     --into) SWAP_INTO="${2:-}"; shift 2 ;;
     --help|-h) usage; exit 0 ;;
@@ -178,6 +188,19 @@ revise_by_release() {
   # to the commit just checked out.
   proposal_identity_holds "$proposal" "$head" ||
     die "the proposal did not satisfy the HEAD/version identity contract; raw payload: $WORK/logs/revise-proposal.json"
+  if (( BUILD == 0 )); then
+    cat <<EOF
+
+PROPOSAL PENDING — BUILD IT FROM THE RUNNING UI
+  $(jq -r .version <<<"$proposal") is proposed and nothing has been built. The
+  Build button in the UI is the operator's, and approving a release is an act
+  they may want to perform and inspect themselves, so this tool does not take
+  it by default.
+
+  Re-run with --build to have this approve and wait for the build instead.
+EOF
+    return 0
+  fi
   say "approving $(jq -r .version <<<"$proposal"); this starts the build inside the sandbox"
   approve_release "$WORK/logs/revise-proposal.json" "$WORK/logs/revise-approval.json" ||
     die "the approval was refused; response: $WORK/logs/revise-approval.json"
