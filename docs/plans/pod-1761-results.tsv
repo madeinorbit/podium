@@ -1,0 +1,27 @@
+# One line per check. A line missing ANY field does not count as a result.
+# control = did a positive control fire (something that must appear whether or not the feature works)
+# alone   = was anything else driving on the same instance/directory at the time
+# A row whose commit is behind the epic tip must be RE-RUN before it counts toward shipping.
+what	driver	verdict	commit	control	alone	date	issue
+A1a send while idle	codex-headless	PASS 4.1s	6685c59	yes	yes	2026-08-26	POD-2777
+A1a send while idle	codex-terminal	PASS 6.4s	6685c59	yes	yes	2026-08-26	POD-2777
+A1b send while busy	codex-headless	PARTIAL no position	6685c59	yes	yes	2026-08-26	POD-2870
+A1c send to dead session	codex-headless	PASS	6685c59	yes	yes	2026-08-26	POD-2777
+A2b status at boot	codex-headless	PASS	6685c59	yes	yes	2026-08-26	POD-2777
+A4a permission ask	codex-headless	BLOCKED no approval raised	6685c59	yes	yes	2026-08-26	POD-2777
+A4a permission ask	opencode-headless	PARTIAL chat half only	6685c59	yes	yes	2026-08-26	POD-2862
+A4b answer twice	opencode-headless	PASS	6685c59	yes	yes	2026-08-26	POD-2777
+A5 transcript	codex-headless	PASS	6685c59	yes	yes	2026-08-26	POD-2777
+A6a terminal attach+type	codex-headless	PASS 3998B	6685c59	yes	yes	2026-08-26	POD-2777
+A6a terminal attach+type	codex-terminal	PASS 5812B	6685c59	yes	yes	2026-08-26	POD-2777
+A6b chat-CLI switch x2	codex-headless	PASS epoch stable	6685c59	yes	yes	2026-08-26	POD-2777
+A6b chat-CLI switch x2	codex-terminal	PASS	6685c59	yes	yes	2026-08-26	POD-2777
+A7a daemon restart	codex-headless	PASS pointer identical	6685c59	yes	yes	2026-08-26	POD-2777
+A7b hibernate+wake	codex-headless	PASS resume	6685c59	yes	yes	2026-08-26	POD-2777
+A9 kill session	codex-headless	PASS 0 orphans	6685c59	yes	yes	2026-08-26	POD-2777
+A10 driver identity	codex-headless	PARTIAL half-2	6685c59	yes	yes	2026-08-26	POD-2777
+A3 interrupt	codex-headless	REFUSED control did not fire	6685c59	no	yes	2026-08-26	POD-2777
+parked turn survives restart	codex-headless	FAIL message destroyed	6685c59	yes	yes	2026-08-26	POD-2875
+parked turn survives restart	codex-terminal	PASS delivered normally	6685c59	yes	yes	2026-08-26	POD-2875
+provider error surfaced	opencode-headless	PASS 12.2s typed	c58315e	yes	yes	2026-08-26	POD-2811
+provider error surfaced	opencode-terminal	FAIL silent 190s	c58315e	yes	yes	2026-08-26	POD-2868

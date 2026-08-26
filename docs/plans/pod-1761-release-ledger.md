@@ -1895,3 +1895,190 @@ So the expectation is that grok does **well** on A2a, A3, A7a and A7b. That expe
 is written into its brief explicitly, together with the instruction not to treat any of
 it as a pass — **a mismatch between what the architecture predicts and what the drive
 measures is itself a finding**, in either direction.
+
+## PHASE 3 STARTS BESIDE PHASE 2, NOT AFTER IT (2026-08-26)
+
+The roadmap put "close the reds" after "discover the full red set". That ordering is
+right for *deciding* and wrong for *scheduling*: discovery is one long serial sweep,
+and a red that sits undriven while it finishes has simply moved its fix-and-redrive
+cycle later. So known reds get staffed **as they are found**, in parallel with the
+sweep that is still running.
+
+**POD-2878 filed and started** — the first red to get an owner, carrying POD-2875's
+measurement verbatim. Its brief asks for three things beyond the fix, and the three are
+the point:
+
+1. **Establish whether main behaves the same**, because nobody has. POD-2777 declined
+   to claim a regression without that arm, which was right — and it is the difference
+   between a release blocker and an inherited residual.
+2. **Answer whether the parked turn survives a daemon restart** while native is still
+   the declared mode. *Delivered-and-parked is bad; delivered-and-then-gone is a
+   different severity entirely*, and the answer decides whether it can be waived.
+3. **Check POD-2870 at the same time** — the queue position that never reaches the chat
+   caller. Both are the chat send path reporting less than the runtime knows, so one
+   fix may serve both; if it does not, say why.
+
+And the fence, because this is a class that widens badly: **a send that parks must
+report `queued`, and a send that genuinely delivers must still report `delivered`.** A
+fix that reports `queued` for everything would pass a naive test and be worse than the
+bug.
+
+### The proposed-issue trap has now cost five re-filings
+
+Every agent that discovers something top-level files it correctly, and it lands in
+`proposed` where **nothing can start it and I am not permitted to reparent it or mark
+it duplicate**. POD-2866, POD-2869, POD-2872, POD-2875 and POD-2868 all arrived that
+way. Each one is re-filed by hand as a sub-issue carrying the original brief verbatim,
+and the original is left as a cosmetic stale row for the operator to clear.
+
+This is worth a line in the epic's own record because the failure mode is invisible:
+**a correctly-filed release blocker looks identical to a filed-and-forgotten one**, and
+nothing surfaces the difference except somebody reading the stage.
+
+## THE BAR IS FAILING AGAIN, AND THIS TIME IT IS DATA LOSS (2026-08-26)
+
+**Correction to the entry above: I recorded POD-2875 as "a reporting bug and not a
+data-loss one". That was POD-2777's assessment and it has retracted it, correctly.**
+The earlier reading was based on the turn draining when a chat view is declared — which
+it does, *but only if nothing restarts in between*.
+
+**The parked turn does not survive a daemon restart. The message is destroyed.**
+
+    HEADLESS (codex-app-server) — tip 6685c59, p2777, no overrides, no neighbour
+      sent under a declared native view -> {"ok":true,"disposition":"delivered"}
+      after 45s      0 items, 0 deltas, nonce absent, phase idle      C1: it parked
+      daemon restart pid 2156779 -> 2163850, reconnected              C2: a real restart
+      afterwards     parked turn arrived = FALSE, 0 items
+      a FRESH turn on the SAME session answers fine                   C3: session healthy
+
+So the session is alive and usable, and **the message the product said it had DELIVERED
+no longer exists anywhere.**
+
+    TERMINAL (generic-pty) — same probe, same commit, same rig, same harness, ONE VARIABLE
+      sent under a declared native view -> delivered normally, 2 items, nonce present
+
+**Nothing parks, so nothing can be lost — and the probe REFUSED to score that arm,
+because with nothing parked there is nothing whose survival could be measured. The
+refusal is the finding**: generic-pty does the right thing under exactly the conditions
+where codex-app-server parks and then loses it.
+
+### Why this is release-blocking rather than waivable
+
+The epic exists to replace the terminal path with the server-driver path, and the bar is
+that every driver be at least as good as what it replaces. **On this cell headless loses
+a message that terminal delivers, at the same commit, with one variable between them.**
+That is the bar failing on the record, on the family we are switching *to*, in a
+configuration an operator reaches simply by having the CLI open. **P1.**
+
+**And the comparison instrument is better than the one I asked for.** I had asked
+whether main behaves the same, to decide blocker-versus-residual. POD-2777 settled it a
+stronger way: a **within-one-commit comparison between the two drivers**. That does not
+depend on the branch being merged with main, and it is more decisive here, because the
+epic's proposition *is* terminal-versus-headless.
+
+### The fix shape I suggested is now insufficient, and that is my error
+
+I proposed returning `queued` instead of `delivered`. **An honest disposition on a
+message that is then destroyed is still a lost message.** There are two defects and
+POD-2878 owns both: the disposition is wrong, *and a parked turn is not durable*.
+Durability first; the wording is the smaller half. Fenced both ways — a parked turn must
+survive a restart **and must not be delivered twice** when the view changes afterwards,
+since duplicate delivery is the obvious way to overshoot.
+
+## THE TWO BLOCKED CELLS ARE GREEN ON BOTH ARMS
+
+| cell | headless | terminal |
+| --- | --- | --- |
+| A6a attach + type | PASS — 3998B on attach, echo, resize repaint 1854B each way, second viewer 10/11 shared tail lines | PASS — 5812B, 12/12 shared |
+| A6b chat↔CLI ×2 | PASS — epoch stable 0 across four switches, scrollback marker survived each, chat and CLI both work after | PASS |
+| A1a send while idle | **4.1s** | 6.4s |
+
+**A1a is the first real A/B on an un-overridden rig, and headless wins it.** Recorded but
+not scored: terminal adds **zero** processes per view switch where headless adds three —
+the cold start the catalogue already declares absent for server drivers.
+
+### Two more self-retractions before publishing, both on A6b
+
+- **Counted the attach client as the agent** and reported "no restart: false". The
+  triplet appearing and vanishing with the view is the *view's own client*, and tearing
+  it down on leaving is correct. **Two attempts to separate them by command-line pattern
+  both failed** — the client runs the same binary with the same `--listen` shape — so the
+  census is now taken while *chat* is declared, when no view process exists at all.
+  **Behaviour, not pattern-matching.**
+- **Neither probe primed the TUI.** On headless there is no TUI in the way so the
+  omission never showed; the first terminal run reported "chat stopped answering" with
+  **599,437 bytes of a dialog repainting**.
+
+**Tally: FOUR REDS** — POD-2875 (P1, data loss, headless-only), POD-2862, POD-2870, and
+A3 still REFUSED pending a re-drive.
+
+### A bind is not a session — POD-2867 sent to drive its own fix
+
+The codex socket fix is implemented and measured: legacy 13-char path **107 bytes bound**,
+14-char **108 failed**; new runtime-root path **66** and **67**, both bound. Two genuinely
+different methods agreeing — my arithmetic on the composed string and the kernel actually
+accepting the path — with the old boundary reproduced in the same run so before and after
+sit on one instrument.
+
+It also **checked** rather than assumed the question that decides whether the change is
+bigger than it looks: `codexClientSocketPath()` composes per launch, the live endpoint
+holds the path only in memory, and `CodexJournalEntry` carries thread/workdir/process/
+model/sequence with **no `clientAddress` or `socketPath` field**. Nothing persisted, so
+moving the root needs no migration.
+
+**None of that proves a codex session starts.** Binding a socket at a composed length
+proves *the path fits*; it does not prove *a headless session runs and answers* on an
+instance named long enough to have broken it. Those are different claims, and this epic
+already paid for the difference — an operator was handed a test instance verified only by
+its pins, and it could not start a single session.
+
+So: a named instance with a **long** name (≥14 chars, near the 32 the pattern allows,
+since that is where the headroom is claimed), a real codex headless session, and a
+**nonce read back out of the transcript** — not "the session went live", which is exactly
+the shape that lied before: POD-2777 measured a live session with `spawnFailure` null and
+**zero bytes**. Plus the same instance name at the **pre-fix commit** as a control, which
+must fail with the file-name-too-long shape. *A fix that passes without a failing control
+has never been shown to do anything.*
+
+## THE PROJECTION — 21% driven, ~19 reds expected, 4-5 rounds (2026-08-26)
+
+The operator's challenge landed: I had been *reporting a count* and calling it progress.
+A count is a tree. Here is the forest, and it is now a standing per-tick obligation.
+
+    driven      17 of 80 cells (21%)
+    reds        4      rate 0.24 per cell
+    projected   ~19 reds across the full matrix   (range 11-26)
+    undriven    63 cells — ALL of claude, grok and shell
+    rounds      ~5 at four fixes in parallel, ~4 at six
+
+**Where the projection is weak, stated so nobody over-trusts it:** every driven cell is
+**codex or opencode**, the two most-worked drivers. Claude, grok and shell are entirely
+unmeasured, and either could break the rate. Grok is predicted *better* (it is the only
+driver that never hand-wrote its phase beside the emitted change, and it has protocol
+receipts where the others use heuristics). Claude is the one that matters most and the
+one nobody has driven a single row of.
+
+**Two new files, because prose in a ledger does not survive a context loss:**
+
+- `docs/plans/pod-1761-results.tsv` — one line per check, fixed columns:
+  *what | driver | verdict | commit | control fired | driven alone | date | issue*.
+  **A line missing any field does not count as a result.** Every column is a way a
+  result has already lied on this epic: eight cells scored on a base 41 commits old, a
+  page of green from a run that had already died, a cell reading BLOCKED that was FAIL
+  because a neighbour's transcript was being read, and "it works" claims that never said
+  which arm. Staleness is now mechanical rather than remembered — 6685c59 is 1 behind
+  the tip, c58315e is 4 behind.
+- `docs/plans/pod-1761-decisions.md` — five open items only the operator can settle,
+  each with the date, the choice, and what happens either way.
+
+### The distinction I had been recording and not confronting
+
+**Not every regression is a defect.** Headless costs three extra processes per view
+switch where terminal costs zero — that is the architecture, not a bug, and *no amount
+of further testing changes it*. I had filed it as "recorded, not scored", which is a
+way of not deciding. It is now decision 2, alongside the parked-turn data loss (a real
+defect, fix it), the missing queue position (waiver candidate), two main-only defects
+that must be named rather than shipped silently, and a boundaries gate that was already
+red before we touched it.
+
+**The release decision is now a list to sign rather than a surprise at merge time.**
