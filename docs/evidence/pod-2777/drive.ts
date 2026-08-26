@@ -97,6 +97,41 @@ const READY_MS = Number(process.env.P2777_READY_MS ?? 25_000)
 const ONLY = new Set((process.env.P2777_ONLY ?? '').split(',').map((x) => x.trim()).filter(Boolean))
 const DEPENDS: Record<string, string[]> = { attach: ['reply'], 'provider-error': ['reply'] }
 for (const id of [...ONLY]) for (const dep of DEPENDS[id] ?? []) ONLY.add(dep)
+
+/**
+ * AN UNKNOWN PROBE NAME IS AN ERROR, NOT AN EMPTY SELECTION.
+ *
+ * This cost a cell. `P2777_ONLY=streaming,interrupt,resume` ran two probes: the
+ * streaming one is called `stream`, `streaming` matched nothing, and the runner
+ * said NOTHING — it printed a results table with two rows and exited 0. A drive
+ * that silently omits what you asked for is a drive whose coverage you cannot
+ * read off its own output, and I nearly recorded row A2a as driven on the
+ * strength of a run that never touched it.
+ *
+ * The known set is DERIVED from the probes themselves rather than typed out
+ * here, so a probe renamed or added cannot drift away from this check.
+ */
+const KNOWN = new Set([
+  reply.id,
+  streaming(0, false, 'unknown').id,
+  interrupt.id,
+  stop.id,
+  resumeAfterKill('', undefined as never, '', false).id,
+  attach.id,
+  interaction.id,
+  modelSwitch.id,
+  providerError(harness).id,
+])
+const unknown = [...ONLY].filter((id) => !KNOWN.has(id))
+if (unknown.length > 0) {
+  console.error(`P2777_ONLY names ${unknown.length} probe(s) that do not exist: ${unknown.join(', ')}`)
+  console.error(`known probes: ${[...KNOWN].sort().join(', ')}`)
+  console.error('')
+  console.error('Refusing to run. A selection that silently matches nothing produces a')
+  console.error('results table missing the very cell you asked for, and exits 0 while doing it.')
+  process.exit(6)
+}
+
 const wanted = (id: string) => ONLY.size === 0 || ONLY.has(id)
 
 const log = (s: string) => console.log(s)

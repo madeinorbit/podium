@@ -8,24 +8,32 @@ with the fix in. 2026-08-26.
 
 ## The headline
 
-**One cell where the new drivers are WORSE, and it destroys messages.**
+**Two cells where the new drivers are WORSE, both P1, and one of them is
+ordinary work.**
 
-Under a declared CLI view, a chat send on `codex-app-server` returns
-`{"ok":true,"disposition":"delivered"}` and then parks — 0 transcript items, 0
-deltas, phase idle. Restart the daemon and **the message is gone for good**,
-while the session stays healthy and answers a fresh turn. The same probe on
-`generic-pty`, one variable changed, delivers it normally. Filed **POD-2875, P1**.
+**POD-2884 — long turns wedge on `codex-app-server`.** One prompt, three arms:
+headless runs 422 seconds at `working`, freezes its preview plane after ~20s,
+writes *zero* transcript characters and never completes. The terminal driver
+completes the same prompt in 61s with 12,291 characters. Codex run directly,
+outside Podium, completes it in 83s. So the work finishes outside Podium and on
+the old driver, and wedges only on the new one.
 
-That is a silent settle with a green tick on it, on the driver family the release
-is switching *to*, and A1a's criterion names silent settles specifically.
+**POD-2875 — a delivered message is destroyed.** Under a declared CLI view a chat
+send returns `{"ok":true,"disposition":"delivered"}` and parks; restart the daemon
+and it is gone for good, while the session stays healthy. The same probe on
+`generic-pty` delivers it normally.
+
+Two cells say headless is **better** — A1a at 4.1s against 6.4s, and the
+provider-error row where headless surfaces a failure in 12.2s that terminal never
+surfaces at all. Two say it is worse, both in expensive ways.
 
 **And removing the rig's path overrides was worth it on its own.** With them gone
 this rig runs the way an ordinary named installation runs, and that immediately
 blocked the whole terminal column — POD-2853's socket path composed to 121 bytes
 against a 107-byte limit, and no named instance could fit *regardless of its
-name*. That is now fixed and landed; my measurements are why the fix moved the
-socket root instead of trimming it, and why its budget takes the attach label
-rather than the session label.
+name*. Fixed and landed; my measurements are why the fix moved the socket root
+instead of trimming it, and why its budget takes the attach label rather than the
+session label.
 
 ---
 
@@ -62,32 +70,31 @@ Two guards were added so this cannot silently come back:
 
 ## The matrix as it stands
 
-Sixteen rows × five columns = 80 cells. **19 cells driven.** Claude and shell are
-POD-2874's columns; grok is unassigned. The table says what was measured.
+**23 cells driven.** Claude and shell are POD-2874's columns; grok is unassigned.
 
 | # | drive | codex H | codex T | opencode H | notes |
 |---|---|---|---|---|---|
-| A1a | send while idle | **PASS** 4.1s | **PASS** 6.4s | ☐ | first real A/B on an un-overridden rig |
-| A1b | send while busy | **PARTIAL** | ☐ | ☐ | queues and delivers; no position — POD-2870 |
-| A1c | send to a dead session | **PASS** | ☐ | ☐ | typed `dead_letter` refusal |
-| A2a | status while working | ☐ | ☐ | ☐ | |
-| A2b | status at boot | **PASS** | ☐ | ☐ | idle at t+2.0s, never `working`, never blank |
-| A3 | interrupt mid-turn | **REFUSED** | ☐ | ☐ | control did not fire; re-drive owed |
+| A1a | send while idle | **PASS** 4.1s | **PASS** 6.4s | ☐ | headless faster |
+| A1b | send while busy | **PARTIAL** | ☐ | ☐ | no position — POD-2870 |
+| A1c | send to a dead session | **PASS** | ☐ | ☐ | typed `dead_letter` |
+| A2a | status while working | **PASS** | ☐ | ☐ | 51 previews, monotonic, fine watch acquired |
+| A2b | status at boot | **PASS** | ☐ | ☐ | idle at t+2.0s |
+| A3 | interrupt mid-turn | **REFUSED** | ☐ | ☐ | unmeasurable until POD-2884 |
 | A4a | permission ask | **BLOCKED** | ☐ | **PARTIAL** | codex raises no approval (controlled) |
-| A4b | answer twice | **BLOCKED** | ☐ | **PASS** | typed `already-answered`, no double action |
-| A5 | transcript | **PASS** | ☐ | ☐ | call+result on one item, reload identical |
-| A6a | terminal attach + type | **PASS** | **PASS** | ☐ | was BLOCKED; POD-2853 fixed it |
-| A6b | chat↔CLI twice | **PASS** | **PASS** | ☐ | was BLOCKED; epoch stable, scrollback kept |
-| A7a | daemon restart | **PASS** | ☐ | ☐ | same conversation pointer, codeword recalled |
+| A4b | answer twice | **BLOCKED** | ☐ | **PASS** | typed `already-answered` |
+| A5 | transcript | **PASS** | ☐ | ☐ | call+result on one item |
+| A6a | terminal attach + type | **PASS** | **PASS** | ☐ | was blocked |
+| A6b | chat↔CLI twice | **PASS** | **PASS** | ☐ | was blocked |
+| A7a | daemon restart | **PASS** | ☐ | ☐ | same conversation pointer |
 | A7b | hibernate + wake | **PASS** | ☐ | ☐ | |
-| A8 | logged-out spawn | ☐ | ☐ | ☐ | |
-| A9 | kill session | **PASS** | ☐ | ☐ | 0 orphans after the full 300s |
-| A10 | driver identity | **PASS / PARTIAL** | ☐ | ☐ | demotion demonstrated, identity unread |
-| — | **parked turn survives a restart** | **FAIL** | **n/a** | ☐ | POD-2875 — the headline |
+| A8 | logged-out spawn | ☐ | ☐ | **PARTIAL** | demotion declared; no login affordance |
+| A9 | kill session | **PASS** | ☐ | ☐ | 0 orphans after 300s |
+| A10 | driver identity | **PASS / PARTIAL** | ☐ | ☐ | |
+| — | long turn completes | **FAIL** | **PASS** 61s | ☐ | POD-2884 |
+| — | parked turn survives restart | **FAIL** | **n/a** | ☐ | POD-2875 |
 
-**FOUR REDS: POD-2875 (P1, data loss, headless-only), POD-2862, POD-2870, and
-A3 refused pending a re-drive.** Eleven PASS, three PARTIAL, two BLOCKED with a
-stated cause, 61 cells untouched.
+**FIVE REDS: POD-2884 (P1), POD-2875 (P1), POD-2862, POD-2870, and A3 refused
+pending POD-2884.** Twelve PASS, four PARTIAL, two BLOCKED with a stated cause.
 
 ## The cells that were driven
 
@@ -369,6 +376,60 @@ when no view process exists at all — behaviour, not pattern-matching. And neit
 terminal-view probe primed the TUI: on headless there is no TUI in the way so the
 omission never showed, and the first terminal run reported "chat stopped
 answering" over 599,437 bytes of a dialog repainting.
+
+---
+
+### The long-turn wedge — three arms, one prompt
+
+```
+A. HEADLESS (codex-app-server)                 WEDGES
+   t+11s  working  previews=29  transcriptChars=0
+   t+21s  working  previews=77  transcriptChars=0    <- preview plane freezes here
+   t+31s..t+422s   previews=82  transcriptChars=0    <- 400s, not one more frame
+   FINAL  working  items=1 (the user message only). Never completes.
+
+B. TERMINAL (generic-pty), one variable changed  COMPLETES in 61s
+   screenBytes 30468 -> 90393 growing throughout, then idle, transcriptChars=12291
+
+C. CODEX DIRECTLY, OUTSIDE PODIUM, same binary   COMPLETES in 83s
+   exit 0, 31,065 bytes, runs to "400 — The number 400 is an integer."
+```
+
+*A control failure worth recording rather than dropping:* my first attempt at arm
+C was invalid — `codex exec` was waiting on stdin and timed out at 420s having
+produced 39 bytes. Had I not read the output I would have concluded "codex stalls
+outside Podium too" and closed the finding. The 83s figure is the re-run with
+stdin closed.
+
+This also explains **A3**. The interrupt probe's control requires the turn
+observed in flight immediately before the interrupt — previews growing or
+transcript growing. On headless both are frozen by then, so the control cannot
+fire and A3 correctly refuses. Re-driven alone on a clean session to rule out the
+shared streaming turn; it refused identically.
+
+### A8 — logged-out spawn, and a wrong FAIL I had to take back
+
+The probe first reported **FAIL**: "a logged-out opencode SILENTLY became a
+generic-pty session", i.e. a POD-2772 regression. **It is not silent.** I had
+checked `agentState.error`, `spawnFailure` and `status`, found nothing, and
+concluded the product said nothing. Dumping the *whole* row showed it says it
+plainly:
+
+```
+condition:          "logged-out"
+requestedDriverId:  "opencode-server"   beside   driverId: "generic-pty"
+accounts.list:      loginRequired: true
+machines.list:      login.state: "out"
+```
+
+"The product says nothing" is a claim about *every* surface, and it cannot be
+made from the two you happened to read. Corrected to **PARTIAL**: the demotion is
+declared as requested-versus-actual and the account readout asks for a login, but
+`interactions.list` is empty — nothing on the session offers to log you in. The
+catalogue already declares that gap (`login(harness, method)` absent). The second
+half of the row — "after login, the next session lands on the server driver" — is
+**not driven**, because a real OAuth login would either mint credentials this rig
+must not mint or rotate the operator's own token mid-release.
 
 ---
 

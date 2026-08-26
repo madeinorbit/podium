@@ -16,6 +16,28 @@ bun  docs/evidence/pod-2777/report.ts --evidence  # the table with every reading
 Nine behaviours from `docs/architecture/driver-capability-catalog.md`, driven on
 four harnesses, each on BOTH drivers where the harness can run both ways.
 
+
+## Two rig defects the sweep found in itself
+
+**An unknown probe name in `P2777_ONLY` used to be an empty selection, not an
+error.** `P2777_ONLY=streaming,interrupt,resume` ran TWO probes: the streaming
+one is called `stream`, `streaming` matched nothing, and the runner printed a
+results table with two rows and exited 0. Nothing said a cell had been dropped.
+Row A2a was nearly recorded as driven on the strength of a run that never touched
+it. `drive.ts` now DERIVES the known set from the probes themselves — so a
+rename cannot drift away from the check — and refuses with exit 6, naming the
+unknown ids and listing the real ones.
+
+**Committing invalidates the running rig, and that is correct.** `drive-verify.sh`
+requires the WORKTREE to be at the named commit, not just the processes: the
+server and daemon run with `--conditions=@podium/source`, so anything they import
+lazily comes off the current checkout. A docs-only commit still moves HEAD, so
+the guard refuses until the rig is brought up again. Naming the older commit with
+`P2777_PIN` does not get around it and should not — the worktree really has
+changed. The working rule during a sweep is therefore: **drive first, commit
+second**, and expect a rebuild after every commit.
+
+
 ## The three things that make it real
 
 **1. A positive control in every measurement.** Every probe declares a signal
