@@ -122,6 +122,38 @@ re-driven on opencode replicates; nothing yet distinguishes them. That is the
 answer to "do the harness columns behave alike" so far, and it means a red found
 in one column should be assumed present in the others until driven.
 
+## What is left, exactly
+
+My scope is codex + opencode: 16 rows x 2 columns = **32 cells**.
+
+| | cells | |
+|---|---|---|
+| driven | **26** | codex 15/16, opencode 11/16 |
+| never driven | **6** | codex A8; opencode A2a, A3, A7a, A7b, A9 |
+
+Of the driven cells, **A3 is REFUSED** rather than scored — its control needs the
+turn observed in flight, and both planes are frozen by then, so it is
+unmeasurable until POD-2885 is fixed. **A4a/A4b are BLOCKED on codex**: that
+harness raises no approval on this host, controlled against codex run *outside*
+Podium with the same flag, so it is the harness and not the product.
+
+Applying POD-1761's file-level analysis of the main merge rather than re-running
+everything:
+
+| | what | why |
+|---|---|---|
+| re-drive | codex column, headless cells | `codex-app-server.ts` moved |
+| re-drive | A1a, A1b, A5 on both columns | ten session-module files moved |
+| leave | opencode driver cells | `opencode-server.ts` did not move |
+| leave | A6a, A6b terminal arm | `generic-pty` did not move |
+| done | the POD-2885 wedge | already re-confirmed at the merged tip |
+
+New *defects* can now only come from those six never-driven cells. A re-drive
+turning red would be a regression the merge introduced — a different and more
+alarming finding than a new defect, and worth reporting as such.
+
+---
+
 ## The cells that were driven
 
 ### A1a — send while idle · codex · headless · **PASS**
