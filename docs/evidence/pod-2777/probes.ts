@@ -421,7 +421,23 @@ export const interrupt: Probe = {
     let phase = 'unknown'
     let signal = 'none'
     let screenPrev = chat.screenBytes
-    const spinUp = now() + 90_000
+    /**
+     * HOW LONG I WAIT FOR MOTION IS NOT WHAT COUNTS AS MOTION.
+     *
+     * The bar is fixed and stays fixed: 3 preview frames or 200 new transcript
+     * characters. This window only says how long the probe is willing to wait for
+     * that bar to be met. On a thrashing host a real, healthy turn can crawl under
+     * the bar for 90s, and the cell would then refuse — and a refusal here reads as
+     * "the wedge fix did not reach this path", which is a finding against another
+     * session. So the window is tunable and the bar is not; loosening the window
+     * cannot turn a non-producing plane into a producing one.
+     *
+     * The refusal is self-distinguishing either way, which is why the window is a
+     * convenience and not a correctness fix: the WATCHED line prints frames, chars
+     * and terminal bytes, so 0/0/0 (a frozen plane — the wedge) is legible apart
+     * from 2 frames/150 chars (a live plane on a slow box).
+     */
+    const spinUp = now() + Number(process.env.P2777_SPINUP_MS ?? 90_000)
     while (now() < spinUp) {
       const row = await sessionRow(ctx.sid)
       phase = row?.agentState?.phase ?? 'unknown'
