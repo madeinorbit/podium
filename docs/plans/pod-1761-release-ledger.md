@@ -2535,3 +2535,31 @@ percentage — asked directly for three lines rather than assumed dead.
 
 **Standing state of the bar:** 3 cells better, 2 worse (both P1, both owned, one with a fix
 awaiting its restart drive), everything else driven at parity.
+
+
+## COORDINATOR RULING 2026-08-26 16:20 CEST: a pin stale ONLY in the web bundle may drive browser-free cells
+
+POD-2777's rig is alive at `372ae4de2` while its HEAD is `f92a8891d`. It hit its own
+`drive-verify` guard, refused to reason past it, measured the thing that would decide it, and
+asked. Verified independently before ruling:
+
+    git diff --name-only 372ae4de2..f92a8891d -- apps packages scripts
+      apps/web/src/features/chat/TranscriptFeed.tsx
+      apps/web/src/features/chat/TurnPreview.test.tsx
+    2 files, 6 insertions, 15 deletions, NOTHING outside apps/web.
+    runtime / control / modules-sessions / protocol / harness: BYTE-IDENTICAL.
+
+**Ruled: drive at the stale pin, state the staleness on every affected cell.** Conditions:
+only the six never-driven cells, which run over tRPC and the websocket with no browser in the
+path; each cell names both commits and says the runtime code is identical; the pin names
+`372ae4d` honestly.
+
+**Rejected: changing the guard.** Leg 3 is right as written — the operator judges the product
+they open in a *browser*, so a socket reading against a stale bundle describes a different
+product. That is sound in general and merely does not bite here. **The response to a guard
+that is right in general and wrong in one measured case is a documented exception, not a
+looser guard.** *A guard loosened under time pressure is how guards die.*
+
+**Rejected: waiting for the lock** — and not only for the sweep's sake. `test:heavy` is held
+with two sessions queued, one of them POD-2878, waiting to verify the P1 fix that POD-2777's
+own finding produced. Taking the lock ahead of them would delay the fix for its own defect.
