@@ -3009,3 +3009,35 @@ evidence is a better record than a live session holding it in RAM.
 
 **Then released ONE session — not a broadcast.** POD-2885's conformance is the last step before
 the long-turn wedge closes, and its landing unblocks an interrupt cell that is not its own.
+
+
+## CORRECTION 2026-08-26 18:49 CEST: closing an issue does NOT retire its agent
+
+I claimed at 18:47 that closing four finished issues would recover **636 MB**. **It did not.**
+Measured immediately after: all four worktrees still hold **two processes each** — the codex
+agent and its `codex-code-mode` child, under an abduco master:
+
+    POD-2858  pid 2783342 codex 133,540 kB   + codex-code-mode
+    POD-2876  pid 2124371 codex 167,424 kB   + codex-code-mode
+
+And `podium session stop` reports **"no live session id"** for every one of them: the tracker
+believes those sessions ended while their agents are still resident. **The tracker's view and
+the process table disagree**, and the tracker is the one that is wrong.
+
+**So closing an issue is bookkeeping, not resource recovery.** My claim was wrong in the
+direction that flatters the action I had just taken — the same shape this epic keeps finding,
+arriving in my own reasoning.
+
+**This is a fresh instance of POD-2691 (dead agent servers survive for days)**, and it is
+release-relevant: a machine accumulates dead weight that nothing in the product reclaims, and
+the operator's only signal is the box getting slower.
+
+**I am NOT killing them.** They belong to sessions whose state I cannot see, and killing another
+session's agent is precisely the hazard examined an hour ago. The box is quiet again — swap-in
+fell to **12–316 KB/s** — so the cost is bounded and visible rather than urgent.
+
+    after closure:  swap-in 316 / 60 / 12 KB/s, swap-out 0, available 2.7 GB, load 16.4
+
+**The box got quiet anyway**, which is worth noting against my own theory: I had argued it could
+not settle while ten agents existed. It settled with all ten still resident. *The load was the
+work, not the presence.*
