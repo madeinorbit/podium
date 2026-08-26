@@ -684,7 +684,7 @@ describe('the contract bind fact', () => {
      * So this reads the source and asserts the CALL SITES. Every `type: 'bind'`
      * in the daemon either routes through the predicate or — for a server
      * driver's own bind — hardcodes `true`, which is equivalent by construction
-     * because the handle is registered before that line runs. An eighth bind site
+     * because the handle is registered before that line runs. A NEW bind site
      * appearing without one of those two shapes fails here.
      */
     const daemonSrc = join(import.meta.dirname, '..')
@@ -726,13 +726,22 @@ describe('the contract bind fact', () => {
       }
     }
     /**
-     * SEVEN today: launchSpawn, two handleReattach arms, three server-driver
-     * launches, and the ADOPT path that rebinds a surviving server after restart.
+     * EIGHT today: launchSpawn, two handleReattach arms, three server-driver
+     * launches, the ADOPT path that rebinds a surviving server after restart,
+     * and — added by `fix(runtime): let a parked server session come back` —
+     * `resumeJournalledServerSession`, which rebuilds a PARKED server session
+     * from its binding journal.
+     *
+     * THE EIGHTH WAS DECIDED HERE, which is what the count is for. It states
+     * `runtimeContract: true` and `driverId` outright rather than asking the
+     * predicate — the second of the two shapes above, and legitimate for the
+     * same reason a server driver's own bind is: the handle is registered
+     * before that line runs, so the predicate could only agree.
      *
      * The count is asserted so a new bind site cannot be added without coming
      * here and deciding what it reports.
      */
-    expect(bindSites).toBe(7)
+    expect(bindSites).toBe(8)
   })
 })
 

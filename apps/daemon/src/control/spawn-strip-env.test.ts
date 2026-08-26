@@ -1,4 +1,31 @@
-// WHICH VARIABLES A SPAWN DELETES, decided at the frame (POD-2296).
+// WHICH VARIABLES A SPAWN DELETES, decided at the frame (POD-2296, widened by
+// POD-2117).
+//
+// WHY THE LIST IS SIX AND NOT TWO. `harnessChildStripEnv` unions TWO manifest
+// declarations, and they answer different questions:
+//
+//   inventory.foreignCredentialEnv  — credentials for this CLI that, if
+//     inherited, would outrank the account the agent home is logged into.
+//   environment.removeInherited     — controls that describe a PARENT
+//     invocation of the same CLI. Podium's daemon is routinely started from
+//     inside a Claude session, so `CLAUDE_CODE_SESSION_ID` and friends really
+//     do reach every child; a child that reads them subordinates itself to
+//     that conversation and stops writing a transcript — which is also
+//     Podium's state and history channel.
+//
+// Both are leaks of the same shape (the child believing it is some other
+// session), so both are stripped at the same point, and the manifest is the
+// only place the membership is written down. That is the same conclusion
+// POD-2823 reached from the other end when it pointed `STRIPPED_CODEX_CREDENTIALS`
+// at the manifest instead of a hand-kept twin, and the same one POD-2692
+// reached for the login READ path (`harnessLoginReadEnv` strips the same union).
+// Three paths, one declaration. This file's job is to pin what one spawn frame
+// resolves that declaration to — it is not a second copy of the list, which is
+// pinned once in `packages/harness/src/registry.test.ts`.
+//
+// THE LIMIT IS STILL A LIMIT. The widening did NOT reach into the exemption:
+// see `never deletes a credential the server put on the frame` below, and the
+// control-var case beside it that says why the exemption is credential-only.
 //
 // The bun twin (`apps/daemon/test/managed-account-env.bun.test.ts`) proves the
 // deletion reaches a real process's real environ. What it cannot reach is the
@@ -93,9 +120,19 @@ beforeEach(() => {
   captured = undefined
 })
 
-it('deletes the vars that would outrank a claude session’s own login', async () => {
+/** The full resolved list for a claude spawn: credentials, then parent controls. */
+const CLAUDE_STRIP = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_EXECPATH',
+]
+
+it('deletes what would outrank a claude session’s own login, and what would make it another session’s child', async () => {
   const opts = await spawnOptionsFor({ sessionId: 'strip-claude', agentKind: 'claude-code' })
-  expect(opts.stripEnv).toEqual(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'])
+  expect(opts.stripEnv).toEqual(CLAUDE_STRIP)
 })
 
 it('deletes them for a NATIVE LOGIN pane, which is filed as a shell', async () => {
@@ -108,7 +145,7 @@ it('deletes them for a NATIVE LOGIN pane, which is filed as a shell', async () =
     agentKind: 'shell',
     loginHarness: 'claude-code',
   })
-  expect(opts.stripEnv).toEqual(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'])
+  expect(opts.stripEnv).toEqual(CLAUDE_STRIP)
 })
 
 it('leaves a plain operator shell alone', async () => {
@@ -117,11 +154,34 @@ it('leaves a plain operator shell alone', async () => {
 })
 
 it('never deletes a credential the server put on the frame', async () => {
+  // THE LIMIT ON THE SCRUB, asserted first and on its own so that widening the
+  // list can never quietly consume it: a key on the frame IS the account Podium
+  // resolved for this session (a managed account, #216), and deleting it would
+  // send the agent back to whatever the machine happens to carry.
   const opts = await spawnOptionsFor({
     sessionId: 'strip-managed',
     agentKind: 'claude-code',
     env: { ANTHROPIC_API_KEY: 'sk-managed' },
   })
-  expect(opts.stripEnv).toEqual(['ANTHROPIC_AUTH_TOKEN'])
+  expect(opts.stripEnv).not.toContain('ANTHROPIC_API_KEY')
   expect(opts.env?.ANTHROPIC_API_KEY).toBe('sk-managed')
+  // And exactly that one is exempted — nothing else narrows with it.
+  expect(opts.stripEnv).toEqual(CLAUDE_STRIP.filter((key) => key !== 'ANTHROPIC_API_KEY'))
+})
+
+it('still deletes a parent CONTROL on the frame — the exemption is credential-only', async () => {
+  // WHY THE ASYMMETRY IS DELIBERATE, since the exemption above could look like
+  // it should apply to the whole list. A credential on the frame is an ACCOUNT
+  // the server resolved. A parent-harness control is not an account and Podium
+  // never resolves one for a child — nothing in the daemon writes a
+  // `CLAUDE_CODE_*` control onto a spawn frame, and if something ever starts,
+  // the value it would be passing on is the parent conversation's identity,
+  // which is the exact leak POD-2117 closed. So `harnessChildStripEnv` filters
+  // `sessionEnv` out of the credential half only.
+  const opts = await spawnOptionsFor({
+    sessionId: 'strip-control-on-frame',
+    agentKind: 'claude-code',
+    env: { CLAUDE_CODE_SESSION_ID: 'a-parent-conversation' },
+  })
+  expect(opts.stripEnv).toContain('CLAUDE_CODE_SESSION_ID')
 })
