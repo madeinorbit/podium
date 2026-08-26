@@ -4177,3 +4177,43 @@ three columns nobody has driven, and two of those columns are the ones the opera
 **This 36% is a LOWER BOUND.** 93 of the 131 rows do not name a cell — 31 are the review-queue
 audit and about 50 are defect drives that certainly exercise cells without saying which.
 Rather than guess, I am leaving them uncounted and fixing the labelling going forward.
+
+### A stopped session came back, and it was my own mail that did it (2026-08-27 01:42 CEST)
+
+POD-2878's session answered me at 01:39 — **forty minutes after I stopped its issue and the tool
+reported "stopped 1 session; worktree freed (branch kept)".**
+
+The success message was honest. What undid it:
+
+    23:57  I send it a --wake message. The session is already dead, so the message QUEUES.
+    01:26  podium issue stop 2878 — session stopped, worktree freed. Both true.
+    01:37  Worktree REAPPEARS. mtime 01:37:26, no node_modules — recreated, not never-removed.
+    01:39  lastInputAt 01:39:24, status live, two processes with cwd inside it.
+
+**A queued `--wake` survives `podium issue stop` and resurrects the session, recreating the
+worktree.** Filed as **POD-2916**.
+
+**I nearly wrote this up as "the stop verb lies".** It does not — and the check that separated the
+two was the directory mtime plus the absence of `node_modules`. A worktree that was never removed
+keeps its install; one that was recreated has not run one yet. **"The tool did nothing" and "the
+tool worked and was undone" look identical from the end state and need completely different
+fixes.**
+
+**THREE THINGS THIS CHANGES:**
+
+1. **Worktree reclamation is not durable.** I freed 38 worktrees tonight after this box hit 100%
+   and an ENOSPC voided a live measurement. Any of them with mail still queued can return on its
+   own, at 2–3GB each, with no log line saying why. That is a plausible explanation for disk
+   regrowth I had attributed entirely to the three sessions I started.
+2. **It defeats a reaper, which is live work.** POD-2691's teardown reuses this verb — correctly.
+   But a teardown that captured mail can reverse does not converge: it reaps and the population
+   refills behind it. Told it, and told it the success criterion has to be **re-measured minutes
+   later, treating a rebound as a FAIL rather than noise.**
+3. **The known stage guard does not cover it.** The documented behaviour is that the daemon
+   re-creates a session whose issue is still `in_progress`; the advice is to move the stage
+   first. **POD-2878's stage was already `done`.** Second path, same destination.
+
+**And it is a third sighting of one underlying thing.** Orphaned agents in worktrees, orphaned
+agents in `/tmp` state roots, and now stopped agents coming back — all of them are sessions
+outliving the thing that was supposed to end them, and all of them cost gigabytes on a box that
+ran out of disk tonight.
