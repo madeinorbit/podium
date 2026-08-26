@@ -34,6 +34,33 @@ setup_auth_clause() {
     printf '"acknowledgeNoPassword":true'
   fi
 }
+
+# CARRY THE SESSION ON EVERY LATER CALL, or the run tests nothing (POD-2832).
+#
+# Setting a password closes the `/trpc` guard, so every `rpc` call after setup
+# — the readiness probes, the fleet reads, the release approval — starts
+# answering 401. The first authenticated run died exactly there, waiting 120s
+# for a participant it was no longer allowed to ask about.
+#
+# The cookie travels as a HEADER rather than a jar file because these requests
+# run in two places: on the host, and inside a container via `container_exec`.
+# A path only one of them can see would work in one and silently not the other.
+# Native bearer delivery is not an option here — it requires HTTPS, and the
+# harness talks to 127.0.0.1 over plain HTTP inside the container.
+e2e_login() {
+  [[ -n "$E2E_PASSWORD" ]] || return 0
+  local container=$1 headers cookie
+  headers="$(container_exec "$container" curl -s -D - -o /dev/null \
+    -H 'content-type: application/json' \
+    -d "{\"password\":$(jq -Rn --arg p "$E2E_PASSWORD" '$p')}" \
+    http://127.0.0.1:18787/auth/login)" || return 1
+  cookie="$(sed -n 's/.*podium_session=\([^;]*\).*/\1/p' <<<"$headers" | head -1)"
+  [[ -n "$cookie" ]] || {
+    say "login returned no session cookie; headers were: $headers" >&2
+    return 1
+  }
+  HTTP_EXTRA_ARGS+=(-H "cookie: podium_session=$cookie")
+}
 # THE COORDINATOR'S OWN SHAPE. Defaults to `server`, which is what the scenario
 # rows assert against: a server-only coordinator is the shape that exposed
 # POD-2668 (the machine running the server could not update itself) and the rows
@@ -947,7 +974,10 @@ setup_source() {
     http://127.0.0.1:18787/trpc/setup.complete \
     "{\"publicUrl\":\"$ADVERTISED_URL\",\"mode\":\"$COORDINATOR_MODE\",\"port\":18787,$(setup_auth_clause)}" ||
     return 1
-  ! jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"
+  jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY" && return 1
+  # The guard closes the instant the password lands, so the session has to exist
+  # before the next `rpc` call, not before the next scenario.
+  e2e_login "$SOURCE"
 }
 
 # THE ROW THAT WILL NOT LET IT DRIFT BACK (POD-2767).
