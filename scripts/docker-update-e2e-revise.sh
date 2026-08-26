@@ -46,7 +46,9 @@ RUN_ID is the `Run label:` value the hold printed, minus the label key.
                      state the updater would not legitimately produce.
   --into CONTAINER   which container --swap-bundle writes into (required with it)
 
-PODIUM_UPDATE_E2E_PASSWORD must match the password the run was created with.
+PODIUM_UPDATE_E2E_PASSWORD must match the password the run was created with, and
+PODIUM_UPDATE_E2E_INSTANCE the instance it was created with if that was not the
+default. Both are printed by the hold.
 EOF
 }
 
@@ -103,6 +105,17 @@ attach() {
   fi
   rpc GET updates.fleet >/dev/null ||
     die "the coordinator refused a fleet read; if this run has a password, set PODIUM_UPDATE_E2E_PASSWORD"
+  # THE INSTANCE NAME IS CHECKED, NOT ASSUMED. `install_path` and `unit_name`
+  # are both built from `$INSTANCE`, which defaults to `update-e2e` — so a run
+  # created with PODIUM_UPDATE_E2E_INSTANCE set would have every path here point
+  # at an install that does not exist. `--swap-bundle` would then `rm -rf` a
+  # directory it had just created and restart a unit that was never there.
+  local installed
+  if ! container_exec "$SOURCE" test -d "$(install_path)"; then
+    installed="$(container_exec "$SOURCE" \
+      sh -c 'ls /home/podium/.local/share/podium-instances 2>/dev/null | tr "\n" " "' || true)"
+    die "run '$RUN_TARGET' has no instance named '$INSTANCE'; it holds: ${installed:-none}. Set PODIUM_UPDATE_E2E_INSTANCE to the one the hold printed."
+  fi
   # `WORK` is where the gate's helpers write their evidence. A revise is not a
   # gate run and records no matrix, but the helpers it borrows still write, and
   # a red one leaves its logs behind exactly as the gate's would.
@@ -118,26 +131,44 @@ attach() {
 # are already reachable. Nothing is rebuilt to get a new version in — the source
 # tree simply becomes a different commit, which is the input the release
 # proposal is computed from.
+#
+# The new HEAD is reported in a global rather than on stdout, because `say`
+# writes to stdout too: captured with `$(...)` this returned the progress line
+# and the sha stuck together, and every later comparison was then made against a
+# value that could never match anything.
+REVISED_HEAD=""
 move_source_to_ref() {
-  local ref=$1 candidate head
+  local ref=$1 candidate
   candidate="$(git -C "$ROOT" rev-parse "$ref^{commit}")" ||
     die "'$ref' is not a commit in this worktree"
   say "moving the coordinator's source onto $ref ($candidate)"
+  # REACHABLE FIRST, FETCH ONLY IF IT IS NOT. The clone was made `--shared`, so
+  # `/work/source` reads `/input`'s object store through `objects/info/alternates`
+  # — and that alternate is read live, so a commit made on the host AFTER the
+  # sandbox started is usually already present with nothing transferred.
+  #
+  # The fallback is a full branch fetch and not `git fetch /input <sha>`, because
+  # fetching a bare object id is refused unless the far side advertises it
+  # (`uploadpack.allowReachableSHA1InWant`), and a commit that is not any
+  # branch's tip is exactly the case this has to survive.
   container_exec "$SOURCE" bash -lc \
-    "cd /work/source && git fetch --no-tags /input '$candidate' &&
+    "set -Eeuo pipefail
+     cd /work/source
+     if ! git cat-file -e '$candidate^{commit}' 2>/dev/null; then
+       git fetch --no-tags /input '+refs/heads/*:refs/remotes/input/*'
+     fi
      git checkout -B update-e2e-source '$candidate'" \
     >"$WORK/logs/revise-source-checkout.log" 2>&1 ||
     die "could not move /work/source onto $candidate; see $WORK/logs/revise-source-checkout.log"
-  head="$(container_exec "$SOURCE" git -C /work/source rev-parse --short=7 HEAD)"
-  # A ref that resolves to the commit already running produces no new proposal,
-  # and the wait below would time out saying only "no proposal". Say it here.
-  printf %s "$head"
+  REVISED_HEAD="$(container_exec "$SOURCE" git -C /work/source rev-parse --short=7 HEAD)"
+  [[ -n "$REVISED_HEAD" ]] || die "moved /work/source but could not read its HEAD back"
 }
 
 # The product path, end to end.
 revise_by_release() {
   local ref=$1 head proposal target
-  head="$(move_source_to_ref "$ref")"
+  move_source_to_ref "$ref"
+  head="$REVISED_HEAD"
   say "waiting for the coordinator to propose a release for $head"
   wait_for 120 "release proposal for $head" proposal_for "$head" ||
     die "no development release proposal named $head. If the sandbox is already running that commit there is nothing to propose; pick a ref with new commits on it."
@@ -174,7 +205,15 @@ accept_offer() {
   local target=$1 started id
   say "accepting $target through updates.start, the same call the UI makes"
   started="$(start_update)" || die "updates.start did not hand back an operation of its own"
-  id="$(jq -r .id <<<"$started")"
+  printf '%s\n' "$started" >"$WORK/logs/revise-start.json"
+  # `.operationId`, which is what `updates.start` actually returns — the same
+  # field `rollback` reads. Asking for `.id` yielded the STRING "null", and the
+  # wait then polled an operation that cannot exist for its full budget while
+  # the real update ran to completion behind it. A wrong field name reads
+  # exactly like a stalled wave, so the id is checked before it is waited on.
+  id="$(jq -r '.operationId // empty' <<<"$started")"
+  [[ -n "$id" ]] ||
+    die "updates.start returned no operationId; raw response: $WORK/logs/revise-start.json"
   if ! wait_for 420 "update operation $id to settle" terminal_operation "$id"; then
     dump_update_operations revise
     say_watch_budget 420
