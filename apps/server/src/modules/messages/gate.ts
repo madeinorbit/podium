@@ -246,6 +246,7 @@ export class MessageGate {
     input: unknown,
     transport: TransportTag = 'relay',
     deliveryMode?: MailDeliveryMode,
+    correlationId?: string,
   ): Promise<unknown> | undefined {
     if (!isMailProcExposedOn(proc, transport)) return undefined
     const principal =
@@ -266,6 +267,7 @@ export class MessageGate {
       deps: this.deps,
       access,
       ...(deliveryMode ? { deliveryMode } : {}),
+      ...(correlationId ? { correlationId } : {}),
     }
     // Invoked SYNCHRONOUSLY, with a sync throw converted to a rejection.
     //

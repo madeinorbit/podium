@@ -898,12 +898,16 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         return { ok: false, reason }
       }
     },
-    resumeAndSend: async (sessionId, text) => {
+    resumeAndSend: async (sessionId, text, mutationId) => {
       // Optimistic spawn paints the session id before the server has it. A send
       // in that window dead-letters as "unknown session" and used to be treated
       // as applied — the prompt never reached the agent (POD-546).
       await rt.waitForSpawnConfirmed(sessionId)
-      await rt.outbox.enqueue('resumeAndSend', { sessionId, text })
+      await rt.outbox.enqueue(
+        'resumeAndSend',
+        { sessionId, text },
+        mutationId ? { mutationId } : undefined,
+      )
     },
     renameSession: async (sessionId, name) => rt.enqueueOverlayed('rename', { sessionId, name }),
     archiveSession: async (sessionId, archived) => {

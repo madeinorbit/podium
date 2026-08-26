@@ -185,6 +185,18 @@ describe('issueMenuEligibility', () => {
     expect(issueMenuEligibility([makeIssue()], 'board').canDuplicate).toBe(true)
   })
 
+  // POD-1457: the right dock's task panel is isolated from the Tasks tool —
+  // entering that tool is a decision the operator makes in the toolbar, and the
+  // only place `Open` could land was there. Everything else the dock offers is
+  // exactly what the sidebar offers.
+  it('hides open on the dock surface, and changes nothing else', () => {
+    const dock = issueMenuEligibility([makeIssue()], 'dock')
+    const sidebar = issueMenuEligibility([makeIssue()], 'sidebar')
+    expect(dock.canOpen).toBe(false)
+    expect(sidebar.canOpen).toBe(true)
+    expect({ ...dock, canOpen: true }).toEqual(sidebar)
+  })
+
   it('offers only open and restore for deleted issues', () => {
     const e = issueMenuEligibility([makeIssue({ deletedAt: '2026-07-13T10:00:00.000Z' })])
     expect(e.canOpen).toBe(true)

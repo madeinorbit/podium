@@ -175,6 +175,7 @@ function ctxFor(
         input,
         'trpc',
         'immediate',
+        input.correlationId,
       )!,
     rpc: () => modules.rpc,
 
@@ -313,6 +314,19 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     // The receipt is durable, under the command's dotted name, for both.
     expect(o.store.sync.getAppliedMutation(asMutationId('dup-1'))).toBeDefined()
     expect(o.store.sync.getAppliedMutation(asMutationId('dup-2'))).toBeDefined()
+  })
+
+  it('carries the chat mutation id onto the durable message ledger row', async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    const mutationId = 'msg_chat-correlation'
+    await o.call.sessions.sendText({ sessionId, text: 'same visible turn', mutationId })
+
+    const ledger = (await o.call.messages.ledger({ sessionId })) as Array<{
+      id: string
+      body: string
+    }>
+    expect(ledger.find((row) => row.body === 'same visible turn')?.id).toBe(mutationId)
   })
 
   it('the dedup is the FRAMEWORK ledger: a receipt written directly is honoured by the router', async () => {

@@ -193,7 +193,11 @@ const DIR_OP = daemonRequestKind<DirOpResult>('dp')
 const GITHUB_CLI = daemonRequestKind<Payload<GitHubCliResultMessage>>('gh')
 const REPO_OP = daemonRequestKind<OpResult>('ro')
 const HARNESS_EXEC = daemonRequestKind<OpResult>('hx')
-const USAGE = daemonRequestKind<{ hostname: string; buckets: UsageBucketWire[] }>('us')
+const USAGE = daemonRequestKind<{
+  hostname: string
+  sampledAt?: string
+  buckets: UsageBucketWire[]
+}>('us')
 const AGENT_QUOTA = daemonRequestKind<{ hostname: string; agents: AgentQuotaWire[] }>('aq')
 const MODEL_PROBE = daemonRequestKind<Record<string, ModelChoiceWire[]>>('mp')
 const TRANSCRIPT_READ = daemonRequestKind<TranscriptSlice>('tr')
@@ -284,6 +288,7 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
   usageResult: (broker, machineId, msg) =>
     void broker.settle(USAGE, msg.requestId, machineId, {
       hostname: msg.hostname,
+      ...(msg.sampledAt === undefined ? {} : { sampledAt: msg.sampledAt }),
       buckets: msg.buckets,
     }),
   agentQuotaResult: (broker, machineId, msg) =>
@@ -503,7 +508,11 @@ export class DaemonRpcService {
   }
 
   /** Token-usage buckets from the daemon's transcript harvest (empty on timeout). */
-  usage(sinceMs?: number): Promise<{ hostname: string; buckets: UsageBucketWire[] }> {
+  usage(sinceMs?: number): Promise<{
+    hostname: string
+    sampledAt?: string
+    buckets: UsageBucketWire[]
+  }> {
     return this.request(
       USAGE,
       20_000,

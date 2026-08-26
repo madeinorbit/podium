@@ -133,7 +133,7 @@ html[data-density="compact"] {
 
    `data-pressable` says hover with `filter: brightness(1.08)` (index.css), which
    can only ever BRIGHTEN. That was fine while this control was a `--secondary`
-   grey. It is `--chip` now, and `--chip` is #ffffff in every light preset — so
+   grey. It is `--chip` now, and `--chip` is #ffffff in light mode — so
    the brightest thing on screen got a brightening filter and the control had no
    hover feedback at all in light mode. The artboard hovers the other way:
    #faf9f7 under a #ffffff rest, and #282c33 under #23262d in the dark board.
@@ -1683,9 +1683,6 @@ html[data-density="balanced"] .header-quota-pools {
 .status-strip-metric[data-tone="burn"] {
   --metric-color: var(--claude);
 }
-.status-strip-metric[data-tone="ship"] {
-  --metric-color: oklch(0.68 0.16 153);
-}
 .status-strip-metric-value {
   color: var(--metric-color);
 }
@@ -2930,7 +2927,13 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
 /* First-sync screen (SyncLoader, POD-1249): the detailed sync progress shown
    instead of the ASCII splash when this launch opened a COLD replica. Text and
    hairlines ride the theme tokens; the hero tile stays dark in both themes
-   because it is the app icon, and the accent is the icon's brand gold. */
+   because it is the app icon, and the accent is the icon's brand gold — now
+   bisque #d9b477 [POD-1427], which is also what POD-1431 made --primary, so
+   the loader's writing matches the rest of the dark UI again. It stays a
+   literal rather than var(--primary) because this surface is dark in both
+   appearances and --primary is not. Deliberately a step brighter than the
+   tile's own plane (#b8944f, the icon's dark cut): the tide is the plane lit,
+   which is the same relationship the yellow pair had before. */
 .sync-loading {
   /* Same subtraction as .app-loading: #root has already padded this down. */
   height: calc(var(--viewport-h, 100dvh) - var(--wire-skew-banner-h, 0px));
@@ -2939,7 +2942,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   justify-content: center;
   overflow: hidden;
   background: var(--background);
-  --sync-acc: #d99725;
+  --sync-acc: #d9b477;
   --sync-glyph-well: color-mix(in srgb, var(--foreground) 18%, var(--background));
 }
 .sync-loader {
@@ -3196,11 +3199,11 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
    not the same token in both modes, nor is the face of a fanned deck, and a
    shelf floated over the feed has no token at all. Naming the ROLES once here
    and binding each to the palette keeps two properties that matter — the chat
-   still follows the theme (all three presets, both modes, no literal hexes in
+   still follows the theme (both modes, no literal hexes in
    the rules), and retuning any one surface is one line rather than forty.
 
    Only the two carve/shadow inks are literal, because they are ground-agnostic:
-   every dark preset has a dark ground and every light one a light ground, and a
+   dark mode has a dark ground and light mode a light ground, and a
    shadow is black either way.
 
    ONE DEVIATION FROM THE DELIVERED DESIGN, RECORDED HERE. The design sets its
@@ -4632,34 +4635,8 @@ html[data-density="compact"] .brief-shelf {
 /* Paper carves in its own warm ink, like every other groove there (POD-725) —
    black on paper reads as dirt even at this alpha, and a cool ink over stone
    reads as a bruise. */
-[data-theme="superade"]:not(.dark) .work-line {
+[data-theme="podium"]:not(.dark) .work-line {
   --work-line-carve: rgb(29 28 25 / 0.07);
-}
-/* THE RUN THAT ENDS THE FEED (POD-747). When a call is in flight the tail stands
-   down and this row is the last thing in the transcript, so it inherits the
-   tail's job of showing that the document ENDS — one hairline under the run, in
-   the live hue, the same weight and alpha the tail's own rule carries. It is a
-   ::after on the container rather than a border on the chip so the fanned deck
-   behind a folded run still reads between the two. */
-.work-line[data-ends-feed="true"] {
-  margin-bottom: 16px;
-}
-.work-line[data-ends-feed="true"]::after {
-  content: "";
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  left: 0;
-  height: 1px;
-  background: var(--live, var(--info));
-  opacity: 0.2;
-  pointer-events: none;
-}
-.work-line[data-ends-feed="true"][data-state="wait"]::after {
-  background: var(--muted-foreground);
-}
-.work-line[data-open="true"][data-ends-feed="true"]::after {
-  display: none;
 }
 .work-line-deck {
   position: absolute;
@@ -4737,15 +4714,6 @@ html[data-density="compact"] .brief-shelf {
   text-overflow: ellipsis;
   color: var(--muted-foreground);
 }
-.work-line[data-state="live"] .work-line-phrase {
-  color: var(--foreground);
-}
-.work-line[data-state="wait"] .work-line-glyph {
-  color: var(--live, var(--info));
-}
-.work-line[data-state="wait"] .work-line-phrase {
-  color: color-mix(in oklab, var(--foreground) 88%, transparent);
-}
 .work-line-fail {
   flex: none;
   padding: 1px 5px;
@@ -4766,12 +4734,6 @@ html[data-density="compact"] .brief-shelf {
   font-variant-numeric: tabular-nums;
 }
 .work-line-time {
-  color: var(--text-dim, var(--muted-foreground));
-}
-.work-line[data-state="live"] .work-line-time {
-  color: var(--live, var(--info));
-}
-.work-line[data-state="wait"] .work-line-time {
   color: var(--text-dim, var(--muted-foreground));
 }
 .work-line-count {
@@ -5674,50 +5636,6 @@ html[data-density="compact"] .brief-shelf {
   margin-top: 2px;
 }
 
-/* THE ENGINE'S ANCHOR FOLLOWS THE PIN (POD-1160).
-
-   KNOW WHICH ENGINE THE MEASUREMENTS BELOW CAME FROM (round 2): every one of
-   them ran in Playwright's TRUNK WebKit, which ships scroll anchoring.
-   RELEASE Safari — the operator's browser — has none at all
-   (`CSS.supports('overflow-anchor: none')` is false there), so this whole
-   block is inert for it; the bug that browser actually has is a stale async
-   scroll maximum, owned by `writeBottom` and arrival-by-intent in
-   use-transcript-scroll.ts. This regime manages the engine the automated
-   tests run in today and the one release Safari becomes when anchoring ships.
-
-   In an anchoring WebKit this feed is an authority problem: the engine picks
-   an anchor row and then REVERTS whatever moves it — the app's bottom writes
-   (measured: a -200px write applied late, partially, or never, then snapped
-   back) and the reader's own wheel (measured: 0px of escape against it).
-   Turning anchoring off wholesale is worse in two ways that are both on the
-   record: `overflow-anchor: none` on the SCROLLER makes WebKit under-compute
-   the scrollable region outright (POD-993, 444px unreachable), and excluding
-   every child starves the same geometry-refresh channel, so the engine's idea
-   of the maximum runs stale and it drags the view up to it — 115-161px short,
-   exactly the "it jumps up a second or two after I reach the bottom" report.
-
-   So eligibility follows the reader's intent, which the scroll hook already
-   tracks (use-transcript-scroll.ts):
-
-   - PINNED (`data-anchor-end` present): only the LAST child is eligible. The
-     engine anchors the end of the feed — native stick-to-bottom, and its
-     geometry stays fresh. Measured: pull-up 0px, growth at the end heals on
-     the next layout pass, in both engines.
-   - RELEASED (attribute absent, set on wheel-up/touch intent): nothing is
-     eligible, so the engine has no anchor to defend and the reader is free.
-     Measured: 1440-1481px of escape against a bottom-writer, position holds.
-
-   The hook re-grants eligibility on any DOWNWARD movement, before arrival:
-   in an anchoring engine the style flip refreshes the stale maximum on its
-   own; in release Safari it does nothing, which is why a write that falls
-   short heals the geometry itself with one frame of real padding. */
-[data-feed-scroller] .feed-column > * {
-  overflow-anchor: none;
-}
-[data-feed-scroller][data-anchor-end] .feed-column > :last-child {
-  overflow-anchor: auto;
-}
-
 /* THE TAIL — where the transcript ENDS, in three weights. One shape (mark,
    phrase, mono figure, rule running out to the right edge); what changes is
    what the state deserves. See TranscriptTail.tsx for the reasoning.
@@ -5882,60 +5800,15 @@ html[data-density="compact"] .brief-shelf {
   }
 }
 
-/* ── POD-423 arrival, re-aimed by POD-1158 ───────────────────────────────────
-   A row that just landed was indistinguishable from one that had been there an
-   hour, so POD-423 gave it a lift on the house curve. The MECHANISM was right
-   and stays exactly as it is — `use-feed-arrivals` latches, so opening a
-   session animates none of three hundred rows, a page from disk is history, and
-   a backfill over MAX_ARRIVALS stays still. What was wrong was the motion.
-
-   Measured at 1x, that lift travelled 7.1px, then 2.2px, then 0.5px at
-   0 / 55 / 110ms: four fifths of it was over inside one sample, on six pixels.
-   `cubic-bezier(0.22, 1, 0.36, 1)` is the right curve everywhere else in this
-   file because its whole job is to get OUT of the way — which is exactly the
-   wrong job for the one motion here that has to be caught by an eye looking
-   somewhere else on the screen. The operator's report was "a new message is
-   just suddenly there", and the animation firing correctly the whole time is
-   what makes that report worth trusting rather than explaining away.
-
-   THE TURN NOW OPENS. The row's own height runs from zero to its measured
-   height on `cubic-bezier(0.4, 0, 0.2, 1)`, which spends real time in the
-   middle, while the content inside holds still and is revealed by the frame.
-   The document grows, which is what actually happened. Two things make that
-   affordable in THIS scroller, and neither is optional:
-
-   1. THE HEIGHT IS MEASURED, NOT INTERPOLATED TO A KEYWORD. `--arrive-h` is
-      written by TranscriptFeed from one `offsetHeight` read at mount. The
-      `0fr`/`1fr` grid trick and `interpolate-size` both say this far more
-      neatly, and both are recent enough in WebKit that this file — the one with
-      an open Safari scroll bug against it — is the wrong place to find out. A
-      measured pixel height animates identically in every engine ever shipped.
-
-   2. THE ARRIVAL OWNS THE SCROLL WHILE IT RUNS. A row growing at the bottom of
-      a bottom-pinned feed is a moving target for three separate writers: the
-      ResizeObserver over every row, the MutationObserver beside it, and (since
-      POD-993 removed `overflow-anchor: none`) WebKit's own anchoring.
-      `claimScrollForArrival` stands the first two down for the duration and
-      runs a single rAF pin instead — FEWER writes and fewer forced layouts than
-      a landing message costs today, not more. See use-transcript-scroll.
-
-   `overflow: hidden` and the animation both hang off `data-unroll`, which is
-   removed on `animationend`, so an arrived row carries no clip, no containing
-   block and no residue once it is simply a row again. Under reduced motion the
-   attribute is never set at all. */
+/* A landed row may animate its paint, never its layout. Height animation made
+   the end of the document move on every frame and forced the scroll follower to
+   chase it. `use-feed-arrivals` already excludes initial history, paging and
+   large backfills, so the small opacity/transform lift runs only for genuinely
+   new rows and leaves scroll geometry stable in every engine. */
 @media (prefers-reduced-motion: no-preference) {
-  .transcript-placeholder {
+  .transcript-placeholder,
+  .transcript-arrive {
     animation: transcript-arrive 180ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-  .transcript-row[data-unroll] {
-    /* `--arrive-h` is `offsetHeight`, which is the BORDER box. Stated here
-       rather than inherited from preflight, because a content-box row would
-       animate to its full height PLUS its padding, overshoot by 22px and snap
-       back on the last frame — which is exactly what the engine harness caught
-       (see e2e/pod1158-unroll-engine.ts). */
-    box-sizing: border-box;
-    overflow: hidden;
-    animation: transcript-unroll 260ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   /* THE CARD ARRIVES AS A CARD (POD-993 round 2). A row of prose slides up six
      pixels; the operator's turn is an OBJECT, so it comes in from a little
@@ -5966,26 +5839,6 @@ html[data-density="compact"] .brief-shelf {
     transform: none;
   }
 }
-/* The padding travels with the height, so a row at zero occupies zero rather
-   than opening as a 22px stub. `--arrive-h` is the full border box including
-   that padding, which is what `offsetHeight` reads. The opacity floor is 0.6
-   and not 0: the frame is the thing revealing the content, and fading the
-   content out from under it as well reads as two effects, not one. */
-@keyframes transcript-unroll {
-  from {
-    height: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    opacity: 0.6;
-  }
-  to {
-    height: var(--arrive-h);
-    padding-top: 11px;
-    padding-bottom: 11px;
-    opacity: 1;
-  }
-}
-
 /* THE STREAMING CARET. An answer being written now looks like one that finished
    an hour ago; the caret says which. It does NOT blink: the braille spinner and
    its timer are the system's only perpetual motion (DESIGN.md §5), and a caret
@@ -6006,9 +5859,7 @@ html[data-density="compact"] .brief-shelf {
 @media (prefers-reduced-motion: reduce) {
   .transcript-placeholder,
   .transcript-arrive,
-  .transcript-arrive-bubble,
-  .transcript-row[data-unroll] {
-    overflow: visible;
+  .transcript-arrive-bubble {
     animation: none;
   }
   .msg-foot .chat-clk,
@@ -6105,6 +5956,13 @@ html[data-density="compact"] .brief-shelf {
 .offer-fold-root {
   container-type: inline-size;
   border-top: 1px solid var(--hairline-soft);
+  /* The seam belongs to the dock and stays full-bleed; the CONTENT keeps a
+     gutter inside it (POD-1462). Without this the signal badge sits flush
+     against the tint band's own left edge the moment the fold opens — and the
+     dismiss/disclosure pair sits flush against the right one — so the row's
+     two ends read as clipped rather than as inset. 12px on both, which is the
+     row inset DESIGN.md's 4px grid already spends elsewhere. */
+  padding-inline: 12px;
   opacity: 1;
   transform: translateY(0);
   transition:
@@ -6204,6 +6062,70 @@ html[data-density="compact"] .brief-shelf {
   cursor: default;
   opacity: 0.5;
 }
+/* THE ALTERNATIVES (POD-1462). Everything in the open fold that sends a turn is
+   a control, and before this only the recommendation looked like one: the other
+   actions were bare text sitting under the evidence strip, where they read as
+   captions for the thumbnails above them rather than as the two other things
+   you could do. They are the same object as the primary now — same geometry,
+   same label mechanics — one tier quieter, because the Signal Rule leaves
+   exactly one yellow in this region and the recommendation already has it. */
+.offer-fold-action {
+  /* The `sm` step off DESIGN.md's button scale, under the recommendation's 31.
+     Press, focus ring, disabled and the transition are the shared
+     `[data-pressable]` contract's — nothing is restated here. */
+  min-height: 28px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--chip);
+  /* Muted, not Dim. Dim is the timestamp tier, and a 600-weight 11px label set
+     in it on a chip fill only two L-points off its ground reads as a DISABLED
+     control — which is the one thing an alternative action must never look
+     like. Muted holds 8.1:1 and leaves Strong free to mean hover. */
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.offer-fold-action:hover {
+  background: var(--secondary);
+  color: var(--text-strong);
+}
+/* The feedback field's own send. It commits the alternative the operator
+   already chose, so it takes the yellow as ink and rim rather than as a fill:
+   a second solid yellow while the recommendation is still on screen would
+   leave the region with two primaries. */
+.offer-fold-action--commit {
+  border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--foreground);
+}
+.offer-fold-action--commit:hover {
+  border-color: color-mix(in srgb, var(--primary) 72%, transparent);
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--text-strong);
+}
+/* Backing out of the feedback field is not a third option — it undoes a click.
+   No box until the pointer is on it. */
+.offer-fold-action--ghost {
+  border-color: transparent;
+  background: transparent;
+}
+.offer-fold-action--ghost:hover {
+  border-color: transparent;
+  background: var(--secondary);
+}
+/* The "this one asks you to type" mark. Optically lighter than the label it
+   trails, and it rides the button's own colour transition. */
+.offer-fold-action-pencil {
+  flex: none;
+  opacity: 0.6;
+}
 .offer-fold-controls {
   display: inline-flex;
   align-items: center;
@@ -6259,7 +6181,11 @@ html[data-density="compact"] .brief-shelf {
 }
 
 .offer-fold-detail-body {
-  padding: 2px 40px 15px 31px;
+  /* Left 31px = the badge (22) plus its gap (9), so every line of the detail
+     hangs under the headline rather than under the signal. Right clears the
+     dismiss/disclosure column. Both are measured from the gutter the root now
+     holds, so the right value is 12px smaller than the 40px it replaces. */
+  padding: 2px 28px 15px 31px;
 }
 .offer-fold-undo {
   min-height: 42px;
@@ -9020,9 +8946,10 @@ a.ref-link--session::before {
    second box, no hue — the tint channel and the elevation vocabulary are both
    left alone.
 
-   IT IS NOT AMBER, and cannot become amber. In the Superade theme `--warning`
-   IS `--attention` (#f5c518), so a "warning-toned" blocked strip would read as
-   "answer me" on the exact surface built to tell obligation from state. Blocked
+   IT TAKES NO HUE, and cannot. `--warning` is the demoted yellow, the loudest
+   warm in the window, and `--attention` is now the accent itself — so a strip
+   in either would shout alarm or "answer me" on the exact surface built to
+   tell obligation from state. Blocked
    asks nothing; it just is not moving. The rule is drawn in the theme's own
    foreground at 5%, which is one step of texture in both dark and Paper and
    still legible when a strip already carries an issue tint. */
@@ -9130,81 +9057,118 @@ a.ref-link--session::before {
    release it — a container query cannot outrank a style attribute. */
 :root {
   --deck-state-col: 80px;
-  /* The role word's cell and the gap between every pair of cells, named because
-     the asking row's obligation is built out of them by `calc()` below and a
-     table whose column widths are three unrelated literals drifts. */
-  --deck-role-col: 96px;
-  --deck-cell-gap: 6px;
 }
 .deck-state-col {
   width: var(--deck-state-col);
 }
-/* THE ASKING ROW SPENDS A ROLE'S WIDTH ON THE ASK (POD-1226).
-   `Needs you · 30m ago` exceeds the normal state cell. Attention already
-   suppresses the role, so the obligation borrows that width without squeezing
-   the name; the narrow rung below later sheds only the elapsed detail. */
-.deck-agent-row[data-needs-you="true"] .deck-agent-role {
-  display: none;
-}
-.deck-agent-row[data-needs-you="true"] .deck-agent-state {
-  width: calc(var(--deck-state-col) + var(--deck-role-col) + var(--deck-cell-gap));
-}
+/* ── THE AGENT ROW — one instrument, two useful compositions ────────────────
+   A wide row uses the room it has: identity and provenance take their natural
+   measure, while the operational state stretches across the remaining track
+   and pins its readout to the trailing edge. This fixes both symptoms of the old
+   fixed-cell ladder: role text clipped at 96px while hundreds of pixels sat
+   empty, and the running clock stopped in the middle of the panel.
 
-/* A RETIRED ROW SPENDS IT THE SAME WAY (POD-1314), and for the same reason.
-   `Retired · 6m ago` is 16 characters of 9px mono — 86px where the column is 80
-   — so it WRAPPED, and a 45px row under an elbow drawn at the 28px row's mid
-   point is exactly the failure the ladder above was built to end. It is an
-   overrun of six pixels; the fix is not to widen the shared column by twenty
-   (which every name on every row would pay for, at every width) but to let the
-   row that has the overrun take the cell it is not using.
-   The role word goes with it, and that is the right trade in this direction
-   too: a retired session's role is provenance about a process that is gone,
-   the row's tooltip still carries it, and the alternative is a wrap. */
-.deck-agent-row[data-retired="true"] .deck-agent-role {
-  display: none;
-}
-.deck-agent-row[data-retired="true"] .deck-agent-state {
-  width: calc(var(--deck-state-col) + var(--deck-role-col) + var(--deck-cell-gap));
-}
+   The name is the only column allowed to shrink before the row changes shape.
+   Ref, role and state are complete facts; rendering half of one is worse than
+   spending a second line.
 
-/* The ref, a present role, and state keep predictable measures. The name is
-   content-sized up to its ceiling and is the only shrinker, so a short session
-   reads as one compact sentence instead of distributing four facts across the
-   whole deck. */
+   THE ROSTER IS A TABLE (POD-1461). Every track above except the last was
+   content-sized, and a grid is per-ROW — so four rows sized themselves four
+   different ways and the ref, the role and the state each started at four
+   different x-positions. Nothing was misaligned by a rule; the column simply
+   had no columns, which is the whole of what reads as clutter.
+   The fix is to size the leading tracks from the ROW BOX rather than from the
+   row's own content: a percentage and a length resolve identically on every
+   row, because every row is the same width. Title, ref and role then open on
+   three fixed left edges, and the state — the one field an operator scans
+   vertically for a change — keeps the trailing edge it already had.
+   38% for the name: at the deck's 300–620px range that is 110–223px, which
+   holds the great majority of session names outright and never starves the two
+   facts to its right. The role takes what is left, so a long provenance still
+   gets every spare pixel on the row before it has to cut. */
+.deck-agent {
+  grid-template-areas: "name ref role state";
+  grid-template-columns:
+    minmax(0, 38%)
+    68px
+    minmax(0, 1fr)
+    max-content;
+}
+.deck-agent-name {
+  grid-area: name;
+}
 .deck-agent-ref {
-  width: 68px;
+  grid-area: ref;
 }
+/* The role is the ONE field allowed to cut on a wide row, and only after it has
+   been given the whole remainder of the line. `by <a long session name>` is the
+   only value here that can outrun a 620px deck, it degrades legibly (the `BY`
+   and the first words are the useful part), and the full string is on both the
+   span's own title and the row's. Everything else on the row is either
+   truncation-proof or moves to a second line instead. */
 .deck-agent-role {
-  width: var(--deck-role-col);
+  grid-area: role;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.deck-agent-state.deck-state-col {
+  grid-area: state;
+  width: auto;
+  min-width: var(--deck-state-col);
 }
 
-/* ── THE ROSTER'S LADDER (POD-1226) ──────────────────────────────────────────
-   Agent rows stay one line because their elbows and selection ticks are drawn
-   against a 28px row. The list owns the narrow-width decision so every depth
-   sheds the same secondary facts: role first, then elapsed detail. Everything
-   shed remains in the row tooltip. */
+/* The roster owns the breakpoint so every nesting depth changes composition at
+   once. The elbow continues to meet the identity line; provenance sits beneath
+   it as a subordinate reading, so a taller row does not move the tree's datum. */
 .deck-rows {
   container-type: inline-size;
   container-name: deck-rows;
 }
 
-/* Below this rung a present role closes, and asking/retired states return the
-   borrowed role width. `Needs you` and `Retired` survive; their elapsed detail
-   is the lower-priority fact that drops. */
-@container deck-rows (max-width: 439px) {
+/* At this measure, a useful 160px name plus ref, role, state and gaps no longer
+   fit. Keep the two scan anchors on line one (name and live state), then put the
+   stable address and provenance on line two. The role may wrap only when its
+   own text exceeds the remaining narrow-panel measure; it is never ellipsized. */
+@container deck-rows (max-width: 520px) {
+  /* THE SAME TABLE, FOLDED (POD-1461). Line one is identity against live
+     state; line two is the address against the provenance. Both halves keep the
+     wide row's rule — everything that is read as a LABEL opens on a fixed left
+     edge, and the one field read as a VALUE keeps the trailing edge.
+     94px is the ref's own column: 26px to clear the agent tile, then the same
+     68px the wide row gives it, so the ref sits under the name's first letter
+     and the role opens on one edge down the whole roster. The role used to be
+     flushed right on this line, which put two different right-hand readings on
+     one row and left a ragged gutter between them. */
+  .deck-agent {
+    grid-template-areas:
+      "name name  state"
+      "ref  role  role";
+    grid-template-columns: 94px minmax(0, 1fr) max-content;
+    row-gap: 4px;
+  }
+  .deck-agent-ref {
+    width: auto;
+    margin-inline-start: 26px;
+    justify-self: start;
+    text-align: start;
+  }
+  /* Line two has the room the wide row does not, so provenance goes back to
+     wrapping rather than cutting — a second line here costs 11px, and the ask
+     the whole roster exists to surface is never on this field. */
   .deck-agent-role {
-    display: none;
-  }
-  .deck-agent-row[data-needs-you="true"] .deck-agent-state,
-  .deck-agent-row[data-retired="true"] .deck-agent-state {
-    width: var(--deck-state-col);
-  }
-  /* `Retired` alone is 44px and fits the 80px column; the stamp is what does
-     not, so the stamp is what drops — the least load-bearing datum on the row,
-     and on its tooltip either way. Exactly the asking row's rung. */
-  .deck-agent-row[data-needs-you="true"] .deck-agent-elapsed,
-  .deck-agent-row[data-retired="true"] .deck-agent-elapsed {
-    display: none;
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    justify-self: start;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-align: start;
+    text-overflow: clip;
+    white-space: normal;
+    line-height: 1.25;
   }
 }
 
@@ -9237,6 +9201,158 @@ a.ref-link--session::before {
   .deck-eyebrow-chevron {
     order: 0;
   }
+}
+
+/* ── THE MISSION'S BRIEF (POD-1455) ──────────────────────────────────────────
+   The header's paragraph, in the shell's reading register rather than in a
+   caption's. `chat-md` supplies the setting and every block rule it needs — a
+   list keeps its markers, a paragraph keeps its air, a lead-in stays attached
+   to the list it introduces — so this rule only says the three things that are
+   the DECK's rather than the transcript's.
+
+   INK. `chat-md` writes an answer in `--foreground`, because in the feed it IS
+   the content. Here it sits under a 17px column title and above the mission's
+   controls, so it takes the secondary ink the header's paragraph has always
+   had; the title stays the loudest thing in the block.
+
+   HEIGHT IS A SAFETY VALVE, NOT A PREVIEW. This column IS the mission, and the
+   brief is what the mission is — so it is shown, not sampled. A four-line clamp
+   was the old `<p>`'s and it made the header a teaser for a paragraph the
+   operator would have finished reading in the time it takes to open the dock.
+   What is left is the only limit the column genuinely needs: a brief may not
+   take so much of the window that the spine underneath it has nowhere to be.
+
+   32vh, because the constraint is the WINDOW's height and nothing else here
+   knows it. The deck is the window less the top bar and the status strip, and
+   the rest of this header plus the view bar is a fixed ~154px on top of the
+   brief — so at the smallest window anybody works in, a brief at the cap still
+   leaves the spine under it just under half the column. That is ten or eleven
+   lines of description, which no brief anybody writes reaches; what it stops is
+   a pasted spec taking the column. A line count cannot express that: eleven
+   lines is comfortable on a tall display and the whole column on a laptop in a
+   split window.
+
+   THE CUT SAYS SO. `line-clamp`'s ellipsis needs a single run of inline text,
+   and this box has blocks in it, so the tail fades instead. Over TWO lines, not
+   one: the cap is a height rather than a line count now, so the cut lands
+   wherever it lands — often in a block's own bottom margin, where a one-line
+   fade dims nothing but empty space and the brief reads as having ended. Two
+   lines of gradient always reach text. Gated on `data-clipped` — measured in
+   JS, because nothing in CSS can answer it — so a brief that fits is never
+   dimmed for a cut that did not happen. */
+.deck-brief.chat-md {
+  max-height: 32vh;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  /* THE EXPAND IS A MOVE, NOT A CUT — the same call `.brief-shelf-text` makes.
+     Everything under this box (the mission's controls, the view bar, the spine)
+     is pushed down by the difference, and on the design's own curve that reads
+     as the header making room, which is what it is. Structural motion, so it is
+     a one-shot layout transition rather than a state signal, and the distance is
+     measured, so the easing is spent on the text and not on empty space. */
+  transition: max-height 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Past the second ceiling the brief scrolls inside itself rather than taking the
+   column: `min(content, 60vh)` stops the box, and this is what lets the operator
+   reach the rest of a pasted spec. */
+.deck-brief[data-open="true"] {
+  overflow-y: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .deck-brief.chat-md {
+    transition: none;
+  }
+}
+/* THE END OF THE BRIEF, DRAWN. A rule on the block's own datum, the full width
+   of the text above it, in the soft tier the shell uses for inner dividers — so
+   the paragraph has a bottom edge instead of dissolving into the row of chips
+   under it. When there is more to read, the rule carries the toggle at its right
+   end; the left end never moves, because it is the same 16px the title and the
+   text stand on. */
+.deck-brief-end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.deck-brief-rule {
+  height: 1px;
+  flex: 1;
+  /* NOT `--hairline-soft`, which is INVISIBLE HERE. The header's ground is the
+     panel tier, and the plain hairline is one step above it — measured off the
+     painted pixels, rgb(36,39,45) of rule against rgb(35,38,45) of ground, so
+     the line was in the DOM and nowhere on the screen. `--chat-rule` is the
+     shell's existing answer to exactly that: the border mixed one notch toward
+     the strong tier on a dark ground, and the plain border on paper, where a
+     hairline already reads and mixing would draw a grid. The token's name says
+     "chat" because that is where the problem was met first; what it encodes is
+     "a hairline that survives a panel-tier face", which is this. */
+  background: var(--chat-rule);
+}
+/* The shell's established toggle voice — `.brief-shelf-toggle`'s, to the letter.
+   Two ways to say "there is more of this" in one window is one too many. */
+.deck-brief-more {
+  flex: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim, var(--muted-foreground));
+  transition: color 160ms ease;
+}
+.deck-brief-more:hover {
+  color: var(--text-strong);
+}
+/* BLOCK RHYTHM IS THE COLUMN'S, NOT THE FEED'S. `chat-md`'s intervals are set
+   for a turn in a transcript, where a paragraph has a whole stage to breathe in
+   and two thirds of a line between thoughts is right. In a 300px column at the
+   top of a list the same intervals put a line and a half between a lead-in and
+   the list it introduces, which is a document's rhythm spent on four sentences.
+   Tighter here, and the list is pulled back onto the header's own 16px datum —
+   a bullet indented past the title it sits under reads as a second, narrower
+   column. */
+.deck-brief p {
+  margin: 0.55em 0;
+}
+.deck-brief :is(ul, ol) {
+  margin: 0.45em 0;
+  /* An `outside` marker is drawn in this padding, and the clamp above is
+     `overflow: hidden` — so a padding tuned to the text's indent alone shaves
+     the left of every bullet off. 1.35em is the disc plus its gap, which is as
+     close to the datum as the marker can come without being cut. */
+  padding-left: 1.35em;
+}
+.deck-brief ol {
+  padding-left: 1.9em;
+}
+.deck-brief li {
+  margin: 0.2em 0;
+}
+/* Not the operator's words: the standing sentence, and the guidance a draft
+   mission carries until its first prompt lands. One step down the ink ramp is
+   the whole difference — same slot, same setting — so "somebody wrote this
+   down" is legible without a label. */
+.deck-brief[data-standing="true"] {
+  color: var(--text-dim);
+}
+.deck-brief[data-clipped="true"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 2lh), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 2lh), transparent 100%);
+}
+/* A brief is a READOUT: the renderer already drops every anchor, and the copy
+   affordance the code renderer injects would be the one clickable thing left in
+   a block that is not meant to be operated. */
+.deck-brief .code-copy {
+  display: none;
+}
+/* A description is not a document. A heading in one is a step of weight and ink
+   inside a header block, not the start of a section — the 1.5em of air `chat-md`
+   puts over a heading for a long answer opens a hole in the middle of a brief
+   whose whole length is four lines. */
+.deck-brief :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: 0.6em;
+  font-size: 1em;
 }
 
 /* ── THE MISSION GAUGE — "the split readout" (POD-710) ───────────────────────
@@ -9290,8 +9406,7 @@ a.ref-link--session::before {
 /* DONE IS THE GAUGE'S ONLY SOLID BAND, and everything unfinished is a tint.
    Finished work is settled, so it is dense; work in flight is light and carries
    the motion. That one weight step is what keeps done and running apart in
-   Daylight, where `--success` is itself a blue and hue alone could not carry it
-   — and in the presets that DO have a green it simply reinforces the hue.
+   Podium, where `--success` is itself a blue and hue alone cannot carry it.
    `--success-solid` rather than `--success`: a fill under 10.5px type is a
    different job from a line, and on paper it wants one step darker to clear the
    contrast floor. */

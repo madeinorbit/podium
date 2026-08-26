@@ -88,7 +88,7 @@ import { color, font, mono, monoLabel, radius, sans, space } from '../theme/them
  */
 
 /** How a folded row ended, in one dim mono word — twin of the desktop's
- *  `foldedMarker`. Nothing here is an ask, so none of it is amber. */
+ *  `foldedMarker`. Nothing here is an ask, so none of it takes the accent. */
 function foldedMarker(issue: IssueWire, lane: 'closed' | 'snoozed', now: number): string {
   if (lane === 'snoozed') {
     const until = issue.deferUntil ? Date.parse(issue.deferUntil) : Number.NaN
@@ -814,7 +814,7 @@ const styles = StyleSheet.create({
   },
   rowAttention: {
     minHeight: 68,
-    backgroundColor: 'rgba(245, 197, 24, 0.05)',
+    backgroundColor: alpha(color.needsYou, 0.05),
   },
   rowQueued: {
     opacity: 0.72,

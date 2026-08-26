@@ -176,15 +176,21 @@ export function WorkRowShell({
       }
     : hex
       ? // Var-driven so the hover class can override it — an inline `background`
-        // would always beat `hover:` (POD-166: tint-aware hover). Both doses ride
-        // --issue-tint-scale, so warm paper takes its lower dose. They step up
+        // would always beat `hover:` (POD-166: tint-aware hover). They step up
         // from the pre-3a whisper (4/8) because 3a asked the tint to separate one
         // row from the next on its own; the row rule is back (POD-1078) and the
         // tint keeps the stronger dose, since what it says now is WHOSE row this
         // is rather than where the row ends.
+        //
+        // --issue-row-tint-scale, NOT the general --issue-tint-scale (POD-1456):
+        // paper's general scale is held down for the WIDE tinted surfaces (deck
+        // fade, tab strip), and at that dose the row's hue was visible without
+        // being nameable. The row keeps its own scale so it can read as a colour
+        // while those surfaces stay where POD-725 put them; the fallback chain
+        // ends at the general scale so a scope that sets only that still works.
         ({
-          '--row-bg': `color-mix(in srgb, ${hex} calc(7 * var(--issue-tint-scale, 1%)), var(--sidebar))`,
-          '--row-hover-bg': `color-mix(in srgb, ${hex} calc(11 * var(--issue-tint-scale, 1%)), var(--sidebar))`,
+          '--row-bg': `color-mix(in srgb, ${hex} calc(7 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))), var(--sidebar))`,
+          '--row-hover-bg': `color-mix(in srgb, ${hex} calc(11 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))), var(--sidebar))`,
         } as CSSProperties)
       : {}
   return (
@@ -216,12 +222,11 @@ export function WorkRowShell({
           // top — the hue is the row's resting ground, and mixing more of it
           // into the selected row made selection read as "this one is greener".
           //
-          // `--chip`, NOT `--card`: two of the six theme blocks give card and
-          // sidebar the SAME value (default dark and Podium dark are both flat
-          // near-black frames), so the design's card-toned band would have been
+          // `--chip`, NOT `--card`: Podium dark gives card and sidebar the SAME
+          // value, so the design's card-toned band would have been
           // a selected row you cannot see. `--chip` is the "raised above what it
           // sits on" tier by definition and steps above `--sidebar` in every
-          // preset — including paper, where it IS white, the design's value.
+          // appearance — including paper, where it IS white, the design's value.
           active && 'bg-chip',
           !active && !hex && 'hover:bg-muted',
           !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',

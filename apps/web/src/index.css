@@ -43,7 +43,7 @@
   /* Activity accents: --live = "an agent is actively working" (dots, rails,
      working indicators); --info = the calm user/ready blue (You rail, ready
      dots, minimap user ticks). Dedicated tokens (not --primary/--success) so
-     presets can recolor activity without touching semantic success/warning. */
+     activity can be tuned without touching semantic success/warning. */
   --color-live: var(--live);
   --color-info: var(--info);
 
@@ -76,8 +76,8 @@
   --color-text-faint: var(--text-faint);
   --color-label: var(--label);
 
-  /* Semantic accents. --attention = "waiting on you" amber (alias of podium's
-     primary, but its own channel so presets can split them); --claude = the
+  /* Semantic accents. --attention = "waiting on you" (separate from the
+     primary fill so light mode can use legible bronze text); --claude = the
      Claude brand terracotta (agent icons, cursor block, ⏺ glyphs); --flow = the
      neutral slate that colours the whole context flow when an issue has no
      assigned colour. Reserved: none of these three hues may ever be used as an
@@ -119,11 +119,11 @@
   --radius-composer: 9px;
   --radius-tray: 10px;
 
-  /* Engraved / elevation shadows. The GEOMETRY is constant across presets; the
+  /* Engraved / elevation shadows. The GEOMETRY is constant across appearances; the
      carve INK is not. A dark ground can take a real bite of black, but the same
      black on paper reads as dirt rather than depth, so light themes override
      --carve-* with their own ink at a much lower alpha (POD-372). The defaults
-     below are the dark-ground values — every existing preset keeps them.
+     below are the dark-ground values.
      engraved: the recessed middle column; engraved-bar: the folded 44px vertical
      bar; bar-drop: drop below compact section bars; popover: colour-picker /
      panel-menu overlays. */
@@ -181,283 +181,7 @@
   --well-cell-lip: rgb(0 0 0 / 0.35);
 }
 
-/* ── shadcn (Nova) preset — light (default: no data-theme + no .dark) ───────────── */
-:root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --success: oklch(0.6 0.13 163);
-  --success-solid: oklch(0.52 0.13 163);
-  --success-foreground: #ffffff;
-  --warning: oklch(0.78 0.16 70);
-  --live: #2f6bff;
-  --info: #3b82f6;
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-
-  /* Redesign tokens — derived light equivalents (the handoff is dark-only;
-     podium-dark is the only first-class preset, these are non-breaking). */
-  --engraved: oklch(0.965 0 0);
-  --bar: oklch(0.94 0 0);
-  --tabstrip: oklch(0.975 0 0);
-  --rail: oklch(0.97 0 0);
-  --chip: oklch(1 0 0);
-  --hairline-soft: oklch(0.935 0 0);
-  --hairline-bar: oklch(0.9 0 0);
-  --border-strong: oklch(0.845 0 0);
-  --text-strong: oklch(0.1 0 0);
-  --text-dim: oklch(0.6 0 0);
-  --text-faint: oklch(0.68 0 0);
-  --label: oklch(0.55 0 0);
-  --attention: #d97706;
-  --attention-foreground: #ffffff;
-  --claude: #d97757;
-  --flow: #64748b;
-  --flow-foreground: #ffffff;
-  /* Issue-accent channel: components override --issue per shell subtree
-     (style={{ '--issue': hex }}); default is the neutral slate flow. */
-  --issue: var(--flow);
-
-  /* GHOST-PREVIEW RAMP (POD-1058). The four greys an empty surface draws its
-     dead copy of itself in, brightest first. They are MIXES OVER TRANSPARENT
-     rather than flat values so one ramp serves every surface a ghost lands on —
-     the work list, the deck and the dock are three different tones, and a fixed
-     hex tuned against one of them is a visible patch on the other two.
-     Light needs a heavier dose than dark for the same apparent step: ink on
-     stone loses contrast faster than light on ink (the dark block re-states
-     these four at roughly two-thirds the mix). */
-  --ghost-1: color-mix(in srgb, var(--foreground) 18%, transparent);
-  --ghost-2: color-mix(in srgb, var(--foreground) 14%, transparent);
-  --ghost-3: color-mix(in srgb, var(--foreground) 10%, transparent);
-  --ghost-4: color-mix(in srgb, var(--foreground) 6%, transparent);
-}
-
-/* Popover ink, dark only. The `:root` carve values above are shared with light
-   presets that never overrode them, so the softer cast is scoped to `.dark`
-   rather than folded into the defaults. Geometry is untouched — this is the
-   same lift, printed with less black, because at 0.65 the cast read as a
-   second dark panel under the popover instead of a shadow. Each dark preset
-   that restates the carve ink restates this too. */
-.dark {
-  --carve-popover-far: rgb(0 0 0 / 0.45);
-  --carve-popover-near: rgb(0 0 0 / 0.32);
-}
-
-/* ── shadcn (Nova) preset — dark ────────────────────────────────────────────────── */
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --success: oklch(0.7 0.15 162);
-  --success-solid: oklch(0.7 0.15 162);
-  --success-foreground: oklch(0.22 0.05 162);
-  --warning: oklch(0.83 0.16 82);
-  --live: #6f9dff;
-  --info: #3b82f6;
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-
-  /* Redesign tokens — derived dark-neutral equivalents (non-breaking). */
-  --engraved: oklch(0.12 0 0);
-  --bar: oklch(0.1 0 0);
-  --tabstrip: oklch(0.16 0 0);
-  --rail: oklch(0.17 0 0);
-  --chip: oklch(0.24 0 0);
-  --hairline-soft: oklch(1 0 0 / 8%);
-  --hairline-bar: oklch(1 0 0 / 12%);
-  --border-strong: oklch(1 0 0 / 20%);
-  --text-strong: oklch(0.985 0 0);
-  --text-dim: oklch(0.55 0 0);
-  --text-faint: oklch(0.45 0 0);
-  --label: oklch(0.6 0 0);
-  --attention: #f59e0b;
-  --attention-foreground: #161006;
-  --claude: #d97757;
-  --flow: #94a3b8;
-  --flow-foreground: #141a24;
-
-  /* The ghost ramp's dark half — see :root. Light ink over a near-black ground
-     separates at a much lower dose than dark ink over stone does, so the same
-     four visible steps cost about two-thirds of the mix. */
-  --ghost-1: color-mix(in srgb, var(--foreground) 12%, transparent);
-  --ghost-2: color-mix(in srgb, var(--foreground) 9%, transparent);
-  --ghost-3: color-mix(in srgb, var(--foreground) 5.5%, transparent);
-  --ghost-4: color-mix(in srgb, var(--foreground) 2.5%, transparent);
-}
-
-/* ── Podium preset — light (derived from the brand palette) ─────────────────────── */
-[data-theme="podium"] {
-  --radius: 0.375rem;
-  --background: #f7f7f9;
-  --foreground: #1a1a22;
-  --card: #ffffff;
-  --card-foreground: #1a1a22;
-  --popover: #ffffff;
-  --popover-foreground: #1a1a22;
-  --primary: #d97706;
-  --primary-foreground: #ffffff;
-  --secondary: #ececf0;
-  --secondary-foreground: #1a1a22;
-  --muted: #ececf0;
-  --muted-foreground: #5a5a66;
-  --accent: #e4e4ea;
-  --accent-foreground: #1a1a22;
-  --destructive: #dc2626;
-  --border: #e2e2e8;
-  --input: #e2e2e8;
-  --ring: #d97706;
-  --success: #059669;
-  /* White on #059669 is 3.8:1 — under the floor for 10.5px type. One step
-     darker clears it, and the band is still unmistakably the success hue. */
-  --success-solid: #047857;
-  --success-foreground: #ffffff;
-  --warning: #d97706;
-  --live: #2f6bff;
-  --info: #3b82f6;
-  --sidebar: #f0f0f3;
-  --sidebar-foreground: #1a1a22;
-  --sidebar-primary: #d97706;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e4e4ea;
-  --sidebar-accent-foreground: #1a1a22;
-  --sidebar-border: #e2e2e8;
-  --sidebar-ring: #d97706;
-
-  /* Redesign tokens — derived light equivalents (non-breaking). */
-  --engraved: #efeff2;
-  --bar: #e9e9ee;
-  --tabstrip: #f2f2f5;
-  --rail: #f0f0f3;
-  --chip: #ffffff;
-  --hairline-soft: #e8e8ee;
-  --hairline-bar: #dcdce4;
-  --border-strong: #c4c4ce;
-  --text-strong: #0e0e14;
-  --text-dim: #8a8a96;
-  --text-faint: #a0a0ac;
-  --label: #7a7a86;
-  --attention: #d97706;
-  --attention-foreground: #ffffff;
-  --claude: #d97757;
-  --flow: #64748b;
-  --flow-foreground: #ffffff;
-}
-
-/* ── Podium preset — dark = the brand's signature look (amber on near-black) ─────── */
-[data-theme="podium"].dark {
-  --radius: 0.375rem;
-  --background: #0e0e12;
-  --foreground: #d7d7e0;
-  --card: #16161c;
-  --card-foreground: #d7d7e0;
-  --popover: #16161c;
-  --popover-foreground: #d7d7e0;
-  --primary: #f59e0b;
-  --primary-foreground: #0e0e12;
-  --secondary: #25252f;
-  --secondary-foreground: #f3f3f8;
-  --muted: #1d1d25;
-  --muted-foreground: #9a9aa8;
-  --accent: #25252f;
-  --accent-foreground: #f3f3f8;
-  --destructive: #f87171;
-  --border: #2a2a34;
-  --input: #2a2a34;
-  --ring: #f59e0b;
-  --success: #34d399;
-  --success-solid: #34d399;
-  --success-foreground: #05241a;
-  --warning: #fbbf24;
-  /* Activity hues (POD-166 R10): live/working reads calm blue, user/ready blue-500. */
-  --live: #6f9dff;
-  --info: #3b82f6;
-  /* Handoff v2 sidebar is the plain panel surface (#16161c / #2a2a34) — the old
-     mock's distinct #141419/#22222b tint is gone; sidebar tokens collapse onto
-     card/border so the sidebar and panels read as one chrome. */
-  --sidebar: #16161c;
-  --sidebar-foreground: #d7d7e0;
-  --sidebar-primary: #f59e0b;
-  --sidebar-primary-foreground: #0e0e12;
-  --sidebar-accent: #25252f;
-  --sidebar-accent-foreground: #f3f3f8;
-  --sidebar-border: #2a2a34;
-  --sidebar-ring: #f59e0b;
-
-  /* Redesign tokens — canonical handoff v2 values (this preset is the design's
-     source of truth; every other preset derives). */
-  --engraved: #0a0a0e;
-  --bar: #08080c;
-  --tabstrip: #101016;
-  --rail: #131318;
-  --chip: #1b1b22;
-  --hairline-soft: #25252f;
-  --hairline-bar: #2e2e38;
-  --border-strong: #3a3a46;
-  --text-strong: #f3f3f8;
-  --text-dim: #6c6c78;
-  --text-faint: #5a5a66;
-  --label: #7a7a86;
-  --attention: #f59e0b;
-  --attention-foreground: #161006;
-  --claude: #d97757;
-  --flow: #94a3b8;
-  --flow-foreground: #141a24;
-}
-
-/* ── Superade preset — light ("Paper") [POD-725] ──────────────────────────────────
+/* ── Podium theme — light ("Paper") [POD-725] ─────────────────────────────────────
    The light theme is warm paper, not cool office glass. Three rules:
 
    1. WARM, NOT NEUTRAL. Every surface is a stone/oat tone (hue ≈ 80–90, chroma
@@ -480,12 +204,17 @@
    ONE INK: #1d1c19, a warm near-black. Every neutral and every carve alpha is
    that ink, so nothing in the window is a cool grey.
 
-   Yellow keeps the primary role (navy-on-yellow measures 11.1:1) but yellow
-   FILLS and ochre WRITES: --attention is a `color:` in six places, so it takes
-   #8a6200. #f5c518 as text is 1.6:1 and must never reach a text token. The
-   silhouette rim Daylight needed is gone — against warm stone the yellow reads
-   as its own object without an edge, and the rim only muddied it. */
-[data-theme="superade"] {
+   BISQUE FILLS, BRONZE WRITES. The accent is #d9b477 — the icon's light-cut
+   plane. It lands on the yellow's own lightness, so nothing in the token graph
+   shifts underneath it and every color-mix tint in styles.css keeps the dose
+   the design already tuned. It is a fill and nothing else: 1.6:1 on stone,
+   exactly the constraint the yellow had, so it must never reach a text token.
+   --attention is a `color:` in six places and takes #7a6134 — bisque's hue
+   with the chroma held down, 5.2:1. The silhouette rim comes BACK (see
+   --primary-rim): the yellow read as its own object against warm stone, and
+   bisque, at half the chroma, does not. Ochre #8a6200 stays on as --warning
+   only — bisque is the material, the saturated warm is the alarm. */
+[data-theme="podium"] {
   /* 8px — the design's chip/pill radius. The named radii (--radius-row 7,
      --radius-composer 9, --radius-tray 10) already match and are unchanged. */
   --radius: 0.5rem;
@@ -499,7 +228,7 @@
   --card-foreground: #38362f;
   --popover: #ffffff;
   --popover-foreground: #38362f;
-  --primary: #f5c518;
+  --primary: #d9b477;
   --primary-foreground: #1d1c19;
   --secondary: #eceae4;
   --secondary-foreground: #1d1c19;
@@ -510,8 +239,8 @@
   --destructive: #c81e2b;
   --border: #e6e5e0;
   --input: #e2e0d9;
-  --ring: #c8990a;
-  /* Superade has no green: success reads in its blue, as in the dark variant.
+  --ring: #b08c4e;
+  /* Podium has no green: success reads in its blue, as in the dark variant.
      TWO blues, though, not one. They were briefly the same value, which broke
      the mission gauge — its done and running bands sit adjacent in one meter and
      would have been the identical colour, leaving the counts inside them as the
@@ -526,14 +255,20 @@
   --warning: #8a6200;
   --live: #2a62f0;
   --info: #2a62f0;
+  /* Chart neutrals are mode-independent and inherit into the dark block. */
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
   --sidebar: #f4f3f0;
   --sidebar-foreground: #38362f;
-  --sidebar-primary: #f5c518;
+  --sidebar-primary: #d9b477;
   --sidebar-primary-foreground: #1d1c19;
   --sidebar-accent: #eceae4;
   --sidebar-accent-foreground: #1d1c19;
   --sidebar-border: #e6e5e0;
-  --sidebar-ring: #c8990a;
+  --sidebar-ring: #b08c4e;
 
   /* Surface tiers. Ordering inverts the dark ramp (rule 3): the rail is the
      DEEPEST chrome and the card the brightest, with the command bar and status
@@ -560,20 +295,31 @@
   --text-faint: #a3a199;
   --label: #8f8d85;
 
-  /* Ochre — the brand hue as ink (5.6:1). Yellow fills, ochre writes. */
-  --attention: #8a6200;
+  /* Bronze — the accent hue as ink (5.2:1). Bisque fills, bronze writes. */
+  --attention: #7a6134;
   --attention-foreground: #ffffff;
-  /* No rim: on warm stone the yellow already has a silhouette, and the ochre
-     edge Daylight needed against cool grey read as dirt here. Kept as a token
-     (rather than deleted) because .btn-primary-rim and the light/dark leakage
-     test both expect the name to exist in this block. */
-  --primary-rim: transparent;
+  /* The rim is back. The yellow carried its own silhouette against warm stone,
+     so this was transparent; bisque is quiet enough that the button otherwise
+     dissolves into the ground. Darkening the FILL to restore the edge was the
+     wrong lever — it cost the label four points of contrast (10.4:1 → 6.5:1).
+     The rim does it instead, and the label holds 9.4:1. */
+  --primary-rim: #b08c4e;
 
   --claude: #b8532e;
   /* The no-colour flow. Warm taupe, not slate — a blue-grey flow over stone is
      the one thing that reliably makes this palette look broken. */
   --flow: #85817a;
   --flow-foreground: #ffffff;
+  /* Issue-accent channel: components override --issue per shell subtree
+     (style={{ '--issue': hex }}); default is the neutral flow. */
+  --issue: var(--flow);
+
+  /* GHOST-PREVIEW RAMP (POD-1058). Mixes over transparent so it serves every
+     surface; the dark appearance below needs a lighter dose for the same step. */
+  --ghost-1: color-mix(in srgb, var(--foreground) 18%, transparent);
+  --ghost-2: color-mix(in srgb, var(--foreground) 14%, transparent);
+  --ghost-3: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --ghost-4: color-mix(in srgb, var(--foreground) 6%, transparent);
 
   /* Carve in the warm ink, LIGHTLY. Daylight needed 26% because its tiers were
      so close that the groove had to do all the separating; here tone already
@@ -618,9 +364,27 @@
      Lines are barely touched — a hairline has to stay visible to do its job. */
   --issue-tint-scale: 0.4%;
   --issue-line-scale: 0.8%;
+  /* THE WORK ROW GETS ITS OWN DOSE ON PAPER (POD-1456). The warning above is
+     about tint over WIDE surfaces — the deck's fade, the tab strip, the stage —
+     where a hue spread across half the window stops being an accent. A sidebar
+     row is the opposite case: a 306px band, stacked twenty deep, whose tint is
+     the only thing saying WHOSE row this is. At the general 0.4% the row's 7%
+     resting dose lands ~2.8% over warm stone, which reads as a smudge of warmth
+     rather than as a colour — you can see that a row is tinted but not which
+     colour it is, so the channel carries no information.
+     1% — the SAME dose dark ships — is the settled value: the row rests at 7%
+     and hovers at 11% in both appearances, so an issue's colour is the same
+     statement whichever theme you are in, which is the point of an identity
+     channel. That is deliberately louder than the 0.6% first tried here; on
+     paper 0.6% named the hue but still asked you to look for it, and a row you
+     have to look at is not a row you can scan past.
+     Paper and dark agreeing on the ROW does not undo the split — the general
+     scale stays 0.4% here, so the wide surfaces the warning above is about are
+     untouched. The token is what lets those two facts coexist. */
+  --issue-row-tint-scale: 1%;
 }
 
-/* ── Superade preset — dark ("Dark Ink") [POD-737] ────────────────────────────────
+/* ── Podium theme — dark ("Dark Ink") [POD-737] ───────────────────────────────────
    The dark theme is neutral ink, not navy. It was deep navy (#0a0f1c ground,
    #121b30 card) because the first Superade mock painted the chrome in the brand's
    blue; the Dark Ink mock drops the hue from the neutrals entirely and keeps the
@@ -637,15 +401,18 @@
       the --well-* block below flips with them.
       background 16171a · sidebar/dock 191a1e · bar 1b1d21 · rail/muted 1e2024 ·
       tabstrip 202228 · card 23262d · chip 252830 · secondary 2c3038.
-   3. YELLOW FILLS, GOLD WRITES. Same split Paper makes, one tier up: #f5c518
-      stays the fill (buttons, dots, spines) and #e3ba52 — the mock's own value —
-      does every attention/warning `color:`. Pure yellow as running text at this
-      size reads as a highlighter smear against neutral ink.
+   3. ONE ACCENT, BOTH JOBS. Paper still splits fill from ink; dark no longer
+      has to. #f5c518 could not be running text — a highlighter smear against
+      neutral ink — so #e3ba52 existed purely to carry the `color:` cases.
+      Bisque #d9b477 measures 9.9:1 on this ground and does not glare, so
+      --primary and --attention collapse to one value and the split disappears.
+      The yellow is not deleted, it is demoted: #f5c518 becomes --warning, the
+      only high-chroma warm left in the window.
 
    Blue keeps its two jobs from the mock: #6f9dff is what is MOVING (spinners,
    live rings, meters) and #2a62f0 the settled fill behind them. Still no green;
    red stays reserved for alerts and destructive. */
-[data-theme="superade"].dark {
+[data-theme="podium"].dark {
   --radius: 0.375rem;
   --background: #16171a;
   --foreground: #d7dae0;
@@ -653,7 +420,7 @@
   --card-foreground: #d7dae0;
   --popover: #23262d;
   --popover-foreground: #d7dae0;
-  --primary: #f5c518;
+  --primary: #d9b477;
   --primary-foreground: #16171a;
   --secondary: #2c3038;
   --secondary-foreground: #f2f3f5;
@@ -664,23 +431,23 @@
   --destructive: #e5303f;
   --border: #26292f;
   --input: #2a2d33;
-  --ring: #f5c518;
+  --ring: #d9b477;
   /* No green: host-health dots and quota meters render in the mock's blue.
      Live agent activity reads calm blue too (POD-166 R10). */
   --success: #2a62f0;
   --success-solid: #1d4ed8;
   --success-foreground: #ffffff;
-  --warning: #e3ba52;
+  --warning: #f5c518;
   --live: #6f9dff;
   --info: #2a62f0;
   --sidebar: #191a1e;
   --sidebar-foreground: #d7dae0;
-  --sidebar-primary: #f5c518;
+  --sidebar-primary: #d9b477;
   --sidebar-primary-foreground: #16171a;
   --sidebar-accent: #2c3038;
   --sidebar-accent-foreground: #f2f3f5;
   --sidebar-border: #24272d;
-  --sidebar-ring: #f5c518;
+  --sidebar-ring: #d9b477;
 
   /* Surface tiers — the mock's own values (rule 2). The right dock takes the
      same tone as the work list (both are #191a1e in the mock) and the icon rail,
@@ -704,9 +471,10 @@
   --text-dim: #848a94;
   --text-faint: #6f7580;
   --label: #949aa4;
-  /* Gold writes (9.9:1); --primary above keeps the fill (rule 3). */
-  --attention: #e3ba52;
-  --attention-foreground: #161006;
+  /* Same value as --primary (rule 3): bisque writes at 9.9:1 as well as it
+     fills, so the two tokens no longer diverge on this ground. */
+  --attention: #d9b477;
+  --attention-foreground: #191308;
   --claude: #d97757;
   /* The no-colour flow is a true neutral, not slate: a blue-grey default tint
      over neutral ink reads as an issue colour nobody chose. */
@@ -714,14 +482,13 @@
   --flow-foreground: #16171a;
 
   /* Restore the dark-ground values for everything the light block above
-     introduces — `[data-theme="superade"]` matches this element too, so an
+     introduces — `[data-theme="podium"]` matches this element too, so an
      unrestored token would leak into dark (POD-372). */
   --ink: #f3f3f8;
-  --primary-rim: #f5c518;
+  --primary-rim: #e8ca97;
   --carve-engraved: rgb(0 0 0 / 0.85);
   --carve-drop: rgb(0 0 0 / 0.9);
-  /* Softened with the shared dark ink above — this selector outranks `.dark`,
-     so leaving 0.65/0.5 here would keep the heavy cast on superade alone. */
+  /* Softened for the dark ground so the cast reads as a shadow, not another panel. */
   --carve-popover-far: rgb(0 0 0 / 0.45);
   --carve-popover-near: rgb(0 0 0 / 0.32);
   --carve-sheet-far: rgb(0 0 0 / 0.65);
@@ -747,16 +514,22 @@
   --well-cell-lip: rgb(0 0 0 / 0.35);
   --issue-tint-scale: 1%;
   --issue-line-scale: 1%;
+  /* Unchanged from the general scale — see the paper block's note (POD-1456).
+     Spelled out rather than left to the fallback so the row's dose in both
+     appearances is one grep away. */
+  --issue-row-tint-scale: 1%;
+  --ghost-1: color-mix(in srgb, var(--foreground) 12%, transparent);
+  --ghost-2: color-mix(in srgb, var(--foreground) 9%, transparent);
+  --ghost-3: color-mix(in srgb, var(--foreground) 5.5%, transparent);
+  --ghost-4: color-mix(in srgb, var(--foreground) 2.5%, transparent);
 }
 
 /* ── Syntax channel — the code editor's ink [POD-788] ────────────────────────
-   ONE palette per MODE, not per preset. Syntax colour is not chrome: it is a
+   ONE palette per MODE. Syntax colour is not chrome: it is a
    set of ~10 hues that have to stay distinguishable from each other while
-   sitting on whatever ground the preset paints, and the three presets differ
-   only in their ground and their brand accent — near-black in every dark
-   variant, white-to-warm-stone in every light one. Forking this by preset would
-   be thirty values maintained in three places to say the same thing, and it is
-   how a preset ends up with a keyword nobody can read.
+   sitting on the active ground. Forking it separately from the theme would be
+   two palettes maintained in two places to say the same thing, and it is how an
+   appearance ends up with a keyword nobody can read.
 
    The palette is built the way the rest of the theme is: MEANING FIRST, and no
    more colour than the meaning needs. Structure (punctuation, operators,
@@ -766,7 +539,7 @@
    ink and lean italic, so prose in a code file reads as prose.
 
    Hues are the shell's own vocabulary, desaturated to document strength: the
-   brand yellow becomes ochre/sand for literals, the activity blue carries call
+   brand accent becomes ochre/sand for literals, the activity blue carries call
    sites, --claude's terracotta carries markup tags, and violet — the one hue
    the chrome never spends — is free to mean "keyword" without colliding with
    any state the surrounding UI can be in.
@@ -815,7 +588,7 @@
   --syntax-gutter-active: #d5d7de;
   --syntax-selection: rgb(127 176 255 / 0.22);
   --syntax-active-line: rgb(255 255 255 / 0.035);
-  --syntax-cursor: #f5c518;
+  --syntax-cursor: #d9b477;
   --syntax-match: rgb(127 176 255 / 0.22);
 }
 
@@ -949,10 +722,10 @@
     var(--issue-base, var(--card)) 240px
   );
 }
-/* The primary button's rim — the 1px edge that gives the yellow fill a
-   silhouette on Superade's light paper (POD-372). Plain (unlayered) so it beats
-   the base variant's `border-transparent` utility regardless of source order;
-   --primary-rim is unset outside Superade, so it stays transparent there. */
+/* The primary button's rim — bronze on Paper, pale bisque on Dark Ink. Both
+   appearances set it now; it is transparent nowhere.
+   Plain (unlayered) so it beats the base variant's `border-transparent`
+   utility regardless of source order. */
 .btn-primary-rim {
   border-color: var(--primary-rim, transparent);
 }

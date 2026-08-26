@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shareAgentConcurrency, shareShipRate, shareTokenBurn } from './status-share'
+import { shareAgentConcurrency, shareTokenBurn } from './status-share'
 
 describe('status-strip X share copy', () => {
   it('names @podium_ade in every intent', () => {
@@ -10,9 +10,6 @@ describe('status-strip X share copy', () => {
       shareTokenBurn(0),
       shareTokenBurn(4.99),
       shareTokenBurn(12.4),
-      shareShipRate(0),
-      shareShipRate(1),
-      shareShipRate(12),
     ]
     for (const post of posts) {
       expect(post).toContain('@podium_ade')
@@ -41,12 +38,5 @@ describe('status-strip X share copy', () => {
     expect(shareTokenBurn(0)).toContain('rounding error')
     // The boundary is the flex: $5.00 is a burn, $4.99 is a rounding error.
     expect(shareTokenBurn(5)).toContain('I am burning')
-  })
-
-  it('flexes the day of ships and has a dry empty runway', () => {
-    expect(shareShipRate(1)).toContain('1 issue shipped on @podium_ade in the last 24h')
-    expect(shareShipRate(12)).toContain('12 issues shipped on @podium_ade in the last 24h')
-    expect(shareShipRate(0)).toContain('0 ships in 24 hours on @podium_ade')
-    expect(shareShipRate(0)).toContain('the runway is empty')
   })
 })

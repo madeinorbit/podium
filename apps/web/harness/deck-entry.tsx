@@ -30,8 +30,9 @@ declare global {
       setWidth: (px: number) => void
       /** Swap the fixture; `bump` re-renders against the new one. */
       setMission: (name: keyof typeof MISSIONS) => void
-      setMode: (mode: 'full' | 'active' | 'needs-you') => void
+      setMode: (mode: 'full' | 'working' | 'needs-you') => void
       setIssueColor: (hex: string | null) => void
+      setTheme: (mode: 'light' | 'dark') => void
       point: (sessionId: string | null) => void
     }
   }
@@ -173,6 +174,99 @@ const MISSIONS = {
     state.paneA = 's2'
   },
   /**
+   * THE OPERATOR'S FILED ROSTER (POD-1461) — the demo rig's MRD-2, verbatim.
+   *
+   * Four agents directly on one mission and no sub-tasks, so the roster IS the
+   * spine: every one of the four fields is occupied on at least one row (a
+   * long spawn provenance, a bare peer, a done total, an ask) and the ARCHIVED
+   * divider follows immediately underneath. It is the shape the operator
+   * called cluttered, which makes it the shape any alignment fix has to hold.
+   */
+  mrd: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'MRD-2',
+        title: 'Migrate sessions store from SQLite to Postgres',
+        description:
+          'Dual-write behind a flag, backfill, then cut over. Needs a rollback plan.',
+        stage: 'in_progress',
+        memberSessionIds: ['s1', 's2', 's3', 's4', 'a1', 'a2', 'a3'],
+      }),
+    ]
+    state.sessions = [
+      session('s1', {
+        issueId: 'root',
+        displayRef: 'MRD-2-D',
+        name: 'Migration coordinator',
+        title: 'Migration coordinator',
+        agentState: {
+          // The running clock is driven by the real wall clock, not the stub's
+          // frozen `coarseNow`, so the fixture's 82:00 has to be anchored to it.
+          phase: 'working',
+          since: new Date(Date.now() - 60_000).toISOString(),
+          workingMsTotal: 4_860_000,
+        },
+      }),
+      session('s2', {
+        issueId: 'root',
+        displayRef: 'MRD-2-E',
+        name: 'Dual-write layer',
+        title: 'Dual-write layer',
+        spawnedBy: 'session:s1',
+        unread: true,
+        lastActiveAt: '2025-12-31T23:30:00.000Z',
+      }),
+      session('s3', {
+        issueId: 'root',
+        displayRef: 'MRD-2-F',
+        name: 'Backfill job',
+        title: 'Backfill job',
+        spawnedBy: 'session:s1',
+        unread: true,
+        agentState: {
+          phase: 'ended',
+          since: new Date(Date.now() - 60_000).toISOString(),
+          workingMsTotal: 165_000,
+        },
+      }),
+      session('s4', {
+        issueId: 'root',
+        displayRef: 'MRD-2-G',
+        name: 'Rollback runbook',
+        title: 'Rollback runbook',
+        agentState: { phase: 'needs_user', since: '2025-12-31T23:30:00.000Z' },
+      }),
+      // The three the reveal counts. Archived sessions never draw in the tree.
+      session('a1', {
+        issueId: 'root',
+        displayRef: 'MRD-2-A',
+        name: 'Schema survey',
+        title: 'Schema survey',
+        archived: true,
+        lastActiveAt: '2025-12-30T00:00:00.000Z',
+      }),
+      session('a2', {
+        issueId: 'root',
+        displayRef: 'MRD-2-B',
+        name: 'Connection pool spike',
+        title: 'Connection pool spike',
+        archived: true,
+        lastActiveAt: '2025-12-30T00:00:00.000Z',
+      }),
+      session('a3', {
+        issueId: 'root',
+        displayRef: 'MRD-2-C',
+        name: 'Wire format check',
+        title: 'Wire format check',
+        archived: true,
+        lastActiveAt: '2025-12-30T00:00:00.000Z',
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = 's1'
+  },
+  /**
    * THE VIEW BAR'S OWN CASE (POD-1245) — a mission shaped like the one an
    * operator filed `Active` against.
    *
@@ -295,6 +389,163 @@ const MISSIONS = {
     state.paneA = null
   },
   /**
+   * THE FILED CASE FOR POD-1452 — the operator's screenshot, verbatim.
+   *
+   * One mission in `review`, its only agent finished and wearing the ✓, and one
+   * proposed spinoff hanging off it. `Working` — `Active`, as it was then
+   * called — showed all of it, because it matched the TASK (open) and then
+   * handed the row its whole crew without asking anything about the agent.
+   * Nothing here is being worked: the view should be the header, its own
+   * sentence, and nothing else.
+   */
+  agentFilters: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-1429',
+        title: 'Bug: Mobile Import Syntax',
+        description:
+          'Two mobile component suites fail during module import before collecting tests.',
+        stage: 'review',
+        memberSessionIds: ['s1'],
+      }),
+      issue('p1', {
+        parentId: 'root',
+        displayRef: 'POD-1437',
+        stage: 'proposed',
+        title: 'Bug: MobileSyncBoundary render leak',
+      }),
+    ]
+    state.sessions = [
+      session('s1', {
+        issueId: 'root',
+        displayRef: 'POD-1429-A',
+        name: 'Typeof syntax error at import',
+        title: 'Typeof syntax error at import',
+        agentState: {
+          phase: 'idle',
+          since: '2026-01-01T00:00:00.000Z',
+          idle: { kind: 'done' },
+          workingMsTotal: 1_018_000,
+        },
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
+  /**
+   * THE SAME RULE WITH SOMETHING TO COMPARE (POD-1452) — one mission carrying
+   * every agent state the bar sorts on, so the three views can be read side by
+   * side rather than as one empty column.
+   *
+   * `Full spine` shows five agents. `Working` keeps the one mid-turn and drops
+   * every other — the finished ✓, the parked one, the one standing by, and the
+   * one stopped on an offer. That last belongs to `Needs you`, which is what
+   * makes the two tabs disjoint: `Needs you` keeps the asker, plus `t4`'s row,
+   * which is in review with nobody left on it and is an obligation the operator
+   * still owns.
+   */
+  agentFiltersMix: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-1429',
+        title: 'Bug: Mobile Import Syntax',
+        stage: 'in_progress',
+        memberSessionIds: ['s1'],
+      }),
+      issue('t1', {
+        parentId: 'root',
+        displayRef: 'POD-1430',
+        title: 'Native globals in the RN lane',
+        memberSessionIds: ['s2'],
+      }),
+      issue('t2', {
+        parentId: 'root',
+        displayRef: 'POD-1431',
+        title: 'Suite import order',
+        memberSessionIds: ['s3'],
+      }),
+      issue('t3', {
+        parentId: 'root',
+        displayRef: 'POD-1432',
+        title: 'Mock factory keys',
+        stage: 'done',
+        closedReason: 'done',
+        memberSessionIds: ['s4'],
+      }),
+      issue('t4', {
+        parentId: 'root',
+        displayRef: 'POD-1433',
+        title: 'Sync boundary teardown',
+        stage: 'review',
+        memberSessionIds: ['s5'],
+      }),
+      issue('t5', {
+        parentId: 'root',
+        displayRef: 'POD-1434',
+        title: 'Transform cache warmup',
+        stage: 'backlog',
+      }),
+    ]
+    state.sessions = [
+      // Finished its turn, still here, still wearing the ✓ — the filed case.
+      session('s1', {
+        issueId: 'root',
+        displayRef: 'POD-1429-A',
+        name: 'Typeof syntax error at import',
+        title: 'Typeof syntax error at import',
+        agentState: {
+          phase: 'idle',
+          since: '2026-01-01T00:00:00.000Z',
+          idle: { kind: 'done' },
+          workingMsTotal: 1_018_000,
+        },
+      }),
+      session('s2', {
+        issueId: 't1',
+        displayRef: 'POD-1430-A',
+        name: 'Globals sweep',
+        title: 'Globals sweep',
+        // The working timer counts from the WALL clock, not from the stub's
+        // frozen `now`, so a fixed `since` renders a five-digit hour count.
+        agentState: { phase: 'working', since: new Date(Date.now() - 214_000).toISOString() },
+      }),
+      session('s3', {
+        issueId: 't2',
+        displayRef: 'POD-1431-A',
+        name: 'Import order probe',
+        title: 'Import order probe',
+        // Wall-clock, like the working `since` above: an ask with no agentState
+        // dates its timer off `lastActiveAt`, and a fixed one prints "232d ago".
+        lastActiveAt: new Date(Date.now() - 640_000).toISOString(),
+        offer: { message: 'Ready to merge', actions: [], createdAt: '2026-01-01T00:20:00.000Z' },
+      }),
+      // Parked on a finished task: not asking, not working, not going.
+      session('s4', {
+        issueId: 't3',
+        displayRef: 'POD-1432-A',
+        name: 'Mock key audit',
+        title: 'Mock key audit',
+        status: 'hibernated',
+      }),
+      // Standing by: alive, attached, and doing nothing at all.
+      session('s5', {
+        issueId: 't4',
+        displayRef: 'POD-1433-A',
+        name: 'Teardown review',
+        title: 'Teardown review',
+        agentState: {
+          phase: 'idle',
+          since: '2026-01-01T00:10:00.000Z',
+          idle: { kind: 'done' },
+        },
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
+  /**
    * THE FILED CASE FOR POD-1314 — one task, in progress, its only agent exited.
    *
    * Four devices on one header, three of them right: a `no agent` seat, a
@@ -411,7 +662,78 @@ const MISSIONS = {
     state.selectedIssueId = 'root'
     state.paneA = null
   },
+  /**
+   * THE FILED CASE FOR POD-1455 — a mission whose description is a WRITTEN
+   * BRIEF: an opening line, a blank line, then a bullet list. Every other
+   * fixture here carries one flat sentence, which is why the header's prose
+   * block could ship as a `<p>` for so long: with no newline in the string
+   * there was nothing for `white-space` to lose. This one has both, so the
+   * paragraph break and the list markers are measurable rather than asserted.
+   */
+  prose: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-1451',
+        title: 'Live footer metrics',
+        stage: 'review',
+        description:
+          'in the footer bar: make sure:\n\n- agents count is based on "now" / live (can also be last minute or something, don\u2019t risk performance). but, definitely not an avg over last 12h or so\n- burn: the same\n\nremove:\n\n- ships/day\n- work in worktree',
+        memberSessionIds: ['s1'],
+      }),
+    ]
+    state.sessions = [
+      session('s1', {
+        issueId: 'root',
+        displayRef: 'POD-1451-A',
+        name: 'Live Footer Metrics',
+        title: 'Live Footer Metrics',
+        status: 'exited',
+        lastActiveAt: '2026-01-01T00:24:00.000Z',
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
+  /**
+   * THE SAME BRIEF, PASTED RATHER THAN WRITTEN — the extreme the header's cap
+   * exists for. Nobody types this into a task description, but people paste
+   * specs into them, and the only limit the deck keeps is that a brief may not
+   * take so much of the window that the spine has nowhere to be. This is the
+   * fixture that makes that cap bind, and the fade with it.
+   */
+  proseLong: () => {
+    MISSIONS.prose()
+    const root = state.issues[0] as Record<string, unknown>
+    root.description = [
+      'in the footer bar, the readouts have drifted apart and each one needs its own decision:',
+      '',
+      '- agents count is based on "now" / live (can also be last minute or something, don\u2019t risk performance). but, definitely not an avg over last 12h or so',
+      '- burn: the same \u2014 it is a rate, and a rate averaged over half a day is a different quantity from the one the label promises',
+      '- ships/day was measured against a window nobody chose; it reads as a target and it is not one',
+      '- work in worktree double-counts a worktree two sessions share',
+      '',
+      'remove outright:',
+      '',
+      '- ships/day',
+      '- work in worktree',
+      '',
+      'and once those are gone, check the bar still balances at 300px: the readouts left have to shed words before they shed data, the way the command bar does.',
+    ].join('\n')
+  },
 } as const
+
+/**
+ * THE THEME IS AN ATTRIBUTE, NOT A DEFAULT (POD-1455).
+ *
+ * Every token in `index.css` hangs off `[data-theme="podium"]` — the app sets it
+ * in `theme.tsx` — so a harness page that only imports the stylesheet renders
+ * with NO surface, NO ink ramp and NO seams: an untokenized white page that
+ * looks close enough to Paper to be mistaken for it. Dark is the app's own
+ * default, so that is what the harness opens in; `window.deck.setTheme` swaps.
+ */
+document.documentElement.setAttribute('data-theme', 'podium')
+document.documentElement.classList.add('dark')
 
 function Harness(): JSX.Element {
   const [width, setWidth] = useState(366)
@@ -435,6 +757,9 @@ function Harness(): JSX.Element {
         bump((v) => v + 1)
       },
       setIssueColor: (hex) => setColor(hex),
+      setTheme: (mode) => {
+        document.documentElement.classList.toggle('dark', mode === 'dark')
+      },
       // `setHoveredSession(null)` IS the clear; `clearHoveredSession` is the
       // guarded form a row uses on pointer-out and needs its own id.
       point: (id) => setHoveredSession(id as never),

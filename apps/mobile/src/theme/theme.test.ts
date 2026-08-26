@@ -46,6 +46,55 @@ describe('Dark Ink surface ramp', () => {
   })
 })
 
+/**
+ * The accent swap [POD-1436] left two things a reader cannot see in a diff, and
+ * both were live defects before it: the fill and the write collapsing to ONE
+ * value on this ground, and the accent's alpha derivations having to follow the
+ * fill rather than being retyped by hand. Four surfaces had spelled the old
+ * yellow out as a literal `rgba(245, 197, 24, …)` and would have stayed yellow
+ * next to a bisque button.
+ */
+describe('the accent', () => {
+  const BISQUE = '#d9b477'
+  /** rgb() channels of a hex, as the `alpha()` helper writes them. */
+  const channels = (hex: string) => {
+    const n = Number.parseInt(hex.replace('#', ''), 16)
+    return `${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}`
+  }
+
+  it('fills and writes with one value — the split the yellow needed is gone', () => {
+    expect(color.accent).toBe(BISQUE)
+    expect(color.accentTint).toBe(BISQUE)
+    expect(color.needsYou).toBe(BISQUE)
+    expect(color.needsYouText).toBe(BISQUE)
+  })
+
+  it('keeps every alpha derivation on the fill, so none can be left behind', () => {
+    for (const derived of [
+      color.accentSoft,
+      color.accentBorder,
+      color.needsYouSoft,
+      color.needsYouBorder,
+      color.needsYouBg,
+    ]) {
+      expect(derived).toContain(channels(color.accent))
+    }
+  })
+
+  it('has retired Superade Yellow from the phone entirely', () => {
+    for (const value of Object.values(color).flat()) {
+      expect(value).not.toMatch(/#f5c518|#e3ba52|#f59e0b/i)
+      expect(value).not.toContain('245, 197, 24')
+      expect(value).not.toContain('245, 158, 11')
+    }
+  })
+
+  it('carries dark ink on the fill, never white', () => {
+    expect(color.onAccent).toBe(color.bg)
+    expect(luma(color.accent)).toBeGreaterThan(luma(color.onAccent))
+  })
+})
+
 describe('native iOS feel tokens', () => {
   it('uses the non-linear iOS leading table for UI text', () => {
     const sizes = [34, 28, 22, 20, 17, 16, 15, 13, 12, 11] as const

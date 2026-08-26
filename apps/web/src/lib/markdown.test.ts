@@ -182,7 +182,7 @@ describe('linkifyRefs (#474)', () => {
     // reader's text selection died (measured on a 2-5s cadence, the fleet's
     // delta rate), and the layout shifted under the scroller. The chip string
     // is now STABLE; liveness is applied imperatively as attribute writes
-    // (see issue-chip-liveness.ts), which destroy no nodes.
+    // by a transcript-external enhancement, never by rebuilding this html.
     setKnownRefPrefixes(['POD'])
     const out = linkifyRefs('<code>POD-13</code>')
     expect(out).toContain('data-ref="POD-13"')

@@ -492,7 +492,7 @@ export function sessionIssueLinkage(
 }
 
 /** The recovery action offered for a session whose process has exited. */
-export type ExitedAction = 'restart' | 'resume' | 'remove'
+export type ExitedAction = 'restart' | 'resume' | 'relaunch' | 'remove'
 
 /** Copy + recovery action for an exited session, shared by the inline
  *  `ExitedBanner` and the full-pane `ExitedPane` so the two never drift.
@@ -513,13 +513,25 @@ export type ExitedAction = 'restart' | 'resume' | 'remove'
  *  reported by the daemon that tried it — at the moment of the attempt, with a
  *  real reason, rather than predicted from stale state at render time.
  *
- *  `remove` survives for its one honest case: nothing to resume (`resumable`
- *  false — e.g. a spawn that never produced a ref). */
+ *  `remove` survives for its one honest case, and POD-2392 made that case much
+ *  smaller. "No resume ref" used to be read as "nothing to resume", which
+ *  collapsed two opposite situations: an agent that ran and whose ref we never
+ *  learned, and an agent that DIED BEFORE IT EVER OPENED A CONVERSATION —
+ *  Codex exiting into its own updater, the update failing, the row left with no
+ *  way back. The second lost nothing by being started again, and was being
+ *  offered deletion as its only exit. `neverBound` is the server's proof of
+ *  that second case, so it now gets `relaunch`; `remove` keeps only the first,
+ *  where a fresh start really would discard something. */
 export function exitedRecovery(opts: {
   exitCode: number | undefined
   spawnFailure?: string
   isShell: boolean
   resumable: boolean
+  /** Server PROOF that this launch never opened a conversation
+   *  ({@link SessionMeta.neverBound}). Absence is not the opposite claim — it
+   *  covers "we cannot vouch for this row" too, which is why it is only ever
+   *  read as a reason to offer MORE than removal, never less. */
+  neverBound?: boolean
 }): { detail: string; action: ExitedAction } {
   const what = opts.isShell ? 'shell' : 'agent process'
   // Exit code 0 can still be an external kill of the durable host (the PTY
@@ -532,7 +544,14 @@ export function exitedRecovery(opts: {
           ? `The ${what} failed to start: ${opts.spawnFailure}`
           : `The ${what} failed to start.`
         : `The ${what} exited with code ${opts.exitCode}.`
-  return { detail: cause, action: opts.isShell ? 'restart' : opts.resumable ? 'resume' : 'remove' }
+  const action: ExitedAction = opts.isShell
+    ? 'restart'
+    : opts.resumable
+      ? 'resume'
+      : opts.neverBound
+        ? 'relaunch'
+        : 'remove'
+  return { detail: cause, action }
 }
 
 /**

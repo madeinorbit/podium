@@ -23,11 +23,12 @@
  * Hibernate on a `starting` or `reconnecting` session, where the shared rule (and
  * the server) says no.
  */
+import type { ExitedAction } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model/browser'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
 
 /** What the action does, not what it is called — the label is presentation. */
-export type LifecycleActionId = 'resume' | 'restart' | 'remove' | 'hibernate'
+export type LifecycleActionId = 'resume' | 'restart' | 'relaunch' | 'remove' | 'hibernate'
 
 /** Which store action runs it. Kept as a tag rather than a bound closure so the
  *  descriptors stay pure and testable without a store. */
@@ -56,12 +57,10 @@ export interface LifecycleAction {
  *
  * `parked` (hibernated) has exactly one: wake it. `ended` (exited) takes the
  * verb `exitedRecovery` already decided — restart a shell, resume an agent that
- * left a ref, remove what neither applies to.
+ * left a ref, start over an agent proven never to have opened a conversation,
+ * remove what none of those applies to.
  */
-export function recoveryAction(
-  kind: 'parked' | 'ended',
-  action: 'restart' | 'resume' | 'remove',
-): LifecycleAction {
+export function recoveryAction(kind: 'parked' | 'ended', action: ExitedAction): LifecycleAction {
   if (kind === 'parked') {
     return {
       id: 'resume',
@@ -95,13 +94,34 @@ export function recoveryAction(
       disabledReason: null,
     }
   }
+  // The one exited case with nothing to lose and something still to try: the
+  // agent died during startup, before it opened a conversation. Same `resurrect`
+  // call as Resume — the server, holding the proof, is what decides that this
+  // one goes out without a resume ref. The copy says which of the two happened,
+  // because "Resume" over a conversation that never existed would be a lie the
+  // user only discovers afterwards.
+  if (action === 'relaunch') {
+    return {
+      id: 'relaunch',
+      run: 'resurrect',
+      label: 'Start the agent again',
+      compactLabel: 'Start again',
+      busyLabel: 'Starting…',
+      hint: 'It stopped before opening a conversation, so there is nothing to resume — starting again runs it fresh in the same directory.',
+      disabledReason: null,
+    }
+  }
   return {
     id: 'remove',
     run: 'kill',
     label: 'Remove session',
     compactLabel: 'Remove',
     busyLabel: null,
-    hint: 'It left no conversation to resume.',
+    // NOT "it left no conversation" any more: the case where we can prove that
+    // is `relaunch` above. What is left is a session with no recorded way back
+    // into a conversation that may well exist — which is why starting over is
+    // not offered here.
+    hint: 'No way back into its conversation was recorded.',
     disabledReason: null,
   }
 }

@@ -17,26 +17,15 @@
 import { envelopePrincipal, type ParsedEnvelope } from '@podium/client-core/viewmodels'
 import { ChevronDown, Mail as MailIcon, X } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { useMemo, useState } from 'react'
-import {
-  type IssueReferenceLookup,
-  isKnownRefPrefix,
-  renderMarkdown,
-  sanitizeRenderedMarkdown,
-} from '@/lib/markdown'
+import { memo, useMemo, useState } from 'react'
+import { isKnownRefPrefix, renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
 
 /** An envelope-header principal: the nice-id issue ref renders as the same
  *  clickable ref-link chip the markdown pass emits, so the sender/recipient are
  *  as navigable as refs in the body. Legacy `#seq` labels and sessions stay
  *  plain text. */
-function PrincipalLabel({
-  label,
-  issueReferences,
-}: {
-  label: string
-  issueReferences: IssueReferenceLookup
-}): JSX.Element {
+function PrincipalLabel({ label }: { label: string }): JSX.Element {
   const p = envelopePrincipal(label)
   const chip = p.ref !== null && isKnownRefPrefix(p.ref.split('-')[0] ?? '')
   return (
@@ -44,14 +33,7 @@ function PrincipalLabel({
       {p.pre}
       {p.ref !== null &&
         (chip ? (
-          <a
-            className="ref-link ref-link--issue"
-            href={`#${p.ref}`}
-            data-ref={p.ref}
-            data-issue-stage={issueReferences.get(p.ref)?.stage}
-            data-issue-availability={issueReferences.get(p.ref)?.availability}
-            aria-label={issueReferences.get(p.ref)?.accessibleLabel}
-          >
+          <a className="ref-link ref-link--issue" href={`#${p.ref}`} data-ref={p.ref}>
             {p.ref}
           </a>
         ) : (
@@ -87,14 +69,25 @@ function splitSubject(body: string): { subject: string; preview: string } {
   return { subject, preview }
 }
 
+/** Mail bodies are transcript DOM islands too. The surrounding group may
+ * rerender when another block is indexed, but identical HTML must not be
+ * assigned again or the browser loses a selection inside the opened note. */
+const StableEnvelopeMarkdown = memo(function StableEnvelopeMarkdown({ html }: { html: string }) {
+  return (
+    <div
+      className="chat-md mail-item-body"
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized before this boundary
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
+})
+
 function EnvelopeItem({
   envelope,
-  issueReferences,
   markdownHtml,
   forceFull = false,
 }: {
   envelope: ParsedEnvelope
-  issueReferences: IssueReferenceLookup
   markdownHtml?: ReadonlyMap<string, string> | undefined
   /** The active search hit: the matched word may be anywhere in the body, so
    *  the preview is not enough. */
@@ -104,19 +97,18 @@ function EnvelopeItem({
   const full = opened || forceFull
   const setFull = setOpened
   const { subject, preview } = useMemo(() => splitSubject(envelope.body), [envelope.body])
+  const cachedHtml = markdownHtml?.get(envelope.body)
   const html = useMemo(() => {
     if (!full) return ''
-    const unsafeHtml = markdownHtml?.get(envelope.body)
-    return unsafeHtml === undefined
+    return cachedHtml === undefined
       ? renderMarkdown(envelope.body)
-      : sanitizeRenderedMarkdown(unsafeHtml)
-    // No issueReferences dependency: stable chip html, imperative liveness
-    // (POD-1290 follow-up — see ChatBlockView).
-  }, [full, envelope.body, markdownHtml])
+      : sanitizeRenderedMarkdown(cachedHtml)
+    // Ref chips are state-free transcript content (see ChatBlockView).
+  }, [cachedHtml, envelope.body, full])
   return (
     <div className="mail-item" data-testid="mail-item" data-full={full ? 'true' : undefined}>
       <span className="mail-item-from">
-        <PrincipalLabel label={envelope.from} issueReferences={issueReferences} />
+        <PrincipalLabel label={envelope.from} />
       </span>
       <span className="mail-item-main">
         <button
@@ -132,11 +124,7 @@ function EnvelopeItem({
           {envelope.question && <span className="mail-item-badge">question</span>}
         </button>
         {full ? (
-          <div
-            className="chat-md mail-item-body"
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify in renderMarkdown
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
+          <StableEnvelopeMarkdown html={html} />
         ) : (
           preview !== '' && <span className="mail-item-preview">{preview}</span>
         )}
@@ -153,7 +141,6 @@ export function MessageEnvelopeGroup({
   envelopes,
   className,
   blockIndex,
-  issueReferences,
   markdownHtml,
   ts,
   onBodyClick,
@@ -162,7 +149,6 @@ export function MessageEnvelopeGroup({
   envelopes: readonly ParsedEnvelope[]
   className: string
   blockIndex?: number | undefined
-  issueReferences: IssueReferenceLookup
   markdownHtml?: ReadonlyMap<string, string> | undefined
   ts?: string | undefined
   /** Delegated chat-md click handling (code copy, ref chips, file links). */
@@ -250,11 +236,11 @@ export function MessageEnvelopeGroup({
                 <span className="mail-card-route">
                   {sharedFrom !== undefined && (
                     <>
-                      <PrincipalLabel label={sharedFrom} issueReferences={issueReferences} />
+                      <PrincipalLabel label={sharedFrom} />
                       <span className="mail-card-arrow">→</span>
                     </>
                   )}
-                  {first && <PrincipalLabel label={first.to} issueReferences={issueReferences} />}
+                  {first && <PrincipalLabel label={first.to} />}
                 </span>
                 <button
                   data-pressable
@@ -271,7 +257,6 @@ export function MessageEnvelopeGroup({
                   <EnvelopeItem
                     key={envelope.id}
                     envelope={envelope}
-                    issueReferences={issueReferences}
                     markdownHtml={markdownHtml}
                     forceFull={forceOpen}
                   />

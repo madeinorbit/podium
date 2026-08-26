@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type { SessionId, UserId, MachineId } from '@podium/model'
+import type { MachineId, SessionId, UserId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { harnessRequiresExclusiveInteractiveResume } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
@@ -102,6 +102,12 @@ export class SessionBindingReceipts {
         return
       }
       for (const conflict of conflicts) {
+        // The ref goes; `conversationBinding` deliberately does NOT (POD-2392).
+        // Losing an identity contest is not evidence that this session never had
+        // a conversation — it is evidence that we no longer know which one — so
+        // the row keeps its `'bound'` claim and stays out of the fresh-relaunch
+        // path. `Session`'s setter enforces the direction; this is the case it
+        // exists for.
         conflict.resume = undefined
         conflict.conversationPodiumId = undefined
         this.projectedConfidence.delete(conflict)

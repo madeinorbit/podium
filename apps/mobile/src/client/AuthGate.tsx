@@ -3,7 +3,7 @@ import { LoginScreen } from '../screens/LoginScreen'
 import { type AuthStatus, fetchAuthStatus } from './auth'
 import { AuthStatusContext } from './auth-context'
 import { demoEnabled } from './demoData'
-import { LaunchReadyView } from './launch'
+import { LaunchReadyView } from './launch-ready'
 import { useServerProfile } from './ServerProfileGate'
 
 type GateState = 'checking' | 'open' | 'login' | 'unreachable'

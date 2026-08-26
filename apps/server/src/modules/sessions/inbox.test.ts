@@ -1444,6 +1444,40 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     expect(h.applied).toHaveBeenCalledTimes(1)
   })
 
+  it('drops a retry when the source message settled during confirmation', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-settled'),
+      sourceMessageId: 'msg_settled',
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(7_000)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+
+    // The agent replied before its provider exposed the user turn. The reply
+    // settled the source ledger row, so the scheduled retry must not create a
+    // fresh turn even though transcript confirmation is still absent.
+    h.revoke()
+    vi.advanceTimersByTime(10_000)
+
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+    expect(h.rows).toEqual([])
+    expect(h.session.queuedMessageCount).toBe(0)
+    expect(h.rejected).toEqual([
+      {
+        queueId: 'queued-settled',
+        sourceMessageId: 'msg_settled',
+        principal: agentPrincipal(),
+        reason: 'revoked',
+      },
+    ])
+  })
+
   it('stops retyping after the attempt cap, leaving the row for a later re-arm', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)

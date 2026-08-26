@@ -12,6 +12,9 @@ import {
 } from './IssueCompactControls'
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
+// The launch box's model/effort segments read the live catalog through this
+// shim, which hangs off the REAL store provider rather than the mock below.
+vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
 
 const setOpenIssueId = vi.fn()
 const setView = vi.fn()
@@ -154,6 +157,12 @@ describe('resolveTaskAction', () => {
   })
 })
 
+/** NOT YET BEGUN. `makeIssue` defaults to an `in_progress` task that already
+ *  has a checkout, and both of those are proof that somebody picked the work up
+ *  (POD-1457) — so every test about STARTING has to say otherwise explicitly. */
+const unstarted = (over: Parameters<typeof makeIssue>[0] = {}) =>
+  makeIssue({ id: 'i', stage: 'backlog', worktreePath: null, ...over })
+
 describe('IssueCompactControls', () => {
   it('carries no chip at all when the task needs a human', () => {
     mockSessions = [session({ sessionId: 'coord' })]
@@ -162,63 +171,96 @@ describe('IssueCompactControls', () => {
     expect(screen.queryByTestId('task-primary-action')).toBeNull()
   })
 
-  it('takes the filled chip for Work on this when the state resolved no action', () => {
-    // The panel keeps its one-filled-object rule: with no primary action of its
-    // own — the needs-you case, now that Answer is gone — the crossing into the
-    // work tool is the thing to press, so it is the thing that is filled.
-    const onWorkOnThis = vi.fn()
-    render(
-      <IssueCompactControls
-        issue={makeIssue({ id: 'i', needsHuman: true })}
-        onWorkOnThis={onWorkOnThis}
-      />,
-    )
-
-    const work = screen.getByTestId('task-work-on-this')
-    expect(work.className).toContain('btn-primary-rim')
-    fireEvent.click(work)
-    expect(onWorkOnThis).toHaveBeenCalledTimes(1)
-  })
-
-  it('stands the work crossing down beside a real action, and hides it on a closed task', () => {
-    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} onWorkOnThis={vi.fn()} />)
-    // Nothing is on this task, so Start work is the filled chip and the crossing
-    // is the outline beside it.
-    expect(screen.getByTestId('task-primary-action').textContent).toBe('Start work')
-    expect(screen.getByTestId('task-work-on-this').className).not.toContain('btn-primary-rim')
-
-    cleanup()
-    render(
-      <IssueCompactControls
-        issue={makeIssue({ id: 'i', closedReason: 'done' })}
-        onWorkOnThis={vi.fn()}
-      />,
-    )
-    expect(screen.queryByTestId('task-work-on-this')).toBeNull()
-  })
-
-  it('offers no crossing where there is nowhere to go', () => {
-    // The workspace's own dock hands in no callback: it is already the work
-    // tool, so a button pointing at it would land where you stand.
-    render(<IssueCompactControls issue={makeIssue({ id: 'i', needsHuman: true })} />)
+  it('carries no crossing into the Work view at all', () => {
+    // It was `Work on this`, one gap from `Start work` — two adjacent controls
+    // whose labels both promised to begin the work. Going to Work is navigation
+    // and left the action row entirely; the head owns the link now (POD-1457).
+    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
 
     expect(screen.queryByTestId('task-work-on-this')).toBeNull()
   })
 
   it('carries no primary chip while sessions are working the task', () => {
     mockSessions = [session({ sessionId: 'coord' })]
-    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+    render(<IssueCompactControls issue={unstarted()} />)
 
     expect(screen.queryByTestId('task-primary-action')).toBeNull()
   })
 
   it('starts the agent when the task has none', () => {
-    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+    render(<IssueCompactControls issue={unstarted()} />)
 
     const action = screen.getByTestId('task-primary-action')
     expect(action.textContent).toBe('Start work')
     fireEvent.click(action)
     expect(start).toHaveBeenCalledWith({ id: 'i' })
+  })
+
+  /**
+   * THE LAUNCH BOX (POD-1457). The panel's start used to be a bare chip: it
+   * could say whether to start, and — for discovered work — where, but never
+   * with what. Setting an agent meant leaving the explorer for the full issue
+   * page. It is now the same box the page's Sessions block wears.
+   */
+  describe('the launch box', () => {
+    it('stands where the start chip stood, with the agent this task launches with', () => {
+      render(<IssueCompactControls issue={unstarted()} />)
+
+      const box = screen.getByTestId('launch-box')
+      expect(box.contains(screen.getByTestId('task-primary-action'))).toBe(true)
+      expect(screen.getByLabelText('Agent').textContent).toContain('Claude Code')
+    })
+
+    it('writes the picked agent to the issue, resetting the model it is not for', async () => {
+      // Models are per-agent ([spec:SP-7ff1]) — the write that changes the
+      // harness clears the model and effort with it, so the optimistic row never
+      // shows the previous agent's model.
+      render(<IssueCompactControls issue={unstarted()} />)
+
+      fireEvent.click(screen.getByLabelText('Agent'))
+      fireEvent.click(await screen.findByText('Codex'))
+
+      expect(updateIssue).toHaveBeenCalledWith('i', {
+        defaultAgent: 'codex',
+        defaultModel: 'auto',
+        defaultEffort: 'auto',
+      })
+    })
+
+    /**
+     * NO `Start work` ON WORK THAT HAS BEGUN (POD-1457). Three independent
+     * proofs settle it — an agent on it, a checkout, or a stage whose name says
+     * somebody picked it up — and any one of them turns the foot into the
+     * `+ Session` / `+ Shell` face instead.
+     */
+    it.each([
+      ['a live agent', { sessions: true, over: {} }],
+      ['a checkout', { sessions: false, over: { worktreePath: '/r/wt' } }],
+      ['a stage that says so', { sessions: false, over: { stage: 'in_progress' as const } }],
+      ['a task under review', { sessions: false, over: { stage: 'review' as const } }],
+    ])('offers sessions rather than a start when the work has begun — %s', (_name, spec) => {
+      if (spec.sessions) mockSessions = [session({ sessionId: 'coord' })]
+      render(<IssueCompactControls issue={unstarted(spec.over)} />)
+
+      expect(screen.getByTestId('launch-box')).not.toBeNull()
+      expect(screen.queryByTestId('task-primary-action')).toBeNull()
+      expect(screen.getByText('+ Session')).not.toBeNull()
+    })
+
+    it('stands down entirely on a finished task', () => {
+      // A closure, an archive or the `done` lane is the end of the work: the
+      // strip offers Reopen there, and there is nothing to launch.
+      const finished: Parameters<typeof unstarted>[0][] = [
+        { closedReason: 'done' },
+        { stage: 'done' },
+        { archived: true },
+      ]
+      for (const over of finished) {
+        render(<IssueCompactControls issue={unstarted(over)} />)
+        expect(screen.queryByTestId('launch-box')).toBeNull()
+        cleanup()
+      }
+    })
   })
 
   /**
@@ -230,15 +272,14 @@ describe('IssueCompactControls', () => {
     const origin = makeIssue({ id: 'origin', seq: 9, title: 'Flight deck spine' })
     // `startedBySession` is what marks this as work an AGENT filed — the fork
     // is for the decision the operator inherited, not for their own planning.
-    const proposal = makeIssue({
-      id: 'i',
+    const proposal = unstarted({
       stage: 'proposed',
       startedBySession: 's-agent',
       deps: [{ id: 'origin', type: 'discovered-from' }],
     })
 
     it('is absent on a plain task — there is nowhere else for it to live', () => {
-      render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+      render(<IssueCompactControls issue={unstarted()} />)
       expect(screen.queryByTestId('task-placement-trigger')).toBeNull()
     })
 

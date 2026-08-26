@@ -16,14 +16,16 @@
  *
  * RESERVED COLOURS — never pickable, never to be reused as issue accents, and
  * conversely never to be used for status:
- *   - amber   #f59e0b (--attention): "waiting on you"
+ *   - bisque  #d9b477 (--primary / --attention): the brand accent, and the
+ *     "waiting on you" signal the accent now also carries
  *   - terracotta #d97757 (--claude): the Claude brand
  *   - calm blue #6f9dff (--live / --motion-working): "agent working" (POD-166
  *     R10 — was green #10b981, which stays retired from the palette too)
  *   - slate   #94a3b8 (--flow): the default no-colour flow accent — a state,
  *     not a choice, so it is absent from the picker.
- * The yellow/orange/amber band is deliberately missing from the palette and red
- * is folded into rose so an issue colour can never be misread as a status.
+ * The whole yellow/orange/amber band — which covers the bisque accent and the
+ * demoted #f5c518 warning alike — is deliberately missing from the palette, and
+ * red is folded into rose, so an issue colour can never be misread as a status.
  * Blue (#3b82f6) and green (#22c55e) palette slots exist alongside the --info /
  * --success status hues — status UI must use the tokens, never these literals.
  *
@@ -82,10 +84,10 @@ export function issueSquareFg(hex: string): string {
 
 /** The neutral no-colour flow, as a literal hex — for JS colour MATH only
  *  (mixHex and friends, which cannot resolve a custom property). It is the
- *  --flow token of the podium/shadcn dark presets; each Superade variant now
- *  carries its own, because a flow that reads as "no colour chosen" has to
- *  match its ground — a warm taupe on Paper's stone (a blue-grey there is what
- *  makes that palette look broken) and a true grey on Dark Ink's neutral, where
+ *  Podium theme's --flow token differs by appearance because a flow that reads
+ *  as "no colour chosen" has to match its ground — a warm taupe on Paper's
+ *  stone (a blue-grey there is what makes that palette look broken) and a true
+ *  grey on Dark Ink's neutral, where
  *  this slate would read as a blue somebody picked. Every CALL SITE should use
  *  FLOW_CSS below; this hex is the last-resort value for a JS mixer, and the
  *  one place it survives (terminal appearance) mixes it at 9%. */

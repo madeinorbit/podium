@@ -33,7 +33,7 @@ export type ScreeningGesture = 'accepted' | 'declined' | 'skipped'
  * Carries enough to decide cold — identity square, repo, age, title, type /
  * priority / blocker pills, the human summary, the agent brief, and the launch
  * facts a start would use (agent, model, branch base). Dragging right stamps
- * START in Superade Yellow (the one primary-action signal), left stamps WON'T
+ * START in bisque (the one primary-action signal), left stamps WON'T
  * FIX in alert red; releasing past the commit line flies the card out and
  * reports the gesture. Every gesture has a button twin in the screen's action
  * row, so nothing here is reachable only by dragging.
@@ -276,7 +276,7 @@ const styles = StyleSheet.create({
     fontSize: font.micro,
   },
   open: {
-    // Deliberately not Superade Yellow: the one lit action on this screen is
+    // Deliberately not the accent: the one lit action on this screen is
     // Start (The Signal Rule), so the escape hatch stays quiet.
     ...sans(600),
     color: color.textDim,

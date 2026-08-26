@@ -69,6 +69,7 @@ export interface EventMap {
     | {
         kind: 'adoptWorktree'
         issueId: IssueId
+        machineId: MachineId
         message: Extract<DaemonMessage, { type: 'sessionCwd' }>
       }
   /** Oplog-replayed board/recency vertical slice; every input has a durable id. */

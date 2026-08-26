@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildHeadlessManifest,
   buildHeadlessManifestForPlatforms,
+  packagedWebDigest,
   readDefinedMigrations,
 } from './release'
 
@@ -81,5 +82,34 @@ describe('readDefinedMigrations', () => {
     expect(() => readDefinedMigrations(join(tmpdir(), 'podium-no-such-migrations-dir'))).toThrow(
       /cannot declare the schema/,
     )
+  })
+})
+
+describe('packagedWebDigest', () => {
+  it('requires the operator and Expo sites to name the same source build', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-release-sites-'))
+    try {
+      for (const site of ['web', 'mobile']) {
+        mkdirSync(join(dir, site))
+        writeFileSync(
+          join(dir, site, 'podium-build.json'),
+          '{"sourceSha":"abc1234","appVersion":"0.4.2"}\n',
+        )
+      }
+      writeFileSync(join(dir, 'VERSION'), '0.4.2\n')
+      expect(packagedWebDigest(dir)).toBe('abc1234')
+      writeFileSync(
+        join(dir, 'mobile', 'podium-build.json'),
+        '{"sourceSha":"def5678","appVersion":"0.4.2"}\n',
+      )
+      expect(() => packagedWebDigest(dir)).toThrow(/web and mobile sites disagree/)
+      writeFileSync(
+        join(dir, 'mobile', 'podium-build.json'),
+        '{"sourceSha":"abc1234","appVersion":"0.4.3"}\n',
+      )
+      expect(() => packagedWebDigest(dir)).toThrow(/web and mobile sites disagree/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

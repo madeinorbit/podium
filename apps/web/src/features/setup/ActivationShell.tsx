@@ -52,10 +52,10 @@ export function ActivationShell({
             frameClassName,
           )}
         >
-          <div className="flex size-10 flex-none items-center justify-center rounded-[11px] bg-[#2b2f37] text-[#e3ba52] shadow-[inset_0_0_0_1px_#3a4049] [&_svg]:size-[21px]">
+          <div className="flex size-10 flex-none items-center justify-center rounded-[11px] bg-[#2b2f37] text-[#d9b477] shadow-[inset_0_0_0_1px_#3a4049] [&_svg]:size-[21px]">
             {icon ?? <Sparkles aria-hidden="true" />}
           </div>
-          <p className="mt-[22px] font-mono text-[10px] leading-none font-semibold tracking-[0.22em] text-[#e3ba52] uppercase">
+          <p className="mt-[22px] font-mono text-[10px] leading-none font-semibold tracking-[0.22em] text-[#d9b477] uppercase">
             {eyebrow}
           </p>
           <h1
@@ -123,7 +123,7 @@ export function ActivationChoice({
               // so a badge that wraps on a narrow column stays inside its pill
               // (POD-1157).
               'shell-type-micro inline-flex min-h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 py-[2px] font-mono tracking-[0.14em] uppercase',
-              badgeLit ? 'text-[#e3ba52]' : 'text-[#a8adb6]',
+              badgeLit ? 'text-[#d9b477]' : 'text-[#a8adb6]',
             )}
           >
             {badge}
@@ -140,9 +140,9 @@ export function ActivationChoice({
         data-pressable
         onClick={onSelect}
         className={cn(
-          'mt-[18px] inline-flex h-[34px] self-start items-center gap-2 rounded-[9px] px-[15px] text-[13px] leading-none font-semibold transition-colors after:absolute after:inset-0 after:rounded-[13px] after:content-[""] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52]',
+          'mt-[18px] inline-flex h-[34px] self-start items-center gap-2 rounded-[9px] px-[15px] text-[13px] leading-none font-semibold transition-colors after:absolute after:inset-0 after:rounded-[13px] after:content-[""] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d9b477]',
           primary
-            ? 'bg-[#e3ba52] text-[#1a1408] group-hover:bg-[#efc95f]'
+            ? 'bg-[#d9b477] text-[#191308] group-hover:bg-[#e8ca97]'
             : 'text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] group-hover:bg-white/[0.04]',
         )}
       >
@@ -182,7 +182,7 @@ export function ActivationBack({
       data-pressable
       onClick={onBack}
       disabled={disabled}
-      className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] transition-colors hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52] disabled:opacity-50"
+      className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] transition-colors hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d9b477] disabled:opacity-50"
     >
       <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
       {label}

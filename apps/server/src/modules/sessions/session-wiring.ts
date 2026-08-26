@@ -181,8 +181,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     persist: (session) => bag.repository.persist(session),
     broadcastSessions: () => bag.broadcastSessions(),
     broadcastToClients: (message) => bag.broadcastToClients(message),
-    adoptWorktree: (issueId, message) =>
-      bag.bus.emit('issue.sessionDerived', { kind: 'adoptWorktree', issueId, message }),
+    adoptWorktree: (issueId, machineId, message) =>
+      bag.bus.emit('issue.sessionDerived', { kind: 'adoptWorktree', issueId, machineId, message }),
   })
 
   bag.workspace = new SessionWorkspace({

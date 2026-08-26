@@ -110,7 +110,7 @@ export function ActivationHandoffPanel({
           // Amber is what "press this" looks like everywhere in the wizard;
           // green is what "it worked" looks like. This panel is both, so the
           // colours stay in their own jobs rather than swapping.
-          className="mt-3 h-[34px] rounded-[9px] border-0 bg-[#e3ba52] px-3.5 text-[12.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
+          className="mt-3 h-[34px] rounded-[9px] border-0 bg-[#d9b477] px-3.5 text-[12.5px] font-semibold text-[#191308] hover:bg-[#e8ca97]"
           onClick={onRestart}
         >
           <RotateCcw size={15} aria-hidden="true" />

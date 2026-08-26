@@ -350,6 +350,7 @@ describe('attachSession', () => {
     await Promise.resolve()
     expect(svc.get(spun.id)?.worktreePath).toBe('/r/.worktrees/o')
     expect(svc.get(spun.id)?.branch).toBe('issue/1-origin')
+    expect(svc.get(spun.id)?.machineId).toBe(deps.store.hostMachineId)
     expect(svc.get(origin.id)?.worktreePath).toBeNull()
     expect(svc.get(origin.id)?.branch).toBeNull()
   })

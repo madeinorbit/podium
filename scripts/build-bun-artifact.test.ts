@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { assertDevWebDistMatchesVersion, updateArtifactPath } from './build-bun'
+import {
+  assertDevClientDistMatchesVersion,
+  assertDevWebDistMatchesVersion,
+  updateArtifactPath,
+} from './build-bun'
 
 describe('assertDevWebDistMatchesVersion', () => {
   it('lets a release version pack without a source SHA', () => {
@@ -20,6 +24,14 @@ describe('assertDevWebDistMatchesVersion', () => {
     expect(() =>
       assertDevWebDistMatchesVersion('dev+47a01e3', { sourceSha: '47a01e3' }),
     ).not.toThrow()
+  })
+
+  it('names the stale client site when the Expo export is from another commit', () => {
+    expect(() =>
+      assertDevClientDistMatchesVersion('dev+47a01e3', 'apps/mobile/dist', {
+        sourceSha: 'aaaaaaa',
+      }),
+    ).toThrow(/apps\/mobile\/dist was not built from dev\+47a01e3/)
   })
 })
 

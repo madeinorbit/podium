@@ -161,7 +161,6 @@ describe('detached daemon restart handoff', () => {
   })
 })
 
-
 describe('resolvePlan — launch matrix', () => {
   it('routes fresh VPS setup only through an interactive terminal', () => {
     expect(plan({}, ['setup', '--vps'], {}, true)).toEqual({
@@ -227,18 +226,25 @@ describe('resolvePlan — launch matrix', () => {
     const p = plan({ mode: 'all-in-one', persistence: 'systemd' }, ['server'])
     expect(p).toMatchObject({
       kind: 'in-process',
-      roles: { server: true, daemon: false },
+      roles: { server: true, janitor: false, daemon: false },
       claimRole: 'server',
     })
   })
   it('desktop sidecar: configured mode, no persistence, non-TTY bare → in-process all-in-one', () => {
     expect(plan({ mode: 'all-in-one' })).toMatchObject({
       kind: 'in-process',
-      roles: { server: true, daemon: true },
+      roles: { server: true, janitor: true, daemon: true },
       claimRole: 'all-in-one',
       daemonAuth: 'in-process-local',
       runRecordMode: 'foreground',
       showSetupHint: false,
+    })
+  })
+  it('desktop server-only supervision carries its janitor in the same child', () => {
+    expect(plan({ mode: 'server' }, ['server'], { PODIUM_DESKTOP_SUPERVISED: '1' })).toMatchObject({
+      kind: 'in-process',
+      roles: { server: true, janitor: true, daemon: false },
+      claimRole: 'server',
     })
   })
   it('mode set with no persistence is UNMANAGED, not half-configured (POD-333)', () => {
@@ -315,7 +321,7 @@ describe('resolvePlan — launch matrix', () => {
     const setupPlan = plan({ mode: 'all-in-one', persistence: 'systemd' }, ['setup'])
     expect(setupPlan).toMatchObject({
       kind: 'in-process',
-      roles: { server: true, daemon: false },
+      roles: { server: true, janitor: false, daemon: false },
       claimRole: undefined,
       showSetupHint: true,
     })

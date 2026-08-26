@@ -113,6 +113,71 @@ describe('SessionRegistry', () => {
     ])
   })
 
+  it('routes an explicit host id to the host daemon when another daemon is the fleet default', async () => {
+    const store = new SessionStore(':memory:', asMachineId('host-under-test'))
+    store.machines.upsertMachine({
+      id: 'remote-first',
+      name: 'remote',
+      hostname: 'remote',
+      tokenHash: 'remote-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    store.machines.upsertMachine({
+      id: store.hostMachineId,
+      name: 'host',
+      hostname: 'host',
+      tokenHash: 'host-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    store.machines.setMachineInventory(
+      store.hostMachineId,
+      JSON.stringify({
+        os: 'linux',
+        arch: 'x64',
+        agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+        tools: [],
+      }),
+    )
+
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const remote: ControlMessage[] = []
+    const host: ControlMessage[] = []
+    const answerRepoOps =
+      (machineId: string, frames: ControlMessage[]) => (message: ControlMessage) => {
+        frames.push(message)
+        if (message.type === 'repoOpRequest') {
+          reg.gateway.routeDaemonFrame(machineId, {
+            type: 'repoOpResult',
+            requestId: message.requestId,
+            ok: true,
+            output: '',
+          })
+        }
+      }
+
+    try {
+      // Without the explicit host route, repo affinity falls through to the first
+      // online daemon. Attach the remote first so this test distinguishes the seams.
+      reg.gateway.attachDaemon('remote-first', answerRepoOps('remote-first', remote))
+      reg.gateway.attachDaemon(store.hostMachineId, answerRepoOps(store.hostMachineId, host))
+      const issue = reg.modules.issues.create({
+        repoPath: '/r',
+        title: 'Host routed',
+        startNow: false,
+      })
+
+      const started = await reg.modules.issues.start(issue.id)
+
+      expect(started.machineId).toBe(store.hostMachineId)
+      expect(
+        host.filter((message) => message.type === 'repoOpRequest' && message.op === 'worktreeAdd'),
+      ).toHaveLength(1)
+      expect(remote.filter((message) => message.type === 'repoOpRequest')).toHaveLength(0)
+    } finally {
+      reg.dispose()
+    }
+  })
+
   it('buffers control messages produced before a daemon attaches, then flushes them', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     // Boot race: a starter session is created before the daemon ws has connected.
@@ -291,9 +356,13 @@ describe('SessionRegistry', () => {
   }
 
   it('adopts a worktree the harness made for itself, stamping branch and path together', () => {
-    const { cwdMsg, read } = adopting()
+    const { reg, cwdMsg, read } = adopting()
     cwdMsg({})
-    expect(read()).toMatchObject({ worktreePath: '/repo/.claude/worktrees/x', branch: 'claude/x' })
+    expect(read()).toMatchObject({
+      worktreePath: '/repo/.claude/worktrees/x',
+      branch: 'claude/x',
+      machineId: reg.sessionStore.hostMachineId,
+    })
   })
 
   it('never adopts the repo MAIN checkout as an issue workspace', () => {
@@ -3851,6 +3920,142 @@ describe('hibernation', () => {
     const spawn = daemon.find((m) => m.type === 'spawn')
     expect(spawn).toMatchObject({ sessionId, agentKind: 'shell', cwd: '/w' })
     expect(spawn && 'resume' in spawn ? spawn.resume : undefined).toBeUndefined()
+  })
+
+  /**
+   * THE NEVER-BOUND ARM (POD-2392). Codex shows its own updater prompt before it
+   * opens a thread; taking the update exits the TUI with no thread id and hands
+   * off to an installer that can fail. The row that is left has no resume ref —
+   * and the pre-POD-2392 rule read that as "a conversation we must not discard",
+   * so the only action the panel could offer was deleting the session.
+   *
+   * These four cases are one claim: the relaxation is keyed to PROOF, not to the
+   * absence of a ref. Three of them are the safeguard, unchanged.
+   */
+  const codexBind = (sessionId: SessionId) =>
+    ({ type: 'bind', sessionId, cmd: 'codex', cwd: '/w', agentKind: 'codex', geometry: G }) as const
+
+  function exitedCodex(reg: SessionRegistry, daemon: ControlMessage[]): SessionId {
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(sessionId))
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 0,
+    })
+    daemon.length = 0
+    return sessionId
+  }
+
+  it('starts a never-bound agent again, fresh and with no resume ref', async () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const sessionId = exitedCodex(reg, daemon)
+    expect(reg.modules.sessions.listSessions()[0]).toMatchObject({
+      status: 'exited',
+      neverBound: true,
+    })
+
+    expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+      ok: true,
+    })
+    const spawn = daemon.find((m) => m.type === 'spawn')
+    expect(spawn).toMatchObject({ sessionId, agentKind: 'codex', cwd: '/w' })
+    expect(spawn && 'resume' in spawn ? spawn.resume : undefined).toBeUndefined()
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+  })
+
+  it('still refuses one that HAD a ref and lost it to identity arbitration', async () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(sessionId))
+    // A heuristic binding — a real thread, identified by inference.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: 'thread-1' },
+    })
+    // A second session proves it owns that thread exactly, so the first one's
+    // ref is taken away — its transcript did not stop existing.
+    const other = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' }).sessionId
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(other))
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId: other,
+      resume: { kind: 'codex-thread', value: 'thread-1' },
+      confidence: 'exact',
+    })
+    const stripped = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    expect(stripped?.resumable).toBeUndefined()
+    expect(stripped?.neverBound).toBeUndefined() // NOT proof — it was bound once
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 0,
+    })
+    daemon.length = 0
+
+    expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+      ok: false,
+      reason: 'no resume ref',
+    })
+    expect(daemon.find((m) => m.type === 'spawn')).toBeUndefined()
+  })
+
+  /** Boot a second registry over the same file and attach a daemon for the
+   *  machine the STORED session belongs to — a fresh `SessionStore` mints its
+   *  own host machine id, so routing by the new one would collect no frames and
+   *  make a "nothing was spawned" assertion pass for free.
+   */
+  function reboot(file: string): { reg: SessionRegistry; frames: ControlMessage[] } {
+    const reg = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
+    const frames: ControlMessage[] = []
+    const machineId = reg.modules.sessions.listSessions()[0]?.machineId
+    if (!machineId) throw new Error('the rebooted registry loaded no placed session')
+    reg.gateway.attachDaemon(machineId, (m) => frames.push(m))
+    frames.length = 0 // reattach probes are not what these tests are reading
+    return { reg, frames }
+  }
+
+  it('still refuses a row written before the proof existed', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'podium-legacy-binding-')), 'state.sqlite')
+    const store = new SessionStore(file)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const sessionId = exitedCodex(reg, daemon)
+    // Forge the pre-POD-2392 shape: the column is NULL, which is "no claim".
+    // (Only a 'never' claim can be erased this way; the upsert refuses to walk
+    // 'bound' back — see `store.test.ts`.)
+    const stored = store.sessions.getSession(sessionId)
+    if (!stored) throw new Error('the forged row went missing')
+    store.sessions.upsertSession({ ...stored, conversationBinding: null })
+
+    const { reg: rebooted, frames } = reboot(file)
+    expect(rebooted.modules.sessions.listSessions()[0]?.neverBound).toBeUndefined()
+    expect(await rebooted.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+      ok: false,
+      reason: 'no resume ref',
+    })
+    expect(frames.find((m) => m.type === 'spawn')).toBeUndefined()
+  })
+
+  it('carries the proof across a restart, so the retry survives a reboot', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'podium-never-bound-')), 'state.sqlite')
+    const reg = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const sessionId = exitedCodex(reg, daemon)
+
+    const { reg: rebooted, frames } = reboot(file)
+    expect(rebooted.modules.sessions.listSessions()[0]?.neverBound).toBe(true)
+    expect(await rebooted.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+      ok: true,
+    })
+    expect(frames.find((m) => m.type === 'spawn')).toMatchObject({ agentKind: 'codex' })
   })
 
   it('treats resurrecting a live session as an idempotent no-op', async () => {

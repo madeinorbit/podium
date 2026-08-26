@@ -162,6 +162,10 @@ describe('systemd profile rendering', () => {
     expect(files['podium-blue-daemon.service']).toContain(
       'After=network-online.target podium-blue-server.service',
     )
+    expect(files['podium-blue-janitor.service']).toContain(
+      'scripts/cli.ts janitor --server http://localhost:23000',
+    )
+    expect(files['podium-blue-janitor.service']).toContain('Environment=PODIUM_INSTANCE=blue')
     expect(files['podium-blue-redeploy.service']).toBeDefined()
     expect(files['podium-blue-redeploy.path']).toBeUndefined()
     expect(files['podium-blue-health.service']).toContain(
@@ -190,6 +194,7 @@ describe('systemd profile rendering', () => {
     // running the module graph the previous deploy gave it.
     expect(restart).toContain('podium-blue-janitor.service')
     expect(restart).toContain('podium-blue-server.service')
+    expect(restart).toContain('podium-blue-daemon.service')
     // A janitor already blocked on exit 78 (or sitting on a hit start-limit) will not
     // come back from `restart` alone; the failure state has to be cleared, and that
     // clear must not fail the deploy when the unit is healthy or absent.

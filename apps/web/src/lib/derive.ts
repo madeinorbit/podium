@@ -18,12 +18,11 @@ import { type DotTone, sessionDotTone } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model/browser'
 import { cn } from './utils'
 
-// Tone → hue via the activity tokens (--live/--info) plus semantic --warning,
-// so each theme preset recolors agent activity (working reads calm blue in
-// every preset, POD-166 R10). The tokens keep stable, dot-appropriate hues in every
-// preset — the old reason to avoid tokens (near-black light-mode --primary)
-// doesn't apply to them. Error stays an explicit red so a broken session never
-// blends in with a preset's live/destructive hue (matching the minimap palette).
+// Tone → hue via the activity tokens (--live/--info) plus semantic --warning.
+// The tokens keep stable, dot-appropriate hues in both appearances (POD-166
+// R10); the old reason to avoid tokens (near-black light-mode --primary) does
+// not apply to them. Error stays an explicit red so a broken session never
+// blends in with the theme's live/destructive hue (matching the minimap palette).
 const DOT_TONE_CLASS: Record<DotTone, string> = {
   working: 'bg-live',
   attention: 'bg-warning',

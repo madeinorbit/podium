@@ -36,16 +36,16 @@ async function fontsLoaded(): Promise<unknown> {
   )
 }
 
-const shoot = async (theme: string, mode: string, label: string): Promise<void> => {
-  await page.goto(`${PAGE}?theme=${theme}&mode=${mode}&rows=24`, { waitUntil: 'domcontentloaded' })
+const shoot = async (mode: string, label: string): Promise<void> => {
+  await page.goto(`${PAGE}?mode=${mode}&rows=24`, { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('[data-testid="work-scroll"]')
   await page.waitForTimeout(2500)
   await page.locator('[data-testid="sidebar-harness"]').screenshot({ path: `${OUT}/${label}.png` })
   console.log(label, 'fonts:', JSON.stringify(await fontsLoaded()))
 }
 
-await shoot('superade', 'light', 'harness-light')
-await shoot('superade', 'dark', 'harness-dark')
+await shoot('light', 'harness-light')
+await shoot('dark', 'harness-dark')
 
 const geometry = await page.evaluate(() => {
   const box = (sel: string) => {

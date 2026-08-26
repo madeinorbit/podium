@@ -150,6 +150,9 @@ const session = (id: string, over: Record<string, unknown> = {}): SessionMeta =>
     ...over,
   }) as unknown as SessionMeta
 
+/** An agent mid-turn — what `Working` asks about, once per agent (POD-1452). */
+const WORKING = { phase: 'working', since: '2026-01-01T00:00:00.000Z' } as const
+
 const deck = (): void => {
   render(
     // ConfirmProvider because the task menu's Archive/Delete now use the
@@ -244,6 +247,87 @@ describe('the cold deck (POD-1112)', () => {
     harness.selectedIssueId = null as unknown as string
     deck()
     expect(screen.getByTestId('flight-empty')).toBeTruthy()
+  })
+})
+
+describe("the mission's brief (POD-1455)", () => {
+  const brief = (): HTMLElement => screen.getByTestId('deck-brief')
+
+  it('keeps the shape the author wrote — a lead-in, then a list', () => {
+    harness.issues = [
+      issue('root', {
+        title: 'Mission',
+        description: 'in the footer bar: make sure:\n\n- agents count is live\n- burn: the same',
+      }),
+    ]
+    harness.sessions = []
+    deck()
+    const el = brief()
+    expect(el.querySelectorAll('li')).toHaveLength(2)
+    expect(el.querySelector('li')?.textContent).toBe('agents count is live')
+    // The hyphens are the list now, not text with hyphens in it.
+    expect(el.textContent).not.toContain('- agents count')
+  })
+
+  it('breaks a single newline, because a brief is written the way it is typed', () => {
+    harness.issues = [issue('root', { title: 'Mission', description: 'first line\nsecond line' })]
+    harness.sessions = []
+    deck()
+    expect(brief().querySelectorAll('br')).toHaveLength(1)
+  })
+
+  /* NEITHER IS THE TOGGLE. `Show more` appears only when the brief overflows its
+     ceiling, and happy-dom has no layout: every box measures zero, so nothing
+     ever overflows and the control is correctly absent in every case this file
+     can construct. Driven in Chromium instead, against the harness fixture whose
+     description is long enough to bind the cap: shut, the brief measures 243px
+     of 454px and the control reads `Show more`; opened, 454px with the header at
+     597px and the spine pushed down to what is left; shut again, back to 243px
+     and `Show more`. */
+
+  /* THE ANCHOR-AND-SCRIPT HALF OF `renderReadoutMarkdown` IS NOT TESTABLE HERE.
+     DOMPurify decides at import whether the environment supports it, and under
+     happy-dom it does not — `sanitize` hands the input straight back, so a
+     `queryByRole('link')` assertion in this file would pass or fail for reasons
+     that have nothing to do with this component. Verified in a real browser
+     instead (Chromium, against the deck harness): a description carrying
+     `[the spec](https://example.com/spec)`, a `<script>` and an `<img onerror>`
+     renders as `<p>see the spec </p>` and the list below it, with the link's
+     words kept and every tag gone. What IS environment-independent — that the
+     structure the author wrote survives — is what the tests here assert. */
+
+  it("marks the column's standing sentence as not the operator's words", () => {
+    harness.issues = [issue('root', { title: 'Mission' })]
+    harness.sessions = []
+    deck()
+    expect(brief().getAttribute('data-standing')).toBe('true')
+  })
+
+  it('drops the standing mark the moment somebody writes one', () => {
+    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
+    harness.sessions = []
+    deck()
+    expect(brief().getAttribute('data-standing')).toBeNull()
+  })
+
+  it('draws the line that ends the brief in every state', () => {
+    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
+    harness.sessions = []
+    deck()
+    expect(document.querySelector('.deck-brief-rule')).toBeTruthy()
+    // Nothing is cut in a box with no layout, so the toggle stays away — which
+    // is the same answer the browser gives for a brief that fits.
+    expect(screen.queryByTestId('deck-brief-more')).toBeNull()
+  })
+
+  it("falls through to the agent's own note when nobody wrote a description", () => {
+    harness.issues = [
+      issue('root', { title: 'Mission', activityNotes: 'Rebasing onto main before review.' }),
+    ]
+    harness.sessions = []
+    deck()
+    expect(brief().textContent).toContain('Rebasing onto main')
+    expect(brief().getAttribute('data-standing')).toBeNull()
   })
 })
 
@@ -866,12 +950,9 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(document.querySelector('[data-flight-session="gone"]')).not.toBeNull()
   })
 
-  // POD-1314: `Retired · 6m ago` is 86px of 9px mono in an 80px state column, so
-  // the cell wrapped and the row grew to two lines under an elbow drawn at the
-  // 28px row's mid point. The row takes the role cell instead, exactly as an
-  // asking row does — and the stamp it sheds at the narrow rung is on the
-  // tooltip, so nothing is ever only half-said.
-  it('gives a retired row the role cell rather than wrapping its stamp', () => {
+  // POD-1314: a retirement reading is one operational fact. The responsive row
+  // keeps the age visible and changes composition around it when space runs out.
+  it('keeps a retired row’s complete state reading', () => {
     harness.sessions = [
       ...harness.sessions,
       session('gone', { issueId: 't1', status: 'exited', name: 'Retired agent' }),
@@ -886,8 +967,7 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(row?.getAttribute('data-retired')).toBe('true')
     const state = row?.querySelector('.deck-agent-state')
     expect(state?.textContent).toContain('Retired')
-    // The stamp is a shed-able cell of its own, and the word is not: what the
-    // narrow rung hides is the elapsed, never `Retired`.
+    // Both halves remain in the state cell at every panel width.
     expect(state?.querySelector('.deck-agent-elapsed')).not.toBeNull()
     expect(row?.querySelector('[title]')?.getAttribute('title')).toContain('Retired · ')
   })
@@ -1212,19 +1292,22 @@ describe('flight deck spine geometry (POD-1226)', () => {
     expect(tick?.style.height).toBe('15px')
   })
 
-  it('keeps every agent row in the shared state column and on one line', () => {
+  it('keeps every agent row in the shared state column without discarding metadata', () => {
     deck()
     for (const row of document.querySelectorAll('[data-flight-session]')) {
       const state = row.querySelector('.deck-agent-state')
-      // Including the asking row: its obligation is built from the role cell in
-      // CSS, so nothing on the row is left outside the column.
+      const button = row.querySelector('.deck-agent')
+      // State keeps the same trailing-edge floor as task strips. The four facts
+      // remain direct grid items so the container query can recompose them into
+      // two lines without deleting or duplicating content.
       expect(state?.className).toContain('deck-state-col')
-      // The forced second line is gone; nothing may reintroduce a wrap.
-      expect(row.querySelector('.deck-agent-break')).toBeNull()
+      expect(button?.querySelector(':scope > .deck-agent-name')).not.toBeNull()
+      expect(button?.querySelector(':scope > .deck-agent-ref')).not.toBeNull()
+      expect(button?.querySelector(':scope > .deck-agent-state')).not.toBeNull()
     }
   })
 
-  it('puts what the narrow ladder drops on the row’s own tooltip', () => {
+  it('keeps the full agent reading on the row tooltip', () => {
     harness.issues = harness.issues.map((raw) => {
       const candidate = raw as Issue
       return candidate.id === 'root'
@@ -1244,11 +1327,14 @@ describe('flight deck spine geometry (POD-1226)', () => {
     const button = document
       .querySelector('[data-flight-session="lead"]')
       ?.querySelector('.deck-agent')
-    // Name, ref and the obligation with its elapsed — the two things a narrow
-    // deck stops printing are the role word and that elapsed.
+    // The tooltip mirrors the complete visible reading and remains useful when
+    // a genuinely exceptional value has to wrap in the narrow composition.
     expect(button?.getAttribute('title')).toContain('POD-1-A')
     expect(button?.getAttribute('title')).toContain('Needs you')
     expect(button?.getAttribute('title')).toMatch(/ago|just now/)
+    expect(button?.querySelector('[data-session-role="coordinator"]')?.textContent).toBe(
+      'coordinator',
+    )
   })
 })
 
@@ -1403,8 +1489,8 @@ describe('flight deck without a mission', () => {
 /**
  * THE VIEW BAR ACTUALLY NARROWS THE COLUMN (POD-1245).
  *
- * `Active` and `Needs you` both looked broken in the field — an operator with
- * `Active` on was reading a spine of finished and cancelled tasks. Two separate
+ * `Working` and `Needs you` both looked broken in the field — an operator with
+ * that view on was reading a spine of finished and cancelled tasks. Two separate
  * causes, and the tests below hold each at the level it is fixed: the viewmodel
  * decides WHICH rows survive (mission.test.ts), and this file decides what a row
  * that survived only as somebody else's path is allowed to draw.
@@ -1436,7 +1522,7 @@ describe('flight deck view filters (POD-1245)', () => {
     harness.sessions = [session('busy', { issueId: 'mid' }), session('busy2', { issueId: 'mid' })]
   })
 
-  it('drops a finished task whose only agent is parked, in Active', () => {
+  it('drops a finished task whose only agent is parked, in Working', () => {
     harness.issues = [
       issue('root', { title: 'Mission' }),
       issue('parked', {
@@ -1445,10 +1531,18 @@ describe('flight deck view filters (POD-1245)', () => {
         stage: 'done',
         memberSessionIds: ['p'],
       }),
-      issue('running', { parentId: 'root', title: 'Running', stage: 'in_progress' }),
+      issue('running', {
+        parentId: 'root',
+        title: 'Running',
+        stage: 'in_progress',
+        memberSessionIds: ['r'],
+      }),
     ]
-    harness.sessions = [session('p', { issueId: 'parked', status: 'hibernated' })]
-    harness.ui.set('podium.flightDeck.mode', 'active')
+    harness.sessions = [
+      session('p', { issueId: 'parked', status: 'hibernated' }),
+      session('r', { issueId: 'running', agentState: WORKING }),
+    ]
+    harness.ui.set('podium.flightDeck.mode', 'working')
     deck()
     expect(document.querySelector('[data-flight-issue="parked"]')).toBeNull()
     expect(document.querySelector('[data-flight-issue="running"]')).not.toBeNull()
@@ -1479,14 +1573,88 @@ describe('flight deck view filters (POD-1245)', () => {
     expect(band('leaf').className).toContain('bg-tabstrip')
   })
 
-  it('leaves every row a full strip in the other views', () => {
-    for (const mode of ['full', 'active'] as const) {
-      cleanup()
-      harness.ui.set('podium.flightDeck.mode', mode)
-      deck()
-      expect(band('mid').className).toContain('bg-tabstrip')
-      expect(strip('mid').textContent).toContain('busy')
-    }
+  it('leaves every row a full strip in Full spine', () => {
+    harness.ui.set('podium.flightDeck.mode', 'full')
+    deck()
+    expect(band('mid').className).toContain('bg-tabstrip')
+    expect(strip('mid').textContent).toContain('busy')
+  })
+
+  /**
+   * POD-1452. This view was exempt from both rules above, because it matched
+   * whole open TASKS: every row it kept was live work in its own right and its
+   * crew came with it. It matches agents now, so the same fixture reads the same
+   * way here — the row on the path to the working agent is scaffolding, and the
+   * two idle agents on it are not what `Working` means.
+   */
+  it('renders a path-only row as scaffolding in Working too', () => {
+    harness.issues = [
+      issue('root', { title: 'Mission' }),
+      issue('mid', {
+        parentId: 'root',
+        title: 'Finished parent',
+        stage: 'done',
+        memberSessionIds: ['busy', 'busy2'],
+      }),
+      issue('leaf', {
+        parentId: 'mid',
+        title: 'Wants a decision',
+        stage: 'review',
+        memberSessionIds: ['runner'],
+      }),
+    ]
+    harness.sessions = [
+      session('busy', { issueId: 'mid' }),
+      session('busy2', { issueId: 'mid' }),
+      session('runner', { issueId: 'leaf', agentState: WORKING }),
+    ]
+    harness.ui.set('podium.flightDeck.mode', 'working')
+    deck()
+    expect(band('mid').className).toContain('bg-transparent')
+    expect(strip('mid').textContent).not.toContain('busy')
+    expect(band('leaf').className).toContain('bg-tabstrip')
+    expect(document.querySelector('[data-flight-session="runner"]')).not.toBeNull()
+  })
+
+  // The other half: an open task nobody is on is not active work, whatever its
+  // stage says (POD-1452).
+  it('drops an open task with no agent on it, in Working', () => {
+    harness.ui.set('podium.flightDeck.mode', 'working')
+    deck()
+    expect(document.querySelector('[data-flight-issue="leaf"]')).toBeNull()
+    expect(screen.getByText('No agent in this mission is working right now.')).toBeTruthy()
+  })
+
+  /**
+   * THE TWO NARROWED VIEWS ARE DISJOINT (POD-1452) — and this is the shape that
+   * makes the split safe.
+   *
+   * An agent stopped on a question is not working, so it leaves `Working`
+   * entirely. On a mission where that is the ONLY agent, `Working` therefore
+   * draws a blank column — which reads as "nothing here" when the truth is "all
+   * of it is waiting on you". The empty line is the only thing on screen at that
+   * moment, so it is where the count belongs, and it points at the tab that has
+   * them.
+   */
+  it('sends an asking agent to Needs you and counts it on the empty Working column', () => {
+    harness.issues = [
+      issue('root', { title: 'Mission' }),
+      issue('leaf', { parentId: 'root', title: 'Wants a decision', memberSessionIds: ['asker'] }),
+    ]
+    harness.sessions = [
+      session('asker', {
+        issueId: 'leaf',
+        agentState: { phase: 'needs_user', since: '2026-01-01T00:00:00.000Z' },
+      }),
+    ]
+    harness.ui.set('podium.flightDeck.mode', 'working')
+    deck()
+    expect(document.querySelector('[data-flight-session="asker"]')).toBeNull()
+    expect(screen.getByText('No agent is working — 1 is waiting on you.')).toBeTruthy()
+    cleanup()
+    harness.ui.set('podium.flightDeck.mode', 'needs-you')
+    deck()
+    expect(document.querySelector('[data-flight-session="asker"]')).not.toBeNull()
   })
 
   /**
@@ -1513,7 +1681,7 @@ describe('flight deck view filters (POD-1245)', () => {
       harness.ui.set('podium.flightDeck.mode', 'needs-you')
       deck()
       expect(document.querySelector('[data-flight-session="idle"]')).toBeNull()
-      expect(screen.getByText('Nothing in this mission is asking for you.')).toBeTruthy()
+      expect(screen.getByText('No agent in this mission is asking for you.')).toBeTruthy()
       // The old line claimed an unstaffed mission, about one with a live agent.
       expect(screen.queryByText('No sessions or sub-tasks are attached.')).toBeNull()
     })

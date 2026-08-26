@@ -1,6 +1,6 @@
-import { isProvablyNewer } from '@podium/protocol'
-import { canonicalMigrationName } from '@podium/runtime/migration-ledger'
 import type { PendingGrant } from './pending-grant'
+
+export { createSchemaGate, refuseSchemaRegression } from '@podium/runtime/update-schema'
 
 export const MAX_CONVERGENCE_ATTEMPTS = 2
 
@@ -146,109 +146,6 @@ export function disarmExitSeam(input: { provided?: () => void; shape: ProcessSha
  * what the current one does; therefore a newer build defines everything applied.
  * Neither link holds backwards, which is exactly why the direction decides it.
  */
-const SCHEMA_ADVANCED = 'schema-advanced'
-const SCHEMA_UNKNOWN = 'schema-unknown'
-const SCHEMA_UNREADABLE = 'schema-unreadable'
-
-/**
- * Why this daemon must not converge to THIS target, or `undefined` when it may.
- *
- * Pure: the ledger read and the target's declaration are both facts the caller
- * gathers, so the decision itself is testable in a table.
- */
-export function refuseSchemaRegression(input: {
-  /**
-   * Migration names this machine's database has applied, or `undefined` when
-   * this machine holds no database at all. The difference decides the case:
-   * §13.3 — "a daemon owns no database", so its rollback is always safe, and
-   * every remote worker machine keeps automatic rollback because of this line.
-   */
-  applied: readonly string[] | undefined
-  /** Migration names the target build defines, or `undefined` if it did not say. */
-  targetDefines: readonly string[] | undefined
-  currentVersion: string
-  targetVersion: string
-}): string | undefined {
-  const { applied, targetDefines, currentVersion, targetVersion } = input
-  if (applied === undefined || applied.length === 0) return undefined
-
-  const staysPut =
-    `Nothing was fetched and nothing was swapped; this machine stays on ${currentVersion}, ` +
-    `which is the version that works here.`
-
-  if (targetDefines === undefined) {
-    /**
-     * The one thing left to ask about a target that will not say: is it at
-     * least AHEAD of us? `isProvablyNewer` fails closed, so `false` covers both
-     * "older" and "these two labels have no order at all" — a `dev+<sha>` on
-     * either side is not evidence of anything and is refused. That costs a dev
-     * checkout nothing, because the development publisher declares its schema
-     * from the commit it advertises.
-     */
-    if (isProvablyNewer(targetVersion, currentVersion)) return undefined
-    return (
-      `cannot converge: ${SCHEMA_UNKNOWN} — ${targetVersion} does not declare which schema ` +
-      `migrations it can open, it is not a version this machine can prove is newer than the ` +
-      `${currentVersion} it runs, and this machine's database has ${applied.length} applied, so ` +
-      `nothing here can tell whether that build would start against it. ${staysPut} An update ` +
-      `that moves FORWARD needs no declaration and is not affected by this; going back to a ` +
-      `build published before this check existed is what cannot be proven safe.`
-    )
-  }
-
-  const defined = new Set(targetDefines.map(canonicalMigrationName))
-  const missing = applied.filter((name) => !defined.has(canonicalMigrationName(name))).sort()
-  if (missing.length === 0) return undefined
-
-  const [first] = missing
-  const alsoOthers = missing.length > 1 ? ` (and ${missing.length - 1} more)` : ''
-  return (
-    `cannot converge: ${SCHEMA_ADVANCED} — this machine's database has applied migration ` +
-    `'${first}'${alsoOthers}, which ${targetVersion} does not define, so that build would ` +
-    `refuse to open the database and the server would not come back. ${staysPut} Going back ` +
-    `across a migration is not something Podium can do for you — it needs a database restore ` +
-    `by hand (docs/data-and-upgrades.md), because restoring silently would discard every ` +
-    `write made since the schema advanced.`
-  )
-}
-
-/**
- * The refusal seam `applyGrant` calls, bound to this machine's ledger.
- *
- * The read is a thunk rather than a value because it has to be FRESH: a daemon
- * lives across upgrades of its own server, so the set of applied migrations at
- * grant time is not the set at boot time.
- *
- * A read that throws refuses. An unreadable ledger is not the same answer as
- * "this machine owns no database", and reading it as one would let through
- * exactly the swap this gate exists to stop.
- */
-export function createSchemaGate(deps: {
-  readApplied: () => readonly string[] | undefined
-  currentVersion: string
-}): (target: { version: string; schema?: { migrations: string[] } }) => string | undefined {
-  return (target) => {
-    let applied: readonly string[] | undefined
-    try {
-      applied = deps.readApplied()
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      return (
-        `cannot converge: ${SCHEMA_UNREADABLE} — this machine's database could not be read ` +
-        `(${detail}), so there is no way to tell whether ${target.version} could open it. ` +
-        `Nothing was fetched and nothing was swapped; this machine stays on ` +
-        `${deps.currentVersion}.`
-      )
-    }
-    return refuseSchemaRegression({
-      applied,
-      targetDefines: target.schema?.migrations,
-      currentVersion: deps.currentVersion,
-      targetVersion: target.version,
-    })
-  }
-}
-
 export type BootVerdict =
   | { action: 'confirm'; state: 'current' }
   | { action: 'retry'; attempts: number }

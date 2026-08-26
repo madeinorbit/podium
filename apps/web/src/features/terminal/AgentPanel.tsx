@@ -1052,6 +1052,7 @@ export function AgentPanel({
               spawnFailure={session.spawnFailure}
               isShell={session.agentKind === 'shell'}
               resumable={session.resumable === true}
+              {...(session.neverBound ? { neverBound: true as const } : {})}
               waking={sessionWaking(session)}
             />
             <ChatView sessionId={sessionId} active={active} />
@@ -1063,6 +1064,7 @@ export function AgentPanel({
             spawnFailure={session.spawnFailure}
             isShell={session.agentKind === 'shell'}
             resumable={session.resumable === true}
+            {...(session.neverBound ? { neverBound: true as const } : {})}
           />
         )
       ) : (

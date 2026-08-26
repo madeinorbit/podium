@@ -52,20 +52,6 @@
  */
 
 import { z } from 'zod'
-import {
-  AccountIdField,
-  asAutomationId,
-  asIssueId,
-  asSessionId,
-  asThreadId,
-  AutomationIdField,
-  ConversationIdField,
-  IssueIdField,
-  MachineIdField,
-  type SessionId,
-  SessionIdField,
-  ThreadIdField,
-} from '../ids'
 import { AgentKind } from '../entities/agent'
 import {
   AgentRuntimeState,
@@ -75,6 +61,20 @@ import {
   SessionStatus,
   WorkState,
 } from '../entities/session'
+import {
+  AccountIdField,
+  AutomationIdField,
+  asAutomationId,
+  asIssueId,
+  asSessionId,
+  asThreadId,
+  ConversationIdField,
+  IssueIdField,
+  MachineIdField,
+  type SessionId,
+  SessionIdField,
+  ThreadIdField,
+} from '../ids'
 import { Attribution, StampedAttribution } from './attribution'
 import { OpStreamDocument } from './op-stream'
 
@@ -487,6 +487,17 @@ export const SessionDerived = z.object({
   displayRef: z.string().optional(),
   /** From {@link SessionResume}: "a resume ref is known". */
   resumable: z.boolean().optional(),
+  /**
+   * PROOF that this launch never established a native conversation, so a fresh
+   * relaunch loses nothing — the recovery verb for a dead agent that has no
+   * resume ref BECAUSE it died before its harness ever opened a thread.
+   *
+   * Present only when the server holds that proof. Its absence is not the
+   * opposite claim: a row from before the proof existed, or one whose evidence
+   * is merely missing, omits it exactly as a genuinely-bound session does. Only
+   * `true` is ever sent, so no reader can mistake `false` for a verdict.
+   */
+  neverBound: z.literal(true).optional(),
   /** From the reader's per-user `readAt` vs `lastActiveAt`. Per-principal. */
   unread: z.boolean().optional(),
   /** Server-resolved from the machines table. */

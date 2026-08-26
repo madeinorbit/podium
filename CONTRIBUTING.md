@@ -62,10 +62,44 @@ bun run --cwd apps/desktop build                # release build (.app/.dmg on ma
 | `bun run typecheck` | `tsc --noEmit` across every workspace. |
 | `bun run build` | Builds the publishable libraries (`packages/*`) with tsup. Not required to run the app. |
 | `bun run dev` | Watch-build the publishable libraries (this does **not** start the app — use `bun run host`). |
-| `bun run test` | The full test suite: vitest across every workspace (web under happy-dom) + the bun-only suites. Needs a real Node ≥ 22 on PATH (never symlink `node`→`bun`) — see README § Testing. |
+| `bun run test` | The full test suite: vitest across every workspace (web under happy-dom) + the bun-only suites. Needs a real Node ≥ 22 on PATH (never symlink `node`→`bun`) — see [Testing](#testing) below. |
 | `bun run lint` | Biome check. |
 | `bun run format` | Biome format (writes). |
 | `bun run --filter <name> <script>` | Run one workspace's script, e.g. `bun run --filter @podium/protocol build`. |
+
+## Testing
+
+The whole suite runs with one command from the repo root:
+
+```bash
+bun run test    # vitest (all workspaces, web under happy-dom) + the bun-only suites
+```
+
+Prerequisites: **Bun ≥ 1.3.14** and a real **Node ≥ 22** on PATH. Vitest runs under Node —
+do NOT symlink `node` → `bun`; Bun's Node shim breaks vitest's CJS interop (symptoms:
+`z.string is not a function`, `DOMPurify.sanitize is undefined`, `document is not defined`
+across hundreds of files).
+
+Some tests self-skip when their machine setup is absent (they never fail for it):
+
+- `apps/cli/src/podium-update.test.ts` swap tests — need the operator's signing key
+  (`apps/cli/src/.podium-update-dev.key`, the private half of `PODIUM_UPDATE_PUBKEY`).
+- `packages/pty/test/harness-smoke/claude-smoke.test.ts` — needs `claude` on PATH
+  with `$HOME` already trusted (run `claude` once in `$HOME` and accept the prompt), or
+  set `PODIUM_SKIP_CLAUDE_SMOKE=1`.
+- `packages/harness/src/opencode/*` detection tests expect the `opencode` CLI at
+  `~/.opencode/bin/opencode`.
+
+Browser E2E (Playwright, headless Chromium; builds protocol + web, then boots the real
+relay/daemon harness):
+
+```bash
+bunx playwright install chromium         # once per machine
+cd tests/e2e && NODE_OPTIONS="--conditions=@podium/source" bunx playwright test --project=chromium-desktop
+```
+
+The `NODE_OPTIONS` condition is required so Playwright's loader resolves workspace
+packages from source instead of (possibly unbuilt) `dist/`.
 
 ## Adding a package
 

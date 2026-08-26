@@ -153,11 +153,20 @@ function defaultServerName(httpOrigin: string): string | undefined {
   }
 }
 
-function surfaceFromDesktopBridge(): UpdateSurface {
+export function surfaceFromDesktopBridge(): UpdateSurface {
   const bridge = nativeDesktopBridge()
   if (!bridge) return window.location.pathname.startsWith('/mobile') ? 'mobile' : 'web'
-  if (bridge.launchMode === 'client') return 'desktop-remote'
-  return 'desktop-all-in-one'
+  if (bridge.launchMode === 'all-in-one' || bridge.launchMode === 'server') {
+    return 'desktop-all-in-one'
+  }
+  if (bridge.launchMode === 'daemon' || bridge.launchMode === 'client') {
+    return 'desktop-remote'
+  }
+  // Older shells omit launchMode. Their page origin still establishes the same
+  // ownership fact: bundled tauri:// UI is local; an http(s) page is remote.
+  return window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost'
+    ? 'desktop-all-in-one'
+    : 'desktop-remote'
 }
 
 async function readJson(url: string): Promise<unknown> {
@@ -220,9 +229,7 @@ async function readDesktopUpdate(
   const check = nativeDesktopBridge()?.checkUpdate
   if (!check) return undefined
   const next = await check(channel)
-  return next
-    ? { version: next.version, critical: next.critical, notes: next.notes }
-    : undefined
+  return next ? { version: next.version, critical: next.critical, notes: next.notes } : undefined
 }
 
 /**
@@ -412,9 +419,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    * Operations THIS tab watched run. A completion is only news to those — and
    * the seed is what carries that across a shell restart (see `watchedHandoff`).
    */
-  const watched = useRef<Set<string>>(
-    new Set(watchedHandoff((options.now ?? Date.now)())),
-  )
+  const watched = useRef<Set<string>>(new Set(watchedHandoff((options.now ?? Date.now)())))
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | undefined>()
   const [desktopChannel, setDesktopChannel] = useState<NativeDesktopUpdateChannel | undefined>()
   const [desktopProgress, setDesktopProgress] = useState<NativeDesktopUpdateProgress | undefined>()
@@ -639,6 +644,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     typeof installUpdate === 'function' &&
     desktopChannel !== undefined &&
     (desktopUpdate !== undefined || desktopTargeted || desktopAsked)
+  const expectedDesktopVersion = desktopAsked
+    ? operationTarget
+    : (desktopUpdate?.version ?? (desktopTargeted ? target?.version : undefined))
 
   /**
    * The silent hard-reload budget, explained after the fact (spec §6.2.3). The
@@ -691,7 +699,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
             const install = nativeDesktopBridge()?.installUpdate
             if (!install) break
             if (desktopChannel === undefined) throw new Error(UNKNOWN_DESKTOP_CHANNEL)
-            await install(desktopChannel)
+            await install(desktopChannel, expectedDesktopVersion)
             /**
              * REACHING THIS LINE IS ITSELF THE FAILURE (POD-2152).
              *
@@ -735,7 +743,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         setDesktopProgress(undefined)
       }
     },
-    [desktopChannel, operationId, options.reload, refresh, surface, trpc],
+    [desktopChannel, expectedDesktopVersion, operationId, options.reload, refresh, surface, trpc],
   )
 
   const checkNow = useCallback(async (): Promise<void> => {

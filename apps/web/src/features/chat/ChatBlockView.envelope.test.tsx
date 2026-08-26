@@ -26,7 +26,12 @@ function userItem(text: string): TranscriptItem {
 let host: HTMLDivElement
 let root: Root
 
-function mount(item: TranscriptItem, stickyOperator = false, highlighted = false): void {
+function mount(
+  item: TranscriptItem,
+  stickyOperator = false,
+  highlighted = false,
+  markdownHtml?: ReadonlyMap<string, string>,
+): void {
   act(() => {
     root.render(
       <ChatBlockView
@@ -42,6 +47,7 @@ function mount(item: TranscriptItem, stickyOperator = false, highlighted = false
         askLivePending={false}
         onAnswerAsk={async () => {}}
         stickyOperator={stickyOperator}
+        markdownHtml={markdownHtml}
       />,
     )
   })
@@ -143,6 +149,28 @@ describe('podium mail', () => {
       ),
     )
     expect(group()?.getAttribute('data-open')).toBe('true')
+  })
+
+  it('keeps an opened mail body DOM-stable across an unrelated markdown cache update', () => {
+    const body = 'Worktree synced\n\nSelection stays here.'
+    const item = userItem(frame('msg_stable', 'issue:POD-84', 'your session', body))
+    const html = '<p>Worktree synced</p><p>Selection stays here.</p>'
+    mount(item, false, false, new Map([[body, html]]))
+    click(toggle())
+    click(host.querySelector('.mail-item-head'))
+    const node = host.querySelector('.mail-item-body')?.firstChild
+    expect(node).toBeDefined()
+
+    mount(
+      item,
+      false,
+      false,
+      new Map([
+        [body, html],
+        ['unrelated', '<p>new</p>'],
+      ]),
+    )
+    expect(host.querySelector('.mail-item-body')?.firstChild).toBe(node)
   })
 
   // Search matches a block on its FULL text, including bodies this group folds

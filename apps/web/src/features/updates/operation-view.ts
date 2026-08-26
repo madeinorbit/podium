@@ -432,7 +432,8 @@ function placeSubject(places: readonly string[] | undefined): string | undefined
  * and the generic retry becomes layer two.
  *
  * The desktop shell's codes (POD-2135: `debug-build`, `signature-invalid`,
- * `install-failed`, `restart-failed`, `no-pending-update`, `no-update-available`)
+ * `install-failed`, `restart-failed`, `no-pending-update`, `no-update-available`,
+ * `update-target-changed`)
  * are in the same kebab-case namespace and are mapped here too, because to the
  * user "the update failed" is one story regardless of which half reported it.
  */
@@ -550,6 +551,11 @@ function errorCopy(
       return {
         message: 'There is no desktop update ready to install.',
         nextAction: 'Check for updates again.',
+      }
+    case 'update-target-changed':
+      return {
+        message: message ?? 'The desktop update channel changed while this operation was running.',
+        nextAction: 'Check for updates again before installing.',
       }
     default: {
       // NO CODE, OR ONE THIS BUNDLE PREDATES. Two chances before the generic
@@ -714,8 +720,7 @@ function computeView(input: OperationViewInput): UpdatePanelView {
   if (operation === undefined) return noneView()
 
   if (input.actionError?.code === 'PRECONDITION_FAILED') {
-    const version =
-      input.offer && 'version' in input.offer ? input.offer.version : undefined
+    const version = input.offer && 'version' in input.offer ? input.offer.version : undefined
     if (version !== undefined) {
       return offerView({
         ...input,

@@ -128,6 +128,24 @@ export const sessions = sqliteTable(
      * were not told about is the guess this whole issue is about removing.
      */
     selectedDriverId: text('selected_driver_id'),
+    /**
+     * WHETHER THIS LAUNCH EVER HAD A NATIVE CONVERSATION (POD-2392).
+     *
+     * `resume_value` answers "is one known NOW", which a conversation can leave
+     * (identity-collision arbitration clears the loser's ref) and which a
+     * harness that dies before opening a thread never acquires. Recovery needs
+     * the other question — "was there EVER one" — because only a provably
+     * never-bound launch may be relaunched fresh without discarding a
+     * conversation.
+     *
+     * `'never'` is stamped at mint and promoted to `'bound'` at the first
+     * observation of a native id, transcript, or provider binding. The
+     * promotion is one-way, enforced in the upsert rather than trusted to the
+     * caller. NULL means the row predates this column: not proof of anything,
+     * and deliberately NOT backfilled to `'never'`, which would assert that
+     * every session alive at migration time had no conversation.
+     */
+    conversationBinding: text('conversation_binding'),
     status: text().notNull(),
     exitCode: integer('exit_code'),
     spawnFailure: text('spawn_failure'),

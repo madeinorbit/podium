@@ -20,6 +20,26 @@ import { sharedVitestConfig } from '../../vitest.config'
  *     what `expo export -p web` builds against), so the alias runs the same
  *     mapping the web build does rather than inventing a test-only stub.
  *
+ *     THE ALIAS ONLY REACHES CODE VITE TRANSFORMS (POD-1429). Third-party React
+ *     Native packages under `node_modules` are externalized as CommonJS and
+ *     `require`d by Node directly, so their own `require('react-native')` is
+ *     resolved by Node — it lands on React Native's Flow source, and the file
+ *     that names the failure is never the one under test: Node reports a bare
+ *     `SyntaxError: Unexpected token 'typeof'` at import, before a single test
+ *     is collected. Node also has no notion of Metro's `.web.js` platform
+ *     suffix, so even a package that ships a DOM implementation loads its
+ *     native one.
+ *
+ *     There are two ways out, and which one is right depends on whether the
+ *     package belongs in the graph at all. A package the app genuinely renders
+ *     comes back INSIDE vite — `server.deps.inline` plus an alias onto its web
+ *     entry, as `react-native-svg` and `lucide-react-native` do below. A package
+ *     that is only there because a leaf imported a composition root to read one
+ *     context should not be in the graph in the first place: the context moves
+ *     to its own module (`./launch-ready`, `./server-profile-context`) and the
+ *     leaf imports that instead. `readiness-gate.test.tsx` needs no stubs at all
+ *     for exactly that reason — if stubs reappear there, the split has regressed.
+ *
  *   `happy-dom` — react-native-web touches `document` at import time.
  *
  *   the `expo-sqlite` alias — it pulls `expo-modules-core`, which reads the
@@ -48,13 +68,35 @@ export default defineConfig({
     // screen that imports `../terminal/TerminalPane` has only `.native.tsx` and
     // `.web.tsx` on disk; without this the import is unresolvable and the
     // failure names the module rather than the missing extension list.
-    extensions: ['.web.tsx', '.web.ts', '.tsx', '.ts', '.jsx', '.js', '.json'],
+    extensions: [
+      '.web.tsx',
+      '.web.ts',
+      '.web.jsx',
+      '.web.js',
+      '.tsx',
+      '.ts',
+      '.jsx',
+      '.js',
+      '.json',
+    ],
     alias: [
       ...sharedAliases,
       { find: 'react-native', replacement: 'react-native-web' },
       {
         find: 'expo-sqlite',
         replacement: fileURLToPath(new URL('./test/expo-sqlite-absent.ts', import.meta.url)),
+      },
+      // react-native-svg publishes native CJS as its Node entrypoint. Its web
+      // build is the same implementation Expo's web bundler selects, and an
+      // absolute replacement keeps its imports inside Vite's alias pipeline.
+      {
+        find: /^react-native-svg$/,
+        replacement: fileURLToPath(
+          new URL(
+            '../../node_modules/react-native-svg/lib/module/ReactNativeSVG.web.js',
+            import.meta.url,
+          ),
+        ),
       },
       // ONE COPY OF REACT, AND IT HAS TO BE THE ROOT'S.
       //
@@ -82,6 +124,17 @@ export default defineConfig({
   ssr: { resolve: { conditions } },
   test: {
     ...sharedVitestConfig.test,
+    server: {
+      deps: {
+        // Native packages commonly publish CJS entrypoints whose internal
+        // `require('react-native')` calls bypass Vite aliases when externalized.
+        // Keep the native dependency boundary in Vite so the react-native-web
+        // alias and `.web.*` resolution above apply transitively. Otherwise
+        // react-native-svg reaches RN's Flow-typed index.js and Node fails on
+        // its `import typeof` declaration.
+        inline: ['lucide-react-native', 'react-native-svg'],
+      },
+    },
     // `one-react.ts` last: it turns a drifted checkout into a message that names the
     // fix, instead of react-native-web's `useContext` of null. See that file.
     setupFiles: [

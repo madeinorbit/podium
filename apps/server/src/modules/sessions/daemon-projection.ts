@@ -38,7 +38,11 @@ export interface SessionDaemonProjectionPorts {
   persist(session: Session): void
   broadcastSessions(): void
   broadcastToClients(message: LiveServerMessage): void
-  adoptWorktree(issueId: IssueId, message: Extract<DaemonMessage, { type: 'sessionCwd' }>): void
+  adoptWorktree(
+    issueId: IssueId,
+    machineId: MachineId,
+    message: Extract<DaemonMessage, { type: 'sessionCwd' }>,
+  ): void
 }
 
 /** Applies daemon-observed metadata to the session projection and its module views. */
@@ -120,7 +124,8 @@ export class SessionDaemonProjection {
           this.ports.persist(session)
           this.ports.broadcastSessions()
         }
-        if (message.cwd && session.issueId) this.ports.adoptWorktree(session.issueId, message)
+        if (message.cwd && session.issueId)
+          this.ports.adoptWorktree(session.issueId, machineId, message)
         break
       }
       case 'sessionGitActivity':

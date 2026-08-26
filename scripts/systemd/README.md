@@ -7,23 +7,23 @@ These files are generated copies of the source-based dev-host profile in
 bun --conditions=@podium/source scripts/render-systemd.ts --profile dev
 cp scripts/systemd/podium-*.service scripts/systemd/podium-*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now podium-server.service podium-daemon.service podium-health.timer
-# verify the watchdog took: both should read "active (running)" with a Watchdog line
-systemctl --user status podium-server podium-daemon | grep -iE 'active|watchdog'
+systemctl --user enable --now podium-server.service podium-janitor.service podium-daemon.service podium-health.timer
+# verify the watchdog took: all three should read "active (running)" with a Watchdog line
+systemctl --user status podium-server podium-janitor podium-daemon | grep -iE 'active|watchdog'
 ```
 
 Topology: the **split backend** on :18787 serves the built PWA itself: `podium-server`
-(coordinating relay + HTTP/tRPC + WebSockets) and `podium-daemon` (all per-agent PTY /
-transcript / discovery / metrics work), which connects to the server over
+(coordinating relay + HTTP/tRPC + WebSockets), `podium-janitor` (durable maintenance), and
+`podium-daemon` (all per-agent PTY / transcript / discovery / metrics work), which connects to the server over
 `ws://localhost:18787/daemon` and reconnects with backoff. Splitting them is what stops
-a misbehaving agent or a reattach storm from starving the relay loop. Both run from
+a misbehaving agent or a reattach storm from starving the relay loop. All three run from
 source via `--conditions=@podium/source`. Moving the checkout publishes a signed
 development target; the visible **Update Podium** action runs the guarded
 `podium-redeploy.service` only after development-channel machines converge. No
 path unit is rendered: moving the checkout cannot restart the coordinating
 server without approval.
 
-Both backend units are `Type=notify` with `WatchdogSec=30`: they pet the systemd
+All three backend units are `Type=notify` with watchdogs: they pet the systemd
 watchdog from their event loop (`packages/runtime/src/sd-notify.ts`), so a **wedged-but-alive**
 process (the documented big-paste msg-loop wedge — `Restart=always` only fires on
 EXIT) stops petting and systemd restarts it. The daemon especially needs this: it

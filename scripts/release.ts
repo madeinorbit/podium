@@ -13,7 +13,10 @@ import { basename, join } from 'node:path'
 // Imported from source, not the `@podium/protocol` entry point: that entry resolves to
 // `dist/`, which the release workflow never builds (`bun install --ignore-scripts`), so a
 // bare specifier fails at runtime in CI. Same convention as the other scripts/ imports.
-import { MinRequired, type MinRequired as MinRequiredShape } from '../packages/protocol/src/update/target'
+import {
+  MinRequired,
+  type MinRequired as MinRequiredShape,
+} from '../packages/protocol/src/update/target'
 import { extractRelease } from './changelog'
 import { buildManifest } from './release-manifest'
 
@@ -40,6 +43,38 @@ type PreparedHeadless = {
   target: string
   asset: string
   signature: string
+  webDigest: string
+}
+
+export function packagedWebDigest(root = 'dist-bun/headless'): string {
+  const read = (site: 'web' | 'mobile'): { sourceSha: string; appVersion: string } => {
+    const path = join(root, site, 'podium-build.json')
+    const stamp = JSON.parse(readFileSync(path, 'utf8')) as {
+      sourceSha?: unknown
+      appVersion?: unknown
+    }
+    if (typeof stamp.sourceSha !== 'string' || stamp.sourceSha.length === 0) {
+      throw new Error(`prepared ${site} site has no sourceSha in ${path}`)
+    }
+    if (typeof stamp.appVersion !== 'string' || stamp.appVersion.length === 0) {
+      throw new Error(`prepared ${site} site has no appVersion in ${path}`)
+    }
+    return { sourceSha: stamp.sourceSha, appVersion: stamp.appVersion }
+  }
+  const web = read('web')
+  const mobile = read('mobile')
+  if (web.sourceSha !== mobile.sourceSha || web.appVersion !== mobile.appVersion) {
+    throw new Error(
+      `prepared web and mobile sites disagree (web=${web.appVersion}/${web.sourceSha}, mobile=${mobile.appVersion}/${mobile.sourceSha})`,
+    )
+  }
+  const bundleVersion = readFileSync(join(root, 'VERSION'), 'utf8').trim()
+  if (web.appVersion !== bundleVersion) {
+    throw new Error(
+      `prepared client version ${web.appVersion} does not match bundle VERSION ${bundleVersion}`,
+    )
+  }
+  return web.sourceSha
 }
 
 export function buildHeadlessManifestForPlatforms(p: {
@@ -136,6 +171,7 @@ export function prepareHeadlessArchitecture(
     target: config.target,
     asset: config.asset,
     signature: readFileSync(builtSig, 'utf8').trim(),
+    webDigest: packagedWebDigest(),
   }
   writeFileSync(join(outDir, descriptorName(config.asset)), `${JSON.stringify(prepared)}\n`)
   console.log(`[release] prepared ${config.target} → ${join(outDir, config.asset)}`)
@@ -154,6 +190,10 @@ export function loadPreparedHeadless(
 
   const versions = new Set(prepared.map((item) => item.version))
   if (versions.size !== 1) throw new Error('prepared headless artifacts have different versions')
+  const webDigests = new Set(prepared.map((item) => item.webDigest))
+  if (webDigests.size !== 1 || !prepared[0]?.webDigest) {
+    throw new Error('prepared headless artifacts have different or missing web digests')
+  }
   for (const target of requiredTargets) {
     if (!prepared.some((item) => item.target === target)) {
       throw new Error(`prepared headless artifacts are missing ${target}`)
@@ -229,10 +269,7 @@ export function publishPreparedHeadless(p: {
   if (p.channel === 'stable' && !p.tag) throw new Error('stable release needs --tag vX.Y.Z')
   const { version, prepared } = loadPreparedHeadless(p.dir, p.requiredTargets)
   const manifestName = 'podium-update.json'
-  const notes = extractRelease(
-    readFileSync(p.changelogPath ?? 'CHANGELOG.md', 'utf8'),
-    version,
-  )
+  const notes = extractRelease(readFileSync(p.changelogPath ?? 'CHANGELOG.md', 'utf8'), version)
   writeFileSync(
     join(p.dir, manifestName),
     `${JSON.stringify(
@@ -247,6 +284,7 @@ export function publishPreparedHeadless(p: {
         notes,
         critical: p.critical ?? false,
         minRequired: p.minRequired,
+        webDigest: prepared[0]!.webDigest,
         schemaMigrations: readDefinedMigrations(p.migrationsDir),
       }),
       null,

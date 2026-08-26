@@ -180,6 +180,32 @@ WantedBy=default.target
 `
 }
 
+function renderDevJanitor(c: RenderContext): string {
+  return `[Unit]
+Description=Podium durable maintenance janitor (source checkout)
+After=network-online.target ${c.serverUnit}
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+WatchdogSec=30
+WorkingDirectory=${c.repoRoot}
+Environment=HOME=${c.home}
+Environment=PATH=${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PODIUM_INSTANCE=${c.instanceId}
+ExecStart=${c.home}/.local/bin/bun --conditions=@podium/source scripts/cli.ts janitor --server http://localhost:${c.port}
+Restart=always
+RestartSec=2
+RestartPreventExitStatus=${DAEMON_BLOCKED_EXIT_CODE}
+CPUWeight=100
+IOWeight=100
+
+[Install]
+WantedBy=default.target
+`
+}
+
 export function renderServerUnit(
   instanceIdOrOptions: string | SystemdRenderOptions = resolveInstanceId(),
 ): string {
@@ -388,7 +414,6 @@ ExecStart=/usr/bin/systemctl --user restart ${c.serverUnit} ${c.daemonUnit} ${c.
 `
 }
 
-
 function renderDevHealthService(c: RenderContext): string {
   return `[Unit]
 Description=Podium health probe — last-resort restart of a wedged-but-alive /health
@@ -486,6 +511,7 @@ export function renderSystemdFiles(opts: SystemdRenderOptions = {}): RenderedSys
   return {
     units: {
       [c.serverUnit]: renderServerUnit({ ...opts, profile: 'dev', instanceId: c.instanceId }),
+      [c.janitorUnit]: generatedUnit(renderDevJanitor(c)),
       [c.daemonUnit]: renderDaemonUnit({ ...opts, profile: 'dev', instanceId: c.instanceId }),
       [c.redeployUnit]: generatedUnit(renderDevRedeployService(c)),
       [c.healthUnit]: generatedUnit(renderDevHealthService(c)),

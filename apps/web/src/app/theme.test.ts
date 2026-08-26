@@ -1,24 +1,19 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { applyTheme, readStoredTheme, resolveDark, THEME_MODE_KEY, THEME_PRESET_KEY } from './theme'
+import { applyTheme, readStoredTheme, resolveDark, THEME_MODE_KEY } from './theme'
 
 afterEach(() => localStorage.clear())
 
 describe('readStoredTheme', () => {
-  it('defaults to superade/dark when nothing stored', () => {
-    expect(readStoredTheme()).toEqual({ preset: 'superade', mode: 'dark' })
+  it('defaults to dark when nothing is stored', () => {
+    expect(readStoredTheme()).toEqual({ mode: 'dark' })
   })
-  it('reads stored valid values', () => {
-    localStorage.setItem(THEME_PRESET_KEY, 'shadcn')
+  it('reads a stored valid mode', () => {
     localStorage.setItem(THEME_MODE_KEY, 'light')
-    expect(readStoredTheme()).toEqual({ preset: 'shadcn', mode: 'light' })
+    expect(readStoredTheme()).toEqual({ mode: 'light' })
   })
-  it('reads the superade preset', () => {
-    localStorage.setItem(THEME_PRESET_KEY, 'superade')
-    expect(readStoredTheme().preset).toBe('superade')
-  })
-  it('falls back on garbage', () => {
-    localStorage.setItem(THEME_PRESET_KEY, 'bogus')
-    expect(readStoredTheme().preset).toBe('superade')
+  it('falls back on an invalid mode', () => {
+    localStorage.setItem(THEME_MODE_KEY, 'bogus')
+    expect(readStoredTheme()).toEqual({ mode: 'dark' })
   })
 })
 
@@ -34,20 +29,14 @@ describe('resolveDark', () => {
 })
 
 describe('applyTheme', () => {
-  it('sets data-theme for podium, removes for shadcn, toggles dark', () => {
+  it('always applies the Podium theme and toggles dark mode', () => {
     const el = document.createElement('html')
-    applyTheme({ preset: 'podium', mode: 'dark' }, el)
+    applyTheme({ mode: 'dark' }, el)
     expect(el.getAttribute('data-theme')).toBe('podium')
     expect(el.classList.contains('dark')).toBe(true)
-    applyTheme({ preset: 'shadcn', mode: 'light' }, el)
-    expect(el.getAttribute('data-theme')).toBe(null)
+    applyTheme({ mode: 'light' }, el)
+    expect(el.getAttribute('data-theme')).toBe('podium')
     expect(el.classList.contains('dark')).toBe(false)
-  })
-  it('sets data-theme for superade', () => {
-    const el = document.createElement('html')
-    applyTheme({ preset: 'superade', mode: 'dark' }, el)
-    expect(el.getAttribute('data-theme')).toBe('superade')
-    expect(el.classList.contains('dark')).toBe(true)
   })
   // The macOS vibrancy layer renders with the window's NSAppearance, not the page
   // theme, so applyTheme forwards the resolved mode to the shell. System hands
@@ -67,9 +56,9 @@ describe('applyTheme', () => {
     }
     try {
       const el = document.createElement('html')
-      applyTheme({ preset: 'superade', mode: 'dark' }, el)
-      applyTheme({ preset: 'superade', mode: 'light' }, el)
-      applyTheme({ preset: 'superade', mode: 'system' }, el, true)
+      applyTheme({ mode: 'dark' }, el)
+      applyTheme({ mode: 'light' }, el)
+      applyTheme({ mode: 'system' }, el, true)
       expect(calls).toEqual(['dark', 'light', null])
     } finally {
       delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
@@ -84,7 +73,7 @@ describe('applyTheme', () => {
     }
     try {
       const el = document.createElement('html')
-      expect(() => applyTheme({ preset: 'superade', mode: 'dark' }, el)).not.toThrow()
+      expect(() => applyTheme({ mode: 'dark' }, el)).not.toThrow()
     } finally {
       delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
     }

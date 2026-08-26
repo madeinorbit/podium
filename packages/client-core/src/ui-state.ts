@@ -393,7 +393,7 @@ const THEME_SET: ReadonlySet<string> = new Set(THEME_UI_KEYS)
 
 export type PreAuthThemeKey = (typeof THEME_UI_KEYS)[number]
 
-/** Raw, unnamespaced storage is permitted only for these two named theme keys.
+/** Raw, unnamespaced storage is permitted only for the named theme-mode key.
  * ThemeProvider runs before a principal-bound replica exists. */
 export function readPreAuthTheme(key: PreAuthThemeKey): string | null {
   try {

@@ -13,6 +13,7 @@ import { ServerUnavailableError } from '@/app/trpc'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import {
   desktopChannelOf,
+  surfaceFromDesktopBridge,
   type UpdateStateResult,
   useUpdateState,
 } from './use-update-state'
@@ -130,6 +131,7 @@ function deferred<T>(): {
 function stubDesktopShell(over: Record<string, unknown> = {}): void {
   vi.stubGlobal('__PODIUM_DESKTOP__', {
     platform: 'linux',
+    launchMode: 'all-in-one',
     minimize: vi.fn(async () => {}),
     toggleMaximize: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
@@ -162,6 +164,18 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
+})
+
+describe('native desktop update surface', () => {
+  it.each([
+    ['all-in-one', 'desktop-all-in-one'],
+    ['server', 'desktop-all-in-one'],
+    ['daemon', 'desktop-remote'],
+    ['client', 'desktop-remote'],
+  ] as const)('maps %s mode to %s', (launchMode, expected) => {
+    stubDesktopShell({ launchMode })
+    expect(surfaceFromDesktopBridge()).toBe(expected)
+  })
 })
 
 describe('desktopChannelOf', () => {
@@ -486,7 +500,7 @@ describe('useUpdateState — all-in-one: one click, one restart', () => {
     await waitFor(() => expect(results.at(-1)?.view.primary?.kind).toBe('install-desktop'))
 
     void results.at(-1)?.run('install-desktop')
-    await waitFor(() => expect(install).toHaveBeenCalledWith('edge'))
+    await waitFor(() => expect(install).toHaveBeenCalledWith('edge', '0.4.2'))
   })
 
   it('installs on the channel the server resolved, not the shell’s own config', async () => {
@@ -502,7 +516,7 @@ describe('useUpdateState — all-in-one: one click, one restart', () => {
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('waiting-you'))
 
     void results.at(-1)?.run('install-desktop')
-    await waitFor(() => expect(install).toHaveBeenCalledWith('stable'))
+    await waitFor(() => expect(install).toHaveBeenCalledWith('stable', '0.4.2'))
   })
 
   /**
@@ -579,14 +593,12 @@ describe('useUpdateState — dispatching actions', () => {
 
   it('lets an update-owned restart advance through operation progress without an action error', async () => {
     setupTransport()
-    mocks.active
-      .mockResolvedValueOnce(null)
-      .mockResolvedValue({
-        id: 'op_restart',
-        kind: 'update',
-        state: 'running',
-        steps: [{ id: 'server', title: 'Updating your server', state: 'running' }],
-      })
+    mocks.active.mockResolvedValueOnce(null).mockResolvedValue({
+      id: 'op_restart',
+      kind: 'update',
+      state: 'running',
+      steps: [{ id: 'server', title: 'Updating your server', state: 'running' }],
+    })
     mocks.start.mockRejectedValue(new ServerUnavailableError(new SyntaxError('cut response')))
     const results: UpdateStateResult[] = []
 
@@ -670,7 +682,7 @@ describe('useUpdateState — dispatching actions', () => {
 
     await results.at(-1)?.run('install-desktop')
     // The channel the SERVER resolved, passed as an argument (POD-2135).
-    expect(install).toHaveBeenCalledWith('stable')
+    expect(install).toHaveBeenCalledWith('stable', '0.4.2')
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
     expect(results.at(-1)?.view.error?.message).toMatch(/couldn't be verified/i)
     expect(results.at(-1)?.view.error?.detail).toContain('code: signature-invalid')

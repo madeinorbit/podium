@@ -2,9 +2,9 @@ import type { ServerReadiness } from '@podium/model'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { type ReadinessDisplayState, ReadinessScreen } from '../components/ReadinessScreen'
 import { demoEnabled } from './demoData'
-import { LaunchReadyView } from './launch'
+import { LaunchReadyView } from './launch-ready'
 import { fetchServerReadiness } from './readiness'
-import { useOptionalServerProfile } from './ServerProfileGate'
+import { useOptionalServerProfile } from './server-profile-context'
 import { readServerConfig } from './trpc'
 
 type GateState = 'checking' | 'unreachable' | ServerReadiness

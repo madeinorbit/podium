@@ -115,7 +115,10 @@ function LifecycleButton({
  * A missing worktree is rebuilt from the branch on resume, so it is not a fact
  * this surface needs.
  */
-type ExitedProps = Pick<SessionMeta, 'sessionId' | 'exitCode' | 'spawnFailure' | 'resumable'> & {
+type ExitedProps = Pick<
+  SessionMeta,
+  'sessionId' | 'exitCode' | 'spawnFailure' | 'resumable' | 'neverBound'
+> & {
   isShell: boolean
 }
 
@@ -125,6 +128,7 @@ function exitedAction(p: ExitedProps): { detail: string; action: LifecycleAction
     ...(p.spawnFailure ? { spawnFailure: p.spawnFailure } : {}),
     isShell: p.isShell,
     resumable: p.resumable === true,
+    neverBound: p.neverBound === true,
   })
   return { detail, action: recoveryAction('ended', action) }
 }

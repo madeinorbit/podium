@@ -7,7 +7,7 @@ import { color, mono, monoLabel } from '../theme/theme'
    travelling wave that the web uses, so a phone and a desktop describe one
    working session with one shape. */
 
-/** Amber numbered pill — "N things waiting on you". */
+/** Bisque numbered pill — "N things waiting on you". */
 export function CountPill({ count, size = 16 }: { count: number; size?: number }) {
   return (
     <View

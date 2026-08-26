@@ -4,7 +4,6 @@ import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core
 import {
   archivedSessionsForIssue,
   buildFlightDeckRows,
-  continuationPresenceLine as sharedContinuationPresenceLine,
   type CollapsedSummary,
   type DeckIssueState,
   type DeckState,
@@ -36,8 +35,8 @@ import {
   nativeSubagentRows,
   type PresenceNote,
   presenceNote,
-  reposToViews,
   readFlightDeckFolds,
+  reposToViews,
   reuseFlightDeckRows,
   type SessionRole,
   selectedMissionRoot,
@@ -47,6 +46,7 @@ import {
   sessionSettled,
   sessionUnreadEmphasized,
   sessionVisibleInLiveRoster,
+  continuationPresenceLine as sharedContinuationPresenceLine,
   subtreeUnread,
   treeGuides,
   writeFlightDeckFolds,
@@ -73,7 +73,7 @@ import {
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { UnreadDot } from '@/components/UnreadMark'
@@ -97,6 +97,7 @@ import {
   candidateFromAvailability,
 } from '@/lib/agent-capability'
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
+import { renderReadoutMarkdown } from '@/lib/markdown'
 import { PhaseTimer, useArrivals, WorkingMark } from '@/lib/motion'
 import { SessionContextMenu } from '@/lib/SessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -110,9 +111,21 @@ import { useSessionHovered } from './session-hover'
 import { OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT } from './shell-state'
 import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
 
+/**
+ * TWO QUESTIONS, NOT ONE SLIDER (POD-1452). `Active` sat between `Full spine`
+ * and `Needs you` as a vaguer version of both — it named no state the column
+ * shows anywhere else, so it meant whatever the reader assumed, and it was the
+ * word that let a finished agent look like live work.
+ *
+ * `Working` is the word the mission chip a few pixels above this bar already
+ * uses (`1 working`) and the one the row's spinner already answers, so the tab
+ * and the count beside it agree by construction. And it no longer contains the
+ * asking agents: busy and stuck-on-you are different facts, and a tab that held
+ * both left `Needs you` looking like it had done nothing.
+ */
 const MODES: Array<{ id: FlightDeckMode; label: string }> = [
   { id: 'full', label: 'Full spine' },
-  { id: 'active', label: 'Active' },
+  { id: 'working', label: 'Working' },
   { id: 'needs-you', label: 'Needs you' },
 ]
 
@@ -340,21 +353,16 @@ const TICK_SELECTED_X = -1
  *  column's own datum and as far out as anything here is allowed to go. */
 const TICK_ATTENTION_X = -RAIL_INSET
 /**
- * The right-hand column every row parks its state in, so the whole mission
- * scans as one vertical read. Rigid: the title is the only shrinker.
+ * The trailing column every row parks its state in, so the whole mission scans
+ * as one vertical read. Task strips take its fixed 80px measure. Agent rows use
+ * that as a minimum and let a longer obligation size itself, because a complete
+ * `Needs you · 30m ago` is more valuable than false column rigidity.
  *
- * EVERY ROW TAKES THE COLUMN, INCLUDING THE ASKING ONE (POD-1226). `Needs you ·
- * 30m ago` is still wider than 80px and still earns the room — an obligation is
- * not a status — but it takes that room from its own ROLE cell rather than from
- * the name, so the ref, the name and the state's right edge all land where every
- * other row's do. See `[data-needs-you]` in `styles.css`.
- *
- * 80px, and the width lives in CSS (`--deck-state-col` / `.deck-state-col`) so
- * the agent row's narrow ladder can release it — a container query cannot
- * outrank a style attribute. `DECK_LABEL` has two eleven-character values
- * (`Standing by`, `Not started`) and 70 held neither; the departure ticks were
- * already 80 (70px of text plus a 5px dot and its gap), so the strips now take
- * the same measure rather than a near-miss.
+ * The width lives in CSS (`--deck-state-col` / `.deck-state-col`), where the
+ * agent grid can reinterpret it at its narrow composition. `DECK_LABEL` has two
+ * eleven-character values (`Standing by`, `Not started`) and 70 held neither;
+ * the departure ticks were already 80 (70px of text plus a 5px dot and its
+ * gap), so the shared floor stays 80.
  */
 const STATE_COL = 'deck-state-col'
 
@@ -403,8 +411,10 @@ const railFor = (tone: RailTone): Rail =>
  * title rather than a broken row.
  */
 
+/** `active` is `working`'s old id (POD-1452), still read so an operator who had
+ *  chosen that view does not silently land back on `Full spine`. */
 const readMode = (raw: string | null): FlightDeckMode =>
-  raw === 'active' || raw === 'needs-you' ? raw : 'full'
+  raw === 'active' ? 'working' : raw === 'working' || raw === 'needs-you' ? raw : 'full'
 const writeMode = (mode: FlightDeckMode): string | null => (mode === 'full' ? null : mode)
 
 /**
@@ -492,13 +502,15 @@ function matchesQuery(row: FlightDeckRow, needle: string): boolean {
  * folded away. The marks are drawn from what already carries meaning here — the
  * canonical braille spinner of the motion grammar — rather than invented.
  *
- * NOTHING HERE IS AMBER. Under the round-2 model attention belongs to the
- * session that asked, so amber on a task strip is the one colour this slot may
- * not spend. `Blocked` therefore takes no hue either: in the Superade theme
- * `--warning` IS `--attention` (#f5c518), so a warning-toned "Blocked" would
- * read as "answer me" on the very surface built to tell those apart. Blocked is
- * a stopped state, not an obligation — the ⊘ mark and the named reason
- * underneath carry it, and the dot beside them is the only amber on the strip.
+ * NOTHING HERE TAKES THE ACCENT. Under the round-2 model attention belongs to
+ * the session that asked, so the accent on a task strip is the one colour this
+ * slot may not spend. `Blocked` therefore takes no hue either: `--warning` is
+ * the demoted yellow, the loudest warm left in the window, so a warning-toned
+ * "Blocked" would shout alarm about a stopped state — and `--attention` is now
+ * the accent itself, which would read as "answer me" on the very surface built
+ * to tell those apart. Blocked is a stopped state, not an obligation — the ⊘
+ * mark and the named reason underneath carry it, and the dot beside them is the
+ * only accent on the strip.
  */
 function StateMark({ state }: { state: DeckState }): JSX.Element | null {
   // ONLY THE LIVE ONE (POD-758). An earlier pass gave every state a mark — a
@@ -902,10 +914,8 @@ const ROLE_LABEL: Record<Exclude<SessionRole, { kind: 'spawned' }>['kind'], stri
   // "task lead", not "phase lead": the thing it leads is a task, and the spine
   // calls every node in it a task. Two words for one node is one too many.
   'phase-lead': 'task lead',
-  // `peer`, not `operator-added peer`: the role column is 96px of 9px caps and
-  // the long form was the one word in it guaranteed to be cut. What "peer"
-  // leaves out — that you added it yourself — is on the row's own title, and
-  // the shorter word is the one that reads down the column.
+  // `peer`, not `operator-added peer`: this is the relationship the operator
+  // needs to scan. How it was added is history, not a second role.
   peer: 'peer',
 }
 
@@ -939,9 +949,10 @@ const isLead = (role: SessionRole | null): boolean =>
  * line, a readable word, and the two altitudes told apart without a second
  * device.
  *
- * Role words use the same 96px ceiling (POD-1146), but only when there is a
- * role to say. An empty role is absence, not an invisible spacer: keeping that
- * spacer on a lone session pushed its state conspicuously away from its ref.
+ * A role stays content-sized. The roster used to force every role through a
+ * 96px slot, which clipped useful provenance even when the deck had hundreds of
+ * spare pixels. The row grid now gives it its full measure and moves the whole
+ * fact to the second line when the deck is narrow.
  */
 function RoleWord({ role, label }: { role: SessionRole; label: string }): JSX.Element {
   const lead = isLead(role)
@@ -952,7 +963,10 @@ function RoleWord({ role, label }: { role: SessionRole; label: string }): JSX.El
         // for a role — so `COORDINATOR`, `TASK LEAD`, `BY SPINE DESIGNER` and
         // `PEER` read down one edge instead of alternating between two
         // typographic registers.
-        'deck-agent-role flex-none truncate font-mono text-[9px] leading-none tracking-[0.14em] uppercase',
+        // No `flex-none`: `.deck-agent-role` is a grid cell that fills its own
+        // track now (POD-1461), and its display is the stylesheet's to own —
+        // the wide row needs `block` for the ellipsis it may have to spend.
+        'deck-agent-role font-mono text-[9px] leading-none tracking-[0.14em] uppercase',
         lead ? 'font-medium' : 'font-normal text-text-faint',
       )}
       style={
@@ -1043,19 +1057,14 @@ function SessionRow({
   // The pointer is on this session's TAB, over in the strip. Same session, drawn
   // twice — so the row answers "this one" in the only device it has spare.
   const pointed = useSessionHovered(session.sessionId)
-  // WHAT THE LADDER DROPS SURVIVES HERE (POD-1226), which is the same contract
-  // the strips keep: a narrow deck closes the role column and, narrower still,
-  // takes the elapsed off the asking row's obligation, so both have to be
-  // readable somewhere. The row said nothing on hover before — the four cells
-  // were assumed always to fit, which is the assumption the ladder replaces.
+  // The native title mirrors the row's whole reading. It remains useful for an
+  // exceptionally long value that wraps in the narrow two-line composition.
   const waited = Number.isFinite(since) ? relativeTime(new Date(since).toISOString(), now) : null
   const rowTitle = [
     name,
     session.displayRef,
     label,
     needs ? `Needs you${waited ? ` · ${waited}` : ''}` : null,
-    // The stamp the narrow rung takes off a retired row (POD-1314) — the same
-    // contract the asking row's elapsed keeps: shed from the cell, kept here.
     retired ? `Retired · ${stamp}` : null,
   ]
     .filter(Boolean)
@@ -1068,10 +1077,8 @@ function SessionRow({
         // rounded edge is what makes the task strips read as units and an agent
         // is not one of those.
         // `deck-agent-row` is the wrapper the ticks and the ⋯ are positioned
-        // against. It is no longer a query container: the roster's ladder is
-        // keyed on the LIST (`deck-rows`), because these cells are one
-        // mission-wide table and a per-row container made them a property of
-        // each row's indent instead — see the ladder in `styles.css`.
+        // against. The list is the query container, so every nesting depth
+        // switches to the two-line composition at the same panel width.
         'deck-agent-row group/srow relative',
         // The mission's own lead is the one agent row in the spine with a fill.
         // It owns the whole mission, so it is allowed to be the loudest thing
@@ -1082,8 +1089,6 @@ function SessionRow({
       style={{ marginLeft: flat ? 0 : AGENT_INDENT }}
       data-flight-session={session.sessionId}
       data-needs-you={needs ? 'true' : undefined}
-      // A retired row spends its role cell on its stamp, exactly as an asking
-      // row spends it on the ask — see the ladder in styles.css.
       data-retired={retired ? 'true' : undefined}
       data-pointed={pointed ? 'true' : undefined}
     >
@@ -1147,7 +1152,7 @@ function SessionRow({
           className={cn(
             // The ONLY fill an agent ever gets is transient: hover, and nothing
             // else. No left padding — the row opens onto its rail.
-            'deck-agent group/session shell-type-secondary flex min-h-7 w-full items-center gap-1.5 py-1 pr-2 text-left text-muted-foreground hover:bg-muted hover:text-foreground',
+            'deck-agent group/session shell-type-secondary grid min-h-7 w-full items-center gap-x-1.5 py-1 pr-2 text-left text-muted-foreground hover:bg-muted hover:text-foreground',
             active && 'text-foreground',
             // The pointer is on the tab, so the row takes the fill it would
             // have taken under the pointer itself. Borrowing the row's OWN
@@ -1182,15 +1187,16 @@ function SessionRow({
           title={rowTitle}
         >
           {/* FOUR ORDERED FIELDS — name · ref · role · state (POD-1146).
-              The name is the only shrinker and has a generous ceiling, but it
-              no longer absorbs every spare pixel in a wide deck. Likewise, a
-              missing role does not leave an invisible 96px cell behind. The
-              fields stay in a stable order without turning short rows into a
-              scattering of facts across the full width.
+              On a wide deck they read in one line and the state owns the
+              trailing edge. Name and role are content-sized rather than capped,
+              so spare room reveals information instead of becoming dead air.
+              When the row no longer fits, CSS turns the same four fields into
+              two deliberate lines: name/state, then ref/role. No field is
+              discarded just because the instrument was resized.
               WorkerLabel already says "Handing over → <target>" mid-move, in the
               same words the sidebar and the pane header use, so the row never
               invents a second vocabulary for the same event. */}
-          <span className="deck-agent-name flex min-w-0 max-w-64 flex-[0_1_auto] items-center gap-1.5 overflow-hidden">
+          <span className="deck-agent-name flex min-w-0 items-center gap-1.5 overflow-hidden">
             {/* `flex`, not a bare block — the sidebar's rows already wrap the
                 label this way. A block parent leaves `WorkerLabel`'s inline-flex
                 to size itself shrink-to-fit, which floors at the whole name;
@@ -1211,24 +1217,22 @@ function SessionRow({
               row that is worthless partly rendered — so it never truncates and
               the NAME shrinks around it. Lifted straight off the session: it is
               the permanent birth ref, so it survives a rename. */}
-          <span className="deck-agent-ref shell-type-micro flex-none text-right font-mono font-normal whitespace-nowrap text-text-faint">
+          {/* Left-aligned in its own fixed column (POD-1461): the refs on a
+              mission share a stem, so aligning their STARTS is what makes the
+              suffix that distinguishes them the thing that moves. */}
+          <span className="deck-agent-ref shell-type-micro flex-none text-left font-mono font-normal whitespace-nowrap text-text-faint">
             {session.displayRef}
           </span>
-          {/* ATTENTION OUTRANKS PROVENANCE. An asking row spends its width on the
-              question and the answer — literally: its role cell closes and its
-              obligation is built out of that cell plus the state column, so
-              nothing else on the row moves (see `[data-needs-you]` in
-              styles.css). Rows with no role render no placeholder; absence does
-              not become an unexplained gap. */}
-          {role && label && !needs ? <RoleWord role={role} label={label} /> : null}
+          {/* Attention and provenance are different facts. The state remains the
+              louder one, but it no longer deletes the role to make itself fit;
+              narrow rows have a second line for that job. */}
+          {role && label ? <RoleWord role={role} label={label} /> : null}
           <span
             className={cn(
               'deck-agent-state flex flex-none items-center justify-end gap-1.5',
-              // EVERY row parks in the shared state column, the asking one
-              // included (POD-1226). "Needs you · 1:12" still overruns it — an
-              // obligation is not a status and it earns the room — but from a
-              // floor rather than instead of one, so the column is rigid at
-              // every width and the narrow rung can hand the cell back.
+              // Every row parks its operational fact against the trailing edge.
+              // The 80px shared state measure is now a floor, not a fixed box:
+              // long obligations keep their words and short timers still align.
               STATE_COL,
             )}
           >
@@ -1246,9 +1250,6 @@ function SessionRow({
                     phase="waiting"
                     sinceMs={since}
                     leadingSeparator
-                    // The overrun, and the only thing on this row the ladder can
-                    // take back: it is what makes the obligation 127px wide
-                    // instead of the column's 80. On the row's tooltip either way.
                     className="deck-agent-elapsed"
                   />
                 )}
@@ -1256,13 +1257,8 @@ function SessionRow({
             ) : retired ? (
               <span className="shell-type-micro font-mono whitespace-nowrap text-text-faint">
                 Retired
-                {/* The staleness, and the only half of this the ladder can take
-                    back: `Retired · 6m ago` is 86px where the state column is
-                    80, so at 80 the row WRAPPED — two lines under an elbow drawn
-                    for one, which is the geometry the roster's ladder exists to
-                    forbid. Wide, it takes the role cell like the asking row;
-                    narrow, the word survives alone and the stamp is on the row's
-                    tooltip. */}
+                {/* Keep the retirement age visible. Narrow rows make room by
+                    changing composition, not by silently dropping the stamp. */}
                 <span className="deck-agent-elapsed"> · {stamp}</span>
               </span>
             ) : starting ? (
@@ -1529,10 +1525,14 @@ const TaskRow = memo(
      * getting to the match. No fill, no outline, no seat, no note, no state
      * word, and (via `deckSessions`) no agents. What survives is the rail, the
      * ref and the title, one tier down: enough to place the match, not enough to
-     * compete with it. `Active` is left alone — everything it keeps is live work
-     * the operator is meant to read.
+     * compete with it.
+     *
+     * `Active` draws context rows the same way now (POD-1452). It used to be
+     * exempt because it matched whole open tasks, so its path rows were live
+     * work in their own right; it matches AGENTS now, and a row on the path to a
+     * working agent is scaffolding exactly as it is under `Needs you`.
      */
-    const context = mode === 'needs-you' && !row.matched
+    const context = mode !== 'full' && !row.matched
     // A PROPOSAL IS A DIFFERENT KIND OF ROW (round 3 §7b): nobody has accepted it,
     // so it holds no seat for an agent and takes the shorter band. Only one with
     // sub-tasks reaches this component — the childless ones leave the tree
@@ -2259,6 +2259,125 @@ export function ContinuationCard({
 }
 
 /**
+ * THE MISSION'S BRIEF, SET AS PROSE (POD-1455).
+ *
+ * The header's one paragraph used to be a `<p>` of `shell-type-secondary` —
+ * 12px on a 16px line box — carrying the description exactly as typed. Two
+ * things were wrong with that and both were visible in the same screenshot.
+ *
+ * The STRUCTURE was thrown away. Briefs in this product are written the way the
+ * product is used: a lead-in line, a blank line, then a list of things to make
+ * sure of. Collapsed into one run, `make sure: - agents count is based on "now"`
+ * reads as a sentence with stray hyphens in it, and the operator has to re-parse
+ * in their head a shape the author had already given them. It is rendered now —
+ * breaks, paragraphs, lists, emphasis — through {@link renderReadoutMarkdown},
+ * which is the transcript's renderer with every anchor dropped: this block sits
+ * beside the mission's own click target, so a link in it is either dead or a
+ * second thing to hit by accident.
+ *
+ * And the SETTING was a caption's, not a paragraph's. 12/16 is 1.33 leading,
+ * which is the density of a table cell; the `leading-[1.6]` on the element never
+ * applied, because `.shell-type-secondary` is unlayered CSS and Tailwind's
+ * utilities live in a layer that unlayered rules outrank. `chat-md` is the
+ * shell's own answer for a block somebody actually reads (13.5/23), it is
+ * already the register the pinned brief and the transcript are set in, and it
+ * brings the list and emphasis rules with it rather than restating them here.
+ *
+ * AND IT IS NOT A TEASER. The old four-line clamp existed to protect the
+ * column's height budget, and it protected it against the wrong thing: this
+ * column IS the mission, the brief is what the mission is, and a header that
+ * stops mid-sentence sends the operator to the dock to read four more lines.
+ * The brief is shown. What is left in the stylesheet is a ceiling, not a
+ * preview — a brief may not take so much of the window that the spine
+ * underneath it has nowhere to be — and nothing anybody writes into a
+ * description reaches it. When a pasted spec does, the tail fades rather than
+ * stopping, and the fade is gated on `data-clipped` here so a brief that fits
+ * is never dimmed for a cut that did not happen.
+ */
+function MissionBrief({ html, standing }: { html: string; standing?: boolean }): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  const [clipped, setClipped] = useState(false)
+  const [content, setContent] = useState(0)
+  const [open, setOpen] = useState(false)
+  // A different mission is a different brief: whatever the operator opened, it
+  // was not this one. Same shape as the measure below — the dependency is the
+  // trigger, not a value the effect reads.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency is the trigger, not a value the effect reads
+  useEffect(() => setOpen(false), [html])
+  // `html` is not READ in the effect below, it is the reason to run again: a new
+  // brief in the same box is new content to measure, and the element identity
+  // does not change to say so.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency is the trigger, not a value the effect reads
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    // `scrollHeight` is the whole content even while `max-height` hides most of
+    // it, so one read answers both questions: is anything cut, and how far does
+    // the open state have to travel.
+    const measure = (): void => {
+      setClipped(el.scrollHeight - el.clientHeight > 1)
+      setContent(el.scrollHeight)
+    }
+    measure()
+    // No layout, no overflow: under happy-dom every box is zero-high, `measure`
+    // correctly answers "nothing is cut", and there is no observer to attach.
+    if (typeof ResizeObserver === 'undefined') return
+    // The ceiling is a share of the WINDOW, so the answer changes when the window
+    // is resized as well as when the column is. Nothing this sets changes the
+    // text's own width — the toggle is on the line UNDER the brief, never beside
+    // it — so the observer cannot feed itself the way `.brief-shelf`'s could.
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [html])
+  return (
+    <>
+      <div
+        ref={ref}
+        // One mission header is on screen at a time, so the id is unambiguous —
+        // and the toggle needs one to say what it expands.
+        id="deck-brief-body"
+        className="deck-brief chat-md"
+        data-testid="deck-brief"
+        data-clipped={clipped && !open ? 'true' : undefined}
+        data-open={open ? 'true' : undefined}
+        data-standing={standing ? 'true' : undefined}
+        // OPEN TRAVELS TO A MEASURED NUMBER, not to a keyword: `max-height: none`
+        // does not animate at all, and a cap far above the content eases across
+        // space the text does not occupy. `min()` keeps the second ceiling —
+        // reading the whole of a pasted spec must not leave the spine with
+        // nowhere to be, and past that the brief scrolls inside itself.
+        style={open ? { maxHeight: `min(${content}px, 60vh)` } : undefined}
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {/* THE BRIEF ENDS ON A LINE. Without one it dissolved into the mission's
+          controls: a faded tail and then a row of chips, with nothing saying
+          whether the paragraph had finished or merely stopped. The rule starts
+          on the header's own 16px datum in every state — which is why the
+          toggle takes the RIGHT end rather than the left, where a word would
+          push the line off the datum the title and the text share. */}
+      <div className="deck-brief-end">
+        <span aria-hidden className="deck-brief-rule" />
+        {(clipped || open) && (
+          <button
+            data-pressable
+            type="button"
+            className="deck-brief-more"
+            data-testid="deck-brief-more"
+            aria-expanded={open}
+            aria-controls="deck-brief-body"
+            onClick={() => setOpen((was) => !was)}
+          >
+            {open ? 'Show less' : 'Show more'}
+          </button>
+        )}
+      </div>
+    </>
+  )
+}
+
+/**
  * A CLOSED MISSION WITH NOBODY LEFT ON IT (POD-1268).
  *
  * The other ending. Work that carried on elsewhere gets {@link ContinuationCard}
@@ -2959,6 +3078,25 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const rootSession = root ? rows[0]?.sessions[0] : focusedSession
   const draftFilling = Boolean(root?.draft && rootSession)
   const rootDraft = useSessionDraft(draftFilling ? rootSession?.sessionId : undefined)
+  /**
+   * The header's one paragraph, resolved and rendered in one place (POD-1455).
+   *
+   * The fall-through is the old one — the operator's own words, then the agent's
+   * latest note, then the column's standing sentence — and all three go through
+   * the same renderer: a status note is written in the same voice a description
+   * is, and a fixed sentence with no markup in it renders as itself.
+   */
+  const authoredBrief = draftFilling
+    ? ''
+    : root?.description?.trim() || root?.activityNotes?.trim() || ''
+  const briefText =
+    authoredBrief ||
+    (draftFilling
+      ? rootDraft
+        ? 'Your first prompt is taking shape. This mission will fill in as the conversation develops.'
+        : 'Start with a message. The mission, plan, and team will fill in here as the agent learns what you need.'
+      : 'Mission work, agents, and dependencies in one live execution view.')
+  const briefHtml = useMemo(() => renderReadoutMarkdown(briefText), [briefText])
   // The root is never in the fold set — see `rootRow`. Neither are proposals:
   // they left the tree, and "fold every branch" is about the tree.
   const foldable = useMemo(
@@ -3317,7 +3455,15 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 note and the seat drop underneath them, left-aligned on the same
                 16px datum, where they can never run into the chevron. A flight
                 deck may spend a line to keep a fact. */}
-            <div className="shell-type-micro flex min-h-8 flex-wrap items-center gap-x-1.5 py-1 pr-2 pl-4 font-mono text-text-dim">
+            {/* AND IT STANDS ON THE SHELL'S ONE HEADER DATUM (POD-1455).
+                It was 32px — four pixels short of `--section-bar-h`, which is
+                the height every other column header in this window spends — so
+                the deck's identity row sat two pixels higher than the sidebar's
+                and the tab strip's, and the chevron had four pixels of air over
+                it against the column's own top edge. At 36px the ink lands on
+                the same datum as its neighbours and the control at the end of
+                the row stops reading as jammed into the corner. */}
+            <div className="shell-type-micro flex min-h-9 flex-wrap items-center gap-x-1.5 py-1.5 pr-2 pl-4 font-mono text-text-dim">
               {/* Identity NEVER shrinks and never leaves line 1: the glyph, the
                   ref and the stage word are what this row is for. */}
               {rootIssue ? (
@@ -3377,15 +3523,18 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   {draftFilling ? sessionDisplayName(rootSession as SessionMeta) : root.title}
                 </h2>
               </button>
-              <p className="shell-type-secondary mt-[7px] line-clamp-4 leading-[1.6] text-muted-foreground">
-                {draftFilling
-                  ? rootDraft
-                    ? 'Your first prompt is taking shape. This mission will fill in as the conversation develops.'
-                    : 'Start with a message. The mission, plan, and team will fill in here as the agent learns what you need.'
-                  : root.description?.trim() ||
-                    root.activityNotes?.trim() ||
-                    'Mission work, agents, and dependencies in one live execution view.'}
-              </p>
+              {/* THE BRIEF IS THE ONE THING HERE THAT IS READ RATHER THAN
+                  SCANNED — see {@link MissionBrief}. 10px under a 17px title is
+                  the title's own half-leading plus a hair: less and the two
+                  blocks touch, more and the title stops belonging to the
+                  paragraph it names. */}
+              <div className="mt-2.5">
+                {/* The column's own standing sentence is not a brief — it is
+                    what the deck says when nobody has written one. Same slot,
+                    same setting, one step down the ink ramp, so a mission with a
+                    real brief is visibly a mission somebody described. */}
+                <MissionBrief html={briefHtml} standing={!authoredBrief} />
+              </div>
               {/* ONE 26px FAMILY, ON ONE BASELINE (POD-1146). The gauge, the
                   crew chip and the mission's one action were three heights on
                   two alignments; they are one row of 26px radius-8 objects now.
@@ -3513,13 +3662,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
           {/* Each task block owns a small trailing gap. Because the guide rails
               cross the whole block, the spacing separates issue groups without
               breaking the tree into disconnected fragments. */}
-          {/* THE ROSTER'S COLUMNS ARE DECIDED BY THE COLUMN, NOT BY EACH ROW
-              (POD-1226) — `deck-rows` is the query container the agent rows'
-              ladder keys on. See the ladder in `styles.css`: the cells to the
-              right of the name are a mission-wide table, and a table's columns
-              are a property of the table. Keying them per row made an indented
-              row shed a column its shallower sibling kept, which is how one
-              roster came out with three different right-hand edges. */}
+          {/* THE ROSTER CHANGES COMPOSITION AS ONE UNIT (POD-1226).
+              `deck-rows` is the query container for every agent row, so nested
+              rows do not switch early merely because their branch indent made
+              them a few pixels narrower. One panel width means one scan rhythm. */}
           <div
             className="deck-rows min-h-0 flex-1 overflow-y-auto pb-1.5 pr-2"
             data-testid="flight-deck-rows"
@@ -3627,7 +3773,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                       narrowed view says that about a task with a live agent on
                       it. The view's own sentence comes first, and only `full`
                       falls through to the note. */}
-                  {deckViewEmptyLine(mode) ??
+                  {deckViewEmptyLine(mode, rows[0]?.waitingAgentCount ?? 0) ??
                     rootEmptyNote?.text ??
                     'No sessions or sub-tasks are attached.'}
                 </p>
@@ -3663,9 +3809,15 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             )}
             {/* No count on this divider: the disclosure under it already carries
                 one, and a region that states its size twice reads as two
-                different numbers that happen to agree. */}
+                different numbers that happen to agree.
+                A WIDER BREAK THAN THE OTHER DIVIDERS, TOO (POD-1461). Every
+                other section here is still part of the mission's live shape, so
+                `mt-2.5` is the right beat between them. Archived is the point
+                the roster STOPS: it opened 10px under the last agent, which read
+                as a fifth row in the same list rather than as the end of it. The
+                extra 14px is the whole distinction. */}
             {archivedSessions.length > 0 && (
-              <DeckSection label="Archived" testId="flight-archived">
+              <DeckSection label="Archived" className="mt-6" testId="flight-archived">
                 <button
                   data-pressable
                   type="button"

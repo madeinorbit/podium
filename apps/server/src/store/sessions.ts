@@ -131,7 +131,7 @@ export class SessionsRepository {
       .prepare(
         `SELECT id, owner_user_id, agent_kind, model, effort, account_id, login_harness, cwd, title, name, name_source, origin_kind, conversation_id,
                 resume_kind,
-                resume_value, selected_driver_id, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
+                resume_value, selected_driver_id, conversation_binding, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
                 terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
                 spawned_by, headless, issue_id, stopped_at, stop_reason, oom_killed_at, deleted_at, deletion_source,
@@ -173,6 +173,14 @@ export class SessionsRepository {
       resumeKind: (r.resume_kind as string | null) ?? null,
       resumeValue: (r.resume_value as string | null) ?? null,
       selectedDriverId: (r.selected_driver_id as string | null) ?? null,
+      // Anything else on disk (an old/rogue value) reads as "no claim recorded"
+      // rather than as proof — the same conservative decode as `name_source`,
+      // and here it is the safety property itself: only a literal 'never'
+      // authorizes discarding a launch and starting it again.
+      conversationBinding:
+        r.conversation_binding === 'never' || r.conversation_binding === 'bound'
+          ? r.conversation_binding
+          : null,
       status: r.status as SessionStatusPersisted,
       exitCode: (r.exit_code as number | null) ?? null,
       spawnFailure: (r.spawn_failure as string | null) ?? null,
@@ -266,14 +274,14 @@ export class SessionsRepository {
         `INSERT INTO sessions
            (id, owner_user_id, agent_kind, model, effort, account_id, login_harness, cwd, title, name, name_source, origin_kind, conversation_id,
             resume_kind,
-            resume_value, selected_driver_id, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
+            resume_value, selected_driver_id, conversation_binding, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
             terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
             spawned_by, headless, issue_id, stopped_at, stop_reason, oom_killed_at, deleted_at, deletion_source,
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
             ref_issue_id, ref_letter, ref_draft,
             created_by_actor_kind, created_by_actor_id, created_by_on_behalf_of)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            model = excluded.model,
@@ -288,6 +296,15 @@ export class SessionsRepository {
            resume_kind = excluded.resume_kind,
            resume_value = excluded.resume_value,
            selected_driver_id = excluded.selected_driver_id,
+           -- BINDING IS ONE-WAY (POD-2392): once a launch is known to have had a
+           -- native conversation, no later write may say it never did. The rule
+           -- lives here rather than in the caller because it is the premise the
+           -- fresh-relaunch path depends on — a caller that reconstructs a stale
+           -- Session and persists it must not be able to un-prove a conversation.
+           conversation_binding = CASE
+             WHEN sessions.conversation_binding = 'bound' THEN 'bound'
+             ELSE excluded.conversation_binding
+           END,
            status = excluded.status,
            exit_code = excluded.exit_code,
            spawn_failure = excluded.spawn_failure,
@@ -349,6 +366,7 @@ export class SessionsRepository {
         row.resumeKind,
         row.resumeValue,
         row.selectedDriverId ?? null,
+        row.conversationBinding ?? null,
         row.status,
         row.exitCode,
         row.spawnFailure ?? null,

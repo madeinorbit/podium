@@ -161,8 +161,8 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     const row = active.closest('[class*="group/row"]') as HTMLElement
     expect(row.getAttribute('data-selected')).toBe('true')
     // THE BAND LIFTS to the raised tier and takes a 3px spine. `--chip` rather
-    // than `--card` because two presets give card and sidebar the same value
-    // (POD-1057); the spine is NEUTRAL ink because the issue's hue is already
+    // than `--card` because the dark appearance gives card and sidebar the same
+    // value (POD-1057); the spine is NEUTRAL ink because the issue's hue is already
     // the row's resting ground, and selection is a different question.
     expect(row.className).toContain('bg-chip')
     expect(row.style.boxShadow).toBe('inset 3px 0 0 var(--text-strong)')

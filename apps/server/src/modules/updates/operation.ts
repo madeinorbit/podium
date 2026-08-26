@@ -499,6 +499,8 @@ export interface UpdatePlanInput {
   databaseSnapshotPath?: string
   /** THIS host's machine id, so its own row can be recognised. */
   hostMachineId?: string
+  /** The coordinating server's bytes are owned by the native desktop shell. */
+  desktopSupervised?: boolean
   surface?: UpdateSurface
   /**
    * Retry (§3.2): only these machine ids are in scope. Absent plans everything.
@@ -622,22 +624,29 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
     (machine) => input.channelOf(machine) === input.channel,
   )
   const host = input.hostMachineId
-    ? channelMachines.find((machine) => machine.id === input.hostMachineId)
+    ? input.fleet.find((machine) => machine.id === input.hostMachineId)
     : undefined
+  // Server-only desktop mode intentionally has no local daemon, hence no host
+  // machine report. Process ownership is the authoritative fact; a supervised
+  // daemon row remains the backward-compatible corroborating signal.
+  const desktopHosted = input.desktopSupervised === true || host?.supervised === true
+  const steps: OperationPlan['steps'] = []
+  const deferred: DeferredPlace[] = []
+  const awaiting: AwaitingAsk[] = []
 
   /**
    * ALL-IN-ONE (§4, §5): the server lives INSIDE Podium Desktop on this
-   * machine, so server, daemon and web are one signed bundle that only the
-   * shell may replace. There is therefore nothing for a runner to do — the plan
-   * is EMPTY and carries one required ask, which is what makes the engine settle
-   * the operation straight into `waiting` (§3.2). A browser looking at the same
-   * server renders that honestly and cannot act on it (P5).
+   * machine, so server, janitor, daemon and web are one signed bundle that only
+   * the shell may replace. There is therefore no server/web runner for the HOST:
+   * the plan carries one required ask and settles into `waiting` after any
+   * OTHER connected machines finish their ordinary fleet wave. A browser
+   * looking at the same server renders that honestly and cannot act on it (P5).
    *
    * Derived from the HOST daemon's `supervised` flag rather than from the
    * surface that clicked, because it is a fact about this installation and not
    * about who is looking at it.
    */
-  if (host?.supervised === true) {
+  if (desktopHosted) {
     /**
      * `place` IS THE WORD A PERSON READS, not the machine's identity (POD-2182).
      * Nothing matches an ask by its place — the engine resolves asks by `id`
@@ -648,7 +657,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
      * in Podium Desktop on ludovico. on m_01j…". The same expression as the
      * detail keeps the two in step whether or not the machine has a name.
      */
-    const hostPlace = host.name ?? host.id
+    const hostPlace = host?.name ?? host?.id ?? input.hostMachineId ?? 'this machine'
     const ask: AwaitingAsk = {
       id: DESKTOP_INSTALL_ASK,
       surface: 'desktop-all-in-one',
@@ -659,12 +668,8 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
       // until the shell installs and the successor server adopts (§5).
       required: true,
     }
-    return { steps: [], details, awaiting: [ask], deferred: [] }
+    awaiting.push(ask)
   }
-
-  const steps: OperationPlan['steps'] = []
-  const deferred: DeferredPlace[] = []
-  const awaiting: AwaitingAsk[] = []
 
   // A supervised daemon is the SHELL's to update, never the wave's (POD-2099,
   // spec §4). It is excluded outright rather than deferred: deferred means
@@ -673,6 +678,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
     (machine) =>
       machine.version !== target.version &&
       machine.supervised !== true &&
+      (!desktopHosted || machine.id !== input.hostMachineId) &&
       (input.onlyMachines === undefined || input.onlyMachines.includes(machine.id)),
   )
 
@@ -729,13 +735,17 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
     })
   }
 
-  if (input.appVersion !== target.version && input.canRestartServer) {
+  if (!desktopHosted && input.appVersion !== target.version && input.canRestartServer) {
     steps.push({ id: UPDATE_STEP_SERVER, title: 'Updating your server', state: 'pending' })
   }
 
   const expectedWeb = target.artifacts.web?.digest
   const webBehind = expectedWeb !== undefined && input.servedWebDigest !== expectedWeb
-  if (webBehind && (input.canRebuildWeb || input.canPrepare || input.canRestartServer)) {
+  if (
+    !desktopHosted &&
+    webBehind &&
+    (input.canRebuildWeb || input.canPrepare || input.canRestartServer)
+  ) {
     steps.push({ id: UPDATE_STEP_WEB, title: 'Serving the new app', state: 'pending' })
     // VOLUNTARY, and that is the whole point of the flag: a tab that has not
     // reloaded is a straggler that self-serves on its next load (§3.5), so this
@@ -969,12 +979,16 @@ export interface UpdateOperationContext {
   appVersion: () => string
   /** THIS host's machine id — how an all-in-one installation recognises itself. */
   hostMachineId?: string
+  /** The coordinating server is a child of, and replaced by, Podium Desktop. */
+  desktopSupervised?: boolean
   surface?: UpdateSurface
   /** Retry (§3.2): plan only these machines, and link back to the operation retried. */
   onlyMachines?: readonly string[]
   retryOf?: string
   /** The served website's commit, both dists (see `websiteDigestReader`). */
   servedWebDigest?: () => string | undefined
+  /** Installed coordinator-only: place and verify the exact target before restart. */
+  prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
   requestDestBundle?: () => Promise<unknown>
   requestWebRebuild?: () => void
   requestCoordinatorRestart?: () => void
@@ -1611,6 +1625,19 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
         }),
       }
     }
+    if (context.prepareCoordinatorUpdate) {
+      try {
+        await context.prepareCoordinatorUpdate(details.target)
+      } catch (error) {
+        return {
+          state: 'failed',
+          error: describeUpdateOperationFailure({
+            code: 'download-failed',
+            detail: error instanceof Error ? error.message : String(error),
+          }),
+        }
+      }
+    }
     let databaseSnapshotPath: string | undefined
     try {
       databaseSnapshotPath = context.createDatabaseSnapshot(
@@ -1965,6 +1992,7 @@ export function planInputFrom(context: UpdateOperationContext): UpdatePlanInput 
     databaseSnapshotPath: context.latestDatabaseSnapshot?.(),
     canRestartServer: context.requestCoordinatorRestart !== undefined,
     ...(context.hostMachineId ? { hostMachineId: context.hostMachineId } : {}),
+    ...(context.desktopSupervised ? { desktopSupervised: true } : {}),
     ...(context.surface ? { surface: context.surface } : {}),
     ...(context.onlyMachines ? { onlyMachines: context.onlyMachines } : {}),
     ...(context.retryOf ? { retryOf: context.retryOf } : {}),

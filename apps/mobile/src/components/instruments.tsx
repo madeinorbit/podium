@@ -16,7 +16,7 @@ export type MeterTone = 'ok' | 'warn' | 'crit'
 const METER_FILL: Record<MeterTone, string> = {
   // Blue is calm liveness, and a meter with room left is not asking anything.
   ok: color.success,
-  // Yellow is The Signal Rule's "this wants a decision from you" — which is
+  // The accent is The Signal Rule's "this wants a decision from you" — which is
   // exactly what a window about to run out is saying.
   warn: color.accent,
   crit: color.danger,
@@ -103,7 +103,7 @@ export function SubReadout({ left, right }: { left: string; right?: string }) {
  * table, and at this width most bars have nowhere to put one. Proportion is
  * what a bar chart says; the peak is called out in the heading instead.
  *
- * Bars are DATA and read calm blue: yellow is reserved for what is asking
+ * Bars are DATA and read calm blue: bisque is reserved for what is asking
  * something of you, and a spend history asks nothing.
  */
 export function BarTrace({

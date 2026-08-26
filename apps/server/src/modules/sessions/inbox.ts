@@ -1173,9 +1173,28 @@ export class SessionInbox {
        * actual boundary rather than stretched past it: every row here is one
        * whose delivery is proven from the transcript, and exact matching only
        * ever ADDS to what such a row can prove.
-       */
+      */
       const exactNeedle = firstPromptNeedsProof || needsReadinessProof
       const needle = confirmationNeedle(head.text, exactNeedle)
+      // Re-authorize immediately before EVERY physical attempt. Confirmation
+      // can span an agent turn; during that gap an ack, echo, or cancellation
+      // can settle the source ledger row and make a retry invalid.
+      const authorized = this.deps.authorization.authorizeAtDrain({
+        sessionId,
+        principal: head.principal,
+        sourceMessageId: head.sourceMessageId,
+      })
+      if (!authorized.ok) {
+        removeHead(current, head.id)
+        this.deps.authorization.rejected({
+          queueId: head.id,
+          sourceMessageId: head.sourceMessageId,
+          principal: head.principal,
+          reason: authorized.reason,
+        })
+        afterHead(current)
+        return
+      }
       // A retry exists ONLY because the last attempt went unwitnessed. If the
       // turn has appeared since, it landed late — settle it rather than send the
       // same prompt twice. This check is what makes retrying safe at all.

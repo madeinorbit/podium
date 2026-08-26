@@ -4,19 +4,19 @@ import { describe, expect, it } from 'vitest'
 
 import { THEME_BG } from './theme'
 
-/** Source-level invariants for the Superade theme's token blocks [POD-372].
+/** Source-level invariants for the Podium theme's token blocks [POD-372].
  *
  *  These are cheap string assertions on index.css rather than computed-style
  *  checks, and they exist because of a specific failure mode: a token
  *  declaration can be silently DROPPED by a malformed comment above it (the CSS
  *  parser resyncs by discarding), and nothing downstream complains — the theme
- *  just quietly falls back to another preset's value. That happened once while
- *  building Daylight: --carve-engraved vanished from the light block and the
+ *  just quietly loses that value. That happened once while building Daylight:
+ *  --carve-engraved vanished from the light block and the
  *  engraved column kept painting the dark theme's pure-black inset.
  *
- *  The other half is leakage. `[data-theme="superade"]` matches the dark variant
- *  too (it is `[data-theme="superade"].dark`), so every token the light block
- *  introduces MUST be restored in the dark block or it bleeds across themes.
+ *  The other half is leakage. `[data-theme="podium"]` matches the dark variant
+ *  too (it is `[data-theme="podium"].dark`), so every token the light block
+ *  introduces MUST be restored in the dark block or it bleeds across appearances.
  */
 
 // Resolved from cwd rather than import.meta.url: the web suite runs under a
@@ -36,8 +36,8 @@ function block(selector: string): string {
   return css.slice(start, end)
 }
 
-const light = block('[data-theme="superade"]')
-const dark = block('[data-theme="superade"].dark')
+const light = block('[data-theme="podium"]')
+const dark = block('[data-theme="podium"].dark')
 
 /** Tokens Daylight introduces. Each must be present in BOTH blocks: in light
  *  because that is the point, in dark to stop the light value leaking. */
@@ -50,9 +50,10 @@ const INTRODUCED = [
   '--carve-popover-near',
   '--issue-tint-scale',
   '--issue-line-scale',
+  '--issue-row-tint-scale',
 ] as const
 
-describe('superade token blocks', () => {
+describe('Podium token blocks', () => {
   it.each(INTRODUCED)('declares %s in the light block', (token) => {
     expect(light).toContain(`${token}:`)
   })
@@ -98,15 +99,61 @@ describe('superade token blocks', () => {
     expect(dark).toContain('--issue-line-scale: 1%')
   })
 
-  it('never assigns Superade Yellow to a text token in light', () => {
+  it('gives the sidebar row one dose across both appearances', () => {
+    // POD-1456. The general scale is held down for surfaces that carry tint
+    // across half the window; a 306px work row is not one of them, and at paper's
+    // 0.4% its hue was visible without being nameable. The row therefore rides
+    // its own scale, at the SAME value in both blocks: an issue's colour should
+    // be the same statement whichever theme you are in.
+    const scale = (blk: string, token: string) =>
+      Number.parseFloat(new RegExp(`${token}:\\s*([\\d.]+)%`).exec(blk)?.[1] ?? 'NaN')
+    expect(light).toContain('--issue-row-tint-scale: 1%')
+    expect(dark).toContain('--issue-row-tint-scale: 1%')
+    expect(scale(light, '--issue-row-tint-scale')).toBe(scale(dark, '--issue-row-tint-scale'))
+    // The split is the whole point of the token: equal ROW doses must not be
+    // achieved by letting paper's general scale drift up to meet dark's, which
+    // is what would put the deck fade and the tab strip back where POD-725
+    // found them claiming the centre of the window.
+    expect(scale(light, '--issue-tint-scale')).toBeLessThan(scale(dark, '--issue-tint-scale'))
+    expect(scale(light, '--issue-row-tint-scale')).toBeGreaterThan(
+      scale(light, '--issue-tint-scale'),
+    )
+  })
+
+  it('never assigns the light fill to a text token', () => {
     // --attention is a `color:` in six places (styles.css .chat-next,
     // text-attention in UnifiedIssueRow/sidebar-common/the Flight Deck).
-    // #f5c518 as text is 1.6:1 on paper. Yellow fills; ochre writes.
+    // Bisque measures 1.6:1 on paper — exactly the constraint the yellow it
+    // replaced had — so the fill must never reach a text token here.
+    // Bisque fills; bronze writes.
     const attention = /--attention:\s*(#[0-9a-f]{6})/i.exec(light)?.[1]
-    expect(attention?.toLowerCase()).not.toBe('#f5c518')
-    expect(attention?.toLowerCase()).toBe('#8a6200')
-    // The fill keeps the brand yellow.
-    expect(light).toContain('--primary: #f5c518')
+    expect(attention?.toLowerCase()).not.toBe('#d9b477')
+    expect(attention?.toLowerCase()).toBe('#7a6134')
+    // The fill takes the bisque accent.
+    expect(light).toContain('--primary: #d9b477')
+  })
+
+  it('collapses fill and ink onto one accent in dark, warning held apart', () => {
+    // Rule 3 after the bisque swap: bisque clears 9.9:1 on the dark ground, so
+    // --primary and --attention stop diverging and become one value. The yellow
+    // is demoted rather than deleted — it is the only high-chroma warm left, and
+    // it must stay distinct from the accent or "alarm" and "material" collapse
+    // into the same signal.
+    const hex = (blk: string, token: string) =>
+      new RegExp(`${token}:\\s*(#[0-9a-f]{6})`, 'i').exec(blk)?.[1]?.toLowerCase()
+    expect(hex(dark, '--attention')).toBe(hex(dark, '--primary'))
+    expect(hex(dark, '--primary')).toBe('#d9b477')
+    expect(hex(dark, '--warning')).toBe('#f5c518')
+    expect(hex(dark, '--warning')).not.toBe(hex(dark, '--primary'))
+  })
+
+  it('gives the primary button a rim in both appearances', () => {
+    // The yellow carried its own silhouette on warm stone, so light set this to
+    // `transparent`. Bisque, at half the chroma, does not — .btn-primary-rim is
+    // the whole reason the button still reads as an object.
+    expect(light).toContain('--primary-rim: #b08c4e')
+    expect(dark).toContain('--primary-rim: #e8ca97')
+    expect(light).not.toContain('--primary-rim: transparent')
   })
 
   it('keeps the utilities reading the scales rather than a hardcoded 1%', () => {
@@ -117,11 +164,18 @@ describe('superade token blocks', () => {
   })
 })
 
+describe('theme inventory', () => {
+  it('contains only the Podium selector', () => {
+    const names = [...css.matchAll(/^\[data-theme="([^"]+)"\][^{]*\{/gm)].map((m) => m[1])
+    expect([...new Set(names)]).toEqual(['podium'])
+  })
+})
+
 describe('THEME_BG', () => {
-  it('mirrors each superade block --background, for the anti-flash script', () => {
+  it('mirrors each Podium block --background, for the anti-flash script', () => {
     // index.html duplicates this map pre-React; a mismatch flashes the wrong
     // colour on every cold load.
-    expect(THEME_BG['superade-light']).toBe(/--background:\s*(#[0-9a-f]{6})/i.exec(light)?.[1])
-    expect(THEME_BG['superade-dark']).toBe(/--background:\s*(#[0-9a-f]{6})/i.exec(dark)?.[1])
+    expect(THEME_BG.light).toBe(/--background:\s*(#[0-9a-f]{6})/i.exec(light)?.[1])
+    expect(THEME_BG.dark).toBe(/--background:\s*(#[0-9a-f]{6})/i.exec(dark)?.[1])
   })
 })

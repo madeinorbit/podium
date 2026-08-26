@@ -10,7 +10,7 @@ import { type TerminalControlState, terminalControlCopy } from './terminal-contr
  * Spectating shows the fit-to-screen glyph in resting ink: the tap will change
  * the terminal's size. In control it becomes the phone glyph in Accent Blue —
  * calm liveness, the same channel the app uses for "this is live and working".
- * Deliberately NOT Superade Yellow: taking control is not the operator being
+ * Deliberately NOT the accent: taking control is not the operator being
  * waited on, and the Signal Rule holds even when an action feels important.
  *
  * No confirmation dialog. The desk already loses control to whichever client

@@ -32,7 +32,7 @@ export interface StatusMetricBucket {
 
 interface StatusMetricProps {
   testId: string
-  tone: 'agents' | 'burn' | 'ship'
+  tone: 'agents' | 'burn'
   current: ReactNode
   buckets: StatusMetricBucket[]
   title: string
@@ -74,8 +74,8 @@ function xIntent(text: string): string {
 
 /**
  * One footer instrument: current reading, hourly trace, hover precision and a
- * share action. The three metrics deliberately share structure but not colour,
- * so the strip reads as one small dashboard instead of three unrelated widgets.
+ * share action. The metrics deliberately share structure but not colour, so
+ * the strip reads as one small dashboard instead of unrelated widgets.
  * Each owns its own window (the graph sizes itself to the buckets it is handed)
  * and states it in the tooltip's foot, which is why no caption sits beside it.
  */

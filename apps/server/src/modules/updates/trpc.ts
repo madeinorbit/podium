@@ -1,5 +1,5 @@
 import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
-import type { ConvergenceState, MobileWebIdentity, Operation } from '@podium/protocol'
+import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { serverBuildVersion } from '../../build-version'
@@ -217,11 +217,13 @@ export function updateOperationContext(input: {
   channel: UpdateChannel
   appVersion: () => string
   hostMachineId?: string
+  desktopSupervised?: boolean
   surface?: UpdateSurface
   onlyMachines?: readonly string[]
   retryOf?: string
   servedWebDigest?: () => string | undefined
   servedMobileWeb?: () => MobileWebIdentity
+  prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
   createDatabaseSnapshot: (fromVersion: string, targetVersion: string) => string | undefined
   latestDatabaseSnapshot?: () => string | undefined
   requestCoordinatorRestart?: () => void
@@ -237,10 +239,14 @@ export function updateOperationContext(input: {
     channel: input.channel,
     appVersion: input.appVersion,
     ...(input.hostMachineId ? { hostMachineId: input.hostMachineId } : {}),
+    ...(input.desktopSupervised ? { desktopSupervised: true } : {}),
     ...(input.surface ? { surface: input.surface } : {}),
     ...(input.onlyMachines ? { onlyMachines: input.onlyMachines } : {}),
     ...(input.retryOf ? { retryOf: input.retryOf } : {}),
     ...(website ? { servedWebDigest: website } : {}),
+    ...(input.prepareCoordinatorUpdate
+      ? { prepareCoordinatorUpdate: input.prepareCoordinatorUpdate }
+      : {}),
     createDatabaseSnapshot: input.createDatabaseSnapshot,
     ...(input.latestDatabaseSnapshot
       ? { latestDatabaseSnapshot: input.latestDatabaseSnapshot }
@@ -280,6 +286,7 @@ function contextFor(
     channel: state.modules.updates.operationChannel(state.store.hostMachineId),
     appVersion: serverBuildVersion,
     hostMachineId: state.store.hostMachineId,
+    ...(ctx.desktopSupervised ? { desktopSupervised: true } : {}),
     ...extra,
     createDatabaseSnapshot: (from, target) => state.store.snapshotBeforeUpdate(from, target),
     // Snapshot discovery integrity-checks the retained database files. It is
@@ -290,6 +297,9 @@ function contextFor(
       : {}),
     ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest } : {}),
     ...(ctx.servedMobileWeb ? { servedMobileWeb: ctx.servedMobileWeb } : {}),
+    ...(ctx.prepareCoordinatorUpdate
+      ? { prepareCoordinatorUpdate: ctx.prepareCoordinatorUpdate }
+      : {}),
     ...(ctx.requestCoordinatorRestart
       ? { requestCoordinatorRestart: ctx.requestCoordinatorRestart }
       : {}),

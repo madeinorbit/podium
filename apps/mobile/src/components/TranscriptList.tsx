@@ -83,7 +83,7 @@ import { WorkingMark } from './WorkingMark'
  * They do NOT stick to the top (POD-338) — a phone viewport is too short to
  * spend a permanent band on a message you already read. Tool runs are muted mono
  * one-liners with per-call ✓/✕ verdicts; the final answer gets the page's only
- * yellow (a keyline, not a box); an answered ask collapses to a one-line receipt.
+ * accent (a keyline, not a box); an answered ask collapses to a one-line receipt.
  */
 interface PendingRow {
   key: string
@@ -1424,7 +1424,7 @@ const styles = StyleSheet.create({
     borderTopColor: color.accentBorder,
     paddingTop: space.md,
   },
-  // Final answer — flat, marked by the page's only yellow: a keyline.
+  // Final answer — flat, marked by the page's only accent: a keyline.
   answer: {
     borderTopWidth: 2,
     borderTopColor: color.accentBorder,

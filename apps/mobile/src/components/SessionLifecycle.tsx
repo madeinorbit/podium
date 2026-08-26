@@ -1,5 +1,5 @@
 import type { SessionResurrectionResult } from '@podium/client-core/engine'
-import { exitedRecovery } from '@podium/client-core/viewmodels'
+import { type ExitedAction, exitedRecovery } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import { Moon, RotateCcw } from 'lucide-react-native'
 import { type JSX, useState } from 'react'
@@ -8,7 +8,7 @@ import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 
-type RecoveryActionId = 'resume' | 'restart' | 'remove'
+type RecoveryActionId = 'resume' | 'restart' | 'relaunch' | 'remove'
 
 interface RecoveryAction {
   id: RecoveryActionId
@@ -18,10 +18,7 @@ interface RecoveryAction {
   hint: string
 }
 
-function recoveryAction(
-  kind: 'parked' | 'ended',
-  action: 'restart' | 'resume' | 'remove',
-): RecoveryAction {
+function recoveryAction(kind: 'parked' | 'ended', action: ExitedAction): RecoveryAction {
   if (kind === 'parked') {
     return {
       id: 'resume',
@@ -49,12 +46,26 @@ function recoveryAction(
       hint: 'The conversation is intact — resume to pick up where it left off.',
     }
   }
+  // Nothing to lose and something still to try: the agent died during startup,
+  // before it opened a conversation. Same resurrect call as Resume — the server
+  // holds the proof and decides that this one goes out without a resume ref.
+  if (action === 'relaunch') {
+    return {
+      id: 'relaunch',
+      label: 'Start the agent again',
+      compactLabel: 'Start again',
+      busyLabel: 'Starting…',
+      hint: 'It stopped before opening a conversation, so there is nothing to resume — starting again runs it fresh in the same directory.',
+    }
+  }
   return {
     id: 'remove',
     label: 'Remove session',
     compactLabel: 'Remove',
     busyLabel: null,
-    hint: 'It left no conversation to resume.',
+    // NOT "it left no conversation": that case is `relaunch` above. What is left
+    // is a session with no recorded way back into a conversation that may exist.
+    hint: 'No way back into its conversation was recorded.',
   }
 }
 
@@ -159,6 +170,7 @@ export function MobileSessionLifecycle({
         ...(session.spawnFailure ? { spawnFailure: session.spawnFailure } : {}),
         isShell: session.agentKind === 'shell',
         resumable: session.resumable === true,
+        neverBound: session.neverBound === true,
       })
   const action = parked
     ? recoveryAction('parked', 'resume')
@@ -220,10 +232,10 @@ const styles = StyleSheet.create({
    * THE STATE BAR — the phone's copy of web's `.pane-state-bar` (POD-747,
    * brought over in POD-1251).
    *
-   * It used to be a tinted slab: a yellow ground with yellow copy for a parked
+   * It used to be a tinted slab: an accent ground with accent copy for a parked
    * session and a RED one for an ended session, which is the enterprise-console
    * look the design system opens by rejecting — and which spends The Signal
-   * Rule's yellow on a state that is asking nothing of anyone. Hibernation is a
+   * Rule's accent on a state that is asking nothing of anyone. Hibernation is a
    * STATE, not a request.
    *
    * What it is instead, exactly as on web: the `bar` chrome tier, one hairline
@@ -269,7 +281,7 @@ const styles = StyleSheet.create({
     color: color.text,
   },
   /** The bar's control is chrome inside chrome: an outline cell, not the
-   *  filled-yellow primary the pane below uses. */
+   *  filled-accent primary the pane below uses. */
   barAction: {
     alignSelf: 'flex-start',
     borderWidth: StyleSheet.hairlineWidth,

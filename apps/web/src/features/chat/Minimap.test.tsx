@@ -116,6 +116,13 @@ describe('Minimap', () => {
     expect(host.querySelectorAll('.minimap-tick')).toHaveLength(5)
   })
 
+  it('reads the viewport in normal top-to-bottom scroll coordinates', () => {
+    scroller.scrollTop = 250
+    render(rowsFor(5))
+    flushFrames()
+    expect(host.querySelector<HTMLElement>('.minimap-view')?.style.top).toBe('50%')
+  })
+
   it('survives the frame where rows shrink under already-measured ticks', () => {
     render(rowsFor(5))
     flushFrames()

@@ -103,7 +103,7 @@ describe('principal replica storage', () => {
 
   it('sign-out erases only the acting namespace and leaves the raw theme', () => {
     const memory = keyedStorage()
-    memory.api.setItem('podium.theme.preset', 'superade')
+    memory.api.setItem('podium.theme.mode', 'dark')
     const alice = preparePrincipalNamespace({
       storage: memory.api,
       enumerateKeys: memory.keys,
@@ -124,7 +124,7 @@ describe('principal replica storage', () => {
 
     expect(memory.keys().some((key) => key.startsWith(`${alice.keyPrefix}.`))).toBe(false)
     expect(memory.api.getItem(`${bob.keyPrefix}.cursor.v1`)).toBe('9')
-    expect(memory.api.getItem('podium.theme.preset')).toBe('superade')
+    expect(memory.api.getItem('podium.theme.mode')).toBe('dark')
   })
 
   it('bounds retained principals by age and LRU count', () => {
@@ -155,7 +155,7 @@ describe('principal replica storage', () => {
   it('legacy inputs are consumed once by the acting principal; theme alone remains raw', () => {
     const memory = keyedStorage()
     memory.api.setItem('podium.view', 'issues')
-    memory.api.setItem('podium.theme.preset', 'superade')
+    memory.api.setItem('podium.theme.mode', 'dark')
     memory.api.setItem(
       'podium.outbox.v1',
       JSON.stringify([{ mutationId: 'alice-write', kind: 'rename', input: {}, queuedAt: 1 }]),
@@ -175,7 +175,7 @@ describe('principal replica storage', () => {
     ).toEqual(['alice-write'])
     expect(memory.api.getItem('podium.view')).toBeNull()
     expect(memory.api.getItem('podium.outbox.v1')).toBeNull()
-    expect(memory.api.getItem('podium.theme.preset')).toBe('superade')
+    expect(memory.api.getItem('podium.theme.mode')).toBe('dark')
 
     const bob = createSideCache({
       storage: memory.api,
@@ -185,7 +185,7 @@ describe('principal replica storage', () => {
     expect(bob.uiState().get('podium.view')).toBeNull()
     expect(bob.outboxStorage().load()).toEqual([])
     // Theme is mirrored deliberately: cosmetic, identity-free, and pre-auth.
-    expect(bob.uiState().get('podium.theme.preset')).toBe('superade')
+    expect(bob.uiState().get('podium.theme.mode')).toBe('dark')
     alice.dispose()
     bob.dispose()
   })

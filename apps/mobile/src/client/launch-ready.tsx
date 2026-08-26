@@ -18,13 +18,30 @@ import { type LayoutChangeEvent, StyleSheet, View } from 'react-native'
 const LaunchReadyContext = createContext<(() => void) | null>(null)
 const NOOP_READY_SIGNAL = () => {}
 
+export interface LaunchSplashStatus {
+  readonly label: string
+  readonly detail?: string | undefined
+  readonly progress?: number | null | undefined
+}
+
+const LaunchSplashStatusContext = createContext<
+  ((status: LaunchSplashStatus | null) => void) | null
+>(null)
+const NOOP_SPLASH_STATUS = (_status: LaunchSplashStatus | null) => {}
+
 export const LaunchReadyProvider = LaunchReadyContext.Provider
+export const LaunchSplashStatusProvider = LaunchSplashStatusContext.Provider
 
 /** The measured-route signal. Kept as a hook so launch tests can drive the
  * boundary without pretending a synthetic DOM event is native layout. */
 export function useLaunchReadySignal(): () => void {
   const signal = useContext(LaunchReadyContext)
   return signal ?? NOOP_READY_SIGNAL
+}
+
+/** Lets a descendant describe real cold-start work on the ONE launch surface. */
+export function useLaunchSplashStatusSignal(): (status: LaunchSplashStatus | null) => void {
+  return useContext(LaunchSplashStatusContext) ?? NOOP_SPLASH_STATUS
 }
 
 /**

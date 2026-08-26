@@ -661,6 +661,7 @@ describe('operationView — action rejections (the retired POD-2091 bug)', () =>
       'install-failed',
       'restart-failed',
       'no-update-available',
+      'update-target-changed',
     ]
     for (const code of codes) {
       const presented = presentOperationError({ code }, { operationId: 'op_1' })

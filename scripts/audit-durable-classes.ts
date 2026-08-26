@@ -537,6 +537,11 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'Stages downloaded grant artifacts beside the installed daemon and swaps the release tree. These installation bytes are replaced wholesale by the next update and are not Podium product state or an entity class.',
     },
     {
+      file: 'packages/runtime/src/update-install.ts',
+      reason:
+        'Provides the shared atomic release-tree swap used by daemon and coordinator delivery. The staged and rollback bytes are installation artifacts replaced wholesale by the next update, not Podium product state or an entity class.',
+    },
+    {
       file: 'apps/daemon/src/control/exec.ts',
       reason:
         'Runs an operator-requested command in a workspace; any bytes it writes are the COMMAND’s, in the user’s own repo, and are governed by that repo rather than by this matrix.',

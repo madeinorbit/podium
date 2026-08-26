@@ -376,6 +376,44 @@ describe('planUpdateOperation', () => {
     ])
   })
 
+  it('updates other connected machines before asking the all-in-one shell to install', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        hostMachineId: 'macbook',
+        fleet: [
+          machine({ id: 'macbook', supervised: true, name: 'macbook' }),
+          machine({ id: 'linux-a', name: 'linux-a' }),
+          machine({ id: 'linux-b', name: 'linux-b' }),
+        ],
+      }),
+    )
+    expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
+    expect(plan.steps[1]?.places?.map((place) => place.id)).toEqual(['linux-a', 'linux-b'])
+    expect(plan.awaiting).toEqual([
+      expect.objectContaining({ id: DESKTOP_INSTALL_ASK, required: true, place: 'macbook' }),
+    ])
+    expect(plan.deferred).toEqual([])
+  })
+
+  it('recognises a desktop-supervised server with no local daemon row', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        hostMachineId: 'desktop-server',
+        desktopSupervised: true,
+        fleet: [machine({ id: 'linux-a', name: 'linux-a' })],
+      }),
+    )
+    expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
+    expect(plan.steps[1]?.places?.map((place) => place.id)).toEqual(['linux-a'])
+    expect(plan.awaiting).toEqual([
+      expect.objectContaining({
+        id: DESKTOP_INSTALL_ASK,
+        required: true,
+        place: 'desktop-server',
+      }),
+    ])
+  })
+
   /**
    * POD-2182. The test above cannot see this defect: its machine's name and id
    * are the same word, so `place: host.id` and `place: host.name` are the same
@@ -885,6 +923,7 @@ interface HarnessOptions {
   requestDestBundle?: () => Promise<unknown>
   requestWebRebuild?: () => void
   requestCoordinatorRestart?: () => void
+  prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
   createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
   latestDatabaseSnapshot?: () => string | undefined
   preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
@@ -964,6 +1003,9 @@ function harness(options: HarnessOptions = {}) {
     ...(options.servedWebDigest ? { servedWebDigest: options.servedWebDigest } : {}),
     ...(options.requestDestBundle ? { requestDestBundle: options.requestDestBundle } : {}),
     ...(options.requestWebRebuild ? { requestWebRebuild: options.requestWebRebuild } : {}),
+    ...(options.prepareCoordinatorUpdate
+      ? { prepareCoordinatorUpdate: options.prepareCoordinatorUpdate }
+      : {}),
     ...(options.requestCoordinatorRestart
       ? { requestCoordinatorRestart: options.requestCoordinatorRestart }
       : {}),
@@ -1265,8 +1307,7 @@ describe('the step runners', () => {
   })
 
   it('server: records a durable snapshot path BEFORE the restart is requested', async () => {
-    const snapshotPath =
-      '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-2026-08-17'
+    const snapshotPath = '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-2026-08-17'
     const createDatabaseSnapshot = vi.fn(() => snapshotPath)
     const seen: Array<{ state: string; snapshotPath: unknown }> = []
     const h = harness({
@@ -1286,6 +1327,54 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
     expect(createDatabaseSnapshot).toHaveBeenCalledWith('0.4.1', 'dev+abc1234')
     expect(seen).toEqual([{ state: 'running', snapshotPath }])
+  })
+
+  it('server: places the exact installed target before snapshot and restart', async () => {
+    const order: string[] = []
+    const h = harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      prepareCoordinatorUpdate: async (target) => {
+        order.push(`deliver:${target.version}`)
+      },
+      createDatabaseSnapshot: () => {
+        order.push('snapshot')
+        return '/state/podium.db.backup'
+      },
+      requestCoordinatorRestart: () => {
+        order.push('restart')
+      },
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    expect(order).toEqual(['deliver:dev+abc1234', 'snapshot', 'restart'])
+  })
+
+  it('server: fails without snapshot or restart when exact-target delivery fails', async () => {
+    const snapshot = vi.fn(() => '/state/podium.db.backup')
+    const restart = vi.fn()
+    const h = harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      prepareCoordinatorUpdate: async () => {
+        throw new Error('signature verification FAILED')
+      },
+      createDatabaseSnapshot: snapshot,
+      requestCoordinatorRestart: restart,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read().state).toBe('failed')
+    expect(h.read().error?.code).toBe('download-failed')
+    expect(h.read().error?.detail).toContain('signature verification FAILED')
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(restart).not.toHaveBeenCalled()
   })
 
   it('server: fails closed without requesting restart when the snapshot fails', async () => {
@@ -1407,8 +1496,7 @@ describe('the step runners', () => {
   })
 
   it('machines: carries the recorded snapshot into schema-advanced failure copy', async () => {
-    const snapshotPath =
-      '/state/podium.db.backup-vupdate-0.4.1-to-0.4.2-2026-08-17'
+    const snapshotPath = '/state/podium.db.backup-vupdate-0.4.1-to-0.4.2-2026-08-17'
     const h = harness({
       machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
       target: packedTarget(),

@@ -39,9 +39,38 @@ const CACHE_KEY = 'usage.summary'
 
 export { PENDING_REVEAL_MS }
 
+export interface UsageScan {
+  sampledAt: number
+  buckets: UsageBucketWire[]
+}
+
+interface UsageAnswer {
+  hostname: string
+  sampledAt?: string
+  buckets: UsageBucketWire[]
+}
+
+// The polled-query cache and this pair share one lifetime: the current browser
+// tab. Multiple mounted readers may receive the same daemon memo, so only a
+// strictly newer scan advances the pair.
+let scans: { current: UsageScan | null; previous: UsageScan | null } = {
+  current: null,
+  previous: null,
+}
+
+function recordScan(answer: UsageAnswer): void {
+  const sampledAt = Date.parse(answer.sampledAt ?? '')
+  if (!Number.isFinite(sampledAt) || sampledAt <= (scans.current?.sampledAt ?? -Infinity)) return
+  scans = {
+    previous: scans.current,
+    current: { sampledAt, buckets: answer.buckets },
+  }
+}
+
 /** Tests only — the module cache is deliberately process-wide otherwise. */
 export function resetUsageCache(): void {
   resetPolledQueryCache(CACHE_KEY)
+  scans = { current: null, previous: null }
 }
 
 export interface UsageFeed {
@@ -49,6 +78,9 @@ export interface UsageFeed {
   buckets: UsageBucketWire[] | null
   /** When `buckets` was received, for the staleness stamp. */
   fetchedAt: number | null
+  /** The newest two distinct daemon scans, used for the recent burn delta. */
+  currentScan: UsageScan | null
+  previousScan: UsageScan | null
   /** A request is in flight AND has been slow enough to be worth showing. */
   waiting: boolean
   /** The last attempt failed. With `buckets` set, what is on screen is old. */
@@ -57,14 +89,17 @@ export interface UsageFeed {
 }
 
 export function useUsageFeed(trpc: Trpc): UsageFeed {
-  const query = usePolledQuery<UsageBucketWire[]>({
+  const query = usePolledQuery<UsageAnswer>({
     key: CACHE_KEY,
     intervalMs: REFRESH_MS,
-    read: async () => (await trpc.usage.summary.query()).buckets,
+    read: () => trpc.usage.summary.query(),
+    onData: recordScan,
   })
   return {
-    buckets: query.data,
+    buckets: query.data?.buckets ?? null,
     fetchedAt: query.fetchedAt,
+    currentScan: scans.current,
+    previousScan: scans.previous,
     waiting: query.pending,
     failed: query.failed,
     retry: query.refresh,

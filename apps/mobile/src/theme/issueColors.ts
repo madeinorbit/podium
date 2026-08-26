@@ -12,9 +12,12 @@ import { color } from './theme'
  * renderers, and the bases they mix over are the Dark Ink tiers (POD-784).
  *
  * RESERVED COLOURS — never pickable, never reused as issue accents, never used
- * for status: Superade Yellow #f5c518 (attention/signal), terracotta #d97757
- * (Claude), blue #6f9dff/#2a62f0 (working/settled). The neutral grey below is
- * the default no-colour flow accent — a state, not a choice.
+ * for status: bisque #d9b477 (the brand accent, and the attention signal it
+ * also carries), terracotta #d97757 (Claude), blue #6f9dff/#2a62f0
+ * (working/settled). The whole warm accent band is absent from the palette —
+ * which covers the retired Superade Yellow #f5c518 as well as bisque — so an
+ * issue colour can never be misread as a status. The neutral grey below is the
+ * default no-colour flow accent — a state, not a choice.
  */
 
 /**

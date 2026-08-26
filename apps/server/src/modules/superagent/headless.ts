@@ -13,13 +13,13 @@ import type {
   UserId,
 } from '@podium/model'
 import { asAccountId, asSessionId, type MachineId } from '@podium/model'
-import { canonicalHeadlessTurnFacts } from '@podium/protocol'
 import type {
   HeadlessActivityEvent,
   HeadlessTurnEvent,
   LiveServerMessage,
   ServerMessage,
 } from '@podium/protocol'
+import { canonicalHeadlessTurnFacts } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { harnessSupportsNoTools } from '../../harness-manifest'
 import { Session } from '../sessions/session'
@@ -154,6 +154,9 @@ export class HeadlessService {
         this.deps.toMachine(this.deps.getSession(sessionId)?.machineId ?? machineId, msg),
       status: 'live',
       headless: true,
+      // A mint, so the claim is honest: no conversation yet. `setHeadlessResume`
+      // below promotes it the moment the first turn reports the harness's id.
+      conversationBinding: 'never',
       ...(input.ownerUserId ? { ownerUserId: input.ownerUserId } : {}),
       ...(input.createdBy ? { createdBy: input.createdBy } : {}),
       ...(input.issueId ? { issueId: input.issueId } : {}),

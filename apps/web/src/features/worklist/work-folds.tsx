@@ -515,38 +515,23 @@ export function ClosedIssueFold<T>({
   }
   return (
     <div className="min-w-0" data-testid="closed-issue-fold">
-      <div className="group/fold relative flex items-center">
-        <button
-          data-pressable
-          type="button"
-          className={TAIL_FOLD_CLASS}
-          aria-expanded={!collapsed}
-          aria-controls={contentId}
-          onClick={toggle}
-          data-testid="closed-fold-toggle"
-        >
-          <span>{rows.length} closed</span>
-          <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
-          <ChevronRight
-            size={13}
-            className={cn('flex-none transition-transform duration-200', !collapsed && 'rotate-90')}
-            aria-hidden="true"
-          />
-        </button>
-        <button
-          data-pressable
-          data-hover-reveal
-          type="button"
-          aria-label={`Archive all ${issueRows.length} closed issues`}
-          title="Archive all closed issues"
-          onClick={archiveAll}
-          className="shell-type-micro absolute right-[13px] bottom-0 flex h-5 items-center gap-1 rounded-[5px] border border-hairline-bar bg-chip px-1.5 font-mono font-medium tracking-[.02em] text-label opacity-0 shadow-sm transition-[color,opacity,background-color] duration-100 group-hover/fold:opacity-100 group-focus-within/fold:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong disabled:pointer-events-none disabled:opacity-0"
-          data-testid="closed-issues-archive-all"
-        >
-          <Archive size={10} aria-hidden="true" />
-          <span>All</span>
-        </button>
-      </div>
+      <button
+        data-pressable
+        type="button"
+        className={TAIL_FOLD_CLASS}
+        aria-expanded={!collapsed}
+        aria-controls={contentId}
+        onClick={toggle}
+        data-testid="closed-fold-toggle"
+      >
+        <span>{rows.length} closed</span>
+        <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
+        <ChevronRight
+          size={13}
+          className={cn('flex-none transition-transform duration-200', !collapsed && 'rotate-90')}
+          aria-hidden="true"
+        />
+      </button>
       <FoldPanel open={!collapsed} id={contentId} testId="closed-fold-rows">
         <div className="min-w-0">
           {rows.map((row) => {
@@ -580,6 +565,36 @@ export function ClosedIssueFold<T>({
               </div>
             )
           })}
+        </div>
+        {/* THE BULK GESTURE SITS AFTER THE THING IT ACTS ON (POD-1458). The
+         * chip used to ride the title row, where the fold's own count and
+         * chevron live: a destructive press crowding the one control whose job
+         * is to open and shut the list, and pressable while that list was still
+         * shut. It is a FOOTER now — last in the reading order, right-aligned
+         * to the same inset as the per-row archive buttons it generalises, and
+         * inside the panel, so it exists only while the rows it would take are
+         * on screen.
+         *
+         * AND IT IS RESIDENT, not hover-revealed like the per-row archives. Ten
+         * icons that only appear under the cursor keep the column quiet; ONE
+         * chip at the foot of an opened list is the list's last line, not
+         * noise. Revealing it would have meant a hover group around the whole
+         * fold, and `index.css` reveals EVERY `data-hover-reveal` under a
+         * focused group — tabbing into one row would have lit all ten row
+         * icons. So it stays dim and borderless until it is wanted. */}
+        <div className="flex justify-end px-2.5 pt-1.5 pb-1">
+          <button
+            data-pressable
+            type="button"
+            aria-label={`Archive all ${issueRows.length} closed issues`}
+            title="Archive all closed issues"
+            onClick={archiveAll}
+            className="shell-type-micro flex h-5 items-center gap-1 rounded-[5px] border border-transparent px-1.5 font-mono font-medium tracking-[.02em] text-text-dim transition-[color,border-color,background-color] duration-100 hover:border-hairline-bar hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
+            data-testid="closed-issues-archive-all"
+          >
+            <Archive size={10} aria-hidden="true" />
+            <span>Archive all</span>
+          </button>
         </div>
       </FoldPanel>
     </div>

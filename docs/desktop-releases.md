@@ -59,7 +59,7 @@ GitHub Actions must contain `TAURI_SIGNING_PRIVATE_KEY` and
 
 ### macOS Developer ID signing and notarization
 
-Apple Silicon builds are signed with a Developer ID Application certificate, hardened, notarized
+macOS builds (Apple Silicon and Intel) are signed with a Developer ID Application certificate, hardened, notarized
 by Apple, and stapled, so a downloaded DMG opens without a Gatekeeper warning. This is separate
 from the Tauri updater key: Apple's signature is what macOS trusts, and the Tauri key is what the
 updater trusts. A release needs both.
@@ -123,7 +123,9 @@ lets any unsigned dylib load into the process, so do not add it speculatively.
 The Developer ID certificate expires five years after issue. Expiry breaks *new* signing only;
 already-notarized releases keep working. Renew before it lapses — the certificate cap is 5 per team.
 
-Only Apple Silicon macOS is built. Intel Macs have no macOS build on either channel.
+Both macOS architectures are built: Apple Silicon natively on Blacksmith's arm64 fleet, and Intel
+natively on GitHub-hosted `macos-15-intel` runners (Blacksmith has no Intel macs, and
+cross-compiling would leave the Bun sidecar and abduco on the wrong architecture).
 
 ## Cut a release
 
@@ -146,10 +148,11 @@ It refuses, before creating anything, a version that is not greater than the cur
 that is neither `X.Y.Z` nor `X.Y.Z-edge.N`, a dirty tree, a branch out of sync with its remote, and
 a tag that already exists.
 
-Both workflows then run from that tag. The desktop half builds Linux x86_64 and macOS Apple Silicon
-in parallel, and only after both succeed does it deterministically regenerate and validate one
-`latest.json` against both detached signatures and the channel's URLs. It uploads the AppImage,
-macOS DMG, macOS updater archive, signatures, and manifest without replacing the headless assets.
+Both workflows then run from that tag. The desktop half builds Linux x86_64, macOS Apple Silicon,
+and macOS Intel in parallel, and only after all succeed does it deterministically regenerate and
+validate one `latest.json` against every detached signature and the channel's URLs. It uploads the
+AppImage, macOS DMGs, macOS updater archives, signatures, and manifest without replacing the
+headless assets.
 
 Later pushes to `main` refresh the headless edge files in place and preserve the promoted desktop
 version until the next edge tag.

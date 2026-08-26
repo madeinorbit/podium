@@ -28,7 +28,7 @@ export function SetupBusyOverlay({
         className="flex w-full max-w-[456px] items-start gap-[15px] rounded-[13px] bg-[#252a31] px-[22px] py-5 shadow-[0_30px_70px_-18px_rgba(0,0,0,.85),inset_0_0_0_1px_#3a4049]"
       >
         <LoaderCircle
-          className="mt-0.5 size-[22px] flex-none animate-spin text-[#e3ba52] motion-reduce:animate-none"
+          className="mt-0.5 size-[22px] flex-none animate-spin text-[#d9b477] motion-reduce:animate-none"
           aria-hidden="true"
         />
         <div>

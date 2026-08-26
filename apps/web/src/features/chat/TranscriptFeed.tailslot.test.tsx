@@ -1,6 +1,6 @@
 import type { ChatActivity, RenderableRow } from '@podium/client-core/viewmodels'
 import { asSessionId, type TranscriptItem } from '@podium/model'
-import { act, createRef } from 'react'
+import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildChatRows, pairToolResults } from './chat'
@@ -20,10 +20,7 @@ import { TranscriptFeed } from './TranscriptFeed'
 //
 // So the tail renders inside a slot that is always there and never changes
 // size (min-height covers the tallest variant, styles.css). The morphs and
-// the nothing-when-idle stay; the geometry stops moving. The slot is also the
-// scroller's permanent LAST CHILD, which gives the anchoring-engine regime
-// ([data-anchor-end] > :last-child) a stable node to anchor instead of one
-// that remounts on every phase change.
+// the nothing-when-idle stay; the geometry stops moving.
 
 let host: HTMLDivElement
 let root: Root
@@ -52,15 +49,15 @@ function rowsFor(items: TranscriptItem[]): RenderableRow[] {
 function render(
   activity: ChatActivity | null,
   items: TranscriptItem[] = [say('a1', 'an answer')],
-  scrollerEpoch = 0,
 ): void {
   const blocks = pairToolResults(items)
   act(() => {
     root.render(
       <TranscriptFeed
-        scrollerRef={createRef<HTMLDivElement>()}
+        setScrollerRef={() => {}}
+        setContentRef={() => {}}
         onScroll={() => {}}
-        claimScrollForArrival={() => {}}
+        onPointerUp={() => {}}
         compact={false}
         superagent={false}
         phase="ready"
@@ -92,7 +89,6 @@ function render(
         turnPreview={null}
         activity={activity}
         attribution={{} as never}
-        scrollerEpoch={scrollerEpoch}
       />,
     )
   })
@@ -113,25 +109,6 @@ afterEach(() => {
   })
   host.remove()
   vi.useRealTimers()
-})
-
-describe('a bumped scroller epoch is a new element', () => {
-  // Round 6: the Safari 26.4 wedge lives in the scrolling node itself — a
-  // pixel-identical clone scrolled to the bottom the original could not
-  // reach. The epoch is the hook's request for that clone, made real here:
-  // a changed epoch keys the scroller, so React replaces the DOM node and
-  // the engine builds a fresh scrolling node for it.
-  it('replaces the scroller node when the epoch changes, and only then', () => {
-    render(null)
-    const first = host.querySelector('[data-feed-scroller]')
-    expect(first).not.toBeNull()
-    render(null)
-    expect(host.querySelector('[data-feed-scroller]')).toBe(first)
-    render(null, undefined, 1)
-    const reborn = host.querySelector('[data-feed-scroller]')
-    expect(reborn).not.toBeNull()
-    expect(reborn).not.toBe(first)
-  })
 })
 
 describe('the tail stands in a slot of constant height', () => {
@@ -162,7 +139,7 @@ describe('the tail stands in a slot of constant height', () => {
     expect(feed.lastElementChild).toBe(slot())
   })
 
-  it('hands one working mark to an arriving tool row after its unroll', () => {
+  it('keeps the session working mark through tool-call arrival and completion', () => {
     vi.useFakeTimers()
     vi.setSystemTime(Date.parse('2026-08-18T12:00:01.000Z'))
     const working = { tone: 'working', label: 'Working' } as ChatActivity
@@ -177,16 +154,6 @@ describe('the tail stands in a slot of constant height', () => {
     expect(line()?.dataset.state).toBe('handoff')
     expect(line()?.querySelector('.pod-mark')).toBeNull()
     expect(tailRow()?.dataset.tail).toBe('working')
-    expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
-
-    act(() => vi.advanceTimersByTime(259))
-    expect(tailRow()?.dataset.tail).toBe('working')
-    expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
-
-    act(() => vi.advanceTimersByTime(1))
-    expect(tailRow()).toBeNull()
-    expect(line()?.dataset.state).toBe('live')
-    expect(line()?.querySelectorAll('.pod-mark')).toHaveLength(1)
     expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
 
     render(working, [prose, tool('done')])

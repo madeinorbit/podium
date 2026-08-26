@@ -236,6 +236,9 @@ export interface MailHandlerContext {
   access: MailAccess
   /** Absent = `confirm`, the shipped agent/CLI behaviour. */
   deliveryMode?: MailDeliveryMode
+  /** Internal chat-send correlation. It comes from the session command's
+   * framework mutation id, never from the validated public mail payload. */
+  correlationId?: string
 }
 
 /**

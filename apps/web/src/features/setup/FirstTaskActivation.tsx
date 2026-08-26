@@ -80,7 +80,7 @@ function TelemetryChoice({
         className={cn(
           'mt-px flex size-5 flex-none items-center justify-center rounded-md',
           checked
-            ? 'bg-[#e3ba52] text-[#1a1408]'
+            ? 'bg-[#d9b477] text-[#191308]'
             : 'bg-[#22262d] shadow-[inset_0_0_0_1.5px_#454b56]',
         )}
         aria-hidden="true"
@@ -257,7 +257,7 @@ export function FirstTaskActivation({
         description="Your project and agents are set up. One optional privacy choice is left, then you can start working."
         icon={<Check aria-hidden="true" />}
         contentClassName="mt-8"
-        frameClassName="min-h-[1000px] lg:pt-14 lg:pb-11 [&>div:first-child]:bg-[#2a2718] [&>div:first-child]:shadow-[inset_0_0_0_1px_#4a4324]"
+        frameClassName="min-h-[1000px] lg:pt-14 lg:pb-11 [&>div:first-child]:bg-[#2a2418] [&>div:first-child]:shadow-[inset_0_0_0_1px_#4a4331]"
       >
         <section className="overflow-hidden rounded-[13px] bg-[#1b1e24] shadow-[inset_0_0_0_1px_#2f343d]">
           <div className="px-[22px] pt-5 pb-[18px]">
@@ -343,7 +343,7 @@ export function FirstTaskActivation({
             data-pressable
             disabled={finishBusy || (!telemetryState && !telemetryUnavailable)}
             onClick={() => void finish()}
-            className="inline-flex h-[38px] items-center gap-2 rounded-[9px] bg-[#e3ba52] px-[18px] text-[13.5px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-[38px] items-center gap-2 rounded-[9px] bg-[#d9b477] px-[18px] text-[13.5px] leading-none font-semibold text-[#191308] hover:bg-[#e8ca97] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {finishBusy ? (
               <LoaderCircle size={17} className="animate-spin" aria-hidden="true" />
@@ -461,7 +461,7 @@ export function FirstTaskActivation({
               data-pressable
               disabled={loginBusyAgent !== null}
               onClick={() => void openLogin(agent)}
-              className="inline-flex h-[31px] w-32 flex-none items-center justify-center gap-2 rounded-[9px] text-[12.5px] leading-none font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52] disabled:opacity-50"
+              className="inline-flex h-[31px] w-32 flex-none items-center justify-center gap-2 rounded-[9px] text-[12.5px] leading-none font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d9b477] disabled:opacity-50"
             >
               {loginBusyAgent === agent ? (
                 <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
@@ -477,7 +477,7 @@ export function FirstTaskActivation({
               type="button"
               data-pressable
               onClick={() => copySetupCommand(agent)}
-              className="h-[31px] w-32 flex-none rounded-[9px] text-[12.5px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842] hover:bg-white/[0.04] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-[#e3ba52]"
+              className="h-[31px] w-32 flex-none rounded-[9px] text-[12.5px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842] hover:bg-white/[0.04] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-[#d9b477]"
             >
               Copy command
             </button>
@@ -538,7 +538,7 @@ export function FirstTaskActivation({
           type="button"
           data-pressable
           onClick={() => onRouteChange('local-project')}
-          className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52]"
+          className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d9b477]"
         >
           <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
           Change project
@@ -549,7 +549,7 @@ export function FirstTaskActivation({
           data-pressable
           disabled={installedAgents.length === 0}
           onClick={() => onRouteChange('first-task')}
-          className="inline-flex h-[34px] items-center gap-2 rounded-[9px] bg-[#e3ba52] px-[15px] text-[13px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2f3f5] disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-[34px] items-center gap-2 rounded-[9px] bg-[#d9b477] px-[15px] text-[13px] leading-none font-semibold text-[#191308] hover:bg-[#e8ca97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2f3f5] disabled:cursor-not-allowed disabled:opacity-40"
         >
           Continue
           <ArrowRight size={16} aria-hidden="true" />

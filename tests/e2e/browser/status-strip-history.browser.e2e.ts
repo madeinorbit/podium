@@ -85,7 +85,7 @@ test('shows 12-hour peaks beside the live state without duplicating the idle mes
   await expect(graph).toBeVisible()
   await expect(graph.locator('.status-strip-history-stack')).toHaveCount(24)
   await expect(strip.getByTestId('token-burn-history')).toBeVisible()
-  await expect(strip.getByTestId('ship-rate-history')).toBeVisible()
+  await expect(strip.getByTestId('ship-rate-history')).toHaveCount(0)
 
   // The share icon crosses the browser new-tab boundary. Intercept X itself —
   // the contract here is that Podium dispatches the prefilled intent into a new

@@ -1,4 +1,3 @@
-import { asSessionId } from '@podium/model'
 import {
   agentBadge,
   chatActivity,
@@ -17,6 +16,7 @@ import {
   sortSessionsForSidebar,
 } from '@podium/client-core/viewmodels'
 import {
+  asSessionId,
   type GitRepositoryWire,
   isSnoozed,
   returnedFromSnooze,
@@ -114,6 +114,36 @@ describe('exitedRecovery', () => {
     expect(exitedRecovery({ exitCode: 0, isShell: false, resumable: true }).action).toBe('resume')
     expect(exitedRecovery({ exitCode: 0, isShell: true, resumable: false }).action).toBe('restart')
     expect(exitedRecovery({ exitCode: 0, isShell: false, resumable: false }).action).toBe('remove')
+  })
+
+  /*
+   * "NO RESUME REF" WAS TWO SITUATIONS WEARING ONE ANSWER (POD-2392). An agent
+   * that ran and whose id we never learned, and an agent that died before its
+   * harness opened a thread — Codex exiting into its own updater prompt, the
+   * install then failing — both arrived here as `resumable: false` and both were
+   * offered deletion as their only way out. The second lost nothing by being
+   * started again; it was the only offer on screen that was destructive.
+   *
+   * `neverBound` is the server's PROOF of the second case, which is why these
+   * two tests are a pair: the proof must move the verb, and its absence must not.
+   */
+  it('starts a proven never-bound agent again instead of offering deletion', () => {
+    expect(
+      exitedRecovery({ exitCode: -1, isShell: false, resumable: false, neverBound: true }).action,
+    ).toBe('relaunch')
+  })
+
+  it('keeps removal for the ref-less agent we cannot vouch for', () => {
+    // Unproven is NOT proof of the opposite: a row we know nothing about reads
+    // exactly as it did before, because starting it over could discard a real
+    // conversation.
+    expect(
+      exitedRecovery({ exitCode: 0, isShell: false, resumable: false, neverBound: false }).action,
+    ).toBe('remove')
+    // …and a ref outranks the proof either way: there is something to resume.
+    expect(
+      exitedRecovery({ exitCode: 0, isShell: false, resumable: true, neverBound: true }).action,
+    ).toBe('resume')
   })
 
   /*

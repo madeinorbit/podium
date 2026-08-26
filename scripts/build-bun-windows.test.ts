@@ -30,9 +30,12 @@ describe('windowsLauncherShim', () => {
     expect(shim).toContain('%~dp0')
     expect(shim).toMatch(/set "DIR=%DIR:~0,-1%"/)
   })
-  it('exports PODIUM_HOME and defaults PODIUM_WEB_DIR only when unset', () => {
+  it('exports PODIUM_HOME and defaults both served web directories only when unset', () => {
     expect(shim).toContain('set "PODIUM_HOME=%DIR%"')
     expect(shim).toContain('if not defined PODIUM_WEB_DIR set "PODIUM_WEB_DIR=%DIR%\\web"')
+    expect(shim).toContain(
+      'if not defined PODIUM_MOBILE_WEB_DIR set "PODIUM_MOBILE_WEB_DIR=%DIR%\\mobile"',
+    )
   })
   it('forwards all args to podium-cli.exe and propagates its exit code', () => {
     expect(shim).toContain('"%DIR%\\podium-cli.exe" %*')

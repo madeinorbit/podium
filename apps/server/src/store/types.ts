@@ -119,6 +119,22 @@ export interface TerminalCandidateRecord {
   updatedAt: string
 }
 
+/**
+ * WHETHER A LAUNCH EVER HAD A NATIVE CONVERSATION (POD-2392).
+ *
+ * A resume ref answers "is one known NOW". Recovery needs "was there EVER one",
+ * because those diverge in both directions: a harness that dies before opening
+ * a thread never acquires a ref, and a session that loses an identity-collision
+ * arbitration has its ref taken away (`SessionBindingReceipts`) while its
+ * conversation goes on existing.
+ *
+ * `'never'` is stamped at mint and promoted to `'bound'` — one way, never back —
+ * at the first evidence of a conversation. `undefined` is the third state and it
+ * is load-bearing: a row written before the fact existed makes NO claim, and is
+ * never read as `'never'`.
+ */
+export type ConversationBinding = 'never' | 'bound'
+
 /** One persisted session row. camelCase mirror of the snake_case `sessions` table. */
 export interface SessionRow {
   id: SessionId
@@ -167,8 +183,11 @@ export interface SessionRow {
    *
    * `null` = a row from before this column, or one whose daemon never reported
    * a selection. Never backfilled.
-   */
+  */
   selectedDriverId?: string | null
+  /** Did this launch EVER have a native conversation — see {@link ConversationBinding}.
+   *  Absent/null = the row predates the fact and makes no claim either way. */
+  conversationBinding?: ConversationBinding | null
   status: SessionStatusPersisted
   exitCode: number | null
   /** Daemon-reported reason a spawn never started; null for ordinary exits. */

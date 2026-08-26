@@ -1,4 +1,5 @@
 import { randomUUID } from '@podium/client-core/id'
+import { asMutationId } from '@podium/model'
 import type {
   ChatBlock,
   ChatSendRoute,
@@ -19,6 +20,9 @@ import {
   markPendingSendingFailed,
   queuedOperatorMessages,
   reconcilePending,
+  pairPendingWithQueued,
+  reconcileQueued,
+  tailAppendedUserItems,
 } from './chat'
 import type { UseHeadlessTurnResult } from './use-headless-turn'
 
@@ -69,7 +73,8 @@ export interface UseChatSendOptions {
    *  the next superagent turn, and the way to drop it once it has been. */
   attachedSessionId: Store['attachedSessionId']
   clearAttachedSession: Store['clearAttachedSession']
-  issues: Store['issues']
+  /** Command-time lookup: issue updates must not subscribe the transcript. */
+  getIssueSeq: (issueId: string) => number | null
   headless: boolean
   superThread: SuperThreadRef | undefined
   /** Narrow-dock mode: the arriving answer is labelled with the issue the turn
@@ -131,7 +136,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     getUserFocus,
     attachedSessionId,
     clearAttachedSession,
-    issues,
+    getIssueSeq,
     headless,
     superThread,
     compact,
@@ -162,6 +167,8 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   // Block ids seen on the previous render — lets us detect *newly arrived* user
   // blocks so a freshly-echoed prompt reconciles its optimistic bubble.
   const seenUserIds = useRef<Set<string>>(new Set())
+  const seenUserTailId = useRef<string | null>(null)
+  const userBaselineReady = useRef(false)
 
   // Busy chat sends live in the unified message ledger until the agent reaches
   // its next turn boundary. Reload those durable rows so an accepted message
@@ -211,48 +218,35 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     setFailedMessages([])
     setJustSent(false)
     seenUserIds.current = new Set()
+    seenUserTailId.current = null
+    userBaselineReady.current = false
     // The transcript window itself resets on the same trigger inside
     // useTranscriptWindow — this effect only clears the local pending/optimistic
     // state that hook doesn't own.
   }, [sessionId])
 
   useEffect(() => {
+    const userItems = blocks.flatMap((block) => (block.item.role === 'user' ? [block.item] : []))
     const prev = seenUserIds.current
-    const next = new Set<string>()
-    const newUserItems: TranscriptItem[] = []
-    for (const b of blocks) {
-      if (b.item.role !== 'user') continue
-      next.add(b.item.id)
-      if (!prev.has(b.item.id)) newUserItems.push(b.item)
+    const previousTailId = seenUserTailId.current
+    const candidates = tailAppendedUserItems(userItems, previousTailId, userBaselineReady.current)
+    if (!userBaselineReady.current) {
+      userBaselineReady.current = true
     }
-    seenUserIds.current = next
+    const newUserItems = candidates.filter((item) => !prev.has(item.id))
+    for (const item of userItems) prev.add(item.id)
+    seenUserTailId.current = userItems.at(-1)?.id ?? null
     if (newUserItems.length > 0) {
       // Headless: the server prepends machine context (seed/delta blocks) to the
       // delivered turn text, so the echoed user item rarely equals the optimistic
       // bubble verbatim — any new user item means the send landed; drop them all.
       if (headless) setPending([])
-      else setPending((p) => (p.length === 0 ? p : reconcilePending(p, newUserItems)))
+      else {
+        setPending((p) => (p.length === 0 ? p : reconcilePending(p, newUserItems)))
+        setQueuedMessages((q) => (q.length === 0 ? q : reconcileQueued(q, newUserItems)))
+      }
     }
   }, [blocks, headless])
-
-  // Once the authority's durable row arrives, let it replace the text-matched
-  // optimistic bubble. The server row carries the id retraction needs; keeping
-  // the local duplicate instead would leave a visible queued message that could
-  // not be acted on.
-  useEffect(() => {
-    if (queuedMessages.length === 0) return
-    setPending((current) => {
-      const durableTexts = queuedMessages.map((message) => message.text.trim())
-      const next = current.filter((item) => {
-        if (item.state !== 'queued') return true
-        const index = durableTexts.indexOf(item.text.trim())
-        if (index === -1) return true
-        durableTexts.splice(index, 1)
-        return false
-      })
-      return next.length === current.length ? current : next
-    })
-  }, [queuedMessages])
 
   // Drop the "sending" affordance after a grace period even if no echo arrived
   // (slow tail / uninstrumented) — the prompt was still sent, so settle to 'sent'
@@ -305,6 +299,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   const deliver = useCallback(
     async (
       text: string,
+      deliveryId: string,
       onQueued: () => void,
       attachments?: readonly RuntimeAttachmentRef[],
       onDelivered?: () => void,
@@ -336,11 +331,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           // Compact label context: remember which issue this turn was answered
           // with, so the arriving answer carries "· POD-x context".
           if (compact && route.kind !== 'refused') {
-            setCtxSeq(
-              focus.issueId
-                ? ((issues ?? []).find((i) => i.id === focus.issueId)?.seq ?? null)
-                : null,
-            )
+            setCtxSeq(focus.issueId ? getIssueSeq(focus.issueId) : null)
           }
           // THE ATTACHMENT IS SPENT BY THE TURN THAT CARRIES IT (POD-1069), and
           // only by a turn that was actually accepted. A rejected send leaves it
@@ -369,7 +360,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
             sessionId,
             text,
             ...(attachments?.length ? { attachments: [...attachments] } : {}),
-            mutationId: randomUUID(),
+            mutationId: deliveryId,
           })
           assertSendAccepted(result)
           if (result.disposition === 'delivered') onDelivered?.()
@@ -380,7 +371,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         case 'resume':
           // Parked but recoverable → wake it and let the server deliver the text
           // once the resumed CLI is ready.
-          await resumeAndSend(sessionId, text)
+          await resumeAndSend(sessionId, text, asMutationId(deliveryId))
           // QUEUED, not "sending…" (POD-762). The wake is the whole reason this
           // route exists: the text is durably enqueued the moment the mutation is
           // accepted and drains when the PTY binds, which may be a minute later.
@@ -401,7 +392,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       attachedSessionId,
       clearAttachedSession,
       compact,
-      issues,
+      getIssueSeq,
       headlessTurn,
       trpc,
       sessionId,
@@ -420,10 +411,12 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     ) => {
       pinToBottom()
       const id = `pending-${++pendingSeq.current}`
+      const deliveryId = `msg_${randomUUID()}`
       setPending((p) => [
         ...p,
         {
           id,
+          deliveryId,
           text: fullText,
           at: Date.now(),
           state: 'sending',
@@ -435,6 +428,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       try {
         await deliver(
           fullText,
+          deliveryId,
           () => setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
           attachments,
           () => setPending((p) => markPendingSendingDelivered(p, id)),
@@ -456,12 +450,14 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     async (prompt: string, offerAt: string) => {
       setDismissedOfferAt(offerAt)
       const id = `pending-${++pendingSeq.current}`
-      setPending((p) => [...p, { id, text: prompt, at: Date.now(), state: 'sending' }])
+      const deliveryId = `msg_${randomUUID()}`
+      setPending((p) => [...p, { id, deliveryId, text: prompt, at: Date.now(), state: 'sending' }])
       setJustSent(true)
       pinToBottom()
       try {
         await deliver(
           prompt,
+          deliveryId,
           () => setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
           undefined,
           () => setPending((p) => markPendingSendingDelivered(p, id)),
@@ -506,21 +502,34 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   const retractQueuedMessage = useCallback(
     async (id: string) => {
       const previous = queuedMessages
+      const retracted = previous.find((message) => message.id === id)
+      const linkedPending = pairPendingWithQueued(pending, previous).pending.find(
+        (item) => item.durable?.id === id,
+      )
       setQueuedMessages((messages) => messages.filter((message) => message.id !== id))
+      if (linkedPending) {
+        setPending((items) => items.filter((item) => item.id !== linkedPending.id))
+      }
       try {
         await trpc.messages.cancel.mutate({ id })
       } catch {
         setQueuedMessages((current) => {
           if (current.some((message) => message.id === id)) return current
-          const retracted = previous.find((message) => message.id === id)
           return retracted
             ? [...current, retracted].sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
             : current
         })
+        if (linkedPending) {
+          setPending((current) =>
+            current.some((item) => item.id === linkedPending.id)
+              ? current
+              : [...current, linkedPending].sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)),
+          )
+        }
         refreshQueuedMessages()
       }
     },
-    [queuedMessages, refreshQueuedMessages, trpc],
+    [pending, queuedMessages, refreshQueuedMessages, trpc],
   )
 
   return {

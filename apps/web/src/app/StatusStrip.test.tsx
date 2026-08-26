@@ -20,11 +20,22 @@ const fixture = vi.hoisted(() => {
   }))
   const usageQuery = vi.fn(async () => ({
     hostname: 'test',
+    sampledAt: '2026-08-06T18:20:00.000Z',
     buckets: [
       {
-        hour: '2026-08-06T17:00:00.000Z',
+        hour: '2026-08-06T18:00:00.000Z',
         model: 'gpt-5',
         inputTokens: 1_000_000,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        messages: 1,
+      },
+      {
+        // A large prior-hour burn must not dilute or inflate the live headline.
+        hour: '2026-08-06T17:00:00.000Z',
+        model: 'gpt-5',
+        inputTokens: 12_000_000,
         outputTokens: 0,
         cacheReadTokens: 0,
         cacheCreationTokens: 0,
@@ -70,6 +81,7 @@ vi.mock('@/features/machines/ConnectionIndicator', () => ({
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
 import { resetUsageCache } from '@/features/usage/useUsageFeed'
+import { recentBurnRate } from './StatusPerformanceStats'
 import { StatusStrip } from './StatusStrip'
 
 beforeEach(() => {
@@ -181,13 +193,13 @@ describe('StatusStrip agent concurrency history', () => {
   })
 })
 
-describe('StatusStrip burn and ship rates', () => {
-  it('reuses API-equivalent pricing for a rolling hourly burn rate', async () => {
+describe('StatusStrip token burn', () => {
+  it('bootstraps from the current hour until a second fresh scan arrives', async () => {
     render(<StatusStrip />)
 
     expect(screen.getByTestId('status-strip-burn').textContent).toBe('—/h burn')
     await waitFor(() =>
-      expect(screen.getByTestId('status-strip-burn').textContent).toBe('$0.10/h burn'),
+      expect(screen.getByTestId('status-strip-burn').textContent).toBe('$3.75/h burn'),
     )
     expect(
       screen.getByTestId('token-burn-history').querySelectorAll('.status-strip-history-stack'),
@@ -196,78 +208,35 @@ describe('StatusStrip burn and ship rates', () => {
       screen.getByLabelText('Share token burn on X').getAttribute('href') ?? '',
     )
     expect(burnShare).toContain('x.com/intent/post')
-    // $0.10/hr is under the flex threshold, so it takes the small-burn closer.
-    expect(burnShare).toContain('I am running @podium_ade on $0.10/hr in tokens')
+    // $3.75/hr is under the flex threshold, so it takes the small-burn closer.
+    expect(burnShare).toContain('I am running @podium_ade on $3.75/hr in tokens')
+    expect(screen.queryByTestId('ship-rate-history')).toBeNull()
+    expect(screen.queryByTestId('status-strip-ship')).toBeNull()
   })
 
-  /** The verdict this used to require (`gitState.merged`) is probed live and
-   *  lost on every server restart, so it read "1 ship" on an 18-ship day. The
-   *  ship is now the close itself: done, on a branch, inside the trailing day. */
-  it('counts issues closed as done on a branch, over a trailing day', () => {
-    fixture.extraIssues.push(
-      makeIssue({ id: 'landed', closedReason: 'done', closedAt: '2026-08-06T17:15:00.000Z' }),
-      // Yesterday evening — still inside 24h, outside the old 12h window.
-      makeIssue({
-        id: 'landed-yesterday',
-        closedReason: 'done',
-        closedAt: '2026-08-05T20:00:00.000Z',
-      }),
-      // Just past the 24h edge.
-      makeIssue({ id: 'stale', closedReason: 'done', closedAt: '2026-08-05T17:00:00.000Z' }),
-      makeIssue({
-        id: 'cancelled',
-        closedReason: 'cancelled',
-        closedAt: '2026-08-06T17:30:00.000Z',
-      }),
-      makeIssue({
-        id: 'no-branch',
-        closedReason: 'done',
-        branch: null,
-        closedAt: '2026-08-06T17:45:00.000Z',
-      }),
-      makeIssue({
-        id: 'deleted',
-        closedReason: 'done',
-        closedAt: '2026-08-06T17:50:00.000Z',
-        deletedAt: '2026-08-06T18:00:00.000Z',
-      }),
-    )
-
-    render(<StatusStrip />)
-
-    expect(screen.getByTestId('status-strip-ship').textContent).toBe('2 ships/day')
-    expect(
-      screen.getByTestId('ship-rate-history').querySelectorAll('.status-strip-history-stack'),
-    ).toHaveLength(24)
-    expect(screen.getByTestId('ship-rate-history').getAttribute('aria-label')).toContain(
-      '2 issues shipped over the last 24 hours',
-    )
-    expect(
-      decodeURIComponent(screen.getByLabelText('Share ship rate on X').getAttribute('href') ?? ''),
-    ).toContain('2 issues shipped on @podium_ade in the last 24h')
-  })
-
-  it('keeps the singular reading when exactly one issue shipped', () => {
-    fixture.extraIssues.push(
-      makeIssue({ id: 'landed', closedReason: 'done', closedAt: '2026-08-06T17:15:00.000Z' }),
-    )
-
-    render(<StatusStrip />)
-
-    expect(screen.getByTestId('status-strip-ship').textContent).toBe('1 ship/day')
-  })
-
-  it('draws an empty bucket as a dimmed 1px floor, never as nothing', () => {
-    render(<StatusStrip />)
-
-    const stacks = screen
-      .getByTestId('ship-rate-history')
-      .querySelectorAll<HTMLElement>('.status-strip-history-stack')
-    expect(stacks).toHaveLength(24)
-    for (const stack of stacks) {
-      expect(stack.dataset.zero).toBe('true')
-      expect(stack.style.getPropertyValue('--history-height')).toBe('1px')
+  it('uses the cost delta between fresh scans, including across an hour boundary', () => {
+    const bucket = (hour: string, inputTokens: number) => ({
+      hour,
+      model: 'gpt-5',
+      inputTokens,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      messages: 1,
+    })
+    const previous = {
+      sampledAt: Date.parse('2026-08-06T17:59:00.000Z'),
+      buckets: [bucket('2026-08-06T17:00:00.000Z', 1_000_000)],
     }
+    const current = {
+      sampledAt: Date.parse('2026-08-06T18:02:00.000Z'),
+      buckets: [
+        bucket('2026-08-06T17:00:00.000Z', 1_000_000),
+        bucket('2026-08-06T18:00:00.000Z', 1_000_000),
+      ],
+    }
+
+    expect(recentBurnRate(previous, current)).toBeCloseTo(25)
   })
 
   it('drops the 12h caption; the window is stated in the tooltip foot', () => {

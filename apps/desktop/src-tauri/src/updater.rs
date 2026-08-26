@@ -49,6 +49,7 @@ pub enum UpdateErrorCode {
     ReadOnlyInstallLocation,
     InstallFailed,
     NoUpdateAvailable,
+    UpdateTargetChanged,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -172,6 +173,15 @@ impl UpdateError {
             "No desktop update is available.",
         )
     }
+
+    fn update_target_changed(expected: &str, available: &str) -> Self {
+        Self::new(
+            UpdateErrorCode::UpdateTargetChanged,
+            format!(
+                "The update changed from {expected} to {available} while this operation was running. Check again before installing; nothing was downloaded or installed."
+            ),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -210,7 +220,9 @@ pub fn should_emit_progress(
     };
     let time_elapsed = now_ms.saturating_sub(last_emitted_at_ms) >= PROGRESS_INTERVAL_MS;
     let percent_advanced = match (last_percent, percent) {
-        (Some(previous), Some(current)) => current.saturating_sub(previous) >= PROGRESS_PERCENT_STEP,
+        (Some(previous), Some(current)) => {
+            current.saturating_sub(previous) >= PROGRESS_PERCENT_STEP
+        }
         _ => false,
     };
     time_elapsed || percent_advanced
@@ -301,14 +313,9 @@ fn updater_for_channel(
 /// Classify failures while asking a channel for its manifest. The updater crate reports a
 /// non-successful endpoint (including the production feed's observed 404) as ReleaseNotFound;
 /// transport failures remain distinct from a response that cannot be interpreted.
-fn check_error(
-    error: &tauri_plugin_updater::Error,
-    channel: UpdateChannel,
-) -> UpdateError {
+fn check_error(error: &tauri_plugin_updater::Error, channel: UpdateChannel) -> UpdateError {
     let public = match error {
-        tauri_plugin_updater::Error::ReleaseNotFound => {
-            UpdateError::no_release_on_channel(channel)
-        }
+        tauri_plugin_updater::Error::ReleaseNotFound => UpdateError::no_release_on_channel(channel),
         tauri_plugin_updater::Error::Reqwest(error) if !error.is_decode() => {
             UpdateError::network_unreachable(channel)
         }
@@ -463,9 +470,10 @@ where
         update.download_and_install(
             move |chunk, total| {
                 let now_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                let progress = chunk_state.lock().ok().and_then(|mut state| {
-                    progress_after_chunk(&mut state, chunk, total, now_ms)
-                });
+                let progress = chunk_state
+                    .lock()
+                    .ok()
+                    .and_then(|mut state| progress_after_chunk(&mut state, chunk, total, now_ms));
                 if let Some(progress) = progress {
                     chunk_report(progress);
                 }
@@ -521,6 +529,15 @@ fn update_info(update: &Update) -> UpdateInfo {
         version: update.version.clone(),
         critical: is_critical_update(&update.raw_json, update.body.as_deref()),
         notes: update.body.clone(),
+    }
+}
+
+fn refuse_target_drift(expected: Option<&str>, available: &str) -> Result<(), UpdateError> {
+    match expected {
+        Some(expected) if expected != available => {
+            Err(UpdateError::update_target_changed(expected, available))
+        }
+        _ => Ok(()),
     }
 }
 
@@ -631,6 +648,7 @@ pub async fn check_update(
 pub async fn install_update(
     app: AppHandle,
     channel: Option<String>,
+    expected_version: Option<String>,
     pending: State<'_, PendingUpdate>,
 ) -> Result<(), UpdateError> {
     if !production_auto_update_enabled(cfg!(debug_assertions)) {
@@ -639,10 +657,7 @@ pub async fn install_update(
 
     begin_install_for_app(&app, || ())?;
 
-    let argument_channel = channel
-        .as_deref()
-        .map(channel_from_name)
-        .transpose()?;
+    let argument_channel = channel.as_deref().map(channel_from_name).transpose()?;
     let checked_update = {
         let mut slot = pending
             .update
@@ -667,6 +682,7 @@ pub async fn install_update(
                 .ok_or_else(UpdateError::no_update_available)?
         }
     };
+    refuse_target_drift(expected_version.as_deref(), &update.version)?;
 
     let progress_app = app.clone();
     download_and_install_with_progress(&app, &update, move |progress| {
@@ -682,10 +698,7 @@ pub async fn install_update(
 
 /// When the page does not claim update ownership, check the configured channel and
 /// offer a minimal native install path. Network failures remain non-fatal at launch.
-pub async fn check_and_prompt_update(
-    app: AppHandle,
-    persisted_channel: Option<UpdateChannel>,
-) {
+pub async fn check_and_prompt_update(app: AppHandle, persisted_channel: Option<UpdateChannel>) {
     if !production_auto_update_enabled(cfg!(debug_assertions)) {
         log::info!("production auto-update disabled in debug builds");
         return;
@@ -696,11 +709,7 @@ pub async fn check_and_prompt_update(
         return;
     }
 
-    let channel = resolve_update_channel(
-        None,
-        persisted_channel,
-        build_update_channel(),
-    );
+    let channel = resolve_update_channel(None, persisted_channel, build_update_channel());
     let updater = match updater_for_channel(&app, channel) {
         Ok(updater) => updater,
         Err(error) => {
@@ -717,8 +726,7 @@ pub async fn check_and_prompt_update(
         }
     };
 
-    let test_autoconfirm =
-        std::env::var("PODIUM_UPDATE_TEST_AUTOCONFIRM").as_deref() == Ok("1");
+    let test_autoconfirm = std::env::var("PODIUM_UPDATE_TEST_AUTOCONFIRM").as_deref() == Ok("1");
     let confirmed = test_autoconfirm
         || app
             .dialog()
@@ -792,14 +800,22 @@ mod tests {
 
     #[test]
     fn a_claiming_page_owns_the_dialog() {
-        assert!(!should_show_native_dialog(true, 100_000, OWNERSHIP_GRACE_MS));
+        assert!(!should_show_native_dialog(
+            true,
+            100_000,
+            OWNERSHIP_GRACE_MS
+        ));
     }
 
     #[test]
     fn an_unclaimed_shell_falls_back_after_the_grace_window() {
         // The bundle failed to load, or the page is too old to know about the bridge.
         // Without this, a broken webview means no update path at all.
-        assert!(should_show_native_dialog(false, OWNERSHIP_GRACE_MS + 1, OWNERSHIP_GRACE_MS));
+        assert!(should_show_native_dialog(
+            false,
+            OWNERSHIP_GRACE_MS + 1,
+            OWNERSHIP_GRACE_MS
+        ));
     }
 
     #[test]
@@ -810,7 +826,11 @@ mod tests {
 
     #[test]
     fn a_late_claim_still_wins_at_the_boundary() {
-        assert!(!should_show_native_dialog(true, OWNERSHIP_GRACE_MS, OWNERSHIP_GRACE_MS));
+        assert!(!should_show_native_dialog(
+            true,
+            OWNERSHIP_GRACE_MS,
+            OWNERSHIP_GRACE_MS
+        ));
     }
 
     #[test]
@@ -844,7 +864,10 @@ mod tests {
     fn debug_builds_never_enable_production_auto_update() {
         assert!(!production_auto_update_enabled(true));
         assert!(production_auto_update_enabled(false));
-        assert!(cfg!(debug_assertions), "cargo test should exercise the debug guard");
+        assert!(
+            cfg!(debug_assertions),
+            "cargo test should exercise the debug guard"
+        );
         assert!(!production_auto_update_enabled(cfg!(debug_assertions)));
     }
 
@@ -892,6 +915,7 @@ mod tests {
             UpdateError::read_only_install_location(),
             UpdateError::install_failed(),
             UpdateError::no_update_available(),
+            UpdateError::update_target_changed("0.1.0-edge.16", "0.1.0-edge.17"),
         ];
         let codes = [
             "debug-build",
@@ -908,6 +932,7 @@ mod tests {
             "read-only-install-location",
             "install-failed",
             "no-update-available",
+            "update-target-changed",
         ];
         for (error, code) in errors.into_iter().zip(codes) {
             let json = serde_json::to_value(error).expect("error serializes");
@@ -916,6 +941,18 @@ mod tests {
                 !message.contains('/') && !message.to_ascii_lowercase().contains("token")
             }));
         }
+    }
+
+    #[test]
+    fn exact_operation_target_rejects_a_rolling_feed_that_moved() {
+        assert!(refuse_target_drift(Some("0.1.0-edge.16"), "0.1.0-edge.16").is_ok());
+        assert!(refuse_target_drift(None, "0.1.0-edge.17").is_ok());
+        let error = refuse_target_drift(Some("0.1.0-edge.16"), "0.1.0-edge.17")
+            .expect_err("feed drift must refuse");
+        assert_eq!(error.code, UpdateErrorCode::UpdateTargetChanged);
+        assert!(error
+            .message
+            .contains("nothing was downloaded or installed"));
     }
 
     #[test]

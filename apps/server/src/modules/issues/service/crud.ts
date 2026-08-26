@@ -1022,6 +1022,13 @@ export class IssueCrudModule {
     } else {
       Object.assign(row, rowPatch)
     }
+    // `update` is also the adoption seam for worktrees reported by a harness or
+    // supplied by an operator. A checkout without an explicit remote placement is
+    // on this host; never persist that fact as NULL, which clients cannot place in
+    // a multi-machine fleet.
+    if (row.worktreePath !== null && row.machineId === null) {
+      row.machineId = this.store.d.store.hostMachineId
+    }
     // parentBranch is an INPUT to derived gitState. Mutating it without
     // re-probing leaves the old snapshot (computed against the old base)
     // describing a base that no longer applies — and the parent-branch sweep

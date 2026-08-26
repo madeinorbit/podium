@@ -321,7 +321,7 @@ export interface PodiumClientApi {
   /** Hour×model token buckets for the last 7 days, harvested from harness
    *  transcripts. All window/cost math is client-side — see `viewmodels/usage`. */
   usage: {
-    summary: ApiQuery<void, { hostname: string; buckets: UsageBucketWire[] }>
+    summary: ApiQuery<void, { hostname: string; sampledAt?: string; buckets: UsageBucketWire[] }>
   }
   /** Plan rate-limit windows, read live from each agent's own quota endpoint,
    *  one entry per online machine. Distinct from `usage`, which is harvested

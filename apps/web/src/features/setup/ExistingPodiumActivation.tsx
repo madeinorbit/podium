@@ -231,7 +231,7 @@ function ExistingClientStep({
               />
               <Button
                 type="button"
-                className="h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
+                className="h-[42px] rounded-[10px] border-0 bg-[#d9b477] px-4 text-[13.5px] font-semibold text-[#191308] hover:bg-[#e8ca97]"
                 pending={busy}
                 pendingLabel="Saving connection…"
                 disabled={!serverUrl.trim()}
@@ -341,7 +341,7 @@ function ExistingMachineStep({
       <div>
         <div className="rounded-[13px] bg-[#1b1e24] p-[22px] shadow-[inset_0_0_0_1px_#2f343d]">
           <div className="flex items-start gap-3.5">
-            <span className="flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] text-[#e3ba52] shadow-[inset_0_0_0_1px_#333842]">
+            <span className="flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] text-[#d9b477] shadow-[inset_0_0_0_1px_#333842]">
               <KeyRound size={19} aria-hidden="true" />
             </span>
             <div className="min-w-0 flex-1">
@@ -388,7 +388,7 @@ function ExistingMachineStep({
               ) : (
                 <Button
                   type="button"
-                  className="h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
+                  className="h-[42px] rounded-[10px] border-0 bg-[#d9b477] px-4 text-[13.5px] font-semibold text-[#191308] hover:bg-[#e8ca97]"
                   pending={busy}
                   pendingLabel="Joining machine…"
                   disabled={!joinCode.trim()}

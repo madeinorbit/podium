@@ -27,10 +27,15 @@ const macArtifact = {
   artifactName: 'Podium_0.2.0-edge.1_aarch64.app.tar.gz',
   signature: 'MAC-SIGNATURE',
 }
-const releaseArtifacts = [linuxArtifact, macArtifact]
+const macIntelArtifact = {
+  target: 'darwin-x86_64' as const,
+  artifactName: 'Podium_0.2.0-edge.1_x64.app.tar.gz',
+  signature: 'MAC-INTEL-SIGNATURE',
+}
+const releaseArtifacts = [linuxArtifact, macArtifact, macIntelArtifact]
 
 describe('desktop release manifest', () => {
-  it('publishes Linux and Apple Silicon updater artifacts to the rolling edge release', () => {
+  it('publishes Linux, Apple Silicon, and Intel mac updater artifacts to the rolling edge release', () => {
     const text = buildDesktopManifest({
       version: '0.2.0-edge.1',
       channel: 'edge',
@@ -48,6 +53,10 @@ describe('desktop release manifest', () => {
         'darwin-aarch64': {
           url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium_0.2.0-edge.1_aarch64.app.tar.gz',
           signature: 'MAC-SIGNATURE',
+        },
+        'darwin-x86_64': {
+          url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium_0.2.0-edge.1_x64.app.tar.gz',
+          signature: 'MAC-INTEL-SIGNATURE',
         },
       },
     })
@@ -89,7 +98,11 @@ describe('desktop release manifest', () => {
       validateDesktopManifest(text, {
         version: '0.2.0-edge.1',
         channel: 'edge',
-        artifacts: [linuxArtifact, { ...macArtifact, signature: 'DIFFERENT-MAC-SIGNATURE' }],
+        artifacts: [
+          linuxArtifact,
+          { ...macArtifact, signature: 'DIFFERENT-MAC-SIGNATURE' },
+          macIntelArtifact,
+        ],
       }),
     ).toThrow('darwin-aarch64 does not match')
   })
@@ -109,22 +122,31 @@ describe('desktop release manifest', () => {
     ).toThrow('manifest platform mismatch')
   })
 
-  it('prepares signed Linux and macOS updater artifacts plus the macOS DMG', () => {
+  it('prepares signed Linux and macOS updater artifacts plus the macOS DMGs', () => {
     const root = mkdtempSync(join(tmpdir(), 'podium-desktop-release-'))
     scratch.push(root)
     const bundleDir = join(root, 'bundle')
     const linuxDir = join(bundleDir, 'linux')
-    const macUpdaterDir = join(bundleDir, 'macos')
-    const macDmgDir = join(bundleDir, 'dmg')
+    const macUpdaterDir = join(bundleDir, 'aarch64-apple-darwin', 'macos')
+    const macDmgDir = join(bundleDir, 'aarch64-apple-darwin', 'dmg')
+    // The Intel bundle mirrors the CI artifact layout: the rust target triple in the path is
+    // what disambiguates two otherwise identically named .app.tar.gz updater archives.
+    const macIntelUpdaterDir = join(bundleDir, 'x86_64-apple-darwin', 'macos')
+    const macIntelDmgDir = join(bundleDir, 'x86_64-apple-darwin', 'dmg')
     const outputDir = join(root, 'out')
     mkdirSync(linuxDir, { recursive: true })
     mkdirSync(macUpdaterDir, { recursive: true })
     mkdirSync(macDmgDir, { recursive: true })
+    mkdirSync(macIntelUpdaterDir, { recursive: true })
+    mkdirSync(macIntelDmgDir, { recursive: true })
     writeFileSync(join(linuxDir, 'Podium_0.2.0_amd64.AppImage'), 'APPIMAGE')
     writeFileSync(join(linuxDir, 'Podium_0.2.0_amd64.AppImage.sig'), '  LINUX-SIGNATURE\n')
     writeFileSync(join(macUpdaterDir, 'Podium.app.tar.gz'), 'MAC-UPDATER')
     writeFileSync(join(macUpdaterDir, 'Podium.app.tar.gz.sig'), '  MAC-SIGNATURE\n')
     writeFileSync(join(macDmgDir, 'Podium_0.2.0_aarch64.dmg'), 'DMG')
+    writeFileSync(join(macIntelUpdaterDir, 'Podium.app.tar.gz'), 'MAC-INTEL-UPDATER')
+    writeFileSync(join(macIntelUpdaterDir, 'Podium.app.tar.gz.sig'), '  MAC-INTEL-SIGNATURE\n')
+    writeFileSync(join(macIntelDmgDir, 'Podium_0.2.0_x64.dmg'), 'INTEL-DMG')
 
     const result = prepareDesktopRelease({
       version: '0.2.0',
@@ -137,13 +159,19 @@ describe('desktop release manifest', () => {
     expect(result.artifactPaths.map((path) => basename(path))).toEqual([
       'Podium_0.2.0_amd64.AppImage',
       'Podium_0.2.0_aarch64.app.tar.gz',
+      'Podium_0.2.0_x64.app.tar.gz',
     ])
     expect(result.signaturePaths.map((path) => basename(path))).toEqual([
       'Podium_0.2.0_amd64.AppImage.sig',
       'Podium_0.2.0_aarch64.app.tar.gz.sig',
+      'Podium_0.2.0_x64.app.tar.gz.sig',
     ])
-    expect(result.downloadPaths.map((path) => basename(path))).toEqual(['Podium_0.2.0_aarch64.dmg'])
+    expect(result.downloadPaths.map((path) => basename(path))).toEqual([
+      'Podium_0.2.0_aarch64.dmg',
+      'Podium_0.2.0_x64.dmg',
+    ])
     expect(readFileSync(result.downloadPaths[0] ?? '', 'utf8')).toBe('DMG')
+    expect(readFileSync(result.downloadPaths[1] ?? '', 'utf8')).toBe('INTEL-DMG')
     const manifest = JSON.parse(readFileSync(result.manifestPath, 'utf8'))
     expect(manifest.platforms['linux-x86_64']).toEqual({
       url: 'https://github.com/madeinorbit/podium/releases/download/v0.2.0/Podium_0.2.0_amd64.AppImage',
@@ -152,6 +180,10 @@ describe('desktop release manifest', () => {
     expect(manifest.platforms['darwin-aarch64']).toEqual({
       url: 'https://github.com/madeinorbit/podium/releases/download/v0.2.0/Podium_0.2.0_aarch64.app.tar.gz',
       signature: 'MAC-SIGNATURE',
+    })
+    expect(manifest.platforms['darwin-x86_64']).toEqual({
+      url: 'https://github.com/madeinorbit/podium/releases/download/v0.2.0/Podium_0.2.0_x64.app.tar.gz',
+      signature: 'MAC-INTEL-SIGNATURE',
     })
   })
 

@@ -55,12 +55,34 @@ describe('recoveryAction', () => {
     expect(a.busyLabel).toBeNull()
   })
 
+  it('offers a fresh start to an agent that died before opening a conversation', () => {
+    // The Codex-updater case (POD-2392). Same `resurrect` call as Resume — the
+    // server decides it goes out without a ref — but never the same WORDS:
+    // "Resume" over a conversation that never existed is a promise the user only
+    // discovers is empty afterwards.
+    const a = recoveryAction('ended', 'relaunch')
+    expect(a.run).toBe('resurrect')
+    expect([a.label, a.compactLabel, a.busyLabel]).toEqual([
+      'Start the agent again',
+      'Start again',
+      'Starting…',
+    ])
+    expect(a.hint).toContain('nothing to resume')
+    expect(a.label).not.toContain('Resume')
+  })
+
   it('gives removal its one honest reason', () => {
     // The worktree-gone variant of this hint ("Remove it to clear it away.") went
     // with the flag that produced it (POD-1704) — it was the copy shown when a
     // degraded repo scan made the UI believe a live worktree had been deleted.
-    // Removal now has exactly one meaning: there is no conversation to resume.
-    expect(recoveryAction('ended', 'remove').hint).toBe('It left no conversation to resume.')
+    // Removal used to claim "It left no conversation to resume", which POD-2392
+    // showed was the wrong half of the fact: the case we can PROVE left no
+    // conversation is `relaunch` above. Removal is the case where a conversation
+    // may well exist and nothing recorded the way back to it — which is exactly
+    // why starting over is not offered here.
+    expect(recoveryAction('ended', 'remove').hint).toBe(
+      'No way back into its conversation was recorded.',
+    )
   })
 })
 

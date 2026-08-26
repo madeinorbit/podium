@@ -528,6 +528,23 @@ describe('missionDepartures', () => {
     expect(out[0]?.state.label).toBe('Not started')
   })
 
+  it('keeps concurrent sibling spin-offs from the same task', () => {
+    const first = departed({ id: 'first', seq: 44 })
+    const second = departed({ id: 'second', seq: 45 })
+    const active = [
+      ...sessions,
+      sess('s-first', { issueId: 'first' }),
+      sess('s-second', { issueId: 'second' }),
+    ]
+
+    const out = missionDepartures([...base, first, second], active, 'root')
+
+    expect(out.map((d) => [d.issue.id, d.originId])).toEqual([
+      ['first', 'c1'],
+      ['second', 'c1'],
+    ])
+  })
+
   it('says nothing about a proposal — that one is still on the spine', () => {
     const proposal = departed({ stage: 'proposed' })
     expect(missionDepartures([...base, proposal], sessions, 'root')).toEqual([])
@@ -900,12 +917,12 @@ describe('buildFlightDeckRows', () => {
       expect(shape(buildFlightDeckRows(quiet, [], 'root', 'needs-you'))).toEqual(['root@0'])
     })
 
-    it('in active mode keeps unfinished work plus finished work an agent is still WORKING on', () => {
+    it('in Working keeps unfinished work plus finished work an agent is still WORKING on', () => {
       const withRevival = [...issues, issue('c3', { parentId: 'root', seq: 3, stage: 'done' })]
       const revived = [...sessions, sess('s-c3', { issueId: 'c3', agentState: workingState })]
       // g2 and c2 are done and agent-less → dropped. c3 is done but an agent is
       // mid-turn on it → kept. c1 is unfinished and matches on its own.
-      expect(shape(buildFlightDeckRows(withRevival, revived, 'root', 'active'))).toEqual([
+      expect(shape(buildFlightDeckRows(withRevival, revived, 'root', 'working'))).toEqual([
         'root@0',
         'c1@1',
         'g1@2',
@@ -928,10 +945,12 @@ describe('buildFlightDeckRows', () => {
       ],
       ['awake but finished its turn', { agentState: finishedState }],
       ['awake and uninstrumented', {}],
-    ])('in active mode drops a done task whose agent is only %s', (_label, over) => {
+    ])('in Working drops a done task whose agent is only %s', (_label, over) => {
       const withParked = [...issues, issue('c3', { parentId: 'root', seq: 3, stage: 'done' })]
       const parked = [...sessions, sess('s-c3', { issueId: 'c3', ...over })]
-      expect(shape(buildFlightDeckRows(withParked, parked, 'root', 'active'))).not.toContain('c3@1')
+      expect(shape(buildFlightDeckRows(withParked, parked, 'root', 'working'))).not.toContain(
+        'c3@1',
+      )
     })
 
     // Same mechanism, and deliberately so: `issueClosed` already treats every
@@ -941,13 +960,13 @@ describe('buildFlightDeckRows', () => {
       'cancelled',
       'duplicate',
       'superseded',
-    ] as const)('in active mode drops a %s task whose agent is merely parked', (closedReason) => {
+    ] as const)('in Working drops a %s task whose agent is merely parked', (closedReason) => {
       const withCancelled = [
         ...issues,
         issue('c3', { parentId: 'root', seq: 3, stage: 'done', closedReason }),
       ]
       const parked = [...sessions, sess('s-c3', { issueId: 'c3', status: 'hibernated' })]
-      const rows = buildFlightDeckRows(withCancelled, parked, 'root', 'active')
+      const rows = buildFlightDeckRows(withCancelled, parked, 'root', 'working')
       expect(shape(rows)).not.toContain('c3@1')
     })
 
@@ -958,13 +977,15 @@ describe('buildFlightDeckRows', () => {
       'cancelled',
       'duplicate',
       'superseded',
-    ] as const)('in active mode KEEPS a %s task an agent is still working on', (closedReason) => {
+    ] as const)('in Working KEEPS a %s task an agent is still working on', (closedReason) => {
       const withCancelled = [
         ...issues,
         issue('c3', { parentId: 'root', seq: 3, stage: 'done', closedReason }),
       ]
       const working = [...sessions, sess('s-c3', { issueId: 'c3', agentState: workingState })]
-      expect(shape(buildFlightDeckRows(withCancelled, working, 'root', 'active'))).toContain('c3@1')
+      expect(shape(buildFlightDeckRows(withCancelled, working, 'root', 'working'))).toContain(
+        'c3@1',
+      )
     })
 
     /**
@@ -988,19 +1009,68 @@ describe('buildFlightDeckRows', () => {
       expect(rows.every((row) => row.matched)).toBe(true)
     })
 
-    it('marks a done row kept only as an ancestor as unmatched in active mode', () => {
-      // `mid` is done and agent-less, so it survives only as `leaf`'s path.
+    it('marks a row kept only as an ancestor as unmatched in Working', () => {
+      // Only `leaf` has an agent in flight; `root` and `mid` survive as its path.
       const tree = [
         issue('root'),
         issue('mid', { parentId: 'root', seq: 1, stage: 'done', closedReason: 'done' }),
         issue('leaf', { parentId: 'mid', seq: 1 }),
       ]
-      const rows = buildFlightDeckRows(tree, [], 'root', 'active')
+      const rows = buildFlightDeckRows(
+        tree,
+        [sess('s-leaf', { issueId: 'leaf', agentState: workingState })],
+        'root',
+        'working',
+      )
       expect(rows.map((row) => [row.issue.id, row.matched])).toEqual([
-        ['root', true],
+        ['root', false],
         ['mid', false],
         ['leaf', true],
       ])
+    })
+
+    /**
+     * POD-1452. `Active` matched `!issueClosed(issue)`, so it kept every open
+     * task whether or not anybody was on it — a backlog row, an untriaged
+     * proposal and a task in `review` all read as live work under a tab
+     * promising the opposite. It asks about AGENTS now, which is what makes the
+     * three views nest: `Needs you` ⊂ `Active` ⊂ `Full spine`.
+     */
+    it('in Working drops an open task with no agent on it', () => {
+      const idle = [issue('root'), issue('c', { parentId: 'root', seq: 1, stage: 'planning' })]
+      expect(shape(buildFlightDeckRows(idle, [], 'root', 'working'))).toEqual(['root@0'])
+    })
+
+    it.each([
+      ['mid-turn', { agentState: workingState }],
+      ['still starting up', { status: 'starting' as const }],
+      ['reconnecting', { status: 'reconnecting' as const }],
+    ])('in Working keeps an open task whose agent is %s', (_label, over) => {
+      const idle = [issue('root'), issue('c', { parentId: 'root', seq: 1, stage: 'planning' })]
+      const staffed = [sess('s-c', { issueId: 'c', ...over })]
+      expect(shape(buildFlightDeckRows(idle, staffed, 'root', 'working'))).toEqual([
+        'root@0',
+        'c@1',
+      ])
+    })
+
+    /**
+     * THE TWO NARROWED VIEWS ARE DISJOINT (POD-1452). `Working` used to contain
+     * `Needs you`, so every row in the strictest view was already in the middle
+     * one and switching between them looked like the filter had done nothing.
+     * Busy and stuck-on-you are different facts, and each tab now answers one.
+     */
+    it.each([
+      ['a standing offer', { offer }],
+      ['a question', { agentState: needsUserState }],
+    ])('sorts an agent stopped on %s into Needs you and out of Working', (_label, over) => {
+      const tree = [issue('root'), issue('c', { parentId: 'root', seq: 1, stage: 'planning' })]
+      const asking = [sess('s-c', { issueId: 'c', ...over })]
+      expect(shape(buildFlightDeckRows(tree, asking, 'root', 'needs-you'))).toEqual([
+        'root@0',
+        'c@1',
+      ])
+      expect(shape(buildFlightDeckRows(tree, asking, 'root', 'working'))).toEqual(['root@0'])
     })
 
     it('in full mode shows everything', () => {
@@ -1318,14 +1388,16 @@ describe('missionProgress', () => {
       issue('c', { parentId: 'root', seq: 3 }),
     ]
     const expected = { total: 3, done: 2, run: 0, review: 0, stall: 1, block: 0, wait: 0 }
-    for (const mode of ['full', 'active', 'needs-you'] as const) {
+    for (const mode of ['full', 'working', 'needs-you'] as const) {
       // The spine really does shrink in the filtered modes…
       const rows = buildFlightDeckRows(issues, [], 'root', mode)
       expect(rows.length).toBeLessThanOrEqual(4)
       // …and the mission's progress really does not move with it.
       expect(missionProgress(issues, [], 'root')).toEqual(expected)
     }
-    expect(shape(buildFlightDeckRows(issues, [], 'root', 'active'))).toEqual(['root@0', 'c@1'])
+    // Nobody is on any of them, so `Active` is down to the root — and the
+    // progress numbers above are unmoved by that.
+    expect(shape(buildFlightDeckRows(issues, [], 'root', 'working'))).toEqual(['root@0'])
   })
 
   it('never divides by zero when the mission is only its root', () => {
@@ -1752,15 +1824,39 @@ describe('deckSessions', () => {
     expect(deckSessions(row({}, [quiet, loud]), 'full')).toEqual([quiet, loud])
   })
 
-  it('does not treat a closed task offer as an ask, so the row stays whole', () => {
+  it('narrows an open task to the agents actually at work', () => {
+    const busy = sess('busy', { agentState: workingState })
+    const spawning = sess('spawning', { status: 'starting' })
+    const asking = sess('asking', { offer })
+    const finished = sess('finished', { agentState: finishedState })
+    const parked = sess('parked', { status: 'hibernated' })
+    const crew = [busy, spawning, asking, finished, parked]
+    // Disjoint, not nested: the asker belongs to the other tab and to no other.
+    expect(deckSessions(row({}, crew), 'working')).toEqual([busy, spawning])
+    expect(deckSessions(row({}, crew), 'needs-you')).toEqual([asking])
+  })
+
+  /**
+   * POD-1452. A closed task retires nothing on its own, so `stale`'s offer is
+   * not an ask — and the view used to fall back to the whole crew whenever no
+   * session was asking, which handed a `Needs you` row two agents that were not.
+   * The row is the exception; its settled agents are not.
+   */
+  it('does not treat a closed task offer as an ask, and shows no agents either', () => {
     const quiet = sess('quiet', { agentState: workingState })
     const stale = sess('stale', { offer })
-    // Nothing on the row is asking any more, so the view keeps the row's agents
-    // rather than claiming it is unattended.
-    expect(deckSessions(row({ stage: 'done' }, [quiet, stale]), 'needs-you')).toEqual([
-      quiet,
-      stale,
-    ])
+    expect(deckSessions(row({ stage: 'done' }, [quiet, stale]), 'needs-you')).toEqual([])
+  })
+
+  // The other half of the same rule: a task in `review` whose agent finished and
+  // left is still an obligation, so its ROW stays in `Needs you` — but the ✓ that
+  // agent is wearing does not get to stand under a tab that means "stopped and
+  // asking" (POD-1452).
+  it('keeps a review row whole while dropping the agent that finished it', () => {
+    const done = sess('done', { agentState: finishedState })
+    expect(deckSessions(row({ stage: 'review' }, [done]), 'needs-you')).toEqual([])
+    expect(deckSessions(row({ stage: 'review' }, [done]), 'working')).toEqual([])
+    expect(deckSessions(row({ stage: 'review' }, [done]), 'full')).toEqual([done])
   })
 
   // POD-1245. A row kept only as the PATH to a match has nothing asking on it,
@@ -1771,9 +1867,11 @@ describe('deckSessions', () => {
     const busy = sess('busy', { agentState: workingState })
     const asking = sess('asking', { offer })
     expect(deckSessions(row({}, [busy, asking], false), 'needs-you')).toEqual([])
-    // Only `Needs you` quietens a path row; the other views show the mission.
+    // `Active` quietens a path row on the same terms now (POD-1452) — it filters
+    // agents too, so a row it kept only for the path has none of its own.
+    expect(deckSessions(row({}, [busy, asking], false), 'working')).toEqual([])
+    // `Full spine` hides nothing, path row or not.
     expect(deckSessions(row({}, [busy, asking], false), 'full')).toEqual([busy, asking])
-    expect(deckSessions(row({}, [busy, asking], false), 'active')).toEqual([busy, asking])
   })
 })
 
@@ -1784,9 +1882,25 @@ describe('deckSessions', () => {
  * attached" the moment `Needs you` was chosen.
  */
 describe('deckViewEmptyLine', () => {
+  /**
+   * POD-1452. Splitting the askers out of `Working` is what makes the two tabs
+   * distinct, and it creates the one shape that could mislead: a mission whose
+   * every agent is blocked on the operator draws a blank `Working` column, which
+   * reads as "nothing here" when the truth is "all of it is waiting on you".
+   */
+  it('counts the agents the other tab has, when Working is what emptied the column', () => {
+    expect(deckViewEmptyLine('working', 3)).toBe('No agent is working — 3 are waiting on you.')
+    expect(deckViewEmptyLine('working', 1)).toBe('No agent is working — 1 is waiting on you.')
+    // Nobody is waiting either: the plain sentence, with no count to explain.
+    expect(deckViewEmptyLine('working', 0)).toBe('No agent in this mission is working right now.')
+    // The count belongs to `Working` alone — it is the tab that lost them.
+    expect(deckViewEmptyLine('needs-you', 3)).toBe('No agent in this mission is asking for you.')
+    expect(deckViewEmptyLine('full', 3)).toBeNull()
+  })
+
   it('names the view that emptied the column, and leaves Full to the mission', () => {
-    expect(deckViewEmptyLine('needs-you')).toBe('Nothing in this mission is asking for you.')
-    expect(deckViewEmptyLine('active')).toBe('Nothing in this mission is still under way.')
+    expect(deckViewEmptyLine('needs-you')).toBe('No agent in this mission is asking for you.')
+    expect(deckViewEmptyLine('working')).toBe('No agent in this mission is working right now.')
     expect(deckViewEmptyLine('full')).toBeNull()
   })
 })

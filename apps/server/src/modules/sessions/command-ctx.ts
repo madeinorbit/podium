@@ -105,6 +105,7 @@ export function sessionCommandCtx(
         input,
         transport,
         'immediate',
+        input.correlationId,
       )!,
     createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
       issues.createDraftFor(repoPath, agentKind, issueId, ownership),

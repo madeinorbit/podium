@@ -2,7 +2,7 @@ import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import { applyChatVerbosity, type ChatVerbosity } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta, TranscriptItem } from '@podium/model/browser'
 import type { TranscriptSearchState } from '@podium/client-core/viewmodels'
-import type { Dispatch, RefObject, SetStateAction } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import {
@@ -75,9 +75,6 @@ export interface UseTranscriptWindowOptions {
    *  becomes the foreground view again (a backgrounded view can fall behind). */
   active: boolean
   session: SessionMeta | undefined
-  /** The scroller housing the rendered rows — read (never written) to anchor
-   *  scroll position across a prepend; ChatView owns the actual scrolling. */
-  scrollerRef: RefObject<HTMLDivElement | null>
   /** How much of the transcript to render (POD-376). Applied HERE, at the one
    *  place rows are built, so the window, the search cursor and the minimap
    *  cannot disagree about which rows exist. `normal` (the default) filters
@@ -125,16 +122,6 @@ export interface UseTranscriptWindowResult {
   /** Reset or widen the rendered window — e.g. RENDER_WINDOW on session switch,
    *  or to reveal a search match sitting above it. */
   setRenderCount: Dispatch<SetStateAction<number>>
-  /** True while pinned to the live tail; scroll effects read AND write this —
-   *  it's a plain mutable ref, not hook-internal state. */
-  pinnedToBottom: RefObject<boolean>
-  /** One-shot guard for the initial snap-to-bottom on first populated render;
-   *  also flipped false on every reset (a fresh snapshot re-arms the snap). */
-  didInitialScroll: RefObject<boolean>
-  /** Set by `loadOlder` just before a prepend lands (its scrollHeight/scrollTop
-   *  anchor); ChatView's layout effect reads+clears it to correct scrollTop
-   *  once the inserted rows have laid out. */
-  prependAnchor: RefObject<{ scrollHeight: number; scrollTop: number } | null>
 }
 
 /**
@@ -144,8 +131,7 @@ export interface UseTranscriptWindowResult {
  * worker-backed transcript index that supplies the bounded trailing window.
  * Pure data/paging concerns; the scroll DOM itself
  * (onScroll, the sticky-user header, the minimap, the actual scrollTop
- * writes) stays in ChatView, which is handed the refs it needs to coordinate
- * with (`pinnedToBottom`, `didInitialScroll`, `prependAnchor`).
+ * writes) stays in ChatView.
  */
 export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTranscriptWindowResult {
   const {
@@ -155,7 +141,6 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     replica,
     active,
     session,
-    scrollerRef,
     verbosity = 'normal',
     query = '',
     cursor = 0,
@@ -197,9 +182,6 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // reads the latest anchor without re-binding on every change.
   const headCursorRef = useRef<string | undefined>(undefined)
   headCursorRef.current = headCursor
-  const pinnedToBottom = useRef(true)
-  const didInitialScroll = useRef(false)
-  const prependAnchor = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
   // Guards re-entrant older-page loads (a single scroll fires onScroll repeatedly).
   const loadingOlderRef = useRef(false)
   // `hasMoreOlder` mirrored for `ensureSearchDepth`'s loop, which must see each
@@ -399,8 +381,6 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     hasMoreOlderRef.current = true
     // A different transcript starts shallow again — the next search re-deepens.
     deepenedRef.current = false
-    pinnedToBottom.current = true
-    didInitialScroll.current = false
     // Fresh session → no trustworthy window yet; the read below restores health.
     windowHealthy.current = false
 
@@ -436,8 +416,6 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
           // file roll). Re-pin and re-read the newest window; `readNewest` reconciles
           // rather than replaces, so a same-conversation re-seed can't drop the
           // in-flight tail, while a genuine roll still swaps to the new file.
-          pinnedToBottom.current = true
-          didInitialScroll.current = false
           // A reset breaks subscription continuity — the held cursors may no longer
           // be current, so the window is no longer skip-safe until the re-read heals it.
           windowHealthy.current = false
@@ -757,14 +735,12 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
 
   // Reveal more above the current window: first grow the render window over rows
   // we already hold locally; once those run out, fetch the next older page off disk
-  // and prepend it. Captures the scroll geometry first so the anchoring layout
-  // effect (in ChatView) can keep the view from jumping when the inserted height lands.
+  // and prepend it. The scroll hook captures a retained visible row before it
+  // calls this function and restores that exact row after the prepend lands.
   const loadOlder = useCallback(() => {
     if (loadingOlderRef.current) return
-    const el = scrollerRef.current
     // More rows already loaded but windowed out → just widen the window.
     if (renderStart > 0) {
-      if (el) prependAnchor.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
       setRenderCount((c) => c + RENDER_WINDOW)
       return
     }
@@ -776,7 +752,6 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     loadingOlderRef.current = true
     setLoadingOlder(true)
     const epoch = windowEpochRef.current
-    if (el) prependAnchor.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
     // Cursor-anchored back-page: read the window immediately BEFORE the oldest
     // loaded item (`headCursor`). No `fromEnd` index math — the cursor anchors the
     // slice exactly, so there's no gap/overlap as the held window grows.
@@ -806,36 +781,26 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
           // raw items; items fold into ≤ items rows, so adding the item count is a
           // safe over-estimate (renderStart clamps at 0 / the row total).
           setRenderCount((c) => c + fresh.length)
-        } else {
-          // Nothing fresh → nothing will be prepended, so the anchor captured
-          // above is never consumed by the re-anchor layout effect. Left in
-          // place, it survives until an UNRELATED blockCount change (a live
-          // delta appending at the tail) finally consumes it — computing a
-          // delta against a scrollHeight from minutes ago and teleporting the
-          // reader to a stale position. An anchor is consume-or-clear.
-          prependAnchor.current = null
         }
         // A page that came back entirely held means no genuinely earlier item is
         // reachable from this anchor — stop paging rather than re-fetch it forever.
         setHasMoreOlder(r.items.length > 0 && fresh.length === 0 ? false : r.hasMore)
       })
       .catch(() => {
-        // Leave hasMoreOlder as-is so a transient failure can be retried by
-        // scrolling again; just clear the anchor so we don't mis-restore.
-        prependAnchor.current = null
+        // Leave hasMoreOlder as-is so a transient failure can be retried.
       })
       .finally(() => {
         loadingOlderRef.current = false
         setLoadingOlder(false)
       })
-  }, [renderStart, hasMoreOlder, trpc, sessionId, scrollerRef])
+  }, [renderStart, hasMoreOlder, trpc, sessionId])
 
   // Back-page the LOADED window out to SEARCH_DEPTH — called when the user opens
   // search. `transcriptSearchState` matches over loaded blocks only, so the
   // paint-sized initial window would quietly narrow recall (and the n/total beside
   // it) with no affordance saying so; this buys back the depth every open used to
   // pay for eagerly. Unlike `loadOlder` it deliberately does NOT touch
-  // `renderCount` or `prependAnchor`: the pages join the searchable window without
+  // `renderCount`: the pages join the searchable window without
   // mounting rows or moving the viewport, so a deepen behind a scrolled-to-bottom
   // view is invisible. Runs at most once per session and yields to scroll paging,
   // which owns the same anchor.
@@ -919,8 +884,5 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     loadOlder,
     ensureSearchDepth,
     setRenderCount,
-    pinnedToBottom,
-    didInitialScroll,
-    prependAnchor,
   }
 }

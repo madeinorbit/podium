@@ -242,13 +242,12 @@ function Column({ legacy }: { legacy: boolean }): JSX.Element {
 
 function App(): JSX.Element {
   const [light, setLight] = useState(false)
-  // Paper (superade) retunes --motion-working, so the mark has to be looked at
+  // Podium light retunes --motion-working, so the mark has to be looked at
   // in both: the same blue that reads calm on near-black washes out on stone.
   useEffect(() => {
     const html = document.documentElement
     html.classList.toggle('dark', !light)
-    if (light) html.setAttribute('data-theme', 'superade')
-    else html.removeAttribute('data-theme')
+    html.setAttribute('data-theme', 'podium')
   }, [light])
   return (
     <div

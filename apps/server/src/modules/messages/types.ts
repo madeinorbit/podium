@@ -61,6 +61,8 @@ export interface MessageSendInput {
   body: string
   /** Staged machine-local refs, never paths spliced into the human's prose. */
   attachments?: readonly RuntimeAttachmentRef[]
+  /** Internal id supplied by session chat; public mail inputs cannot set it. */
+  correlationId?: string
   kind?: MessageKind
   urgency?: MessageUrgency
   lifecycle?: MessageLifecycle

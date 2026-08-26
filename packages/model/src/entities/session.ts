@@ -406,6 +406,18 @@ export const SessionMetaEntity = z.object({
    *  `claude --resume <id>` / `codex resume <id>` command without a round-trip.
    *  Present only when `resumable`; omitted for shells / not-yet-known sessions. */
   resume: ResumeRef.optional(),
+  /**
+   * SERVER PROOF that this launch never opened a conversation, so starting the
+   * agent again discards nothing (POD-2392).
+   *
+   * The complement of `resumable` only looks like the same fact. "No resume ref"
+   * covers both an agent that died before its harness opened a thread and one
+   * that ran and whose id we never learned; the first can be started over and
+   * the second cannot, and the recovery surface has to tell them apart before it
+   * offers anything. Sent ONLY when the server holds the durable proof — absence
+   * means "no claim", never "it had one".
+   */
+  neverBound: z.literal(true).optional(),
   /** True once a structured transcript has been observed for this session — the
    *  capability that powers chat view. Set by the layer that owns the tail, so a
    *  new transcript provider lights up chat with no client-side kind checks. */
