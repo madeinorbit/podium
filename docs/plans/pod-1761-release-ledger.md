@@ -215,6 +215,47 @@ address rides on argv, and whether per-session server credentials ride in the en
 The last three are all `launch()`, and the address/secret split was not a new axis
 at all — it is `ServerRuntimeSpec.transport`, which W1 had already declared.
 
+## THE LATENCY IS GONE WHERE IT WAS UNEARNED, AND KEPT WHERE IT IS EARNED
+
+POD-2836 landed (`ab9d5bcb9`). `liveAtMs` was stamped in the drain's first tick;
+it is now seeded from the **bind**. `READY_MAX_MS` untouched at 6s.
+
+**Measured on real sends, not only in tests** — isolated instance, real claude-code
+CLI in a real PTY, timed from `sessions.sendText` to the user turn the CLI writes
+into its own transcript, which is the product's own witness and the same one the
+drain's `confirm()` watches. Both arms byte-identical apart from one file:
+
+```
+bound and idle 60s, first chat send
+  before  6.585 / 6.958 / 6.497 s      after  0.417 / 0.464 / 0.422 s
+sent AT the bind, composer genuinely unproven
+  before  3.401 / 2.799 s              after  3.529 / 2.795 s
+```
+
+**The second row is the point of the first**: the wait is still there and still
+spent for a composer that has not proven itself. The fix removed the unearned
+wait, not the wait.
+
+**And it fenced my own instruction into a test.** I had said *the window is right,
+its start is wrong — do not shorten `READY_MAX_MS`.* Shortening it 6000 → 500 now
+kills tests; **I verified that myself: 10 failed / 70 passed, restored
+byte-identical.** An instruction that only lives in a mail decays; one that reddens
+a suite does not.
+
+It also found what already knew the bind time rather than adding a field: the bind
+was already *announced* to `SessionInbox.markSessionBound`, which existed to clear
+the readiness marker. It now stamps the moment in a `WeakMap` beside the `WeakSet`
+it already kept — no durable field, because *the fact only matters while the
+process it describes is running, and a persisted copy would outlive it.*
+
+**A lead it flagged and deliberately did not chase — POD-2843, started.** After a
+server OR daemon restart, typing into a **reattached** claude session stopped
+reaching the CLI at all: the row was typed **five times to its attempt cap** and no
+user turn ever appeared, though the same session had taken a send fine before the
+restart. They worked around it with a fresh session per rep and said plainly it may
+be the rig. If it is real, the readiness queue is not covering the case it was
+built for.
+
 ## THE SWEEP'S RED, ATTRIBUTED — most of the remainder is MAIN'S
 
 Re-run per file against a detached main worktree, using the corrected method
