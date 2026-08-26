@@ -261,12 +261,13 @@ describe('attachment prompt parts', () => {
     }
   })
 
-  it('sends staged files through Codex mention input', async () => {
+  it('sends staged files as their path in the prompt text', async () => {
     /**
-     * THE CELL THIS ISSUE EXISTS FOR. A file attachment leaves as a `mention`
-     * carrying the staged filename and path — the variant the app-server names
-     * in its own error when handed one it does not know, and the one measured
-     * live to put the file in front of the agent.
+     * THE CELL THIS ISSUE EXISTS FOR. A file rides in the TEXT, not in a
+     * `mention`: the app-server accepts a mention part and never shows it to
+     * the model (POD-2819, measured on the thread's rollout). Pinning the text
+     * shape is what keeps a future tidy-up from "improving" this back into the
+     * typed part that silently drops the attachment.
      */
     const w = await world()
     try {
@@ -282,8 +283,34 @@ describe('attachment prompt parts', () => {
         { origin: 'human', delivery: 'when-ready' },
       )
       expect(w.server.lastTurnInput).toEqual([
-        { type: 'mention', name: 'notes.txt', path: staged.path },
-        { type: 'text', text: 'read this', text_elements: [] },
+        { type: 'text', text: `${staged.path}\nread this`, text_elements: [] },
+      ])
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('carries an image and a file together, each in its own vehicle', async () => {
+    const w = await world()
+    try {
+      const image = await w.handle.stageAttachment({
+        bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+        filename: 'diagram.png',
+        mediaType: 'image/png',
+      })
+      const file = await w.handle.stageAttachment({
+        bytes: new TextEncoder().encode('notes'),
+        filename: 'notes.txt',
+        mediaType: 'text/plain',
+      })
+      if ('reason' in image || 'reason' in file) throw new Error('staging refused')
+      await w.handle.send(
+        { text: 'compare these', attachments: [image, file] },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(w.server.lastTurnInput).toEqual([
+        { type: 'localImage', path: image.path },
+        { type: 'text', text: `${file.path}\ncompare these`, text_elements: [] },
       ])
     } finally {
       w.dispose()

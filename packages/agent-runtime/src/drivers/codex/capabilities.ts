@@ -110,32 +110,43 @@ export function codexAppServerCapabilities(): DriverCapabilities {
      * This read `kinds: ['image'], promptForm: 'local-image'`, and the driver
      * refused a text file with "Codex accepts image attachments only". The
      * refusal was honest about the declaration and the declaration was wrong,
-     * which made it the epic's only cell where headless was WORSE than the
-     * terminal path: codex on a PTY reads an attached text file fine.
+     * which made it the epic's only cell where headless was WORSE than what
+     * ships today: codex on a PTY reads an attached text file fine.
      *
-     * The app-server settles it without needing a guess. Handed an input
-     * variant it does not know, it enumerates the ones it does:
+     * WHAT CODEX ACCEPTS, from the server rather than from documentation.
+     * Handed an input variant it does not know, it enumerates the ones it does:
      *
      *   unknown variant `localFile`, expected one of `text`, `image`,
      *   `localImage`, `audio`, `localAudio`, `skill`, `mention`
      *
-     * `mention` is codex's own `@`-mention — `{ name, path }`, the thing its TUI
-     * builds when you reference a file. Driven raw against codex-cli 0.149.1
-     * with the file staged OUTSIDE the thread's cwd (where Podium stages), the
-     * agent read it and echoed a secret present only in those bytes. The same
-     * turn shaped as PATH-TEXT — the path in the prompt, which is what the
-     * terminal driver does — FAILED on that same run: a mention appears to open
-     * the file to the sandbox in a way a bare path does not. So this driver
-     * carries files as mentions rather than as text, and it is not merely as
-     * good as the PTY path here but better.
+     * TWO FORMS, BECAUSE THE TWO KINDS TRAVEL DIFFERENTLY AND ONE LABEL WOULD
+     * BE A LIE ABOUT ONE OF THEM.
      *
-     * `file-part` RATHER THAN `local-image`. Both kinds now leave as typed parts
-     * of the prompt payload — `localImage` for an image, `mention` for a file —
-     * and `local-image` names only the first of those. It would also be a lie
-     * the corpus catches: `local-image` may only be declared alongside
-     * `kinds: ['image']` exactly (see testing/conformance/suite.ts).
+     * - An IMAGE is a `localImage` part and the pixels reach the model. Driven
+     *   raw against codex-cli 0.149.1 and again through Podium: a nonce drawn
+     *   into the image came back at four to six digits of six, where guessing
+     *   is one in ten per digit.
+     *
+     * - A FILE is `path-text`, the same shape the terminal driver uses and the
+     *   one POD-2777 measured codex PASSING with on its PTY. `mention` LOOKS
+     *   like the right vehicle — it is `{ name, path }`, codex's own
+     *   `@`-mention — and it is not: the server accepts it and then drops it.
+     *   Measured on the rollout JSONL that `thread/start` names, which records
+     *   the exact input the model was sent, in three shapings (name matching
+     *   the file's basename, name differing, and `@name` written into the text
+     *   beside it). The staged path appears in the model's prompt in NONE of
+     *   them, and in the path-text arm it appears. That is why this driver
+     *   spends a `mention` on nothing.
+     *
+     *   Scoring this on the ANSWER instead is how it was first got wrong here:
+     *   a mention arm "passed" because the agent ran `find /tmp/... -type f`,
+     *   located the file itself and read it. An answer-scored probe cannot tell
+     *   delivery from hunting; the model's own input can.
      */
-    staging: supported({ kinds: ['image', 'file'], promptForm: 'file-part' }),
+    staging: supported({
+      kinds: ['image', 'file'],
+      promptForm: { image: 'local-image', file: 'path-text' },
+    }),
     /**
      * `client`, not `engine`: the headless app-server remains authoritative and
      * Native launches Codex's original resume TUI beside it.

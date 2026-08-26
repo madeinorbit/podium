@@ -929,32 +929,43 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
   // -- sending ---------------------------------------------------------------
 
   /**
-   * ONE TYPED INPUT PART PER ATTACHMENT — AND CODEX HAS ONE FOR FILES TOO.
+   * TWO KINDS, TWO VEHICLES — AND THE OBVIOUS ONE FOR FILES DOES NOT WORK.
    *
-   * This mapped images and refused everything else, on the strength of a
-   * declaration reading "Codex accepts image attachments only". POD-2819
-   * measured that against the app-server protocol and it is not true. Handed a
-   * variant it does not know, the server names the whole set itself:
+   * This mapped every attachment to `localImage` and refused anything that was
+   * not an image, on the strength of a declaration reading "Codex accepts image
+   * attachments only". POD-2819 measured that against the app-server protocol
+   * and it is false: handed a variant it does not know, the server answers
+   * `expected one of text, image, localImage, audio, localAudio, skill,
+   * mention`.
    *
-   *   unknown variant `localFile`, expected one of `text`, `image`,
-   *   `localImage`, `audio`, `localAudio`, `skill`, `mention`
+   * `mention` is the variant that looks made for this — `{ name, path }`, the
+   * `@`-mention codex's own TUI builds — AND IT IS DROPPED. The server accepts
+   * the part and the model is never shown it. That was measured on the rollout
+   * JSONL `thread/start` names, which records the exact input the model was
+   * sent: in three shapings of a mention the staged path appears in the prompt
+   * zero times, and with the path written into the TEXT it appears. So a file
+   * rides in the text, which is also what the terminal driver does and what
+   * POD-2777 measured codex passing with on its PTY.
    *
-   * `mention` is `{ name, path }` — codex's own `@`-mention, the vehicle its
-   * TUI uses to put a file in front of the model. Driven raw against 0.149.1
-   * with the file staged OUTSIDE the thread's cwd, exactly where Podium stages
-   * it, the agent read it and echoed a secret that existed only in those bytes.
-   * So a file attachment becomes a mention and an image stays a `localImage`;
-   * both are typed parts of the prompt payload, which is what `promptForm:
-   * 'file-part'` now declares (see ./capabilities.ts).
+   * ONE `\n`-JOINED TEXT PART RATHER THAN TWO PARTS, because two text parts is
+   * a second turn's worth of ambiguity for no gain, and this is the exact shape
+   * the web composer produces today (`paths.join('\n') + '\n' + text`).
+   *
+   * Images keep the typed part: `localImage` puts PIXELS in front of the model,
+   * which a path cannot, and that half was never broken.
    */
-  const codexInput = (input: TurnInput) => [
-    ...(input.attachments ?? []).map((attachment) =>
-      attachment.kind === 'image'
-        ? { type: 'localImage', path: attachment.path }
-        : { type: 'mention', name: attachment.filename, path: attachment.path },
-    ),
-    { type: 'text', text: input.text, text_elements: [] },
-  ]
+  const codexInput = (input: TurnInput) => {
+    const attachments = input.attachments ?? []
+    const images = attachments.filter((attachment) => attachment.kind === 'image')
+    const files = attachments.filter((attachment) => attachment.kind !== 'image')
+    const text = [...files.map((attachment) => attachment.path), input.text]
+      .filter(Boolean)
+      .join('\n')
+    return [
+      ...images.map((attachment) => ({ type: 'localImage', path: attachment.path })),
+      { type: 'text', text, text_elements: [] },
+    ]
+  }
 
   /** Open a NEW turn. The response IS the acceptance. */
   async function deliver(

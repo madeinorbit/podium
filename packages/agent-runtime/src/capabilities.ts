@@ -141,12 +141,42 @@ export interface AttachCapability {
   kinds: readonly AttachEndpoint['kind'][]
 }
 
+/** How one staged ref is presented to the harness by `send()`. */
+export type AttachmentPromptForm = 'path-text' | 'local-image' | 'file-part'
+
 /** What `stageAttachment()` can land and how `send()` presents the resulting
  * ref to the harness. A driver that cannot map BOTH halves declares staging
  * unsupported: writing bytes that no prompt can consume is not support. */
 export interface AttachmentStagingCapability {
   kinds: readonly AttachmentKind[]
-  promptForm: 'path-text' | 'local-image' | 'file-part'
+  /**
+   * ONE FORM, OR ONE PER KIND — because a driver can carry the two kinds
+   * differently, and then a single label is untrue of one of them.
+   *
+   * The single-form spelling is the common case and is unchanged: terminal
+   * carries both kinds as `path-text`, opencode carries both as `file-part`.
+   * Codex cannot (POD-2819): its protocol has a typed `localImage` part that
+   * puts pixels in front of the model, and NOTHING typed for a file — the
+   * `mention` variant its schema advertises is accepted by the server and then
+   * never reaches the model's prompt, measured on the rollout the thread
+   * writes. So codex delivers an image as `local-image` and a file as
+   * `path-text`, and says exactly that here rather than picking whichever label
+   * is wrong about fewer kinds.
+   *
+   * The corpus reads it per kind either way, and holds the one pairing that is
+   * always a lie: `local-image` may only ever be the form for an IMAGE.
+   */
+  promptForm:
+    | AttachmentPromptForm
+    | { readonly [K in AttachmentKind]?: AttachmentPromptForm }
+}
+
+/** The declared form for one kind, whichever spelling the driver used. */
+export function attachmentPromptFormFor(
+  staging: AttachmentStagingCapability,
+  kind: AttachmentKind,
+): AttachmentPromptForm | undefined {
+  return typeof staging.promptForm === 'string' ? staging.promptForm : staging.promptForm[kind]
 }
 
 /**

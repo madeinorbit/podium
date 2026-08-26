@@ -42,6 +42,7 @@ import {
   type AttachmentKind,
   type AttachmentRef,
   type AttachmentSource,
+  attachmentPromptFormFor,
   CORE_PRIMITIVES,
   type DriverCapabilities,
   type DriverFamily,
@@ -496,8 +497,25 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // impossible local-image/file pairing; it does not prove that send()
         // presents a staged ref in the declared form. That requires a driver
         // boundary test with an observable provider prompt.
-        expect(['path-text', 'local-image', 'file-part']).toContain(declared.value.promptForm)
-        if (declared.value.promptForm === 'local-image') expect(declaredKinds).toEqual(['image'])
+        //
+        // READ PER KIND, because `promptForm` may be one form for every
+        // declared kind or one form each (POD-2819: codex carries an image as a
+        // typed `localImage` part and a file as text, and no single label is
+        // true of both). Every declared kind must name a form, and the pairing
+        // that is always a lie — a FILE delivered as a local image — is
+        // refused whichever spelling was used.
+        for (const kind of declaredKinds) {
+          const form = attachmentPromptFormFor(declared.value, kind)
+          expect(['path-text', 'local-image', 'file-part']).toContain(form)
+          if (form === 'local-image') expect(kind).toBe('image')
+        }
+        // A form declared for a kind this driver does not stage is a
+        // declaration about bytes it will never be handed.
+        if (typeof declared.value.promptForm !== 'string') {
+          for (const kind of Object.keys(declared.value.promptForm)) {
+            expect(declaredKinds).toContain(kind)
+          }
+        }
 
         for (const kind of ['image', 'file'] as const) {
           const source = attachmentSourceFor(kind)
