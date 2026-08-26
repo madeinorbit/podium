@@ -1,0 +1,29 @@
+==============================================================================
+POD-2875 follow-up — does a parked turn survive a daemon restart?  harness=codex
+==============================================================================
+session 8a20152d-56cd-468c-acac-e15a48c5c2cb
+BOUND DRIVER       codex-app-server (family server)
+
+SENT under a declared native view
+  returned         {"ok":true,"disposition":"delivered"}
+  after 45s     transcript items=0 deltas=0 nonce present=false phase=idle
+  C1 FIRED — the turn is parked (POD-2875 reproduces on this arm)
+
+RESTARTING THE DAEMON while the native view is still the declared mode …
+  daemon pid       2156779 -> 2163850   reconnected=true
+  C2 FIRED
+
+AFTER THE RESTART, with a chat view declared:
+  parked turn arrived: false (PARKED-NI09T6)
+  transcript items:    0
+  C3 a FRESH turn still answers: true (FRESH-X2HDB6)
+
+==============================================================================
+LOST — the parked turn did NOT come back after the daemon restart, and a
+fresh turn on the same session answers fine, so the session is healthy and
+the message is simply gone.
+POD-2875 is then DATA LOSS wearing a delivered receipt, not a reporting
+defect, and the severity is different: a message the product said it had
+delivered no longer exists anywhere.
+  controls: C1 parked FIRED, C2 daemon 2156779->2163850 FIRED, C3 session usable=true
+==============================================================================

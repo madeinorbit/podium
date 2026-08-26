@@ -11,7 +11,12 @@ with the fix in. 2026-08-26.
 **Two cells where the new drivers are WORSE, both P1, and one of them is
 ordinary work.**
 
-**POD-2884 — long turns wedge on `codex-app-server`.** One prompt, three arms:
+**POD-2885 — long turns wedge on `codex-app-server`** (filed by me as POD-2884,
+top-level; POD-1761 re-filed it under the epic as POD-2885, which carries the
+work). **Re-confirmed on the merged tip `372ae4d`, after main was merged in: 426
+seconds at `working`, previews frozen at 80, zero transcript characters, never
+completes — so it is present on the branch that would actually ship, not only on
+the pre-merge epic.** One prompt, three arms:
 headless runs 422 seconds at `working`, freezes its preview plane after ~20s,
 writes *zero* transcript characters and never completes. The terminal driver
 completes the same prompt in 61s with 12,291 characters. Codex run directly,
