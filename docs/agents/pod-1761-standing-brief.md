@@ -332,3 +332,25 @@ in a `podium ... --body "..."` argument.
 variables afterwards rather than relying on expansion. If you need both, write the file with
 python or pass the text through a file. **And read back what you wrote**: this failed loudly
 in the log and still landed mangled text, because nobody checked the file.
+
+## Committed is not reachable (2026-08-26 16:17 CEST)
+
+**Before you tell anyone to use something you made, check it is on the branch they will read
+it from.** Not that you committed it — that it is *reachable*.
+
+Three instances in one day, all reading as delivered while being local-only:
+
+- Six probes and **thirteen unlanded commits** sat on one session's branch while the
+  coordinator directed a second session to use one of them. Committed, on a branch, invisible
+  to everyone else.
+- 27 of 47 evidence logs had never been committed at all, because the rig writes `.log` and
+  `.gitignore` swallows it — `git add <dir>` reported success and skipped them silently.
+- A `replace` whose anchor did not match reported success, so a rule believed written down was
+  not there.
+
+**The check is one command:** `git cat-file -e <branch>:<path>`. Run it for anything you hand
+to another session, and for anything you cite as evidence.
+
+**And when you hand over a probe, say what its PASS looks like.** A probe written to catch a
+defect may legitimately REFUSE once the defect is fixed — nothing left to measure. Told in
+advance, that refusal is the pass. Found cold, it reads as a broken run and costs an hour.
