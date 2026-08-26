@@ -4020,3 +4020,38 @@ theirs.** Two sessions spent an hour each on that question tonight — POD-2878,
 The header says what the file is NOT: it is a snapshot, nothing compares against it
 automatically, and `PODIUM_TEST_WORKERS=1` has to match or the comparison is meaningless because
 that variable decides whether the gate is red at all.
+
+### POD-2914 LANDED as `04b637b31` — one of nine unknowns is now actually fixed (2026-08-27 01:23 CEST)
+
+The partial fix found by reading four hours ago is closed, and the drive is the strongest shape
+this epic has produced: **a shim earlier on PATH under a hermetic HOME, so the control fires
+whether or not the feature works.**
+
+    01:16:23-24  CONTROL     all SIX launches ran the ambient PATH shim
+    01:16:24     TREATMENT   all SIX ran the hermetic HOME binaries
+                             cursor -> .local/bin/agent, opencode -> .opencode/bin/opencode
+                             including client attach and the static login path
+
+Pinned before each arm and all three parts verified: instance `p2914c` on 127.0.0.1:19917,
+server pid 111997 and daemon pid 112256 both with cwd in the worktree and spawned at `453dad1`,
+served `/podium-build.json` reporting `sourceSha=453dad1`. Gate: whole-graph typecheck 25/25,
+19 cached — which the change needed, because it altered a signature
+(`ClientTerminalLaunchOptions` now carries `env`). It tore its rig down afterwards and left no
+orphans, which is a pointed thing to be able to say on the night POD-2691 was confirmed.
+
+**It also answered the half I care about more than the code.** I asked it to *decide and write
+down* what happens at the two sites that structurally could not take the fix, because leaving them
+bare is indistinguishable from an oversight. It did both:
+- `clientTerminal.launch` **needed the signature change** and got it — env now flows from
+  host-runtime, kept separate from the isolated credential HOME passed to the child.
+- `loginCommand` **stays a static argv on purpose**: the daemon binds it to the current
+  generation's verified executable, so resolving in the manifest would duplicate that snapshot and
+  let login drift from the executable the rest of the launch uses.
+
+**I added one thing on landing.** That reasoning lived only in `session.ts`, above
+`bindHarnessLaunch`. A reader of `opencode.ts` still saw a bare `cmd: 'opencode'` beside eight
+resolved siblings with nothing to mark it deliberate — **which is precisely the shape this issue
+exists to fix.** The reason now sits at the call site too, pointing at the binder. A comment
+rather than a round: the hygiene rule says no reviewer round for a nitpick, and this was one line.
+
+**Three of nine unknowns now driven: two were broken, and this one is repaired.**
