@@ -21,9 +21,14 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const SOURCE_FILE_RE = /(?:\.(?:[cm]?[jt]s|[jt]sx)|\.(?:[jt]s)\.txt)$/
+// Bun exposes `ws` through its builtin-module compatibility list, but it is
+// still an external package whose isolated link must belong to its importer.
+const packageLikeBuiltinModules = new Set(['ws'])
 const builtinPackageNames = new Set([
-  ...builtinModules,
-  ...builtinModules.map((specifier) => `node:${specifier}`),
+  ...builtinModules.filter((specifier) => !packageLikeBuiltinModules.has(specifier)),
+  ...builtinModules
+    .filter((specifier) => !packageLikeBuiltinModules.has(specifier))
+    .map((specifier) => `node:${specifier}`),
 ])
 
 const SKIP_DIRS = new Set([

@@ -79,17 +79,19 @@ describe('Podium workspace imports', () => {
       )
       writeFileSync(
         join(fixture, 'packages/fixture/entry.ts'),
-        "import 'node:fs'\nimport '@/local'\nimport 'left-pad'\nvi.mock('tinyspy')\n",
+        "import 'node:fs'\nimport '@/local'\nimport 'left-pad'\nimport 'ws'\nvi.mock('tinyspy')\n",
       )
 
       const audit = auditWorkspaceImports(fixture)
       expect(audit.thirdPartyImports.map(({ specifier }) => specifier)).toEqual([
         'left-pad',
         'tinyspy',
+        'ws',
       ])
       expect(audit.thirdPartyDeclarationViolations.map(({ specifier }) => specifier)).toEqual([
         'left-pad',
         'tinyspy',
+        'ws',
       ])
     } finally {
       rmSync(fixture, { recursive: true, force: true })

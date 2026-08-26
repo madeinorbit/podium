@@ -47,6 +47,7 @@
     "@types/react": "~19.2.2",
     "@types/react-dom": "^19.0.0",
     "@types/node": "^25.9.1",
+    "@types/chai": "^5.2.2",
     "happy-dom": "^20.0.0",
     "sharp": "^0.33.5",
     "typescript": "~6.0.3",
