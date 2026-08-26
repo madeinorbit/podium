@@ -2,19 +2,45 @@ import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
 import DOMPurify from 'dompurify'
 import { renderMarkdownUnsafe } from './markdown-renderer'
 import { getKnownRefPrefixes, isKnownRefPrefix } from './markdown-references'
+import { internalPodiumTarget } from './podium-link'
 
-// External links in a transcript should open in a new tab — clicking one must
-// never navigate away from Podium. file-link anchors (internal file opens) carry
-// data-path and no href, so keying on href leaves them in-window. Runs on the
-// already-sanitized HTML, so any dangerous href scheme has been stripped first;
-// this only appends target/rel and never introduces markup.
+/**
+ * Decide, for every anchor in a rendered transcript, whether it leaves Podium.
+ *
+ * EXTERNAL links open in a new tab — clicking one must never navigate away from
+ * the transcript the reader is in. INTERNAL links — an address on a Podium
+ * server this client knows — are marked instead of targeted, and the chat
+ * surface's click handler routes them in-app (POD-1606). This pass used to have
+ * NO origin test at all: every anchor with an href got `target="_blank"`, so a
+ * link to the reader's own issue left the app for a browser tab.
+ *
+ * file-link anchors (internal file opens) carry data-path and no href, so keying
+ * on href leaves them in-window. Runs on the already-sanitized HTML, so any
+ * dangerous href scheme has been stripped first; this only appends attributes
+ * and never introduces markup.
+ */
 export function externalizeLinks(html: string): string {
   return html.replace(/<a\b([^>]*)>/g, (full, attrs: string) => {
-    if (!/\bhref=/.test(attrs)) return full // internal file-link (no href)
+    const href = /\bhref="([^"]*)"/.exec(attrs)?.[1]
+    if (href === undefined) return full // internal file-link (no href)
     if (/\bclass="[^"]*\bref-link\b/.test(attrs)) return full // internal ref activation
     if (/\btarget=/.test(attrs)) return full // already targeted
+    // The href is HTML-escaped inside the attribute; the resolver reads a URL.
+    if (internalPodiumTarget(decodeHtmlEntities(href))) {
+      return `<a${attrs} data-podium-link="">`
+    }
     return `<a${attrs} target="_blank" rel="noopener noreferrer">`
   })
+}
+
+/** The five entities DOMPurify may have written into an attribute value. */
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
 }
 
 function escapeHtml(s: string): string {

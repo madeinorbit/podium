@@ -2,7 +2,8 @@ import { segmentOfferText } from '@podium/client-core/viewmodels'
 import type { SessionOffer } from '@podium/model'
 import { Lightbulb, X } from './icons'
 import { useState } from 'react'
-import { AccessibilityInfo, Linking, StyleSheet, Text, TextInput, View } from 'react-native'
+import { AccessibilityInfo, StyleSheet, Text, TextInput, View } from 'react-native'
+import { followPodiumLink } from '../lib/podium-link'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
@@ -129,9 +130,10 @@ export function SessionActionCard({
       {body ? (
         <Text style={styles.body} numberOfLines={2}>
           {/* The URLs an agent wrote are the same links the desktop bar makes
-              clickable; here they open the phone's browser. Nested <Text> is
-              how React Native puts a tappable run inside a paragraph — an
-              overlaid Pressable would not follow the wrap. */}
+              clickable. One that names this phone's own Podium opens the screen
+              it names (POD-1606); everything else goes to the browser. Nested
+              <Text> is how React Native puts a tappable run inside a paragraph —
+              an overlaid Pressable would not follow the wrap. */}
           {segmentOfferText(body).map((segment, index) =>
             segment.kind === 'link' ? (
               <Text
@@ -139,7 +141,7 @@ export function SessionActionCard({
                 key={index}
                 accessibilityRole="link"
                 style={styles.link}
-                onPress={() => void Linking.openURL(segment.href).catch(() => {})}
+                onPress={() => followPodiumLink(segment.href)}
               >
                 {segment.text}
               </Text>

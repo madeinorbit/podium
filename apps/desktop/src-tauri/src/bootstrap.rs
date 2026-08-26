@@ -523,15 +523,44 @@ pub fn remote_injection_script(server_url: &str) -> String {
 /// the raw plugin invoke avoids adding a Tauri JS dependency to apps/web (same pattern
 /// as the __PODIUM_RESTART__ hook). `window.open` returns a stub WindowProxy-alike so
 /// callers that probe the return value (e.g. `opened.opener = null`) keep working.
+///
+/// EXTERNAL IS NOT "CROSS-ORIGIN" (POD-1606). This used to compare against
+/// `window.location.origin` alone, which in all-in-one mode is `tauri://localhost`
+/// while the server the app talks to is `http://127.0.0.1:<port>` — so a link to the
+/// reader's OWN Podium was cross-origin and left the app for Safari. In client mode the
+/// window already sits on the server origin, so the identical URL stayed in-app: same
+/// link, opposite behaviour, decided by how the app happened to launch. The shim now
+/// also counts the injected `__PODIUM_SERVER__` endpoint as ours, read lazily so a
+/// window that navigates to a transferred remote origin keeps agreeing with the page.
+///
+/// A link this shim declines is one the WEB APP must answer — the markdown pipeline and
+/// the offer renderer navigate known-Podium links in-page (apps/web/src/lib/markdown.ts,
+/// features/chat/OfferText.tsx) — and a caller that wants the OS browser for one of OUR
+/// urls asks for it explicitly through `openInSystemBrowser`, which is the mirror of
+/// this test (apps/web/src/lib/nativeDesktop.ts).
 pub fn opener_shim_script() -> &'static str {
     r#";(() => {
   const t = window.__TAURI_INTERNALS__;
   if (!t || typeof t.invoke !== 'function') return;
+  const httpOrigin = (raw) => {
+    try {
+      const u = new URL(raw);
+      const p = u.protocol === 'ws:' ? 'http:' : u.protocol === 'wss:' ? 'https:' : u.protocol;
+      if ((p !== 'http:' && p !== 'https:') || !u.hostname) return null;
+      return p + '//' + u.hostname + (u.port ? ':' + u.port : '');
+    } catch { return null; }
+  };
+  const isOurs = (origin) => {
+    if (origin === null) return false;
+    if (origin === window.location.origin) return true;
+    const server = window.__PODIUM_SERVER__;
+    return typeof server === 'string' && httpOrigin(server) === origin;
+  };
   const externalHref = (raw) => {
     try {
       const u = new URL(raw, window.location.href);
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-      return u.origin === window.location.origin ? null : u.href;
+      return isOurs(httpOrigin(u.href)) ? null : u.href;
     } catch { return null; }
   };
   const openExternal = (href) => { t.invoke('plugin:opener|open_url', { url: href }).catch(() => {}); };
