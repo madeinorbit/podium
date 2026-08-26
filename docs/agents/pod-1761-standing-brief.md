@@ -775,3 +775,19 @@ the box; it is a property of broadcasting a shared resource.
 **So: name an ORDER, not an opening.** One session at a time, each taking its turn after the
 one before reports. A queue costs a little latency; a stampede costs everyone's readings, and
 readings taken on a starved host cannot be distinguished from findings.
+
+### The false positives are your NEIGHBOURS answering for you (2026-08-26 18:31 CEST)
+
+The dangerous half. A session running the bad check does not get noise — it gets a **confident
+YES sourced from other sessions' agents**, whose ids are legible in their abduco labels. And
+because every agent on the box carries the same prompt blob, **the check is MOST wrong exactly
+when the box is busiest**, which is when you are most likely to be asking.
+
+**Consequence for an ordered queue:** if session N reports *"still driving"* from a neighbour
+match, everyone behind it waits on a drive that is not running. **The failure mode is a stalled
+queue, not a collision** — quieter and much harder to notice than the thing the order was
+written to prevent.
+
+**So the coordinator verifies rather than takes a session's word for being done.** Same check,
+run from outside: `pgrep -x bun` filtered by `/proc/<pid>/cwd` against that session's worktree.
+A queue built on self-report inherits every reporting bug in it.
