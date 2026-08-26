@@ -76,3 +76,5 @@ A6b no-scrollback-corruption clause	opencode-terminal	UNMEASURED same instrument
 long turn: previews climb THROUGHOUT	codex-headless	PASS 38-115-197-282-357-444-510-592 crossing the 512 bound	6b4da5b7	yes	yes	2026-08-26 18:20 CEST	POD-2885
 daemon lane 2 failures	n/a-gate	UNATTRIBUTED inferred not verified on tip	7b7afc98	no	yes	2026-08-26 18:24 CEST	POD-2893
 conformance corpus has teeth	n/a-mutation	PASS mutation red 4/4 fake targets, restore green	fdfbe934	yes	yes	2026-08-26 20:48 CEST	POD-2885
+busy terminal renders idle for whole turn (retro row from 604f8d7de msg, not my own drive)	opencode-terminal	PASS 121554 bytes idle=60 pre-fix, one-reader-per-cursor after	604f8d7d	yes pre-fix reproduced	unknown	2026-08-26 22:41 CEST	POD-2801
+claude terminal phase stuck at idle (retro row from 4adb58eb6 msg, not my own drive)	claude-pty	PASS hook that opens the turn no longer dropped	4adb58eb	yes suite green while driving was not	unknown	2026-08-26 22:41 CEST	POD-2810

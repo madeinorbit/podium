@@ -900,3 +900,30 @@ release-deciding cell. On a thrashing box that was exactly wrong:
 ahead of it, and the instruction was made explicit: *if the box does not quieten, do not drive
 that cell at all.* **An undriven cell is honest; a cell driven into a starved host and labelled
 INHERITED is worse than nothing**, because it removes a blocker on false evidence.
+
+### A sequential A/B on this box measures the box (2026-08-26 22:43 CEST)
+
+The previous section says a starved host pushes the ANSWER in a particular direction. There is
+a second, quieter version of it that applies to any **before/after measurement**, and it does
+not need the host to be starved — only to be *changing*.
+
+**Measure pre-fix, then measure with-fix, and you have attributed an hour of host drift to your
+change.** This box moved from load 7.99 to load 65 and back inside one evening. Two readings
+taken forty minutes apart differ for reasons that have nothing to do with the diff between them,
+and the sign of that difference is not predictable in advance — so it is not even conservative.
+
+**INTERLEAVE THE ARMS: pre, post, pre, post, pre, post — five pairs minimum.** Drift then hits
+both arms equally and subtracts out. Report every individual reading, not only the means, and
+report the load average at the start and the end of the run. **If the two arms overlap, say so.**
+A fix that cannot be separated from the noise is a finding worth having; a clean mean that is not
+true is worse than no number, because it closes the issue.
+
+This applies with full force to LATENCY defects, which is where it came up (POD-2902: the badge
+was reported slow by a pair of numbers, and the handover was a unit test asserting event order).
+**A defect found by a measurement is closed by the same measurement.** The mechanism you believe
+explains the latency is not the latency: if the badge is still slow for a second reason, an
+ordering test stays green and the user still waits.
+
+**And re-pin BETWEEN arms.** Switching the checkout under a running daemon measures the same
+driver twice and returns two near-identical numbers, which reads exactly like an honest null
+result. See the three-part pin rule above; the daemon is the part that catches people out.

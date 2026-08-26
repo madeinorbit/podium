@@ -3335,3 +3335,75 @@ match that reads nothing. *A zero from an unverified instrument is not a measure
     the bar       3 cells BETTER, 1 WORSE (under the probe now), rest at parity
     coverage      codex ~30 rows, opencode ~13, grok 6, claude 3 — and claude is being
                   driven for the first time tonight, inside the credential window
+
+## Tick 2026-08-26 22:30–22:45 CEST — an issue in review with nothing left to land
+
+**Box:** load 19.48 (from 7.99 at 22:04), 178 MB free, swap-out 3,880 KB/s sustained.
+**Cause identified, and it is legitimate:** neighbour issue POD-2781 (not ours) has held
+`test:heavy` since 20:28 and is running four `tsgo` processes totalling ~2.2 GB inside a
+`podium-cache-admission` fixture. It took the lock. Nothing to correct — the lock is doing
+exactly what it is for, and the correct response is to keep our own heavy work off the box
+until roughly 22:57 rather than to contend.
+
+### POD-2801 CLOSED — it had been finished for hours
+
+Sitting at stage `review` with, on the face of it, one commit ahead of the epic. Both readings
+were wrong:
+
+- The "one commit ahead" is an **ancestry artifact**. `58deb3db5` has patch-id
+  `3f8d22ae…`, identical to `4adb58eb6` already on the epic. POD-2810's branch showed the same
+  single commit for the same reason. Ancestry says not-merged; content says landed. This is the
+  twin trap in full, and the diff-to-epic file list gave it away — it contained `README.md`,
+  `CHANGELOG.md` and `.github/workflows/`, i.e. the whole main-vs-epic delta, which is what a
+  branch cut from a different base looks like.
+- Its other fix, `fix(opencode): stop the transcript read eating the state read`, is on the epic
+  as `604f8d7de` and its commit message carries a real drive: 121,554 bytes of output with
+  `idle=60` before, one-reader-per-cursor after. Two readers were sharing one cursor, so the
+  transcript read consumed the rows the state read needed.
+
+**Zero unlanded work, driven, and parked in `review` where nobody would look.** Moved to `done`.
+
+### The ledger was undercounting landed fixes
+
+Neither POD-2801 nor POD-2810 had a row in `pod-1761-results.tsv` despite both being landed and
+driven. Two retro rows added, **explicitly labelled as read from the commit message rather than
+measured by me**, with `alone=unknown` because that is not recoverable after the fact. A row
+sourced from someone else's prose is weaker evidence than one I took, and it says so in the row.
+
+### Dispatched
+
+- **POD-2871** — live but **idle 4h05m**, five commits unlanded and undriven. Woken with the
+  order: pre-fix control on the epic tip FIRST, and if the probe does not show the leak on
+  unfixed code, stop and say so rather than proceed. Also asked to name the file and line that
+  **consumes** its manifest declaration, or say nothing does.
+- **POD-2902** — sent back, stage returned to `in_progress`. Its handover was a unit test
+  asserting event ordering for a defect that was **found by a pair of latency numbers**. See the
+  new brief section; the ordering is the mechanism it believes explains the latency, not the
+  latency.
+- **POD-2777** — two hibernated sessions, my last mail queued 32m and undelivered because a
+  hibernated session does not wake for mail. **Deliberately left asleep**: its plan needs
+  `test:heavy` (held by the neighbour) and the box, and taking the box before 23:30 would land
+  on POD-2905's claude window, which is the one thing tonight that cannot be rescheduled.
+
+### Credential check — clean
+
+`~/.claude/.credentials.json` mtime is **15:47**, unchanged since the operator logged in; token
+expires **23:47**. No refresh has fired. The hard stop at 23:30 is not about the expiry itself
+but about the teardown margin: **no process holding a copy of the token may still be alive at
+23:47**, because a refresh from a copy is what rotates the operator out.
+
+### Instrument failures caught this tick (3)
+
+1. `podium issue show --json` parsed at the envelope returned `stage: None` for five issues at
+   once. Five simultaneous nulls read like a tracker fault; it was my parse — the key is
+   `data.stage`. **A fault that appears everywhere at once is usually in the instrument.**
+2. Branch names are **truncated** in the ref (`…-answ`, `…-sho`), so a `rev-parse` on the
+   obvious full name fails with `Needed a single revision` — which reads as a missing branch.
+3. The twin case above: `git rev-list --count epic..branch` is an ancestry question and cannot
+   answer a content question.
+
+### Standing brief
+
+New section: **"A sequential A/B on this box measures the box"** — interleave arms pre/post/pre/
+post, five pairs minimum, report individual readings and the load at both ends, say so when the
+arms overlap, and re-pin between arms.
