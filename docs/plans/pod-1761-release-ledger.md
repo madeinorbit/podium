@@ -573,7 +573,7 @@ Grouped by catalogue section. "Measured by" is the gate that keeps it true.
 | row | action | measured by |
 |---|---|---|
 | staging ref/refusal, enforced declaration, foreign ref, undeclared kind | confident | suite |
-| promptForm — the image actually reaches the model | **check** | drive: paste an image on each driver, ask the agent what it shows |
+| promptForm — the attachment actually reaches the model | **driven (POD-2819)** | codex on BOTH arms reads a staged text file and echoes a secret present only in its bytes (headless 33.0s, terminal 19.1s); claude reads one on the epic tip AND on today's main. The image half was driven too and reaches the model — 4 of 6 nonce digits where chance is 1 in 10 each — but `docs/evidence/pod-2777/nonce-png.ts` is not legible enough to score exactly, so the strong falsifier is the text file. `mention` is NOT a vehicle on codex: accepted by the server, never shown to the model. `docs/evidence/pod-2819/` |
 | realpath containment | **check** | one adversarial path test |
 | TTL/GC, dies with session | confident | legacy, unchanged |
 | typed refusal rendered | **check** | grok refusal drive (evidence exists; re-run on tip) |

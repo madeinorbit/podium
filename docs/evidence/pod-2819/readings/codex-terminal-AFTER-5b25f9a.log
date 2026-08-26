@@ -1,0 +1,51 @@
+ok  server pid=1225215 cwd=/home/mgw/src/podium/.worktrees/issue-2819-bug-codex-loses-attachments-on-the-new-d spawned at 5b25f9a
+  ok  daemon pid=1225266 cwd=/home/mgw/src/podium/.worktrees/issue-2819-bug-codex-loses-attachments-on-the-new-d spawned at 5b25f9a
+  ok  exactly one daemon (pid 1225266) on state root /tmp/pod-2777/state
+  ok  worktree at 5b25f9a9e9582e4083cd3a1868d074f0432248db, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 5b25f9a
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='generic-pty', server STREAMING=1
+PINJSON {"want":"5b25f9a9e9582e4083cd3a1868d074f0432248db","short":"5b25f9a","spawnedSha":"5b25f9a9e9582e4083cd3a1868d074f0432248db","serverPid":1225215,"daemonPid":1225266,"webSourceSha":"5b25f9a","contract":"1","streaming":"1","driver":"generic-pty"}
+VERIFIED: p2777 (server + daemon + web bundle) is running 5b25f9a9e9582e4083cd3a1868d074f0432248db in arm CONTRACT=1 STREAMING=1 DRIVER='generic-pty'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=codex  arm=terminal  expecting driver 'a terminal-family driver'
+PIN                5b25f9a9e9582e4083cd3a1868d074f0432248db (web bundle 5b25f9a, server pid 1225215, daemon pid 1225266)
+==============================================================================
+session 0b00b57b-f4bc-41e7-bfc4-25c5a60b8224 created; giving the harness 25000ms to come up
+BOUND DRIVER       generic-pty (family terminal)
+TUI PRIMING        codex hooks: pressed t (trust all); codex hooks: Esc (t did not clear it); codex hooks: pressed t (trust all); codex hooks: Esc (t did not clear it); codex hooks: pressed t (trust all); codex hooks: Esc (t did not clear it)
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 9.0s
+   control: FIRED — 1 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-AMDV5X. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-AMDV5X — a blank session cannot produce this by luck
+   REPLY             arrived after 8958ms
+   ASSISTANT TEXT    13 chars: "PODIUM-AMDV5X"
+   ELAPSED           9113ms
+
+── attach — attach a file
+   PASS  the agent read the file and echoed FILESECRET-BHVPQL
+   control: FIRED — probe 1 PASSED here, so this session can send and answer
+   STAGED            path=/tmp/pod-2777/state/uploads/0b00b57b-f4bc-41e7-bfc4-25c5a60b8224/15594033-39e4-4c75-a753-f3cc17951f26.txt ref={"id":"15594033-39e4-4c75-a753-f3cc17951f26","path":"/tmp/pod-2777/state/uploads/0b00b57b-f4bc-41e7-bfc4-25c5a60b8224/15594033-39e4-4c75-a753-f3cc17951f26.txt","filename":"podium-2777-secret.txt","med
+   SECRET IN FILE    FILESECRET-BHVPQL — present in the bytes and nowhere else
+   SEND              {"ok":true,"disposition":"delivered"}
+                     (a 'queued' disposition here would mean the session was still busy)
+   ECHOED BACK       yes, after 19095ms
+   APPROVALS NEEDED  0 — the staging dir is OUTSIDE the repo, so reading the
+                     attachment raises an external_directory permission ask. A drive that
+                     did not answer it would time out and report "never read the file".
+   WHY A NONCE       an agent can agree that it sees a file without reading one;
+                     it cannot produce these bytes without having read them.
+
+==============================================================================
+RESULT  codex / terminal / driver=generic-pty
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 9.0s
+attach          PASS      fired     the agent read the file and echoed FILESECRET-BHVPQL
+==============================================================================
+written /tmp/pod-2777/results/codex.terminal.json

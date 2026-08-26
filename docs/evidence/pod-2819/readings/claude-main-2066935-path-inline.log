@@ -1,0 +1,18 @@
+
+=== claude / attach — TODAY'S MAIN 2066935 — shape=path-inline ===
+   SESSION            070e81a3-e486-4f33-90e1-b2c273ee9c9c
+   BOUND DRIVER       (none — this build has no runtime contract)
+   STATUS             live
+   TUI PRIMER         nothing to clear
+   CONTROL            FIRED — replied PODIUM-BEB41E in 2506ms
+   STAGED             /tmp/pod-2819/state/uploads/070e81a3-e486-4f33-90e1-b2c273ee9c9c/842705a6-449f-4aff-b1b7-e5f4e792ec54.txt
+   SECRET IN FILE     FILESECRET-F0BEBD — present in the bytes and nowhere else
+   PROMPT BEGINS      "Read the file at /tmp/pod-2819/state/upl"
+   PRE-ATTACH         screen clear
+   SEND               {"ok":true,"disposition":"delivered"}
+   ECHOED BACK        yes, after 6212ms
+   APPROVALS          0
+   PTY BYTES          9688 arrived after the send
+
+   PASS — TODAY'S MAIN 2066935 — shape=path-inline
+   ASSISTANT SAID  "\nFILESECRET-F0BEBD"

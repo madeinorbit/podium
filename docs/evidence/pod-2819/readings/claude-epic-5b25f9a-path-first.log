@@ -1,0 +1,18 @@
+
+=== claude / attach — EPIC TIP 5b25f9a — shape=path-first ===
+   SESSION            1742482a-4b99-4561-90bb-f3880000cc3a
+   BOUND DRIVER       claude-pty
+   STATUS             live
+   TUI PRIMER         nothing to clear
+   CONTROL            FIRED — replied PODIUM-A48380 in 3855ms
+   STAGED             /tmp/pod-2777/state/uploads/1742482a-4b99-4561-90bb-f3880000cc3a/5daac3bc-fd8a-490a-8459-a51aaca6a3dc.txt
+   SECRET IN FILE     FILESECRET-1F69AE — present in the bytes and nowhere else
+   PROMPT BEGINS      "/tmp/pod-2777/state/uploads/1742482a-4b9"
+   PRE-ATTACH         pre-attach: Esc (auto-mode offer) · pre-attach: Esc (auto-mode offer) · pre-attach: Esc (auto-mode offer) · pre-attach: Esc (auto-mode offer)
+   SEND               {"ok":true,"disposition":"delivered"}
+   ECHOED BACK        yes, after 7402ms
+   APPROVALS          0
+   PTY BYTES          9771 arrived after the send
+
+   PASS — EPIC TIP 5b25f9a — shape=path-first
+   ASSISTANT SAID  "\nFILESECRET-1F69AE"

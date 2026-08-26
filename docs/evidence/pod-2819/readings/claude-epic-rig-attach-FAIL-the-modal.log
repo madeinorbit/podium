@@ -1,0 +1,54 @@
+ok  server pid=1162674 cwd=/home/mgw/src/podium/.worktrees/issue-2819-bug-codex-loses-attachments-on-the-new-d spawned at 52f4043
+  ok  daemon pid=1162890 cwd=/home/mgw/src/podium/.worktrees/issue-2819-bug-codex-loses-attachments-on-the-new-d spawned at 52f4043
+  ok  exactly one daemon (pid 1162890) on state root /tmp/pod-2777/state
+  ok  worktree at 52f4043481fe91de6cbe259088dd98676ddb0817, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 52f4043
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"52f4043481fe91de6cbe259088dd98676ddb0817","short":"52f4043","spawnedSha":"52f4043481fe91de6cbe259088dd98676ddb0817","serverPid":1162674,"daemonPid":1162890,"webSourceSha":"52f4043","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running 52f4043481fe91de6cbe259088dd98676ddb0817 in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=claude  arm=headless  expecting driver 'a terminal-family driver'
+PIN                52f4043481fe91de6cbe259088dd98676ddb0817 (web bundle 52f4043, server pid 1162674, daemon pid 1162890)
+==============================================================================
+session 55764b83-fffb-4b72-bf6e-1c4e04187608 created; giving the harness 25000ms to come up
+BOUND DRIVER       claude-pty (family terminal)
+
+NOTE: claude has no headless driver. It bound 'claude-pty' (family terminal)
+on the headless arm too — this harness runs ONE path and the driver preference
+does not move it. Its column is the terminal path.
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 3.8s
+   control: FIRED — 2 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-FKN4IG. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-FKN4IG — a blank session cannot produce this by luck
+   REPLY             arrived after 3845ms
+   ASSISTANT TEXT    13 chars: "PODIUM-FKN4IG"
+   ELAPSED           4253ms
+
+── attach — attach a file
+   FAIL  the file was staged and sent, but its contents never came back
+   control: FIRED — probe 1 PASSED here, so this session can send and answer
+   STAGED            path=/tmp/pod-2777/state/uploads/55764b83-fffb-4b72-bf6e-1c4e04187608/b5fbacec-15b4-4991-b0e1-ff5567bdecd7.txt ref={"id":"b5fbacec-15b4-4991-b0e1-ff5567bdecd7","path":"/tmp/pod-2777/state/uploads/55764b83-fffb-4b72-bf6e-1c4e04187608/b5fbacec-15b4-4991-b0e1-ff5567bdecd7.txt","filename":"podium-2777-secret.txt","med
+   SECRET IN FILE    FILESECRET-OJSMRT — present in the bytes and nowhere else
+   SEND              {"ok":true,"disposition":"delivered"}
+                     (a 'queued' disposition here would mean the session was still busy)
+   ECHOED BACK       no
+   APPROVALS NEEDED  0 — the staging dir is OUTSIDE the repo, so reading the
+                     attachment raises an external_directory permission ask. A drive that
+                     did not answer it would time out and report "never read the file".
+   WHY A NONCE       an agent can agree that it sees a file without reading one;
+                     it cannot produce these bytes without having read them.
+
+==============================================================================
+RESULT  claude / headless / driver=claude-pty
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 3.8s
+attach          FAIL      fired     the file was staged and sent, but its contents never came back
+==============================================================================
+written /tmp/pod-2777/results/claude.headless.json
