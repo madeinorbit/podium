@@ -4080,3 +4080,33 @@ epic's open defects come first.
 
 **Ceiling as it stands: about three more concurrent sessions before the disk is the wall again**,
 and a web build needs room on top of that. I am not starting more drivers tonight.
+
+### Every orphan census so far has been looking in one of two places (2026-08-27 01:33 CEST)
+
+Reclaiming disk, I checked — before deleting anything — whether the rig state directories of
+CLOSED issues still had processes inside them. All four issues at stage `done`:
+
+    /tmp/pod-2867-codex-control   0 live   -> removed, 2.3GB
+    /tmp/pod-2858-upgrade3        0 live   -> removed, 805MB
+    /tmp/pod-2801                 1 LIVE   -> left alone
+    /tmp/pod-2792                 2 LIVE   -> left alone
+
+**Three more orphans, in `/tmp` state roots rather than worktrees — so my 23:05 figure of "14
+live agents in 8 worktrees" was an UNDERCOUNT, not a measurement of the population.** Both my
+census and POD-2691's test a pid's cwd against `.worktrees`; a process sitting in a rig state
+root is invisible to both.
+
+**This is a scope change for the reaper, not a detail.** A reaper keyed on worktrees can never see
+these. Identity has to attribute a process to an INSTANCE rather than to a directory — the second
+independent argument tonight for consuming the instance UUID that `85564b383` added and nothing
+reads. Told POD-2691, and told it that widening the search later without saying so makes "the
+number went down because I fixed it" indistinguishable from "the number went up because I looked
+harder".
+
+**And the disk cost is not incidental: those state roots are FULL REPO CHECKOUTS.** The one I
+removed was 2.3GB. An orphaned agent does not just idle — it pins gigabytes, and two hours ago
+this box hit 100% and killed a live measurement mid-run. The two defects are the same defect.
+
+**The liveness check has now saved a running process three times tonight** — once across the 38
+worktrees, once for POD-2691's own census, and once here. `readlink /proc/<pid>/cwd` before any
+removal, every time.
