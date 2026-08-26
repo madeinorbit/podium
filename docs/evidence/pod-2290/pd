@@ -18,6 +18,4 @@ exec env -i \
   PODIUM_HOOK_PORT=46807 \
   PODIUM_AGENT_RELAY_PORT=46808 \
   PODIUM_NO_RELAY=1 \
-  ABDUCO_SOCKET_DIR=/tmp/pod-2290/abduco \
-  TMUX_TMPDIR=/tmp/pod-2290/tmux \
   bash -c 'cd "$0" && exec bun --conditions=@podium/source scripts/cli.ts "$@"' "$REPO" "$@"

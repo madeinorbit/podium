@@ -14,14 +14,7 @@
 # --- identity -------------------------------------------------------------
 export PODIUM_INSTANCE=p2290
 
-# BASE PATH IS SHORT ON PURPOSE, and shorter than the coordinator's suggested
-# `/tmp/pod-2290-drive`. abduco builds its master socket at
-# $ABDUCO_SOCKET_DIR/abduco/<user>/<label>@<host> and hard-fails past sun_path
-# (108) with "create-session: File name too long" — a failure that presents as
-# a generic output timeout naming no path. `podium-p2290-<uuid>@flatblock` is
-# ~59 characters of that budget before the socket dir is counted, so the dir
-# stays tiny. Recorded rather than silently changed: this is the one deviation
-# from the suggested layout.
+# The base contains only this rig's state, logs and scratch repository.
 export PODIUM_DRIVE_BASE=/tmp/pod-2290
 
 export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
@@ -38,13 +31,9 @@ export PODIUM_AGENT_RELAY_PORT=46808
 # there is no reason to expose a credential-bearing test instance to a network.
 export PODIUM_HOST=127.0.0.1
 
-# --- durable-terminal containment ----------------------------------------
-# The developer's real sessions (and this agent) are abduco masters under
-# ~/.abduco. DANGER inherited from harness-env.ts: abduco 0.6 silently FALLS
-# BACK to the real socket dir when $ABDUCO_SOCKET_DIR does not exist, so the
-# directory is created below before anything can run abduco.
-export ABDUCO_SOCKET_DIR="$PODIUM_DRIVE_BASE/abduco"
-export TMUX_TMPDIR="$PODIUM_DRIVE_BASE/tmux"
+# --- durable-terminal selection ------------------------------------------
+# Leave both variables unset. The named-instance runtime must choose the
+# durable backend paths that an installed instance would use.
 
 # --- scrub the inherited session ------------------------------------------
 # This shell runs INSIDE a Podium session on the developer's default instance,
@@ -54,7 +43,7 @@ export TMUX_TMPDIR="$PODIUM_DRIVE_BASE/tmux"
 # and this instance exists precisely to look at the web build.
 unset PODIUM_SESSION_ID PODIUM_SESSION_INSTANCE PODIUM_SESSION_RELAY
 unset PODIUM_AGENT_RELAY PODIUM_HOME PODIUM_WEB_DIR
-unset ABDUCO_SESSION ABDUCO_SOCKET
+unset ABDUCO_SESSION ABDUCO_SOCKET ABDUCO_SOCKET_DIR TMUX_TMPDIR
 export PODIUM_NO_RELAY=1
 
 # --- code under test ------------------------------------------------------
@@ -66,5 +55,5 @@ export PODIUM_NO_RELAY=1
 # drive-up.sh is safe to re-run for exactly that.
 export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2290-bug-native-view-stuck-on-headless-sessio
 
-mkdir -p "$PODIUM_STATE_DIR" "$ABDUCO_SOCKET_DIR" "$TMUX_TMPDIR"
+mkdir -p "$PODIUM_STATE_DIR"
 chmod 700 "$PODIUM_DRIVE_BASE"

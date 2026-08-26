@@ -20,10 +20,10 @@ export PODIUM_HOOK_PORT=46877
 export PODIUM_AGENT_RELAY_PORT=46878
 export PODIUM_HOST=127.0.0.1
 
-# abduco 0.6 silently falls back to the real socket dir when this does not
-# exist, so both are created below before anything can run abduco.
-export ABDUCO_SOCKET_DIR="$PODIUM_DRIVE_BASE/abduco"
-export TMUX_TMPDIR="$PODIUM_DRIVE_BASE/tmux"
+# The product chooses durable-terminal paths from the named state root.
+# This rig deliberately leaves those choices untouched so its result matches
+# an ordinary installation.
+unset ABDUCO_SOCKET_DIR TMUX_TMPDIR
 
 # This shell runs INSIDE a Podium session on the developer's default instance,
 # which exports these; inheriting any of them routes CLI calls back to the live
@@ -66,5 +66,5 @@ export PODIUM_DRIVE_REPO="${P2801_REPO:-/home/mgw/src/podium/.worktrees/issue-28
 # prints the bound driverId for every session it drives.
 export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR" "$ABDUCO_SOCKET_DIR" "$TMUX_TMPDIR"
+mkdir -p "$PODIUM_STATE_DIR"
 chmod 700 "$PODIUM_DRIVE_BASE"

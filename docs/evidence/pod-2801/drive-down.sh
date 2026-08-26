@@ -14,12 +14,9 @@ for name in daemon server; do
   fi
   rm -f "$pidfile"
 done
-# The agents themselves live in abduco sessions under this rig's OWN socket dir,
-# so this cannot reach another instance's terminals.
-if command -v abduco >/dev/null 2>&1; then
-  abduco 2>/dev/null | tail -n +2 | awk '{print $NF}' | while read -r s; do
-    [ -n "$s" ] && abduco -A "$s" true >/dev/null 2>&1 || true
-  done
+# Durable terminals are matched on this rig's vendored binary path, never on
+# a shared bare process name or a socket-dir override.
+if pkill -f "$PODIUM_STATE_DIR/bin/abduco -n" 2>/dev/null; then
+  echo "reaped p2801 durable terminals"
 fi
-pkill -f "ABDUCO_SOCKET_DIR=$ABDUCO_SOCKET_DIR" 2>/dev/null || true
 echo "instance '$PODIUM_INSTANCE' down"

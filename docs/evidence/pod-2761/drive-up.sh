@@ -44,21 +44,9 @@ cd "$PODIUM_DRIVE_REPO"
 # readiness compares the mode the SERVER booted with against the mode on disk,
 # so the two must agree before the first request, not after it.
 #
-# CLAIM THE ROOT BEFORE WRITING INTO IT. A named instance refuses to adopt a
-# state directory that is non-empty but unmarked, and `instance.json` is that
-# mark. 2753's script writes config.json first, which makes the root non-empty
-# and the very first boot fails `refusing to adopt non-empty state directory`.
-# So the marker goes down first, with the same shape the runtime writes.
-if [ ! -f "$PODIUM_STATE_DIR/instance.json" ]; then
-  printf '{\n  "version": 1,\n  "instanceId": "%s"\n}\n' "$PODIUM_INSTANCE" \
-    > "$PODIUM_STATE_DIR/instance.json"
-  chmod 600 "$PODIUM_STATE_DIR/instance.json"
-  echo "claimed state root for instance '$PODIUM_INSTANCE'"
-fi
-if [ ! -f "$PODIUM_STATE_DIR/config.json" ]; then
-  printf '{"configVersion":2,"mode":"all-in-one"}\n' > "$PODIUM_STATE_DIR/config.json"
-  echo "wrote first-run config (mode=all-in-one)"
-fi
+# Claim the named state root through the same runtime writer used by `podium
+# setup`; the rig must not fabricate instance.json or config.json.
+bash "$HERE/../claim-instance.sh"
 
 # Stop a previous pair first — this script's re-run IS the restart path.
 for name in daemon server; do

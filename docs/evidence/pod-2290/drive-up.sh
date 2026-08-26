@@ -23,6 +23,10 @@ export PODIUM_PASSWORD=p2290
 
 cd "$PODIUM_DRIVE_REPO"
 
+# The runtime setup writer claims the named state root before the first server
+# boot and creates the minimal host config without fabricating instance.json.
+bash "$HERE/../claim-instance.sh"
+
 # Stop a previous pair first — this script's re-run IS the restart path.
 for name in daemon server; do
   pidfile="$PODIUM_DRIVE_BASE/$name.pid"

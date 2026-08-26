@@ -18,10 +18,9 @@
 # --- identity -------------------------------------------------------------
 export PODIUM_INSTANCE=p2773
 
-# BASE PATH IS SHORT ON PURPOSE. abduco builds its master socket at
-# $ABDUCO_SOCKET_DIR/abduco/<user>/<label>@<host> and hard-fails past sun_path
-# (108) with "create-session: File name too long" — a failure that presents as a
-# generic output timeout naming no path.
+# The product chooses durable-terminal paths from the named state root.
+# This rig deliberately leaves those choices untouched so its result matches
+# an ordinary installation.
 export PODIUM_DRIVE_BASE=/tmp/pod-2773
 export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
 
@@ -35,11 +34,8 @@ export PODIUM_HOOK_PORT=46837
 export PODIUM_AGENT_RELAY_PORT=46838
 export PODIUM_HOST=127.0.0.1
 
-# --- durable-terminal containment ----------------------------------------
-# abduco 0.6 silently FALLS BACK to the real socket dir when $ABDUCO_SOCKET_DIR
-# does not exist, so these are created below before anything can run abduco.
-export ABDUCO_SOCKET_DIR="$PODIUM_DRIVE_BASE/abduco"
-export TMUX_TMPDIR="$PODIUM_DRIVE_BASE/tmux"
+# Do not shorten or relocate product-selected terminal paths in this rig.
+unset ABDUCO_SOCKET_DIR TMUX_TMPDIR
 
 # --- scrub the inherited session ------------------------------------------
 # This shell runs INSIDE a Podium session on the developer's default instance,
@@ -109,5 +105,5 @@ export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2773-drive-stream
 # session did not bind the driver the arm asked for, for this reason.
 export PATH="$HOME/.bun/bin:$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR" "$ABDUCO_SOCKET_DIR" "$TMUX_TMPDIR"
+mkdir -p "$PODIUM_STATE_DIR"
 chmod 700 "$PODIUM_DRIVE_BASE"

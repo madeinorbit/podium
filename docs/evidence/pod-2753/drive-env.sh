@@ -20,10 +20,7 @@
 # --- identity -------------------------------------------------------------
 export PODIUM_INSTANCE=p2753
 
-# BASE PATH IS SHORT ON PURPOSE. abduco builds its master socket at
-# $ABDUCO_SOCKET_DIR/abduco/<user>/<label>@<host> and hard-fails past sun_path
-# (108) with "create-session: File name too long" — a failure that presents as a
-# generic output timeout naming no path.
+# The base contains only this rig's state, logs and scratch repository.
 export PODIUM_DRIVE_BASE=/tmp/pod-2753
 export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
 
@@ -35,11 +32,9 @@ export PODIUM_HOOK_PORT=46817
 export PODIUM_AGENT_RELAY_PORT=46818
 export PODIUM_HOST=127.0.0.1
 
-# --- durable-terminal containment ----------------------------------------
-# abduco 0.6 silently FALLS BACK to the real socket dir when $ABDUCO_SOCKET_DIR
-# does not exist, so these are created below before anything can run abduco.
-export ABDUCO_SOCKET_DIR="$PODIUM_DRIVE_BASE/abduco"
-export TMUX_TMPDIR="$PODIUM_DRIVE_BASE/tmux"
+# --- durable-terminal selection ------------------------------------------
+# Leave both variables unset. The named-instance runtime must choose the
+# durable backend paths that an installed instance would use.
 
 # --- scrub the inherited session ------------------------------------------
 # This shell runs INSIDE a Podium session on the developer's default instance,
@@ -47,7 +42,7 @@ export TMUX_TMPDIR="$PODIUM_DRIVE_BASE/tmux"
 # server.
 unset PODIUM_SESSION_ID PODIUM_SESSION_INSTANCE PODIUM_SESSION_RELAY
 unset PODIUM_AGENT_RELAY PODIUM_HOME PODIUM_WEB_DIR
-unset ABDUCO_SESSION ABDUCO_SOCKET
+unset ABDUCO_SESSION ABDUCO_SOCKET ABDUCO_SOCKET_DIR TMUX_TMPDIR
 export PODIUM_NO_RELAY=1
 
 # THE HARNESS'S OWN CONTROL VARIABLES (POD-2086 F5). A daemon started from inside
@@ -78,5 +73,5 @@ export PODIUM_ABDUCO=/nonexistent/abduco-forced-off-for-pod-2753
 export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2753-move-the-claude-sdk-out-of-the-daemon
 export PATH="$HOME/.bun/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR" "$ABDUCO_SOCKET_DIR" "$TMUX_TMPDIR"
+mkdir -p "$PODIUM_STATE_DIR"
 chmod 700 "$PODIUM_DRIVE_BASE"

@@ -12,11 +12,9 @@
 # --- identity -------------------------------------------------------------
 export PODIUM_INSTANCE=p2761
 
-# BASE PATH IS SHORT ON PURPOSE. abduco builds its master socket at
-# $ABDUCO_SOCKET_DIR/abduco/<user>/<label>@<host> and hard-fails past sun_path
-# (108) with "create-session: File name too long" — a failure that presents as a
-# generic output timeout naming no path. This drive's whole subject is those
-# masters, so the limit is not a footnote here.
+# The product chooses durable-terminal paths from the named state root.
+# This rig deliberately leaves those choices untouched so its result matches
+# an ordinary installation.
 export PODIUM_DRIVE_BASE=/tmp/pod-2761
 export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
 
@@ -26,11 +24,8 @@ export PODIUM_HOOK_PORT=46827
 export PODIUM_AGENT_RELAY_PORT=46828
 export PODIUM_HOST=127.0.0.1
 
-# --- durable-terminal containment ----------------------------------------
-# abduco 0.6 silently FALLS BACK to the real socket dir when $ABDUCO_SOCKET_DIR
-# does not exist, so these are created below before anything can run abduco.
-export ABDUCO_SOCKET_DIR="$PODIUM_DRIVE_BASE/abduco"
-export TMUX_TMPDIR="$PODIUM_DRIVE_BASE/tmux"
+# Do not shorten or relocate product-selected terminal paths in this rig.
+unset ABDUCO_SOCKET_DIR TMUX_TMPDIR
 
 # --- scrub the inherited session ------------------------------------------
 unset PODIUM_SESSION_ID PODIUM_SESSION_INSTANCE PODIUM_SESSION_RELAY
@@ -64,5 +59,5 @@ export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-2761-bug-switchin
 # So ~/.local/bin goes first and bun's bin stays available behind it.
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR" "$ABDUCO_SOCKET_DIR" "$TMUX_TMPDIR"
+mkdir -p "$PODIUM_STATE_DIR"
 chmod 700 "$PODIUM_DRIVE_BASE"

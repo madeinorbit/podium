@@ -22,19 +22,10 @@ mkdir -p "$PODIUM_DRIVE_BASE/logs"
 export PODIUM_PASSWORD=p2843
 
 # --- first-run configuration ----------------------------------------------
-# A fresh state root reports readiness `unconfigured` and BLOCKS the data plane,
-# so /auth/login answers 503 and nothing can be driven. THE MARKER COMES FIRST:
-# a NAMED instance refuses to adopt a state root that is non-empty but unmarked.
-if [ ! -f "$PODIUM_STATE_DIR/instance.json" ]; then
-  printf '{\n  "version": 1,\n  "instanceId": "%s"\n}\n' "$PODIUM_INSTANCE" \
-    > "$PODIUM_STATE_DIR/instance.json"
-  chmod 600 "$PODIUM_STATE_DIR/instance.json"
-  echo "claimed the state root for instance '$PODIUM_INSTANCE'"
-fi
-if [ ! -f "$PODIUM_STATE_DIR/config.json" ]; then
-  printf '{"configVersion":2,"mode":"all-in-one"}\n' > "$PODIUM_STATE_DIR/config.json"
-  echo "wrote first-run config (mode=all-in-one)"
-fi
+# A fresh state root reports readiness `unconfigured` and blocks the data plane.
+# Claim it through the same runtime writer used by `podium setup`; the rig must
+# not fabricate instance.json or config.json.
+bash "$HERE/../claim-instance.sh"
 
 p2843_stop daemon
 p2843_stop server

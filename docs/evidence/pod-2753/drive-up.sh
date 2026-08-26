@@ -39,10 +39,10 @@ cd "$PODIUM_DRIVE_REPO"
 # `daemon`: saveConfig refuses a daemon-mode config with no serverUrl, and
 # readiness compares the mode the SERVER booted with against the mode on disk,
 # so the two must agree before the first request, not after it.
-if [ ! -f "$PODIUM_STATE_DIR/config.json" ]; then
-  printf '{"configVersion":2,"mode":"all-in-one"}\n' > "$PODIUM_STATE_DIR/config.json"
-  echo "wrote first-run config (mode=all-in-one)"
-fi
+# The web setup procedures are behind the unconfigured data-plane guard, so the
+# rig uses the same runtime config writer as podium setup without fabricating
+# the state marker. It claims the named root before writing mode=all-in-one.
+bash "$HERE/../claim-instance.sh"
 
 # Stop a previous pair first — this script's re-run IS the restart path.
 for name in daemon server; do

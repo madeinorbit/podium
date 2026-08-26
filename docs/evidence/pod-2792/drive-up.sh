@@ -86,20 +86,9 @@ export PODIUM_WEB_DIR="$PODIUM_DRIVE_REPO/apps/web/dist"
 # through tRPC, which sits behind the very guard that is blocking, so a rig with
 # no operator to click it writes the one field readiness reads.
 #
-# THE MARKER COMES FIRST, and the order is not cosmetic. A NAMED instance
-# refuses to adopt a state root that is non-empty but unmarked, so writing the
-# config before anything has claimed the root makes the root non-empty and the
-# very next boot dies with "refusing to adopt non-empty state directory".
-if [ ! -f "$PODIUM_STATE_DIR/instance.json" ]; then
-  printf '{\n  "version": 1,\n  "instanceId": "%s"\n}\n' "$PODIUM_INSTANCE" \
-    > "$PODIUM_STATE_DIR/instance.json"
-  chmod 600 "$PODIUM_STATE_DIR/instance.json"
-  echo "claimed the state root for instance '$PODIUM_INSTANCE'"
-fi
-if [ ! -f "$PODIUM_STATE_DIR/config.json" ]; then
-  printf '{"configVersion":2,"mode":"all-in-one"}\n' > "$PODIUM_STATE_DIR/config.json"
-  echo "wrote first-run config (mode=all-in-one)"
-fi
+# Claim the named state root through the same runtime writer used by `podium
+# setup`; the rig must not fabricate instance.json or config.json.
+bash "$HERE/../claim-instance.sh"
 
 # Stop a previous pair first — this script's re-run IS the restart path, and the
 # arm switch depends on it.

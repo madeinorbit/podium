@@ -77,14 +77,9 @@ else
 fi
 export PODIUM_WEB_DIR="$REPO/apps/web/dist"
 
-if [ ! -f "$PODIUM_STATE_DIR/instance.json" ]; then
-  printf '{\n  "version": 1,\n  "instanceId": "%s"\n}\n' "$PODIUM_INSTANCE" \
-    > "$PODIUM_STATE_DIR/instance.json"
-  chmod 600 "$PODIUM_STATE_DIR/instance.json"
-fi
-if [ ! -f "$PODIUM_STATE_DIR/config.json" ]; then
-  printf '{"configVersion":2,"mode":"all-in-one"}\n' > "$PODIUM_STATE_DIR/config.json"
-fi
+# Claim the named state root through the same runtime writer used by `podium
+# setup`; the baseline must not fabricate instance.json or config.json.
+bash "$HERE/../claim-instance.sh"
 
 for name in daemon server; do
   pidfile="$PODIUM_DRIVE_BASE/$name.pid"

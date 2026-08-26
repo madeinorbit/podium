@@ -30,8 +30,9 @@ export PODIUM_HOOK_PORT=46857
 export PODIUM_AGENT_RELAY_PORT=46858
 export PODIUM_HOST=127.0.0.1
 
-export ABDUCO_SOCKET_DIR="$PODIUM_DRIVE_BASE/abduco"
-export TMUX_TMPDIR="$PODIUM_DRIVE_BASE/tmux"
+# The product chooses durable-terminal paths from the named state root.
+# This baseline deliberately leaves those choices untouched.
+unset ABDUCO_SOCKET_DIR TMUX_TMPDIR
 
 # Scrub the inherited session: this shell runs INSIDE a Podium session on the
 # developer's default instance, and inheriting these routes CLI calls back into
@@ -54,5 +55,5 @@ export PODIUM_DRIVE_REPO="${POD2819_REPO:-/home/mgw/pod2819-main-baseline}"
 
 export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR" "$ABDUCO_SOCKET_DIR" "$TMUX_TMPDIR"
+mkdir -p "$PODIUM_STATE_DIR"
 chmod 700 "$PODIUM_DRIVE_BASE"

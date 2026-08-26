@@ -31,18 +31,9 @@ cd "$PODIUM_DRIVE_REPO"
 bash "$HERE/link-node-modules.sh" >/dev/null
 
 # A fresh state root reports readiness `unconfigured` and blocks the data plane.
-# The marker comes FIRST: a named instance refuses to adopt a state root that is
-# non-empty but unmarked.
-if [ ! -f "$PODIUM_STATE_DIR/instance.json" ]; then
-  printf '{\n  "version": 1,\n  "instanceId": "%s"\n}\n' "$PODIUM_INSTANCE" \
-    > "$PODIUM_STATE_DIR/instance.json"
-  chmod 600 "$PODIUM_STATE_DIR/instance.json"
-  echo "claimed the state root for instance '$PODIUM_INSTANCE'"
-fi
-if [ ! -f "$PODIUM_STATE_DIR/config.json" ]; then
-  printf '{"configVersion":2,"mode":"all-in-one"}\n' > "$PODIUM_STATE_DIR/config.json"
-  echo "wrote first-run config (mode=all-in-one)"
-fi
+# Claim it through the same runtime writer used by `podium setup`; the rig must
+# not fabricate instance.json or config.json.
+bash "$HERE/../claim-instance.sh"
 
 for name in daemon server; do
   pidfile="$PODIUM_DRIVE_BASE/$name.pid"
