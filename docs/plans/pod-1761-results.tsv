@@ -78,3 +78,6 @@ daemon lane 2 failures	n/a-gate	UNATTRIBUTED inferred not verified on tip	7b7afc
 conformance corpus has teeth	n/a-mutation	PASS mutation red 4/4 fake targets, restore green	fdfbe934	yes	yes	2026-08-26 20:48 CEST	POD-2885
 busy terminal renders idle for whole turn (retro row from 604f8d7de msg, not my own drive)	opencode-terminal	PASS 121554 bytes idle=60 pre-fix, one-reader-per-cursor after	604f8d7d	yes pre-fix reproduced	unknown	2026-08-26 22:41 CEST	POD-2801
 claude terminal phase stuck at idle (retro row from 4adb58eb6 msg, not my own drive)	claude-pty	PASS hook that opens the turn no longer dropped	4adb58eb	yes suite green while driving was not	unknown	2026-08-26 22:41 CEST	POD-2810
+claude login readout	claude-pty	PASS readout correct under instance home	4a18e7d2	yes	no 2878+2871 live	2026-08-26 23:13 CEST	POD-2905
+first-run warm-up: three sends	claude-pty	PASS all three delivered	4a18e7d2	yes	no 2878+2871 live	2026-08-26 23:13 CEST	POD-2905
+A3 interrupt stops the turn (MAIN baseline)	claude-pty	REFUSED control never produced an in-flight turn	4a18e7d2	no	no heavy-lock contention+swap	2026-08-26 23:13 CEST	POD-2905

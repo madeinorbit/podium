@@ -3515,3 +3515,28 @@ from the same wall.
 
 **Escalated to the operator.** This is the first thing tonight I have not been able to finish
 myself.
+
+### The claude window closed clean (2026-08-26 23:26 CEST)
+
+POD-2905 stopped itself at **23:13**, seventeen minutes ahead of the 23:30 hard stop, and
+reported without being asked.
+
+**The credential outcome is the one that mattered and it is clean.** Its copy deleted, the
+operator's credential unchanged, no rig process and no temporary root left behind. I verified
+this independently rather than taking the report: `~/.claude/.credentials.json` mtime is still
+**15:47**, and a `/proc` sweep for claude processes running under a non-default `HOME` finds
+none belonging to POD-2905. Nothing anywhere holds a copy of the token, so nothing triggers a
+refresh at expiry.
+
+**Two claude cells gained:** login readout under an instance home, and the three-send first-run
+warm-up. Both PASS with controls.
+
+**A3 (interrupt stops the turn) on the MAIN baseline: REFUSED, not FAIL.** Its positive control
+never produced an in-flight turn, so interrupt was never exercised. **This is the outcome the
+reordering was designed to produce.** Driving A3 first on a thrashing box was the trap: a
+starved host makes a turn that would have stopped appear not to, which would have scored FAIL on
+*main*, made our own behaviour "inherited", and quietly retired a P1. Refusing costs one cell.
+The alternative cost a blocker.
+
+A1a, A2a and A5 not started; A4a/A4b not attempted — the credential gate expired with heavy-lock
+contention and swap pressure still on the box. **An undriven cell is honest.**
