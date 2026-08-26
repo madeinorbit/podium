@@ -3076,3 +3076,35 @@ to filling it needs the operator rather than more agent-hours.
 
 **What I will stop doing:** quoting a single coverage percentage as though the matrix were
 uniform. **The number that matters is per-driver**, because the bar is per-driver.
+
+
+## TICK 2026-08-26 19:45 CEST — the box finally went quiet and EVERY SESSION WAS IDLE
+
+    load 5.68   available 3,148 MB   swap-in 88-124 KB/s   test:heavy FREE
+    bun processes in any session worktree: ZERO — verified from outside, not reported
+
+**The quietest conditions of the day, and nobody was working.** That is the worst combination
+available and the one the standing instruction names explicitly. Two sessions had hibernated,
+four were idle, and the P1 fix that unblocks another session's cell was **sitting unlanded on a
+branch**.
+
+**The queue stalled a second time, the same way.** I ordered it at 18:21, verified once, and
+then waited for handovers again. *A queue built on self-report inherits every reporting bug in
+the self-reports* — and I keep re-learning that verifying **once** is not the same as verifying
+**each tick**. The check is cheap and I have it written; I simply did not run it for half an
+hour.
+
+**So I woke two, deliberately not five:**
+
+- **POD-2885 to LAND.** Its fix is rebased as `e6d951065` and is **not** on the tip — I checked
+  the shared events layer rather than a ledger row. Landing is cheap and costs no instance,
+  *and it is the only thing between POD-2777 and a driveable A3*, because the interrupt control
+  needs the turn observed in flight and the wedge freezes exactly what it watches. I told it to
+  land even if conformance is unfinished, and to say which state it is in rather than hold
+  silently.
+- **POD-2878 to DRIVE.** The restart drive, both arms, with the pre-fix control that must show
+  the message LOST — and with the warning that **its pass is a REFUSAL**, since nothing parks
+  once the fix works.
+
+**One landing, one drive. Not an announcement of spare capacity to everyone**, which is what
+consumed the capacity last time.
