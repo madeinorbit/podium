@@ -791,3 +791,37 @@ written to prevent.
 **So the coordinator verifies rather than takes a session's word for being done.** Same check,
 run from outside: `pgrep -x bun` filtered by `/proc/<pid>/cwd` against that session's worktree.
 A queue built on self-report inherits every reporting bug in it.
+
+### The same trap was KILLING neighbour agents (2026-08-26 18:37 CEST)
+
+Worse than a wrong report. A rig's `reap()` matched its own state root **in the command line**
+and then **SIGKILLed every hit** — and the false positives were measured to be *other
+sessions' agents*, ids legible in their abduco labels. A substring that matches every agent on
+the box, wired to `kill`.
+
+It now reaps by **environ** — instance *and* agent home, both required — which a process cannot
+borrow from a prompt blob.
+
+**Its self-skip was broken too:** `$$` inside a `( … )` subshell is the **parent** pid in bash,
+so the guard never protected the shell it was written for.
+
+## Put the cheapest, most invalidating guard FIRST (2026-08-26 18:37 CEST)
+
+A drive preflight now refuses if another probe is already driving the same rig — by executable
+identity and working directory. It was placed **ahead of the pin checks**, for two reasons:
+
+1. **A concurrent probe invalidates every reading whatever the pin says.** Two probes on one
+   instance interleave their sessions and neither reading is attributable afterwards.
+2. **Behind the pin legs it was UNTESTABLE.** On a stale rig the pin check refused first, so the
+   new guard could never be reached — noticed only by trying to test it and failing. *A guard
+   you cannot exercise is a guard you do not know works.*
+
+Tested both directions: silent on the rig's own server and daemon, refusing with pids when a
+probe is live — and its first clean run caught a leftover process nobody had noticed.
+
+### Liveness can be verified from outside; "am I done" cannot (2026-08-26 18:37 CEST)
+
+The coordinator can now check whether a session is running anything. It still cannot check
+whether a session has *finished* — a session that believes it is done while a probe is still
+draining will hand the turn on early. **Self-report remains load-bearing for completion**, so
+a handover should say what was observed, not just that it ended.
