@@ -52,3 +52,8 @@ long turn completes POST-FIX	codex-terminal	PASS 269889 screen bytes 14183 chars
 long turn completes POST-FIX	codex-outside-podium	PASS exit 0 line 400	6b4da5b7	yes	yes	2026-08-26 16:42 CEST	POD-2885
 long turn completes POST-FIX	grok-headless	UNDRIVEN quota exhausted until 27th 11:03	6b4da5b7	n/a	n/a	2026-08-26 16:42 CEST	POD-2885
 A7b hibernate and wake	opencode-headless	PASS pointer identical codeword recalled	372ae4de	yes	yes	2026-08-26 16:44 CEST	POD-2777
+upgrade: session lists after cutover	all-four	PASS all four list	55f7e235	yes	yes	2026-08-26 16:53 CEST	POD-2858
+upgrade: codex rebinds to server driver	codex	FAIL old transcript pair vanished from view	55f7e235	yes	yes	2026-08-26 16:53 CEST	POD-2858
+upgrade: claude terminal unchanged	claude-pty	PASS transcript intact codeword returned	55f7e235	yes	yes	2026-08-26 16:53 CEST	POD-2858
+upgrade: opencode logged-out fallback	opencode	INCONCLUSIVE fell back to generic-pty not a rebind	55f7e235	yes	yes	2026-08-26 16:53 CEST	POD-2858
+upgrade: grok logged-out fallback	grok	INCONCLUSIVE fell back to generic-pty not a rebind	55f7e235	yes	yes	2026-08-26 16:53 CEST	POD-2858

@@ -168,3 +168,43 @@ it costs nothing to claim, because both arms pass.
 
 Worth a line in the release note: quota exhaustion is now reported as a typed provider error
 rather than only as screen text.
+
+
+---
+
+## 11. An existing Codex session loses its history view when it upgrades.
+**Raised 2026-08-26 16:57 CEST. Status: OPEN. This is the upgrade question you asked about, answered.**
+
+You asked whether the transition would be seamless for people who already have sessions. It
+is for three of the four agents. It is not for Codex.
+
+**What was measured**, on a real upgrade: sessions created on the current release, then the
+server repointed to the new build.
+
+| agent | lists? | resumes? | history | which driver |
+| --- | --- | --- | --- | --- |
+| Claude terminal | yes | yes, same reference | intact, recalled its codeword | unchanged |
+| Codex | yes | yes, but a **new** reference | **the old conversation disappeared from view** | switched to the new driver |
+| OpenCode | yes | yes | stored text intact, model did not recall | fell back to the old driver — logged out |
+| Grok | yes | auth-gated | none | fell back to the old driver — logged out |
+
+**Codex is the only agent that actually switched drivers, and it is the one that lost its
+history view.** The conversation is not destroyed — the drive got its planted codeword back by
+reading the old transcript file directly — but Podium no longer shows it, because the new
+driver started a fresh conversation rather than adopting the old one.
+
+**Two honest limits on this, stated so it is not over-read:** the original scratch database was
+gone, so the pre-cutover sessions were **recreated** rather than being the literal originals;
+and OpenCode and Grok never exercised a rebind at all, because being logged out sent them to
+the old driver. So this is *one clean rebind case*, and it failed.
+
+- **Fix it** — teach the new driver to adopt an existing conversation on upgrade instead of
+  starting a new one. Real work, and the design question of whether a session's driver should
+  become durable sits underneath it.
+- **Ship it and say so** — existing Codex users keep their sessions and lose the visible
+  history in them. Recoverable from disk, not by them.
+- **Ship it with a migration** — carry the old conversation forward once, at upgrade time.
+
+**Recommendation: fix it, and treat the one-clean-case coverage as a reason to re-drive rather
+than a reason to relax.** This is exactly the question you raised, and "three of four are fine"
+is not the answer when the fourth is the only one that took the new path.
