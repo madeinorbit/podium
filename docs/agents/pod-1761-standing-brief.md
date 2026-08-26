@@ -517,7 +517,7 @@ twenty seconds, stopped, and the turn completed anyway"*.
 **Sample the moving quantity at intervals across the whole run**, and show it climbing. Then
 have an *independent* probe — one whose control needs mid-flight motion — confirm it.
 
-## Gate the action on the check, not on reading its output (2026-08-26 17:53 CEST)
+## A CHECK THAT PRINTS IS NOT A CHECK THAT GATES (2026-08-26 17:53 CEST)
 
 A session ran `merge-lock acquire` and then ran the ff-merge **unconditionally**, without
 testing whether the acquire had succeeded. It had not — the lock was held and that session was
@@ -549,3 +549,24 @@ read: `claudeAiOauth.expiresAt` against now. An expired access token in a rig ho
 home **dangerous**, not merely stale.
 
 Failing loudly with no credential is strictly better than revoking silently with a stale one.
+
+### Why this one rule carries the others (2026-08-26 17:54 CEST)
+
+**Every rule on this epic that survived contact did so because something exits non-zero** —
+`drive-verify` refusing a stale pin, a probe refusing on a missing control, the blocked-cells
+checker exiting 10. The landing rule was the last one still relying on a person reading output
+and choosing correctly, and it failed exactly there.
+
+### Refusals are the most valuable output a rig produces (2026-08-26 17:54 CEST)
+
+A **result** tells you about the product. A **refusal** tells you the instrument noticed
+something it was not built to handle — *which is precisely the case where a result would have
+been fabricated.*
+
+Four today: the terminal arm of the parked-turn cell, A4a's terminal half, a vacuous
+credential-removal pass, and a landing that ran against a lock it had not been granted. **Every
+one would have been a plausible number if the refusal had not fired.**
+
+The corollary: **a refusal is only valuable if whoever meets it recognises it as information
+rather than as breakage.** Hence — say what a probe's pass looks like, and if its pass is a
+refusal, say that loudest.
