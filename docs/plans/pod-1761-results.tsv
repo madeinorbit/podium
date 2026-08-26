@@ -1,6 +1,8 @@
 # One line per check. A line missing ANY field does not count as a result.
 # control = did a positive control fire (something that must appear whether or not the feature works)
 # alone   = was anything else driving on the same instance/directory at the time
+# TIMESTAMP every row: YYYY-MM-DD HH:MM, not just the date. Rows written before
+# 2026-08-26 16:05 CEST carry a date only; everything after carries the time.
 # STALE = CODE changed since that commit, not merely that commits landed. Check with:
 #   git diff --name-only <row commit>..issue/1761-agent-runtime | grep -v '^docs/'
 # Empty output means the row still counts. The first version of this rule said "behind the

@@ -280,3 +280,17 @@ too, and it completed in 61s. That is a second reason to prefer the within-one-c
 instrument, beyond it not needing main merged.
 
 **Resume on `vmstat`, not on the clock or on load average.**
+
+## Timestamp everything you write down
+
+**Every item added to any doc carries the DATE AND TIME**, not just the date —
+`2026-08-26 14:32 CEST`, not `2026-08-26`. Ledger entries, results rows, decision entries,
+evidence READMEs, rig notes.
+
+**Why:** this epic moves in hours, not days. A dozen entries sharing one date cannot be put
+in order afterwards, and ordering is what tells you whether a reading was taken before or
+after a fix landed, whether two agents were looking at the same tree, and which of two
+contradictory notes is the current one. A date alone throws that away at exactly the
+resolution the work happens at.
+
+Operator instruction, 2026-08-26 16:05 CEST.
