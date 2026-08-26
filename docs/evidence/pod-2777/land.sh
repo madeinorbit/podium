@@ -28,8 +28,29 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 [ -z "$(git status --porcelain)" ] || { echo "working tree dirty — commit first, reset --hard discards it" >&2; exit 2; }
 
 git fetch -q --all 2>/dev/null || true
+
+# REBASE HERE RATHER THAN TELLING THE CALLER TO. A landing script that refuses a
+# moving tip is not a landing script — it is a landing script for a branch nobody
+# else is committing to.
+#
+# Found by watching my own retry loop: it waited out a held lock, the epic tip
+# moved underneath it, and from then on EVERY attempt failed with "behind by 3 —
+# rebase first" instead of on the lock. It could never recover, because nothing
+# in the loop rebased. The refusal was correct and useless — the script was
+# telling a shell script to go and read its advice.
+#
+# Guarded: the tree is already known clean (checked above), and a rebase that
+# conflicts is ABORTED and refused rather than left half-applied for someone to
+# discover later.
 BEHIND="$(git rev-list --count "HEAD..$EPIC")"
-[ "$BEHIND" = "0" ] || { echo "behind $EPIC by $BEHIND — rebase first" >&2; exit 2; }
+if [ "$BEHIND" != "0" ]; then
+  echo "behind $EPIC by $BEHIND — rebasing"
+  if ! git rebase "$EPIC" >/dev/null 2>&1; then
+    git rebase --abort >/dev/null 2>&1 || true
+    echo "rebase onto $EPIC CONFLICTS — aborted, nothing changed. Resolve by hand." >&2
+    exit 2
+  fi
+fi
 AHEAD="$(git rev-list --count "$EPIC..HEAD")"
 [ "$AHEAD" != "0" ] || { echo "nothing to land" >&2; exit 0; }
 
