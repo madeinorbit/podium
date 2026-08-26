@@ -77,6 +77,7 @@ type CaseResult = {
     sid: string
     cwd: string
     assistantText: string
+    screenTail?: string
     store: StoreReading
   }>
   failures: string[]
@@ -226,6 +227,7 @@ async function sameDirectoryCase(): Promise<CaseResult> {
   // that let the old cwd-keyed read path select the neighbour's transcript.
   const fault = await createSession({ cwd: REPO, model: FAULT_MODEL, prompt: 'Say hello.' })
   console.log(`  fault     sid=${fault.sid} model=${FAULT_MODEL}`)
+  const expectedFaultReadout = `Model ${FAULT_MODEL} is not valid`
 
   const faultOutcome = await until(
     fault.sid,
@@ -233,6 +235,7 @@ async function sameDirectoryCase(): Promise<CaseResult> {
       row?.agentState?.error !== undefined ||
       row?.agentState?.phase === 'errored' ||
       row?.status === 'exited' ||
+      fault.chat.screenTail(2_000).includes(expectedFaultReadout) ||
       fault.chat.assistantText().trim().length > 0,
     FAULT_WAIT_MS,
     1_000,
@@ -241,6 +244,7 @@ async function sameDirectoryCase(): Promise<CaseResult> {
   const companionStore = readStore(companion.store.path, companion.store.layout, companion.sid)
   const companionText = companion.chat.assistantText().trim()
   const faultText = fault.chat.assistantText().trim()
+  const faultScreen = fault.chat.screenTail(2_000)
   const failures: string[] = []
 
   // These are deliberate content assertions. A non-empty transcript alone is
@@ -259,6 +263,16 @@ async function sameDirectoryCase(): Promise<CaseResult> {
     failures,
     !faultText.includes(companion.nonce),
     `fault session displayed the companion nonce: ${companion.nonce}`,
+  )
+  check(
+    failures,
+    faultScreen.includes(expectedFaultReadout),
+    `fault session did not show the product's unable-to-run readout ${JSON.stringify(expectedFaultReadout)}: ${JSON.stringify(faultScreen)}`,
+  )
+  check(
+    failures,
+    faultOutcome.ok,
+    `fault session did not reach a product readout before the timeout: ${JSON.stringify(faultScreen)}`,
   )
 
   const counts = faultStore.counts
@@ -306,21 +320,29 @@ async function sameDirectoryCase(): Promise<CaseResult> {
         sid: companion.sid,
         cwd: companion.cwd,
         assistantText: companionText,
+        screenTail: companion.chat.screenTail(2_000),
         store: companionStore,
       },
-      { sid: fault.sid, cwd: fault.cwd, assistantText: faultText, store: faultStore },
+      {
+        sid: fault.sid,
+        cwd: fault.cwd,
+        assistantText: faultText,
+        screenTail: faultScreen,
+        store: faultStore,
+      },
     ],
     failures,
     assertions: [
       'companion content contains its own nonce',
       'fault content is empty and does not contain the companion nonce',
+      `fault terminal readout contains ${expectedFaultReadout}`,
       'fault store has exactly one user message, zero assistant messages, and at least one part',
       'same-directory sessions use different stores',
       `fault outcome reached ${faultOutcome.ok ? 'a signal' : 'the timeout'} with phase=${faultOutcome.row?.agentState?.phase ?? '?'} status=${faultOutcome.row?.status ?? '?'}`,
     ],
   }
   console.log(
-    `  ${failures.length === 0 ? 'PASS' : 'FAIL'}      fault content=${JSON.stringify(faultText)} counts=${safeJson(counts)}`,
+    `  ${failures.length === 0 ? 'PASS' : 'FAIL'}      fault content=${JSON.stringify(faultText)} readout=${JSON.stringify(expectedFaultReadout)} counts=${safeJson(counts)}`,
   )
   for (const failure of failures) console.log(`  ASSERTION ${failure}`)
   return result
@@ -379,8 +401,20 @@ async function differentDirectoryCase(): Promise<CaseResult> {
   const result: CaseResult = {
     name: 'different-directory',
     sessions: [
-      { sid: left.sid, cwd: left.cwd, assistantText: leftText, store: left.store },
-      { sid: right.sid, cwd: right.cwd, assistantText: rightText, store: right.store },
+      {
+        sid: left.sid,
+        cwd: left.cwd,
+        assistantText: leftText,
+        screenTail: left.chat.screenTail(2_000),
+        store: left.store,
+      },
+      {
+        sid: right.sid,
+        cwd: right.cwd,
+        assistantText: rightText,
+        screenTail: right.chat.screenTail(2_000),
+        store: right.store,
+      },
     ],
     failures,
     assertions: [
@@ -408,7 +442,7 @@ function writeEvidence(results: CaseResult[], extra: Record<string, unknown> = {
   mkdirSync(OUT, { recursive: true })
   writeFileSync(
     join(OUT, 'result.json'),
-    `${JSON.stringify({ base: BASE, harness: HARNESS, expectedDriver: EXPECTED_DRIVER, faultModel: FAULT_MODEL, ...extra, results }, null, 2)}\n`,
+    `${JSON.stringify({ recordedAt: new Date().toISOString(), base: BASE, harness: HARNESS, expectedDriver: EXPECTED_DRIVER, faultModel: FAULT_MODEL, ...extra, results }, null, 2)}\n`,
   )
 }
 
