@@ -1113,3 +1113,26 @@ cannot convict one.** It only works when the tip genuinely lacks the change — 
 
 **It is a snapshot, not a gate.** Nothing compares against it automatically. If you land something
 that legitimately changes this set, update the file in the same commit and say so.
+
+### Put the CELL ID in the row, or your result does not count (2026-08-27 01:39 CEST)
+
+Coverage against the Tier-A matrix is computed by matching the cell id (`A1a`, `A2a`, `A6b`…)
+inside the `what` column of `docs/plans/pod-1761-results.tsv`. **A row without one is invisible.**
+
+I did this to myself tonight. POD-2902 reported *"A2a re-drive complete"* with five interleaved
+pairs and a clean result; the two rows **I** wrote for it said "badge working within 2s" and named
+no cell. The PASS could not be counted, and the cell went on reading FAIL from a superseded row
+hours after the fix had landed. **Work that is done and unlabelled is indistinguishable from work
+that was never done** — the same shape as POD-2801, which sat finished in `review` for hours.
+
+**So: if your drive measures a matrix cell, the cell id goes at the FRONT of the `what` column.**
+If it measures a defect rather than a cell, say so plainly and it will not be counted against
+coverage — that is correct, not a loss.
+
+**Two related traps in the same file:**
+- **The verdict for a cell is its LATEST row, not its first.** results.tsv is append-only, so a
+  cell that failed and was later fixed has both rows. Anything reading it must sort by the
+  timestamp column and take the last. My first attempt at the grid took the first and reported a
+  fixed cell as failing.
+- **Never reference another row by position** ("the row above"). Four sessions append to this file
+  and land in different orders, so positions drift. Name the row by its timestamp and issue.
