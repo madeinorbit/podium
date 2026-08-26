@@ -90,7 +90,13 @@ COORDINATOR_MODE="${PODIUM_UPDATE_E2E_COORDINATOR_MODE:-server}"
 # Naming the namespaces rather than raising the global level keeps the capture
 # readable: a full debug feed would bury these under the build.
 UPDATE_LOG_SPEC="${PODIUM_UPDATE_E2E_LOG_SPEC:-server:updates=info,daemon=info}"
-RUN_ID="podium-update-e2e-$(date +%s)-$$"
+# OVERRIDABLE SO A STANDING SANDBOX CAN BE ADDRESSED AGAIN (POD-2835).
+#
+# Every container, network and tag this gate owns is derived from this one
+# string, so naming it is the whole of what `docker-update-e2e-revise.sh` needs
+# to reach a hold someone left running. A run never sets it — the default is
+# unique per run and that is what keeps two runs from colliding.
+RUN_ID="${PODIUM_UPDATE_E2E_RUN_ID:-podium-update-e2e-$(date +%s)-$$}"
 # KEEP THE EVIDENCE BY DEFAULT.
 #
 # `cleanup` deletes $WORK, and everything a red row points at lives in it - the
