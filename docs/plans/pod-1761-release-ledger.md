@@ -187,6 +187,38 @@ the truth** — it is not what to change:
 Measured live on opencode 1.18.16: before, 1 failed with 3 errors; after,
 1 passed, 0 errors, 31s of assertions against 184s of timeouts.
 
+## THREE REGRESSIONS ATTRIBUTED, EACH TO ITS OWN COMMIT, BY BISECT
+
+The method that works: per-file A/B against a detached main worktree to confirm,
+then `git bisect run` on that single file to name the commit. Seconds per probe.
+
+| file | epic | main | first bad commit |
+| --- | --- | --- | --- |
+| `oracle-idempotency.test.ts` | 3 failed / 18 | **18 passed** | POD-2828 bisecting |
+| `relay.test.ts` | 11 failed / 187 | **171 passed** | `abd7c1a5d` (POD-2116) |
+| `oracle-errors.test.ts` | 1 failed / 15 | **15 passed** | `e0ffb0df0` (POD-2631) |
+
+**All three are the write path or its guards** — *"timed out waiting for the first
+chat send to reach the PTY"*, bracketed paste with a delayed CR and the POD-152
+CR-retry rules, and *"a timed-out target inventory probe is a retryable 412, not a
+500 or an absence claim"*.
+
+**The third one indicts my own closure.** I closed POD-2631 on my own mutation: I
+ran its regression test (28 passed) and broke it (1 failed / 27). That proved the
+new guard works. **It did not prove nothing else broke — and this is what else
+broke.** A mutation validates a guard; only a suite validates a change. Worse, the
+test it broke asserts the *other half of POD-2631's own principle*: that fix
+existed because a timed-out probe was recorded as an absence it had not earned,
+and the test says a timed-out probe must surface as a retryable 412 rather than an
+absence claim. Fixing one half moved the other.
+
+**WHY NONE OF THIS WAS VISIBLE.** `relay.test.ts` is in the server **boundary**
+lane and `oracle-*.test.ts` in **services**; the epic's gates are typecheck, the
+four-file lean gate, touched suites and boundary-no-new. **No epic gate reaches
+either lane.** An eleven-test regression sat there since `abd7c1a5d` and nothing
+in the process could have said so. That is the argument for this sweep, and it has
+now paid for itself three times.
+
 ## THE FULL SUITE — RED, AND MY FIRST BASELINE COMPARISON WAS INVALID
 
 **The epic's full `test:unit` sweep is RED**: 12 of 28 tasks, 26m57s, nothing
