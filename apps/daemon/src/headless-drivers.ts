@@ -126,7 +126,14 @@ export function buildHeadlessExec(
   const headless = manifest && declaredValue(manifest.headless)
   const buildExec = headless && declaredValue(headless.buildExec)
   if (!buildExec) throw new Error(`agent kind ${String(agent)} has no headless exec builder`)
-  return bindHarnessExec(snapshot, agent, buildExec(opts))
+  return bindHarnessExec(
+    snapshot,
+    agent,
+    buildExec({
+      ...opts,
+      env: opts.env ?? snapshot.commandEnvironment.env,
+    }),
+  )
 }
 
 function runChild<T>(

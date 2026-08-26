@@ -110,6 +110,7 @@
 import {
   CLIENT_TERMINAL_HARNESSES,
   type ClientTerminalEndpoint,
+  type HarnessEnvironment,
   clientTerminalFor,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
@@ -282,6 +283,8 @@ export interface OpencodeClientTerminalPorts {
    * opencode state while the server it attaches to runs against the instance's.
    */
   homeDir?: string
+  /** Current machine command environment used to resolve the client executable. */
+  commandEnvironment?: () => Promise<HarnessEnvironment>
   /** Injection seams. The defaults are the real abduco. */
   spawn?(opts: AbducoSpawnOptions): Promise<AgentSession>
   reclaim?(label: string): Promise<void>
@@ -451,6 +454,11 @@ export function createOpencodeClientTerminals(
       cwd: target.workdir,
       conversation: target.conversation,
       endpoint: target.endpoint,
+      // The client terminal does not pass through the generation binder used by
+      // ordinary launches. Give its manifest the current machine command
+      // environment so it can resolve the installed CLI; the child overlay below
+      // still receives the isolated instance HOME for credentials.
+      env: await ports.commandEnvironment?.(),
     })
     const podiumEnv = {
       // Whatever the harness's own declaration put there — for opencode that is

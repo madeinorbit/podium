@@ -120,7 +120,7 @@ export const cursorManifest: AgentManifest = {
     const model = opts.model || 'auto'
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
-    return { cmd: 'agent', args: ['-p', '--model', model, prompt] }
+    return { cmd: resolveCursorBin(undefined, opts.env), args: ['-p', '--model', model, prompt] }
   }),
 
   // TERMINAL TODAY, and unlike grok the reason is IGNORANCE rather than a
@@ -150,7 +150,7 @@ export const cursorManifest: AgentManifest = {
       const context = opts.contextPrompt?.trim()
       const prompt = [sys, context, opts.prompt].filter(Boolean).join('\n\n---\n\n')
       return {
-        cmd: 'agent',
+        cmd: resolveCursorBin(undefined, opts.env),
         args: [
           '-p',
           '--resume',

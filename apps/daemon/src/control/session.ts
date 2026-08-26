@@ -543,6 +543,12 @@ export async function launchSpawn(
       runtimeDir,
       ...(msg.env ? { env: msg.env } : {}),
     }
+    // loginCommand is intentionally a static argv declaration: the production
+    // branch below binds it to the current generation's verified executable and
+    // command environment. Resolving here would duplicate that snapshot and let
+    // login drift from the executable the rest of the launch uses. The injected
+    // ctx.launch branch is a legacy/test seam; production host runtime always
+    // supplies the binder for this path.
     const cmd = loginCommand
       ? ctx.harnessRuntime
         ? bindHarnessLaunch(await ctx.harnessRuntime.current(), msg.loginHarness!, {

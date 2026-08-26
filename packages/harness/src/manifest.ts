@@ -148,6 +148,8 @@ export interface HarnessExecOptions {
   mcpConfig?: string
   /** Tools pre-approved so they run headlessly without a permission prompt. */
   allowedTools?: string[]
+  /** Command environment used to resolve the harness executable. */
+  env?: HarnessEnvironment
 }
 
 export interface HarnessExecSpec {
@@ -290,6 +292,8 @@ export interface HeadlessExecOptions {
   /** The pinned harness session id (pre-minted for grok/cursor). */
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId?: string
+  /** Command environment used to resolve the harness executable. */
+  env?: HarnessEnvironment
 }
 
 export interface HarnessHeadless {
@@ -742,6 +746,8 @@ export interface ClientTerminalLaunchOptions {
    */
   conversation: string
   endpoint: ClientTerminalEndpoint
+  /** Command environment used to resolve the client executable. */
+  env?: HarnessEnvironment
 }
 
 /**

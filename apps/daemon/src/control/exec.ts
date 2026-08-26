@@ -134,6 +134,7 @@ async function runHarnessExec(
     } = bindHarnessExec(snapshot, msg.agent, buildHarnessExec(
       msg.agent,
       {
+        env: snapshot.commandEnvironment.env,
         prompt: msg.prompt,
         ...(msg.model ? { model: msg.model } : {}),
         ...(msg.effort ? { effort: msg.effort } : {}),

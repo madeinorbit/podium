@@ -7,6 +7,7 @@ import {
   declaredValue,
   harnessDetectLogin,
   harnessLoginReadEnv,
+  type HarnessEnvironment,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
@@ -693,6 +694,14 @@ export async function createDaemonHostRuntime(args: {
     // client terminals. The latter intentionally returns the parent session id.
     frames: (streamId, frame) => ctx.outputScheduler.enqueue(asSessionId(streamId), frame),
     releaseStream: (streamId) => ctx.outputScheduler.remove(asSessionId(streamId)),
+    // Executable discovery belongs to the machine command environment, while
+    // `homeDir` below is the isolated credential home passed to the child. Keep
+    // those identities separate: the resolver must find the installed CLI before
+    // the child’s HOME is replaced for account isolation.
+    commandEnvironment: (): Promise<HarnessEnvironment> =>
+      harnessRuntime
+        ? harnessRuntime.current().then((snapshot) => snapshot.commandEnvironment.env)
+        : Promise.resolve(process.env),
     ...(homeDir ? { homeDir } : {}),
   })
   ctx.clientTerminals = clientTerminals

@@ -161,7 +161,7 @@ export const opencodeManifest: AgentManifest = {
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
     return {
-      cmd: 'opencode',
+      cmd: resolveOpencodeBin(undefined, opts.env),
       args: [
         'run',
         ...(model ? ['-m', model] : []),
@@ -216,8 +216,8 @@ export const opencodeManifest: AgentManifest = {
        */
       clientTerminal: supported({
         labelToken: 'oc',
-        launch: ({ cwd, conversation, endpoint }) => ({
-          cmd: 'opencode',
+        launch: ({ cwd, conversation, endpoint, env }) => ({
+          cmd: resolveOpencodeBin(undefined, env),
           args: ['attach', endpoint.address ?? '', '--session', conversation],
           cwd,
           env: {
@@ -252,7 +252,7 @@ export const opencodeManifest: AgentManifest = {
       const context = opts.contextPrompt?.trim()
       const prompt = [sys, context, opts.prompt].filter(Boolean).join('\n\n---\n\n')
       return {
-        cmd: 'opencode',
+        cmd: resolveOpencodeBin(undefined, opts.env),
         args: [
           'run',
           '--format',
