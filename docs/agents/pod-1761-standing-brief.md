@@ -1040,3 +1040,28 @@ one more command testing THAT conclusion before you record it.**
 specific CALL SITES checked, not the topic. Three commits over two days can be a sequence — env
 propagation, then the two manifests still bypassing it, then keeping probes package-local — rather
 than a duplicate. Earlier work on the same subject is not the same work.
+
+### A background command that cannot find its interpreter reports success (2026-08-27 00:27 CEST)
+
+I launched the server suite in the background, wrapped as `bun run … > log; echo "exit=$?"`. The
+task notification came back **"completed (exit code 0)"**. The log was **one line**:
+
+    /bin/bash: line 4: bun: command not found
+
+The suite never ran. The notification's exit code was the WRAPPER's — my `echo` succeeded, so the
+shell exited 0 while the thing I cared about exited **127**. Had I trusted the notification I would
+have recorded "the gate ran on the epic tip" for a command that never started, which is precisely
+the defect I have been correcting other sessions for all evening.
+
+**`bun` IS NOT ON PATH in this harness's shell** — not in a plain shell and not under `bash -lc`.
+It lives at `/home/mgw/.bun/bin/bun`. Export
+`PATH="/home/mgw/.bun/bin:$PATH"` before any `bun` invocation, or use the absolute path.
+
+**THREE RULES, and the third is the general one:**
+1. Capture the exit code OF THE COMMAND, not of the wrapper: `cmd > log 2>&1; rc=$?` and print
+   `rc` as the first thing, before any other statement can overwrite `$?`.
+2. **Check the log's SIZE before its contents.** A 12-minute suite that produces a 1-line log did
+   not run. A line count is a positive control you get for free.
+3. A completion notification reports that the PROCESS ended, not that the WORK happened. Same
+   family as: a badge is not the event; a check that prints is not a check that gates; a pin proves
+   the right code is loaded and nothing about whether it works.
