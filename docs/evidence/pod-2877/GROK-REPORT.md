@@ -42,6 +42,8 @@ filed from this drive. There are **2 PARTIAL attention cells** (A8 H and T) and
 **30 BLOCKED Tier-A cells** (the other 15 rows on both arms). The Tier-B spots
 are both BLOCKED on both arms. If the release dashboard treats PARTIAL as red,
 the attention count is 2; the strict FAIL-red count is 0.
+No better/worse claim is made between H and T: the normal acceptance cells were
+unscored on both arms.
 
 At drive time no usable Grok authentication was available: `/home/mgw/.grok/auth.json`
 was absent and no `XAI_API_KEY` was present. The operator subsequently confirmed
