@@ -176,6 +176,21 @@ differ in a way POD-2885 needs to know.
 Two of these six are timing-sensitive (A2a, A3) and will be driven **last**, with
 host load and swap stated alongside the result.
 
+### How a re-drive result will be classified
+
+The stale re-drives are a different kind of measurement from the six above, and
+the two must not land in the same bucket:
+
+- A cell that has **never been driven** coming back red is a **new defect**.
+- A cell that **passed before the merge** and fails after it is a **regression the
+  merge introduced** — a different finding with a louder headline, and it goes to
+  POD-2876 rather than into the defect count.
+
+Two waves of merge fallout have already landed (a syntax error that also deleted
+an element body, then type-level plumbing), so a third is not unthinkable. Any
+re-drive that turns red will say which of the two it is, and name the commit
+range it regressed across.
+
 ---
 
 ## The cells that were driven
