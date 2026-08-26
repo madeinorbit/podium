@@ -320,3 +320,15 @@ handoff rather than catch it.
 moment it is grabbed until that session next acts — which can be minutes — so it blocks
 whoever is behind it in order to save the watcher one rotation. **Missing a window is the
 cheaper mistake.** Check the lock at the moment you actually run.
+
+## Backticks die in an unquoted heredoc
+
+`cat >> file <<EOF` **executes** anything in backticks before writing. A ledger entry lost
+three quoted values this way — `usage_limit` and two others simply vanished, leaving
+`reports as , ,` in the file and `command not found` in the log. The same trap eats backticks
+in a `podium ... --body "..."` argument.
+
+**Use a quoted delimiter — `<<'EOF'` — whenever the text contains backticks**, and substitute
+variables afterwards rather than relying on expansion. If you need both, write the file with
+python or pass the text through a file. **And read back what you wrote**: this failed loudly
+in the log and still landed mangled text, because nobody checked the file.

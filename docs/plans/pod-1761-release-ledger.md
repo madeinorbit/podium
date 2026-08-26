@@ -2524,7 +2524,7 @@ hatch*, and the Tier-B quota check on both arms. 28 cells remain blocked until t
 resets at 11:03 tomorrow, with a handover written so the re-run rediscovers nothing.
 
 **A third cell where the new drivers are BETTER**, and the cheapest one to claim because both
-arms pass: quota exhaustion reports as , , **402 Payment
+arms pass: quota exhaustion reports as `usage_limit`, `retryable:false`, **402 Payment
 Required** carrying the provider's own message on headless, against 
 as prose on terminal. Typed and structured versus something the user has to interpret.
 
