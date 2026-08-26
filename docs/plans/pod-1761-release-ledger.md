@@ -1165,3 +1165,733 @@ honest as the tip moves.
 That is the whole release: land seven branches, run three gate commands, drive
 one matrix, make four written triage calls. Every later milestone consumes its
 rows from this ledger the same way.
+
+## THE POD-2432 WAIVER IS RETRACTED — the operator was right and my reason was wrong (2026-08-26)
+
+I waived POD-2432 as *"a real gap and a poor experience, and it is not a
+correctness or parity failure against main."* The operator's answer names the
+case my reasoning never considered: **the transition has to be seamless for
+EXISTING users, so any old session has to keep working.** On the upgrade path,
+*every* session is one this boot did not start. My waiver reasoned about a daemon
+restart, which is an operator event; the same code path is also the **upgrade**
+event, which is every user's first five minutes with the release.
+
+**And the waiver leaned on a capability the user cannot reach.** Its argument was
+"resuming works — POD-2775's journal `adopt` is precisely the daemon-died case."
+Resume does work. But adoption acts on a session the machine runtime can
+enumerate, and enumeration is exactly what is missing, so the working resume sits
+behind the broken list. *A capability you cannot reach is not a mitigation.*
+
+**What the severity actually is, measured rather than assumed.** The server lists
+sessions from its own store (`read-toolkit.ts:101`, `SessionMeta[]`), NOT from the
+daemon. So a user's session list does **not** go empty on upgrade — that is the
+version of this I would have reported if I had kept guessing. The real
+consequence is narrower and still disqualifying: the daemon cannot tell that an
+on-disk session is still running, so it cannot adopt it. The session is listed and
+unreachable, or it is re-spawned alongside a live orphan.
+
+### And there is a SECOND half nobody had filed — POD-2858
+
+Checking the first half surfaced a distinct defect. **The driver is not a property
+of the durable session.** `resolveDriver` (`machine-runtime.ts:73`) takes
+`agentKind`, `requested`, `machineDefault`, `available`, `platform`, `auth` — and
+nothing carrying what the session was bound to before. Every `binding.driver` in
+the daemon reads a **live in-memory handle**; nothing in `packages/model` or
+`packages/protocol` persists a driver at all.
+
+So a session's driver is a fact about its running process, re-decided from machine
+state on every spawn. **The cutover therefore silently rebinds old sessions**: a
+session created under generic-pty, process gone, comes back on a *server* driver
+because the machine default moved underneath it. Whether its transcript, resume
+and on-disk state survive that identity change is **untested and unknown**, and
+unknown is not a release answer for the first thing every existing user does.
+
+POD-2432 is the **enumeration** half; POD-2858 is the **rebind** half. They meet
+on the upgrade path and must not be conflated.
+
+## THE ROADMAP TO RELEASE — five things, in this order
+
+Written 2026-08-26 because the operator asked what the smart path is, and because
+the honest answer to "are we working on the right big things" had been *partly*.
+
+1. **POD-2853 — a named instance cannot start a session.** Nothing can be driven
+   until this closes, so it is not first by importance but by dependency. Two
+   defects: a socket path composing to 112 bytes against a 108-byte limit, and a
+   socket created while the liveness probe reports it absent. The probe half
+   first: a wrong path fails loudly, a blind probe fails silently, and the silent
+   one makes the matrix report a product failure that is really a lookup failure.
+
+2. **POD-2819 — the one measured cell where headless is WORSE than main.** codex
+   attach declares image-only and refuses a text file the PTY reads fine, and the
+   image it does declare was not read back either. **This is the epic's own bar
+   failing on the record.** It does not matter how many other cells are green: the
+   rule is every driver at least as good as main, and this is a counterexample we
+   have already proven. If only one thing gets fixed, it is this.
+
+3. **POD-2777 — fill the sixteen-row matrix.** This is not a task that supports
+   the release decision, it *is* the release decision. Zero of ~80 cells were
+   filled while four suite regressions got found; that ratio was the drift.
+
+4. **The upgrade path — POD-2432 + POD-2858.** Above. Both must be *driven*, on a
+   real upgrade from main's drivers to the tip, not reasoned about.
+
+5. **Release mechanics — POD-2854 (bundle budget, over by 30,696 bytes) and
+   POD-2820 (`lint:boundaries` red on the tip, all three violations this epic's
+   own).** Neither is interesting and neither can be skipped.
+
+**What is deliberately NOT on this list:** streaming, and everything else that has
+no equivalent on main. The bar is parity plus evidence. A feature main does not
+have cannot make the release safer, and every hour spent on one is an hour not
+spent on the four cells that decide it.
+
+## THE FOREST — what actually sets the release date (2026-08-26)
+
+The operator's challenge: the five-item roadmap above is still a list of trees.
+It answers *what do I do in the next hour*, not *what is the longest path*. This
+section is the answer, and it changes how the matrix gets driven.
+
+### The release date is a CYCLE COUNT, not a task count
+
+Everything on the shipping bar reduces to one serial loop: **drive a cell → find
+it red → file it → fix it → re-drive at the landing commit.** Each turn of that
+loop is days. Nothing else on this epic is serial in the same way — builds, lint,
+and the seventy-nine open children are all parallelisable or droppable.
+
+So the schedule is set by **how many turns of that loop remain**, and *a red
+discovered late costs a whole extra turn that the same red discovered early would
+have shared with its siblings*.
+
+**Which makes the single most valuable number on this epic the COMPLETE LIST OF
+RED CELLS — and we have zero of about eighty.** Not "we have some reds". We
+cannot say how many turns are left, which means every date I could give the
+operator would be invented.
+
+### That inverts the drive order, and I had it backwards
+
+I told POD-2777 last tick to take **one row green end to end**. That is
+depth-first, and depth-first is right for *fixing* and wrong for *discovering*.
+Corrected: one row end to end **only to prove the instrument**, then a **shallow
+sweep of every cell** — PASS / FAIL / BLOCKED, no diagnosis, no fixes, flakes
+accepted, because a false red costs one re-run and an undiscovered red costs a
+release cycle. Then triage the whole red set at once and fan the fixes out in
+parallel. *That* is the step that compresses the schedule; nothing before it does.
+
+### The four phases, and where we honestly are
+
+1. **Make the bar measurable.** A named instance that starts sessions (POD-2853),
+   rigs with no socket overrides (POD-2856), a drive anyone can repeat in one
+   command. *Exit: the matrix can be run at all.*
+2. **Discover the full red set.** The shallow sweep. *Exit: a number.*
+3. **Close the reds.** Parallel, one issue each, each re-driven at its landing
+   commit. POD-2819 is the template and it is exactly right — landed, then
+   re-driven at `88348eb` on both arms with a readback secret, after its author
+   found that two of their own three claims were wrong.
+4. **Ship.** Bundle budget, boundaries lint, upgrade path proven, merge.
+
+**We are in phase 1.** Not phase 3, which is what a list of open bugs makes it
+look like. The seventy-nine open children are mostly not on the bar, and letting
+their count drive attention is the exact mistake this section exists to name.
+
+### The corollary I keep having to relearn
+
+**Nothing is releasable that has not been driven, and driving is the bottleneck.**
+Every hour spent on an issue that no matrix cell measures is an hour not spent on
+the constraint. That is the test I should apply before starting anything:
+*which cell does this turn green?* If the answer is none, it is not phase-1 work
+and it waits.
+
+## FIRST NUMBER FROM THE MATRIX: 8 of 80, and POD-2853 is a PRODUCT defect (2026-08-26)
+
+POD-2777's first drive on a rig with **no overrides**, and the rule paid for itself
+inside an hour: removing them **blocked the entire terminal column**, which is the
+correct result rather than a setback.
+
+  terminal arm — no session starts at all, `abduco exited 1: create-session:
+      File name too long`, exitCode -1.
+  headless arm — the native CLI view never appears EITHER, and there it is
+      **silent**: session stays live, `spawnFailure` null, attach answered
+      normally, 0 bytes, cause visible only in a daemon warn.
+
+**8 cells scored, 3 BLOCKED, 72 undriven.** Nothing has FAILED and the matrix has
+no waiver row, so that is not a pass — it is an absence of measurement.
+
+### POD-2853 is no longer a rig problem — re-ranked to P1
+
+The measurements move it out of the test harness and onto the shipping path:
+
+- **No named instance can fit, whatever it is called.** Derived budget: 90 constant
+  bytes, and `len(id)` is counted **TWICE** — `HOME + 2*len(id) + len(user) +
+  len(host) <= 17`. Shortest legal id (1 char) still needs 113 against `sun_path`'s
+  107. `default` fits at 71 only by being short. *"Use a shorter name" and "use a
+  shorter state dir" are both provably dead ends*, not untried ideas.
+- **The headless path has the same defect with less rope.** codex-app-server's
+  socket has 94 constant bytes; real sockets were bound to find the edge — **107
+  binds, 108 fails**. Any instance id over **13 characters** loses codex headless,
+  and the pattern allows **32**. That is reachable by any user who names an
+  instance normally.
+- The client-terminal label `podium-cx-attach-<uuid>` is 53 chars against the
+  session label's 49, so the native view overflows by 4 bytes *more* than the spawn.
+
+Deriving the budget and then **binding real sockets** to find the boundary is what
+turns a plausible cause into a proven one.
+
+### A fourth override nobody had named: HOME
+
+The rig set `HOME` on the daemon to isolate agent children. For a named instance
+the state root is **derived from `$HOME`**, so the daemon landed on a state root
+**nested inside itself**. It failed loudly only because that directory had files;
+on an empty one the daemon boots onto a **private** state root while the rig
+believes it shares the server's — a silent split-brain that fakes results in either
+direction. `PODIUM_STATE_DIR` had been papering over it, and none of it was needed
+(`resolveAgentHomeDir`, `config.ts:550` already isolates a named instance's home).
+Relayed to POD-2856 with the rule restated: *a rig may not relocate anything the
+product derives for itself* — not merely "do not set these three names".
+
+### The eight cells must be re-driven at the tip
+
+The run pinned server, daemon and web before every cell — right discipline, wrong
+commit: `15cdfa0`, **41 behind**. A PASS on a base that lacks the later commits does
+not transfer forward, because the risk direction is that one of those 41 broke what
+passed without them. A1a sits directly on the first-send deadlock fix and the
+composer-readiness change, so 9.1s there is not a measurement of shippable code.
+BLOCKED cells are unaffected. Four scored cells to redo, cheap now the rig exists.
+
+**Also filed from the drive: POD-2862** — one permission opens **two** asks on a
+server driver; the structured ask plus a screen-classifier copy that has no screen
+to classify, carrying the whole shell command line in its `toolName`. Answering the
+real one does not clear the copy. Correctly filed separately rather than buried in
+an A4a verdict.
+
+## POD-2853 SOLVED, AND IT TALKED ME OUT OF MY OWN SUGGESTION (2026-08-26)
+
+I had proposed reclaiming the doubled `abduco/abduco` segment as if it might be
+enough. **It is not, and the author found that by computing the number rather than
+taking the suggestion:** de-duplication buys exactly **7 bytes** and leaves the
+documented default at **114**, still over 108. Necessary, taken, insufficient.
+
+**The fix is the bound rather than a shorter component.** The socket root no longer
+derives from the state root at all — it comes from the **runtime directory**, chosen
+as the first candidate that *both fits and can be created*:
+`$XDG_RUNTIME_DIR/podium-<instance>` → `$XDG_RUNTIME_DIR/podium` →
+`<TMPDIR|/tmp>/podium-<uid>`. p2853 composes to 98, operator to 104. Nobody
+hand-sets anything.
+
+**And the operator's paths were not shortened to get there** — the drive
+deliberately used the documented default state root, which is *longer* than
+`/home/mgw/.pod-op-state`, so the arm is the harsher one. That is the detail that
+makes the result trustworthy rather than convenient.
+
+### The silent half had a better cause than either of us guessed
+
+Not the environment (that was POD-2761). **abduco walks FOUR socket roots and falls
+silently to the next on any failure of the current one, while `abducoSocketDirs`
+mirrored only the FIRST.** So a master that had fallen through was invisible, and a
+*running* agent reported "did not publish a live socket". Reproduced end to end with
+a live claude under a live master; the resolver now mirrors all four rungs in
+abduco's own order. It also explains the operator-vs-POD-2843 divergence without
+either rig being wrong: POD-2843 creates its socket dir before anything runs, so
+abduco can use it; `/tmp/pod-op-ab` could not be used and abduco went elsewhere.
+
+### One risk raised back before landing
+
+The socket root is now **chosen at runtime from candidates**, which makes the path a
+function of the *environment at spawn time* rather than of the instance. Two
+consequences I asked to be checked rather than assumed:
+
+1. **Restart-safe enumeration (POD-2432).** If a journal records a socket path under
+   a root a later boot resolves differently — `$XDG_RUNTIME_DIR` unset under a
+   systemd-spawned daemon, a different `TMPDIR` — reconstruction looks where there is
+   no socket and reports a live session dead. *That is the same silent shape just
+   fixed, relocated one layer up.*
+2. **A daemon and a CLI that disagree.** Anything attaching from another process must
+   resolve to the same root as the daemon that created the socket. Under systemd
+   `$XDG_RUNTIME_DIR` is set; under bare ssh or cron it often is not. The four-rung
+   mirroring presumably covers it — but it should be a property that is **tested**,
+   not one that holds because two candidate lists happen to match.
+
+### A rig defect that fakes a product failure — relayed to POD-2856
+
+`grep -c` **prints `0` and exits `1`** when nothing matches, so `n=$(grep -c … || echo 0)`
+yields the string `"0 0"` and every comparison downstream is false forever. In
+POD-2843's rig this is the daemon-readiness gate: it spins all 120 iterations and
+reports an **already-running daemon as never connected**.
+
+This is the costliest class of rig bug, because *a false red costs the same
+fix-and-redrive cycle as a missed real red* and is harder to spot — it looks like
+diligence. Swept for across every rig, along with the `HOME`/derived-state-root
+item. Same underlying rule both times: **a rig may not relocate or misread anything
+the product derives for itself.**
+
+## EVERY SUB-ISSUE IS CUT FROM MAIN — a tax I had been paying without noticing (2026-08-26)
+
+`podium issue create` / `issue start` default **`parentBranch = main`**. Tracker
+parentage is not git parentage: a sub-issue created with `--parent-id 1761` still
+gets a worktree cut from **main**, not from this epic's branch.
+
+**Measured this tick.** POD-2858 and POD-2867, both started today, came up at
+`206693584` — a main commit from **2026-08-23**, missing roughly 150 epic commits.
+POD-2853 and POD-2856 carry the *same* `parentBranch=main` and only contain epic
+work because **their agents rebased themselves**. The ones that look fine are
+survivorship, not a working default.
+
+**The fix is `--parent-branch <epic-branch>` at create time**, and it is now my
+standing dispatch procedure along with an `--is-ancestor` check before the agent
+does any work.
+
+### Why this is worth catching at dispatch and not in review
+
+**A wrong base does not error. It produces confident wrong work.**
+
+- POD-2867 was told to widen `packages/runtime/src/abduco-socket.ts`. On its base
+  that file does not exist — so the rational move is to conclude the instruction
+  was wrong and re-derive the 108-byte constant by hand. That is *exactly* the
+  duplication the brief existed to prevent, and the agent would have had a good
+  reason for doing it.
+- POD-2858 is worse, because for that issue **the two branches are the
+  experiment**: its job is to drive an upgrade from main's drivers to the epic tip.
+  Sitting silently on main, it would have measured **main against main** and
+  reported a clean upgrade. A PASS that means nothing — *failing toward the answer
+  everyone wants*, which is the most dangerous direction a rig can fail in.
+
+Both were caught before either wrote code, and both were told to record the SHA each
+arm actually booted at rather than infer a pin from a process timestamp — `/proc`
+mtimes on this host skew **forward** by up to two hours, so an older process reads
+as newer, which is again the direction that turns a stale arm into a pass.
+
+## MATRIX AT 14 OF 80, AND THE INSTRUMENT WAS CONTAMINATED (2026-08-26)
+
+**14 cells, 2 of 5 columns: seven PASS, three PARTIAL, three BLOCKED, nothing
+FAILED.** Under "zero Tier-A fails" nothing has failed — but with no waiver row,
+three blocked and three partial are not a pass either, and sixty-six cells are
+untouched with no terminal column at all, so there is still no A/B.
+
+### The readings were being contaminated by a neighbour
+
+POD-2811 found two ways the rig read things that were not there:
+
+1. **opencode keys its conversation store BY DIRECTORY.** Two sessions in one
+   directory share it, and a session that produced nothing displays *the other
+   one's* transcript. The matrix's terminal provider-error cell was recorded
+   BLOCKED — "the bad model was ignored, the harness answered normally" — when the
+   assistant text read back was **probe 1's own nonce**, while the fault session's
+   own row held 1 user and 0 assistant messages. **True value FAIL.** Filed and
+   started as POD-2871.
+2. **Two sessions on the same instance were reaping each other's servers.**
+   `drive-up.sh` stops "the previous pair" by pidfile, so a neighbour's bring-up
+   kills yours and **the survivor writes its commit into your log** — a pin line
+   that looks perfect and belongs to someone else's run.
+
+**Standing rule from here: one probe per directory, one instance per drive.** Any
+cell driven with a neighbour alive is suspect and gets re-run rather than reasoned
+about.
+
+**Why POD-2871 outranks its apparent severity.** It is on the terminal path, so it
+exists on main and is *not* a regression this epic caused; on the better-or-no-worse
+bar it does not block. It is ranked because **a defect that makes the acceptance
+drive report the wrong answer is worse right now than one that merely makes the
+product wrong.** Every cell driven while it is live is suspect.
+
+### POD-2811: the epic is BETTER here and the old arm is unchanged
+
+Same rig, same commit, same control, reply probe passing on both arms before either
+reading was taken:
+
+| arm | result |
+| --- | --- |
+| headless (opencode-server) | first signal **12.2s**, `phase=errored`, `errorClass=provider-error`, plus opencode's own text |
+| terminal (generic-pty) | **never, in 190 seconds**. `phase=idle status=live errorClass=none` |
+
+The terminal silence is worse than "no error": the TUI printed *"Model … is not
+valid"* on screen at +4s, the product showed a healthy idle session for three
+minutes, the initial prompt was **never delivered**, and the session ran on a
+**silently substituted model**. That is a **main** defect, recorded as a named
+residual (POD-2868), not an epic blocker.
+
+**And it found a worse one nobody had measured:** codex's `closeTurn` set
+`{ phase: 'idle' }` **unconditionally, including for `status === 'failed'`** — a turn
+that *died* rendered on the home board as one that *finished*. Found by reading the
+neighbouring driver after measuring opencode. The cause is general: **a phase written
+by hand beside an emitted change is a second reducer.** grok-acp is the only driver
+that never had the bug and the only one that never hand-wrote the phase.
+
+### Four self-corrections, three of which would have reached me as product defects
+
+Worth recording as method, not just as diligence:
+
+- **A5** scored a *perfectly correct* transcript as FAIL by looking for a following
+  `tool_result` item when the real shape carries both halves on the **same** item.
+  Caught by dumping the raw items rather than trusting the verdict — then the shape
+  was **declared in `rig.ts` so the next probe reads it instead of guessing.**
+- **A9** drove `sessions.stop` and called it a kill. The tree *was* gone, so the
+  observation was true — but stop returns `hibernated/parent`, which is a **park**,
+  and a park that tidies its processes says nothing about a kill. Re-driven against
+  `sessions.kill`; the verb is a parameter now. Every process attributed **by
+  environment, never by command-line pattern** — a `pkill -f codex` would take your
+  own sessions down while reporting a clean sweep.
+- **A6a** asked for a terminal without sending the `viewState` frame the browser
+  sends. Verdict unchanged, but untrustworthy until the frame was there.
+- **A4b** demanded a *thrown* error where the row asks only for a **typed** one, and
+  scored `{"ok":false,"reason":"already-answered"}` as FAIL. Widened **and fenced**:
+  the classifier now runs against the first answer too and must call it
+  not-a-refusal, so it cannot rot into "anything counts".
+
+**POD-2870 is a known-deferred gap, not a bug, and is a waiver candidate.** A1b: the
+queued message survives a socket-drop reload and runs when idle, but no *position*
+reaches a chat caller. The product computes one (`runtime-gateway.ts:49`) and emits it
+on the message-receipt path; `command-plane.ts:459` narrows the chat reply to four
+pinned keys with a comment deferring the wire change.
+
+## THE SHARED-NAMESPACE SHAPE, THREE TIMES IN ONE DAY (2026-08-26)
+
+POD-2867 proposed a sound socket design — one mode-0700 root under the OS runtime
+namespace, **no** candidate-probing ladder (abduco's ladder exists only to mirror
+what an external tool does on its own), and the 108-byte predicate kept in one
+shared utility. All correct, and reached independently.
+
+**The one part I pushed back on: dropping the instance id from the path.** The
+premise was true — the basename carries no instance component — but the conclusion
+does not follow, because **the budget no longer needs the saving.** Measured on this
+box rather than derived: `XDG_RUNTIME_DIR` is `/run/user/1001` (14 bytes) and the
+basename `<12hex>-<12hex>.sock` is 30:
+
+| instance id length | `/run/user/<uid>/podium-<id>/<basename>` | limit |
+| --- | --- | --- |
+| 1 | 54 | 107 |
+| 8 (operator) | 61 | 107 |
+| 13 | 66 | 107 |
+| 14 | 67 | 107 |
+| **32 (the maximum the pattern allows)** | **85** | 107 |
+
+Carrying the full id at the longest legal name lands at 85, **22 bytes spare**. What
+blew the old bound was the long *state* root, not the id; once the root is short the
+identity is affordable.
+
+### Why I was unusually firm about it
+
+**This epic hit the same defect three times today, and every time the cause was a
+shared namespace where identity had been dropped for convenience:**
+
+1. Two sessions on one instance **reaping each other's servers** — `drive-up.sh`
+   stops "the previous pair" by pidfile, and the survivor writes its commit into the
+   other's log.
+2. **opencode keying its conversation store by directory**, so a session that
+   produced nothing displays the neighbour's transcript (POD-2871) — which already
+   made the matrix record a cell BLOCKED when the true value was FAIL.
+3. A shared socket root would be the same shape again: any reaper sweeping stale
+   sockets there can kill a **live** socket belonging to another instance, and it
+   would present exactly like the abduco silent failure being fixed — *a running
+   agent that reads as having published nothing.*
+
+It also collides with work in flight: **POD-2432** is teaching the journals to
+enumerate sessions from disk after a restart, and enumeration over a shared root
+walks other instances' sockets — when the entire point of a named instance is not
+seeing its neighbours.
+
+**Settled: `/run/user/<uid>/podium-<instance-id>/`, mode 0700, no ladder, predicate
+in the shared utility.** I asked for the two counter-cases that would change it —
+anything downstream assuming one socket root *per user* rather than per instance, or
+an isolation guarantee the nonce already provides that I have missed.
+
+## TWO BASE TRAPS, AND `origin` IS THE SECOND ONE (2026-08-26)
+
+Both cost a round today and both are silent, so they are worth writing down as
+dispatch procedure rather than as anecdotes.
+
+**Trap 1 — a fresh sub-issue is not BEHIND the epic, it is on a DIFFERENT LINE.**
+`podium issue create`/`start` default `parentBranch = main`. I told POD-2867 to
+*rebase* onto the epic; its branch has **zero commits of its own**, so that asked git
+to replay **61 main-only commits** onto the epic — including a chat-rendering rebuild
+unrelated to sockets. It aborted rather than resolve foreign history, which was
+right, and I would rather it refused than complied. **Rebase replays your own work
+onto a new base; when there is no own work, `reset --hard` is the verb.**
+
+**Trap 2 — `origin` is a permanently trailing snapshot on this epic.** Measured:
+
+    local  issue/1761-agent-runtime   c58315ef4
+    origin/issue/1761-agent-runtime   76fb38400   (8 behind)
+
+and among those eight is a **product** fix, not just evidence — `981a97b0f`, POD-2811's
+dead-turn badge. The epic lands ff-only on a **local** shared branch and deliberately
+does not push, because nothing goes outward until the operator decides. So
+`origin/issue/1761-agent-runtime` is stale for as long as the epic runs, and it is
+the ref everyone reaches for by habit. **Every session is on one machine and
+worktrees share one object store, so the LOCAL ref is both reachable and more
+current.** Corrected instruction: `git reset --hard issue/1761-agent-runtime`, no
+fetch.
+
+**Standing dispatch procedure, now three checks:**
+1. Create with `--parent-branch issue/1761-agent-runtime`.
+2. Before the agent writes anything: `git merge-base --is-ancestor <epic tip> HEAD`.
+3. Point every base instruction at the **local** ref, never `origin`.
+
+The through-line with everything else found today: **a wrong base does not error, it
+produces confident wrong work** — and both traps fail toward looking correct.
+
+## POD-2853 LANDED — the terminal column is unblocked (2026-08-26)
+
+Epic tip is now **`d4fb68408`** (fix `ab9d698ab`, plus the drive taken on that exact
+commit — the discipline POD-2819 established and this one repeated without being
+asked).
+
+### Both of my questions answered from the code, and the second found a real defect
+
+**1. Does the journal record the resolved socket path, or re-resolve it?** It
+**re-resolves**. The sessions table persists `durable_label` and there is **no
+socket-path column anywhere in the schema**, so no boot can come up holding a stale
+absolute path — which is what makes moving the root safe at all. The cost is bounded
+and documented: masters created by an older build are not found after the upgrade and
+their sessions must be resumed. **Nothing in the field is orphaned, because every
+instance the pin applies to could not start a durable session in the first place.**
+
+**2. Is daemon-and-CLI agreement tested or coincidental?** Neither as posed — *there
+is no CLI side*. Every resolver of the abduco root lives in the daemon and they all
+go through **one** function, `abducoSocketDirs`, so agreement is **structural** rather
+than two lists happening to match.
+
+**But the honest version of the worry was real, and checking found it.** Inside the
+daemon, the reattach path probes with `process.env` while the create used `childEnv`,
+whose `HOME` is the agent home. Named instances are safe (the pin means `HOME` is
+never consulted); the default instance with no agent-home override is safe (both
+`HOME`s are the same). **Exposed: the DEFAULT instance with `PODIUM_AGENT_HOME` or
+`config.agentHome` set** — which is the ordinary configuration here, since Podium's own
+agents run under a custom agent home. The error is **one-sided toward absent**, so a
+live agent reads as `session not found` and its master then **leaks until reboot**.
+Filed, re-filed as a startable sub-issue and **started**.
+
+### POD-2777's 53-byte label measurement changed what landed
+
+The client-terminal label carries **no instance prefix** (53 bytes) against the session
+label at `44 + len(id)`. **Below nine characters of instance id the attach label is the
+LONGER of the two** — so a budget computed from the session label alone would have let
+the *spawn* succeed while the *native view* overflowed: a live session with a
+permanently blank pane, exactly the silent shape the drive had measured. The budget
+now takes **the longer of both shapes**, and the harness-side test **derives the tokens
+from the manifest registry**, so a fourth harness declaring a longer one fails rather
+than silently re-opening the hole.
+
+That is the difference between a hand-written list and a derived set, and it exists
+because the acceptance drive measured a number nobody had asked for.
+
+**Gates:** `bun run typecheck` 25/25. Per-file 23 runtime, 16 pty, 5 harness. Heavy
+re-run on the exact committed tree after both gates had already passed on an earlier
+one: `abduco.test.ts` 26 passed, `multi-instance-runtime.integration` 1 pass / 43
+expects. All `PODIUM_TEST_WORKERS=1`.
+
+## THE SWEEP IS THE CRITICAL PATH, SO IT STOPPED BEING SINGLE-THREADED (2026-08-26)
+
+POD-2856 moved its rig work onto the epic correctly — preserved POD-2853's tip,
+rebased the resolved cherry-pick, fast-forwarded under the merge lock, left local
+main alone. Verified: epic tip **`6c10b6643`**, POD-2853's fix and POD-2811's fix both
+still ancestors, main unchanged at `0bd90092c`.
+
+**With the blocker gone, the constraint moved to the sweep itself — and it was one
+session driving sixty-six remaining cells serially.** That is the schedule, so I split
+it by harness column:
+
+| session | columns |
+| --- | --- |
+| POD-2777 | codex, opencode, and the terminal arm of both |
+| POD-2874 (new) | **claude** (15 rows), **shell** (6 rows) |
+| — | grok, unassigned until one of them has capacity |
+
+**Claude is the column I could not leave until last.** The bar is *every driver,
+headless and headed, at least as good as today's main* — and **claude is the headed
+driver people use today**. A regression anywhere else costs a fix; a regression in the
+claude column is the one thing that definitively blocks the release. It had **zero of
+sixteen rows** driven.
+
+### Two rigs on one host makes the contamination rules harder, not softer
+
+Both sessions carry the same three, and they are now rules rather than advice because
+each one cost a round today:
+
+1. **Distinct instance id and distinct working directory.**
+2. **One probe per directory** — opencode keys its store by directory, which is what
+   made the terminal provider-error cell read BLOCKED when it was FAIL.
+3. **Two rigs on one instance reap each other's servers by pidfile**, and the survivor
+   writes *its* commit into the other's log.
+
+### The claude column has a trap the others do not
+
+Written into POD-2874's brief because it would otherwise present as a product bug:
+**a hermetic claude home is a first-run home.** claude-code runs `/auto-mode-setup`
+itself, once, as soon as the first turn ends, whenever the agent home has no
+`autoMode` block — a modal arrow-key wizard that **consumes typed text without echo**
+and writes no transcript turn. A send silently vanishes and nothing in Podium shows
+it.
+
+And the obvious positive control does not catch it: **the trust dialog fires BEFORE a
+session's first turn while the wizard fires AFTER it**, so "did my first send land?"
+passes and everything measured afterwards measures the wizard. Three sends through one
+session, requiring the *last* to land.
+
+## `lint:boundaries` IS RED ON THE TIP AND THE EPIC DID NOT CAUSE ANY OF IT (2026-08-26)
+
+Driven by me, on epic tip `6c10b6643`, because a red gate cited as a release blocker
+has to be attributed before it can be one.
+
+**Exit 1, 58 violations across 47 distinct files:**
+
+| rule | count |
+| --- | --- |
+| console-ownership | 40 |
+| harness-branching | 15 |
+| ui-storage-ownership | 2 |
+| manifest-browser-reach | 1 |
+
+**`manifest-consumers` is GONE**, which is POD-2820's fix holding — that was the rule
+the earlier blocker entry named.
+
+### Attribution, three ways, because "exists on main" is not "passes on main"
+
+1. **47 violating files, 0 absent from main, 41 byte-identical to main.** Those 41 are
+   definitively pre-existing — there is no version of the file for the epic to have
+   broken.
+2. **The 6 the epic did touch, blamed line by line.** `FirstTaskActivation.tsx` is the
+   only one whose violations carry line numbers, and all **nine** blame to commits that
+   are ancestors of main. The epic's own diff to that file is **colour hex values** on
+   lines 80/257/343/461 — the violations are on 40/45/48/368/378/379/396/403/420, which
+   it never touched.
+3. **The remaining five carry no line numbers (console-ownership prints a symbol, not a
+   position), so blame cannot settle them — I checked the diffs instead**: zero added
+   `console.*`, zero added `localStorage`/`sessionStorage`, zero added harness-name
+   literals across all five.
+
+**Conclusion: every violation on the tip is inherited. `lint:boundaries` is a
+pre-existing main failure, not a release blocker for this epic under the
+better-or-no-worse bar.** Recorded as a residual.
+
+**What I did NOT prove, stated so nobody reads more into this than it holds:** I did
+not run the gate on main, so I cannot say main's count is also 58 — the epic may well
+have *fixed* some (POD-2823 removed nine harness-branching violations from one file
+alone). The claim is only, and exactly, that **the epic introduced none of them.**
+
+## THE EPIC BRANCH CANNOT SHIP: 61 COMMITS BEHIND MAIN (2026-08-26)
+
+**Found by POD-2858 trying to drive the upgrade path, and it is the most important
+thing surfaced today.** It was found by *attempting the thing* rather than reasoning
+about it, which is the whole argument for hands-on driving.
+
+The symptom: an epic-tip server against a state a main-tip server had already opened
+fails **before `/auth/login`** —
+
+    database has applied migration 20260820074346_session-conversation-binding,
+    which this build does not define
+
+Measured independently from the coordinator worktree:
+
+| | |
+| --- | --- |
+| epic **behind** main | **61 commits** |
+| epic ahead of main | 486 commits |
+| merge base | `1bda60ae6`, **2026-08-19** |
+| files changed on **both** sides | **88** |
+| diverging migrations | exactly one — on main, absent here |
+| schema files in the overlap | `migrations/schema.ts`, `drizzle-manifest.generated.ts` |
+
+### Two consequences, and the second is the one that would have been missed
+
+1. **The merge is not trivial.** 88 doubly-touched files including *generated*
+   migration manifests. A generated file resolved by hand is a silent corruption
+   risk — it has to be regenerated from the reconciled schema, not picked from a
+   conflict side.
+2. **Every better-or-no-worse comparison in the acceptance matrix is against a main
+   the epic has not merged.** If any of those 61 commits changed behaviour the matrix
+   measures, the baseline is stale. *The passes stand as measurements of the epic;
+   what is not settled is the comparison.* After the merge lands, the cells that are
+   **comparisons** get re-confirmed — not the whole matrix.
+
+**Filed and started as POD-2876**: merge (never rebase — 486 commits of shared history
+with live sessions on it), regenerate rather than hand-resolve, and *drive* the proof
+that a database written by either build opens under the merged one.
+
+### And it makes POD-2858's experiment more correct, not less
+
+The arms it was given were `main → epic tip`. **That is not the upgrade a user takes.**
+The real one is `main → (main merged with the epic)`, because that is what a release
+is. Its blocker was the product telling it the second arm did not exist yet. It now
+builds the **before** arm — pre-cutover sessions on main's drivers across all three
+server harnesses plus terminal, with a planted codeword and a recorded conversation
+pointer — which needs no second arm at all.
+
+**A correction I owe it, recorded here too:** I twice told it to get off main and onto
+the epic tip, with some force. For that issue main is a **legitimate arm** and holding
+a checkout there was correct. What it needed was *both* arms at once, each pinned,
+differing in exactly one variable.
+
+## THREE REDS — the first real answer to the question that sets the date
+
+From POD-2777, driving at the fixed tip, alone, no overrides:
+
+**The terminal column is alive.** A6a on codex/headless is **PASS** where it was
+BLOCKED: 3998 bytes on attach before any keystroke, typed mark echoed, resize
+repainting 1854 bytes each way, a second viewer sharing 10 of 11 tail lines including
+the mark. POD-2853's fix composes that socket at **87** bytes (session) and **91**
+(attach) against 107 — measured by running abduco directly at those paths rather than
+trusting the fix.
+
+**POD-2875 — a chat send reports `delivered` and then stalls, whenever the CLI view is
+the declared mode.** One variable, the mode in the `viewState` frame:
+
+| mode | result |
+| --- | --- |
+| `chat` | `{"ok":true,"disposition":"delivered"}` — 2 items, 2 deltas, nonce present |
+| `native` | `{"ok":true,"disposition":"delivered"}` — **0 items, 0 deltas, nonce nowhere**, idle 60s+ |
+
+**It is not lost, and that distinction is the finding.** A second independent chat-mode
+viewer also saw zero; when the original socket declared `mode=chat` and sent a *new*
+message, **both** arrived. The turn parks while native is the declared mode and drains
+when it stops being.
+
+**The parking is defensible; the report is not.** Attach mints a human-controller
+lease, so parking a chat turn behind someone typing at the TUI is reasonable — but the
+vocabulary already has `queued`, which A1b uses correctly for the merely-busy case.
+A1a's criterion is *"reply arrives; bubble goes sent, **never silent-settles**"*, and
+this is a silent settle wearing a green tick: an operator with the CLI open on the
+desktop, sending from chat on their phone, is told delivered and it sits.
+
+Correctly **not** called a regression without a main arm — which the divergence above
+now explains the importance of.
+
+**Running tally:** PASS A1a A1c A2b A5 A6a A7a A7b(resume) A9 A10½ · PARTIAL A1b A4a
+A10½ · REFUSED A3 (control did not fire — re-driving; a control that did not fire is
+not a result) · **RED POD-2875, POD-2862, POD-2870**. A1a came back **4.1s** where it
+was 9.1s on the old base — the composer-readiness change showing up.
+
+### The branch is frozen for the merge, and the before-arm is already banked
+
+POD-2876 holds `merge:issue/1761-agent-runtime` for the whole operation. Every live
+session told to **keep working, land nothing**, and not to rebase onto a base that is
+about to be replaced — I drive the rebases afterwards rather than having seven sessions
+watch the ref.
+
+**POD-2858 turned the block into progress rather than idling.** The **before** arm is
+complete across **all four** harnesses — opencode, codex, grok and claude terminal —
+with boot SHAs recorded and planted history/resume evidence captured. When the merged
+tip arrives it repins and reads, instead of starting from nothing. That is the whole
+value of splitting an experiment at the arm that does not depend on the blocker.
+
+### All five columns are now staffed
+
+With the branch frozen for the merge, driving is the work that does not contend for it
+— evidence lands later, so a freeze costs a drive nothing. The last unassigned column
+went out:
+
+| session | columns | rows |
+| --- | --- | --- |
+| POD-2777 | codex, opencode + the terminal arm of both | in flight, 3 reds found |
+| POD-2874 | claude, shell | 21 |
+| POD-2877 | **grok** | 15 |
+
+**Grok is the interesting column to have left until last, for a reason worth stating
+before the numbers arrive.** It is the only one of the three server drivers that never
+hand-wrote its phase beside the emitted change, and therefore the only one that never
+had the dead-turn-renders-as-finished bug the other two carried. It also has real
+protocol mechanisms where the others have heuristics: `session/prompt` returns a
+`stopReason`, `session/cancel` was measured interrupting in 10–23ms, and `session/load`
+resumes after `SIGKILL` with the transcript replayed.
+
+So the expectation is that grok does **well** on A2a, A3, A7a and A7b. That expectation
+is written into its brief explicitly, together with the instruction not to treat any of
+it as a pass — **a mismatch between what the architecture predicts and what the drive
+measures is itself a finding**, in either direction.
