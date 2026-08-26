@@ -16,6 +16,7 @@ named instance.
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 The POD-2691 process/tracker cell has no product runtime to start; its measured surface is the /proc census and tracker state.
 
 ## Findings
@@ -215,12 +216,20 @@ The POD-2691 process/tracker cell has no product runtime to start; its measured 
 
 <<<<<<< HEAD
 >>>>>>> ca522e00e (docs: record review queue drive gates)
+=======
+
+## Findings
+
+### POD-2622 — invalid pre-fix boundary
+
+>>>>>>> ca522e00e (docs: record review queue drive gates)
 The audit names 'b266484d8'. Its parent is '1641d823c'. The substantive
 child-environment changes are already present in the parent ancestry
 ('aa8cdacff' and 'aba4d4ff9'); the listed commit is a reconciliation/formatting
 boundary rather than the first fix. A probe at 'b266484d8^' therefore cannot
 reproduce the pre-fix symptom. Verdict: **UNDRIVEN — invalid listed boundary**.
 No live yes/no result was inferred.
+<<<<<<< HEAD
 <<<<<<< HEAD
 >>>>>>> ca522e00e (docs: record review queue drive gates)
 =======
@@ -295,6 +304,8 @@ No process was killed.
 >>>>>>> ca522e00e (docs: record review queue drive gates)
 =======
 >>>>>>> 9a1562b9e (docs: record dead agent process finding)
+=======
+>>>>>>> ca522e00e (docs: record review queue drive gates)
 
 ### POD-2773 — invalid pre-fix boundary; Grok unavailable
 
@@ -317,6 +328,7 @@ lease was held by POD-1761. At '2026-08-27 00:26 CEST', the host reported
 16 GiB free disk; the host had active swap pressure earlier in the same gate
 window. Starting a Vite build under that lease would invalidate the reading.
 
+<<<<<<< HEAD
 ### POD-2602 — terminal geometry survives restart and tab return
 
 The exact fix boundary is parent `0f0c616a35479411033b673262159df947e2cc21` ->
@@ -385,10 +397,16 @@ Last evidence update: '2026-08-27 03:29:11 CEST'.
 =======
 =======
 >>>>>>> ca522e00e (docs: record review queue drive gates)
+=======
+## Ledger
+
+Complete rows are appended to 'docs/plans/pod-1761-results.tsv'. The remaining
+>>>>>>> ca522e00e (docs: record review queue drive gates)
 children (POD-2298, POD-2408, POD-2602, POD-2604, POD-2637, and POD-2691) were
 not touched in this gated interval and have no result claimed here.
 
 Last evidence update: '2026-08-27 00:26 CEST'.
+<<<<<<< HEAD
 <<<<<<< HEAD
 >>>>>>> ca522e00e (docs: record review queue drive gates)
 =======
@@ -458,3 +476,5 @@ this report does not claim a drive for it.
 
 Last evidence update: '2026-08-27 06:06:17 CEST'.
 >>>>>>> 117eca856 (docs(evidence): drive POD-2602 terminal geometry)
+=======
+>>>>>>> ca522e00e (docs: record review queue drive gates)
