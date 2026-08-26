@@ -171,6 +171,79 @@ alarming finding than a new defect, and worth reporting as such.
 
 ---
 
+## The six undriven cells — three driven, three still blocked
+
+Driven **2026-08-26 16:21–16:35 CEST** under POD-1761's stale-bundle exception
+(ruling 16:20 CEST): rig pinned at `372ae4de2`, HEAD at `f92a8891d`, drift
+confined to `apps/web/.../TranscriptFeed.tsx` and `TurnPreview.test.tsx` — every
+runtime path byte-identical, and none of these cells involves a browser.
+Host at drive time: load 33–42, swap-out 0, 2.8–3.6 GB available (CPU
+contention, not memory starvation). All three are presence/absence cells, not
+latency ones.
+
+| cell | verdict | |
+|---|---|---|
+| codex **A8** logged-out spawn | **REFUSED** | prediction was PARTIAL — **wrong**, see below |
+| opencode **A7a** daemon restart | **PASS** | as predicted |
+| opencode **A9** kill session | **PASS** | as predicted |
+| opencode A7b, A2a, A3 | **not driven** | need `drive.ts`, which needs a clean pin |
+
+### codex A8 — a vacuous PASS I caught, then a refusal
+
+The first run scored **PASS**. It was worthless. With `.codex/auth.json` moved
+aside the session *still* bound `codex-app-server`, `loginRequired` stayed
+`false` and `condition` was empty — so the product was not demoting because
+nothing had been taken away as far as it could tell. "It did not silently take
+the old path" was a true sentence about a measurement that never happened.
+
+The probe had one control — *with* the credential, the harness binds its server
+driver — and needed a second: **the credential's absence must actually reach the
+product.** Moving a file is an action on the disk; being logged out is a state of
+the product, and only the product can report it. `loginRequired` is its own
+readout and it *did* flip for opencode, so this is not a bar nothing can clear.
+With that control added the cell correctly **REFUSES**.
+
+Not a product defect on its face — the likeliest cause is that the running
+app-server child had already authenticated and was reused. That would be worth
+its own cell; it is not this row's question.
+
+*And a bug I wrote and fixed within a minute:* `process.exit()` does not run
+`finally`, so the first refusal path left the credential **parked**. The next
+codex drive would have run against a half-logged-out agent home with nothing
+saying so. Every exit path restores it now. The refusal was the safest-looking
+path in the file and the only one that leaked.
+
+### A7a and A9 on opencode
+
+```
+A7a  plant "CODEWORD-085OMA" -> "OK" in 18.2s
+     conversation conv_6afaa729-…  daemon pid 2724322 -> 2928216, reconnected
+     after restart: same pointer, transcript kept the exchange
+     recall -> "CODEWORD-085OMA" in 5.0s      C1, C2, C3 all fired
+
+A9   2 processes owned by the session (incl. `opencode serve`, 511 MB)
+     sessions.kill -> row gone entirely; 0 of 2 alive after 15s
+     0 orphans after the full 300s; rig infrastructure 2/2 intact
+```
+
+*A pin detail worth recording because it looks broken and is not:* A7a restarts
+the daemon, and `restart-daemon.sh` spawns it at HEAD. So from that point the
+components name **two shas** — server/bundle `372ae4de2`, daemon `f92a8891d`.
+The diff between them is the same two `apps/web` files, so all three still run
+identical runtime code.
+
+### Why the last three are still blocked
+
+A7b, A2a and A3 are driven through `drive.ts`, which shells out to
+`drive-verify.sh` — and that refuses, correctly, because its leg 2 requires the
+worktree to sit at the commit the processes were spawned at. I started building a
+runner to carry the exception through, and **deleted it**: it could only work by
+adding a bypass flag to `drive.ts`, which is the same weakening the ruling
+rejected, moved into the caller. The honest route is a rebuild at a frozen HEAD,
+which needs `test:heavy`.
+
+---
+
 ## Predictions for the six undriven cells, recorded BEFORE driving them
 
 Written down while blocked on the heavy-work lock, so that when these run the

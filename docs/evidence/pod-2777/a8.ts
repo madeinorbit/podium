@@ -129,6 +129,15 @@ async function spawnAndRead(label: string): Promise<{
 
 const parked = `${cred}.a8-parked`
 let moved = false
+/** Idempotent, so calling it from an exit path AND the finally is safe. */
+function restoreCredential(): void {
+  if (moved && existsSync(parked)) {
+    renameSync(parked, cred)
+    moved = false
+    log('')
+    log(`credential restored -> ${cred} (present: ${existsSync(cred)})`)
+  }
+}
 try {
   // --- CONTROL: with the credential present ---------------------------------
   const before = await spawnAndRead('control')
@@ -172,6 +181,56 @@ try {
   log(`                   condition=${after.condition ?? '(none)'}  requestedDriverId=${after.requestedDriverId ?? '(none)'}`)
   log(`                   accounts.list loginRequired: ${loginRequired}`)
   log(`                   interactions.list offering a login: ${asks !== '[]' ? asks.slice(0, 200) : 'none'}`)
+
+  /**
+   * SECOND CONTROL: THE HARNESS MUST ACTUALLY BE LOGGED OUT.
+   *
+   * Added after this probe returned a VACUOUS PASS on codex. With
+   * `.codex/auth.json` moved aside, the session still bound `codex-app-server`,
+   * `loginRequired` stayed FALSE and `condition` was empty — so the product was
+   * not demoting because, as far as it could tell, nothing had been taken away.
+   * The probe scored that as "did not silently take the old path", which is a
+   * true sentence about a measurement that never happened.
+   *
+   * The first control proves the harness binds its server driver WITH the
+   * credential. This one proves the credential's absence actually reached the
+   * product. Both are needed: the first rules out "never could bind", the second
+   * rules out "was never logged out". Removing a file is an action on the disk;
+   * being logged out is a state of the product, and only the product can report it.
+   *
+   * `loginRequired` is the product's own readout and it DID flip for opencode,
+   * so this is not a bar nothing can clear — it is the same bar, applied to both.
+   */
+  if (!loginRequired && after.condition !== 'logged-out') {
+    log('')
+    log('REFUSED — the logged-out control did not fire.')
+    log(`  control watched: the product REPORTING ${harness} as logged out once its`)
+    log('                   credential was moved aside — accounts.list loginRequired=true,')
+    log("                   or the session carrying condition='logged-out'")
+    log(`  control saw:     loginRequired=${loginRequired}, condition=${after.condition ?? '(none)'},`)
+    log(`                   and the session still bound ${after.driverId}`)
+    log('  Moving a file is an action on the disk; being logged out is a state of the')
+    log('  product. This run never reached that state, so "it did not demote" is a')
+    log('  statement about nothing. The verdict is withheld rather than scored.')
+    log('')
+    log('  NOT a product defect on its face: the likeliest cause is that the running')
+    log('  app-server child had already authenticated and was reused, or that login')
+    log('  state was cached from the control spawn seconds earlier. Either would be')
+    log("  worth its own cell; neither is this row's question.")
+    /**
+     * RESTORE BEFORE EXITING, and this is a correction made within a minute of
+     * writing the bug. `process.exit()` does NOT run `finally` blocks — so the
+     * first version of this refusal path left the credential PARKED, and the
+     * next drive of any codex cell would have run against a half-logged-out
+     * agent home without anything saying so.
+     *
+     * A probe that refuses is still a probe that has to leave the rig as it
+     * found it. The refusal is the safest-looking path in the file and it was
+     * the only one that leaked.
+     */
+    restoreCredential()
+    process.exit(3)
+  }
 
   const declaredIt =
     after.condition === 'logged-out' ||
@@ -225,9 +284,5 @@ try {
   log(`    controls: FIRED — the same harness bound ${wantServer} with its credential present`)
   log('='.repeat(78))
 } finally {
-  if (moved && existsSync(parked)) {
-    renameSync(parked, cred)
-    log('')
-    log(`credential restored -> ${cred} (present: ${existsSync(cred)})`)
-  }
+  restoreCredential()
 }
