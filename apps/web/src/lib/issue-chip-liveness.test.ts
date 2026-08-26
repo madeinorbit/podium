@@ -116,6 +116,18 @@ describe('the key a chip is looked up under', () => {
     expect(anchor.getAttribute('data-issue-availability')).toBe('present')
   })
 
+  it('resolves a row that carries a prefix but no displayRef', () => {
+    // `issueDisplayRef` is `displayRef ?? '#seq'` and never consults `prefix`,
+    // so this row used to key itself `#13` while its anchor keyed `POD-13` —
+    // unavailable for an issue `resolveIssueReference` matches on prefix+seq.
+    const { anchor } = rowWithRef('POD-13')
+    const legacy = issue({ stage: 'review' })
+    delete (legacy as { displayRef?: string }).displayRef
+    decorateIssueRefAnchors(anchor, issueReferenceLookup([legacy]))
+
+    expect(anchor.getAttribute('data-issue-stage')).toBe('review')
+  })
+
   it('still refuses a token naming a different issue', () => {
     const { anchor } = rowWithRef('POD-14')
     decorateIssueRefAnchors(anchor, issueReferenceLookup([issue()]))
@@ -138,6 +150,8 @@ describe('the signature that decides whether a sweep is worth running', () => {
       issue({ deletedAt: '2026-08-25T00:00:00Z' }),
       issue({ title: 'Renamed' }),
       issue({ displayRef: 'POD-14', seq: 14 }),
+      // Same key (prefix+seq unchanged), different label — the map must rebuild.
+      issue({ displayRef: 'POD-0013' }),
     ]) {
       expect(issueReferenceSignature([changed])).not.toBe(base)
     }

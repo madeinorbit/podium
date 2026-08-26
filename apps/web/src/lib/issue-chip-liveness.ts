@@ -22,16 +22,29 @@ function refKey(token: string): string {
   return parsed?.kind === 'issue' ? `${parsed.prefix}-${parsed.seq}` : token
 }
 
+/**
+ * The same key, derived from the issue side.
+ *
+ * `issueDisplayRef` is `displayRef ?? '#seq'` — it does not consult `prefix`, so
+ * a row carrying `prefix` but no `displayRef` (legacy and mock payloads) keys
+ * itself `#4` while its anchor keys `POD-4`, and the chip goes unavailable for
+ * an issue `resolveIssueReference` matches happily on prefix + seq. Preferring
+ * the pair puts the lookup back on the resolvers' own matching rule.
+ *
+ * The signature below reads through here too. Two fallbacks for one key is how
+ * they drift apart, and a drift means a cached map surviving a change it should
+ * have been rebuilt for.
+ */
+function issueKey(issue: IssueReferenceSource): string {
+  if (issue.prefix) return `${issue.prefix}-${issue.seq}`
+  return refKey(issueReferenceModel(issue).ref)
+}
+
 /** Build the live presentation index without making rendered Markdown depend on it. */
 export function issueReferenceLookup(
   issues: readonly IssueReferenceSource[],
 ): IssueReferenceLookup {
-  return new Map(
-    issues.map((issue) => {
-      const model = issueReferenceModel(issue)
-      return [refKey(model.ref), model] as const
-    }),
-  )
+  return new Map(issues.map((issue) => [issueKey(issue), issueReferenceModel(issue)] as const))
 }
 
 /**
@@ -65,8 +78,8 @@ const FIELD_SEPARATOR = '\u0000'
  * that identity, the decoration pass re-arms its observer and sweeps the whole
  * transcript, before paint, on every agent's every phase flip.
  *
- * These five fields are the complete input to {@link issueReferenceModel}, read
- * raw rather than through it: the model allocates an object and builds a label
+ * These fields are the complete input to {@link issueReferenceModel}, read raw
+ * rather than through it: the model allocates an object and builds a label
  * string per issue, and this runs over every issue in the repo on every render
  * of the subscriber.
  */
@@ -74,7 +87,12 @@ export function issueReferenceSignature(issues: readonly IssueReferenceSource[])
   const parts: string[] = []
   for (const issue of issues) {
     parts.push(
-      issue.displayRef ?? `${issue.prefix ?? ''}-${issue.seq}`,
+      // Both: the KEY decides which anchor a model answers for, and
+      // `displayRef` is what the accessible label reads back. A row that gains
+      // a displayRef keeps its prefix+seq key, so the key alone would not
+      // rotate and the label would stay stale in a cached map.
+      issueKey(issue),
+      issue.displayRef ?? '',
       issue.stage,
       issue.archived ? '1' : '',
       issue.deletedAt ?? '',
