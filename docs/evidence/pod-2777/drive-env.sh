@@ -17,13 +17,26 @@
 # and only a side-by-side answers that.
 
 # --- identity -------------------------------------------------------------
-export PODIUM_INSTANCE=p2777
+# OVERRIDABLE, DEFAULTS UNCHANGED (POD-2811). Every value below is exactly what
+# it was; the only difference is that a second rig can name its own.
+#
+# This is not a convenience. Two sessions drove this identity at once on
+# 2026-08-26 and each killed the other: `drive-up.sh` stops "the previous pair"
+# through $PODIUM_DRIVE_BASE/*.pid, so a neighbour's bring-up reaps yours, and
+# the survivor writes ITS commit into YOUR log. The reading that caught it was a
+# server answering on :19847 stamped `dev+15cdfa0-dirty` — another worktree's
+# commit — in a log file this rig owns. A drive that cannot tell whose process
+# it is measuring is measuring nothing, which is this rig's own first rule.
+#
+# The header above already promised side-by-side rigs; these five lines are what
+# makes that true rather than a comment.
+export PODIUM_INSTANCE="${P2777_INSTANCE:-p2777}"
 
 # BASE PATH IS SHORT ON PURPOSE. abduco builds its master socket at
 # $ABDUCO_SOCKET_DIR/abduco/<user>/<label>@<host> and hard-fails past sun_path
 # (108) with "create-session: File name too long" — a failure that presents as a
 # generic output timeout naming no path.
-export PODIUM_DRIVE_BASE=/tmp/pod-2777
+export PODIUM_DRIVE_BASE="${P2777_BASE:-/tmp/pod-2777}"
 export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
 
 # --- endpoints ------------------------------------------------------------
@@ -31,9 +44,9 @@ export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
 # never touch, and which drive-verify.sh refuses outright — and from POD-2245
 # (19797), POD-2290 (19807), POD-2753 (19817), POD-2761 (19827) and POD-2773
 # (19837).
-export PODIUM_PORT=19847
-export PODIUM_HOOK_PORT=46847
-export PODIUM_AGENT_RELAY_PORT=46848
+export PODIUM_PORT="${P2777_PORT:-19847}"
+export PODIUM_HOOK_PORT="${P2777_HOOK_PORT:-46847}"
+export PODIUM_AGENT_RELAY_PORT="${P2777_RELAY_PORT:-46848}"
 export PODIUM_HOST=127.0.0.1
 
 # --- durable-terminal containment ----------------------------------------
