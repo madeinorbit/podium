@@ -28,11 +28,29 @@ function openerShimScript(): string {
 }
 
 let invoke: ReturnType<typeof vi.fn>
+let nativeOpen: ReturnType<typeof vi.fn>
+
+/** The endpoint `bootstrap::injection_script` writes into every window. */
+function injectServer(endpoint: string | undefined): void {
+  ;(window as unknown as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ = endpoint
+}
 
 beforeEach(() => {
   document.body.innerHTML = ''
   invoke = vi.fn(async () => undefined)
-  ;(window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = { invoke }
+  injectServer(undefined)
+  // Every beforeEach installs another copy of the shim on the same document,
+  // and each copy captures `__TAURI_INTERNALS__` as it stood when it ran. The
+  // forwarding arrow is what keeps the oldest copy — the one whose capture
+  // listener answers first — reporting into THIS test's mock.
+  ;(window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+    invoke: (...args: unknown[]) => invoke(...(args as [])),
+  }
+  // Stand in for the native `window.open` BEFORE the shim wraps it: the real
+  // one makes happy-dom fetch the URL, and a declined (in-app) open would then
+  // fail against a server that is not running.
+  nativeOpen = vi.fn()
+  window.open = nativeOpen as unknown as typeof window.open
   // Running the SHIPPED script is the point: a rewrite of it here would test
   // this file's idea of the shim rather than the one the app injects.
   new Function(openerShimScript())()
@@ -72,6 +90,45 @@ describe('desktop opener shim', () => {
   it('leaves an in-app link to the webview', () => {
     expect(clickOfferLink(`${window.location.origin}/session/abc`)).toBe(false)
     expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('keeps a link to the reader\u2019s OWN Podium in the app (POD-1606)', () => {
+    // THE PACKAGED-macOS BUG. All-in-one mode serves the page from
+    // tauri://localhost and the server from 127.0.0.1, so an origin comparison
+    // against the PAGE made the user's own issue link "external" and opened it
+    // in Safari. The injected server endpoint is what says otherwise.
+    injectServer('ws://127.0.0.1:8787')
+    expect(clickOfferLink('http://127.0.0.1:8787/issues/POD-1606')).toBe(false)
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('still hands a different server to the OS browser', () => {
+    injectServer('ws://127.0.0.1:8787')
+    expect(clickOfferLink('http://127.0.0.1:9999/issues/POD-1606')).toBe(true)
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', {
+      url: 'http://127.0.0.1:9999/issues/POD-1606',
+    })
+  })
+
+  it('reads the injected endpoint at click time, not at install time', () => {
+    // The shim stays installed across the navigation to a transferred remote
+    // origin; a value captured at install would go stale exactly then.
+    expect(clickOfferLink('https://relay.example/issues/POD-1606')).toBe(true)
+    invoke.mockClear()
+    injectServer('wss://relay.example')
+    expect(clickOfferLink('https://relay.example/issues/POD-1606')).toBe(false)
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('window.open answers the same question as a click', () => {
+    injectServer('ws://127.0.0.1:8787')
+    window.open('http://127.0.0.1:8787/issues/POD-1606', '_blank')
+    expect(invoke).not.toHaveBeenCalled()
+    expect(nativeOpen).toHaveBeenCalled()
+    window.open('https://preview.example.com/login', '_blank')
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', {
+      url: 'https://preview.example.com/login',
+    })
   })
 
   it('does not install outside the desktop shell, where the anchor already works', () => {

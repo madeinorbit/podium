@@ -1,4 +1,5 @@
 import type { MachineId } from '@podium/model'
+import { classifyPodiumLink } from './podium-link'
 export type NativeDesktopPlatform = 'macos' | 'windows' | 'linux'
 
 /** The shell's resolved launch mode (bootstrap.rs LaunchAction). Older shells omit it. */
@@ -202,22 +203,25 @@ export function isMacNativeShell(): boolean {
  * Sends `url` to the OS browser when the desktop shell needs the page to ask, and reports
  * back whether it did — a caller that gets a promise must suppress its own navigation.
  *
- * Declines (null) in the three cases where asking would be wrong or useless:
- * a plain browser, where the anchor already does the right thing; a shell older than
- * `openExternal`; and a CROSS-origin URL, which the shell's injected link shim already
- * diverts on its own — handing that one over too would open the page twice (all-in-one
- * mode loads the UI from `tauri://localhost`, so every server URL is cross-origin there).
- * What's left is a same-origin URL, which the shim deliberately skips and the webview would
- * answer with an in-app window.
+ * THE MIRROR OF THE SHIM'S TEST (POD-1606). The injected link shim
+ * (apps/desktop/src-tauri/src/bootstrap.rs) diverts links that leave this Podium; this
+ * function covers the opposite half — a URL that IS ours, which the shim deliberately
+ * leaves to the webview, and which the webview would answer with an in-app window. So it
+ * hands over exactly the links the shim declines, and declines exactly the ones the shim
+ * takes; handing over both would open the page twice.
+ *
+ * The origin test used to be "same origin as the PAGE", which meant the two halves did
+ * not meet in all-in-one mode: there the UI loads from `tauri://localhost` while the
+ * server is `http://127.0.0.1:<port>`, so a server URL was cross-origin to the page,
+ * this function declined it, and the shim took it — correct then, wrong now that the
+ * shim keeps our own origins in-app. Both halves now ask the same resolver.
+ *
+ * Still declines (null) where asking would be wrong or useless: a plain browser, where
+ * the anchor already does the right thing, and a shell older than `openExternal`.
  */
 export function openInSystemBrowser(url: string): Promise<void> | null {
   const openExternal = nativeDesktopBridge()?.openExternal
   if (!openExternal || typeof window === 'undefined') return null
-  const pageOrigin = window.location.origin
-  try {
-    if (new URL(url, pageOrigin).origin !== pageOrigin) return null
-  } catch {
-    return null
-  }
+  if (classifyPodiumLink(url)?.kind !== 'internal') return null
   return openExternal(url)
 }

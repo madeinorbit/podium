@@ -5,6 +5,7 @@ import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
+import { PodiumLinkHost } from '@/components/PodiumLinkHost'
 import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -915,6 +916,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
           floating miniview. Both render nothing until there's something to show. */}
         <RefPrefixSync />
         <RefMiniviewHost />
+        <PodiumLinkHost />
       </IssueExplorerProvider>
     </OperatorFocusProvider>
   )

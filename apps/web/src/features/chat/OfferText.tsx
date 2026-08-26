@@ -1,15 +1,25 @@
 import { segmentOfferText } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
+import { activatePodiumTarget, internalPodiumTarget } from '@/lib/podium-link'
 
 /**
  * An offer's detail prose, with the URLs an agent wrote rendered as links.
  *
- * NEW WINDOW, ALWAYS. An offer sits under a live session; navigating the tab
- * away from it would drop the transcript the operator is reading, so every link
- * carries `target="_blank"`. In the desktop shell the injected opener shim
- * (apps/desktop/src-tauri/src/bootstrap.rs) catches the click first and hands
- * the URL to the OS browser — WKWebView otherwise swallows `_blank` silently —
- * so the same anchor is what makes this work in the macOS app.
+ * A NEW WINDOW FOR SOMEONE ELSE'S URL. An offer sits under a live session;
+ * navigating the tab away from it would drop the transcript the operator is
+ * reading, so an external link carries `target="_blank"`. In the desktop shell
+ * the injected opener shim (apps/desktop/src-tauri/src/bootstrap.rs) catches the
+ * click first and hands the URL to the OS browser — WKWebView otherwise swallows
+ * `_blank` silently — so the same anchor is what makes this work in the macOS
+ * app.
+ *
+ * IN-APP FOR OURS (POD-1606). When the URL names something on a Podium this
+ * client knows — an issue, a session, an artifact, a file — a new browser tab is
+ * the wrong answer twice over: it leaves the app for a page the app already is,
+ * and in the packaged macOS app it used to leave for Safari entirely. Those
+ * navigate in place. The href stays real so ⌘-click, middle-click and "copy
+ * link address" keep working, and the anchor falls back to plain navigation if
+ * no activator is installed.
  *
  * The click is stopped from bubbling: the fold's own controls sit around this
  * prose, and following a link is not also a request to collapse the offer.
@@ -17,26 +27,36 @@ import type { JSX } from 'react'
 export function OfferText({ text, className }: { text: string; className?: string }): JSX.Element {
   return (
     <p className={className}>
-      {segmentOfferText(text).map((segment, index) =>
-        segment.kind === 'link' ? (
+      {segmentOfferText(text).map((segment, index) => {
+        if (segment.kind !== 'link') {
+          // biome-ignore lint/suspicious/noArrayIndexKey: positional by nature
+          return <span key={index}>{segment.text}</span>
+        }
+        const target = internalPodiumTarget(segment.href)
+        return (
           <a
             // Segments are positional; a URL repeated in one message is the
             // same href twice and has no better key than where it sits.
             // biome-ignore lint/suspicious/noArrayIndexKey: positional by nature
             key={index}
             href={segment.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(event) => event.stopPropagation()}
+            {...(target ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+            onClick={(event) => {
+              event.stopPropagation()
+              // A held modifier is a request for a new window; leave it to the
+              // browser (and, in the shell, to the shim).
+              if (event.metaKey || event.ctrlKey || event.shiftKey) return
+              // Re-read rather than trust `target`: this card may have rendered
+              // before the client resolved which server it is talking to.
+              const now = internalPodiumTarget(segment.href)
+              if (now && activatePodiumTarget(now, event)) event.preventDefault()
+            }}
             className="offer-fold-link"
           >
             {segment.text}
           </a>
-        ) : (
-          // biome-ignore lint/suspicious/noArrayIndexKey: positional by nature
-          <span key={index}>{segment.text}</span>
-        ),
-      )}
+        )
+      })}
     </p>
   )
 }

@@ -15,8 +15,14 @@ import {
 import { PairingScanner } from '../components/PairingScanner'
 import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { PressableScale } from '../components/PressableScale'
+import { setKnownPodiumOrigins } from '../lib/podium-link'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { logout } from './auth'
+import {
+  CredentialWriteQueue,
+  StaleCredentialOwnerError,
+  replaceCredentialForOwner,
+} from './credential-ownership'
 import { LaunchReadyView } from './launch-ready'
 import {
   configureNativeWebSocketCredential,
@@ -53,11 +59,6 @@ import {
   saveServerProfiles,
 } from './server-profiles'
 import { envServer, setActiveServerRuntime } from './trpc'
-import {
-  CredentialWriteQueue,
-  StaleCredentialOwnerError,
-  replaceCredentialForOwner,
-} from './credential-ownership'
 
 // The context and its two hooks live in `./server-profile-context`, which does
 // NOT import expo-router, expo-camera or expo-crypto — see the note there.
@@ -164,6 +165,17 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       ? { activeProfileId: initialWeb.profile.id, profiles: [initialWeb.profile] }
       : { activeProfileId: null, profiles: [] },
   )
+
+  /**
+   * EVERY PAIRED SERVER IS "US" (POD-1606). A link into a Podium this phone has
+   * paired with must open a screen, not Safari — and the pairing list is the
+   * only place that knows which origins those are. Registered here rather than
+   * derived from the active profile alone: an agent on one server may hand the
+   * reader an address on another they have also paired.
+   */
+  useEffect(() => {
+    setKnownPodiumOrigins(profileState.profiles.map((profile) => profile.httpOrigin))
+  }, [profileState.profiles])
   const [ready, setReady] = useState(Platform.OS === 'web')
   const [bearer, setBearer] = useState<string | null>(null)
   const [credentialReleased, setCredentialReleased] = useState(Platform.OS === 'web')

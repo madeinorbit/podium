@@ -46,6 +46,53 @@ describe('SessionActionCard', () => {
     openURL.mockRestore()
   })
 
+  it('opens a link to a paired Podium in the app, not the browser (POD-1606)', async () => {
+    // THE BUG: a link to the server this phone is paired with went to Safari,
+    // which would then ask the reader to pair all over again.
+    const { Linking } = await import('react-native')
+    const { setKnownPodiumOrigins, setPodiumTargetActivator } = await import('../lib/podium-link')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    const activate = vi.fn(() => true)
+    setKnownPodiumOrigins(['https://ludovico.example'])
+    setPodiumTargetActivator(activate)
+
+    render(
+      <SessionActionCard
+        offer={{
+          ...offer,
+          message: 'Ready to merge\nSee https://ludovico.example/issues/POD-1606 for the diff.',
+        }}
+        onAction={async () => {}}
+      />,
+    )
+    fireEvent.click(screen.getByText('https://ludovico.example/issues/POD-1606'))
+    expect(activate).toHaveBeenCalledWith({ kind: 'issue', issue: 'POD-1606' })
+    expect(openURL).not.toHaveBeenCalled()
+
+    setKnownPodiumOrigins([])
+    setPodiumTargetActivator(null)
+    openURL.mockRestore()
+  })
+
+  it('still opens an unpaired server in the browser', async () => {
+    const { Linking } = await import('react-native')
+    const { setKnownPodiumOrigins } = await import('../lib/podium-link')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    setKnownPodiumOrigins(['https://ludovico.example'])
+    render(
+      <SessionActionCard
+        offer={{ ...offer, message: 'Look\nhttps://elsewhere.example/issues/POD-1606' }}
+        onAction={async () => {}}
+      />,
+    )
+    fireEvent.click(screen.getByText('https://elsewhere.example/issues/POD-1606'))
+    await waitFor(() =>
+      expect(openURL).toHaveBeenCalledWith('https://elsewhere.example/issues/POD-1606'),
+    )
+    setKnownPodiumOrigins([])
+    openURL.mockRestore()
+  })
+
   it('keeps direct and feedback actions executable in the session flow', async () => {
     const onAction = vi.fn(async () => {})
     render(<SessionActionCard offer={offer} onAction={onAction} />)

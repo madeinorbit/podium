@@ -5,6 +5,7 @@ import { Platform, StyleSheet, useColorScheme } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { AgentOutcomeHaptics } from '../components/AgentOutcomeHaptics'
 import { KeyboardRoot } from '../components/KeyboardRoot'
+import { PodiumLinkHost } from '../components/PodiumLinkHost'
 import { VisualViewportRoot } from '../components/VisualViewportRoot'
 import { ReducedMotionProvider } from '../hooks/ReducedMotionProvider'
 import { useReduceMotion } from '../hooks/useReduceMotion'
@@ -64,6 +65,7 @@ function ConnectedApp({ children }: { children: ReactNode }) {
     <AuthGate key={`auth:${runtimeKey}`}>
       <MobileClientProvider key={`client:${runtimeKey}`}>
         <AgentOutcomeHaptics />
+        <PodiumLinkHost />
         <LaunchReadyView>{children}</LaunchReadyView>
       </MobileClientProvider>
     </AuthGate>

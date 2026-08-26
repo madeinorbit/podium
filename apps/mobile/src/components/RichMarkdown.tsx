@@ -1,14 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient'
 import { type ReactNode, useMemo, useRef, useState } from 'react'
-import {
-  Linking,
-  ScrollView,
-  type StyleProp,
-  StyleSheet,
-  Text,
-  type TextStyle,
-  View,
-} from 'react-native'
+import { ScrollView, type StyleProp, StyleSheet, Text, type TextStyle, View } from 'react-native'
 import {
   type MarkdownTableCell,
   type MarkdownToken,
@@ -16,6 +8,7 @@ import {
   safeExternalUrl,
   splitPodiumRefs,
 } from '../lib/markdown'
+import { followPodiumLink } from '../lib/podium-link'
 import { selectableProps } from '../lib/selectable'
 import { alpha } from '../theme/mix'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
@@ -37,9 +30,11 @@ function plainText(token: MarkdownToken): string {
   return token.raw ?? ''
 }
 
-function openExternal(href: string | undefined): void {
+/** A Podium address opens the screen it names; everything else goes to the OS
+ *  (POD-1606). `safeExternalUrl` still gates the scheme. */
+function followLink(href: string | undefined): void {
   const safe = safeExternalUrl(href)
-  if (safe) void Linking.openURL(safe)
+  if (safe) followPodiumLink(safe)
 }
 
 function renderText(text: string, ctx: RenderContext, key: string): ReactNode[] {
@@ -100,7 +95,7 @@ function renderInline(
             key={tokenKey}
             accessibilityRole={safe ? 'link' : undefined}
             style={safe ? styles.link : undefined}
-            onPress={safe ? () => openExternal(token.href) : undefined}
+            onPress={safe ? () => followLink(token.href) : undefined}
             suppressHighlighting
           >
             {renderInline(token.tokens ?? [], ctx, tokenKey)}
@@ -118,7 +113,7 @@ function renderInline(
             accessibilityRole="link"
             accessibilityLabel={token.text || 'Open image'}
             style={styles.link}
-            onPress={() => openExternal(safe)}
+            onPress={() => followLink(safe)}
           >
             {token.text ? `[image: ${token.text}]` : '[open image]'}
           </Text>
