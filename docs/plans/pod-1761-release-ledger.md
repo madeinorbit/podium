@@ -248,6 +248,32 @@ the readiness marker. It now stamps the moment in a `WeakMap` beside the `WeakSe
 it already kept — no durable field, because *the fact only matters while the
 process it describes is running, and a persisted copy would outlive it.*
 
+**The numbers raised to tolerate the bug came back down, and by the right route.**
+`FIRST_SEND_AFTER_BIND_MS` 10s → the 2s default, three `30_000` per-test bounds
+removed — **by changing the SETUP, not by loosening an assertion.** Every assertion
+in those three is byte-identical; the fixture's registry now takes a movable clock
+(opt-in, so every other oracle caller still gets `Date.now`) and `goIdle` advances
+it 60s after announcing the bind. The drain still polls on real timers; only the
+elapsed time it asks for moves. So the send those three make is *the send they were
+always about* — a dedup replay into a session whose composer has demonstrably had
+its window — rather than a measurement of how long a fresh CLI takes to mount one.
+
+```
+resumeAndSend dedupes its replay      2108ms -> 320ms
+sendText dedupes its replay           2056ms -> 351ms
+a replayed send does not double-type  2075ms -> 260ms
+whole file                           19.37s -> 2.39s
+```
+
+**Both halves fenced, and I verified both myself.** Ageing the bind by 0 instead of
+60s kills exactly those three (I ran it: 3 failed / 15 passed). Reverting the clock
+fix with the rig kept also kills all three — *the honest statement of the
+dependency*: the tightened bound is affordable **only** because the clock is
+anchored to the bind, and anyone who reverts that will hear about it here. The
+constant survives at its default rather than being deleted, saying what it now
+tolerates — one poll tick plus the deferred CR, not a readiness window — so the
+file fails loudly instead of quietly getting slow again.
+
 **A lead it flagged and deliberately did not chase — POD-2843, started.** After a
 server OR daemon restart, typing into a **reattached** claude session stopped
 reaching the CLI at all: the row was typed **five times to its attempt cap** and no
