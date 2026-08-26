@@ -869,3 +869,34 @@ plausible cause you did not check*. Here the plausible cause was supplied by the
 placed to check it, believed on their authority, and propagated into a shared document before
 anyone measured it. **An alarming claim deserves the same verification as a comfortable one —
 more, because it travels faster.**
+
+## A timeout and a threshold are not the same knob (2026-08-26 22:01 CEST)
+
+A probe was refusing on a slow box. Its author loosened the **spin-up window** and left the
+**bar** exactly where it was — 3 preview frames or 200 new transcript characters — and the
+reasoning is the general rule:
+
+**Waiting longer cannot make a non-producing plane look like a producing one.** So the window is
+safe to loosen; the bar is not. *One bounds patience, the other bounds what counts as evidence.*
+
+They look like the same knob when a reading is slow, and loosening the wrong one silently
+converts "we saw nothing" into "we saw enough".
+
+**Keep the refusal self-distinguishing**: that probe prints frames, chars and terminal bytes on
+its WATCHED line, so `0/0/0` — a frozen plane — stays legible apart from a slow crawl.
+
+## Ask which direction a starved host pushes the ANSWER (2026-08-26 22:01 CEST)
+
+Not just *"is this reading reliable"* but **"if the host corrupts it, which way?"**
+
+The coordinator ordered a claude drive with the interrupt baseline FIRST, because it is the
+release-deciding cell. On a thrashing box that was exactly wrong:
+
+    the cell asks whether interrupt STOPS the turn. A starved host makes a turn that WOULD
+    have stopped appear not to -> a FAIL on the MAIN arm -> "main is broken too" ->
+    "INHERITED" -> a P1 stops blocking the release.
+
+**The starved host produces the COMFORTABLE answer.** Presence/absence cells were reordered
+ahead of it, and the instruction was made explicit: *if the box does not quieten, do not drive
+that cell at all.* **An undriven cell is honest; a cell driven into a starved host and labelled
+INHERITED is worse than nothing**, because it removes a blocker on false evidence.
