@@ -342,3 +342,36 @@ the existing conversation instead of starting a fresh one.
 driver. With two, it means deciding what a session's driver *is* — and that decision belongs to
 you rather than to me. The options in decision 11 stand; the second and third now apply to
 **every** agent a user has, not just Codex.
+
+
+---
+
+## 16. A hermetic rig cannot exercise the permission prompt on ANY of the three agents.
+**Raised 2026-08-26 18:19 CEST. Status: OPEN. Three separate blocked checks with one underlying cause.**
+
+Three different agents, three different reasons, same outcome — the permission prompt cannot be
+driven in an isolated test home:
+
+    claude     rewrites permissions.defaultMode from manual back to auto, or opens its own
+               setup wizard regardless
+    codex      raises no approval at all on this host — controlled against codex run OUTSIDE
+               Podium with the same flag, so it is the harness and not us
+    opencode   auto-approves under the terminal posture
+
+Each was filed as its own BLOCKED cell, and each looks like an oversight in isolation. Together
+they look like **a property of driving permission prompts in hermetic homes**, not three
+accidents.
+
+**What this costs:** the permission checks — the card appearing, and answering it twice — are
+unmeasured on the terminal arm for every agent. The *server* arm is driven and passes.
+
+- **Say it plainly in the release note** — the permission path was exercised on the server
+  drivers and not on the terminal ones, with the reason, so a reader is not left assuming it was
+  checked and passed.
+- **Drive it once on a real, non-hermetic home** — yours. Closes all three at once, and is the
+  same ask as decision 12.
+- **Keep filing them separately** — I do not recommend this; three BLOCKED cells with three
+  explanations hide a single pattern.
+
+**Recommendation: name it as one residual, and if you are willing, one session on a real home
+closes the whole class.**

@@ -67,3 +67,5 @@ A10 escape hatch demotes to terminal	codex-terminal	PASS generic-pty demoted:tru
 upgrade: opencode rebinds to server driver	opencode	FAIL native ref changed codeword lost	55f7e235	yes	yes	2026-08-26 17:45 CEST	POD-2858
 migration union: store fixtures	n/a-merged-build	PASS 44 files 351/351 incl conversation_binding+oom_killed_at	90eb6f12	yes	yes	2026-08-26 18:01 CEST	POD-2876
 migration union: normalized-wire	n/a-merged-build	PASS 8/8	90eb6f12	yes	yes	2026-08-26 18:01 CEST	POD-2876
+A4a one ask not two SERVER arm	opencode-headless	PASS 1 ask, pre-fix control showed 2	7b7afc98	yes	yes	2026-08-26 18:16 CEST	POD-2893
+A4a classifier still fires TERMINAL arm	opencode-terminal	BLOCKED instrument: opencode auto-approved	7b7afc98	yes	yes	2026-08-26 18:16 CEST	POD-2893
