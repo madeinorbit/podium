@@ -354,3 +354,20 @@ to another session, and for anything you cite as evidence.
 **And when you hand over a probe, say what its PASS looks like.** A probe written to catch a
 defect may legitimately REFUSE once the defect is fixed — nothing left to measure. Told in
 advance, that refusal is the pass. Found cold, it reads as a broken run and costs an hour.
+
+## Record WINDOWS, and the event that separates two regimes (2026-08-26 16:29 CEST)
+
+Asked for timestamps, one drive returned something better: **measured windows** rather than
+points — `14:42:58–14:50:50`, `15:16:08–15:27:13`, `15:44:51–15:48:25` — so a reader knows
+how long a block took as well as when it happened, and can place a landing *inside* a block
+rather than only before or after it.
+
+**And it recorded the boundary event: the credential file's mtime, `15:02:59`.** That single
+line is what lets anyone separate the logged-out readings from the authenticated ones without
+trusting the labels on them. The two blocked-cell reasons — *logged out* versus *quota
+exhausted* — look identical in a results table and mean completely different things; the
+mtime is the fact that tells them apart.
+
+**So: when a run spans a change in conditions, record the event that divides them**, with its
+own timestamp, from the filesystem or from git rather than from memory. A reader who does not
+trust your labels can still order the evidence.
