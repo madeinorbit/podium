@@ -18,6 +18,36 @@ four harnesses, each on BOTH drivers where the harness can run both ways.
 
 
 
+
+## Load average is not the signal; swap in/out is
+
+Twice today I had to judge whether this box was too busy to take a reading from,
+and **load average gave the wrong answer both times.**
+
+- At **load ~20** I called it safe and drove. `vmstat` showed `si`/`so` near
+  ZERO in the live samples — lots of runnable work, no memory pressure. Those
+  readings are good.
+- At **load ~33** I stopped. `si` was a sustained 6–14 MB/s with `so` spiking to
+  37 MB/s, 6.4 GB of swap in use, 165–350 MB free. The machine was reading its
+  own pages back off disk to run.
+
+The first line of `vmstat 1 N` is an average since boot and is useless here —
+read the LATER samples.
+
+**Why it matters more for this drive than for most.** The headline finding is a
+turn that produces *no output for 426 seconds*. On a thrashing host a merely slow
+turn looks identical. A reading taken then would be unreliable in exactly the
+direction of the conclusion it supports, which is the worst direction available.
+
+**What protects the readings already taken** is the two-arm design, not the host
+being quiet. Every wedge reading is a comparison run on the same box minutes
+apart: the headless arm wedged for 400+ seconds while the terminal arm completed
+the identical prompt in 61–92s. If the host were manufacturing the wedge, both
+arms would have wedged. The arms are the control against host contamination —
+a second reason to prefer the within-one-commit comparison over a
+before-and-after in time.
+
+
 ## A sequencing rule the pin guard taught me
 
 **Do not rebase while the rig is building.** I started `drive-up.sh` in the
