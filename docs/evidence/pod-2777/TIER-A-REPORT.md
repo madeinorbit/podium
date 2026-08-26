@@ -134,10 +134,26 @@ points at the last thing the splice broke, the parents show what it deleted.
 Fixed at `aad84ec21`; I corroborated it with an independent full build (exit 0)
 and a parse sweep that went to zero broken files across all 236 changed files.
 
-**The two columns agree everywhere they overlap.** Every defect found in codex and
-re-driven on opencode replicates; nothing yet distinguishes them. That is the
-answer to "do the harness columns behave alike" so far, and it means a red found
-in one column should be assumed present in the others until driven.
+**How to read the two columns — and this is weaker than I first stated it.**
+Every defect found on codex and re-driven on opencode replicated, and for a while
+nothing distinguished them. Then codex **A8** produced a counter-example: removing
+`.codex/auth.json` never reached the product at all (`loginRequired` stayed
+`false`), where the identical step on opencode flipped it to `true`. The columns
+differ in whether a setup step *lands*, which is not the kind of difference the
+overlapping cells would ever have shown.
+
+So the two directions are **not symmetric**, and I had been treating them as if
+they were:
+
+- **A red found in one column is assumed present in the others until driven.**
+  This keeps its full force — every defect so far has replicated.
+- **A pass in one column only *suggests* a pass in the others.** This is weaker.
+  A8 is a live counter-example, and a pass can be vacuous in a way a red rarely
+  is: it can rest on a setup step that silently did nothing.
+
+The practical consequence for anyone reading the ☐ cells: absence of a red is
+not evidence of a pass, and a pass driven on one harness is not a licence to skip
+the other.
 
 ## What is left, exactly
 
