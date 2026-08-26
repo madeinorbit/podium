@@ -194,6 +194,9 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     // Whether the launch ever had a conversation (POD-2392): always projected,
     // null = the row makes no claim (which is what a pre-column row reads as).
     conversationBinding: null,
+    // OOM attribution is always projected; null means the session did not die
+    // from an OOM (or predates the additive column).
+    oomKilledAt: null,
     name: null,
     // WHO named the session (#490): always projected; null = nobody named it.
     nameSource: null,

@@ -288,8 +288,10 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
         'created_by_actor_kind',
         'created_by_actor_id',
         'created_by_on_behalf_of',
-        // Both fields are later additive migrations in the same chain.
+        // These fields are later additive migrations in the union chain.
         'selected_driver_id',
+        // Main's conversation binding migration is another additive field.
+        'conversation_binding',
         // OOM attribution is recorded by a later additive migration.
         'oom_killed_at',
         // Native login shells are purpose-marked by a later additive migration.
