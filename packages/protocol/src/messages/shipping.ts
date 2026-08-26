@@ -44,6 +44,22 @@ export type ShippingValidationProfile = z.infer<typeof ShippingValidationProfile
 
 export const SHIPPING_TRAIN_CAPABILITY = 'shipping.train.v2' as const
 
+/**
+ * This daemon can ANSWER the development artifact reachability probe.
+ *
+ * The probe was introduced with the reachability guard itself, so no daemon
+ * that predates it can answer — and a timeout is read as a failed proof. On a
+ * real fleet that meant the FIRST release carrying the probe could never be
+ * published, because every consumer was by definition still on code without
+ * it. Observed on a live fleet: publication refused naming a machine that was
+ * not unreachable, merely deaf to the question.
+ *
+ * Advertising it fixes that by bootstrapping: a daemon too old to answer does
+ * not claim the capability and is not asked, and once it has taken that first
+ * release it claims it and is proven from then on.
+ */
+export const ARTIFACT_PROBE_CAPABILITY = 'update.probe.artifact' as const
+
 export const ShippingTrainExecution = z
   .object({
     version: z.literal(2),

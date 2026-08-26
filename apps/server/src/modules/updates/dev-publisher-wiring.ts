@@ -20,6 +20,7 @@
 
 import { createLogger } from '@podium/logger'
 import type { ReleaseProposal, UpdateTarget } from '@podium/protocol'
+import { ARTIFACT_PROBE_CAPABILITY } from '@podium/protocol/daemon'
 import type { Hono } from 'hono'
 import { registerDevFeedRoutes } from './artifact-route'
 import {
@@ -146,6 +147,8 @@ export interface RemoteUpdateConsumer {
   readonly id: string
   readonly name: string
   readonly online: boolean
+  /** Whether this consumer's daemon can answer the reachability probe at all. */
+  readonly probeCapable: boolean
 }
 
 /**
@@ -178,6 +181,17 @@ export function selectRemoteUpdateConsumers(
       id: machine.id,
       name: machine.name,
       online: isOnline(machine.id),
+      // WHETHER THIS CONSUMER CAN ANSWER THE PROBE AT ALL.
+      //
+      // It is still an update consumer either way — it will receive this
+      // release. This says only whether asking it is meaningful. The probe
+      // shipped WITH the reachability guard, so no daemon predating it can
+      // reply, and a timeout counts as a failed proof: the first release
+      // carrying the probe could therefore never be published, because every
+      // consumer was by definition still on code without it. Seen on a live
+      // fleet, refusing publication and naming a machine that was not
+      // unreachable, only deaf to the question.
+      probeCapable: machine.deliveryCaps.includes(ARTIFACT_PROBE_CAPABILITY),
     }))
 }
 
@@ -426,19 +440,32 @@ export function wireDevBundlePublisher(deps: {
         ),
       ),
     ].sort()
-    const machines = [...(deps.remoteUpdateConsumers?.() ?? [])].sort((a, b) =>
-      a.id.localeCompare(b.id),
-    )
+    // A consumer whose daemon cannot ANSWER the probe is skipped rather than
+    // failing the proof. The probe shipped with this guard, so no daemon
+    // predating it can reply and a timeout reads as a failed proof — which
+    // made the first release carrying the probe impossible to publish, every
+    // consumer being by definition still on code without it. Seen on a live
+    // fleet: publication refused naming a machine that was not unreachable,
+    // only deaf to the question. Such a machine takes this release unproven,
+    // then advertises the capability and is proven from the next one on.
+    const machines = [...(deps.remoteUpdateConsumers?.() ?? [])]
+      .filter((machine) => machine.probeCapable)
+      .sort((a, b) => a.id.localeCompare(b.id))
     const key = JSON.stringify({ urls, machines: machines.map((machine) => machine.id) })
     if (provenArtifactKey === key) return
     if (proofInFlight?.key === key) return proofInFlight.proof
 
     const proof = (async () => {
       if (machines.length === 0) {
-        throw new DevBundleUnavailableError(
-          `development artifact address ${origin} cannot be proved: no remote update consumer is registered`,
-          `The update package address ${origin} could not be checked from another machine, so no release was published.`,
-        )
+        // Consumers exist — `hasRemoteUpdateConsumers` gated that above — but
+        // none can answer yet. Publish, and say plainly that the address went
+        // unchecked, because refusing here would mean never shipping the
+        // release that teaches them to answer.
+        log.warn('publishing without a remote reachability proof', {
+          origin,
+          reason: 'no registered update consumer advertises the artifact probe capability',
+        })
+        return
       }
       const offline = machines.find((machine) => !machine.online)
       if (offline) {

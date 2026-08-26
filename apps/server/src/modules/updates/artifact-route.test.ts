@@ -222,7 +222,16 @@ describe('development artifact route', () => {
         onlineChecks.push(machineId)
         return true
       }),
-    ).toEqual([{ id: 'careful-remote', name: 'Security-conscious remote', online: true }])
+    ).toEqual([
+      {
+        id: 'careful-remote',
+        name: 'Security-conscious remote',
+        online: true,
+        // Declares feed delivery but not the probe capability, so it IS a
+        // consumer and is NOT asked to prove reachability.
+        probeCapable: false,
+      },
+    ])
     expect(onlineChecks).toEqual(['careful-remote'])
   })
 
@@ -442,8 +451,8 @@ describe('development artifact route', () => {
       let reachable = false
       const { wiring, publications, unavailable } = wiringFor({
         remoteUpdateConsumers: () => [
-          { id: 'linux-1', name: 'Linux host', online: true },
-          { id: 'mac-1', name: 'joined Mac', online: true },
+          { id: 'linux-1', name: 'Linux host', online: true, probeCapable: true },
+          { id: 'mac-1', name: 'joined Mac', online: true, probeCapable: true },
         ],
         probeArtifact: async (url, machineId) => {
           probed.push({ url, machineId })
@@ -486,7 +495,7 @@ describe('development artifact route', () => {
     it('withholds the release while a registered remote is asleep', async () => {
       const probed: string[] = []
       const { wiring, publications, unavailable } = wiringFor({
-        remoteUpdateConsumers: () => [{ id: 'sleeping-1', name: 'Sleeping Mac', online: false }],
+        remoteUpdateConsumers: () => [{ id: 'sleeping-1', name: 'Sleeping Mac', online: false, probeCapable: true }],
         probeArtifact: async (url) => {
           probed.push(url)
           return { ok: true, status: 200 }

@@ -1,7 +1,7 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type PeerBuild, wireSchemaDigest } from '@podium/protocol'
-import { SHIPPING_TRAIN_CAPABILITY } from '@podium/protocol/daemon'
+import { ARTIFACT_PROBE_CAPABILITY, SHIPPING_TRAIN_CAPABILITY } from '@podium/protocol/daemon'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
 
 const DEVELOPMENT_SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -90,5 +90,5 @@ export function captureDaemonBootBuild(
 export function deliveryCaps(build: Pick<PeerBuild, 'installKind' | 'supervised'>): string[] {
   return build.installKind === 'source'
     ? [SHIPPING_TRAIN_CAPABILITY]
-    : ['update.delivery.feed', SHIPPING_TRAIN_CAPABILITY]
+    : ['update.delivery.feed', ARTIFACT_PROBE_CAPABILITY, SHIPPING_TRAIN_CAPABILITY]
 }
