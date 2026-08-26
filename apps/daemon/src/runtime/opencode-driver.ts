@@ -138,6 +138,19 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
     deps.send({ type: 'sessionResumeRef', sessionId, resume, confidence: 'exact' })
   }
 
+  function sendState(sessionId: SessionId): void {
+    void runtime
+      .handleFor(sessionId)
+      ?.state()
+      .then((state: AgentRuntimeState) => {
+        deps.send({ type: 'agentState', sessionId, state })
+      })
+      .catch(() => {
+        // A state read that fails leaves the last badge in place, which is
+        // the last thing we actually observed. Better than clearing it.
+      })
+  }
+
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
     // THE CONTRACT STREAM GOES OUT AS ITSELF TOO. A consumer that speaks the
     // contract (W4's migrated callers) reads this; the legacy frames below are
@@ -166,16 +179,19 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
         // The badge. `state()` is the driver's own folded projection, so the
         // frame carries the same value a `snapshot()` would — rather than this
         // file re-folding the event vocabulary into a second reducer.
-        void runtime
-          .handleFor(sessionId)
-          ?.state()
-          .then((state: AgentRuntimeState) => {
-            deps.send({ type: 'agentState', sessionId, state })
-          })
-          .catch(() => {
-            // A state read that fails leaves the last badge in place, which is
-            // the last thing we actually observed. Better than clearing it.
-          })
+        sendState(sessionId)
+        return
+      }
+      case 'turn': {
+        // `deliver` folds the accepted prompt into `working` before emitting
+        // this edge. The server's later `session.status` event is not the
+        // source of truth for the badge: on opencode it can arrive seconds
+        // after the prompt was accepted. Completion still arrives through the
+        // normal `state` event, so only publish the immediate start edge here.
+        // Bootstrap replays prior turn edges; those must not overwrite the
+        // current projection.
+        if (event.provenance !== 'live' || event.ev.ev !== 'started') return
+        sendState(sessionId)
         return
       }
       case 'interaction': {
@@ -194,9 +210,9 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
         return
       }
       default:
-        // `turn`, `workspace` and `open-url` have no legacy frame that carries
-        // them for this family, and inventing one would be a second unreconciled
-        // writer for facts the contract stream above already delivers.
+        // `workspace` and `open-url` have no legacy frame that carries them for
+        // this family, and inventing one would be a second unreconciled writer
+        // for facts the contract stream above already delivers.
         return
     }
   }
