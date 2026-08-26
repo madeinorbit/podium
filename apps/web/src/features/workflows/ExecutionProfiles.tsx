@@ -43,6 +43,8 @@ const PLACEMENT_WORDS: Record<string, string> = {
   unreachable: 'offline — try again later',
   // POD-2700: a THIRD refusal, not a shade of offline. Nothing to try again for.
   incapable: 'runs no Podium daemon — it can never execute here',
+  disabled: 'agent hosting disabled on this machine',
+  degraded: 'agent hosting unavailable — restart Podium on this machine',
   unauthorized: 'no access — ask its owner',
   unplaced: 'no machine chosen',
   unknown: 'unknown machine',
@@ -150,7 +152,9 @@ export function ExecutionProfiles({
             </Field>
             {(options.unauthorized.length > 0 ||
               options.unreachable.length > 0 ||
-              options.incapable.length > 0) && (
+              options.incapable.length > 0 ||
+              options.disabled.length > 0 ||
+              options.degraded.length > 0) && (
               <p className="text-[11px] text-muted-foreground" data-placement-refusals>
                 {options.unauthorized.length > 0 && (
                   <span className="block">
@@ -170,6 +174,20 @@ export function ExecutionProfiles({
                     {options.unreachable.length} machine
                     {options.unreachable.length === 1 ? '' : 's'} not offered — offline; try again
                     later.
+                  </span>
+                )}
+                {options.disabled.length > 0 && (
+                  <span className="block">
+                    {options.disabled.length} machine
+                    {options.disabled.length === 1 ? '' : 's'} not offered — agent hosting is
+                    disabled.
+                  </span>
+                )}
+                {options.degraded.length > 0 && (
+                  <span className="block">
+                    {options.degraded.length} machine
+                    {options.degraded.length === 1 ? '' : 's'} not offered — agent hosting is
+                    unavailable; restart Podium there.
                   </span>
                 )}
               </p>

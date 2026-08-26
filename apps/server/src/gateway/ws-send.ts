@@ -106,9 +106,13 @@ export function safeSendEncoded(
 // A malformed frame is dropped so it can't wedge the connection — but the drop is
 // logged (never silent), throttled so a misbehaving peer can't flood the journal.
 const FRAME_WARN_THROTTLE_MS = 1_000
-const lastFrameWarnAt: Record<'client' | 'daemon', number> = { client: 0, daemon: 0 }
+const lastFrameWarnAt: Record<'client' | 'daemon' | 'machine', number> = {
+  client: 0,
+  daemon: 0,
+  machine: 0,
+}
 
-export function warnDroppedFrame(kind: 'client' | 'daemon', err: unknown): void {
+export function warnDroppedFrame(kind: 'client' | 'daemon' | 'machine', err: unknown): void {
   const now = Date.now()
   if (now - lastFrameWarnAt[kind] < FRAME_WARN_THROTTLE_MS) return
   lastFrameWarnAt[kind] = now

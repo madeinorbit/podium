@@ -97,8 +97,12 @@ export function renderStatus(view: StatusView): string {
           ? ['parent', 'server']
           : ['server', 'janitor']
         : config.mode === 'daemon'
-          ? ['daemon']
-          : (RunRole.options as RunRole[]) // unknown mode: show whatever is live
+          ? byRole.has('parent')
+            ? ['parent', 'daemon']
+            : ['daemon']
+          : config.mode === 'supervisor'
+            ? ['parent']
+            : (RunRole.options as RunRole[]) // unknown mode: show whatever is live
   for (const role of roles) {
     const rec = byRole.get(role)
     if (rec) {

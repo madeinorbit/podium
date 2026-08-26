@@ -15,7 +15,9 @@ export { NetworkStep, reachablePort, quickTunnelWarning } from './network-step'
 // Intent-first labels: lead with what the user WANTS, not the deployment term. The pivot between
 // the two "host" modes is simply whether your agents run on THIS machine (all-in-one) or on the
 // other machines that connect to it (server/hub).
-const MODES: { id: PodiumMode; title: string; blurb: string; needsServer: boolean }[] = [
+type SetupMode = Exclude<PodiumMode, 'supervisor'>
+
+const MODES: { id: SetupMode; title: string; blurb: string; needsServer: boolean }[] = [
   {
     id: 'all-in-one',
     title: 'Run Podium on this machine',
@@ -212,7 +214,7 @@ export function SetupView({
 }): ReactNode {
   const trpc = useMemo(() => makeTrpc(httpOrigin), [httpOrigin])
   const [step, setStep] = useState<'local' | 'mode' | 'network'>(localDefault ? 'local' : 'mode')
-  const [mode, setMode] = useState<PodiumMode>('all-in-one')
+  const [mode, setMode] = useState<SetupMode>('all-in-one')
   const [serverUrl, setServerUrl] = useState('')
   const [joinCode, setJoinCode] = useState('')
   const [busy, setBusy] = useState(false)
@@ -244,7 +246,7 @@ export function SetupView({
     }
   }, [step, trpc, onSaved])
 
-  const save = async (m: PodiumMode = mode): Promise<void> => {
+  const save = async (m: SetupMode = mode): Promise<void> => {
     setBusy(true)
     setError(null)
     try {

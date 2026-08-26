@@ -47,6 +47,7 @@ import type { TransportFacts } from './strategies/types'
 export const ENDPOINT_IMPLIED_ROLE: Readonly<Record<string, PeerRole>> = {
   '/client': 'console',
   '/daemon': 'machine',
+  '/machine': 'machine',
 }
 
 export type HandshakeState = 'awaiting-hello' | 'established' | 'closed'

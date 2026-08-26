@@ -10,6 +10,10 @@ import type {
   IssueColorSlot,
   IssueId,
   MachineId,
+  MachinePresenceSource,
+  MachineServiceAssignment,
+  MachineServiceReport,
+  MachineComponent,
   PinKind as ModelPinKind,
   RepoId,
   SessionId,
@@ -277,12 +281,9 @@ export interface MachineRecord {
   wireSchemaDigest: string | null
   installKind: string | null
   deliveryCaps: string[]
-  /**
-   * The daemon reported that a desktop app supervises it (POD-2099). Boolean,
-   * not nullable: a stored NULL and an explicit `false` mean the same thing —
-   * this is an ordinary fleet machine — and only `true` may change a decision.
-   */
-  supervised: boolean
+  presenceSource: MachinePresenceSource | null
+  serviceAssignment: MachineServiceAssignment
+  serviceReport: MachineServiceReport | null
   buildReportedAt: string | null
   /**
    * WHICH PODIUM COMPONENTS RUN HERE (POD-2700) — the DURABLE structural axis.

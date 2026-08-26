@@ -132,7 +132,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     rejectStart = reject
   })
 
-  const connectivityDir = options.bootstrapToken ? undefined : (options.identityDir ?? stateDir())
+  const connectivityDir =
+    options.bootstrapToken || options.identityReadOnly
+      ? undefined
+      : (options.identityDir ?? stateDir())
   const report = (patch: Omit<Parameters<typeof writeConnectivity>[0], 'serverUrl'>): void => {
     if (!connectivityDir) return
     try {
@@ -204,11 +207,12 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     identity.token = issuedToken
     if (updatePubkey === undefined) delete identity.updatePubkey
     else identity.updatePubkey = updatePubkey
-    savePairingToken(
-      issuedToken,
-      updatePubkey,
-      options.identityDir ? { dir: options.identityDir } : {},
-    )
+    if (!options.identityReadOnly)
+      savePairingToken(
+        issuedToken,
+        updatePubkey,
+        options.identityDir ? { dir: options.identityDir } : {},
+      )
     if (!options.pairCode) return
     try {
       consumePairCode(options.pairCode)
@@ -219,7 +223,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
 
   const persistBootstrapPin = (updatePubkey: string): void => {
     identity.updatePubkey = updatePubkey
-    savePinnedUpdatePubkey(updatePubkey, options.identityDir ? { dir: options.identityDir } : {})
+    if (!options.identityReadOnly)
+      savePinnedUpdatePubkey(updatePubkey, options.identityDir ? { dir: options.identityDir } : {})
   }
 
   const established = (issuedToken?: string, updatePubkey?: string, active?: SocketLike): void => {

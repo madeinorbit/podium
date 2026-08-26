@@ -1,6 +1,8 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": ["//"],
+  "extends": [
+    "//"
+  ],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -384,6 +386,7 @@
         "src/modules/issues/service/types.ts",
         "src/modules/issues/service/workflow.ts",
         "src/modules/issues/service/worktree-gc.ts",
+        "src/modules/issues/service/worktree-safety.ts",
         "src/modules/layout/feed.test.ts",
         "src/modules/layout/service.test.ts",
         "src/modules/layout/service.ts",
@@ -768,6 +771,7 @@
         "src/modules/issues/service/types.ts",
         "src/modules/issues/service/workflow.ts",
         "src/modules/issues/service/worktree-gc.ts",
+        "src/modules/issues/service/worktree-safety.ts",
         "src/modules/issues/trpc.ts",
         "src/modules/issues/wire-memo.test.ts",
         "src/modules/layout/authz.test.ts",
@@ -1010,6 +1014,7 @@
         "src/modules/updates/dev-publisher-state.ts",
         "src/modules/updates/dev-publisher-wiring.ts",
         "src/modules/updates/dev-web-build.ts",
+        "src/modules/updates/fleet-offer.test.ts",
         "src/modules/updates/head-sha-cache.ts",
         "src/modules/updates/operation.test.ts",
         "src/modules/updates/operation.ts",
@@ -1105,6 +1110,7 @@
       "inputs": [
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/apps/janitor/src/**",
         "$TURBO_ROOT$/apps/web/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
@@ -1227,6 +1233,7 @@
         "src/llm.ts",
         "src/login-catalog.ts",
         "src/machine-access.ts",
+        "src/machine-capability-guard.test.ts",
         "src/machine-identity.test.ts",
         "src/mcp-route.ts",
         "src/migrations/**",
@@ -1314,6 +1321,7 @@
         "src/modules/issues/service/types.ts",
         "src/modules/issues/service/workflow.ts",
         "src/modules/issues/service/worktree-gc.ts",
+        "src/modules/issues/service/worktree-safety.ts",
         "src/modules/issues/trpc.ts",
         "src/modules/layout/authz.ts",
         "src/modules/layout/service.ts",
@@ -1560,6 +1568,7 @@
         "src/search.test.ts",
         "src/server-issue-adapter.test.ts",
         "src/server-readiness.ts",
+        "src/server.activation-lockout.test.ts",
         "src/server.bind.test.ts",
         "src/server.context-users.test.ts",
         "src/server.role.test.ts",
@@ -1766,6 +1775,7 @@
         "src/modules/issues/service/types.ts",
         "src/modules/issues/service/workflow.ts",
         "src/modules/issues/service/worktree-gc.ts",
+        "src/modules/issues/service/worktree-safety.ts",
         "src/modules/layout/service.ts",
         "src/modules/lock/registry.ts",
         "src/modules/lock/service.ts",

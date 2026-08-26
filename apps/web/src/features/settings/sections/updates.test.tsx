@@ -29,7 +29,8 @@ const machines = [
     updateChannelOverride: null as string | null,
     targetUnavailableReason: null as string | null,
     targetVersion: null as string | null,
-    supervised: false,
+    presenceSource: undefined as 'supervisor' | 'legacy-daemon' | undefined,
+    deliveryCaps: undefined as string[] | undefined,
   },
 ]
 
@@ -77,7 +78,8 @@ afterEach(() => {
   machines[0]!.updateChannelOverride = null
   machines[0]!.targetUnavailableReason = null
   machines[0]!.targetVersion = null
-  machines[0]!.supervised = false
+  machines[0]!.presenceSource = undefined
+  machines[0]!.deliveryCaps = undefined
   ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = undefined
 })
 
@@ -621,12 +623,13 @@ describe('UpdatesSection', () => {
       expect(document.body.textContent).not.toContain('No target:')
     })
 
-    it('shows a desktop-supervised machine as an ordinary fleet update', async () => {
+    it('shows a capable supervisor as an ordinary fleet update', async () => {
       trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
       trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
       quietHistory()
       trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
-      machines[0]!.supervised = true
+      machines[0]!.presenceSource = 'supervisor'
+      machines[0]!.deliveryCaps = ['update.delivery.feed']
 
       render(<UpdatesSection />)
 

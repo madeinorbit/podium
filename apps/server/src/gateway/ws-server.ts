@@ -61,7 +61,7 @@ export function serveNative<T>(options: NativeServeOptions<T>): NativeServer<T> 
 
 import type { SessionRegistry } from '../relay'
 import { wireClientSocket } from './client-socket'
-import { wireDaemonSocket } from './daemon-socket'
+import { wireDaemonSocket, wireMachineSocket } from './daemon-socket'
 import {
   CLIENT_PLANE_LIVENESS,
   DAEMON_PLANE_LIVENESS,
@@ -127,7 +127,7 @@ export interface WsTransportDeps {
 }
 
 interface SocketData {
-  kind: 'client' | 'daemon'
+  kind: 'client' | 'daemon' | 'machine'
   url: string
   userId?: UserId
   userRole?: UserRole
@@ -206,10 +206,11 @@ export function attachWebSockets(
     open(native) {
       const socket = new NativeGatewaySocket(native)
       native.data.socket = socket
-      if (native.data.kind === 'daemon') {
+      if (native.data.kind === 'daemon' || native.data.kind === 'machine') {
         daemons.add(socket)
         aliveDaemons.add(socket)
-        wireDaemonSocket(socket, registry)
+        if (native.data.kind === 'machine') wireMachineSocket(socket, registry)
+        else wireDaemonSocket(socket, registry)
         return
       }
       clients.add(socket)
@@ -248,7 +249,7 @@ export function attachWebSockets(
     pong(native) {
       const socket = native.data.socket
       if (!socket) return
-      if (native.data.kind === 'daemon') {
+      if (native.data.kind === 'daemon' || native.data.kind === 'machine') {
         aliveDaemons.add(socket)
       } else {
         if (
@@ -285,7 +286,7 @@ export function attachWebSockets(
     handleRequest(request, server) {
       const url = new URL(request.url)
       const pathname = url.pathname
-      if (pathname !== '/client' && pathname !== '/daemon') return null
+      if (pathname !== '/client' && pathname !== '/daemon' && pathname !== '/machine') return null
 
       const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')
       if (rawVersion !== null && versionSupport(Number(rawVersion)) !== 'ok') {
@@ -329,7 +330,7 @@ export function attachWebSockets(
           ...(resolved?.credentialId ? { credentialId: resolved.credentialId } : {}),
         }
       } else {
-        data = { kind: 'daemon', url: request.url }
+        data = { kind: pathname === '/machine' ? 'machine' : 'daemon', url: request.url }
       }
 
       return server.upgrade(request, { data })

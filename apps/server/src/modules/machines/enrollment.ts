@@ -35,6 +35,7 @@ export interface EnrollmentHost {
   invalidateMachineCache(): void
   /** Fan out `machinesChanged` after a write clients can see (owner transfer). */
   broadcastMachines(): void
+  hasSupervisor(machineId: MachineId): boolean
 }
 
 /** Client-facing hello/pair refusal — identical for every denial (D19.4 / D20). */
@@ -68,6 +69,7 @@ export function sha256(s: string): string {
 export function authenticateDaemon(
   host: EnrollmentHost,
   frame: DaemonHandshake,
+  source: 'supervisor' | 'legacy-daemon' = 'legacy-daemon',
 ):
   | {
       ok: true
@@ -127,7 +129,9 @@ export function authenticateDaemon(
       logVerdict(host, 'revoked', frame.machineId)
       return { ok: false, reason: HELLO_DENIED_REASON }
     }
-    deps.store.machines.touchMachine(frame.machineId, frame.hostname)
+    if (source === 'supervisor' || !host.hasSupervisor(frame.machineId)) {
+      deps.store.machines.touchMachine(frame.machineId, frame.hostname)
+    }
     host.invalidateMachineCache()
     const name =
       deps.store.machines.listMachines().find((m) => m.id === frame.machineId)?.name ??

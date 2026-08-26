@@ -294,13 +294,24 @@ describe('placement fails closed', () => {
     })
   })
 
-  it('carries unauthorized and unreachable through as different answers', () => {
-    const views = [view('m1', 'unauthorized'), view('m2', 'unreachable', false)]
+  it('carries every machine refusal through as a distinct answer', () => {
+    const views = [
+      view('m1', 'unauthorized'),
+      view('m2', 'unreachable', false),
+      view('m3', 'disabled'),
+      view('m4', 'degraded'),
+    ]
     expect(profilePlacement({ id: 'p1', machineId: asMachineId('m1') }, views).state).toBe(
       'unauthorized',
     )
     expect(profilePlacement({ id: 'p2', machineId: asMachineId('m2') }, views).state).toBe(
       'unreachable',
+    )
+    expect(profilePlacement({ id: 'p3', machineId: asMachineId('m3') }, views).state).toBe(
+      'disabled',
+    )
+    expect(profilePlacement({ id: 'p4', machineId: asMachineId('m4') }, views).state).toBe(
+      'degraded',
     )
   })
 
@@ -315,9 +326,13 @@ describe('placement fails closed', () => {
       view('m1', 'available'),
       view('m2', 'unauthorized'),
       view('m3', 'unreachable', false),
+      view('m4', 'disabled'),
+      view('m5', 'degraded'),
     ])
     expect(options.offerable.map((m) => m.id)).toEqual(['m1'])
     expect(options.unauthorized.map((m) => m.id)).toEqual(['m2'])
     expect(options.unreachable.map((m) => m.id)).toEqual(['m3'])
+    expect(options.disabled.map((m) => m.id)).toEqual(['m4'])
+    expect(options.degraded.map((m) => m.id)).toEqual(['m5'])
   })
 })

@@ -46,14 +46,16 @@ describe('machineVersionSkew', () => {
     }
   })
 
-  it('reads a Podium Desktop machine like every other fleet machine', () => {
-    const verdict = machineVersionSkew(machine({ supervised: true }))
+  it('reads a supervisor-owned machine like every other fleet machine', () => {
+    const verdict = machineVersionSkew(machine({ presenceSource: 'supervisor' }))
     expect(verdict.mark).toBe('expected')
     expect(verdict.label).toBe('Update available')
   })
 
-  it('reads a stuck supervised machine as stuck all the same', () => {
-    expect(machineVersionSkew(machine({ supervised: true }), null, 'stuck').mark).toBe('unexpected')
+  it('reads a stuck supervisor-owned machine as stuck all the same', () => {
+    expect(machineVersionSkew(machine({ presenceSource: 'supervisor' }), null, 'stuck').mark).toBe(
+      'unexpected',
+    )
   })
 
   it('calls a machine ahead of its target unexpected', () => {

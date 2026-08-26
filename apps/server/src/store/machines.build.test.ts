@@ -61,54 +61,50 @@ describe('machine build report', () => {
     store.close()
   })
 
-  /** POD-2099: the flag the wave planner refuses on has to survive the row. */
-  describe('desktop supervision', () => {
-    it('is false for a machine that never reported and for one that reported without it', () => {
+  describe('supervisor-owned presence', () => {
+    it('starts with the enrollment assignment and no presence source', () => {
       const store = openTestStore()
       seedMachine(store)
-      expect(store.machines.getMachine('m1')?.supervised).toBe(false)
-      store.machines.setMachineBuild(
-        'm1',
-        { appVersion: '0.4.2', installKind: 'installed' },
-        ['update.delivery.feed'],
-        '2026-08-04T00:00:00.000Z',
-      )
-      expect(store.machines.getMachine('m1')?.supervised).toBe(false)
+      expect(store.machines.getMachine('m1')).toMatchObject({
+        presenceSource: null,
+        serviceAssignment: { server: false, agentExecution: true },
+        serviceReport: null,
+      })
       store.close()
     })
 
-    it('records a daemon that reports a desktop shell owns it', () => {
+    it('atomically records supervisor build, caps, services, and last seen', () => {
       const store = openTestStore()
       seedMachine(store)
-      store.machines.setMachineBuild(
-        'm1',
-        { appVersion: '0.4.2', installKind: 'installed', supervised: true },
-        [],
-        '2026-08-04T00:00:00.000Z',
-      )
-      expect(store.machines.getMachine('m1')?.supervised).toBe(true)
-      store.close()
-    })
-
-    it('clears when a standalone daemon takes the machine over', () => {
-      // The desktop app is uninstalled and a standalone daemon paired in its
-      // place: the row must stop excluding it, or that machine never updates
-      // again and nothing says why.
-      const store = openTestStore()
-      seedMachine(store)
-      store.machines.setMachineBuild(
-        'm1',
-        { appVersion: '0.4.2', supervised: true },
-        [],
-        '2026-08-04T00:00:00.000Z',
-      )
-      store.machines.setMachineBuild(
+      const observedAt = '2026-08-04T00:00:00.000Z'
+      store.machines.setSupervisorPresence(
         'm1',
         { appVersion: '0.4.2', installKind: 'installed' },
-        ['update.delivery.feed'],
-        '2026-08-04T01:00:00.000Z',
+        [],
+        {
+          server: { policy: 'disabled', state: 'stopped', observedAt },
+          agentExecution: {
+            policy: 'enabled',
+            state: 'refused',
+            reason: 'refused by local policy',
+            observedAt,
+          },
+          agentExecutionLockout: true,
+          crashOwner: 'desktop',
+        },
+        observedAt,
       )
-      expect(store.machines.getMachine('m1')?.supervised).toBe(false)
+      expect(store.machines.getMachine('m1')).toMatchObject({
+        appVersion: '0.4.2',
+        deliveryCaps: [],
+        presenceSource: 'supervisor',
+        lastSeenAt: observedAt,
+        serviceReport: {
+          agentExecutionLockout: true,
+          crashOwner: 'desktop',
+          agentExecution: { state: 'refused', reason: 'refused by local policy' },
+        },
+      })
       store.close()
     })
   })

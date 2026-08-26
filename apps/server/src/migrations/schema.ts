@@ -679,7 +679,11 @@ export const machines = sqliteTable('machines', {
   // decided independently from deliveryCapsJson; current Macs are ordinary fleet installs.
   // NULL is the honest reading for every row written before the field existed
   // and for a daemon that has not reported since.
-  supervised: integer('supervised'),
+  presenceSource: text('presence_source'),
+  serviceAssignmentJson: text('service_assignment_json')
+    .notNull()
+    .default('{"server":false,"agentExecution":true}'),
+  serviceReportJson: text('service_report_json'),
   buildReportedAt: text('build_reported_at'),
   // WHICH PODIUM COMPONENTS RUN HERE (POD-2700) — a JSON array of
   // `MachineComponent` ('daemon' | 'server'). The DURABLE structural axis, kept

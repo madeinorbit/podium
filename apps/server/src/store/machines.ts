@@ -8,6 +8,9 @@ import {
   asUserId,
   Inventory,
   MachineComponent,
+  MachinePresenceSource,
+  MachineServiceAssignment,
+  MachineServiceReport,
   type MachineId,
   UpdateChannel,
   type UpdateChannel as UpdateChannelValue,
@@ -38,6 +41,31 @@ function parseCaps(raw: string | null): string[] {
   } catch {
     return []
   }
+}
+
+function parseAssignment(raw: unknown): MachineServiceAssignment {
+  if (typeof raw === 'string') {
+    try {
+      const parsed = MachineServiceAssignment.safeParse(JSON.parse(raw))
+      if (parsed.success) return parsed.data
+    } catch {}
+  }
+  return { server: false, agentExecution: true }
+}
+
+function parseServiceReport(raw: unknown): MachineServiceReport | null {
+  if (typeof raw !== 'string') return null
+  try {
+    const parsed = MachineServiceReport.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+function parsePresenceSource(raw: unknown): MachinePresenceSource | null {
+  const parsed = MachinePresenceSource.safeParse(raw)
+  return parsed.success ? parsed.data : null
 }
 
 /**
@@ -87,9 +115,9 @@ function toRecord(r: Record<string, unknown>): MachineRecord {
     wireSchemaDigest: (r.wire_schema_digest as string | null | undefined) ?? null,
     installKind: (r.install_kind as string | null | undefined) ?? null,
     deliveryCaps: parseCaps(r.delivery_caps_json as string | null),
-    // A row written before the column existed reads NULL → false, which is the
-    // truthful answer: a supervised daemon re-asserts the flag on every hello.
-    supervised: r.supervised === 1 || r.supervised === true,
+    presenceSource: parsePresenceSource(r.presence_source),
+    serviceAssignment: parseAssignment(r.service_assignment_json),
+    serviceReport: parseServiceReport(r.service_report_json),
     buildReportedAt: (r.build_reported_at as string | null | undefined) ?? null,
     components: parseComponents(r.components_json),
   }
@@ -142,7 +170,7 @@ export class MachinesRepository {
     return (
       this.db
         .prepare(
-          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, supervised, build_reported_at, podium_managed, update_channel_override, components_json FROM machines ORDER BY created_at ASC',
+          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, presence_source, service_assignment_json, service_report_json, build_reported_at, podium_managed, update_channel_override, components_json FROM machines ORDER BY created_at ASC',
         )
         .all() as Record<string, unknown>[]
     ).map(toRecord)
@@ -151,7 +179,7 @@ export class MachinesRepository {
   getMachine(id: string): MachineRecord | undefined {
     const r = this.db
       .prepare(
-        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, supervised, build_reported_at, podium_managed, update_channel_override, components_json FROM machines WHERE id = ?',
+        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, presence_source, service_assignment_json, service_report_json, build_reported_at, podium_managed, update_channel_override, components_json FROM machines WHERE id = ?',
       )
       .get(id) as Record<string, unknown> | undefined
     if (!r) return undefined
@@ -193,24 +221,62 @@ export class MachinesRepository {
     this.db.prepare('UPDATE machines SET inventory_json = ? WHERE id = ?').run(inventoryJson, id)
   }
 
-  /** Persist the daemon's advisory build report and the capabilities it offered. */
-  setMachineBuild(id: string, build: PeerBuild, caps: string[], at: string): void {
+  /** Persist a compatibility-path build report. */
+  setMachineBuild(
+    id: string,
+    build: PeerBuild,
+    caps: string[],
+    at: string,
+    source?: MachinePresenceSource,
+  ): void {
     this.db
       .prepare(
-        'UPDATE machines SET app_version = ?, wire_schema_digest = ?, install_kind = ?, delivery_caps_json = ?, supervised = ?, build_reported_at = ? WHERE id = ?',
+        'UPDATE machines SET app_version = ?, wire_schema_digest = ?, install_kind = ?, delivery_caps_json = ?, presence_source = COALESCE(?, presence_source), build_reported_at = ? WHERE id = ?',
       )
       .run(
         build.appVersion ?? null,
         build.wireSchemaDigest ?? null,
         build.installKind ?? null,
         JSON.stringify(caps),
-        // Written on EVERY report, not only when true: a machine that stops
-        // being desktop-supervised (the app uninstalled, a standalone daemon
-        // installed in its place) must lose the exclusion on its next hello.
-        build.supervised === true ? 1 : 0,
+        source ?? null,
         at,
         id,
       )
+  }
+
+  /** One supervisor report atomically owns presence, build and service truth. */
+  setSupervisorPresence(
+    id: string,
+    build: PeerBuild,
+    caps: string[],
+    services: MachineServiceReport,
+    at: string,
+  ): void {
+    this.db
+      .prepare(
+        'UPDATE machines SET app_version = ?, wire_schema_digest = ?, install_kind = ?, delivery_caps_json = ?, presence_source = ?, service_report_json = ?, build_reported_at = ?, last_seen_at = ? WHERE id = ?',
+      )
+      .run(
+        build.appVersion ?? null,
+        build.wireSchemaDigest ?? null,
+        build.installKind ?? null,
+        JSON.stringify(caps),
+        'supervisor',
+        JSON.stringify(services),
+        at,
+        at,
+        id,
+      )
+  }
+
+  setServiceAssignment(id: string, assignment: MachineServiceAssignment): void {
+    this.db
+      .prepare('UPDATE machines SET service_assignment_json = ? WHERE id = ?')
+      .run(JSON.stringify(assignment), id)
+  }
+
+  setPresenceSource(id: string, source: MachinePresenceSource): void {
+    this.db.prepare('UPDATE machines SET presence_source = ? WHERE id = ?').run(source, id)
   }
 
   /** Constant-time token comparison using sha-256 hex. */

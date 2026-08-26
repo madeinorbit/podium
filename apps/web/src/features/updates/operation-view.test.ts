@@ -405,6 +405,36 @@ describe('operationView — the seven states', () => {
     expect(result.indicator).toBe('idle-dot')
   })
 
+  it('does not claim everywhere when a visible machine could not take delivery', () => {
+    const payload = operationPayload({
+      state: 'done',
+      finishedAt: NOW,
+      steps: [
+        {
+          id: 'machines',
+          title: 'Updating your machines',
+          state: 'done',
+          progress: { done: 1, total: 1 },
+          places: [
+            {
+              id: 'm_desktop',
+              name: 'macbook',
+              state: 'cannot-take-delivery',
+              detail: 'managed by Desktop updater',
+            },
+          ],
+        },
+      ],
+    })
+
+    const result = view(payload)
+    expect(result.state).toBe('done')
+    expect(result.title).toBe('Podium 0.4.3 update complete')
+    expect(result.steps[0]?.substatus).toContain(
+      'macbook cannot take delivery: managed by Desktop updater',
+    )
+  })
+
   it('keeps asking a straggler tab to reload after the operation itself finished', () => {
     const result = view(operationPayload({ state: 'done', finishedAt: NOW }), { local: BEHIND })
     expect(result.state).toBe('waiting-you')

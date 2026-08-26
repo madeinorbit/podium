@@ -130,6 +130,81 @@
       "encoded": "{\"type\":\"conversationsChanged\",\"conversations\":[{\"id\":\"conversations[0].id\",\"path\":\"conversations[0].path\",\"podiumId\":\"conversations[0].podiumId\",\"agentKind\":\"claude-code\",\"title\":\"conversations[0].title\",\"name\":\"conversations[0].name\",\"summary\":\"conversations[0].summary\",\"projectPath\":\"conversations[0].projectPath\",\"parentConversationId\":\"conversations[0].parentConversationId\",\"statusHint\":\"conversations[0].statusHint\",\"createdAt\":\"conversations[0].createdAt\",\"updatedAt\":\"conversations[0].updatedAt\",\"messageCount\":1,\"sizeBytes\":1,\"git\":{\"branch\":\"conversations[0].git.branch\",\"sha\":\"conversations[0].git.sha\",\"originUrl\":\"conversations[0].git.originUrl\"},\"resume\":{\"kind\":\"conversations[0].resume.kind\",\"value\":\"conversations[0].resume.value\"},\"providerId\":\"conversations[0].providerId\"}],\"diagnostics\":[{\"severity\":\"warning\",\"providerId\":\"diagnostics[0].providerId\",\"root\":\"diagnostics[0].root\",\"path\":\"diagnostics[0].path\",\"message\":\"diagnostics[0].message\"}],\"removed\":[\"removed[0]\"]}"
     },
     {
+      "schema": "DirOp",
+      "variant": "minimal",
+      "wire": "createFolder",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"createFolder\""
+    },
+    {
+      "schema": "DirOp",
+      "variant": "full",
+      "wire": "createFolder",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"createFolder\""
+    },
+    {
+      "schema": "DirOpRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "dirOpRequest",
+        "requestId": "requestId",
+        "op": "createFolder",
+        "parentPath": "parentPath",
+        "name": "name"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"dirOpRequest\",\"requestId\":\"requestId\",\"op\":\"createFolder\",\"parentPath\":\"parentPath\",\"name\":\"name\"}"
+    },
+    {
+      "schema": "DirOpRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "dirOpRequest",
+        "requestId": "requestId",
+        "op": "createFolder",
+        "parentPath": "parentPath",
+        "name": "name",
+        "currentName": "currentName"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"dirOpRequest\",\"requestId\":\"requestId\",\"op\":\"createFolder\",\"parentPath\":\"parentPath\",\"name\":\"name\",\"currentName\":\"currentName\"}"
+    },
+    {
+      "schema": "DirOpResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "dirOpResult",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"dirOpResult\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "DirOpResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "dirOpResult",
+        "requestId": "requestId",
+        "path": "path",
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"dirOpResult\",\"requestId\":\"requestId\",\"path\":\"path\",\"error\":\"error\"}"
+    },
+    {
       "schema": "RepoOp",
       "variant": "minimal",
       "wire": "clone",

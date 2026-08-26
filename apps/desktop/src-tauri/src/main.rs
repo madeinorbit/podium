@@ -143,11 +143,18 @@ fn local_host_sidecar_command(
     command
 }
 
-fn replacement_daemon_command(runnable: &Path, server_url: &str) -> Command {
+fn remote_parent_command(runnable: &Path, _server_url: &str) -> Command {
     let mut command = Command::new(runnable);
     command
-        .args(["daemon", "--server", server_url, "--takeover"])
+        .args(["parent", "--takeover"])
         .env(PODIUM_CLI_PATH_ENV, runnable)
+        .env(
+            DESKTOP_SUCCESSOR_FILE_ENV,
+            runnable
+                .parent()
+                .expect("payload entrypoint has an install directory")
+                .join(".desktop-successor-pid"),
+        )
         .env(DESKTOP_SUPERVISED_ENV, "1")
         .env(SUPERVISOR_PID_ENV, std::process::id().to_string());
     command
@@ -806,7 +813,7 @@ fn native_desktop_hook(
     // also flips the webview's prefers-color-scheme, which would lock system mode
     // to whatever was last forced.
     let set_theme = ",\n            setTheme: (theme) => window.__TAURI_INTERNALS__.invoke('plugin:window|set_theme', { label: 'main', value: theme })";
-    // This device's paired machine identity (daemon.json), so the web UI can mark the
+    // This device's supervisor-owned machine identity, so the web UI can mark the
     // matching row "this machine". serde_json escaping — the value comes from disk.
     let machine_id = machine_id
         .and_then(|id| serde_json::to_string(id).ok())
@@ -1177,6 +1184,7 @@ fn main() {
                 bootstrap::LaunchAction::LocalAllInOne => "all-in-one",
                 bootstrap::LaunchAction::LocalServerOnly => "server",
                 bootstrap::LaunchAction::LocalDaemon { .. } => "daemon",
+                bootstrap::LaunchAction::LocalSupervisor { .. } => "supervisor",
                 bootstrap::LaunchAction::ClientOnly { .. } => "client",
             };
 
@@ -1326,7 +1334,7 @@ fn main() {
                                                 .spawn()
                                             },
                                             move |server_url| {
-                                                replacement_daemon_command(
+                                                remote_parent_command(
                                                     &runnable_daemon,
                                                     server_url,
                                                 )
@@ -1353,7 +1361,8 @@ fn main() {
                         Some(bootstrap::local_served_http_url(port));
                 }
 
-                bootstrap::LaunchAction::LocalDaemon { server_url } => {
+                bootstrap::LaunchAction::LocalDaemon { server_url }
+                | bootstrap::LaunchAction::LocalSupervisor { server_url } => {
                     // Spawn the local `podium`; it reads config → daemon mode → connects to the
                     // remote server. There is NO local server, so do not force PODIUM_PORT and do
                     // not wait for a local /health — the web client connects to the remote.
@@ -1368,8 +1377,8 @@ fn main() {
                                 payload_start_error = Some(reason);
                             }
                             Ok(runnable) => {
-                                log::info!("spawning daemon {runnable:?} → {server_url}");
-                                match replacement_daemon_command(&runnable, &server_url).spawn() {
+                                log::info!("spawning machine parent {runnable:?} → {server_url}");
+                                match remote_parent_command(&runnable, &server_url).spawn() {
                                     Err(error) => {
                                         let reason =
                                             format!("daemon payload spawn failed: {error}");
@@ -1389,14 +1398,14 @@ fn main() {
                                             app.handle().clone(),
                                             None,
                                             move || {
-                                                replacement_daemon_command(
+                                                remote_parent_command(
                                                     &runnable2,
                                                     &respawn_server_url,
                                                 )
                                                 .spawn()
                                             },
                                             move |server_url| {
-                                                replacement_daemon_command(
+                                                remote_parent_command(
                                                     &runnable_daemon,
                                                     server_url,
                                                 )
@@ -1642,7 +1651,7 @@ fn main() {
             // raw plugin invoke avoids adding a Tauri JS dependency to apps/web.
             let restart_hook = "window.__PODIUM_RESTART__ = () => \
                 window.__TAURI_INTERNALS__.invoke('plugin:process|restart');";
-            let machine_id = bootstrap::read_daemon_machine_id();
+            let machine_id = bootstrap::read_supervisor_machine_id();
             // `package_info` reads the version stamped into tauri.conf.json by
             // stage-sidecar. Cargo.toml intentionally keeps the Rust crate at
             // 0.1.0, so CARGO_PKG_VERSION would erase edge/stable prerelease
@@ -2015,7 +2024,7 @@ mod tests {
     }
 
     #[test]
-    fn every_daemon_the_desktop_starts_is_marked_supervised() {
+    fn every_parent_the_desktop_starts_owns_machine_presence() {
         let host = local_host_sidecar_command(
             Path::new("podium"),
             &["parent".to_string(), "--takeover".to_string()],
@@ -2023,11 +2032,11 @@ mod tests {
             Path::new("web"),
             Path::new("mobile"),
         );
-        let daemon = replacement_daemon_command(Path::new("podium"), "wss://new.example");
+        let remote = remote_parent_command(Path::new("podium"), "wss://new.example");
 
         for (label, command) in [
             ("local host sidecar", &host),
-            ("replacement daemon", &daemon),
+            ("remote parent", &remote),
         ] {
             assert_eq!(
                 command_env(command, DESKTOP_SUPERVISED_ENV).as_deref(),
@@ -2052,15 +2061,20 @@ mod tests {
             "the parent must have a bridge for reporting each handover successor"
         );
         assert_eq!(
+            command_env(&remote, DESKTOP_SUCCESSOR_FILE_ENV).as_deref(),
+            Some(".desktop-successor-pid"),
+            "the remote parent must report each handover successor"
+        );
+        assert_eq!(
             host.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>(),
             ["parent", "--takeover"],
         );
         assert_eq!(
-            daemon
+            remote
                 .get_args()
                 .map(|arg| arg.to_string_lossy().into_owned())
                 .collect::<Vec<_>>(),
-            ["daemon", "--server", "wss://new.example", "--takeover"]
+            ["parent", "--takeover"]
         );
     }
 
@@ -2077,7 +2091,7 @@ mod tests {
             Path::new("web"),
             Path::new("mobile"),
         );
-        let daemon = replacement_daemon_command(Path::new("podium"), "wss://new.example");
+        let daemon = remote_parent_command(Path::new("podium"), "wss://new.example");
         let expected = std::process::id().to_string();
 
         for (label, command) in [

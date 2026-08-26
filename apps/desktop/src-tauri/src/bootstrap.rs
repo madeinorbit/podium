@@ -176,6 +176,9 @@ pub enum LaunchAction {
     /// Spawn the local `podium` (which reads config → daemon mode → connects to `server_url`);
     /// the window points at the remote (no local server to wait for).
     LocalDaemon { server_url: String },
+    /// Spawn a parent with no service children. Machine presence and payload
+    /// updates remain live while the window points at the remote server.
+    LocalSupervisor { server_url: String },
     /// Spawn nothing; the window points at the remote server.
     ClientOnly { server_url: String },
 }
@@ -428,13 +431,22 @@ pub fn backend_exit_decision(initial_action: &LaunchAction) -> BackendExitDecisi
     classify_backend_exit(initial_action, &config, journal.as_deref())
 }
 
-/// [spec:SP-3701] This device's machine identity from a previous pairing
-/// (`~/.podium/daemon.json`), if any — lets the web UI mark "this machine" in the
+/// [spec:SP-3701] This device's supervisor-owned machine identity, if any — lets
+/// the web UI mark "this machine" in the
 /// machines list and skip the standalone hosting card for already-paired devices.
-pub fn read_daemon_machine_id() -> Option<String> {
-    let text = std::fs::read_to_string(state_dir().join("daemon.json")).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
-    json.get("machineId")?.as_str().map(str::to_string)
+pub fn read_supervisor_machine_id() -> Option<String> {
+    for name in ["supervisor.json", "daemon.json"] {
+        let Ok(text) = std::fs::read_to_string(state_dir().join(name)) else {
+            continue;
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        if let Some(machine_id) = json.get("machineId").and_then(|value| value.as_str()) {
+            return Some(machine_id.to_string());
+        }
+    }
+    None
 }
 
 /// [spec:SP-3701] Flip a client-mode config to daemon mode with the given pairing code — the
@@ -594,6 +606,7 @@ pub fn initialize_update_channel(
 ///
 /// - `client` + serverUrl  → ClientOnly (spawn nothing, window → remote)
 /// - `daemon` + serverUrl  → LocalDaemon (spawn local podium daemon, window → remote)
+/// - `supervisor` + serverUrl → LocalSupervisor (spawn zero-child parent, window → remote)
 /// - `server` (with or without serverUrl) → LocalServerOnly (spawn `podium server`, no daemon,
 ///   window → local port). Previously this fell through to LocalAllInOne, silently running a
 ///   local daemon + agents on a hub-only box (#176).
@@ -604,6 +617,9 @@ pub fn resolve_launch(mode: Option<&str>, server_url: Option<&str>) -> LaunchAct
             server_url: url.to_string(),
         },
         (Some("daemon"), Some(url)) if !url.is_empty() => LaunchAction::LocalDaemon {
+            server_url: url.to_string(),
+        },
+        (Some("supervisor"), Some(url)) if !url.is_empty() => LaunchAction::LocalSupervisor {
             server_url: url.to_string(),
         },
         (Some("server"), _) => LaunchAction::LocalServerOnly,
@@ -1610,6 +1626,16 @@ mod tests {
     }
 
     #[test]
+    fn resolve_launch_supervisor_with_url_is_zero_child_parent() {
+        assert_eq!(
+            resolve_launch(Some("supervisor"), Some("ws://h:1")),
+            LaunchAction::LocalSupervisor {
+                server_url: "ws://h:1".to_string()
+            }
+        );
+    }
+
+    #[test]
     fn resolve_launch_all_in_one_is_local() {
         assert_eq!(
             resolve_launch(Some("all-in-one"), None),
@@ -2059,15 +2085,21 @@ mod tests {
     }
 
     #[test]
-    fn read_daemon_machine_id_reads_and_tolerates_absence() {
-        with_state_dir("daemon-id", None, || {
-            assert_eq!(read_daemon_machine_id(), None);
+    fn read_supervisor_machine_id_reads_and_tolerates_absence() {
+        with_state_dir("supervisor-id", None, || {
+            assert_eq!(read_supervisor_machine_id(), None);
             std::fs::write(
                 state_dir().join("daemon.json"),
+                r#"{"machineId":"m-legacy","token":"old"}"#,
+            )
+            .unwrap();
+            assert_eq!(read_supervisor_machine_id().as_deref(), Some("m-legacy"));
+            std::fs::write(
+                state_dir().join("supervisor.json"),
                 r#"{"machineId":"m-123","token":"t"}"#,
             )
             .unwrap();
-            assert_eq!(read_daemon_machine_id().as_deref(), Some("m-123"));
+            assert_eq!(read_supervisor_machine_id().as_deref(), Some("m-123"));
         });
     }
 

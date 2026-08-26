@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { ControlMessage } from './control'
 import { DaemonMessage } from './daemon'
-import { CONVERGENCE_STATES, UpdateGrantMessage, UpdateStatusMessage } from './update'
+import {
+  CONVERGENCE_STATES,
+  MachineSupervisorControlMessage,
+  MachineSupervisorMessage,
+  UpdateGrantMessage,
+  UpdateStatusMessage,
+} from './update'
 
 const target = {
   version: '0.4.2',
@@ -153,5 +159,53 @@ describe('update frames', () => {
         ).toThrow()
       }
     })
+  })
+})
+
+describe('machine supervisor frames', () => {
+  it('carries structured service policy separately from observed state', () => {
+    const observedAt = '2026-08-26T12:00:00.000Z'
+    const report = MachineSupervisorMessage.parse({
+      type: 'machineReport',
+      services: {
+        server: { policy: 'enabled', state: 'available', observedAt },
+        agentExecution: {
+          policy: 'enabled',
+          state: 'refused',
+          reason: 'refused by local policy',
+          observedAt,
+        },
+        agentExecutionLockout: true,
+      },
+    })
+    expect(report).toMatchObject({
+      services: {
+        agentExecution: { policy: 'enabled', state: 'refused' },
+        agentExecutionLockout: true,
+      },
+    })
+  })
+
+  it('accepts assignment and update grants on the server-to-supervisor plane', () => {
+    expect(
+      MachineSupervisorControlMessage.parse({
+        type: 'serviceAssignment',
+        assignment: { server: false, agentExecution: true },
+      }),
+    ).toMatchObject({ assignment: { server: false, agentExecution: true } })
+    expect(
+      MachineSupervisorControlMessage.parse({ type: 'updateGrant', grantId: 'g1', target }),
+    ).toMatchObject({ type: 'updateGrant', grantId: 'g1' })
+  })
+
+  it('accepts update status from the supervisor without any payload machine id', () => {
+    const status = MachineSupervisorMessage.parse({
+      type: 'updateStatus',
+      grantId: 'g1',
+      state: 'restarting',
+      version: '0.4.2',
+      machineId: 'forged',
+    })
+    expect(status).not.toHaveProperty('machineId')
   })
 })

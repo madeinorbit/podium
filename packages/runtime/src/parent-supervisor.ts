@@ -9,6 +9,12 @@
  * without real processes. The process-driving loop is {@link ParentProcess}.
  */
 
+import type {
+  MachineServiceAssignment,
+  MachineServiceReport,
+  MachineServiceStatus,
+} from '@podium/model'
+
 /** Children the parent owns as OS processes. Janitor is a server worker, not a child. */
 export type SupervisedChild = 'server' | 'daemon'
 
@@ -417,6 +423,57 @@ export function clearPostUpdate(snap: ParentSnapshot): ParentSnapshot {
  * Components projection for GET /version (and settings). Degraded never bubbles
  * to systemd — it is informational only.
  */
+export function machineServiceReport(input: {
+  snap: ParentSnapshot
+  assignment: MachineServiceAssignment
+  running: MachineServiceAssignment
+  agentExecutionLockout?: boolean
+  crashOwner?: string
+  observedAt?: string
+}): MachineServiceReport {
+  const observedAt = input.observedAt ?? new Date().toISOString()
+  const status = (
+    service: SupervisedChild,
+    policy: boolean,
+    running: boolean,
+  ): MachineServiceStatus => {
+    const child = input.snap.children[service]
+    if (child.status === 'running') {
+      return { policy: policy ? 'enabled' : 'disabled', state: 'available', observedAt }
+    }
+    if (child.status === 'starting' || child.status === 'restarting') {
+      return { policy: policy ? 'enabled' : 'disabled', state: 'starting', observedAt }
+    }
+    if (child.status === 'refused') {
+      return {
+        policy: policy ? 'enabled' : 'disabled',
+        state: 'refused',
+        reason: child.reason,
+        observedAt,
+      }
+    }
+    if (service === 'daemon' && input.agentExecutionLockout && policy) {
+      return { policy: 'enabled', state: 'refused', reason: 'refused by local policy', observedAt }
+    }
+    return {
+      policy: policy ? 'enabled' : 'disabled',
+      state: 'stopped',
+      ...(policy !== running
+        ? { reason: 'changes on restart' }
+        : policy
+          ? { reason: 'service is not running' }
+          : {}),
+      observedAt,
+    }
+  }
+  return {
+    server: status('server', input.assignment.server, input.running.server),
+    agentExecution: status('daemon', input.assignment.agentExecution, input.running.agentExecution),
+    ...(input.agentExecutionLockout ? { agentExecutionLockout: true } : {}),
+    ...(input.crashOwner ? { crashOwner: input.crashOwner } : {}),
+  }
+}
+
 export function componentsProjection(snap: ParentSnapshot): {
   parent: 'running' | 'degraded' | 'handover'
   server: ChildRuntimeState['status'] | 'unknown'

@@ -27,6 +27,7 @@ const BACKEND_PREFIXES = [
   '/files',
   '/client',
   '/daemon',
+  '/machine',
   '/hooks',
   '/mcp',
 ]

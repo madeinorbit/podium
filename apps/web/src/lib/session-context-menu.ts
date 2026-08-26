@@ -104,6 +104,10 @@ export function handoffRejectionText(rejection: HandoffRejection, agentKind: Age
       return 'no daemon'
     case 'offline':
       return 'offline'
+    case 'agents-disabled':
+      return 'agents off'
+    case 'agents-unavailable':
+      return 'agents degraded'
     case 'harness-missing':
       return `no ${panelLabel(agentKind)}`
     case 'repo-missing':

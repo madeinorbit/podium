@@ -24,7 +24,13 @@
  * socket confers exactly what a remote pairing confers and nothing more.
  */
 
-import { type DaemonHandshakeReply, type MachinePrincipal, type PeerHelloReply } from '@podium/protocol'
+import {
+  type DaemonHandshakeReply,
+  type MachinePrincipal,
+  type MachineSupervisorControlMessage,
+  MachineSupervisorMessage,
+  type PeerHelloReply,
+} from '@podium/protocol'
 import {
   type ControlMessage,
   encodeDaemonMessage,
@@ -32,9 +38,13 @@ import {
 } from '@podium/protocol/daemon'
 import type { PairingGrant } from '../modules/machines/service'
 import type { SessionRegistry } from '../relay'
-import { createDaemonAcceptor, receiveDaemonFrame, recordHelloBuild } from './peer-handshake'
+import {
+  createDaemonAcceptor,
+  createMachineSupervisorAcceptor,
+  receiveDaemonFrame,
+} from './peer-handshake'
 import { DAEMON_PLANE_LIVENESS } from './plane-liveness'
-import { type GatewaySocket, warnDroppedFrame } from './ws-send'
+import { safeSendEncoded, type GatewaySocket, warnDroppedFrame } from './ws-send'
 
 /** Freshly-attached daemons get polled this often (see the attach site) … */
 const INVENTORY_SETTLE_INTERVAL_MS = 10_000
@@ -106,11 +116,14 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       }
       if (outcome.kind !== 'established') return
       principal = outcome.principal
-      recordHelloBuild(registry.modules.machines, outcome.machineId, {
-        build: outcome.build,
-        caps: outcome.offeredCaps,
-        at: new Date().toISOString(),
-      })
+      if (outcome.build) {
+        registry.modules.machines.recordLegacyBuild(
+          outcome.machineId,
+          outcome.build,
+          outcome.offeredCaps,
+          new Date().toISOString(),
+        )
+      }
       // A fresh pair hands the minted token back exactly once (the daemon persists
       // it). `paired` is itself the successful handshake reply; sending a second
       // `helloOk` would arrive after the daemon has entered its control-message loop.
@@ -180,5 +193,64 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     // Pass THIS socket's send fn: if the daemon already reconnected, the registry
     // holds the new socket and this close must not evict it.
     if (principal && send) registry.gateway.detachDaemon(principal, send)
+  })
+}
+
+/** Parent-owned machine presence and update plane. */
+export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry): void {
+  let principal: MachinePrincipal | undefined
+  let send: ((message: MachineSupervisorControlMessage) => void) | undefined
+  const acceptor = createMachineSupervisorAcceptor({
+    machines: registry.modules.machines,
+    connectionId: 'machine-' + nextDaemonConnectionId(),
+  })
+  const sendEncoded = (message: unknown): void =>
+    safeSendEncoded(ws, JSON.stringify(message), DAEMON_PLANE_LIVENESS.sendBufferLimitBytes)
+  ws.on('message', (raw) => {
+    const outcome = receiveDaemonFrame(acceptor, raw.toString())
+    if (principal === undefined) {
+      if (outcome.kind === 'ignored') return
+      if (outcome.kind === 'rejected') {
+        sendEncoded(outcome.reply)
+        return
+      }
+      if (outcome.kind !== 'established') return
+      principal = outcome.principal
+      sendEncoded(outcome.reply)
+      send = sendEncoded
+      registry.modules.machines.attachSupervisor(
+        outcome.machineId,
+        send,
+        outcome.build ?? {},
+        outcome.offeredCaps,
+      )
+      registry.modules.machines.broadcastMachines()
+      return
+    }
+    if (outcome.kind === 'rejected') {
+      sendEncoded(outcome.reply)
+      return
+    }
+    if (outcome.kind !== 'deliver') return
+    try {
+      const message = MachineSupervisorMessage.parse(JSON.parse(outcome.raw))
+      if (message.type === 'machineReport') {
+        registry.modules.machines.recordSupervisorReport(
+          principal.machine,
+          message.services,
+          new Date().toISOString(),
+        )
+      } else {
+        registry.modules.updates.onStatus(principal.machine, message)
+      }
+    } catch (error) {
+      warnDroppedFrame('machine', error)
+    }
+  })
+  ws.on('close', () => {
+    if (!principal || !send) return
+    if (registry.modules.machines.detachSupervisor(principal.machine, send)) {
+      registry.modules.machines.broadcastMachines()
+    }
   })
 }

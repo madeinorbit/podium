@@ -101,7 +101,7 @@ export async function startDetachedStack(
 ): Promise<{ serverUp: boolean }> {
   if (mode === 'client') return { serverUp: false }
   spawnDetached('parent', { port })
-  if (mode === 'daemon') return { serverUp: true }
+  if (mode === 'daemon' || mode === 'supervisor') return { serverUp: true }
   return { serverUp: await waitForHealth(port) }
 }
 
@@ -116,7 +116,6 @@ export async function ensureDetachedUp(
   if (config.mode === 'client') return { started: [] }
   if (liveRecord('parent')) return { started: [] }
   spawnDetached('parent', { port })
-  if (config.mode !== 'daemon') await waitForHealth(port)
+  if (config.mode !== 'daemon' && config.mode !== 'supervisor') await waitForHealth(port)
   return { started: ['parent'] }
 }
-

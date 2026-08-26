@@ -40,12 +40,15 @@ describe('machine build report over a live daemon socket', () => {
     else process.env.PODIUM_APP_VERSION = priorAppVersion
   })
 
-  async function connect(build?: PeerBuild): Promise<WebSocket> {
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/daemon`)
+  async function connect(
+    build?: PeerBuild,
+    options: { endpoint?: 'daemon' | 'machine'; caps?: string[] } = {},
+  ): Promise<WebSocket> {
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/${options.endpoint ?? 'daemon'}`)
     const dialer = createHandshakeDialer({
       peerRole: 'machine',
       credential: { kind: 'daemonSecret', secret: server.bootstrapToken },
-      caps: build ? ['update.delivery.feed'] : [],
+      caps: options.caps ?? (build ? ['update.delivery.feed'] : []),
       ...(build === undefined ? {} : { build }),
     })
     await new Promise<void>((resolve, reject) => {
@@ -94,16 +97,108 @@ describe('machine build report over a live daemon socket', () => {
       deliveryCaps: ['update.delivery.feed'],
       versionState: 'current',
     })
-    expect(row?.supervised).toBeUndefined()
     await close(ws)
   })
 
-  /**
-   * POD-2508, through the REAL composition root. Supervision now describes
-   * process ownership only: the external payload remains an ordinary fleet
-   * install and must stay deliverable after its report crosses the live relay.
-   */
-  it('keeps a desktop-supervised daemon deliverable in the planner projection', async () => {
+  it('prefers a supervisor and suppresses an old daemon reconnect until fallback', async () => {
+    const supervisor = await connect(
+      {
+        appVersion: '0.5.0',
+        wireSchemaDigest: 'new',
+        installKind: 'installed',
+      },
+      { endpoint: 'machine', caps: ['update.delivery.feed'] },
+    )
+    supervisor.send(
+      JSON.stringify({
+        type: 'machineReport',
+        services: {
+          server: {
+            policy: 'enabled',
+            state: 'available',
+            observedAt: '2026-08-26T12:00:00.000Z',
+          },
+          agentExecution: {
+            policy: 'enabled',
+            state: 'available',
+            observedAt: '2026-08-26T12:00:00.000Z',
+          },
+        },
+      }),
+    )
+    const legacy = await connect({
+      appVersion: '0.4.1',
+      wireSchemaDigest: 'old',
+      installKind: 'installed',
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(server.registry.modules.machines.listMachines()[0]).toMatchObject({
+      online: true,
+      presenceSource: 'supervisor',
+      appVersion: '0.5.0',
+      wireSchemaDigest: 'new',
+      deliveryCaps: ['update.delivery.feed'],
+    })
+
+    await close(supervisor)
+    expect(server.registry.modules.machines.listMachines()[0]).toMatchObject({
+      online: true,
+      presenceSource: 'legacy-daemon',
+      appVersion: '0.4.1',
+      wireSchemaDigest: 'old',
+    })
+    await close(legacy)
+  })
+
+  it('projects a Desktop-owned supervisor with no caps as online but undeliverable', async () => {
+    const ws = await connect(
+      {
+        appVersion: '0.4.1',
+        wireSchemaDigest: 'abc',
+        installKind: 'installed',
+      },
+      { endpoint: 'machine', caps: [] },
+    )
+    ws.send(
+      JSON.stringify({
+        type: 'machineReport',
+        services: {
+          server: {
+            policy: 'disabled',
+            state: 'stopped',
+            observedAt: '2026-08-26T12:00:00.000Z',
+          },
+          agentExecution: {
+            policy: 'enabled',
+            state: 'stopped',
+            reason: 'agent execution plane is disconnected',
+            observedAt: '2026-08-26T12:00:00.000Z',
+          },
+          crashOwner: 'desktop',
+        },
+      }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const listed = server.registry.modules.machines.listMachines()[0]
+    expect(listed).toMatchObject({
+      online: true,
+      presenceSource: 'supervisor',
+      deliveryCaps: [],
+      services: { crashOwner: 'desktop' },
+    })
+
+    const planned = server.registry.modules.updates.fleet()[0]
+    expect(planned).toMatchObject({
+      online: true,
+      presenceSource: 'supervisor',
+      deliveryUnavailableReason: 'managed by Desktop updater',
+    })
+    expect(machineCanTakeDelivery(planned as WaveMachine, ['feed'])).toBe(false)
+    await close(ws)
+  })
+
+  it('keeps legacy supervised build metadata as compatibility-only input', async () => {
     const ws = await connect({
       appVersion: '0.4.1',
       wireSchemaDigest: 'abc',
@@ -111,11 +206,10 @@ describe('machine build report over a live daemon socket', () => {
       supervised: true,
     })
     const listed = server.registry.modules.machines.listMachines()[0]
-    expect(listed).toMatchObject({ supervised: true })
-
-    const planned = server.registry.modules.updates.fleet()[0]
-    expect(planned?.supervised).toBe(true)
-    expect(machineCanTakeDelivery(planned as WaveMachine, ['feed'])).toBe(true)
+    expect(listed).toMatchObject({
+      presenceSource: 'legacy-daemon',
+      deliveryCaps: ['update.delivery.feed'],
+    })
     await close(ws)
   })
   /**
