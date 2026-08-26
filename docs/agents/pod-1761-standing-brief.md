@@ -294,3 +294,29 @@ contradictory notes is the current one. A date alone throws that away at exactly
 resolution the work happens at.
 
 Operator instruction, 2026-08-26 16:05 CEST.
+
+## Record the GAPS, not only the events (2026-08-26 16:09 CEST)
+
+A header stamp says when a report was last touched. It does not let a reader order the
+readings inside it against what landed — which is the question that decides whether a
+reading still counts.
+
+**Open an evidence report with a provenance table:** each pin, **its commit time from
+`git show -s --format=%ci`**, and what was driven against it. Every reading post-dates the
+commit it is pinned to, so the commit time is a verifiable **lower bound** on that block.
+Never estimate a time; run `date` and `git show`.
+
+**And include the windows where NOTHING was driven, with the reason.** One report carries a
+row for the merge commit saying nothing was driven against it because the bundle would not
+build. Without that row, the gap reads as *an absence of interest* rather than *an absence
+of a working build* — and a reader six weeks later cannot tell those apart.
+
+## Do not race for a shared lock from a watch (2026-08-26 16:09 CEST)
+
+Tempting and wrong: having a watcher ACQUIRE `test:heavy` the instant it frees, to win the
+handoff rather than catch it.
+
+**It works, and it is the wrong trade.** A lock taken by a watch is held **idle** from the
+moment it is grabbed until that session next acts — which can be minutes — so it blocks
+whoever is behind it in order to save the watcher one rotation. **Missing a window is the
+cheaper mistake.** Check the lock at the moment you actually run.
