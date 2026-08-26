@@ -945,21 +945,26 @@ columns prove the untouched paths stayed untouched.
 | A6b | chat↔CLI switch, both directions, twice | ☐ | ☐ | BLOCKED (H/T) | ☐ | n/a | chat→CLI→chat→CLI: no restart, no scrollback corruption, correct size (POD-2761/2602 fixed); after the switches, a chat send still answers AND typing in the CLI still echoes — the session is fully functional in BOTH views |
 | A7a | daemon restart | ☐ | ☐ | BLOCKED (H/T) | ☐ | ☐ | session survives or auto-resumes as the SAME conversation (asks it to recall a codeword from before) |
 | A7b | hibernate + wake | ☐ | ☐ | BLOCKED (H/T) | ☐ | n/a | wakes with context intact; never wedges (POD-2775 fixed) |
-| A8 | logged-out spawn | ☐ | ☐ | PARTIAL (H/T) | ☐ | n/a | gets a working login path; after login, next session lands on the server driver (POD-2772 fixed) |
+| A8 | logged-out spawn | ☐ | ☐ | PASS (H) / PARTIAL (T) | ☐ | n/a | gets a working login path; after login, next session lands on the server driver (POD-2772 fixed) |
 | A9 | kill session | ☐ | ☐ | BLOCKED (H/T) | ☐ | ☐ | process tree gone (check the process table, not the UI); no orphan servers after 5 min |
-| A10 | driver identity | n/a | ☐ | BLOCKED (H/T) | ☐ | n/a | session reports server family; `PODIUM_RUNTIME_DRIVER=generic-pty` demotes it (escape hatch works) |
+| A10 | driver identity | n/a | ☐ | PASS (H/T) | ☐ | n/a | session reports server family; `PODIUM_RUNTIME_DRIVER=generic-pty` demotes it (escape hatch works) |
 
-POD-2877 drove every Grok row on both arms (H = headless, T = explicit
-`generic-pty` terminal). The normal-home Grok credential was absent: H cells
-bound `generic-pty` instead of `grok-acp`, while T cells reached the same
-logged-out login screen; those cells are BLOCKED because their positive controls
-could not fire. A8 is PARTIAL on both arms: the device-code/browser login path
-appeared, but no credential was available to complete login and demonstrate the
-post-login server binding. Full evidence and per-cell pins are in
+POD-2877 drove every Grok row on both arms in the initial pass (H = headless, T
+= explicit `generic-pty` terminal). The normal-home Grok credential was absent:
+H cells bound `generic-pty` instead of `grok-acp`, while T cells reached the
+logged-out login screen; those ordinary cells are BLOCKED because their
+positive controls could not fire. A8's login-path control fired on both arms;
+the authenticated follow-up then proved the post-login server binding on H, so
+A8 is PASS on H and remains PARTIAL on T because T is the intentional terminal
+comparison arm. A10 is PASS on both arms: H reported `grok-acp`/server and T
+reported `generic-pty`/terminal under the explicit override. The Tier-B provider
+spot-check is also PASS on both arms: H exposed the typed `usage_limit` error
+and T showed Grok's `Weekly limit left: 0%` after the delivered probe. The OOM
+spot-check remains BLOCKED. Full evidence and per-cell pins are in
 `docs/evidence/pod-2877/GROK-REPORT.md`.
-The operator subsequently confirmed Grok is out of quota until 2026-08-27
-11:03 CEST, so this column is deferred for a credential-only re-drive rather
-than treated as a product red.
+The operator confirmed the account is out of quota until 2026-08-27 11:03 CEST;
+that quota cause is kept distinct from the initial logged-out cause, and the
+remaining ordinary rows were not retried.
 
 Rows A5 + A6a + A6b together are the "both views work and can be switched"
 guarantee: chat functions (A5, A1, A4), the native view functions (A6a), and

@@ -4,7 +4,7 @@ POD-2877 drove the Grok column on 2026-08-26. The ledger describes this as 15
 rows, but the Tier-A table contains 16 named rows (A1a through A10); all 16
 were driven on both arms, serially, with a free-memory check before each cell.
 
-## Matrix
+## Initial unauthenticated drive matrix
 
 H is the normal headless policy arm; T is the explicit
 `PODIUM_RUNTIME_DRIVER=generic-pty` terminal arm.
@@ -28,29 +28,53 @@ H is the normal headless policy arm; T is the explicit
 | A9 | Kill removes the process tree with no orphan server | BLOCKED | BLOCKED | Same H binding mismatch; T logged out before the cell control |
 | A10 | Default is server-family Grok; explicit generic-pty demotes it | BLOCKED | BLOCKED | H never bound `grok-acp`; T was logged out, so neither arm had the authenticated control required for this comparison |
 
-### Tier-B spot checks
+### Tier-B spot checks — initial pass
 
 | Spot check | H | T | Result |
 |---|---|---|---|
 | Provider error names the quota reason | BLOCKED | BLOCKED | No authenticated Grok turn could be created; no provider error was scored |
 | OOM-killed session is not shown as finished | BLOCKED | BLOCKED | No safe OOM injector was used; a raw SIGKILL would not prove OOM classification |
 
+## Authenticated follow-up — the three requested checks
+
+The operator supplied the normal Grok credential after the initial drive. The
+follow-up deliberately drove only the newly measurable cells; it did not retry
+the ordinary turn-dependent rows while Grok's quota was exhausted.
+
+| Check | H | T | Positive control and observed evidence |
+|---|---|---|---|
+| A8 post-login half — fresh session lands on the server driver | **PASS** | n/a for this half; the explicit terminal arm is the A10 demotion comparison | H binding receipt fired independently of model output: `driver=grok-acp family=server` |
+| A10 driver identity | **PASS** | **PASS** | H reported `grok-acp` / `server`; T reported `generic-pty` / `terminal` under the explicit override. Both binding controls fired without a turn. |
+| Tier-B provider error names the quota reason | **PASS** | **PASS** | H returned `usage_limit`, `retryable:false`, `API error (status 402 Payment Required): Grok Build usage balance exhausted`. T accepted the send and its native screen showed `Weekly limit left: 0%`; the neutral-token recheck excluded probe text from the vocabulary assertion. |
+
+The A8 H result completes that arm's original PARTIAL: its earlier login-path
+control fired, and the authenticated fresh-session binding now passed. The
+original A8 T cell remains **PARTIAL**: its login-path control fired, while the
+explicit `generic-pty` arm is intentionally not a server-driver arm; that
+server-family comparison is scored by A10.
+
 ## Red count
 
 **FAIL reds: 0.** There were no scored FAIL cells, so no product-red issue was
-filed from this drive. There are **2 PARTIAL attention cells** (A8 H and T) and
-**30 BLOCKED Tier-A cells** (the other 15 rows on both arms). The Tier-B spots
-are both BLOCKED on both arms. If the release dashboard treats PARTIAL as red,
-the attention count is 2; the strict FAIL-red count is 0.
-No better/worse claim is made between H and T: the normal acceptance cells were
-unscored on both arms.
+filed. The current record has **1 PARTIAL attention cell** (A8 T) and **30
+BLOCKED ordinary Tier-A cells** (the other 15 rows on both arms). A8 H is now
+PASS; A10 is PASS on both arms. The provider-error spot-check is PASS on both
+arms; the OOM spot-check remains BLOCKED on both arms. If the release dashboard
+treats PARTIAL as red, the current Grok attention count is 1; the strict
+FAIL-red count remains 0.
 
-At drive time no usable Grok authentication was available: `/home/mgw/.grok/auth.json`
-was absent and no `XAI_API_KEY` was present. The operator subsequently confirmed
-that Grok is out of quota until **2026-08-27 11:03 CEST**; this lane is deferred
-until then, not treated as a product-red finding. The login path itself was
-observed; no browser/device-code login was performed, and the restored-session
-claim was not rounded up to PASS.
+The initial drive had no usable Grok authentication: `/home/mgw/.grok/auth.json`
+was absent and no `XAI_API_KEY` was present. That is the distinct logged-out
+cause for the original H/T BLOCKED cells and A8 PARTIALs; H's policy binding
+fell back to `generic-pty`, while T showed the device-code login screen. The
+operator then supplied `/home/mgw/.grok/auth.json` (1738 bytes, mode 600) and
+confirmed the account is out of quota until **2026-08-27 11:03 CEST**. The
+quota exhaustion is a separate Tier-B observation, not a reason to reclassify
+the ordinary rows as product reds.
+
+No better/worse claim is made for the ordinary acceptance rows: they remain
+unscored on both arms. The explicit H/T comparison is complete for A10 and the
+quota spot-check.
 
 ## Pins and rig
 
@@ -68,10 +92,27 @@ HOME was `/home/mgw`; the derived port was `30374`.
 The web bundle stamp was `apps/web/dist/podium-build.json`, source SHA
 `6c10b66`. Final checks found zero Grok2877 probe sessions left behind.
 
+The authenticated follow-up booted the current checkout at server/daemon SHA
+`93e5312134ef67e53a16cefc6f82316fff7e6fab` and web source SHA `93e5312`:
+
+| Follow-up boot | Server PID / SHA at spawn | Daemon PID / SHA at spawn | Driver | Memory gate readings |
+|---|---|---|---|---|
+| H — A8/A10/first provider | 2608657 / `93e5312134ef67e53a16cefc6f82316fff7e6fab` | 2609007 / `93e5312134ef67e53a16cefc6f82316fff7e6fab` | policy → `grok-acp` | 3970–4073 MiB |
+| T — A10/first provider | 2635415 / `93e5312134ef67e53a16cefc6f82316fff7e6fab` | 2636509 / `93e5312134ef67e53a16cefc6f82316fff7e6fab` | `generic-pty` | 2944–3094 MiB |
+| H — neutral-token provider confirmation | 2666194 / `93e5312134ef67e53a16cefc6f82316fff7e6fab` | 2666722 / `93e5312134ef67e53a16cefc6f82316fff7e6fab` | policy → `grok-acp` | 4317 MiB |
+| T — neutral-token provider confirmation | 2670882 / `93e5312134ef67e53a16cefc6f82316fff7e6fab` | 2671196 / `93e5312134ef67e53a16cefc6f82316fff7e6fab` | `generic-pty` | 4219 MiB |
+
+All follow-up pins retained the named instance `grok2877`, derived state
+`/home/mgw/.local/state/podium/grok2877`, inherited HOME `/home/mgw`, and no
+state/socket/HOME override. The rig is now down; its derived agent home retains
+the copied credential, so a future drive needs only a valid credential/quota and
+does not need to rediscover the isolation setup.
+
 ## Credential-only re-drive
 
-The rig is ready for a re-drive once quota returns. From this worktree, with
-the operator's normal HOME inherited and no state/socket/HOME override:
+The rig is ready for the remaining ordinary rows once quota returns. From this
+worktree, with the operator's normal HOME inherited and no state/socket/HOME
+override:
 
 ```sh
 # Supply exactly one normal Grok credential, without printing it:
@@ -122,6 +163,10 @@ screen evidence:
 - [`grok-terminal.json`](readings/grok-terminal.json)
 - [`grok-terminal-server.log`](readings/grok-terminal-server.log)
 - [`grok-terminal-daemon.log`](readings/grok-terminal-daemon.log)
+- [`grok-followup-headless.json`](readings/grok-followup-headless.json)
+- [`grok-followup-terminal.json`](readings/grok-followup-terminal.json)
+- [`grok-followup-neutral-headless.json`](readings/grok-followup-neutral-headless.json)
+- [`grok-followup-neutral-terminal.json`](readings/grok-followup-neutral-terminal.json)
 
 The acceptance harness and isolated rig are [`grok-drive.ts`](grok-drive.ts)
 and [`grok-rig.sh`](grok-rig.sh).

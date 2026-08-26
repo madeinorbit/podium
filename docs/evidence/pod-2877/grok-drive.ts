@@ -1060,18 +1060,47 @@ async function a9(): Promise<void> {
 
 async function a10(): Promise<void> {
   await runCell('A10', () => withSession('A10', async (ctx) => {
-    const before = await baseline(ctx, 'IDENTITY')
-    const control = controlForReply(before, ctx.chat)
+    const control: Control = {
+      fired: Boolean(ctx.row.driverId) && Boolean(ctx.row.driverFamily),
+      what: 'the fresh session binding receipt, which exists independently of model output',
+      detail: `driver=${ctx.row.driverId ?? '?'} family=${ctx.row.driverFamily ?? '?'} session=${ctx.sid}`,
+    }
     const serverFamily = ctx.row.driverFamily === 'server'
     const grokServer = /grok/i.test(ctx.row.driverId ?? '')
     const genericOverride = arm === 'terminal' && ctx.row.driverId === 'generic-pty'
-    const verdict: Verdict = !control.fired ? 'BLOCKED' : arm === 'headless' && serverFamily && grokServer ? 'PASS' : arm === 'terminal' && genericOverride ? 'PASS' : 'FAIL'
+    const terminalFamily = arm === 'terminal' && ctx.row.driverFamily === 'terminal'
+    const expected = arm === 'headless' ? serverFamily && grokServer : genericOverride && terminalFamily
+    const verdict: Verdict = !control.fired ? 'BLOCKED' : expected ? 'PASS' : 'FAIL'
     return {
       verdict,
-      summary: verdict === 'PASS' ? arm === 'headless' ? 'default Grok session reported the Grok server family' : 'generic-pty override demoted Grok to the terminal driver' : 'driver identity did not match this arm’s expected server/escape-hatch identity',
+      summary: verdict === 'PASS' ? arm === 'headless' ? 'fresh logged-in Grok session bound the Grok server family' : 'generic-pty override demoted the logged-in Grok session to the terminal driver' : 'driver identity did not match this arm’s expected server/escape-hatch identity',
       control,
-      evidence: [`SESSION           ${ctx.sid}`, `DRIVER            ${ctx.row.driverId}`, `FAMILY            ${ctx.row.driverFamily}`, `BASELINE          ${before.answer} (${before.token})`, `EXPECTATION       ${arm === 'headless' ? 'server family + grok driver' : 'generic-pty terminal demotion'}`],
-      data: { driverId: ctx.row.driverId, driverFamily: ctx.row.driverFamily, serverFamily, grokServer, genericOverride },
+      evidence: [`SESSION           ${ctx.sid}`, `DRIVER            ${ctx.row.driverId}`, `FAMILY            ${ctx.row.driverFamily}`, `EXPECTATION       ${arm === 'headless' ? 'server family + grok driver' : 'generic-pty terminal demotion'}`, `MATCH             ${expected}`],
+      data: { driverId: ctx.row.driverId, driverFamily: ctx.row.driverFamily, serverFamily, grokServer, genericOverride, terminalFamily, expected },
+    }
+  }))
+}
+
+/** A8's post-login half is a binding check, not a turn. Quota may prevent
+ * output, but an authenticated fresh session must still select grok-acp. The
+ * terminal arm is intentionally excluded: its explicit escape hatch is the
+ * comparison covered by A10, not the server-driver half of A8. */
+async function a8PostLogin(): Promise<void> {
+  if (arm !== 'headless') return
+  await runCell('A8-post-login', () => withSession('A8-post-login', async (ctx) => {
+    const control: Control = {
+      fired: Boolean(ctx.row.driverId) && Boolean(ctx.row.driverFamily),
+      what: 'the fresh post-login session binding receipt',
+      detail: `driver=${ctx.row.driverId ?? '?'} family=${ctx.row.driverFamily ?? '?'} session=${ctx.sid}`,
+    }
+    const server = ctx.row.driverFamily === 'server' && /grok/i.test(ctx.row.driverId ?? '')
+    const verdict: Verdict = !control.fired ? 'BLOCKED' : server ? 'PASS' : 'FAIL'
+    return {
+      verdict,
+      summary: verdict === 'PASS' ? 'fresh post-login session bound grok-acp in the server family' : 'fresh post-login session did not bind the Grok server driver',
+      control,
+      evidence: [`SESSION           ${ctx.sid}`, `DRIVER            ${ctx.row.driverId}`, `FAMILY            ${ctx.row.driverFamily}`, `EXPECTATION       grok-acp / server`, `MATCH             ${server}`],
+      data: { driverId: ctx.row.driverId, driverFamily: ctx.row.driverFamily, server },
     }
   }))
 }
@@ -1082,29 +1111,40 @@ async function a10(): Promise<void> {
 
 async function providerSpot(): Promise<void> {
   await runCell('B-provider-error', () => withSession('B-provider-error', async (ctx) => {
-    const before = await baseline(ctx, 'PROVIDERBASE')
-    const control = controlForReply(before, ctx.chat)
-    const faultCwd = join(ctx.cwd, 'fault')
-    mkdirSync(faultCwd, { recursive: true })
-    const bad = await mutate('sessions.create', { cwd: faultCwd, agentKind: AGENT_KIND.grok, model: 'grok-acceptance-nonexistent-model' })
-    const sid = dataOf(bad)?.sessionId as string | undefined
-    if (!sid) {
-      const text = JSON.stringify(bad)
-      const typed = Boolean(bad.error) && /model|provider|quota|limit|unsupported/i.test(text)
-      return { verdict: typed ? 'PARTIAL' : 'BLOCKED', summary: typed ? 'invalid model was refused with typed provider/model text' : 'no Grok fault session was accepted, so quota-error surfacing was not exercised', control, evidence: [`CREATE            ${short(bad, 800)}`, `FAULT FIRED       ${typed}`], data: { faultFired: typed } }
+    const control: Control = {
+      fired: Boolean(ctx.row.driverId) && Boolean(ctx.row.driverFamily),
+      what: 'the fresh authenticated session binding receipt before the exhausted-quota turn',
+      detail: `driver=${ctx.row.driverId ?? '?'} family=${ctx.row.driverFamily ?? '?'} session=${ctx.sid}`,
     }
-    const faultChat = new RichChat(sid)
-    await faultChat.open()
-    faultChat.mode(arm === 'terminal' ? 'native' : 'chat')
-    const errored = await until(sid, (row) => Boolean(row?.agentState?.error) || phase(row) === 'errored' || row?.status === 'exited', 120_000, 1_000)
-    const row = errored.row ?? (await sessionRow(sid))
-    const blob = JSON.stringify(row?.agentState?.error ?? row ?? {})
-    const answered = faultChat.assistantText()
-    await faultChat.close()
-    await mutate('sessions.kill', { sessionId: sid }).catch(() => {})
-    if (!errored.ok && answered) return { verdict: 'BLOCKED', summary: 'invalid model was ignored and answered normally; no provider fault existed to surface', control, evidence: [`FAULT SESSION     ${sid}`, `ANSWERED          ${answered.slice(0, 300)}`, `ROW               ${short(row)}`], data: { faultFired: false } }
-    const namesQuota = /quota|rate|limit|usage|capacity/i.test(blob)
-    return { verdict: errored.ok && namesQuota ? 'PASS' : errored.ok ? 'PARTIAL' : 'FAIL', summary: namesQuota ? 'provider fault surfaced with quota/rate/capacity wording' : errored.ok ? 'provider fault surfaced, but not with a named quota reason' : 'accepted fault did not surface before timeout', control, evidence: [`FAULT SESSION     ${sid}`, `ROW               ${short(row, 800)}`, `ERROR TEXT        ${blob.slice(0, 600)}`, `QUOTA WORDING     ${namesQuota}`], data: { faultFired: errored.ok, namesQuota } }
+    if (!control.fired) return { verdict: 'BLOCKED', summary: 'no session binding control fired, so the quota fault was not measurable', control, evidence: [`BINDING           ${control.detail}`] }
+
+    // Keep the probe token neutral. A token containing "QUOTA" would make a
+    // terminal screenshot pass the vocabulary assertion even if the provider
+    // had not shown its own quota state.
+    const token = nonce('PROBE')
+    const send = await mutate('sessions.sendText', { sessionId: ctx.sid, text: `Reply with exactly this word and nothing else: ${token}.` })
+    const started = now()
+    let row: SessionRow | undefined
+    let faultVisible = false
+    while (now() - started < 45_000) {
+      row = await sessionRow(ctx.sid)
+      const visible = JSON.stringify({ row, assistant: ctx.chat.assistantText(), screen: ctx.chat.screenTail(4_000) })
+      faultVisible = Boolean(row?.agentState?.error) || phase(row) === 'errored' || row?.status === 'exited' || /quota|rate|limit|usage|capacity|exhausted|credits/i.test(visible)
+      if (faultVisible) break
+      await wait(500)
+    }
+    row ??= await sessionRow(ctx.sid)
+    const visible = JSON.stringify({ row, assistant: ctx.chat.assistantText(), screen: ctx.chat.screenTail(4_000) })
+    const namesQuota = /quota|rate|limit|usage|capacity|exhausted|credits/i.test(visible)
+    const elapsed = now() - started
+    const verdict: Verdict = faultVisible && namesQuota ? 'PASS' : faultVisible ? 'PARTIAL' : 'FAIL'
+    return {
+      verdict,
+      summary: verdict === 'PASS' ? 'exhausted-quota provider fault surfaced with explicit quota/rate/limit wording' : verdict === 'PARTIAL' ? 'provider fault surfaced without an explicit quota reason' : 'authenticated quota probe produced no provider fault before timeout',
+      control,
+      evidence: [`SEND              ${short(dataOf(send) ?? send, 800)}`, `FAULT VISIBLE     ${faultVisible} after ${elapsed}ms`, `ROW               ${short(row, 1_000)}`, `ASSISTANT         ${ctx.chat.assistantText().slice(-600)}`, `SCREEN            ${ctx.chat.screenTail(1_000)}`, `QUOTA WORDING     ${namesQuota}`],
+      data: { faultVisible, namesQuota, elapsed, driverId: ctx.row.driverId, driverFamily: ctx.row.driverFamily },
+    }
   }))
 }
 
@@ -1140,6 +1180,7 @@ await a6b()
 await a7a()
 await a7b()
 await a8()
+await a8PostLogin()
 await a9()
 await a10()
 await providerSpot()
