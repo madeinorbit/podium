@@ -56,8 +56,8 @@ server-family comparison is scored by A10.
 ## Red count
 
 **FAIL reds: 0.** There were no scored FAIL cells, so no product-red issue was
-filed. The current record has **1 PARTIAL attention cell** (A8 T) and **30
-BLOCKED ordinary Tier-A cells** (the other 15 rows on both arms). A8 H is now
+filed. The current record has **1 PARTIAL attention cell** (A8 T) and **28
+BLOCKED ordinary Tier-A cells** (the other 14 rows on both arms). A8 H is now
 PASS; A10 is PASS on both arms. The provider-error spot-check is PASS on both
 arms; the OOM spot-check remains BLOCKED on both arms. If the release dashboard
 treats PARTIAL as red, the current Grok attention count is 1; the strict
