@@ -36,6 +36,39 @@ WANT_SHA="$(git -C "$PODIUM_DRIVE_REPO" rev-parse "$WANT")"
 WANT_SHORT="$(git -C "$PODIUM_DRIVE_REPO" rev-parse --short=7 "$WANT")"
 fail() { echo "VERIFY FAILED: $*" >&2; exit 1; }
 
+# 0. NO PROBE IS ALREADY DRIVING THIS RIG — CHECKED FIRST, BEFORE THE PIN.
+#
+# Asked for by POD-1761 after the pgrep-f trap: turn the finding into a guard
+# rather than a message.
+#
+# FIRST, ahead of the pin legs, and the order is deliberate. A concurrent probe
+# invalidates every reading the run would take, whatever the pin says — so it is
+# both the cheapest check and the one whose failure matters most. Behind the pin
+# legs it was also untestable on a stale rig: leg 1 refused first and this never
+# ran. Two probes against one instance interleave their
+# sessions and their output, and the readings are unattributable afterwards —
+# the same collision two RIGS have, one level down.
+#
+# Identity plus location: `bun` by executable, then the working directory. Never
+# a command-line substring, which on this box matches every agent alive and the
+# checking shell itself.
+DRIVING=""
+for pid in $(pgrep -x bun 2>/dev/null || true); do
+  cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"
+  [ "$cwd" = "$PODIUM_DRIVE_REPO" ] || continue
+  argv1="$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | sed -n '2p')"
+  case "$argv1" in
+    *scripts/server.ts|*scripts/daemon.ts|--conditions=*) continue ;;   # the rig itself
+  esac
+  DRIVING="$DRIVING $pid"
+done
+DRIVING="$(echo "$DRIVING" | tr -s ' ' | sed 's/^ //;s/ $//')"
+[ -z "$DRIVING" ] || fail "a probe is ALREADY driving this rig (pid(s):$DRIVING).
+Two probes on one instance interleave their sessions and their output, and neither
+reading can be attributed afterwards. Wait for it, or kill it deliberately."
+echo "  ok  no other probe is driving this rig"
+
+
 # 1. LEGS ONE AND TWO — the two processes: alive, running out of this worktree,
 #    and STARTED AFTER the commit was made. A process that predates the commit
 #    cannot be running it, however clean the tree looks now; that is the leg a
@@ -94,7 +127,13 @@ done
 # daemon as "found 0". The instance id is the product's own partition key and is
 # exported by applyInstanceRuntimeEnv into the process that owns the state root,
 # so it is present whether or not anybody overrode a path.
-DAEMON_PIDS="$(pgrep -f 'scripts/daemon.ts' 2>/dev/null || true)"
+# `pgrep -x bun`, NOT `pgrep -f 'scripts/daemon.ts'`. The environ filter below
+# already made this safe, but the candidate list should not depend on a substring
+# in the first place: every agent on this box carries the whole Podium prompt in
+# its command line, so a -f match on any project string enumerates other
+# sessions' processes. -x matches the EXECUTABLE, and the environ filter then
+# says which of those bun processes is this instance's.
+DAEMON_PIDS="$(pgrep -x bun 2>/dev/null || true)"
 MINE=""
 for pid in $DAEMON_PIDS; do
   env_inst="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^PODIUM_INSTANCE=//p' | tail -1)"
