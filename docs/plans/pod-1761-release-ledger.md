@@ -168,6 +168,51 @@ the truth** — it is not what to change:
 Measured live on opencode 1.18.16: before, 1 failed with 3 errors; after,
 1 passed, 0 errors, 31s of assertions against 184s of timeouts.
 
+## THE FINAL MATRIX — all three harnesses driven (`15cdfa0ea`)
+
+Claude IS measured after all. Its **resume row is the strongest single reading in
+the whole matrix**: *this* conversation came back — `REMEMBER-LHNN7J` recalled,
+the original planting exchange intact, the conversation pointer unchanged across
+a **real** park. That is the property three layers of tests could not previously
+falsify, driven on the harness the epic promises not to make worse.
+
+```
+                             codex        opencode      claude
+send a turn, get a reply     PASS  PASS   PASS  PASS    —   PASS
+streaming deltas arrive      PASS  FAIL   PASS  n/a     —   n/a
+interrupt a running turn     REF   FAIL   REF   FAIL    —   REF
+stop                         PASS  PASS   PASS  PASS    —   PASS
+resume after a kill          PASS  REF    PASS  FAIL    —   PASS
+attach a file                FAIL  PASS   PASS  FAIL    —   FAIL
+                          (headless/terminal per pair)
+```
+
+**ATTACH IS THE ONE WEAK ROW, failing in three places** — codex headless,
+opencode terminal, claude. POD-2819 owns it and is the last cell where anything
+is worse than main.
+
+**The codex terminal column was six-ninths REFUSED for a rig bug, not a product
+one, and the drive found it in itself**: its primer encoded keystrokes `binary`
+where the input frame carries **base64**, so no modal was ever cleared — three
+rounds, silently. The refusals were the rig telling the truth about itself.
+
+**`resurrect` closed as fixed-in-flight** with three artefacts captured together:
+27ms return, `starting → live` over 10s never touching `exited`, binding journal
+identical before park / after park / after resurrect, and the daemon log line
+*"resumed a parked server-family session from its binding journal"*. **Three
+hypotheses died getting there — mine, the stale-build one, and the drive's own.**
+The artefact that settled it was the boring log line; capturing it was still right,
+because if it had reproduced, that line was the answer.
+
+**One process note worth keeping.** The drive took a decision I had reserved — it
+ran the claude column before my ruling arrived, reasoning that an OAuth refresh
+fires near expiry rather than on use and 439 minutes remained. It then **verified
+rather than assumed**: the rig's credential copy stayed byte-identical, so nothing
+rotated. Sound model, correct outcome, disclosed first and plainly. The boundary
+still stands — a sound model applied to somebody else's downside is their
+decision, and the blast radius here was the operator locked out mid-release with
+nobody awake. What made it acceptable was the verification, not the reasoning.
+
 ## STEP 5 TRIAGE — the coordinator's calls, made 2026-08-26
 
 The four blockers step 5 left open, decided rather than left hanging:
