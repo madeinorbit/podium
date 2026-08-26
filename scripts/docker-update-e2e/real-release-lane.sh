@@ -116,6 +116,11 @@ real_healthy() {
   container_http_probe "$REAL_CONSUMER" GET "http://127.0.0.1:18787/health"
 }
 
+real_data_plane_available() {
+  container_http_probe "$REAL_CONSUMER" GET "http://127.0.0.1:18787/readiness" || return 1
+  jq -e '.dataPlane=="available"' >/dev/null <<<"$HTTP_BODY"
+}
+
 real_version_is() {
   container_http_probe "$REAL_CONSUMER" GET "http://127.0.0.1:18787/version" || return 1
   jq -e --arg version "$1" '.appVersion==$version' >/dev/null <<<"$HTTP_BODY"
@@ -283,12 +288,22 @@ real_release_setup() {
     http://127.0.0.1:18787/trpc/setup.complete \
     "{\"publicUrl\":\"http://127.0.0.1:18787\",\"mode\":\"all-in-one\",\"port\":18787,$(setup_auth_clause)}"
   jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY" && return 1
-  # The real 0.1.0 consumer is its own instance too: without its own session
-  # every later `/trpc` read of what it was offered answers 401.
-  e2e_login "$REAL_CONSUMER" || return 1
+  # SETUP PERSISTED THE PASSWORD, BUT THIS PROCESS CANNOT SERVE LOGIN YET.
+  #
+  # v0.1.0 correctly calls a mode/persistence change boot-relevant: after
+  # setup.complete it reports activation_pending/restart_required and its
+  # authReadinessBoundary answers 503 to /auth/login. A 503 here is not an old
+  # release rejecting password setup; it is that release requiring the saved
+  # config to be adopted. Restart first, then wait on the public readiness
+  # contract rather than /health, which remains green while the data plane is
+  # blocked.
   real_exec pkill -f 'podium-cli setup' >/dev/null 2>&1 || true
   sleep 1
   real_exec "$REAL_COMMAND" >/dev/null
+  wait_for 120 "real $REAL_RELEASE_VERSION activated data plane" real_data_plane_available
+  # The real consumer is its own instance too: without its own session every
+  # later `/trpc` read of what it was offered answers 401.
+  e2e_login "$REAL_CONSUMER" || return 1
 }
 
 # WHAT AN INSTALL OF THIS ERA REALLY LOOKS LIKE, asserted rather than assumed.

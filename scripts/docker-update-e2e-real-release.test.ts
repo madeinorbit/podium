@@ -196,6 +196,26 @@ describe('real-release row expectations still match the code they describe', () 
     expect(lane).not.toMatch(/install\.sh --instance/)
     expect(lane).toContain('REAL_STATE=/home/podium/.podium')
   })
+
+  it('activates v0.1.0 before logging in to the password it stored at setup', () => {
+    // setup.complete changes boot-relevant mode/persistence. v0.1.0 therefore
+    // reports activation_pending and returns 503 from /auth/login until a new
+    // process adopts the config; /health stays green throughout and cannot be
+    // the wait. This is a readiness transition, not a no-password exception.
+    const setup = lane.slice(
+      lane.indexOf('real_release_setup()'),
+      lane.indexOf('# WHAT AN INSTALL OF THIS ERA REALLY LOOKS LIKE'),
+    )
+    expect(setup).toContain('real_data_plane_available')
+    expect(setup).toContain('GET "http://127.0.0.1:18787/readiness"')
+    expect(setup.indexOf('real_exec "$REAL_COMMAND"')).toBeLessThan(
+      setup.indexOf('real_data_plane_available'),
+    )
+    expect(setup.indexOf('real_data_plane_available')).toBeLessThan(
+      setup.indexOf('e2e_login "$REAL_CONSUMER"'),
+    )
+    expect(setup).not.toContain('acknowledgeNoPassword')
+  })
 })
 
 describe('patch-trust-root refuses everything but its one exact site', () => {

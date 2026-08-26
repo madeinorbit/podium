@@ -371,6 +371,12 @@ write its own systemd units, database and config. It then serves a release built
 checkout at the URL a `stable` install actually fetches, and asserts the machine converges
 onto the single-unit topology with its data intact.
 
+This consumer is password-protected too. Its `setup.complete` persists the password and
+also changes boot-relevant mode/persistence, so the still-running setup process correctly
+reports `activation_pending` and returns HTTP 503 from `/auth/login`. The lane restarts
+that process, waits for `/readiness` to report an available data plane, and only then logs
+in. It does not weaken this one row to the old no-password fixture.
+
 ### Why this lane exists
 
 `legacy-migration` looks like it covers this and does not. It renders a three-unit layout
