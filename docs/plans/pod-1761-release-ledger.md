@@ -3568,3 +3568,26 @@ would produce a false refusal on C1 that is indistinguishable from a pass.
 
 New brief section: **"I rebased it" is not "the patch is unchanged"** — `git log` cannot separate
 them, `git range-diff` can, and it costs one command.
+
+### The coordinator has been partly blind to mail all evening (2026-08-26 23:35 CEST)
+
+A stop hook reported a message from POD-2878 and `podium issue mail inbox` would not show it.
+It is not the hook. **The listing shows the OLDEST 186 messages, 2026-08-13 to 2026-08-20, and
+truncates everything since** — six days, on an epic that coordinates by mail. `podium mail inbox`
+tails out at 2026-08-14. `podium issue mail pending` prints "1 unread" with no id, so there is no
+route to the content through `claim` or `show` either. Filed **POD-2911**.
+
+**This retro-explains an inconsistency I nearly wrote off as noise** earlier tonight: a hook
+claimed 3 messages while `mail pending` said 0 unread. Both were right about different things,
+and the reader was the broken part. I had been recovering content by reading sessions' transcripts
+directly without registering that the mail path was failing rather than empty.
+
+**It also changes how I should be sending gating instructions.** A send reports "queued for
+delivery" and the ledger records it, so silence back does not separate *read it and disagreed*
+from *never saw it*. Anything that gates work goes as a session send, not only as mail. Added to
+the standing brief with the session-read recipe, including that `session read` needs the FULL
+uuid — a prefix returns "no session found", which reads like the session is gone.
+
+Same shape, noted on POD-2911 as probably one fix: `podium issue show <id> --json` truncates
+mid-string on a large issue. The parse fails loudly, which is survivable; a grep over the same
+output would have silently returned half an answer.

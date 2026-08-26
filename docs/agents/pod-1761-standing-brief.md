@@ -953,3 +953,23 @@ your evidence the amendment actually touches:
 **So: after any rebase of a driven fix, run `range-diff` before you repeat the reading.** If it
 is non-empty, name which arms survive and which do not, rather than declaring the whole set
 either dead or alive.
+
+### The mail reader cannot show you new mail — read the session instead (2026-08-26 23:35 CEST)
+
+`podium issue mail inbox` lists the **oldest** messages and truncates the recent ones. Measured
+on the coordinator's mailbox: 186 headers spanning 2026-08-13 to 2026-08-20, on 2026-08-26.
+`podium mail inbox` tails out at 2026-08-14. `podium issue mail pending` prints a bare count with
+no id, so `mail claim` and `mail show` have nothing to take. Filed as POD-2911; there is no
+`--limit` to work around it with.
+
+**So a stop hook telling you about a message is not something you can act on through the inbox.**
+Do not conclude the hook is noisy — the message is real and the reader cannot reach it.
+
+**The reliable path is the session itself:** `podium session read <full-uuid> --turns 1`. Note it
+needs the FULL uuid; a prefix returns "no session found", which reads like the session is gone.
+Resolve ids with `podium issue show <id> --json` and read `data.sessions[].sessionId`.
+
+**Corollary for senders:** a send reports "queued for delivery" and the ledger records it, so
+silence from the recipient does not distinguish "read it and disagreed" from "never saw it". If
+something is gating, put it where the recipient will trip over it — a session send, or a comment
+on the issue — not only in mail.
