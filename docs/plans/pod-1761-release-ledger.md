@@ -168,6 +168,40 @@ the truth** — it is not what to change:
 Measured live on opencode 1.18.16: before, 1 failed with 3 errors; after,
 1 passed, 0 errors, 31s of assertions against 184s of timeouts.
 
+## STEP 5 TRIAGE — the coordinator's calls, made 2026-08-26
+
+The four blockers step 5 left open, decided rather than left hanging:
+
+- **POD-2772 — FIXED and landed** (`2d641120b`). It was the must-fix and it was
+  three bugs; see below.
+- **POD-2631 — FIXED and landed**, its regression test run and mutation-checked
+  by me after nobody had been able to execute it.
+- **POD-2692 — PROMOTED FROM 'WAIVABLE' TO FIX, and started.** The ledger judged
+  it waivable "if tonight's release doesn't target named instances". That is
+  wrong on the facts now: **the acceptance drive could not measure claude at all**,
+  and the mechanism is this family. POD-2772 hit the same seam from the other
+  side — `discovery.homeDir` is not only the scanner's root, host-runtime makes it
+  `ctx.homeDir`, which is BOTH the home the inventory reads harness login from AND
+  the HOME every server-driver child is spawned with. This is the seam's **third**
+  appearance on this epic (POD-2772's silent demotion, POD-2631's flat refusal,
+  and now claude's unmeasurable column). Close it rather than meet it again.
+- **POD-2432 — WAIVED for this release, with the reason on the record.** Step 5
+  said the matrix's A7 row decides it: if a session resumes cleanly after a daemon
+  restart, the bar is met without the full inventory work. **Resuming works** —
+  POD-2775's journal-based `adopt` is precisely the daemon-died case, and the
+  conformance corpus round-trips a snapshot across a supervisor restart. What is
+  missing is only *enumerating* sessions this boot did not start. That is a real
+  gap and a poor experience, and it is not a correctness or parity failure against
+  main. Deferred to the operator explicitly rather than closed.
+
+**And a new blocker the gate found that step 5 never listed: POD-2820.**
+`bun run lint:boundaries` exits 1 on the tip, with three manifest-consumers
+violations that are **all this epic's own** — two of the three files do not exist
+on main and the third has zero forbidden imports there. Declaring the missing
+dependency is NOT the fix: it silences `declared-deps` and immediately exposes
+`manifest-consumers` underneath, which is the rule that means it. The declaration
+was missing because the import should not be there.
+
 ## THE MATRIX IS COMPLETE — headless better in 3 cells, worse in 1 (`acab1cc65`)
 
 codex, opencode and claude driven on both arms where both exist, per-cell pinned,
