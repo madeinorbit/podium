@@ -25,3 +25,7 @@ parked turn survives restart	codex-headless	FAIL message destroyed	6685c59	yes	y
 parked turn survives restart	codex-terminal	PASS delivered normally	6685c59	yes	yes	2026-08-26	POD-2875
 provider error surfaced	opencode-headless	PASS 12.2s typed	c58315e	yes	yes	2026-08-26	POD-2811
 provider error surfaced	opencode-terminal	FAIL silent 190s	c58315e	yes	yes	2026-08-26	POD-2868
+A2a status while working	codex-headless	PASS 51 preview frames	6685c59	yes	yes	2026-08-26	POD-2777
+long turn completes	codex-headless	FAIL wedged 400s no output	6685c59	yes	yes	2026-08-26	POD-2884
+long turn completes	codex-terminal	PASS 61s	6685c59	yes	yes	2026-08-26	POD-2884
+long turn completes	codex-outside-podium	PASS 83s exit 0	6685c59	yes	yes	2026-08-26	POD-2884

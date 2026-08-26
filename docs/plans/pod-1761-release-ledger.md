@@ -2082,3 +2082,71 @@ that must be named rather than shipped silently, and a boundaries gate that was 
 red before we touched it.
 
 **The release decision is now a list to sign rather than a surprise at merge time.**
+
+## A SECOND P1 WHERE HEADLESS IS WORSE, AND THIS ONE IS ORDINARY WORK (2026-08-26)
+
+**POD-2884 / POD-2885. Long turns wedge on codex-app-server and complete on generic-pty.**
+Same commit, same rig, same harness, one variable — plus a third arm outside Podium
+because it settles the "is it the harness" question outright:
+
+| arm | result |
+| --- | --- |
+| headless (codex-app-server) | **WEDGES** — previews freeze at 82 frames, then 400 seconds with `transcriptChars=0` and `items=1` (the user message alone). No assistant text on any plane, ever. |
+| terminal (generic-pty) | completes in **61s**, screen bytes growing continuously |
+| codex directly, outside Podium | completes in **83s**, exit 0, 31,065 bytes |
+
+**The work completes outside Podium and on the old driver, and wedges only on the new
+one. This is ours.** And the same shape was already recorded for **opencode**, so the
+first place to look is the shared layer, not `codex-app-server.ts` — two harnesses, one
+symptom, plausibly one cause.
+
+**The 20-second cliff is the clue.** The preview plane works normally — 29 frames, then
+77 — and stops dead at 82 while the turn runs on for another 400 seconds. Something
+bounded is filling and not draining.
+
+**A2a passing is not a contradiction, and the drive said so before I could.** 51 preview
+frames joining 8.6s into a running turn, monotonic, fine watch acquired — *the plane
+works for the first ~20 seconds and then stops*, so A2a and the wedge are the same
+behaviour read at different timescales. Do not let A2a talk you out of the wedge.
+
+**It also explains A3.** The interrupt probe controls on the turn being observed *in
+flight* — previews or transcript growing. On this arm both are frozen by then, so the
+control cannot fire and A3 correctly REFUSES. **A3 is unmeasurable on headless until
+this is fixed**, re-driven alone on a clean session to rule out a shared streaming turn.
+
+### A control failure reported rather than dropped
+
+The first attempt at the outside-Podium arm was **invalid**: `codex exec` was waiting on
+stdin and timed out at 420s having produced 39 bytes. *Had the author not read the
+output, they would have reported "codex stalls outside Podium too" and closed the entire
+finding.* The 83s figure is the re-run with stdin closed. That is the single most
+dangerous shape on this epic — an arm that fails for a reason unrelated to the thing
+being measured, pointing at the comfortable conclusion.
+
+### A hypothesis checked and killed, so nobody re-spends it
+
+POD-2875's blast radius is **narrow**. The server defaults `client.viewModes[sid]` to
+`native` (`client-control.ts:225`, `terminal.ts:572`, `session-state/service.ts:455`), so
+a client that never sends `viewState` should park too. **It does not** — undeclared and
+explicit `chat` both deliver normally; only an *explicit* native declaration parks.
+
+### And a rig defect that nearly cost a cell silently
+
+An unknown probe name in `P2777_ONLY` was an **empty selection rather than an error**, so
+`P2777_ONLY=streaming,…` (the probe is called `stream`) ran two probes, printed a results
+table, and **exited 0**. A2a was nearly recorded as driven from a run that never touched
+it. `drive.ts` now derives the known set from the probes themselves and refuses with exit
+6, naming the unknown ids.
+
+## THE PROJECTION MOVED
+
+    driven      19 of 80 cells (24%)
+    reds        5      rate 0.26 per cell
+    projected   ~21 reds across the matrix   (range 13-29)
+    rounds      ~6 at four fixes in parallel
+
+**The shape of the answer to the epic's own question, so far: two cells say headless is
+BETTER** (A1a 4.1s vs 6.4s; provider errors surfaced in 12.2s vs never) — **and two say
+it is WORSE, both P1** (a delivered message destroyed by a restart; long turns that never
+finish). Both worse-cells are *fixable defects*, not architecture. The only structural
+item remains the three extra processes per view switch.

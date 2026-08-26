@@ -87,3 +87,31 @@ browser storage or harness-name literals added by this epic.
 
 **Recommendation: ship.** But the gate cannot be used as a green/red signal for this
 branch while it stays red, and somebody should know that.
+
+---
+
+## 6. Long turns never finish on the new codex driver — fix before shipping.
+**Raised 2026-08-26. Status: OPEN. Blocking, and it breaks ordinary work.**
+
+Ask Codex for something that takes a while and it never finishes. Same request, same
+machine, one variable changed:
+
+| where | result |
+| --- | --- |
+| new driver (codex-app-server) | **wedges** — 400 seconds, no answer ever produced |
+| old driver (generic-pty) | completes in 61s |
+| Codex run directly, outside the product | completes in 83s |
+
+So the work is fine and the harness is fine; the new driver is what breaks. The same
+shape was already recorded for opencode, so it is probably one cause in shared code
+rather than two driver bugs.
+
+**Why it is the operator's call:** this is not an edge case reached by an unusual
+setting — it is any long task. It also makes the interrupt check unmeasurable on that
+driver, because nothing is observably in flight to interrupt.
+
+- **Fix it** — POD-2885 is on it. The 20-second cliff (previews stop dead at 82 frames
+  while the turn runs on) points at something bounded filling and not draining.
+- **Ship with it** — long tasks silently never complete on the driver we are switching to.
+
+**Recommendation: fix. This one is not waivable.**
