@@ -50,8 +50,31 @@ fail() { echo "VERIFY FAILED: $*" >&2; exit 1; }
 # the same collision two RIGS have, one level down.
 #
 # Identity plus location: `bun` by executable, then the working directory. Never
-# a command-line substring, which on this box matches every agent alive and the
-# checking shell itself.
+# a command-line substring. MEASURED on this box at 2026-08-26 18:42 CEST: of 43
+# live agent processes, a generic project substring ('docs/evidence') matches SIX
+# — other sessions' agents, because every Podium agent carries its whole prompt in
+# argv — plus the grepping shell itself, whose command line contains the pattern
+# by construction. Not "every agent", which is what I first wrote; 6 of 43 is the
+# real number and it is quite bad enough for something wired to a kill.
+#
+# The converse is worth recording next to it, because I got it wrong in the loud
+# direction: a substring that is an ABSOLUTE PATH UNIQUE TO THIS INSTANCE matches
+# only this rig's own processes — other sessions' prompts do not contain it. So
+# `pgrep -f` is not uniformly unsafe; it is unsafe WHEN THE PATTERN IS GENERIC,
+# and the fix is to stop matching on argv text at all rather than to hunt for a
+# pattern specific enough to get away with.
+#
+# MUTATION-CHECKED 2026-08-26 18:45 CEST, both directions, against processes
+# whose liveness was proved first:
+#   baseline, nothing driving          -> detects nothing
+#   a bun probe run from the repo cwd  -> DETECTED  (positive control fires)
+#   a bun process named scripts/daemon -> skipped   (negative control holds)
+# The first attempt at this test was VACUOUS and nearly banked: `bun` was not on
+# PATH, exec failed, no process ever started, and both arms dutifully reported
+# ''— which reads as "the skip works" if you only look at the negative arm. The
+# fix that matters is not the PATH, it is that the check now prints each pid's
+# /proc/<pid>/exe before drawing any conclusion, so an arm that tested nothing
+# cannot look like an arm that passed.
 DRIVING=""
 for pid in $(pgrep -x bun 2>/dev/null || true); do
   cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"
