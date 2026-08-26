@@ -28,10 +28,11 @@ export function shareAgentConcurrency(working: number): string {
   return `${working} ${noun} mid-session in @podium_ade right now.\n\nI have become a very small air-traffic controller.`
 }
 
-export function shareTokenBurn(burnPerHour: number): string {
+export function shareTokenBurn(burnPerHour: number, windowMinutes = 15): string {
   const amount = money(burnPerHour)
+  const reading = `My agents' ${windowMinutes}-minute token usage in @podium_ade works out to ${amount}/hr at API list prices.`
   if (burnPerHour < LOW_BURN_USD_PER_HOUR) {
-    return `I am running @podium_ade on ${amount}/hr in tokens.\n\na rounding error with commit access.`
+    return `${reading}\n\na rounding error with commit access.`
   }
-  return `I am burning ${amount}/hr in tokens with @podium_ade.\n\nI used to think that number would scare me.`
+  return `${reading}\n\nI used to think that number would scare me.`
 }

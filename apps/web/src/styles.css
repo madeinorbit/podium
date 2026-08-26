@@ -1561,6 +1561,78 @@ html[data-density="balanced"] .header-quota-pools {
   gap: 6px;
   color: var(--live);
 }
+.status-strip-roster-trigger {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.status-strip-roster-trigger:hover,
+.status-strip-roster-trigger[aria-expanded="true"] {
+  color: color-mix(in oklab, var(--live) 82%, var(--foreground));
+}
+.status-strip-roster-trigger:focus-visible {
+  border-radius: 3px;
+  outline: 1px solid var(--live);
+  outline-offset: 2px;
+}
+.status-strip-roster {
+  width: max-content;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--popover);
+  box-shadow: var(--shadow-popover);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+  white-space: normal;
+}
+.status-strip-roster-title {
+  color: var(--text-strong);
+  font-size: 11px;
+  font-weight: 600;
+}
+.status-strip-roster-list {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.status-strip-roster-list li {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+.status-strip-roster-list span {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: var(--shell-type-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-strip-roster-list b {
+  flex: none;
+  color: var(--live);
+  font-family: var(--font-mono);
+  font-size: var(--shell-type-micro);
+  font-weight: 500;
+}
+.status-strip-roster p {
+  margin: 8px 0 0;
+  padding-top: 7px;
+  border-top: 1px solid var(--hairline-soft);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--shell-type-micro);
+}
 .status-strip-idle {
   flex: none;
   color: var(--text-faint);
