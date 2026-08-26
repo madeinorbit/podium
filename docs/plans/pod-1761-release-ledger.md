@@ -247,7 +247,23 @@ window is right, its start is wrong; do not shorten `READY_MAX_MS`.* And the
 rewrite must make both lanes agree explicitly, or the repo drifts back to
 whichever answer nobody runs.
 
-**The best thing in that round was a fix its author talked themselves out of.**
+**THE LESSON FROM THAT ROUND, corrected by its own author against my flattering
+version of it.** I wrote that they held the `#473` distinction against their first
+instinct. They say not: their first instinct was wrong, my warning is what stopped
+it, and what actually caught it was **refusing to group** — running the eleven and
+reading each failure's OWN error rather than the cluster's name. At which point
+`#473` said *expected true to be false* on `r.ok`, which is not a latency failure
+and could not be one.
+
+> **The cluster names were a better story than the errors, and the errors were
+> right.**
+
+That lands on me too: an hour earlier I had grouped those ten in a mail as "the
+same question one layer out", which is exactly the reading they then had to
+resist. **A plausible grouping is a hypothesis wearing a conclusion's clothes**,
+and this epic has now paid for that twice in one night.
+
+**The fix it produced is one its author talked themselves out of reaching for.**
 Their first instinct on the `#473` pair was to reach for the same exemption; it
 would have been wrong. Diverting a claude-code send to the queue moved it **past
 the guards `typeText` applies**, so a send at a live AskUserQuestion menu returned
