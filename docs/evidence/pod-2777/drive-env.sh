@@ -32,11 +32,52 @@
 # makes that true rather than a comment.
 export PODIUM_INSTANCE="${P2777_INSTANCE:-p2777}"
 
-# The product chooses durable-terminal paths from the named state root. This
-# rig deliberately leaves those choices untouched so its result matches an
-# ordinary installation.
+# NO PRODUCT PATH IS SET HERE ANY MORE. See "THE OVERRIDES ARE GONE" below.
+#
+# $PODIUM_DRIVE_BASE is the RIG'S OWN bookkeeping only — pid files, sha files,
+# logs, the scratch repo, the cookie jar, the results the report is built from.
+# Nothing in the product reads it (checked: no match for PODIUM_DRIVE_BASE
+# anywhere under apps/, packages/ or scripts/). It is deliberately NOT named
+# PODIUM_STATE_DIR, because that name IS a product override.
+# OVERRIDABLE, defaulting to what it always was (POD-2811): two rigs on this
+# box reaped each other's server pair through this directory's pidfiles, and
+# the survivor then wrote ITS commit into the other's log — a pin line that
+# looks perfect and belongs to someone else's run.
 export PODIUM_DRIVE_BASE="${P2777_BASE:-/tmp/pod-2777}"
-export PODIUM_STATE_DIR="$PODIUM_DRIVE_BASE/state"
+
+# --- THE OVERRIDES ARE GONE ------------------------------------------------
+# This rig used to export PODIUM_STATE_DIR, ABDUCO_SOCKET_DIR and TMUX_TMPDIR to
+# short paths under /tmp. All three are removed, on POD-1761's order and
+# POD-2856's rule: a rig may not set any variable whose purpose is to SHORTEN or
+# RELOCATE what the product would choose, because such an override pre-empts the
+# composition under test and the composition is what breaks.
+#
+# It is not hypothetical. With the override in place this rig drove nine
+# behaviours across three harnesses and never saw that a NAMED INSTANCE CANNOT
+# START A TERMINAL SESSION AT ALL — the socket path the product itself composes
+# is 121 bytes against sun_path's 107 (POD-2853). Measured here by running the
+# vendored abduco directly, no arithmetic:
+#
+#   id=a         113 bytes   create-session: File name too long
+#   id=p2777     121 bytes   create-session: File name too long
+#   id=operator  127 bytes   create-session: File name too long
+#   default       71 bytes   exit 0
+#
+# The shortest LEGAL instance id is still 8 bytes over, so this is not something
+# a shorter name or a shorter state dir can rescue.
+#
+# WHAT THE PRODUCT NOW PICKS, unaided, for PODIUM_INSTANCE=p2777:
+#   state root         ~/.local/state/podium/p2777      (instanceStateDir)
+#   ABDUCO_SOCKET_DIR  <state root>/runtime/abduco      (applyInstanceRuntimeEnv)
+#   TMUX_TMPDIR        <state root>/runtime/tmux        (applyInstanceRuntimeEnv)
+#
+# The rig still has to WRITE two first-run files into that state root, so it has
+# to KNOW the path — but knowing is not overriding. P2777_STATE_ROOT below is a
+# RIG-ONLY name computed by the same rule as instanceStateDir(); drive-up.sh
+# asserts it against the product's own function before writing anything, so a
+# drift in either direction stops the rig instead of silently splitting it.
+P2777_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/podium/$PODIUM_INSTANCE"
+export P2777_STATE_ROOT
 
 # --- endpoints ------------------------------------------------------------
 # PORT BASE 19847. Distinct from the OPERATOR'S 19797 — which this rig must
@@ -48,7 +89,12 @@ export PODIUM_HOOK_PORT="${P2777_HOOK_PORT:-46847}"
 export PODIUM_AGENT_RELAY_PORT="${P2777_RELAY_PORT:-46848}"
 export PODIUM_HOST=127.0.0.1
 
-# Do not shorten or relocate product-selected terminal paths in this rig.
+# --- durable-terminal containment: NOT OURS TO SET ------------------------
+# ABDUCO_SOCKET_DIR and TMUX_TMPDIR are unset here, and unset DELIBERATELY —
+# applyInstanceRuntimeEnv() only fills them in when they are absent, so setting
+# them is exactly how a rig stops testing the product's own choice. They are
+# unset rather than merely not-exported because this shell runs inside a Podium
+# session on the default instance, which may already carry them.
 unset ABDUCO_SOCKET_DIR TMUX_TMPDIR
 
 # --- scrub the inherited session ------------------------------------------
@@ -56,7 +102,7 @@ unset ABDUCO_SOCKET_DIR TMUX_TMPDIR
 # which exports these; inheriting any of them routes CLI calls back into the
 # live server.
 unset PODIUM_SESSION_ID PODIUM_SESSION_INSTANCE PODIUM_SESSION_RELAY
-unset PODIUM_AGENT_RELAY PODIUM_HOME PODIUM_WEB_DIR
+unset PODIUM_AGENT_RELAY PODIUM_HOME PODIUM_WEB_DIR PODIUM_STATE_DIR
 unset ABDUCO_SESSION ABDUCO_SOCKET
 export PODIUM_NO_RELAY=1
 
@@ -122,5 +168,8 @@ export PODIUM_DRIVE_REPO="${P2777_REPO:-/home/mgw/src/podium/.worktrees/issue-27
 # this reorder changes nothing else — bun still resolves from ~/.bun/bin.
 export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$PATH"
 
-mkdir -p "$PODIUM_STATE_DIR"
-chmod 700 "$PODIUM_DRIVE_BASE"
+# Only the rig's own directory, and the state root the rig must write its
+# first-run files into. The runtime/abduco and runtime/tmux directories are
+# created by applyInstanceRuntimeEnv() inside the product, which is the point.
+mkdir -p "$PODIUM_DRIVE_BASE" "$P2777_STATE_ROOT"
+chmod 700 "$PODIUM_DRIVE_BASE" "$P2777_STATE_ROOT"

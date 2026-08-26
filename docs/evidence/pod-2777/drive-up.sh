@@ -86,6 +86,12 @@ export PODIUM_WEB_DIR="$PODIUM_DRIVE_REPO/apps/web/dist"
 # through tRPC, which sits behind the very guard that is blocking, so a rig with
 # no operator to click it writes the one field readiness reads.
 #
+# The state root is computed by the rig now that it may not override it, so that
+# computation is checked against the product's own function before a single byte
+# is written into it. Exits non-zero if they disagree, or if any path override
+# survived into this shell.
+bun "$HERE/state-root-check.ts" || exit 1
+
 # Claim the named state root through the same runtime writer used by `podium
 # setup`; the rig must not fabricate instance.json or config.json.
 bash "$HERE/../claim-instance.sh"
@@ -145,7 +151,7 @@ echo "server healthy on :$PODIUM_PORT"
 # session degrades to a generic PTY, which is a PERFECT false negative for a
 # drive whose whole subject is headless-vs-terminal. drive.ts refuses any probe
 # whose session did not bind the driver its arm asked for, for this reason.
-AGENT_HOME="$PODIUM_STATE_DIR/agent-home"
+AGENT_HOME="$P2777_STATE_ROOT/agent-home"
 mkdir -p "$AGENT_HOME/.claude" "$AGENT_HOME/.grok" "$AGENT_HOME/.codex" \
          "$AGENT_HOME/.local/share/opencode" "$AGENT_HOME/.config/opencode"
 chmod 700 "$AGENT_HOME"
@@ -161,11 +167,57 @@ do
   from="${pair%%:*}"; to="${pair#*:}"
   if [ -f "$from" ] && [ ! -f "$to" ]; then cp "$from" "$to" && chmod 600 "$to"; fi
 done
+# A POSTURE THAT ACTUALLY ASKS — required for the A4 rows, and not an override
+# of any product path.
+#
+# Row A4a needs a permission ask to exist before the product can be judged on
+# surfacing it. Under the default posture NOTHING asks: codex's app-server child
+# runs with `sandbox_mode="workspace-write"` and wrote to $HOME without a word,
+# and — measured as a control — CODEX DOES THE SAME OUTSIDE PODIUM with the same
+# flag, so that is the harness on this host, not Podium. opencode was equally
+# permissive until told otherwise. Both made A4 report BLOCKED for want of an
+# ask, which says nothing about the ask plane.
+#
+# `permission.bash = ask` is opencode's own configuration knob and is exactly
+# the posture a cautious operator runs. Written only if the seeded config does
+# not already carry a permission block, so an operator's own choice wins.
+OC_CFG="$AGENT_HOME/.config/opencode/opencode.jsonc"
+if [ -f "$OC_CFG" ] && ! grep -q '"permission"' "$OC_CFG"; then
+  printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "permission": {\n    "bash": "ask"\n  }\n}\n' > "$OC_CFG"
+  chmod 600 "$OC_CFG"
+  echo "opencode posture set to permission.bash=ask (so A4 has an ask to measure)"
+fi
+
 echo "agent home seeded at $AGENT_HOME"
 
-# DAEMON UNDER THE ISOLATED HOME: driver children get ctx.homeDir explicitly
-# since POD-2247, but daemon-side writes still follow the daemon's own $HOME.
-( export HOME="$AGENT_HOME"; start daemon scripts/daemon.ts )
+# THE DAEMON RUNS UNDER THE REAL HOME, and this is a CORRECTION.
+#
+# This rig used to spawn the daemon with HOME=$AGENT_HOME, to isolate what the
+# harness children see. Two things are wrong with that, and the first only
+# became visible once PODIUM_STATE_DIR was removed:
+#
+# 1. IT IS A RELOCATION OVERRIDE OF A PRODUCT PATH, one layer down. For a named
+#    instance instanceStateDir() derives the state root from $HOME, so a daemon
+#    under a different HOME lands on a DIFFERENT STATE ROOT THAN THE SERVER —
+#    here /home/mgw/.local/state/podium/p2777/agent-home/.local/state/podium/p2777,
+#    the path nested inside itself. It failed loudly ("refusing to adopt
+#    non-empty state directory") only because agent-home already had files in
+#    it. On an empty one the daemon would have booted happily onto a private
+#    state root and served a rig that believed it shared the server's.
+#    PODIUM_STATE_DIR had been papering over this the whole time.
+#
+# 2. IT WAS NEVER NEEDED. A named instance ALREADY isolates the agent home by
+#    itself: resolveAgentHomeDir() (packages/runtime/src/config.ts:550) returns
+#    <stateDir>/agent-home for any instance that is not `default`, and
+#    host-runtime.ts:255 makes that the account home with source
+#    `named-instance`. That is the same directory this script seeds above. The
+#    override was re-stating the product's own behaviour and getting it wrong.
+#
+# The guard that protects this change is already in place: drive.ts refuses any
+# probe whose session did not bind the driver its arm asked for, so if dropping
+# the override cost a harness its credentials and demoted it to a generic PTY,
+# the drive refuses rather than reporting a false negative.
+start daemon scripts/daemon.ts
 
 if [ ! -d "$PODIUM_DRIVE_BASE/repo/.git" ]; then
   mkdir -p "$PODIUM_DRIVE_BASE/repo"
@@ -225,5 +277,5 @@ echo "instance '$PODIUM_INSTANCE' up"
 echo "  API      http://$PODIUM_HOST:$PODIUM_PORT   (password: p2777; loopback only)"
 echo "  ARM      CONTRACT=$PODIUM_RUNTIME_CONTRACT STREAMING=$PODIUM_CHAT_STREAMING DRIVER=${PODIUM_RUNTIME_DRIVER:-(policy)}"
 echo "  web      $PODIUM_WEB_DIR"
-echo "  state    $PODIUM_STATE_DIR"
+echo "  state    $P2777_STATE_ROOT"
 echo "  logs     $LOGS"

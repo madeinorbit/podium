@@ -43,7 +43,7 @@ reap() {
   # Self-safe: a `pkill -f <path>` from a shell whose own command line contains
   # that path kills the shell issuing it (seen repeatedly while building this).
   ( . "$HERE/drive-env.sh"
-    for pid in $(pgrep -f "$PODIUM_STATE_DIR/agent-home" 2>/dev/null || true); do
+    for pid in $(pgrep -f "$P2777_STATE_ROOT/agent-home" 2>/dev/null || true); do
       [ "$pid" = "$$" ] && continue
       kill "$pid" 2>/dev/null || true
     done ) || true

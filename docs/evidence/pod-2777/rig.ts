@@ -210,13 +210,48 @@ export class Chat {
    */
   screenBytes = 0
   deltaFrames = 0
+  /**
+   * The server's OWN answer to the attach, kept whole.
+   *
+   * `outputSeen` on this frame is the durable output counter the catalogue
+   * (driver-capability-catalog.md:278) names as the signal without which
+   * "attached but silent" cannot be told from "lost the replay window". A probe
+   * that counts only the bytes IT saw is reimplementing a worse version of a
+   * number the product already computes and sends — and would report a terminal
+   * that has genuinely never printed and a terminal whose replay window aged out
+   * in exactly the same words.
+   */
+  attached?: Record<string, unknown>
   firstDeltaAtMs?: number
   openedAt = 0
   private ws?: WebSocket
 
   constructor(readonly sid: string) {}
 
-  async open(): Promise<void> {
+  /**
+   * @param mode  If given, ALSO declare this session visible+focused in that
+   *   view — the `viewState` frame the browser sends and this rig did not.
+   *
+   * WHY THIS EXISTS, AND WHY IT DEFAULTS TO OMITTED.
+   *
+   * `attach` + `transcriptSubscribe` are what a browser sends to start
+   * receiving, but they are not everything it sends. `viewState`
+   * (`client-control.ts:215`) carries `visible`, `focused` and per-session
+   * `modes`, and the server keys `reconcileActiveRenderer` and
+   * `reconcileGeometry` off it — so a client that never sends one is attached
+   * but is not, as far as the server is concerned, LOOKING at anything.
+   *
+   * Measuring the native view without it would ask the product for a terminal
+   * nobody said they had open, and then report the silence as a product
+   * defect. That is a rig bug wearing a finding's clothes, and this drive has
+   * already caught two of its relatives.
+   *
+   * DEFAULT IS OMITTED so the nine chat-plane probes keep sending exactly the
+   * frames they sent when their results were recorded; adding a frame to all of
+   * them would silently make old and new numbers incomparable. The row that
+   * needs the native view asks for it explicitly.
+   */
+  async open(mode?: 'native' | 'chat'): Promise<void> {
     const ws = new WebSocket(`${BASE.replace('http', 'ws')}/client`, {
       headers: { cookie },
     } as never)
@@ -232,6 +267,14 @@ export class Chat {
     this.openedAt = now()
     this.send({ type: 'attach', sessionId: this.sid })
     this.send({ type: 'transcriptSubscribe', sessionId: this.sid })
+    if (mode) {
+      this.send({
+        type: 'viewState',
+        visible: [this.sid],
+        focused: this.sid,
+        modes: { [this.sid]: mode },
+      })
+    }
   }
 
   private onFrame(raw: string): void {
@@ -252,6 +295,10 @@ export class Chat {
       // post-resume read from carrying pre-kill items it no longer owns.
       if (m.reset === true) this.items.length = 0
       for (const it of (m.items ?? []) as TranscriptItemLite[]) this.items.push(it)
+      return
+    }
+    if (type === 'attached' && m.sessionId === this.sid) {
+      this.attached = m
       return
     }
     if (type === 'outputFrame' && m.sessionId === this.sid && typeof m.data === 'string') {

@@ -50,19 +50,33 @@ done
 # `set -e` that aborts the loop before it reaps anything — which is how the same
 # leak went unnoticed a SECOND time, for a completely different reason, printing
 # one permission error to say so.
+# GUARD BEFORE THE GLOB. The match below is `case "$home:$inst"` against
+# `*:"$PODIUM_INSTANCE"`. With PODIUM_INSTANCE empty that pattern degrades to
+# `*:` — which matches EVERY process on the box, and this loop would kill them
+# all. The old spelling matched on a path that was always non-empty because the
+# rig exported it; the new one matches on a variable the rig no longer controls,
+# so the empty case has to be refused explicitly rather than assumed away.
+[ -n "${PODIUM_INSTANCE:-}" ] || {
+  echo "refusing to reap: PODIUM_INSTANCE is empty — did you source drive-env.sh?" >&2
+  exit 2
+}
 reaped=0
 for pid in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
   [ "$pid" = "$$" ] && continue
   [ "$pid" = "$PPID" ] && continue
   env_of="$(cat "/proc/$pid/environ" 2>/dev/null | tr '\0' '\n' || true)"
   home="$(printf '%s' "$env_of" | sed -n 's/^HOME=//p' | tail -1)"
-  root="$(printf '%s' "$env_of" | sed -n 's/^PODIUM_STATE_DIR=//p' | tail -1)"
-  case "$home:$root" in
-    "$PODIUM_STATE_DIR/agent-home":*|*:"$PODIUM_STATE_DIR")
+  # PODIUM_INSTANCE, not PODIUM_STATE_DIR: the rig no longer exports a state
+  # dir, so that variable is absent from every process it owns and matching on
+  # it would reap nothing at all — a teardown that silently stops tearing down.
+  inst="$(printf '%s' "$env_of" | sed -n 's/^PODIUM_INSTANCE=//p' | tail -1)"
+  [ -n "$home" ] || [ -n "$inst" ] || continue
+  case "$home:$inst" in
+    "$P2777_STATE_ROOT/agent-home":*|*:"$PODIUM_INSTANCE")
       kill "$pid" 2>/dev/null && reaped=$((reaped + 1)) ;;
   esac
 done
-[ "$reaped" -gt 0 ] && echo "reaped $reaped process(es) belonging to $PODIUM_STATE_DIR"
+[ "$reaped" -gt 0 ] && echo "reaped $reaped process(es) belonging to $P2777_STATE_ROOT"
 
 # SYSTEMD SCOPES, REAPED BY STATE ROOT — the shape that held ~2GB for five and a
 # half hours after a FINISHED rig. A harness child sits in a
@@ -77,7 +91,7 @@ for unit in $(systemctl --user list-units --type=scope --no-legend 2>/dev/null \
   for pid in $(systemctl --user show -p ControlGroup --value "$unit" 2>/dev/null \
                  | sed 's#^#/sys/fs/cgroup#' | xargs -r -I{} cat {}/cgroup.procs 2>/dev/null); do
     home="$(cat "/proc/$pid/environ" 2>/dev/null | tr '\0' '\n' | sed -n 's/^HOME=//p' | tail -1 || true)"
-    [ "$home" = "$PODIUM_STATE_DIR/agent-home" ] && mine=yes
+    [ "$home" = "$P2777_STATE_ROOT/agent-home" ] && mine=yes
   done
   if [ "$mine" = yes ]; then
     systemctl --user stop "$unit" 2>/dev/null && echo "stopped orphan scope $unit"
@@ -86,4 +100,4 @@ done
 pkill -f "podium-oc-attach" 2>/dev/null && echo "reaped stray opencode clients" || true
 pkill -f "podium-gk-attach" 2>/dev/null && echo "reaped stray grok clients" || true
 pkill -f "podium-cx-attach" 2>/dev/null && echo "reaped stray codex clients" || true
-echo "instance '$PODIUM_INSTANCE' down; state kept at $PODIUM_STATE_DIR"
+echo "instance '$PODIUM_INSTANCE' down; state kept at $P2777_STATE_ROOT"

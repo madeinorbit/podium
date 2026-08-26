@@ -83,24 +83,32 @@ done
 # looks exactly like a broken driver. The pidfile check above cannot see it,
 # because the stray daemon has a pid of its own.
 #
-# Matched on the state root rather than on `scripts/daemon.ts` alone: other
+# Matched on the INSTANCE ID rather than on `scripts/daemon.ts` alone: other
 # instances on this box legitimately run their own daemons, and counting those
 # would refuse a healthy rig.
+#
+# PODIUM_INSTANCE, NOT PODIUM_STATE_DIR, and the change is load-bearing. The rig
+# no longer exports a state dir (see drive-env.sh, "THE OVERRIDES ARE GONE"), so
+# that variable is simply absent from the daemon's environ — and the old test
+# compared absent-against-a-path, matched nothing, and would have failed EVERY
+# daemon as "found 0". The instance id is the product's own partition key and is
+# exported by applyInstanceRuntimeEnv into the process that owns the state root,
+# so it is present whether or not anybody overrode a path.
 DAEMON_PIDS="$(pgrep -f 'scripts/daemon.ts' 2>/dev/null || true)"
 MINE=""
 for pid in $DAEMON_PIDS; do
-  env_root="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^PODIUM_STATE_DIR=//p' | tail -1)"
-  [ "$env_root" = "$PODIUM_STATE_DIR" ] && MINE="$MINE $pid"
+  env_inst="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^PODIUM_INSTANCE=//p' | tail -1)"
+  [ -n "$env_inst" ] && [ "$env_inst" = "$PODIUM_INSTANCE" ] && MINE="$MINE $pid"
 done
 MINE="$(echo "$MINE" | tr -s ' ' | sed 's/^ //;s/ $//')"
 COUNT="$(printf '%s' "$MINE" | wc -w)"
 [ "$COUNT" -eq 1 ] \
-  || fail "expected EXACTLY ONE daemon on state root $PODIUM_STATE_DIR, found $COUNT (pids: ${MINE:-none}).
+  || fail "expected EXACTLY ONE daemon on instance '$PODIUM_INSTANCE', found $COUNT (pids: ${MINE:-none}).
 Two daemons on one state root serve sessions from code this script never checked,
 and every number they touch is a false negative wearing the right clothes."
 [ "$MINE" = "$(cat "$PODIUM_DRIVE_BASE/daemon.pid")" ] \
-  || fail "the only daemon on $PODIUM_STATE_DIR is pid $MINE, but daemon.pid names $(cat "$PODIUM_DRIVE_BASE/daemon.pid") — the rig is not talking to the process it thinks it is"
-echo "  ok  exactly one daemon (pid $MINE) on state root $PODIUM_STATE_DIR"
+  || fail "the only daemon on instance '$PODIUM_INSTANCE' is pid $MINE, but daemon.pid names $(cat "$PODIUM_DRIVE_BASE/daemon.pid") — the rig is not talking to the process it thinks it is"
+echo "  ok  exactly one daemon (pid $MINE) on instance '$PODIUM_INSTANCE' (state root $P2777_STATE_ROOT)"
 
 # 2. the worktree those processes read is the named commit, and is clean
 HAVE_SHA="$(git -C "$PODIUM_DRIVE_REPO" rev-parse HEAD)"
@@ -109,7 +117,14 @@ HAVE_SHA="$(git -C "$PODIUM_DRIVE_REPO" rev-parse HEAD)"
 DIRTY="$(git -C "$PODIUM_DRIVE_REPO" status --porcelain | grep -v 'docs/evidence/pod-2777/' || true)"
 [ -z "$DIRTY" ] || fail "worktree is dirty, so '$WANT' does not name the running bytes:
 $DIRTY"
-echo "  ok  worktree at $HAVE_SHA, clean"
+# Say what was actually checked. The exclusion above means "clean" is a claim
+# about the PRODUCT tree only; the rig's own scripts are edited between runs by
+# design and are not part of the bytes under test. Printing a bare "clean" over
+# a filtered check is the kind of unearned word this drive exists to catch.
+RIGDIRT="$(git -C "$PODIUM_DRIVE_REPO" status --porcelain -- docs/evidence/pod-2777/ | wc -l)"
+echo "  ok  worktree at $HAVE_SHA; product tree clean (apps/ packages/ scripts/ …)$(
+  [ "$RIGDIRT" -gt 0 ] && printf ', %s uncommitted file(s) in the rig'"'"'s own docs/evidence/pod-2777/ (excluded by design)' "$RIGDIRT"
+)"
 
 # 3. the instance answers, and it is OURS and not the operator's
 curl -fsS "http://$PODIUM_HOST:$PODIUM_PORT/health" >/dev/null \
