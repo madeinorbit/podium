@@ -792,7 +792,7 @@ written to prevent.
 run from outside: `pgrep -x bun` filtered by `/proc/<pid>/cwd` against that session's worktree.
 A queue built on self-report inherits every reporting bug in it.
 
-### The same trap was KILLING neighbour agents (2026-08-26 18:37 CEST)
+### CORRECTED — the reap did NOT kill neighbours; a GENERIC pattern would have (2026-08-26 18:37 CEST)
 
 Worse than a wrong report. A rig's `reap()` matched its own state root **in the command line**
 and then **SIGKILLed every hit** — and the false positives were measured to be *other
@@ -835,3 +835,37 @@ had never protected the thing it was written for.
 **A rule you have written down and not enforced is the same class as that broken guard: a
 protection that exists in intent and not in mechanism.** Quote the delimiter (`<<'EOF'`), or
 write the text through a file. Do not rely on remembering.
+
+### Correction to the entry above, 2026-08-26 18:40 CEST — verified independently
+
+**The alarm was overstated by its author, who then measured it properly and retracted it. I
+verified both halves before changing this brief:**
+
+    agent processes matching a GENERIC string ("docs/evidence"):        6
+    matching a SPECIFIC instance agent-home path (p2777/agent-home):    1   <- its own
+    matching another instance's agent-home path:                        0
+
+**So the distinction is the pattern, not the technique.** A generic project string matches every
+agent on the box, because they all carry the developer-instructions blob. **An absolute path
+unique to one instance does not** — that blob contains no other instance's agent-home. The reap
+matched the specific path, so it would not have hit a neighbour, and there is no record of it
+running at all today.
+
+**What remains true, and is why the fix was kept:** matching an absolute path in a command line
+*happened* to be safe rather than being *designed* to be. Reaping by **environ** — instance and
+agent home, both required — is safe by construction.
+
+**And the broken self-skip was a real bug with a real victim, just not the one claimed:** a
+subshell pid variable resolves to the parent, so the loop could kill **its own subshell**.
+Self-destruction, not neighbour-destruction — which fits *"the reap sometimes did not finish"*
+rather than anything else going idle.
+
+**The coordinator had begun re-attributing a day of idle and hibernated sessions to this.** That
+re-attribution is withdrawn. The earlier explanations — park instructions, the documented
+inventory window, memory pressure — stand.
+
+**The lesson is the one this epic keeps finding, arriving from the other direction:** *a
+plausible cause you did not check*. Here the plausible cause was supplied by the person best
+placed to check it, believed on their authority, and propagated into a shared document before
+anyone measured it. **An alarming claim deserves the same verification as a comfortable one —
+more, because it travels faster.**
