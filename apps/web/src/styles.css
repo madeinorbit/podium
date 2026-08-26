@@ -770,6 +770,13 @@ html[data-density="balanced"] .header-quota-pools {
 .header-value[data-tone="crit"] {
   color: var(--destructive);
 }
+.header-quota-unavailable {
+  color: var(--warning);
+  font-family: var(--font-mono);
+  font-size: var(--shell-type-micro);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
 .header-machine-chip:hover :is(.header-mark, .header-value[data-tone="ok"]),
 .header-quota-chip:hover :is(.header-mark, .header-quota-label, .header-value[data-tone="ok"]),
 .header-machine-chip[data-popup-open] :is(.header-mark, .header-value[data-tone="ok"]),

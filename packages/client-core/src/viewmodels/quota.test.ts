@@ -190,6 +190,30 @@ describe('quotaVerdict', () => {
     })
   })
 
+  it('reports unavailable pools alongside readable ones', () => {
+    const healthy = group([window(10, 150)])
+    const expired = {
+      ...group([], 'expired'),
+      key: 'expired',
+      agent: 'grok' as const,
+    }
+    expect(quotaPoolVerdict([healthy, expired], now)).toEqual({
+      tone: 'warn',
+      label: '1 unavailable · 1 healthy',
+      mixed: true,
+      tones: ['warn', 'ok'],
+    })
+  })
+
+  it('does not claim an unreadable pool will last until reset', () => {
+    expect(quotaPoolVerdict([group([], 'expired')], now)).toEqual({
+      tone: 'warn',
+      label: '1 unavailable',
+      mixed: false,
+      tones: ['warn'],
+    })
+  })
+
   it('counts a pool that only lost a scoped model as healthy', () => {
     const claude = group([
       window(20, 150),
