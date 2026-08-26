@@ -53,6 +53,26 @@ original A8 T cell remains **PARTIAL**: its login-path control fired, while the
 explicit `generic-pty` arm is intentionally not a server-driver arm; that
 server-family comparison is scored by A10.
 
+## Post-merge confirmation — release tip
+
+After the release merge landed at `7b9d9eacb`, this branch was rebased onto the
+local epic ref and `git merge-base --is-ancestor 7b9d9eacb HEAD` passed. The
+served web bundle was rebuilt, and the same three requested checks were driven
+again on H; A10 and the quota spot-check were then driven on T. No other rows
+were retried.
+
+| Check | H | T | Positive control and observed evidence |
+|---|---|---|---|
+| A8 post-login half | **PASS** | not scored on the explicit terminal comparison arm | Fresh H binding receipt: `driver=grok-acp family=server`; control fired independently of model output. |
+| A10 driver identity | **PASS** | **PASS** | H: `grok-acp` / `server`; T: `generic-pty` / `terminal` under the explicit override. Both controls fired. |
+| Tier-B provider error names the quota reason | **PASS** | **PASS** | H again exposed `usage_limit`, `retryable:false`, and `API error (status 402 Payment Required): Grok Build usage balance exhausted`. T again showed `Weekly limit left: 0%` after the delivered neutral-token probe. |
+
+The post-merge H boot used server PID 2752963 and daemon PID 2753224; the T
+boot used server PID 2757475 and daemon PID 2757804. Every scored result pinned
+both processes to `ac391d07c23aba33ac1fe6c40c390c33d1929941` and the web bundle to
+`ac391d0`, with the same named instance and no product-derived-path overrides.
+The post-merge memory readings were 1982–2816 MiB on H and 2356–3444 MiB on T.
+
 ## Red count
 
 **FAIL reds: 0.** There were no scored FAIL cells, so no product-red issue was
@@ -167,6 +187,8 @@ screen evidence:
 - [`grok-followup-terminal.json`](readings/grok-followup-terminal.json)
 - [`grok-followup-neutral-headless.json`](readings/grok-followup-neutral-headless.json)
 - [`grok-followup-neutral-terminal.json`](readings/grok-followup-neutral-terminal.json)
+- [`grok-postmerge-headless.json`](readings/grok-postmerge-headless.json)
+- [`grok-postmerge-terminal.json`](readings/grok-postmerge-terminal.json)
 
 The acceptance harness and isolated rig are [`grok-drive.ts`](grok-drive.ts)
 and [`grok-rig.sh`](grok-rig.sh).

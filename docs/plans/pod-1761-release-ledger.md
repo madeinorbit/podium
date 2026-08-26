@@ -965,6 +965,10 @@ spot-check remains BLOCKED. Full evidence and per-cell pins are in
 The operator confirmed the account is out of quota until 2026-08-27 11:03 CEST;
 that quota cause is kept distinct from the initial logged-out cause, and the
 remaining ordinary rows were not retried.
+After the release merge landed at `7b9d9eacb`, this branch was rebased and the
+three newly drivable checks were re-run at server/daemon SHA
+`ac391d07c23aba33ac1fe6c40c390c33d1929941` with web source `ac391d0`; all
+post-merge verdicts matched the authenticated follow-up above.
 
 Rows A5 + A6a + A6b together are the "both views work and can be switched"
 guarantee: chat functions (A5, A1, A4), the native view functions (A6a), and
