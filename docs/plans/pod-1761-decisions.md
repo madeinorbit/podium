@@ -173,7 +173,7 @@ rather than only as screen text.
 
 ---
 
-## 11. An existing Codex session loses its history view when it upgrades.
+## 11. An existing session loses its history view when it upgrades — ANY agent, not just Codex.
 **Raised 2026-08-26 16:57 CEST. Status: OPEN. This is the upgrade question you asked about, answered.**
 
 You asked whether the transition would be seamless for people who already have sessions. It
@@ -313,3 +313,32 @@ without consuming it, and what exactly would rotate it.
 
 **No action needed now.** Recorded because it is the largest measurement gap on the release and
 its resolution may turn out to require you.
+
+
+---
+
+### Update to decision 11, 2026-08-26 17:46 CEST — SECOND CASE CONFIRMS IT IS THE REBIND PATH, NOT CODEX
+
+I asked for a second clean rebind case, because *one case tells us Codex is broken; two tell
+us whether the fault is in the rebind path or in the Codex driver* — the difference between a
+targeted fix and a design change. **It ran, and the answer is the rebind path.**
+
+OpenCode was logged in legitimately (its existing credential copied into the isolated home,
+nothing minted), and **the product confirmed the login rather than the filesystem** — both the
+harness detector and `machines.list` reported `state=in`, with the driver override unset.
+
+    on the current release   session created on the OLD driver, native ref ses_fc14d404…,
+                             codeword POD2858-REPLAY-OPENCODE-2A7M planted
+    on the new build         listed and resumed it, REBOUND it to the server driver,
+                             native ref CHANGED to ses_fc147aef…, exposed only a NEW
+                             transcript, and never returned the planted codeword
+
+**Same failure as Codex, different agent.** So this is not a Codex driver bug — **it is what
+happens to any session that rebinds**, and the fix is therefore a design question rather than
+a patch: either the driver becomes a durable property of the session, or the new driver adopts
+the existing conversation instead of starting a fresh one.
+
+**That raises the stakes on the recommendation.** With one case, "fix it" meant repairing one
+driver. With two, it means deciding what a session's driver *is* — and that decision belongs to
+you rather than to me. The options in decision 11 stand; the second and third now apply to
+**every** agent a user has, not just Codex.
