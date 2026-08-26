@@ -3631,3 +3631,51 @@ A finished issue holding 13 sessions, and POD-2059 held 3. More evidence for POD
 accumulate on an issue and outlive it, and nothing reaps them when the issue closes. The count is
 worth having on that issue because it changes the shape of the fix — this is not one straggler
 per issue, it is an unbounded set.
+## Review queue audit — 2026-08-26 23:19 CEST
+
+This is the audit of the **31 direct children of POD-1761** that were at stage `review` in the
+22:51:50 CEST tree snapshot. The three nested review children (POD-2574, POD-2717 and POD-2844)
+are not silently folded into this table. For each row, `git cherry issue/1761-agent-runtime
+<exact branch>` was read as `+unlanded / -content-equivalent twin`; ancestry counts were not used.
+
+The result is 14 stages moved to `done`, 9 landed-but-undriven rows left at `review`, 5 rows with
+unlanded commits left at `review`, 2 landed-and-driven rows retained at `review` for explicit open
+close conditions, and 1 no-code question left at `review`.
+
+| issue | cherry `+ / -` | evidence checked | verdict and resulting stage |
+|---|---:|---|---|
+| POD-2115 | `+30 / -84` | branch tip `26fde4825` | **C — NOT LANDED (+30); `review`** |
+| POD-2116 | `+2 / -3` | branch tip `4fd7ae1b9` | **C — NOT LANDED (+2); `review`** |
+| POD-2245 | `+12 / -0` | branch tip `23c01ac04` | **C — NOT LANDED (+12); `review`** |
+| POD-2293 | `+4 / -1` | branch tip `8813f16fa` | **C — NOT LANDED (+4); `review`** |
+| POD-2298 | `+0 / -0` | `b5c53918c` has characterization tests and describes the pre-fix symptom, but no qualifying pre-fix runtime reading, drive, or TSV result | **B — LANDED, NEVER DRIVEN; `review`** |
+| POD-2408 | `+0 / -0` | `b247c2dbf` and the later attachment fixes are code/conformance evidence; no qualifying drive or TSV result | **B — LANDED, NEVER DRIVEN; `review`** |
+| POD-2413 | `+0 / -0` | `f3ca7f535` records live 128 MiB resource arms and their kill/throttle readings | **A evidence, but explicit written hold remains; `review`** |
+| POD-2414 | `+0 / -0` | `b67f3a9bb`; tracker records a green 42.8s browser journey at `b1ae752` | **A evidence, but POD-2478 and the auto-mode three-row action remain open; `review`** |
+| POD-2470 | `+0 / -0` | `2b2c9ba03` records the alias mutation and full-chain boundary failure; fresh-instance artifacts are attached | **A — LANDED AND DRIVEN; `done`** |
+| POD-2484 | `+0 / -0` | `7d07547b3` records the pre-fix 3s/2s timeout readings and the corrected bound | **A — LANDED AND DRIVEN; `done`** |
+| POD-2602 | `+0 / -0` | `ede96a992` is the fix, with no drive, pre-fix reading, or TSV result | **B — LANDED, NEVER DRIVEN; `review`** |
+| POD-2604 | `+0 / -0` | `dac2f0c09` lands the fix; tracker has pre-fix evidence but no after-drive or TSV result | **B — LANDED, NEVER DRIVEN; `review`** |
+| POD-2622 | `+0 / -0` | `b266484d8` and its completion note show child-env tests, not a qualifying drive or TSV result | **B — LANDED, NEVER DRIVEN; `review`** |
+| POD-2637 | `+0 / -0` | landed cross-trailer as `27f133619` (`fix: allow terminal screenshots as issue evidence`); no drive/result evidence | **B — LANDED, NEVER DRIVEN; `review`** |
+| POD-2681 | `+0 / -0` | issue verdict artifact records the 475s DOM drive with an unchanged row set; related regression was separately landed in `5b013fcd8` | **A — observation dismissed by drive; `done`** |
+| POD-2690 | `+1 / -0` | branch tip `a55c4afc0` | **C — NOT LANDED (+1); `review`** |
+| POD-2691 | `+0 / -0` | `85564b383` has deterministic UUID/race tests and explicitly says the consumer is not built; no drive/result evidence | **B — LANDED, NEVER DRIVEN; `review`** |
+| POD-2728 | `+0 / -2` | epic twin `3317a2b1d` records the pre-fix `1 file, footer claimed 4` and `0 tests, exit 0` readings | **A — LANDED AND DRIVEN; `done`** |
+| POD-2753 | `+0 / -0` | `ac9729a8a` records a live child SIGKILL, daemon survival, 2.3s turn end, and fresh-turn recovery | **A — LANDED AND DRIVEN; `done`** |
+| POD-2761 | `+0 / -1` | epic fix `3c4d9a297`; tracker still requests a real Chat→CLI→Chat drive, while the fixture only drives adoption | **B — LANDED, NEVER DRIVEN; `review`** |
+| POD-2773 | `+0 / -0` | `e38128936` drives OpenCode, but Grok stops at a 402 before a token; the two-driver drive is incomplete | **B — LANDED, NEVER DRIVEN; `review`** |
+| POD-2792 | `+0 / -0` | `47be96d58` names the stop-button before/after measurements | **A — LANDED AND DRIVEN; `done`** |
+| POD-2811 | `+0 / -0` | TSV row `provider error surfaced opencode-headless … PASS 12.2s typed` at `c58315ef4` | **A — LANDED AND DRIVEN; `done`** |
+| POD-2828 | `+0 / -0` | `a7b7fbbd2` records 10 failures before and 8 service failures after, plus revert checks | **A — LANDED AND DRIVEN; `done`** |
+| POD-2830 | `+0 / -0` | `a99dd63e2` records 1/14 before versus 16/16 after and three mutation failures | **A — LANDED AND DRIVEN; `done`** |
+| POD-2837 | `+0 / -0` | `b2894ca71` records 8 failures before versus 189/189 after and seven mutation failures | **A — LANDED AND DRIVEN; `done`** |
+| POD-2839 | `+0 / -0` | `8306d1287` records the four red spawn checks, repaired counts, and mutation evidence | **A — LANDED AND DRIVEN; `done`** |
+| POD-2842 | `+0 / -0` | `f6a6c8625` records relay 5/7→12/12 and oracle 2/33→35/35, with mutation evidence | **A — LANDED AND DRIVEN; `done`** |
+| POD-2843 | `+0 / -0` | cross-trailer `b4724584a` records corrected-rig restart sends at 1283ms/5634ms and the five-attempt pre-fix wizard reproduction | **A — LANDED AND DRIVEN; `done`** |
+| POD-2853 | `+0 / -0` | `d4fb68408` records the live named-instance comparison, 98 bytes versus 108 | **A — LANDED AND DRIVEN; `done`** |
+| POD-2903 | `+0 / -0` | issue is explicitly a question; no code branch/trailer exists and its static interrupt artifact does not answer it | **Question — NO CODE EXPECTED; `review`** |
+
+The five `+` rows are the only not-landed implementations in this direct review queue. The
+minus-only rows are content twins and therefore do not count as unlanded work, but they still
+required the second evidence test above before any stage change.

@@ -81,3 +81,34 @@ claude terminal phase stuck at idle (retro row from 4adb58eb6 msg, not my own dr
 claude login readout	claude-pty	PASS readout correct under instance home	4a18e7d2	yes	no 2878+2871 live	2026-08-26 23:13 CEST	POD-2905
 first-run warm-up: three sends	claude-pty	PASS all three delivered	4a18e7d2	yes	no 2878+2871 live	2026-08-26 23:13 CEST	POD-2905
 A3 interrupt stops the turn (MAIN baseline)	claude-pty	REFUSED control never produced an in-flight turn	4a18e7d2	no	no heavy-lock contention+swap	2026-08-26 23:13 CEST	POD-2905
+review-stage audit	git-cherry	NOT LANDED (+30); review	branch-tip:26fde4825	n/a	n/a	2026-08-26 23:19 CEST	POD-2115
+review-stage audit	git-cherry	NOT LANDED (+2); review	branch-tip:4fd7ae1b9	n/a	n/a	2026-08-26 23:19 CEST	POD-2116
+review-stage audit	git-cherry	NOT LANDED (+12); review	branch-tip:23c01ac04	n/a	n/a	2026-08-26 23:19 CEST	POD-2245
+review-stage audit	git-cherry	NOT LANDED (+4); review	branch-tip:8813f16fa	n/a	n/a	2026-08-26 23:19 CEST	POD-2293
+review-stage audit	git-cherry	LANDED, NEVER DRIVEN; review	b5c53918c	n/a	n/a	2026-08-26 23:19 CEST	POD-2298
+review-stage audit	git-cherry	LANDED, NEVER DRIVEN; review	b247c2dbf	n/a	n/a	2026-08-26 23:19 CEST	POD-2408
+review-stage audit	git-cherry	LANDED AND DRIVEN; explicit hold; review	f3ca7f535	n/a	n/a	2026-08-26 23:19 CEST	POD-2413
+review-stage audit	git-cherry	LANDED AND DRIVEN; open close conditions; review	b67f3a9bb	n/a	n/a	2026-08-26 23:19 CEST	POD-2414
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	2b2c9ba03	n/a	n/a	2026-08-26 23:19 CEST	POD-2470
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	7d07547b3	n/a	n/a	2026-08-26 23:19 CEST	POD-2484
+review-stage audit	git-cherry	LANDED, NEVER DRIVEN; review	ede96a992	n/a	n/a	2026-08-26 23:19 CEST	POD-2602
+review-stage audit	git-cherry	LANDED, NEVER DRIVEN; review	dac2f0c09	n/a	n/a	2026-08-26 23:19 CEST	POD-2604
+review-stage audit	git-cherry	LANDED, NEVER DRIVEN; review	b266484d8	n/a	n/a	2026-08-26 23:19 CEST	POD-2622
+review-stage audit	git-cherry	LANDED, NEVER DRIVEN; review	27f133619	n/a	n/a	2026-08-26 23:19 CEST	POD-2637
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	5b013fcd8	n/a	n/a	2026-08-26 23:19 CEST	POD-2681
+review-stage audit	git-cherry	NOT LANDED (+1); review	branch-tip:a55c4afc0	n/a	n/a	2026-08-26 23:19 CEST	POD-2690
+review-stage audit	git-cherry	LANDED, NEVER DRIVEN; review	85564b383	n/a	n/a	2026-08-26 23:19 CEST	POD-2691
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	3317a2b1d	n/a	n/a	2026-08-26 23:19 CEST	POD-2728
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	ac9729a8a	n/a	n/a	2026-08-26 23:19 CEST	POD-2753
+review-stage audit	git-cherry	LANDED, NEVER DRIVEN; review	3c4d9a297	n/a	n/a	2026-08-26 23:19 CEST	POD-2761
+review-stage audit	git-cherry	LANDED, NEVER DRIVEN; review	e38128936	n/a	n/a	2026-08-26 23:19 CEST	POD-2773
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	47be96d58	n/a	n/a	2026-08-26 23:19 CEST	POD-2792
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	c58315ef4	n/a	n/a	2026-08-26 23:19 CEST	POD-2811
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	a7b7fbbd2	n/a	n/a	2026-08-26 23:19 CEST	POD-2828
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	a99dd63e2	n/a	n/a	2026-08-26 23:19 CEST	POD-2830
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	b2894ca71	n/a	n/a	2026-08-26 23:19 CEST	POD-2837
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	8306d1287	n/a	n/a	2026-08-26 23:19 CEST	POD-2839
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	f6a6c8625	n/a	n/a	2026-08-26 23:19 CEST	POD-2842
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	b4724584a	n/a	n/a	2026-08-26 23:19 CEST	POD-2843
+review-stage audit	git-cherry	LANDED AND DRIVEN; done	d4fb68408	n/a	n/a	2026-08-26 23:19 CEST	POD-2853
+review-stage audit	git-cherry	NO CODE EXPECTED; review	none	n/a	n/a	2026-08-26 23:19 CEST	POD-2903
