@@ -36,3 +36,4 @@ A8 logged-out spawn	opencode-headless	PARTIAL demotion recorded no login path	66
 long turn completes	opencode-headless	FAIL wedged 422s previews froze at 21	6685c59	yes	yes	2026-08-26	POD-2884
 long turn completes	opencode-terminal	PASS 92s	6685c59	yes	yes	2026-08-26	POD-2884
 long turn completes	opencode-outside-podium	PASS 64s	6685c59	yes	yes	2026-08-26	POD-2884
+codex socket on 25-char instance	codex-headless	PASS nonce+native pane, pre-fix control FAILED	455a1007	yes	yes	2026-08-26	POD-2867
