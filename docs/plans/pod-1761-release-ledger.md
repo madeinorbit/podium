@@ -94,6 +94,25 @@ unblocks judging POD-2761.
   handed, and the drive checked only that both strings appeared. The single
   property resume exists to deliver has no automated defence at any level.
 
+**Step 2's exit criterion was UNREACHABLE AS WRITTEN, and is corrected here.**
+It said `bun run lint:boundaries` must be green. **Main is itself red** — measured
+on a clean detached worktree of `206693584`, it exits 1 with **21 architecture-
+manifest lines of its own**: ten harness-branching in `FirstTaskActivation.tsx`,
+four in the mobile screens, one in the daemon's `control/credentials.ts`, a
+manifest-browser-reach, a ui-storage-ownership, and four manifest-layer on the
+daemon's server-recovery-worker that this epic has since fixed. So the reachable
+criterion, and the one POD-2820 held to, is: **the epic's violation set is a
+SUBSET of main's.**
+
+Against that bar, after POD-2820: **the dependency-boundary section IS a strict
+subset. The manifest section is not** — ten harness-branching lines remain, nine
+in `opencode-attach.ts` and one in `inbox.ts:538`. **POD-2823** owns all ten. The
+full delta is `docs/gates/pod-2820-boundary-lint-delta.md`.
+
+Also red **on main**, so not epic debt but it will show in any full run:
+`scripts/architecture-manifest.test.ts` — the manifest tags `packages/harness`
+`neutral` while `docs/rearchitecture-v3.md:627` still says `node-only`. POD-2822.
+
 **Step 2 — gates green, and meaningful.** Run on the tip, stating whether
 `PODIUM_TEST_WORKERS` was set (it changes the outcome):
 `bun scripts/typecheck.ts` (25/25), `bun scripts/test.ts` (full suite, under
