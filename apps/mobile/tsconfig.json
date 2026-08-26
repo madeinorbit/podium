@@ -3,7 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "moduleResolution": "Bundler",
-    "customConditions": ["react-native", "@podium/source"],
+    "customConditions": ["@podium/source"],
     "moduleSuffixes": [".web", ".native", ""],
     "preserveSymlinks": true,
     "skipLibCheck": true
