@@ -60,3 +60,6 @@ upgrade: grok logged-out fallback	grok	INCONCLUSIVE fell back to generic-pty not
 A2a status while working	opencode-headless	FAIL badge idle 2744-3568ms bar is 2000ms	372ae4de	yes	yes	2026-08-26 17:04 CEST	POD-2902
 A2a status while working	codex-headless	PASS badge working 205-398ms	372ae4de	yes	yes	2026-08-26 17:04 CEST	POD-2902
 A3 interrupt MAIN comparison	claude-pty-on-main	BLOCKED bytes=0 no turn observed	0bd90092c	no	yes	2026-08-26 17:13 CEST	POD-2874
+A3 interrupt MAIN baseline	claude-pty-on-main	UNOBTAINABLE main cannot start a named instance	0bd90092c	yes	yes	2026-08-26 17:16 CEST	POD-2874
+A4a permission ask	claude-pty	BLOCKED instrument: claude rewrites manual to auto	0bd90092c	yes	yes	2026-08-26 17:16 CEST	POD-2874
+A4b answer twice	claude-pty	BLOCKED instrument: same	0bd90092c	yes	yes	2026-08-26 17:16 CEST	POD-2874

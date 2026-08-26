@@ -208,3 +208,51 @@ the old driver. So this is *one clean rebind case*, and it failed.
 **Recommendation: fix it, and treat the one-clean-case coverage as a reason to re-drive rather
 than a reason to relax.** This is exactly the question you raised, and "three of four are fine"
 is not the answer when the fourth is the only one that took the new path.
+
+
+---
+
+## 12. A hermetic Claude home cannot exercise the permission prompt at all.
+**Raised 2026-08-26 17:17 CEST. Status: OPEN. Only your own machine can settle it.**
+
+Two Tier-A checks on Claude — the permission card appearing, and answering it twice — cannot
+be measured in an isolated test home. Not because the product fails them: **because
+claude-code 2.1.231 rewrites `permissions.defaultMode` from `manual` back to `auto`, or opens
+its own setup wizard regardless.** Both controls fired, so this is an instrument limit and was
+correctly scored BLOCKED rather than as a defect.
+
+The wizard also consumes typed text without echo, which is what produced an earlier run of
+`bytes=0` on the main arm and cost most of an afternoon.
+
+- **Drive it once on a real home** — yours, or any non-hermetic one. Ten minutes, and it
+  closes two checks nothing else can reach.
+- **Ship the two checks unmeasured**, with the reason stated in the release note: the
+  permission path on Claude was not exercised, because an isolated home cannot hold the
+  setting that would allow it.
+- **Build a non-hermetic rig** — real work, and it weakens the isolation that keeps these
+  drives from contaminating each other.
+
+**Recommendation: drive it once on a real home if you are willing.** This is the second item
+today that only a human can unblock — the first was the Grok login, which you did, and which
+immediately closed a check that had been open on every column.
+
+---
+
+## 13. Some checks have NO main baseline, because main cannot run the configuration.
+**Raised 2026-08-26 17:17 CEST. Status: OPEN. Not a decision so much as something the release note must not omit.**
+
+Under the rig this epic mandates — a named instance with no path overrides — **today's release
+cannot start a Claude session at all**. Both attempts died with `create-session: File name too
+long`, the socket-path defect this epic fixed and main still has.
+
+Three consequences, and the third is the one that could be quietly mis-stated:
+
+1. **The Claude interrupt finding is neither reproduced nor cleared.** The failure on our
+   branch stands as observed; the baseline is *unavailable*. **That is not the same as "no
+   regression"** and must not be rounded to it.
+2. **It is a fourth place where this epic is better than the current release** — a
+   configuration you use cannot run at all today, and runs on ours.
+3. **Any check whose baseline needs a named instance is unbaselineable by this route.** That
+   is a structural limit on the comparison, not a gap in anyone's work, and the release note
+   has to say so rather than let a reader assume those checks were compared against the
+   current release and passed.
