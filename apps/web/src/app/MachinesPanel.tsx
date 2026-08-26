@@ -248,18 +248,29 @@ export function MachinesPanel({
       .filter((target) => target.eligible === false && target.reason === 'unsupported')
       .map((target) => target.targetMachineId),
   )
-  const pairing = useMachinePairing({
-    trpc,
-    machines,
-    isNewMachineEligible: (machine) => eligibleTransferTargets.has(machine.id),
-  })
+  // Every successful enrollment spends the code, whether or not that machine
+  // can receive the server. Transfer eligibility is a later, separate choice.
+  const pairing = useMachinePairing({ trpc, machines })
   const activeTransferMachine =
     machines.find((machine) => machine.id === transferStatus.snapshot?.transfer?.targetMachineId) ??
     null
   const sourceMachine =
     machines.find((machine) => machine.id === transferStatus.snapshot?.sourceMachineId) ?? null
   const convergence = useFleetConvergence(trpc)
-  const newlyPairedMachine = makeServerAfterPair ? pairing.newMachine : null
+  const newlyPairedMachine =
+    makeServerAfterPair &&
+    pairing.newMachine !== null &&
+    eligibleTransferTargets.has(pairing.newMachine.id)
+      ? pairing.newMachine
+      : null
+
+  const mintForAnotherMachine = (): void => {
+    // A consumed code detected the machine against the previous baseline. Start
+    // the next watch from the fleet as it exists NOW, otherwise that same row
+    // keeps the replacement code looking consumed too.
+    pairing.watchForNewMachine()
+    void pairing.mint({ podiumManaged: pairing.podiumManaged })
+  }
 
   // Tick so relative times stay fresh.
   useEffect(() => {
@@ -326,8 +337,9 @@ export function MachinesPanel({
               recommendServer={recommendServer}
               makeServerAfterPair={makeServerAfterPair}
               onMakeServerAfterPairChange={setMakeServerAfterPair}
-              pairedMachine={newlyPairedMachine}
-              onNewCode={() => void pairing.mint({ podiumManaged: pairing.podiumManaged })}
+              pairedMachine={pairing.newMachine}
+              canReviewTransfer={newlyPairedMachine !== null}
+              onNewCode={mintForAnotherMachine}
               minting={pairing.loading}
               onReviewPairedMachine={() => {
                 if (newlyPairedMachine) {
@@ -593,6 +605,7 @@ function PairingCodeDisplay({
   makeServerAfterPair,
   onMakeServerAfterPairChange,
   pairedMachine,
+  canReviewTransfer,
   onReviewPairedMachine,
   onNewCode,
   minting,
@@ -607,6 +620,7 @@ function PairingCodeDisplay({
   makeServerAfterPair: boolean
   onMakeServerAfterPairChange: (value: boolean) => void
   pairedMachine: MachineWire | null
+  canReviewTransfer: boolean
   onReviewPairedMachine: () => void
   /** Mint a fresh code and join command for the same options. */
   onNewCode: () => void
@@ -620,6 +634,39 @@ function PairingCodeDisplay({
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
+  }
+
+  if (pairedMachine) {
+    return (
+      <div className="min-w-0 space-y-3">
+        <div
+          className="rounded-lg border border-success/30 bg-success/5 px-3 py-2.5"
+          role="status"
+          aria-live="polite"
+        >
+          <p className="settings-prose">
+            <strong className="font-medium text-foreground">{pairedMachine.name}</strong> is paired.
+            That one-use code has been spent, and its command will not work again.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" disabled={minting} onClick={onNewCode}>
+            {minting ? 'Creating…' : 'Create another code'}
+          </Button>
+          {canReviewTransfer && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={minting}
+              onClick={onReviewPairedMachine}
+            >
+              Review transfer
+            </Button>
+          )}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -728,27 +775,11 @@ function PairingCodeDisplay({
         </div>
       </div>
 
-      {/* The end of the flow: still waiting, or paired. One line, never both. */}
-      {pairedMachine ? (
-        <div
-          className="flex flex-wrap items-center gap-3 rounded-lg border border-success/30 bg-success/5 px-3 py-2.5"
-          role="status"
-        >
-          <span className="settings-prose min-w-0 flex-1">
-            <strong className="font-medium text-foreground">{pairedMachine.name}</strong> is paired,
-            and the server reports it is ready for transfer review.
-          </span>
-          <Button type="button" size="sm" className="flex-none" onClick={onReviewPairedMachine}>
-            Review transfer
-          </Button>
-        </div>
-      ) : (
-        joinCommand && (
-          <p className="settings-prose flex items-center gap-2" role="status">
-            <WorkingMark size={13} />
-            Waiting for the machine to run the command…
-          </p>
-        )
+      {joinCommand && (
+        <p className="settings-prose flex items-center gap-2" role="status">
+          <WorkingMark size={13} />
+          Waiting for the machine to run the command…
+        </p>
       )}
     </div>
   )

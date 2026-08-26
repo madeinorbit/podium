@@ -14,6 +14,7 @@ import { redirectPhoneToMobileApp } from './mobile-entry-redirect'
 import { installVitePreloadErrorRecovery } from './preload-error-recovery'
 import { ThemeProvider } from './theme'
 import { WireSkewBanner } from './WireSkewBanner'
+import { DaemonPairingBanner } from './DaemonPairingBanner'
 
 const MotionDemo = lazy(() =>
   throughRestarts(() => import('@/lib/motion/MotionDemo')).then((module) => ({
@@ -114,6 +115,7 @@ if (!redirectPhoneToMobileApp()) {
             worth saying on any screen — a banner mounted deeper renders only on
             the screens the skew has not already broken. */}
             <WireSkewBanner />
+            <DaemonPairingBanner />
             {/* OUTSIDE every gate for the same reason, and for one more: the login
             and setup screens are exactly where an iterate tab is most easily
             mistaken for the installed app. Renders nothing in a built bundle. */}

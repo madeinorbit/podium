@@ -230,7 +230,7 @@ html[data-podium-desktop="true"] body {
      full 100dvh here would push the same amount off the bottom and give an app
      shell the page-level scrollbar the overflow rule above exists to prevent.
      0px while there is no banner. */
-  height: calc(100dvh - var(--wire-skew-banner-h, 0px));
+  height: calc(100dvh - var(--wire-skew-banner-h, 0px) - var(--daemon-pairing-banner-h, 0px));
 }
 /* THE COMMAND BAR (POD-365, remeasured POD-725) — 48px, four zones over
    independently folding columns: mode tabs │ mode-contextual slot │ instrument │
@@ -2937,7 +2937,11 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
    (AsciiLoader) over the themed background. */
 .app-loading {
   /* Same subtraction as .desktop-shell: #root has already padded this down. */
-  height: calc(var(--viewport-h, 100dvh) - var(--wire-skew-banner-h, 0px));
+  height: calc(
+    var(--viewport-h, 100dvh) -
+    var(--wire-skew-banner-h, 0px) -
+    var(--daemon-pairing-banner-h, 0px)
+  );
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2980,7 +2984,11 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
    which is the same relationship the yellow pair had before. */
 .sync-loading {
   /* Same subtraction as .app-loading: #root has already padded this down. */
-  height: calc(var(--viewport-h, 100dvh) - var(--wire-skew-banner-h, 0px));
+  height: calc(
+    var(--viewport-h, 100dvh) -
+    var(--wire-skew-banner-h, 0px) -
+    var(--daemon-pairing-banner-h, 0px)
+  );
   display: flex;
   align-items: center;
   justify-content: center;
@@ -9069,7 +9077,7 @@ a.ref-link--session::before {
 .deck-mark-active {
   background: var(--issue);
 }
-[data-issue-colored='false'] .deck-mark-active {
+[data-issue-colored="false"] .deck-mark-active {
   background: var(--text-strong);
 }
 .deck-mark-pointed {
@@ -9122,7 +9130,7 @@ a.ref-link--session::before {
    pointer and the tab strip's `data-pointed` land here, so the row cannot tell
    which one reached it — and should not. */
 .deck-agent-row.deck-agent-active:hover,
-.deck-agent-row.deck-agent-active[data-pointed='true'] {
+.deck-agent-row.deck-agent-active[data-pointed="true"] {
   background: color-mix(
     in oklab,
     var(--issue) calc(18 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))),

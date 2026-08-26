@@ -5,6 +5,7 @@ import {
   type DeliveryProgress,
   decideProgressReport,
   fetchArtifact,
+  isArtifactAddressUnreachable,
   PROGRESS_REPORT_INTERVAL_MS,
   PROGRESS_REPORT_PERCENT_STEP,
   verifyTarball,
@@ -155,6 +156,44 @@ describe('fetchArtifact progress', () => {
         },
       ),
     ).rejects.toThrow(/digest/i)
+  })
+
+  it('names an address that cannot resolve or accept a connection as permanent', async () => {
+    const artifact = artifactOf([chunk(1, 8)])
+    await expect(
+      fetchArtifact(
+        { ...artifact, url: 'https://missing.example/a.tgz?signature=secret' },
+        'feed',
+        {
+          fetch: (async () => {
+            throw new TypeError('fetch failed', {
+              cause: Object.assign(new Error('connect ECONNREFUSED'), {
+                code: 'ECONNREFUSED',
+              }),
+            })
+          }) as typeof fetch,
+          pubkey,
+        },
+      ),
+    ).rejects.toThrow(
+      'artifact address unreachable: https://missing.example/a.tgz — fetch failed — connect ECONNREFUSED',
+    )
+  })
+
+  it('keeps truncated and timed-out transfers retryable', () => {
+    expect(isArtifactAddressUnreachable(new Error('ECONNRESET after 2 MB'))).toBe(false)
+    expect(isArtifactAddressUnreachable(new Error('artifact download timed out after 300s'))).toBe(
+      false,
+    )
+    expect(
+      isArtifactAddressUnreachable(
+        Object.assign(new Error('fetch failed'), {
+          cause: Object.assign(new Error('getaddrinfo ENOTFOUND missing.example'), {
+            code: 'ENOTFOUND',
+          }),
+        }),
+      ),
+    ).toBe(true)
   })
 })
 

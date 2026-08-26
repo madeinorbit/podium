@@ -13,6 +13,7 @@ fn main() {
             .app_manifest(
                 tauri_build::AppManifest::new().commands(&[
                     "enable_hosting",
+                    "daemon_connectivity",
                     "claim_update_ownership",
                     "check_update",
                     "install_update",

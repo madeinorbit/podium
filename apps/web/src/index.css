@@ -922,6 +922,8 @@
        because the failure it reports is the shell rendering nothing. Padding
        here rather than in one screen's own layout so EVERY root-level screen
        moves down: login, setup, and the shell. 0px while there is no banner. */
-    padding-top: var(--wire-skew-banner-h, 0px);
+    padding-top: calc(
+      var(--wire-skew-banner-h, 0px) + var(--daemon-pairing-banner-h, 0px)
+    );
   }
 }

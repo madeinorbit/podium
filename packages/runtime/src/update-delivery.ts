@@ -127,6 +127,49 @@ function matchesDigest(bytes: Uint8Array, expected: string): boolean {
   return actual === expected
 }
 
+function errorChainText(error: unknown): string {
+  const messages: string[] = []
+  const seen = new Set<unknown>()
+  let current = error
+  while (current && !seen.has(current) && messages.length < 6) {
+    seen.add(current)
+    if (current instanceof Error) {
+      messages.push(current.message)
+      const code = (current as Error & { code?: unknown }).code
+      if (typeof code === 'string' && !current.message.includes(code)) messages.push(code)
+      current = current.cause
+    } else if (typeof current === 'object') {
+      const value = current as { code?: unknown; message?: unknown; cause?: unknown }
+      if (typeof value.code === 'string') messages.push(value.code)
+      if (typeof value.message === 'string') messages.push(value.message)
+      current = value.cause
+    } else {
+      messages.push(String(current))
+      break
+    }
+  }
+  return messages.join(' — ')
+}
+
+/** DNS absence and refused routes are properties of this published address, not a partial body. */
+export function isArtifactAddressUnreachable(error: unknown): boolean {
+  return /\b(?:ENOTFOUND|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH)\b|unable to connect|access the url/i.test(
+    errorChainText(error),
+  )
+}
+
+function publicArtifactAddress(raw: string): string {
+  try {
+    const url = new URL(raw)
+    // Signed query parameters are credentials, not useful operator context.
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return raw
+  }
+}
+
 /**
  * THE signature check, for every path that takes bytes off a wire: this
  * module's own delivery and `podium update`'s self-update, which imports it
@@ -268,6 +311,11 @@ export async function fetchArtifact(
     if (deps.signal?.aborted) throw new Error('artifact download was superseded by a newer grant')
     if (abort.signal.aborted) {
       throw new Error(`artifact download timed out after ${Math.round(timeoutMs / 1000)}s`)
+    }
+    if (isArtifactAddressUnreachable(error)) {
+      throw new Error(
+        `artifact address unreachable: ${publicArtifactAddress(asset.url)} — ${errorChainText(error)}`,
+      )
     }
     throw error
   } finally {

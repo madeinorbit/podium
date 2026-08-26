@@ -186,7 +186,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     closing = true
     const guidance =
       kind === 'unauthorized'
-        ? 'Authorization will not be retried; ask the machine owner or an admin to re-pair it.'
+        ? 'Pairing will not be retried. On the server, open Machines → Add machine, create a new one-use code, then pair this machine with that new code.'
         : 'Not reconnecting; update the daemon or repair its configuration.'
     log.error('the server rejected this daemon', { rejection: type, reason, kind, guidance })
     report(

@@ -189,6 +189,7 @@ export const UPDATE_ERROR_CODES = [
   'machine-delivery-failed',
   'machine-delivery-unavailable',
   'machine-artifact-rejected',
+  'artifact-unreachable',
   'machine-update-not-confirmed',
   /**
    * The server retracted the target while a machine was still applying it —
@@ -282,6 +283,12 @@ export type UpdateFailure =
       code: 'machine-artifact-rejected'
       places: string[]
       names: string[]
+      detail?: string
+    }
+  | {
+      code: 'artifact-unreachable'
+      places?: string[]
+      names?: string[]
       detail?: string
     }
   | {
@@ -494,6 +501,16 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
           'install it and nothing was changed there. Ask the server operator to re-publish the ' +
           'release before applying it again — what arrived was not what was signed.',
         places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'artifact-unreachable':
+      return {
+        code: failure.code,
+        message:
+          'This machine cannot reach the artifact address published for this update. The address ' +
+          'is part of the release and retrying cannot repair it; publish a new release at an ' +
+          'address this machine can reach.',
+        ...(failure.places ? { places: failure.places } : {}),
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
     case 'machine-update-not-confirmed':

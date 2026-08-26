@@ -496,6 +496,12 @@ const MACHINE_FAILURE_COPY: Record<
       'Ask the server operator to re-publish the release before applying it again — what ' +
       'arrived was not what was signed.',
   }),
+  'artifact-unreachable': (subject) => ({
+    message: `${subject ?? 'This machine'} cannot reach the artifact address published for this update.`,
+    nextAction:
+      'Retrying cannot repair an address embedded in the release. Ask the release publisher for ' +
+      'a new release at an address this machine can reach.',
+  }),
   'machine-update-not-confirmed': (subject) => ({
     // Reported BY THAT MACHINE'S OWN BOOT, so it is up and connected. Nothing
     // here claims why the new version did not start; the detail says how far it

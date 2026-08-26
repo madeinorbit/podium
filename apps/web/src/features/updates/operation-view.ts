@@ -716,6 +716,10 @@ export function operationView(input: OperationViewInput): UpdatePanelView {
   return input.note && view.state !== 'none' ? { ...view, note: input.note } : view
 }
 
+function failureCanRetry(code: string | undefined): boolean {
+  return code !== 'artifact-unreachable'
+}
+
 function computeView(input: OperationViewInput): UpdatePanelView {
   const operation = input.operation
 
@@ -752,7 +756,8 @@ function computeView(input: OperationViewInput): UpdatePanelView {
             input.actionError.code === 'invalid-update-channel' ||
             input.actionError.code === 'updater-unavailable' ||
             input.actionError.code === 'update-check-failed' ||
-            input.actionError.code === 'desktop-bridge-incompatible'
+            input.actionError.code === 'desktop-bridge-incompatible' ||
+            !failureCanRetry(input.actionError.code)
           ? undefined
           : { kind: 'retry' as const, label: 'Try again', pendingLabel: 'Trying again…' }
     return {
@@ -791,7 +796,15 @@ function computeView(input: OperationViewInput): UpdatePanelView {
       state: 'failed',
       title: version ? `Podium ${version} could not be applied` : 'Podium update failed',
       error,
-      primary: { kind: 'retry', label: 'Try again', pendingLabel: 'Trying again…' },
+      ...(failureCanRetry(operation.error?.code)
+        ? {
+            primary: {
+              kind: 'retry' as const,
+              label: 'Try again',
+              pendingLabel: 'Trying again…',
+            },
+          }
+        : {}),
       indicator: 'attention',
       indicatorLabel: 'Update failed',
     }

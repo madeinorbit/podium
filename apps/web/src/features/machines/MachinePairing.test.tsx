@@ -34,6 +34,7 @@ function props(overrides: Partial<MachinePairingProps> = {}): MachinePairingProp
     onMakeServerAfterPairChange: vi.fn(),
     onChangeUrl: vi.fn(),
     onReviewPairedMachine: vi.fn(),
+    onNewCode: vi.fn(),
     ...overrides,
   }
 }
@@ -128,6 +129,7 @@ describe('MachinePairing', () => {
 
   it('announces the newly paired machine and exposes review as an explicit action', () => {
     const onReviewPairedMachine = vi.fn()
+    const onNewCode = vi.fn()
     render(
       <MachinePairing
         {...props({
@@ -135,13 +137,20 @@ describe('MachinePairing', () => {
           joinCommand: 'podium join ABCD-EFGH',
           newMachine: { id: asMachineId('vps'), name: 'Production VPS' },
           onReviewPairedMachine,
+          onNewCode,
         })}
       />,
     )
 
     const review = screen.getByRole('button', { name: /review transfer/i })
-    expect(review.parentElement?.textContent).toMatch(/production vps.*ready for transfer/i)
+    expect(screen.getByRole('status').textContent).toMatch(
+      /production vps.*one-use code has been spent.*will not work again/i,
+    )
+    expect(screen.queryByRole('button', { name: /copy command/i })).toBeNull()
+    expect(screen.queryByText('ABCD-EFGH')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /create another code/i }))
     fireEvent.click(review)
+    expect(onNewCode).toHaveBeenCalledTimes(1)
     expect(onReviewPairedMachine).toHaveBeenCalledTimes(1)
   })
 
@@ -157,11 +166,11 @@ describe('MachinePairing', () => {
       />,
     )
 
-    expect(screen.getByRole('checkbox', { name: /podium-managed machine/i })).toHaveProperty(
+    expect(screen.queryByRole('checkbox', { name: /podium-managed machine/i })).toBeNull()
+    expect(screen.getByRole('button', { name: /create another code/i })).toHaveProperty(
       'disabled',
       true,
     )
-    expect(screen.getByRole('button', { name: /copy command/i })).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: /review transfer/i })).toHaveProperty(
       'disabled',
       true,

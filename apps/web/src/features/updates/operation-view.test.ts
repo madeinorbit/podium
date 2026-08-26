@@ -768,6 +768,46 @@ describe('operationView — action rejections (the retired POD-2091 bug)', () =>
     expect(result.primary).toBeUndefined()
   })
 
+  it('names a permanently unreachable artifact and offers no retry', () => {
+    const result = operationView({
+      operation: null,
+      offer: OFFER,
+      local: NOT_BEHIND,
+      surface: 'desktop-remote',
+      now: NOW,
+      actionError: {
+        code: 'artifact-unreachable',
+        message:
+          'This machine cannot reach https://missing.example/podium.tar.gz from the published release.',
+      },
+    })
+
+    expect(result.state).toBe('failed')
+    expect(result.error?.message).toMatch(/cannot reach the artifact address/i)
+    expect(result.error?.nextAction).toMatch(/new release/i)
+    expect(result.error?.detail).toContain('https://missing.example/podium.tar.gz')
+    expect(result.primary).toBeUndefined()
+    expect(JSON.stringify(result)).not.toMatch(/try again/i)
+  })
+
+  it('keeps a permanently unreachable artifact terminal after the operation records it', () => {
+    const result = view(
+      operationPayload({
+        state: 'failed',
+        error: {
+          code: 'artifact-unreachable',
+          message:
+            'artifact address unreachable: https://missing.example/podium.tar.gz — ECONNREFUSED',
+        },
+      }),
+    )
+
+    expect(result.state).toBe('failed')
+    expect(result.error?.detail).toContain('https://missing.example/podium.tar.gz')
+    expect(result.primary).toBeUndefined()
+    expect(JSON.stringify(result)).not.toMatch(/try again/i)
+  })
+
   /**
    * POD-2239. The panel's half of the three schema refusals.
    *

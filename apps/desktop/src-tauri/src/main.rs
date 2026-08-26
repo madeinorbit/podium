@@ -26,6 +26,9 @@ use updater::{check_update, claim_update_ownership, install_update, set_update_c
 const DESKTOP_SUPERVISED_ENV: &str = "PODIUM_DESKTOP_SUPERVISED";
 const PODIUM_CLI_PATH_ENV: &str = "PODIUM_CLI_PATH";
 const DESKTOP_SUCCESSOR_FILE_ENV: &str = "PODIUM_DESKTOP_SUCCESSOR_FILE";
+/// BSD EX_CONFIG: the CLI's established signal for a daemon the server rejected
+/// permanently. systemd already treats this as RestartPreventExitStatus.
+const DAEMON_BLOCKED_EXIT_CODE: i32 = 78;
 /// This shell's own PID, handed to every backend we spawn so the backend can tie its
 /// lifetime to ours (POD-1228). The reap below only runs on a deliberate quit — a GUI
 /// crash, a SIGKILL, or a plain SIGTERM executes none of our exit code at all, and the
@@ -45,6 +48,7 @@ const NATIVE_WINDOW_PERMISSIONS: &[&str] = &[
     "allow-install-update",
     "allow-set-update-channel",
     "allow-repair-payload",
+    "allow-daemon-connectivity",
     "process:allow-restart",
 ];
 
@@ -571,6 +575,10 @@ fn await_child_exit(
     }
 }
 
+fn should_respawn_backend(exit_code: Option<i32>) -> bool {
+    exit_code != Some(DAEMON_BLOCKED_EXIT_CODE)
+}
+
 /// Supervise the backend child. Ordinary exits retain the existing bounded-backoff respawn;
 /// only a durable, matching server-transfer transition retargets the existing webview and
 /// switches supervision to an explicit daemon child.
@@ -613,6 +621,16 @@ fn spawn_respawn_monitor<F, S, D>(
             };
 
             if shutting_down.load(Ordering::Acquire) {
+                break;
+            }
+
+            let exit_code = exited.as_ref().and_then(std::process::ExitStatus::code);
+            if !should_respawn_backend(exit_code) {
+                log::warn!(
+                    "backend exited {DAEMON_BLOCKED_EXIT_CODE} after a terminal server refusal; \
+                     leaving it stopped until this machine is paired with a new code"
+                );
+                let _ = child_state.lock().map(|mut child| child.take());
                 break;
             }
 
@@ -771,6 +789,8 @@ fn native_desktop_hook(
     // Desktop updates are available in every launch mode. The page may be remote or older
     // than this shell, so these methods are always present and are feature-detected by the page.
     let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: (channel, expectedVersion) => window.__TAURI_INTERNALS__.invoke('install_update', { channel, expectedVersion }),\n            setUpdateChannel: (channel, endpoint) => window.__TAURI_INTERNALS__.invoke('set_update_channel', { channel, endpoint }),\n            repairPayload: () => window.__TAURI_INTERNALS__.invoke('repair_payload')";
+    let daemon_status =
+        ",\n            daemonConnectivity: () => window.__TAURI_INTERNALS__.invoke('daemon_connectivity')";
     // Hand a URL to the OS browser on purpose. The injected opener shim only rescues
     // CROSS-origin links (bootstrap::opener_shim_script); a page that wants the real browser
     // for one of the server's OWN URLs — "Open in browser" on a file — has no other route,
@@ -813,7 +833,7 @@ fn native_desktop_hook(
             launchMode: {launch_mode_expression}{machine_id},
             minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
-            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){update_commands}{open_external}{set_theme}{enable_hosting}
+            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){update_commands}{daemon_status}{open_external}{set_theme}{enable_hosting}
         }});"#
     )
 }
@@ -874,6 +894,33 @@ fn payload_unavailable_injection(error: &str) -> String {
     format!(
         "window.__PODIUM_PAYLOAD_UNAVAILABLE__ = true;\nwindow.__PODIUM_PAYLOAD_ERROR__ = {error_literal};"
     )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DaemonConnectivity {
+    state: String,
+    server_url: Option<String>,
+    authorization_reason: Option<String>,
+    blocked_reason: Option<String>,
+    updated_at: String,
+}
+
+fn parse_daemon_connectivity(text: &str) -> Option<DaemonConnectivity> {
+    let status = serde_json::from_str::<DaemonConnectivity>(text).ok()?;
+    matches!(
+        status.state.as_str(),
+        "connected" | "disconnected" | "unauthorized" | "blocked"
+    )
+    .then_some(status)
+}
+
+/// Read the daemon-owned durable status file for the page running inside this
+/// shell. The returned fields are already the status CLI's operator-safe set.
+#[tauri::command]
+fn daemon_connectivity() -> Option<DaemonConnectivity> {
+    let text = std::fs::read_to_string(bootstrap::state_dir().join("connectivity.json")).ok()?;
+    parse_daemon_connectivity(&text)
 }
 
 /// [spec:SP-3701] In-app "host sessions on this device": rewrite the local config from client
@@ -1064,6 +1111,7 @@ fn main() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             enable_hosting,
+            daemon_connectivity,
             claim_update_ownership,
             check_update,
             install_update,
@@ -2036,6 +2084,7 @@ mod tests {
                 "allow-install-update",
                 "allow-set-update-channel",
                 "allow-repair-payload",
+                "allow-daemon-connectivity",
                 "process:allow-restart",
             ]
         );
@@ -2107,7 +2156,37 @@ mod tests {
             assert!(hook.contains("invoke('set_update_channel', { channel, endpoint })"));
             assert!(hook.contains("repairPayload: () =>"));
             assert!(hook.contains("invoke('repair_payload')"));
+            assert!(hook.contains("daemonConnectivity"));
+            assert!(hook.contains("invoke('daemon_connectivity')"));
         }
+    }
+
+    #[test]
+    fn terminal_server_refusal_is_the_only_exit_the_shell_does_not_respawn() {
+        assert!(!should_respawn_backend(Some(DAEMON_BLOCKED_EXIT_CODE)));
+        for code in [None, Some(0), Some(1), Some(10)] {
+            assert!(should_respawn_backend(code));
+        }
+    }
+
+    #[test]
+    fn daemon_connectivity_exposes_only_operator_safe_status_fields() {
+        let parsed = parse_daemon_connectivity(
+            r#"{"state":"unauthorized","serverUrl":"wss://podium.example","authorizationReason":"peerHelloRejected: invalid or expired code","updatedAt":"2026-08-26T10:00:00.000Z","token":"must-not-escape"}"#,
+        )
+        .expect("valid connectivity status");
+        assert_eq!(parsed.state, "unauthorized");
+        assert_eq!(parsed.server_url.as_deref(), Some("wss://podium.example"));
+        assert!(serde_json::to_string(&parsed)
+            .expect("status serializes")
+            .contains("invalid or expired code"));
+        assert!(!serde_json::to_string(&parsed)
+            .expect("status serializes")
+            .contains("must-not-escape"));
+        assert!(parse_daemon_connectivity(
+            r#"{"state":"invented","updatedAt":"2026-08-26T10:00:00.000Z"}"#
+        )
+        .is_none());
     }
 
     #[test]

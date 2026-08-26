@@ -43,6 +43,7 @@ pub enum UpdateErrorCode {
     NetworkUnreachable,
     UpdateCheckFailed,
     DownloadFailed,
+    ArtifactUnreachable,
     SignatureInvalid,
     RunningFromDiskImage,
     CrossDeviceInstall,
@@ -128,6 +129,15 @@ impl UpdateError {
         Self::new(
             UpdateErrorCode::DownloadFailed,
             "Podium could not download the desktop update.",
+        )
+    }
+
+    fn artifact_unreachable(address: &str) -> Self {
+        Self::new(
+            UpdateErrorCode::ArtifactUnreachable,
+            format!(
+                "This machine cannot reach the artifact address published for this update: {address}"
+            ),
         )
     }
 
@@ -340,11 +350,40 @@ fn check_error(error: &tauri_plugin_updater::Error, channel: UpdateChannel) -> U
     public
 }
 
-fn classify_update_error(error: &tauri_plugin_updater::Error) -> UpdateError {
+fn public_download_address(url: &tauri::Url) -> String {
+    let mut public = url.clone();
+    public.set_query(None);
+    public.set_fragment(None);
+    public.to_string()
+}
+
+fn artifact_address_is_unreachable(error: &tauri_plugin_updater::Error) -> bool {
+    match error {
+        tauri_plugin_updater::Error::Reqwest(error) => error.is_connect(),
+        tauri_plugin_updater::Error::Network(message) => {
+            let normalized = message.to_ascii_lowercase();
+            normalized.contains("unable to connect")
+                || normalized.contains("access the url")
+                || normalized.contains("econnrefused")
+                || normalized.contains("enotfound")
+        }
+        _ => false,
+    }
+}
+
+fn classify_update_error(
+    error: &tauri_plugin_updater::Error,
+    download_url: Option<&tauri::Url>,
+) -> UpdateError {
     match error {
         tauri_plugin_updater::Error::Minisign(_)
         | tauri_plugin_updater::Error::Base64(_)
         | tauri_plugin_updater::Error::SignatureUtf8(_) => UpdateError::signature_invalid(),
+        _ if artifact_address_is_unreachable(error) && download_url.is_some() => {
+            UpdateError::artifact_unreachable(&public_download_address(
+                download_url.expect("guarded above"),
+            ))
+        }
         tauri_plugin_updater::Error::Reqwest(_) | tauri_plugin_updater::Error::Network(_) => {
             UpdateError::download_failed()
         }
@@ -366,8 +405,11 @@ fn update_error_diagnostic(error: &tauri_plugin_updater::Error) -> String {
     format!("desktop update failed: {error}")
 }
 
-fn update_error(error: &tauri_plugin_updater::Error) -> UpdateError {
-    let public = classify_update_error(error);
+fn update_error(
+    error: &tauri_plugin_updater::Error,
+    download_url: Option<&tauri::Url>,
+) -> UpdateError {
+    let public = classify_update_error(error, download_url);
     log::error!("{}", update_error_diagnostic(error));
     public
 }
@@ -502,7 +544,9 @@ where
             },
         )
     })?;
-    install.await.map_err(|error| update_error(&error))
+    install
+        .await
+        .map_err(|error| update_error(&error, Some(&update.download_url)))
 }
 
 fn emit_update_progress(app: &AppHandle, progress: UpdateProgress) {
@@ -935,6 +979,7 @@ mod tests {
             UpdateError::network_unreachable(UpdateChannel::Stable),
             UpdateError::update_check_failed(UpdateChannel::Stable),
             UpdateError::download_failed(),
+            UpdateError::artifact_unreachable("https://missing.example/podium.tar.gz"),
             UpdateError::signature_invalid(),
             UpdateError::running_from_disk_image(),
             UpdateError::cross_device_install(),
@@ -952,6 +997,7 @@ mod tests {
             "network-unreachable",
             "update-check-failed",
             "download-failed",
+            "artifact-unreachable",
             "signature-invalid",
             "running-from-disk-image",
             "cross-device-install",
@@ -963,9 +1009,11 @@ mod tests {
         for (error, code) in errors.into_iter().zip(codes) {
             let json = serde_json::to_value(error).expect("error serializes");
             assert_eq!(json["code"], code);
-            assert!(json["message"].as_str().is_some_and(|message| {
-                !message.contains('/') && !message.to_ascii_lowercase().contains("token")
-            }));
+            let message = json["message"].as_str().expect("message serializes");
+            assert!(!message.to_ascii_lowercase().contains("token"));
+            if code != "artifact-unreachable" {
+                assert!(!message.contains('/'));
+            }
         }
     }
 
@@ -1029,18 +1077,36 @@ mod tests {
     #[test]
     fn transfer_failures_remain_download_failures() {
         let download = tauri_plugin_updater::Error::Network("offline".to_string());
-        assert_eq!(update_error(&download), UpdateError::download_failed());
+        assert_eq!(update_error(&download, None), UpdateError::download_failed());
+    }
+
+    #[test]
+    fn connection_refusal_names_the_published_address_once() {
+        let refusal = tauri_plugin_updater::Error::Network(
+            "Unable to connect. Is the computer able to access the url?".to_string(),
+        );
+        let url = tauri::Url::parse(
+            "https://missing.example/podium.tar.gz?X-Amz-Signature=secret",
+        )
+        .expect("valid URL");
+        let public = update_error(&refusal, Some(&url));
+        assert_eq!(public.code, UpdateErrorCode::ArtifactUnreachable);
+        assert!(public.message.contains("https://missing.example/podium.tar.gz"));
+        assert!(!public.message.contains("secret"));
     }
 
     #[test]
     fn install_failures_map_to_explainable_categories() {
         let signature = tauri_plugin_updater::Error::SignatureUtf8("invalid".to_string());
         assert_eq!(
-            update_error(&signature).code,
+            update_error(&signature, None).code,
             UpdateErrorCode::SignatureInvalid
         );
         let install = tauri_plugin_updater::Error::PackageInstallFailed;
-        assert_eq!(update_error(&install).code, UpdateErrorCode::InstallFailed);
+        assert_eq!(
+            update_error(&install, None).code,
+            UpdateErrorCode::InstallFailed
+        );
     }
 
     #[test]
@@ -1074,7 +1140,7 @@ mod tests {
     #[test]
     fn cross_device_install_has_an_actionable_code_and_keeps_the_raw_log() {
         let error = tauri_plugin_updater::Error::Io(std::io::Error::from_raw_os_error(18));
-        let public = classify_update_error(&error);
+        let public = classify_update_error(&error, None);
         let diagnostic = update_error_diagnostic(&error);
 
         assert_eq!(public, UpdateError::cross_device_install());
@@ -1092,7 +1158,7 @@ mod tests {
     fn read_only_install_has_an_actionable_code() {
         let error = tauri_plugin_updater::Error::Io(std::io::Error::from_raw_os_error(30));
         assert_eq!(
-            classify_update_error(&error),
+            classify_update_error(&error, None),
             UpdateError::read_only_install_location()
         );
     }

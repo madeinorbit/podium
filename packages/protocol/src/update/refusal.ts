@@ -115,6 +115,8 @@ export type MachineFailureCode =
   | 'machine-delivery-unavailable'
   /** The package failed digest or signature verification and was refused. */
   | 'machine-artifact-rejected'
+  /** This machine cannot reach the address embedded in the published release. */
+  | 'artifact-unreachable'
   /** It restarted but did not come back on the target version. */
   | 'machine-update-not-confirmed'
   /** The server retracted the target while this machine was mid-flight. */
@@ -335,6 +337,12 @@ const UPDATE_FAILURE_MATCHERS = [
     example: 'feed delivery requires an artifact URL',
   },
   {
+    token: 'artifact-address-unreachable',
+    pattern: /^artifact address unreachable:/i,
+    code: 'artifact-unreachable',
+    example: 'artifact address unreachable: https://missing.example/a.tgz — ECONNREFUSED',
+  },
+  {
     token: 'download-http-status',
     pattern: /artifact download returned \d+/i,
     code: 'download-failed',
@@ -349,7 +357,7 @@ const UPDATE_FAILURE_MATCHERS = [
   {
     token: 'download-unreachable',
     pattern:
-      /unable to connect|access the url|failed to fetch|fetch failed|download failed|network(?:error| request failed)|econn(?:refused|reset)|etimedout|enotfound/i,
+      /failed to fetch|fetch failed|download failed|network(?:error| request failed)|econnreset|etimedout/i,
     code: 'download-failed',
     example: 'fetch failed',
   },

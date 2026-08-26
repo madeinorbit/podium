@@ -5,6 +5,14 @@ export type NativeDesktopPlatform = 'macos' | 'windows' | 'linux'
 export type NativeDesktopLaunchMode = 'all-in-one' | 'server' | 'daemon' | 'client'
 export type NativeDesktopUpdateChannel = 'dev' | 'stable' | 'edge'
 
+export interface NativeDaemonConnectivity {
+  state: 'connected' | 'disconnected' | 'unauthorized' | 'blocked'
+  serverUrl?: string
+  authorizationReason?: string
+  blockedReason?: string
+  updatedAt: string
+}
+
 export interface NativeDesktopUpdateInfo {
   current_version: string
   version: string
@@ -68,6 +76,8 @@ export interface NativeDesktopBridge {
    * hub-minted pairing code. Caller restarts the shell afterwards (window.__PODIUM_RESTART__).
    */
   enableHosting?: (pairCode: string) => Promise<void>
+  /** Reads this shell's daemon-owned durable connection status. */
+  daemonConnectivity?: () => Promise<NativeDaemonConnectivity | null>
 }
 
 /**

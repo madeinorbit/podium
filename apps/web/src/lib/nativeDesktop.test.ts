@@ -67,6 +67,25 @@ describe('nativeDesktopBridge', () => {
     expect(persist).toHaveBeenNthCalledWith(2, 'edge', undefined)
   })
 
+  it('exposes the local daemon connectivity reader when the shell provides it', async () => {
+    const status = {
+      state: 'unauthorized' as const,
+      serverUrl: 'wss://podium.example',
+      authorizationReason: 'peerHelloRejected: invalid or expired code',
+      updatedAt: '2026-08-26T10:00:00.000Z',
+    }
+    desktopGlobal.__PODIUM_DESKTOP__ = {
+      platform: 'linux',
+      launchMode: 'daemon',
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      daemonConnectivity: vi.fn(async () => status),
+    }
+
+    await expect(nativeDesktopBridge()?.daemonConnectivity?.()).resolves.toEqual(status)
+  })
+
   it('tolerates an older shell that has none of the update commands', () => {
     desktopGlobal.__PODIUM_DESKTOP__ = {
       platform: 'linux',
