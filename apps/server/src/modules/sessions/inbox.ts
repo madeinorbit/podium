@@ -513,6 +513,17 @@ export class SessionInbox {
    * this marker on the session object rather than retaining session ids here.
    */
   private readonly inputReadySessions = new WeakSet<Session>()
+  /**
+   * WHEN THIS SESSION'S PTY LAST BOUND — the composer-readiness clock's zero
+   * (POD-2836). Held here, beside the readiness marker the same bind clears,
+   * because the bind is already announced to this object and nothing else
+   * records the moment; a durable field would be a second, weaker copy of a
+   * fact that only matters while the process it describes is still running.
+   *
+   * Session-keyed for the same reason {@link inputReadySessions} is: the entry
+   * dies with the row rather than being reaped by id.
+   */
+  private readonly boundAtMs = new WeakMap<Session, number>()
   /** One durable attention event per queued row and failure episode. */
   private readonly reportedPromptFailures = new Set<string>()
 
@@ -522,10 +533,14 @@ export class SessionInbox {
     return this.activeDrains.has(sessionId)
   }
 
-  /** A new bind starts a fresh harness-readiness window. */
+  /** A new bind starts a fresh harness-readiness window — and STAMPS it, so the
+   *  drain can tell a composer that has had an hour to mount from one that has
+   *  had a second (POD-2836). */
   markSessionBound(sessionId: SessionId): void {
     const session = this.deps.getSession(sessionId)
-    if (session) this.inputReadySessions.delete(session)
+    if (!session) return
+    this.inputReadySessions.delete(session)
+    this.boundAtMs.set(session, this.deps.now())
   }
 
   /**
@@ -1389,6 +1404,10 @@ export class SessionInbox {
      * Ready to be typed into. A harness state report is deliberately absent from
      * this predicate: a PTY bind and a runtime-state stamp are lifecycle facts,
      * not proof that the composer can receive a turn.
+     *
+     * `liveAtMs` is the BIND, not this pass — see the tick below. Both terms
+     * measure the same thing they always did, "how long has this CLI had to put
+     * a composer up"; asking it of the bind is what lets the ceiling expire.
      */
     const readyForInput = (current: Session, now: number): boolean => {
       if (now - liveAtMs < READY_FLOOR_MS) return false
@@ -1441,7 +1460,22 @@ export class SessionInbox {
           return
         }
         if (!liveAtMs) {
-          liveAtMs = now
+          /**
+           * THE READINESS CLOCK STARTS AT THE BIND, NOT AT THE SEND (POD-2836).
+           *
+           * This used to stamp `now`, which made the window below unexpirable:
+           * every measurement of "has the composer had time to mount" began at
+           * the moment someone asked for a message to be typed, so a session
+           * that bound an hour ago paid the same 6s ceiling as one that bound a
+           * second ago — 6.3s on EVERY first chat send after a bind. The window
+           * is right and is deliberately unchanged; only its zero moves.
+           *
+           * A bind we did not see (a live row rehydrated at server boot, before
+           * the daemon reattaches) leaves the clock where it was: unknown means
+           * unproven, and unproven waits the full window.
+           */
+          const boundAt = this.boundAtMs.get(current)
+          liveAtMs = boundAt !== undefined && boundAt < now ? boundAt : now
           baseOutputMs = current.terminal.lastOutputAtMs
         }
         if (readyForInput(current, now) || now >= deadline) {

@@ -1682,6 +1682,104 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
 })
 
 /**
+ * POD-2836: the composer-readiness window is right; the moment it was measured
+ * from was not.
+ *
+ * `liveAtMs` was stamped in the DRAIN'S FIRST TICK, so every term in
+ * `readyForInput` asked "how long since somebody asked us to type" instead of
+ * "how long has this CLI had to put a composer up". An idle Claude session
+ * paints nothing, so the quiet heuristic never fires and delivery always fell
+ * through to the 6s ceiling — measured at 6.3s on EVERY first chat send after a
+ * bind, whether the bind was a second or an hour ago.
+ *
+ * The window itself is deliberately untouched. Shortening it would trade this
+ * latency bug for the silent-loss bug it exists to prevent (POD-2116: bytes
+ * typed into an unmounted composer are accepted by the PTY and dropped by the
+ * app), which is why the second and third tests here matter as much as the
+ * first: an unproven composer must still wait the whole of it.
+ */
+describe('the composer-readiness clock runs from the bind [POD-2836]', () => {
+  const PROMPT = 'merge the branch and close the issue'
+  const sendFirstChat = (h: ReturnType<typeof harness>) =>
+    h.inbox.sendText({ sessionId: SID, text: PROMPT, principal: agentPrincipal() })
+
+  it('types the first chat send at once when the bind is already older than the window', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'claude-code', transcriptAvailable: true })
+
+    // The PTY binds, and then the session sits there — live, idle and silent.
+    h.inbox.markSessionBound(SID)
+    vi.advanceTimersByTime(60 * 60_000)
+
+    // This IS the readiness queue's path: Claude declares 'confirmed-turn', so
+    // the first send after a bind is queued rather than typed straight through.
+    expect(sendFirstChat(h)).toEqual({ ok: true, queued: true })
+
+    // One poll tick, not seven. The hour that passed is the proof the ceiling
+    // was asking for, and it was spent before the send ever arrived.
+    vi.advanceTimersByTime(300)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+  })
+
+  it('still waits out the whole window for a composer that has just bound', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'claude-code', transcriptAvailable: true })
+
+    // Bind and send in the same breath — the case the window is FOR.
+    h.inbox.markSessionBound(SID)
+    expect(sendFirstChat(h)).toEqual({ ok: true, queued: true })
+
+    // Nothing at five seconds: this composer has not proven itself, and the
+    // ceiling is not allowed to move for it.
+    vi.advanceTimersByTime(5_000)
+    expect(typedTexts(h.sent)).toEqual([])
+
+    vi.advanceTimersByTime(1_400)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+  })
+
+  it('waits the whole window when no bind was witnessed at all', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    // A live row rehydrated at server boot, before its daemon has reattached:
+    // this process never saw the bind, so it cannot claim the CLI is proven.
+    // Unknown must read as unproven, never as long-ago.
+    const h = harness({ agentKind: 'claude-code', transcriptAvailable: true })
+    vi.advanceTimersByTime(60 * 60_000)
+
+    expect(sendFirstChat(h)).toEqual({ ok: true, queued: true })
+
+    vi.advanceTimersByTime(5_000)
+    expect(typedTexts(h.sent)).toEqual([])
+
+    vi.advanceTimersByTime(1_400)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+  })
+
+  it('re-arms the window on a REBIND, so a fresh CLI does not inherit the old proof', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'claude-code', transcriptAvailable: true })
+
+    h.inbox.markSessionBound(SID)
+    vi.advanceTimersByTime(60 * 60_000)
+
+    // The daemon restarts and the session rebinds. The hour belonged to the CLI
+    // that is gone; this one is a second old and starts its own window.
+    h.inbox.markSessionBound(SID)
+    expect(sendFirstChat(h)).toEqual({ ok: true, queued: true })
+
+    vi.advanceTimersByTime(5_000)
+    expect(typedTexts(h.sent)).toEqual([])
+
+    vi.advanceTimersByTime(1_400)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+  })
+})
+
+/**
  * POD-2291: a server-family session has no PTY bridge, so the drain must never
  * "type" a queued row at it — the daemon discards the bytes silently while this
  * side reports them applied, which is how the operator's first codex prompt
