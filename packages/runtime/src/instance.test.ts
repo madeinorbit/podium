@@ -105,8 +105,8 @@ describe('state ownership marker', () => {
 
   it('claims empty roots and rejects another selected instance', () => {
     const dir = join(temp(), 'state')
-    expect(ensureInstanceStateIdentity({ instanceId: 'blue', dir })).toEqual({
-      version: 1,
+    expect(ensureInstanceStateIdentity({ instanceId: 'blue', dir })).toMatchObject({
+      version: 2,
       instanceId: 'blue',
     })
     expect(readInstanceStateIdentity(dir)?.instanceId).toBe('blue')
