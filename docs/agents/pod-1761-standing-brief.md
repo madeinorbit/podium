@@ -587,3 +587,35 @@ written here rather than sent as a correction.
 
 **Check before you assume a hold is legitimate**, in either direction: a lease naming a gate is
 not evidence a gate is running. Look for the process.
+
+## A gate that refuses but leaves no way forward is half a guard (2026-08-26 18:01 CEST)
+
+`land.sh` gated correctly — refused, non-zero, exactly as designed — and then produced a
+refusal **no caller could act on**. Its retry loop waited out a held lock; while it waited the
+tip moved; and from then on every attempt failed with *"behind by 3 — rebase first"* instead of
+failing on the lock. It could never recover, **because nothing in the loop rebased**. The
+script was telling a shell script to go and read its advice.
+
+**Both failures are the same missing question.** The first version *printed instead of gating*;
+the second *gated instead of resolving*. Ask: **what is the caller supposed to DO with this
+refusal?**
+
+- If the unsafe state is **recoverable**, the guard should recover it — here, rebase rather
+  than advise a rebase, with the recovery itself guarded (a conflicting rebase is **aborted**
+  and refused, never left half-applied for someone to find later).
+- If it is **not** recoverable, the refusal must name what a human has to do.
+
+**A landing script that refuses a moving tip is a landing script for a branch nobody else is
+committing to** — and that is not this branch.
+
+## Stealing a lease (2026-08-26 18:01 CEST)
+
+Locks are advisory and a parked holder can block work for hours. Before taking one:
+
+1. **List every process whose cwd is that worktree.** A lease naming a gate is not evidence a
+   gate is running.
+2. **Check writes over a real window** — thirty minutes, not five.
+3. **Weigh it out loud**: one possibly-interrupted operation against the measured cost of
+   waiting, including sessions from other epics.
+4. **Take it, release it to the queue immediately**, and **tell the holder what you did, what
+   you checked, and that you will own it if you were wrong.**
