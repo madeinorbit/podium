@@ -1130,7 +1130,7 @@ launch_coordinator_parent() {
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env "PODIUM_INSTANCE=$INSTANCE" \
     --env PODIUM_PORT=18787 --env PODIUM_HOST=0.0.0.0 \
     --env PODIUM_DEV_SOURCE_ROOT=/work/source \
-    --env PODIUM_DEV_ARTIFACT_BASE_URL=http://source:18787 \
+    --env PODIUM_DEV_ARTIFACT_BASE_URL="$ADVERTISED_URL" \
     --env PODIUM_NO_RELAY=1 --env PODIUM_NO_SCOPE=1 \
     --env PODIUM_LOG="$UPDATE_LOG_SPEC" \
     --env BUN_BIN=/home/podium/.local/bin/bun --env BUN_INSTALL_CACHE_DIR=/bun-cache-cow/merged \
