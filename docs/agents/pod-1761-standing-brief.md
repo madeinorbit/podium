@@ -105,3 +105,41 @@ remember from an hour ago, and a lease you renew beats a promise that decays.*
 
 **If you hold a lock for a long operation, renew it.** Re-acquiring a lock you already
 hold renews it. The lease — not anyone's mail — is what actually holds the branch.
+
+## Rigs that manufacture false reds
+
+Three of these were caught in a single drive, by their own author, before anything was
+filed. Each would have produced a plausible product-red against a product that was fine.
+
+- **A rig-wide posture that only one row wants is a rig-wide contaminant.** Seeding
+  `permission.bash=ask` for the whole rig so one row has an ask to measure parked *every
+  other* tool call at `needs_user` for 240 seconds, and the transcript row scored FAIL on a
+  product that was working. Set it per-probe and restore it in a `finally`.
+- **A rig that encodes ONE harness's shape manufactures false reds on the others.** codex
+  carries a tool call and its result on one item; opencode emits two items sharing a
+  `toolUseId`. "Every tool item must have a result" is true of codex and false of opencode.
+  **Assert on the mechanism** — here, the `toolUseId` — which asks the same question of both
+  shapes. This is the mirror of the fixture-too-forgiving defect: the fixture is too
+  *opinionated*.
+- **A rule change invalidates the reading it produced, in BOTH directions.** After rekeying
+  that rule, the author re-drove the arm that had already *passed*. Almost nobody re-runs a
+  green arm after changing what green means. Do it.
+- **Silent inflators are the worst shape.** Appending transcript items instead of upserting
+  by id, against a harness that streams one call twice under one id as it refines, inflates
+  *every* count on *every* cell in one direction, forever — and each affected cell still
+  looks plausible. Nothing about it looks wrong in review.
+- **A timing threshold that refuses when the box is busy is a rig that fails on load rather
+  than on behaviour.** Prove the behaviour is honoured first, then widen, and write down why
+  the number is what it is.
+
+## Staleness is narrow — compute it, do not assume it
+
+After a merge or a landing, a result is stale only if the CODE under it moved:
+
+    git diff --name-only <row commit>..issue/1761-agent-runtime | grep -v '^docs/'
+
+Then narrow further by area. After the main merge, 305 non-docs files had changed — but the
+opencode and grok drivers were **untouched**, so every opencode driver cell still counted,
+while codex cells and the shared chat-send/inbox rows did not. *Re-driving wholesale after a
+merge wastes days; re-driving nothing ships numbers taken against a tree that no longer
+exists.*
