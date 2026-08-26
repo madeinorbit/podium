@@ -42,13 +42,25 @@ need_memory() {
 # REAP BY IDENTITY, NEVER BY COMMAND-LINE SUBSTRING — and this one KILLS what it
 # matches, which is why it is the worst place on the rig to get it wrong.
 #
-# It used to be `pgrep -f "$P2777_STATE_ROOT/agent-home"`. On this box that is
-# unsafe in a way that is invisible until it fires: EVERY PODIUM AGENT CARRIES
-# THE WHOLE DEVELOPER-INSTRUCTIONS PROMPT IN ITS COMMAND LINE, so `pgrep -f` on
-# a project string matches other sessions' agents — I measured that directly,
-# and the hits I got were POD-2878's and POD-2871's, their session ids legible
-# in the abduco labels. A false positive here does not mislead a report; it
-# SIGKILLs a neighbour's agent mid-drive.
+# It used to be `pgrep -f "$P2777_STATE_ROOT/agent-home"`, and the honest account
+# of that is narrower than my first one.
+#
+# MEASURED: that pattern is an ABSOLUTE PATH UNIQUE TO THIS INSTANCE, and it
+# matches exactly one agent process — this rig's own. Other sessions carry the
+# whole developer-instructions prompt in their command lines, but that blob does
+# not contain this instance's agent-home path, so the reap would not have hit a
+# neighbour. I first claimed it would; I had generalised from a DIFFERENT
+# pattern's false positives (a generic `pod-2777/…` string, which does match
+# every agent on the box) to this one, which does not.
+#
+# It is changed anyway, for two reasons that survive the correction:
+#   - matching an absolute path in a command line is fragile BY CONSTRUCTION. It
+#     happened to be safe here; nothing made it safe. Rename the instance to
+#     something a prompt might mention and it stops being.
+#   - the real victim was ITSELF. The self-skip `[ "$pid" = "$$" ]` is wrong
+#     inside a `( … )` subshell, where `$$` is the PARENT's pid — so the loop
+#     could kill the very subshell running it, mid-reap, leaving the teardown
+#     half-done and looking like it had finished.
 #
 # The self-skip was also wrong: `$$` inside a `( … )` subshell is the PARENT's
 # pid in bash, so the guard did not protect the shell it was written for.
