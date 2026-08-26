@@ -6,6 +6,10 @@ import { asMachineId } from '@podium/model'
 import { type PeerHello, type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import { readConnectivity } from '@podium/runtime/connectivity'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
+import {
+  readOrCreateUpdateSigningKey,
+  rotateUpdateSigningKey,
+} from '@podium/runtime/update-signing-key'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
 import { buildReport } from './build-report'
@@ -188,7 +192,7 @@ describe('daemon connection credential state machine', () => {
       }),
     }
     const second = connection(secondOptions, loadIdentity({ dir: identityDir }))
-    await expect(second.start()).rejects.toThrow(/server update key changed/i)
+    await expect(second.start()).rejects.toThrow(/publisher update key was replaced/i)
     expect(second.state).toBe('blocked')
     expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe('server-key-1')
   })
@@ -250,6 +254,48 @@ describe('daemon connection credential state machine', () => {
     await state.close()
   })
 
+  it('accepts a changed key only through a valid old-key-signed rotation', async () => {
+    const signingDir = temp()
+    const original = readOrCreateUpdateSigningKey(signingDir)
+    const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
+    const identityDir = firstOptions.identityDir as string
+    firstOptions.localLink = {
+      attach: () => ({
+        established: true,
+        reply: { ...ok, issuedToken: 'token-1', updatePubkey: original.publicKey },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        close: vi.fn(),
+      }),
+    }
+
+    const first = connection(firstOptions)
+    await first.start()
+    await first.close()
+
+    const rotated = rotateUpdateSigningKey(signingDir)
+    const secondOptions = localOptions(() => {}, { identityDir })
+    secondOptions.localLink = {
+      attach: () => ({
+        established: true,
+        reply: {
+          ...ok,
+          updatePubkey: rotated.publicKey,
+          updateKeyRotations: rotated.rotations,
+        },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        close: vi.fn(),
+      }),
+    }
+
+    const second = connection(secondOptions, loadIdentity({ dir: identityDir }))
+    await second.start()
+    expect(second.state).toBe('connected')
+    expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe(rotated.publicKey)
+    await second.close()
+  })
+
   it('refuses a changed server key on ordinary reconnect', async () => {
     const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
     const identityDir = firstOptions.identityDir as string
@@ -283,7 +329,7 @@ describe('daemon connection credential state machine', () => {
     }
 
     const second = connection(secondOptions, loadIdentity({ dir: identityDir }))
-    await expect(second.start()).rejects.toThrow(/server update key changed/i)
+    await expect(second.start()).rejects.toThrow(/publisher update key was replaced/i)
     expect(second.state).toBe('blocked')
     expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe('server-key-1')
   })

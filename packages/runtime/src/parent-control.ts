@@ -55,6 +55,11 @@ export const ParentRequest = z.object({
    */
   pinnedPubkey: z.string().optional(),
   /**
+   * For `swap`: the publisher key advertised with the grant. This is diagnostic
+   * context only; verification remains rooted in `pinnedPubkey`.
+   */
+  publisherPubkey: z.string().optional(),
+  /**
    * For a daemon-initiated packaged handover: the target declaration compared
    * with this machine's ledger. Absence stays unknown, so rollback stays refused.
    */
@@ -200,6 +205,7 @@ function post(
     expectedVersion: string
     target?: Record<string, unknown>
     pinnedPubkey?: string
+    publisherPubkey?: string
     releaseHadMigrations?: boolean
   },
   opts: ParentRequestOptions,
@@ -211,6 +217,7 @@ function post(
   writeParentRequest(
     {
       requestId,
+      ...(request.publisherPubkey ? { publisherPubkey: request.publisherPubkey } : {}),
       kind,
       expectedVersion: request.expectedVersion,
       requestedAt: new Date(opts.now?.() ?? Date.now()).toISOString(),
@@ -247,7 +254,12 @@ export function requestParentHandover(
  * the parent's own reason on failure, and on timeout.
  */
 export async function requestParentSwap(
-  request: { expectedVersion: string; target: Record<string, unknown>; pinnedPubkey?: string },
+  request: {
+    expectedVersion: string
+    target: Record<string, unknown>
+    pinnedPubkey?: string
+    publisherPubkey?: string
+  },
   opts: ParentRequestOptions & { timeoutMs?: number } = {},
 ): Promise<{ releaseHadMigrations: boolean }> {
   const dir = opts.stateDir ?? stateDir()

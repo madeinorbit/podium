@@ -244,6 +244,13 @@ export const HANDSHAKE_REJECT_REASONS = [
 ] as const
 export type HandshakeRejectReason = (typeof HANDSHAKE_REJECT_REASONS)[number]
 
+export const UpdateKeyRotation = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  signature: z.string().min(1),
+})
+export type UpdateKeyRotation = z.infer<typeof UpdateKeyRotation>
+
 export const PeerHelloOk = z.object({
   type: z.literal('peerHelloOk'),
   /** The version the ACCEPTOR speaks, so the dialer can log a compatible pair. */
@@ -269,6 +276,8 @@ export const PeerHelloOk = z.object({
   issuedToken: z.string().optional(),
   /** The server update-signing key, sent on pairing and every successful reconnect. */
   updatePubkey: z.string().min(1).optional(),
+  /** Old-key-signed path to updatePubkey, ordered from oldest to newest. */
+  updateKeyRotations: z.array(UpdateKeyRotation).optional(),
 })
 export type PeerHelloOk = z.infer<typeof PeerHelloOk>
 

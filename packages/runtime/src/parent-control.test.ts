@@ -27,7 +27,7 @@ function tempState(): string {
 }
 
 describe('parent-control request file', () => {
-  it('round-trips a swap request, target and pin included', () => {
+  it('round-trips a swap request, target, pin and publisher key included', () => {
     const dir = tempState()
     writeParentRequest(
       {
@@ -37,6 +37,7 @@ describe('parent-control request file', () => {
         requestedAt: '2026-08-21T00:00:00.000Z',
         target: { version: '1.2.3' },
         pinnedPubkey: 'PUB',
+        publisherPubkey: 'PUBLISHER',
       },
       dir,
     )
@@ -47,6 +48,7 @@ describe('parent-control request file', () => {
       requestedAt: '2026-08-21T00:00:00.000Z',
       target: { version: '1.2.3' },
       pinnedPubkey: 'PUB',
+      publisherPubkey: 'PUBLISHER',
     })
     clearParentRequest(dir)
     expect(readParentRequest(dir)).toBeUndefined()
@@ -148,7 +150,12 @@ describe('requestParentSwap', () => {
       }
 
       const ok = requestParentSwap(
-        { expectedVersion: '2.0.0', target: { version: '2.0.0' }, pinnedPubkey: 'PUB' },
+        {
+          expectedVersion: '2.0.0',
+          target: { version: '2.0.0' },
+          pinnedPubkey: 'PUB',
+          publisherPubkey: 'PUBLISHER',
+        },
         {
           stateDir: dir,
           signal: () => answerWith({ ok: true, migrations: true }),
@@ -157,6 +164,7 @@ describe('requestParentSwap', () => {
       )
       await expect(ok).resolves.toEqual({ releaseHadMigrations: true })
       expect(readParentRequest(dir)?.pinnedPubkey).toBe('PUB')
+      expect(readParentRequest(dir)?.publisherPubkey).toBe('PUBLISHER')
 
       const failed = requestParentSwap(
         { expectedVersion: '3.0.0', target: { version: '3.0.0' } },

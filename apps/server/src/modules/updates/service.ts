@@ -28,6 +28,8 @@ export interface UpdatesDeps {
   send(machineId: MachineId, message: UpdateGrantMessage): void
   now(): number
   nextGrantId(): string
+  /** Current publisher key, diagnostic-only in a grant; never replaces a daemon pin. */
+  updatePubkey?(): string
   concurrency: number
   /**
    * Pull one channel's target from its feed. EVERY channel, `dev` included
@@ -1307,6 +1309,7 @@ export class UpdatesService {
         grantId: this.deps.nextGrantId(),
         ...(repair ? { repair: true } : {}),
         target,
+        ...(this.deps.updatePubkey ? { updatePubkey: this.deps.updatePubkey() } : {}),
       }
       this.deps.send(asMachineId(machineId), grant)
       const machine = machines.find((candidate) => candidate.id === machineId)

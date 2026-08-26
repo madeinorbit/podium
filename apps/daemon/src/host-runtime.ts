@@ -446,15 +446,19 @@ export async function createDaemonHostRuntime(args: {
     caps: deliveryCaps(build),
     ...(process.env.PODIUM_UNDER_PARENT === '1'
       ? {
-          installTarget: (target: import('@podium/protocol').UpdateTarget) =>
+          installTarget: (
+            target: import('@podium/protocol').UpdateTarget,
+            publisherPubkey?: string,
+          ) =>
             requestParentSwap({
               expectedVersion: target.version,
               target: target as unknown as Record<string, unknown>,
               ...(identity.updatePubkey ? { pinnedPubkey: identity.updatePubkey } : {}),
+              ...(publisherPubkey ? { publisherPubkey } : {}),
             }),
         }
       : {}),
-    fetchArtifact: (asset, trust, signal, onProgress) =>
+    fetchArtifact: (asset, trust, signal, onProgress, publisherPubkey) =>
       fetchArtifact(asset, {
         fetch: globalThis.fetch,
         // BOTH ROOTS ARE OFFERED; the TARGET picks. `pubkey` is the baked
@@ -463,6 +467,7 @@ export async function createDaemonHostRuntime(args: {
         // what decides between them. This daemon never infers it (spec §1).
         pubkey: PODIUM_UPDATE_PUBKEY,
         ...(identity.updatePubkey ? { pinnedPubkey: identity.updatePubkey } : {}),
+        ...(publisherPubkey ? { publisherPubkey } : {}),
         ...(trust ? { trust } : {}),
         // Delivery decides WHEN there is news; `applyGrant` turns each one into
         // an `updateStatus` frame (POD-2101).

@@ -28,10 +28,14 @@ export interface GrantApplyDeps {
     trust: UpdateTrustRoot | undefined,
     signal?: AbortSignal,
     onProgress?: (progress: GrantProgress) => void,
+    publisherPubkey?: string,
   ): Promise<GrantArtifact>
   swap?(bytes: Uint8Array): void | Promise<void>
   /** A supervised participant delegates verified installation to its parent. */
-  installTarget?(target: UpdateGrantMessage['target']): Promise<{ releaseHadMigrations?: boolean }>
+  installTarget?(
+    target: UpdateGrantMessage['target'],
+    publisherPubkey?: string,
+  ): Promise<{ releaseHadMigrations?: boolean }>
   refuse?(target: UpdateGrantMessage['target']): string | undefined
   releaseHadMigrations?(target: UpdateGrantMessage['target']): boolean | undefined
   writePending(grant: PendingGrant): void
@@ -131,7 +135,7 @@ export async function applyGrant(
     report(deps, grant, 'downloading', current)
     let parentResult: { releaseHadMigrations?: boolean } | undefined
     if (deps.installTarget) {
-      parentResult = await deps.installTarget(grant.target)
+      parentResult = await deps.installTarget(grant.target, grant.updatePubkey)
     } else {
       if (!deps.fetchArtifact || !deps.swap) {
         throw new Error('update participant has no installation capability')
@@ -144,6 +148,7 @@ export async function applyGrant(
           if (signal?.aborted) return
           report(deps, grant, 'downloading', current, undefined, progress)
         },
+        grant.updatePubkey,
       )
       if (signal?.aborted) return
       await deps.swap(artifact.bytes)

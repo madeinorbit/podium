@@ -26,6 +26,7 @@ import type {
   PairingRequest,
   PeerObservations,
   ResolvedMachine,
+  UpdateKeyRotation,
 } from '@podium/protocol'
 import type { PairingGrant } from '../modules/machines/service'
 
@@ -51,6 +52,7 @@ export interface MachineAuthenticator {
         token?: string
         pairingGrant?: PairingGrant
         updatePubkey?: string
+        updateKeyRotations?: readonly UpdateKeyRotation[]
       }
     | {
         ok: false
@@ -63,6 +65,7 @@ const resolved = (
   name: string,
   pairingGrant?: PairingGrant,
   updatePubkey?: string,
+  updateKeyRotations?: readonly UpdateKeyRotation[],
 ): ResolvedMachine => ({
   machine: machineId as MachineId,
   // POD-1079's deliverable. `null` means "grants `use` to nobody" — see the
@@ -71,6 +74,7 @@ const resolved = (
   grants: [],
   name,
   ...(updatePubkey === undefined ? {} : { updatePubkey }),
+  ...(updateKeyRotations === undefined ? {} : { updateKeyRotations }),
   ...(pairingGrant === undefined ? {} : { directoryContext: pairingGrant }),
 })
 
@@ -90,7 +94,9 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
       token: secret,
       hostname: observed?.hostname ?? machines.hostMachineId,
     })
-    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey) : null
+    return auth.ok
+      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
+      : null
   },
 
   /**
@@ -113,7 +119,9 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
       token,
       hostname: observed?.hostname ?? machineHint,
     })
-    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey) : null
+    return auth.ok
+      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
+      : null
   },
 
   /**
@@ -138,7 +146,13 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
     })
     if (!auth.ok || auth.token === undefined) return null
     return {
-      ...resolved(auth.machineId, auth.name, auth.pairingGrant, auth.updatePubkey),
+      ...resolved(
+        auth.machineId,
+        auth.name,
+        auth.pairingGrant,
+        auth.updatePubkey,
+        auth.updateKeyRotations,
+      ),
       issuedToken: auth.token,
     }
   },

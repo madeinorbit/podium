@@ -252,6 +252,9 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
           ...(outcome.assignedId === undefined ? {} : { assignedId: outcome.assignedId }),
           ...(outcome.issuedToken === undefined ? {} : { issuedToken: outcome.issuedToken }),
           ...(outcome.updatePubkey === undefined ? {} : { updatePubkey: outcome.updatePubkey }),
+          ...(outcome.updateKeyRotations === undefined
+            ? {}
+            : { updateKeyRotations: [...outcome.updateKeyRotations] }),
         },
         peer,
       }

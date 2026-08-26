@@ -51,7 +51,9 @@ export const createMachinePairCodeStrategy = (
     const paired = deps.machines.redeemPairCode(credential.code, {
       // A brand-new machine has no prior identity to authenticate, so these are
       // its REQUEST. The directory decides what row results (see PairingRequest).
-      ...(hello.claims?.machineId === undefined ? {} : { machineId: asMachineId(hello.claims.machineId) }),
+      ...(hello.claims?.machineId === undefined
+        ? {}
+        : { machineId: asMachineId(hello.claims.machineId) }),
       ...(hello.claims?.name === undefined ? {} : { name: hello.claims.name }),
       ...(hello.claims?.hostname === undefined ? {} : { hostname: hello.claims.hostname }),
     })
@@ -74,6 +76,9 @@ export const createMachinePairCodeStrategy = (
       // machine-token strategy from then on.
       issuedToken: paired.issuedToken,
       ...(paired.updatePubkey === undefined ? {} : { updatePubkey: paired.updatePubkey }),
+      ...(paired.updateKeyRotations === undefined
+        ? {}
+        : { updateKeyRotations: paired.updateKeyRotations }),
       principal: machinePrincipalOf(paired, transport, deps.mint),
     }
   },

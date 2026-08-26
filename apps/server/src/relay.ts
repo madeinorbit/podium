@@ -28,6 +28,7 @@ import {
 import type {
   LiveServerMessage,
   LocalPortableStateControl,
+  UpdateKeyRotation,
   VisibilityResolver,
 } from '@podium/protocol'
 import {
@@ -182,6 +183,8 @@ interface SessionRegistryOptions {
   targetVersion?: () => string | undefined
   /** Public half of this server's update-signing key, sent on every successful machine hello. */
   updatePubkey?: () => string
+  /** Signed transition path to the current update key. */
+  updateKeyRotations?: () => readonly UpdateKeyRotation[]
   /**
    * This installation's own `dev` feed — address, origin fence, trust root and
    * machine credential. Read PER RESOLVE, because a Settings write to Public URL
@@ -476,6 +479,7 @@ export class SessionRegistry {
       instanceId,
       ...(options.targetVersion ? { targetVersion: options.targetVersion } : {}),
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
+      ...(options.updateKeyRotations ? { updateKeyRotations: options.updateKeyRotations } : {}),
       store: this.store,
       targetVersion: (machineId) =>
         updates ? updates.targetVersion(machineId) : options.targetVersion?.(),
@@ -549,6 +553,7 @@ export class SessionRegistry {
       channelFor: (machineId) => machines.updateChannel(machineId),
       send: (machineId, message) => machines.toMachine(machineId, message),
       now: this.now,
+      ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       nextGrantId: () => randomUUID(),
       // EVERY channel through one resolver (spec §1). `dev` needs this
       // installation's own feed descriptor, which only the composition root can

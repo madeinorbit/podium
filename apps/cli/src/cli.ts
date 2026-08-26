@@ -165,6 +165,7 @@ export type LaunchPlan =
       feedOverride: string | undefined
     }
   | { kind: 'repair-payload'; serverUrl: string; pairedDaemon: boolean }
+  | { kind: 'update-key'; args: string[] }
   | { kind: 'channel'; target: string | undefined }
   /** `podium telemetry [status|on|off|show|reset-id]` [spec:SP-f933]. */
   | { kind: 'telemetry'; args: string[] }
@@ -594,6 +595,8 @@ export function resolvePlan(
       feedOverride: resolveUpdateFeed(config, env),
     }
   }
+  // Explicit local recovery for a changed publisher key; never approval-brokered remotely.
+  if (argv[0] === 'update-key') return { kind: 'update-key', args: argv.slice(1) }
   // `podium channel [stable|edge]`: show or switch the self-update channel.
   if (argv[0] === 'channel') return { kind: 'channel', target: argv[1] }
   // `podium telemetry [...]`: read/change opt-in telemetry consent [spec:SP-f933].
@@ -879,6 +882,8 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     'Self-update:',
     '  update                Self-update from the configured channel feed',
     '  update --repair       Re-download this machine payload through its coordinator',
+    '  update-key rotate     Rotate the publisher key with signed continuity',
+    '  update-key trust <key> Replace this machine’s pin after out-of-band verification',
     '  channel [stable|edge|dev]',
     '                        Show or switch the update channel',
     '',
@@ -1445,6 +1450,12 @@ export async function main(
       }
       return
     }
+    case 'update-key': {
+      const { updateKeyCliMain } = await import('./update-key-cli')
+      const code = updateKeyCliMain(plan.args)
+      if (code !== 0) process.exit(code)
+      return
+    }
     case 'channel': {
       const { applyChannel } = await import('./cli-channel')
       try {
@@ -1559,6 +1570,7 @@ export async function main(
           createParentUpdateSwap({
             installDir,
             ...(opts.pinnedPubkey ? { pinnedPubkey: opts.pinnedPubkey } : {}),
+            ...(opts.publisherPubkey ? { publisherPubkey: opts.publisherPubkey } : {}),
           })(target as Parameters<ReturnType<typeof createParentUpdateSwap>>[0]),
         claimRole: isSuccessor
           ? async () => {

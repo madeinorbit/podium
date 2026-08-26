@@ -361,6 +361,54 @@ describe('fetchArtifact refusal naming', () => {
   })
 })
 
+describe('fetchArtifact signing-key diagnosis', () => {
+  const replacement = generateKeyPairSync('ed25519')
+  const replacementPubkey = replacement.publicKey
+    .export({ type: 'spki', format: 'der' })
+    .toString('base64')
+
+  it('names a publisher key replacement only when that key verifies the intact artifact', async () => {
+    const bytes = new Uint8Array([4, 5, 6])
+    const asset = {
+      url: 'https://x.test/rotated.tgz',
+      digest: 'sha256-' + createHash('sha256').update(bytes).digest('base64'),
+      signature: cryptoSign(null, bytes, replacement.privateKey).toString('base64'),
+    }
+
+    await expect(
+      fetchArtifact(asset, {
+        fetch: (async () => new Response(bytes)) as unknown as typeof fetch,
+        pubkey,
+        pinnedPubkey: pubkey,
+        publisherPubkey: replacementPubkey,
+        trust: 'instance',
+      }),
+    ).rejects.toThrow(/publisher update key was replaced after this machine enrolled/)
+  })
+
+  it('keeps the existing tamper wording when neither pinned nor advertised key verifies', async () => {
+    const signed = new Uint8Array([7, 8, 9])
+    const tampered = new Uint8Array([7, 8, 10])
+    const asset = {
+      url: 'https://x.test/tampered.tgz',
+      digest: 'sha256-' + createHash('sha256').update(tampered).digest('base64'),
+      signature: cryptoSign(null, signed, privateKey).toString('base64'),
+    }
+
+    await expect(
+      fetchArtifact(asset, {
+        fetch: (async () => new Response(tampered)) as unknown as typeof fetch,
+        pubkey,
+        pinnedPubkey: pubkey,
+        publisherPubkey: replacementPubkey,
+        trust: 'instance',
+      }),
+    ).rejects.toThrow(
+      'The artifact was not signed by the trusted key (tampered, corrupt, or wrong feed).',
+    )
+  })
+})
+
 /**
  * THE PURE SECURITY PRIMITIVE, consolidated here by POD-2106. These arms lived
  * in `apps/cli/src/podium-update.test.ts` against the CLI's own byte-identical

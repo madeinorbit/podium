@@ -53,7 +53,7 @@ import {
 import { captureServerBuildVersion, serverBuildSourceDigest } from './build-version'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
-import { openEnrollmentLedger } from './enrollment-ledger'
+import { openEnrollmentLedger, hasEnrollmentHistory } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import {
@@ -435,7 +435,9 @@ export async function startServer(
   // and in-process daemon link below name this same value. The split-mode daemon
   // reads the same file in its own process; all-in-one is handed it in memory.
   const hostMachineId = readOrCreateLocalMachineId()
-  const updateSigningKey = readOrCreateUpdateSigningKey()
+  const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
+    allowCreate: !hasEnrollmentHistory(stateDir()),
+  })
   reconcileSafeServerTransferBoot(stateDir())
   assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
@@ -505,6 +507,7 @@ export async function startServer(
     // local daemon's `hello` path is untouched.
     ...(role.hub ? { pairing: new PairingManager() } : {}),
     updatePubkey: () => updateSigningKey.publicKey,
+    updateKeyRotations: () => updateSigningKey.rotations,
     // Live model enumeration is only wired in the real process; tests get the empty
     // default and nothing is ever asked of a daemon.
     // TODO(#251-followup): fold the remaining settings-coupled env reads

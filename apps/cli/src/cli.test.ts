@@ -666,6 +666,12 @@ describe('resolvePlan — utility subcommands', () => {
     expect(plan({}, ['set-server', 'wss://x'])).toEqual({ kind: 'set-server', target: 'wss://x' })
     expect(plan({}, ['set-server'])).toMatchObject({ kind: 'usage-error' })
   })
+  it('routes explicit update-key recovery without entering launch mode', () => {
+    expect(plan({}, ['update-key', 'trust', 'new-key'])).toEqual({
+      kind: 'update-key',
+      args: ['trust', 'new-key'],
+    })
+  })
   it('routes internal server-transfer lifecycle workers without entering launch mode', () => {
     expect(plan({}, ['server-transfer-promote', '11111111-1111-4111-8111-111111111111'])).toEqual({
       kind: 'server-transfer-promote',

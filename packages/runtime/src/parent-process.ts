@@ -142,7 +142,7 @@ export interface ParentProcessDeps {
    */
   performUpdateSwap?: (
     target: unknown,
-    opts: { pinnedPubkey?: string },
+    opts: { pinnedPubkey?: string; publisherPubkey?: string },
   ) => Promise<ParentUpdateSwapResult>
   /**
    * Claim the `parent` role in the run registry. Called once the boot health
@@ -502,6 +502,7 @@ export class ParentProcess {
       const target = parseUpdateTarget(request.target)
       const result = await this.deps.performUpdateSwap(target, {
         ...(request.pinnedPubkey ? { pinnedPubkey: request.pinnedPubkey } : {}),
+        ...(request.publisherPubkey ? { publisherPubkey: request.publisherPubkey } : {}),
       })
       this.deps.releaseHadMigrations = result.releaseHadMigrations
       log.info('parent completed update swap', {

@@ -12,6 +12,11 @@ import { type DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { consumePairCode } from '@podium/runtime/setup'
+import {
+  acceptsUpdateKeyRotation,
+  updateKeyFingerprint,
+  type UpdateKeyRotation,
+} from '@podium/runtime/update-key-trust'
 import WebSocket, { type RawData } from 'ws'
 import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
@@ -222,7 +227,12 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     savePinnedUpdatePubkey(updatePubkey, options.identityDir ? { dir: options.identityDir } : {})
   }
 
-  const established = (issuedToken?: string, updatePubkey?: string, active?: SocketLike): void => {
+  const established = (
+    issuedToken?: string,
+    updatePubkey?: string,
+    updateKeyRotations?: readonly UpdateKeyRotation[],
+    active?: SocketLike,
+  ): void => {
     if (issuedToken) {
       persistPairing(issuedToken, updatePubkey)
     } else if (updatePubkey !== undefined) {
@@ -234,13 +244,27 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       if (identity.updatePubkey === undefined) {
         persistBootstrapPin(updatePubkey)
       } else if (updatePubkey !== identity.updatePubkey) {
-        terminal(
-          'blocked',
-          'server-update-key',
-          'server update key changed outside pairing',
-          active,
-        )
-        return
+        if (
+          acceptsUpdateKeyRotation(identity.updatePubkey, updatePubkey, updateKeyRotations ?? [])
+        ) {
+          persistBootstrapPin(updatePubkey)
+          log.info('accepted signed server update-key rotation', {
+            fingerprint: updateKeyFingerprint(updatePubkey),
+          })
+        } else {
+          terminal(
+            'blocked',
+            'server-update-key',
+            'the publisher update key was replaced after this machine enrolled, and no valid ' +
+              'old-key-signed rotation reaches it. The existing pin was kept. After verifying ' +
+              updateKeyFingerprint(updatePubkey) +
+              ' out of band with the publisher, recover on this machine with: ' +
+              'podium update-key trust ' +
+              updatePubkey,
+            active,
+          )
+          return
+        }
       }
     }
     state = 'connected'
@@ -330,7 +354,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     }
     if (step.action === 'established') {
-      established(step.issuedToken, step.updatePubkey, active)
+      established(step.issuedToken, step.updatePubkey, step.updateKeyRotations, active)
       return
     }
     if (step.action === 'protocol-error') {

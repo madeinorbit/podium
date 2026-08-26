@@ -94,9 +94,12 @@ describe('applyGrant', () => {
     const installTarget = vi.fn(async () => ({ releaseHadMigrations: true }))
     const d = deps({ installTarget })
 
-    await applyGrant({ type: 'updateGrant', grantId: 'g-parent', target }, d)
+    await applyGrant(
+      { type: 'updateGrant', grantId: 'g-parent', target, updatePubkey: 'publisher-key' },
+      d,
+    )
 
-    expect(installTarget).toHaveBeenCalledWith(target)
+    expect(installTarget).toHaveBeenCalledWith(target, 'publisher-key')
     expect(d.fetchArtifact).not.toHaveBeenCalled()
     expect(d.swap).not.toHaveBeenCalled()
     expect(d.restart).toHaveBeenCalledWith('0.4.2', { releaseHadMigrations: true })
@@ -138,12 +141,13 @@ describe('applyGrant', () => {
     const d = deps({ currentVersion: () => '0.1.2-dev.3+aaaaaaa' })
     await applyGrant({ type: 'updateGrant', grantId: 'g-installed', target: developmentTarget }, d)
     // The third argument is the supersede signal, absent for a direct apply;
-    // the fourth is where delivery reports its progress (POD-2101).
+    // the fourth is where delivery reports its progress (POD-2101); the fifth is the publisher key diagnostic.
     expect(d.fetchArtifact).toHaveBeenCalledWith(
       developmentBundleAsset,
       'instance',
       undefined,
       expect.any(Function),
+      undefined,
     )
     expect(d.swap).toHaveBeenCalledOnce()
     expect(d.restart).toHaveBeenCalledOnce()
@@ -157,6 +161,7 @@ describe('applyGrant', () => {
       undefined,
       undefined,
       expect.any(Function),
+      undefined,
     )
   })
 

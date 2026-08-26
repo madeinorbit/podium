@@ -30,6 +30,7 @@ import type {
   PeerBuild,
   Principal,
   ServerMessage,
+  UpdateKeyRotation,
 } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
@@ -129,6 +130,8 @@ export interface MachinesDeps {
   instanceId: string
   /** Public half of the server update-signing key, sent on every successful machine hello. */
   updatePubkey?: () => string
+  /** Old-key-signed path published with the current update key. */
+  updateKeyRotations?: () => readonly UpdateKeyRotation[]
   /**
    * The version in the server's injected update target. Absent means this
    * deployment has no target descriptor yet, so every machine is unreported.

@@ -35,6 +35,8 @@ export interface ParentUpdateSwapDeps {
   platform?: string
   pubkey?: string
   pinnedPubkey?: string
+  /** Diagnostic-only publisher key; never a replacement trust root. */
+  publisherPubkey?: string
   fetch?: typeof fetch
   /** Test seam for the whole verified-delivery leg. */
   deliver?: (target: UpdateTarget, currentVersion: string) => Promise<Uint8Array>
@@ -97,6 +99,7 @@ export function createParentUpdateSwap(
         fetch: deps.fetch ?? fetch,
         pubkey: deps.pubkey ?? PODIUM_UPDATE_PUBKEY,
         ...(deps.pinnedPubkey ? { pinnedPubkey: deps.pinnedPubkey } : {}),
+        ...(deps.publisherPubkey ? { publisherPubkey: deps.publisherPubkey } : {}),
         ...(target.trust ? { trust: target.trust } : {}),
       }
       const artifact = await fetchArtifact(plan.asset, deliveryDeps)

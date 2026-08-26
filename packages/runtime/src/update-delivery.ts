@@ -17,6 +17,7 @@ import {
   type UpdateArtifact,
   type UpdateTrustRoot,
 } from '@podium/protocol'
+import { updateKeyFingerprint } from './update-key-trust'
 
 /** The baked Podium release key: the `release` trust root. */
 export const PODIUM_UPDATE_PUBKEY = 'MCowBQYDK2VwAyEAG12/153QJI/SePyYeJQhBSbh1ZsFgkoMkwb823NiYOU='
@@ -32,6 +33,8 @@ export interface DeliveryDeps {
    * `instance` trust root. Required whenever {@link trust} is `instance`.
    */
   pinnedPubkey?: string
+  /** Key the publisher says signed this artifact; diagnostic only, never trusted implicitly. */
+  publisherPubkey?: string
   /**
    * WHICH KEY THIS TARGET'S SIGNATURE MUST BE UNDER.
    *
@@ -334,6 +337,20 @@ export async function fetchArtifact(
   // machine credentials AND signature-verified, because being allowed to ask
   // for bytes says nothing about who made them.
   if (!verifyTarball(bytes, asset.signature, trustedPubkey)) {
+    if (
+      deps.publisherPubkey !== undefined &&
+      deps.publisherPubkey !== trustedPubkey &&
+      verifyTarball(bytes, asset.signature, deps.publisherPubkey)
+    ) {
+      throw new Error(
+        'signature verification FAILED — refusing to install. The package is validly signed, ' +
+          'but the publisher update key was replaced after this machine enrolled. The existing ' +
+          'pin was kept. After verifying ' +
+          updateKeyFingerprint(deps.publisherPubkey) +
+          ' out of band with the publisher, recover on this machine with: podium update-key trust ' +
+          deps.publisherPubkey,
+      )
+    }
     throw new Error(
       'signature verification FAILED — refusing to install. The artifact was not ' +
         'signed by the trusted key (tampered, corrupt, or wrong feed). No changes were made.',

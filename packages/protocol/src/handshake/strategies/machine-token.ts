@@ -59,6 +59,9 @@ export const createMachineTokenStrategy = (
         ? {}
         : { directoryContext: machine.directoryContext }),
       ...(machine.updatePubkey === undefined ? {} : { updatePubkey: machine.updatePubkey }),
+      ...(machine.updateKeyRotations === undefined
+        ? {}
+        : { updateKeyRotations: machine.updateKeyRotations }),
       principal: machinePrincipalOf(machine, transport, deps.mint),
     }
   },
