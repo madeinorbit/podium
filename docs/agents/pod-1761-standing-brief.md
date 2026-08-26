@@ -735,3 +735,43 @@ changes, so those readings stand and were correctly not re-run.
 **This applies to the coordinator's rulings as much as to anyone's.** A permission granted on a
 measured condition carries that condition with it, and whoever holds the permission is the one
 positioned to notice it lapse.
+
+## Never ask "is my process running?" with `pgrep -f` (2026-08-26 18:28 CEST)
+
+**Two reasons it cannot discriminate on this box, and every session has both:**
+
+1. **Every Podium agent carries the whole developer-instructions prompt in its command line.**
+   That blob mentions `docs/evidence`, `drive`, issue refs and much else — so `pgrep -f` on
+   almost any project string matches **every agent session on the machine**, none of them
+   yours.
+2. **`pgrep -f` matches the grepping shell itself**, because the pattern sits in its own argv.
+   You find your own check and count it as a hit.
+
+So a session can answer *"yes, mid-drive"* while running nothing and abandon a turn it never
+had — or answer *"no"* with a probe still live.
+
+**Identity plus location, never a substring:**
+
+    for pid in $(pgrep -x bun); do
+      [ "$(readlink /proc/$pid/cwd)" = "$PWD" ] && echo "$pid"
+    done
+
+`pgrep -x` matches the **executable** exactly; the cwd check confines it to your worktree.
+
+**This is the same family as everything else that has bitten this epic:** a check that matches
+on a NAME rather than on the THING. One pairing rule over two harnesses, one loader over two
+file extensions, a lease naming a gate that was not running, a ledger row claiming a fix had
+landed — and now a substring matching every agent alive. **Assert on the mechanism.**
+
+## An announcement of spare capacity consumes the capacity it announces (2026-08-26 18:28 CEST)
+
+The coordinator measured a quiet box and a free lock, and told **five sessions at once**. All
+five acted, correctly. The box went from load 9.87 to **65,156 KB/s of swap-in** — the worst
+reading of the day.
+
+**The reading was true when taken and false because it was shared.** This is not a fact about
+the box; it is a property of broadcasting a shared resource.
+
+**So: name an ORDER, not an opening.** One session at a time, each taking its turn after the
+one before reports. A queue costs a little latency; a stampede costs everyone's readings, and
+readings taken on a starved host cannot be distinguished from findings.
