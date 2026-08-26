@@ -349,6 +349,103 @@ describe('oracle: sendText / resumeAndSend', () => {
     expect(ptyFrames(o.daemon)).toEqual([{ inputOrigin: 'controller', data: '\x1b' }])
   })
 
+  /**
+   * Paint the TUI for half a second, then go quiet — what a real CLI does after
+   * a bind, and what lets `inbox.ts` call the composer ready from the SETTLE
+   * heuristic (`READY_QUIET_MS` of silence past a `READY_FLOOR_MS` floor) in
+   * about a second, rather than waiting out the ceiling a terminal that never
+   * paints falls back to.
+   *
+   * SPREAD OVER TIME, NOT DUMPED IN ONE GO, and the difference is load-bearing:
+   * the drain captures a BASELINE output timestamp on its first poll and asks
+   * whether output has arrived SINCE. A burst that all lands before that poll
+   * moves the baseline with it, so the session reads as one that never painted
+   * and the check sits out the full ceiling — which is what a synchronous
+   * five-frame loop here did.
+   *
+   * Purely an accelerator. If the host is loaded enough that the frames miss
+   * their window, readiness falls back to the ceiling and the predicate wait
+   * below simply returns later; nothing about what is asserted depends on it.
+   */
+  const paintTui = (o: ReturnType<typeof makeOracle>, sessionId: SessionId): void => {
+    let seq = 0
+    const painter = setInterval(() => {
+      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+        type: 'agentFrame',
+        sessionId,
+        seq: seq++,
+        data: 'eA==',
+      })
+      if (seq >= 5) clearInterval(painter)
+    }, 100)
+    painter.unref?.()
+  }
+
+  /** Generous because it is a PREDICATE wait: it returns as soon as the row is typed. */
+  const READINESS_TIMEOUT_MS = 20_000
+
+  /**
+   * The frames as they stood AT THE MOMENT OF DELIVERY, snapshotted inside the
+   * predicate rather than re-read after the wait returns.
+   *
+   * The submitting CR is a SEPARATE, LATER write (`SUBMIT_CR_DELAY_MS`, POD-152),
+   * so "one paste frame and nothing else" is a claim about an instant, not about
+   * the session's whole life. Re-reading after the wait would make these two
+   * checks a race against that delay under real timers — they would still pass
+   * on a quiet host and fail on a loaded one, which is the flake this lane
+   * refuses (`retry: 0`).
+   *
+   * THIS DOES NOT PIN THE DELAY, AND SAYING SO IS THE POINT (POD-2842). Under
+   * real timers a zero-delay CR still lands on a later macrotask than the paste,
+   * and `waitFor`'s own poll is a macrotask too — so the snapshot sees the paste
+   * alone either way. MEASURED, not reasoned: `SUBMIT_CR_DELAY_MS = 0` leaves
+   * all 35 checks in this file green. What pins it is
+   * `expectSubmitStillDeferred` in `relay.test.ts` (BOUNDARY lane), on a fake
+   * clock where one millisecond tells the two apart — the same mutation kills 4
+   * there. An assertion that only LOOKS like a timing pin is worse than no
+   * assertion, because it is trusted.
+   */
+  const framesWhenTyped = async (
+    o: ReturnType<typeof makeOracle>,
+    what: string,
+  ): Promise<ReturnType<typeof ptyFrames>> => {
+    let snapshot: ReturnType<typeof ptyFrames> = []
+    await waitFor(
+      () => {
+        const frames = ptyFrames(o.daemon)
+        if (frames.length === 0) return false
+        snapshot = frames
+        return true
+      },
+      what,
+      READINESS_TIMEOUT_MS,
+    )
+    return snapshot
+  }
+
+  /**
+   * THE TWO CHECKS BELOW DRIVE THE READINESS QUEUE, AND THIS SAYS WHY (POD-2842).
+   *
+   * THE OPPOSING TEST IS `apps/server/src/modules/sessions/inbox.test.ts` — the
+   * unit over the same call, in THIS lane, which asserts `{ok: true, queued:
+   * true}` and nothing on the PTY until the readiness window has run. THAT ONE
+   * IS THE CONTRACT. `relay.test.ts` (BOUNDARY lane) says the same thing about
+   * the same call since POD-2837, and `relay.outbox.test.ts` since POD-2842.
+   * These two used to describe the third answer: bytes on the wire by the time
+   * the call returned, which is why they timed out at `waitFor`'s 2s default
+   * rather than failing an assertion.
+   *
+   * A bind makes a session live BEFORE its composer is mounted, and bytes typed
+   * into an unmounted composer are accepted by the pty and DROPPED by the app
+   * (POD-2116). Claude's composer readiness cannot be observed
+   * (`composerReadiness: 'confirmed-turn'`, POD-2823), so the send is held and
+   * typed once the window has run. SO IF YOU CHANGE ONE LANE, CHANGE THE OTHER.
+   *
+   * WHAT IS PINNED IS UNCHANGED: the exact frame sequence, one bracketed-paste
+   * frame stamped `controller` and nothing else. Only the moment it is asserted
+   * at moved, and `waitFor` is a predicate wait (POD-757) — never a sleep — so
+   * nothing here writes down a window POD-2836 is about to move.
+   */
   it(`${MUST_NOT_CHANGE}: sendText to a live session reports a disposition and reaches the PTY stamped 'controller' (operator via substrate), not 'human'`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
@@ -359,7 +456,10 @@ describe('oracle: sendText / resumeAndSend', () => {
 
     expect(result.ok).toBe(true)
     expect(typeof result.disposition).toBe('string')
-    await waitFor(() => inputs(o.daemon).length > 0, 'the text to reach the PTY')
+    // Accepted and HELD — the queue is the contract for this session, so the
+    // call returning is not the bytes being on the wire.
+    expect(inputs(o.daemon)).toEqual([])
+    paintTui(o, sessionId)
     // Operator chat rides the messaging substrate (#237 / POD-729) but stamps
     // inputOrigin 'controller' — person-origin, so standing offers clear and
     // causal turns attribute as user input (POD-552). Agent mail stays 'mail'
@@ -367,7 +467,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     // EXACT frame sequence, not a substring: one bracketed-paste frame carrying
     // the text and nothing else. A wrapper change (an added CR, a split write, a
     // second frame) is a behaviour change the migration must not make silently.
-    expect(ptyFrames(o.daemon)).toEqual([
+    expect(await framesWhenTyped(o, 'the text to reach the PTY')).toEqual([
       { inputOrigin: 'controller', data: `${PASTE_START}hello there${PASTE_END}` },
     ])
   })
@@ -391,8 +491,11 @@ describe('oracle: sendText / resumeAndSend', () => {
     o.daemon.length = 0
 
     expect((await o.call.sessions.sendText({ sessionId, text: 'still lands' })).ok).toBe(true)
-    await waitFor(() => inputs(o.daemon).length > 0, 'the gated-around send to reach the PTY')
-    expect(ptyFrames(o.daemon)).toEqual([
+    // Held, not refused: the gating question is answered at ACCEPT time, and
+    // the queue is only where the accepted send waits for the composer.
+    expect(inputs(o.daemon)).toEqual([])
+    paintTui(o, sessionId)
+    expect(await framesWhenTyped(o, 'the gated-around send to reach the PTY')).toEqual([
       { inputOrigin: 'controller', data: `${PASTE_START}still lands${PASTE_END}` },
     ])
   })

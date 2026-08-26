@@ -20,6 +20,7 @@ import {
 import { asDelegationRef, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { advanceToComposerReady, expectSubmitStillDeferred } from './test-support/readiness-queue'
 
 /** Every durable session row names a machine (POD-318) — there is no column default. */
 const TEST_MACHINE = asMachineId('machine-under-test')
@@ -2762,7 +2763,10 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
  * transcript, and no synchronous contract can be honoured for it.
  *
  * SO IF YOU CHANGE ONE LANE, CHANGE THE OTHER. A repo that asserts both
- * answers drifts back to whichever one nobody runs.
+ * answers drifts back to whichever one nobody runs. There are four files in
+ * that set, not two: `relay.outbox.test.ts` (BOUNDARY) and
+ * `modules/sessions/oracle-commands.test.ts` (SERVICES) were brought to the
+ * same answer by POD-2842.
  *
  * WHAT DID NOT CHANGE IS A SINGLE BYTE. The paste wrapper, the separated CR,
  * the bounded submit retry and the needs_user guard are asserted below exactly
@@ -2786,52 +2790,9 @@ describe('sendText (chat send path)', () => {
       state: { phase, since: '2026-01-01T00:00:00.000Z', nativeSubagentCount: 0, ...extra },
     }) as const
 
-  /**
-   * Run fake time forward until the readiness queue types its head row, and
-   * STOP THERE — inside the `SUBMIT_CR_DELAY_MS` window, so the caller can
-   * still assert that the submitting CR is a separate, later write. That
-   * separation is the POD-152 property these tests exist for, and asserting it
-   * is the reason this steps rather than jumping.
-   *
-   * DELIBERATELY NOT A HARDCODED WAIT. `inbox.ts` polls readiness every 200ms
-   * and, for a session whose terminal never paints, has nothing to settle
-   * against — so it delivers at the `READY_MAX_MS` ceiling. Writing that
-   * ceiling down here would make these tests re-fail the day POD-2836 anchors
-   * the same window to the BIND instead of to the send, which moves WHEN the
-   * row is typed and changes nothing about WHAT is typed. The step is smaller
-   * than the CR delay, so no advance can ever fuse the paste and the CR into
-   * one assertion.
-   */
-  const READY_STEP_MS = 50
-  const READY_CEILING_MS = 15_000
-  const advanceToComposerReady = (typedCount: () => number): void => {
-    const before = typedCount()
-    for (let waited = 0; waited < READY_CEILING_MS; waited += READY_STEP_MS) {
-      vi.advanceTimersByTime(READY_STEP_MS)
-      if (typedCount() > before) return
-    }
-    throw new Error('the queued row never reached the PTY inside the readiness window')
-  }
-
-  /**
-   * THE SUBMITTING CR IS A SEPARATE PTY READ, not merely a separate frame — and
-   * this is the assertion POD-152 actually needs. A CR fused to the paste-end
-   * marker is swallowed by the Claude renderer: the message types in and the
-   * turn never starts.
-   *
-   * IT NEEDED STRENGTHENING TO SURVIVE THE MOVE, and the weakness was there
-   * before it. This fake clock does not run a timer scheduled DURING a tick
-   * until the next advance, so "the paste is alone at the moment of delivery"
-   * is equally true of a CR sent with no delay at all — mutating
-   * `SUBMIT_CR_DELAY_MS` to 0 left every one of these tests green, on the old
-   * synchronous shape as much as on this one. One millisecond tells them
-   * apart: a zero-delay CR has already landed, a deferred one has not.
-   */
-  const expectSubmitStillDeferred = (read: () => string[], paste: string): void => {
-    expect(read()).toEqual([paste])
-    vi.advanceTimersByTime(1)
-    expect(read()).toEqual([paste])
-  }
+  // `advanceToComposerReady` and `expectSubmitStillDeferred` live in
+  // `test-support/readiness-queue.ts` — `relay.outbox.test.ts` drives the same
+  // queue and a second copy is how the two lanes drifted apart (POD-2842).
 
   it('POD-901: first Grok chat send types raw keystrokes, not bracketed paste', () => {
     vi.useFakeTimers()
