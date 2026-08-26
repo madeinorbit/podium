@@ -33,7 +33,7 @@ const MODEL = process.env.P2811_MODEL ?? 'opencode/laguna-s-2.1-free'
 const HARNESS = process.env.P2811_HARNESS ?? 'opencode'
 const WATCH_MS = Number(process.env.P2811_WATCH_MS ?? 190_000)
 const TICK_MS = Number(process.env.P2811_TICK_MS ?? 2_000)
-const OUT = `${DRIVE_BASE}/pod-2811`
+const OUT = `${DRIVE_BASE}/fault-watch`
 
 const log = (s: string) => console.log(s)
 
