@@ -655,3 +655,26 @@ that would have prevented them.
 **What actually worked: measure, notice the result was TOO COMFORTABLE, and go back.** A cell
 that passes first time, a control that fires exactly as hoped, a gate that never refuses —
 those are the readings to distrust. Comfort is the signal.
+
+## "Concentrated in" is a characterisation, not an attribution (2026-08-26 18:05 CEST)
+
+A validation reported **79 failures** as *"concentrated in the inherited machine-probe /
+handoff / headless / audit fixtures"* — and separately proved that **26** of them reproduce on
+the pre-merge parent.
+
+**Twenty-six is attributed. The other fifty-three are not.** Saying where failures *cluster*
+says nothing about whether they pre-date your change. *A plausible grouping is a hypothesis
+wearing a conclusion's clothes*, and this epic has paid for that before: four reds once
+attributed to one commit from one bisect turned out to be four bugs with four causes.
+
+**The method, which is cheap once the lane exists: run the SAME lane on the parent and diff the
+failure sets BY TEST NAME.** Every failure then lands in exactly one bucket:
+
+    INHERITED  fails on the parent too — not yours; the release note names it
+    NEW        passes on the parent, fails after — a REGRESSION YOUR CHANGE INTRODUCED,
+               which is a different and much louder finding than a new defect
+    FIXED      fails on the parent, passes now — worth knowing and easy to miss
+
+**If the lane is too expensive to run twice, label the remainder
+`UNATTRIBUTED-INHERITED-LIKELY` and say so.** Never write "inherited" next to a number nobody
+measured.

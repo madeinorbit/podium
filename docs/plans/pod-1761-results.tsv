@@ -65,3 +65,5 @@ A4a permission ask	claude-pty	BLOCKED instrument: claude rewrites manual to auto
 A4b answer twice	claude-pty	BLOCKED instrument: same	0bd90092c	yes	yes	2026-08-26 17:16 CEST	POD-2874
 A10 escape hatch demotes to terminal	codex-terminal	PASS generic-pty demoted:true identity readable	bea90c29	yes	yes	2026-08-26 17:24 CEST	POD-2777
 upgrade: opencode rebinds to server driver	opencode	FAIL native ref changed codeword lost	55f7e235	yes	yes	2026-08-26 17:45 CEST	POD-2858
+migration union: store fixtures	n/a-merged-build	PASS 44 files 351/351 incl conversation_binding+oom_killed_at	90eb6f12	yes	yes	2026-08-26 18:01 CEST	POD-2876
+migration union: normalized-wire	n/a-merged-build	PASS 8/8	90eb6f12	yes	yes	2026-08-26 18:01 CEST	POD-2876
