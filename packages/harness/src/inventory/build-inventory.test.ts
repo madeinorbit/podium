@@ -66,6 +66,18 @@ function jwt(payload: Record<string, unknown>): string {
   return `header.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.signature`
 }
 
+/**
+ * A directory on PATH holding a REAL runnable file of each given name, so the
+ * command resolver genuinely answers for it. Used to prove the injected-exec seam
+ * ignores the host (POD-2826) on every machine, not just one without the CLIs.
+ */
+function hostBinDir(...names: readonly string[]): string {
+  const dir = join(home, 'host-bin')
+  mkdirSync(dir, { recursive: true })
+  for (const name of names) writeFileSync(join(dir, name), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  return dir
+}
+
 const resolvedClaude = '/verified/bin/claude'
 
 function commandEnvironment(
@@ -102,6 +114,21 @@ describe('buildInventory', () => {
       expect(a.version).toBeUndefined()
       expect(a.path).toBeUndefined()
     }
+  })
+
+  it('keeps the agent seam argv-only when the host resolves the same name (POD-2826)', async () => {
+    // Without the fix this returns `<home>/host-bin/claude`, and on a developer's
+    // box it returned `/home/<user>/.local/bin/claude` — the assertion's answer came
+    // from the machine, so the same commit was red locally and green on CI.
+    const dir = hostBinDir('claude')
+    const inv = await buildInventory({
+      homeDir: home,
+      env: { ...childEnv, PATH: dir },
+      exec: fakeExec({ claude: '2.1.9 (Claude Code)\n' }),
+    })
+    const claude = inv.agents.find((a) => a.kind === 'claude-code')!
+    expect(claude.installed).toBe(true)
+    expect(claude.path).toBe('claude')
   })
 
   it('captures version + resolved path for an installed CLI', async () => {
@@ -579,6 +606,21 @@ describe('buildInventory', () => {
     expect(gh.version).toBe('gh version 2.40.0 (2024-01-01)') // first line, trimmed
     expect(gh.path).toBe('gh') // injected exec keeps the legacy argv-only test seam
   })
+
+  it('keeps the tool seam argv-only when the host resolves the same name (POD-2826)', async () => {
+    // probeTool resolves separately from candidatePaths, so it needs its own guard:
+    // this box answered `/usr/bin/gh` where a clean one answered `gh`.
+    const dir = hostBinDir('gh')
+    const inv = await buildInventory({
+      homeDir: home,
+      env: { ...childEnv, PATH: dir },
+      exec: fakeExec({ gh: 'gh version 2.40.0 (2024-01-01)' }),
+    })
+    const gh = inv.tools.find((t) => t.name === 'gh')!
+    expect(gh.installed).toBe(true)
+    expect(gh.path).toBe('gh')
+  })
+
   it('extracts a non-secret fingerprint and freshness from the Codex id token', () => {
     const email = 'mike' + '@example.com'
     const contents = JSON.stringify({

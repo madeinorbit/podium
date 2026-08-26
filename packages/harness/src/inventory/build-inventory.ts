@@ -67,7 +67,13 @@ function candidatePaths(
   ]
   const resolved: string[] = []
   for (const candidate of candidates) {
-    const path = environment.resolve(candidate) ?? (legacyInjectedExec ? candidate : undefined)
+    // An injected exec answers by argv, so the seam has to stay argv-only. Asking
+    // the resolver first and only FALLING BACK to the name made the reported path
+    // depend on what the machine running the test happened to have installed
+    // (POD-2826), and no fixture can sandbox that: createCommandEnvironment always
+    // appends /usr/local/bin, /usr/bin and /bin to the search entries, so scrubbing
+    // PATH does not stop the host from answering.
+    const path = legacyInjectedExec ? candidate : environment.resolve(candidate)
     if (path && !resolved.includes(path)) resolved.push(path)
   }
   return resolved
@@ -215,7 +221,8 @@ async function probeTool(
   exec: ProbeExec,
   legacyInjectedExec: boolean,
 ): Promise<ToolInventory> {
-  const candidate = environment.resolve(name) ?? (legacyInjectedExec ? name : undefined)
+  // Argv-only under an injected exec, for the same reason as candidatePaths (POD-2826).
+  const candidate = legacyInjectedExec ? name : environment.resolve(name)
   if (!candidate) return { name, installed: false }
   try {
     const version = (
