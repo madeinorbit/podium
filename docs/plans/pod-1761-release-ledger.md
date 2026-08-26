@@ -2363,3 +2363,38 @@ and not raised. A session genuinely blocked by a main-only change mails me with 
 block rather than merging to unblock itself.
 
 Removed from the per-tick routine and from the standing brief. **Back to the defects.**
+
+## TICK: 47 of 80 DRIVEN, 6 DEFECTS, 1 CLOSED — and the box is the constraint again
+
+    driven      47 of 80 checks
+    defects     6 found, 1 CLOSED AND DRIVEN (codex socket overflow, POD-2867)
+    open        5, all with live owners, 2 of them P1
+    projection  most remaining reds replicate rather than add, so 7-8 total fixes,
+                ~2 rounds at four in parallel
+
+**The one closed today is the template.** POD-2867 landed with a pre-fix control that
+genuinely failed — a live `SUN_LEN` error and no output — then a nonce read back out of the
+transcript and the native pane rendering, on a 25-character instance name, with real socket
+binds at 107/108 before and 66/67 after in the same run.
+
+### Concurrency is now the limiting resource, not ideas
+
+Load **41.7** with **1.4GB** free across ten live sessions. Not gates this time — the
+`test:heavy` lock is correctly held by POD-2878 — but the sessions themselves plus the
+harness processes their drives spawn (`opencode` 693MB, `claude` 576MB, `podium-cli` 497MB).
+
+**Parked two, on value rather than on liveness:**
+
+- **POD-2876** — the merge is landed and verified; its remaining work is the both-directions
+  union proof, which is real release evidence but can wait an hour.
+- **POD-2874** — column complete; its only outstanding item is a re-drive of two permission
+  cells blocked by *my own* rig instruction, which cannot move the release decision today.
+
+**POD-2858 has hibernated on its own** and is the one I most want back: the upgrade path is
+the operator's stated concern, its before-arm is banked across all four harnesses with boot
+SHAs recorded, and its second arm finally exists now that main is merged. It gets woken the
+moment there is room — waking it at load 41 would only produce readings on a starved host.
+
+**The lesson I keep re-learning at a different scale:** ten sessions is more than this box
+supports, and I discover that by watching load climb rather than by planning for it. The
+defect owners are the work; everything else yields to them.
