@@ -3181,3 +3181,40 @@ run is holding correctly.
 
 **This is contention I cannot schedule around** — a different epic's gate on a shared machine —
 and the honest response is to wait rather than compete.
+
+
+## POD-2885 CLOSED — THE LONG-TURN WEDGE IS FIXED, DRIVEN, LANDED AND GUARDED (2026-08-26 20:54 CEST)
+
+**One of the two cells where the new drivers were WORSE than what they replace is now closed.**
+
+    root cause   a bounded replay-log trim invalidated the ARRAY-POSITION reader, so the first
+                 post-trim wake slept forever. Fixed by reading MONOTONIC SEQUENCE, keeping the
+                 512-entry bound rather than removing it.
+    before       codex headless: 426s at working, previews frozen at 80, zero transcript
+    after        COMPLETED — 643 previews, idle at 81s, 20,192 chars
+    mid-turn     previews sampled 38/115/197/282/357/444/510/592 at 10s intervals,
+                 CROSSING THE 512 BOUND — so the plane stays alive throughout, not merely
+                 at the end
+    small case   short-turn edge on a fresh named instance: nonce present, 2 items, idle
+    other arm    codex/generic-pty re-driven, unchanged — the both-edges pin on a shared layer
+    grok         honestly declared UNDRIVEN, quota-blocked until 11:03 tomorrow
+    landed       fdfbe9343
+
+**And the corpus has teeth, proven by mutation rather than by a passing run.** Making the fake
+driver ignore its supplied cursor turned the package lane **RED — 4 failures across all four
+fake targets**, `expected sequence > 4, got 1`. Source restored byte-identical, green again at
+20 files / 601 passed. *"601 passed" said the corpus passes; only the mutation says it can
+fail* — which was the property in doubt after the fake shrank by 35 lines.
+
+**It also confirmed a scoping correction:** the mutation needed the **package** lane, not
+`test:heavy`. It had been queued behind another session for a resource its actual step never
+required — the most-repeated mistake on this epic, and the fourth session to make it.
+
+**Where the release bar now stands:**
+
+    BETTER (3)  first reply 4.1s vs 6.4s | provider errors surfaced in 12.2s vs never
+                | quota reported as a typed error vs prose
+    WORSE  (1)  a delivered message destroyed by a restart — fix committed, being driven now
+    PARITY      everything else driven
+
+**Four of eight defects closed and driven. 24 product fixes landed today.**

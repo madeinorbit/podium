@@ -75,3 +75,4 @@ A6b no-scrollback-corruption clause	opencode-headless	UNMEASURED same instrument
 A6b no-scrollback-corruption clause	opencode-terminal	UNMEASURED same instrument	7b7afc98	no	yes	2026-08-26 18:19 CEST	POD-2777
 long turn: previews climb THROUGHOUT	codex-headless	PASS 38-115-197-282-357-444-510-592 crossing the 512 bound	6b4da5b7	yes	yes	2026-08-26 18:20 CEST	POD-2885
 daemon lane 2 failures	n/a-gate	UNATTRIBUTED inferred not verified on tip	7b7afc98	no	yes	2026-08-26 18:24 CEST	POD-2893
+conformance corpus has teeth	n/a-mutation	PASS mutation red 4/4 fake targets, restore green	fdfbe934	yes	yes	2026-08-26 20:48 CEST	POD-2885
