@@ -456,6 +456,11 @@ export function ChatComposer({
       // only worked if you released it inside that strip and did nothing at all
       // — not even showing a target — over the ~90% of the surface a person
       // actually aims at. Mounting them in both places would double every drop.
+      //
+      // The HIGHLIGHT is still here, though, and only here: the well below lights
+      // up while a file is anywhere over the conversation. Where you may release
+      // and where the file ends up are different questions, and this is the
+      // answer to the second one.
     >
       {compact && <PromptAutoGrow taRef={taRef} value={draft} />}
       {/* Agent action offer [spec:SP-c7f1]: the agent's suggested next
@@ -546,6 +551,25 @@ export function ChatComposer({
             : 'chat-composer-well flex flex-col gap-1.5 rounded-[12px] pt-[11px] pr-3 pb-[9px] pl-[15px]',
         )}
       >
+        {/* THE DESTINATION, LIT (POD-1595 second pass). Not a hit area — the
+            drop is accepted across the whole conversation — but the place the
+            bytes are going. It sits inside the well's own `relative` box and
+            follows its corner, so it reads as the field lighting up rather than
+            a second box laid over it, and takes no pointer events: an overlay
+            that did would fire dragleave against itself the frame it appeared. */}
+        {attachments.dragOver && (
+          <div
+            className={cn(
+              'pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 border-2 border-dashed border-primary bg-primary/5',
+              compact ? 'rounded-[9px]' : 'rounded-[12px]',
+            )}
+            data-testid="composer-drop-target"
+            aria-hidden="true"
+          >
+            <Paperclip size={14} aria-hidden="true" className="text-primary" />
+            <span className="text-sm font-medium text-primary">Drop to attach</span>
+          </div>
+        )}
         <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
         {/* Shown only while the box is unfocused AND empty, so it can never land
             on the operator's own words — a placeholder line never reaches it.

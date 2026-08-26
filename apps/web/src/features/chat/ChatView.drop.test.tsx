@@ -20,11 +20,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * accepted exactly ONCE (mounting the handlers in two places would have
  * attached every file twice, which no screen would have shown).
  *
- * NOTE ON THE EXTRA MOCK. `use-chat-surface` reaches for `useStoreHandle`
- * straight from `@podium/client-core/react` rather than through the `@/app/store`
- * seam every other ChatView test mocks, so the real provider is required and
- * throws. That is why every existing ChatView suite is red; it is stubbed here
- * so this file can run, and reported separately.
+ * NOTE ON THE EXTRA MOCK, AND WHEN TO DELETE IT. `use-chat-surface` reaches for
+ * `useStoreHandle` straight from `@podium/client-core/react` rather than through
+ * the `@/app/store` seam every other ChatView test mocks, so the real provider is
+ * required and throws — which is why all 59 existing ChatView tests are red
+ * (POD-1599). It is stubbed here so this file can run at all.
+ *
+ * POD-1614 has repaired that seam on `issue/1599-bug-chat-view-tests-all-red`:
+ * `store.tsx` re-exports a Trpc-typed `useStoreHandle` and `use-chat-surface`
+ * imports it from `@/app/store`. THE MOMENT THAT LANDS ON MAIN, delete the
+ * `vi.mock('@podium/client-core/react', …)` below — mocking `@/app/store` like
+ * the other five ChatView suites is then enough, and leaving a stub over a seam
+ * that no longer leaks is how a suite starts testing its own scaffolding.
  */
 
 type DeltaCb = (items: TranscriptItem[], meta: { reset: boolean }) => void
@@ -232,9 +239,9 @@ describe('ChatView file drop', () => {
 
   it('offers the target when a file is dragged over the TRANSCRIPT, not just the dock', async () => {
     await mount()
-    expect(container.querySelector('[data-testid="chat-drop-veil"]')).toBeNull()
+    expect(container.querySelector('[data-testid="composer-drop-target"]')).toBeNull()
     drag(inTranscript(), 'dragover')
-    expect(container.querySelector('[data-testid="chat-drop-veil"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="composer-drop-target"]')).not.toBeNull()
   })
 
   it('uploads a file dropped on the transcript', async () => {
@@ -247,7 +254,7 @@ describe('ChatView file drop', () => {
       expect.objectContaining({ filename: 'spec.pdf' }),
     )
     // And the target goes away with the drag that ended.
-    expect(container.querySelector('[data-testid="chat-drop-veil"]')).toBeNull()
+    expect(container.querySelector('[data-testid="composer-drop-target"]')).toBeNull()
   })
 
   it('attaches a file dropped on the COMPOSER exactly once', async () => {
