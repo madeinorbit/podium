@@ -187,6 +187,34 @@ the truth** — it is not what to change:
 Measured live on opencode 1.18.16: before, 1 failed with 3 errors; after,
 1 passed, 0 errors, 31s of assertions against 184s of timeouts.
 
+## THE HARNESS-NAME REFACTOR FOUND A REAL CREDENTIAL LEAK (POD-2823)
+
+Removing the nine name-branches from `opencode-attach.ts` was supposed to be
+hygiene. It uncovered a live defect instead, which is the strongest argument the
+refactor could have made for itself.
+
+The strip-list branch picked between three constants **by harness name** and then
+unioned the result with `harnessChildStripEnv(kind)`, which reads the same fact
+off the manifest — redundant since POD-2296. For opencode and grok both sides were
+identical arrays. **For codex they were not**: `STRIPPED_CODEX_CREDENTIALS` carried
+six variables while `codex.inventory.foreignCredentialEnv` carried three.
+
+**So every codex spawn that read the MANIFEST — the PTY path, the login probes,
+`serverChildEnv` — had been leaving `OPENAI_ORGANIZATION`, `OPENAI_ORG_ID` and
+`OPENAI_BASE_URL` in the child's environment**, while the app-server path stripped
+them. Two sources of one truth, disagreeing, with the disagreement invisible
+because each caller only ever consulted one of them.
+
+**Verified by mutation:** deleting `OPENAI_BASE_URL` from the manifest again kills
+*strips exactly what each harness declares its client must not inherit* — 1 failed
+/ 43 passed, restored byte-identical. The two lists are now pinned equal by test.
+
+The nine branches turned out to be **four questions**, not nine: which durable
+label a parked client holds, what reopens this conversation, whether an engine
+address rides on argv, and whether per-session server credentials ride in the env.
+The last three are all `launch()`, and the address/secret split was not a new axis
+at all — it is `ServerRuntimeSpec.transport`, which W1 had already declared.
+
 ## THREE REGRESSIONS ATTRIBUTED, EACH TO ITS OWN COMMIT, BY BISECT
 
 The method that works: per-file A/B against a detached main worktree to confirm,
