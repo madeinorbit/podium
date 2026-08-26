@@ -112,7 +112,7 @@ H = headless arm, T = terminal arm.
 | A7b | hibernate + wake | **PASS** | ☐ | ☐ | ☐ |
 | A8 | logged-out spawn | ☐ | ☐ | **PARTIAL** | ☐ |
 | A9 | kill session | **PASS** | ☐ | ☐ | ☐ |
-| A10 | driver identity | **PASS / PARTIAL** | ☐ | **PASS** | ☐ |
+| A10 | driver identity | **PASS** | **PASS** | **PASS** | ☐ |
 | — | long turn completes | **FAIL** | **PASS** 61s | **FAIL** | **PASS** 92s |
 | — | parked turn survives restart | **FAIL** | **n/a** | ☐ | ☐ |
 
@@ -206,6 +206,38 @@ latency ones.
 | opencode **A2a** status while working | **FAIL** | prediction was PASS — **wrong**; filed POD-2902 |
 | codex **A2a** re-measured | **PASS** | the original PASS used the wrong instrument |
 | opencode A3 | **not driven** | needs `drive.ts` **and** POD-2885's fix, which has not landed |
+
+### A10 half 2 — a second expired blocker, found by my own checker
+
+A4a taught me that a BLOCKED cell is the reading nobody revisits, because a
+documented cause makes it look settled when it is only deferred. So I wrote
+`blocked-cells.sh` to turn POD-1761's "when the blocker lands, re-check the cell"
+rule into a command rather than a memory — it checks for the **runtime change**
+in the paths that would carry each fix, never for a ledger row.
+
+**Its first run exposed a blind spot in itself.** It asked only "has the fix
+landed *since my HEAD*", which finds a blocker that lands in future and misses one
+that landed *before* my HEAD and whose cell I never went back to. It listed A10
+half 2 as "still blocked" by POD-2853 — a fix already in my own tree. That is the
+exact A4a situation the rule was written for, reproduced by the tool meant to
+catch it.
+
+Fixed, and the cell driven. The arm is a **daemon-level** setting, so flipping it
+needs a daemon restart, not a bundle rebuild — no lock required:
+
+```
+daemon restarted with PODIUM_RUNTIME_DRIVER=generic-pty
+  driverId           generic-pty
+  driverFamily       terminal
+  status             live      spawnFailure (none)
+  demoted: true   and reports its identity while alive: true
+```
+
+**A10 is now fully PASS.** Its second half had been PARTIAL since the first drive
+because POD-2853 killed the demoted session before it could report anything — the
+escape hatch demonstrably worked, but what it demoted *to* could not be read.
+
+---
 
 ### A4a — a blocked cell whose blocker expired, and swapped for another
 
