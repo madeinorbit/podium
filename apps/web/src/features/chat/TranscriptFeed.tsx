@@ -17,7 +17,7 @@ import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { ArrowUp, Image as ImageIcon, RotateCcw } from 'lucide-react'
 import type { JSX, RefCallback, UIEventHandler } from 'react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { type IssueReferenceLookup, renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
+import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type TurnPosition } from './ChatBlockView'
 import type { ProjectedPendingItem, QueuedChatMessage } from './chat'
@@ -33,15 +33,8 @@ import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay } from './use-headless-turn'
 import type { TurnPreview } from './use-turn-preview'
 
-const EMPTY_ISSUE_REFERENCES: IssueReferenceLookup = new Map()
-
 /** Render a live partial through the same worker boundary as settled messages. */
-function StreamingMarkdown({
-  text,
-}: {
-  text: string
-  issueReferences?: IssueReferenceLookup
-}): JSX.Element {
+function StreamingMarkdown({ text }: { text: string }): JSX.Element {
   const client = transcriptComputeClient()
   const [computed, setComputed] = useState<{ text: string; unsafeHtml: string } | null>(null)
 
@@ -231,7 +224,6 @@ export function TranscriptFeed({
   attribution,
   expandRuns = false,
   onQuote,
-  issueReferences = EMPTY_ISSUE_REFERENCES,
 }: {
   setScrollerRef: RefCallback<HTMLDivElement>
   setContentRef: RefCallback<HTMLDivElement>
@@ -290,7 +282,6 @@ export function TranscriptFeed({
    *  the Quote action is not offered, which is what a host without a composer
    *  should get rather than a button that does nothing. */
   onQuote?: (markdown: string) => void
-  issueReferences?: IssueReferenceLookup
 }): JSX.Element {
   // Which rows LANDED, as opposed to which rows merely rendered — see
   // use-feed-arrivals. Identity is per row and index-free, so paging older
@@ -715,7 +706,6 @@ export function TranscriptFeed({
                 <StreamingMarkdown
                   key={item.itemId}
                   text={item.text}
-                  issueReferences={issueReferences}
                 />
               ) : (
                 <div

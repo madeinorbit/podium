@@ -9,7 +9,7 @@
 import type { ChatBlock, RenderableRow } from '@podium/client-core/viewmodels'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import type { TurnPreviewMessage } from '@podium/protocol'
-import { act, createRef } from 'react'
+import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildChatRows, pairToolResults } from './chat'
@@ -192,9 +192,10 @@ function renderFeed(items: TranscriptItem[], turnPreview: TurnPreview | null): v
   act(() => {
     root.render(
       <TranscriptFeed
-        scrollerRef={createRef<HTMLDivElement>()}
+        setScrollerRef={() => {}}
+        setContentRef={() => {}}
         onScroll={() => {}}
-        claimScrollForArrival={() => {}}
+        onPointerUp={() => {}}
         compact={false}
         superagent={false}
         phase="ready"
