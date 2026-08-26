@@ -107,7 +107,7 @@ H = headless arm, T = terminal arm.
 | A4b | answer twice | **BLOCKED** | ☐ | **PASS** | ☐ |
 | A5 | transcript | **PASS** | ☐ | **PASS** | ☐ |
 | A6a | terminal attach + type | **PASS** | **PASS** | **PASS** | **PASS** |
-| A6b | chat↔CLI twice | **PASS** | **PASS** | **PASS** | **PASS** |
+| A6b | chat↔CLI twice | **PASS\*** | **PASS\*** | **PASS\*** | **PASS\*** |
 | A7a | daemon restart | **PASS** | ☐ | ☐ | ☐ |
 | A7b | hibernate + wake | **PASS** | ☐ | ☐ | ☐ |
 | A8 | logged-out spawn | ☐ | ☐ | **PARTIAL** | ☐ |
@@ -206,6 +206,52 @@ latency ones.
 | opencode **A2a** status while working | **FAIL** | prediction was PASS — **wrong**; filed POD-2902 |
 | codex **A2a** re-measured | **PASS** | the original PASS used the wrong instrument |
 | opencode A3 | **not driven** | needs `drive.ts` **and** POD-2885's fix, which has not landed |
+
+### A6b\* — three clauses measured, one I cannot measure
+
+I went back to A6b because it passed comfortably on all four columns and the
+coordinator's rule is that **comfort is the signal**. The row asks for four
+things; I had been scoring **no scrollback corruption** with
+`screen.includes(marker)` — a single substring presence test.
+
+**That check is blind to the defect the row cites.** POD-2761 is *"the new
+interface paints into the old one's scrollback"* — corruption that **adds**
+content. A presence test cannot see an addition, a duplication or an interleave;
+every one of those leaves the marker exactly where it was. The check could not
+fail.
+
+So I built a stronger one, and it was wrong in the other direction:
+
+| instrument | verdict | why it is unsound |
+|---|---|---|
+| v1 `includes(marker)` | PASS | cannot fail — blind to additions |
+| v2 marker count `=== 1` + line-order subsequence | FAIL | the baseline screen already contains the marker **twice**, and a TUI legitimately **repaints and reflows** |
+
+Between them they bracket the problem without solving it: **v1 cannot fail, v2
+cannot pass.**
+
+*And v2's first run nearly became a filed regression.* It showed marker counts of
+2 → 6 → 6 → 10 and line counts of 20 → 34 → 48 — every CLI switch adding content,
+which is exactly POD-2761's signature. It was **my own buffer**: `Chat.screen`
+only ever appended, while the server replays its whole output log on every
+attach, so each re-attach concatenated another copy. A non-resumed attach means
+*rebuild your screen*, not *append to it* — the transcript side had always
+honoured that (`reset` clears `items`), and the terminal side never did. The
+asymmetry is what hid it: one plane accounted correctly, the other silently
+accumulating.
+
+**The clause is now reported UNMEASURED rather than scored**, with both failed
+instruments named. Distinguishing "the old client's scrollback is still underneath
+the new paint" from "the TUI repainted, as TUIs do" needs a terminal emulator's
+screen model — the real client renders into xterm.js and compares *screens*; this
+rig concatenates *bytes*. Reporting v2's FAIL would be reporting my instrument;
+reporting v1's PASS would be reporting a check that cannot fail.
+
+The other three clauses — **no restart** (epoch stable, agent pids unchanged),
+**correct size**, and **both views work afterwards** — are measured and pass. That
+is what the `*` means.
+
+---
 
 ### Four times I mis-scoped my own tooling
 

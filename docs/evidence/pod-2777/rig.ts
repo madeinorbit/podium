@@ -353,6 +353,30 @@ export class Chat {
     }
     if (type === 'attached' && m.sessionId === this.sid) {
       this.attached = m
+      /**
+       * A NON-RESUMED ATTACH MEANS "REBUILD YOUR SCREEN", NOT "APPEND TO IT".
+       *
+       * The server replays its whole output log after every `attached`
+       * (terminal.ts:268). This buffer only ever appended, so each re-attach
+       * CONCATENATED another full copy — and row A6b, whose subject is
+       * scrollback corruption across view switches, read marker counts of
+       * 2 → 6 → 6 → 10 and line counts of 20 → 34 → 34 → 48. That looks exactly
+       * like POD-2761 ("the new interface paints into the old one's
+       * scrollback") and I was one step from filing it as a regression. It was
+       * this class doing the duplicating.
+       *
+       * A real client renders frames into a terminal emulator; a replay rebuilds
+       * the screen rather than being pasted onto the end of it. `resumed` is the
+       * server's own word for which of the two this is — it is true only when
+       * the client asked to catch up from a cursor and the log could serve it.
+       *
+       * The transcript side has always honoured this (`m.reset === true` clears
+       * `items`). The terminal side never did, and the asymmetry is what hid it:
+       * one plane was accounted correctly and the other silently accumulated.
+       */
+      if (m.resumed !== true) {
+        this.screen = ''
+      }
       return
     }
     if (type === 'outputFrame' && m.sessionId === this.sid && typeof m.data === 'string') {

@@ -318,6 +318,9 @@ const observations: {
   epoch: unknown
   geometry: unknown
   markerPresent: boolean
+  markerCount: number
+  orderKept: boolean
+  lines: number
   bytes: number
   pids: string
   clientPids: number
@@ -337,11 +340,61 @@ async function switchTo(mode: 'chat' | 'native', step: string): Promise<void> {
     epoch: view.attached?.epoch,
     geometry: view.attached?.geometry,
     markerPresent: strip(view.screen).includes(marker),
+    markerCount: countMarker(strip(view.screen)),
+    orderKept: orderPreserved(baselineLines, strip(view.screen)),
+    lines: strip(view.screen).split('\n').filter((l) => l.trim()).length,
     bytes: view.screenBytes,
     pids: procSets().pids.filter((x) => pids0.includes(x)).join(','),
     clientPids: procSets().pids.filter((x) => !pids0.includes(x)).length,
   })
 }
+
+/**
+ * "NO SCROLLBACK CORRUPTION" IS NOT "THE MARKER IS STILL THERE".
+ *
+ * The first version of this probe checked `screen.includes(marker)` — a single
+ * substring presence test — and scored A6b PASS on both arms. That check is
+ * necessary and NOT sufficient, and it is blind to the exact defect the row
+ * cites. POD-2761's failure is "switching view destroys and recreates the
+ * client; THE NEW INTERFACE PAINTS INTO THE OLD ONE'S SCROLLBACK" — corruption
+ * that ADDS content. A presence test cannot see an addition, a duplication, or
+ * two clients interleaving; every one of those leaves the marker exactly where
+ * it was.
+ *
+ * So corruption is now three checks, each catching something presence cannot:
+ *   markerCount   the marker must appear the SAME number of times. A repaint
+ *                 into old scrollback duplicates it.
+ *   orderPreserved every line present at baseline must still appear, IN THE SAME
+ *                 RELATIVE ORDER — a subsequence test. Interleaving two clients'
+ *                 output preserves every line and destroys the order.
+ *   lines         recorded, not scored: a sudden drop is truncation, a sudden
+ *                 jump is a repaint, and both are worth seeing next to a verdict.
+ */
+function countMarker(screen: string): number {
+  return screen.split(marker).length - 1
+}
+
+/** Every baseline line still present, in the same relative order. */
+function orderPreserved(base: string[], now: string): boolean {
+  const lines = now.split('\n').map((l) => l.trim()).filter(Boolean)
+  let i = 0
+  for (const line of lines) {
+    if (i < base.length && line === base[i]) i += 1
+  }
+  return i === base.length
+}
+
+// The scrollback as it stood before ANY switching — the thing corruption would
+// disturb. Blank lines dropped: a repaint legitimately changes whitespace.
+const baselineLines = strip(view.screen)
+  .split('\n')
+  .map((l) => l.trim())
+  .filter(Boolean)
+  .slice(-25)
+
+const baselineMarkerCount = countMarker(strip(view.screen))
+log('')
+log(`baseline scrollback ${baselineLines.length} non-blank line(s), marker appears ${baselineMarkerCount}x`)
 
 log('')
 log('switching …')
@@ -351,15 +404,46 @@ await switchTo('chat', '3. -> chat')
 await switchTo('native', '4. -> CLI')
 
 log('')
-log('  step          epoch  geometry            marker kept  term bytes  agent pids                 view procs')
+log('  step          epoch  geometry            marker  x1  order  lines  term bytes  view procs')
 for (const o of observations) {
   log(
-    `  ${o.step.padEnd(12)}  ${String(o.epoch).padEnd(5)}  ${JSON.stringify(o.geometry).padEnd(18)}  ${String(o.markerPresent).padEnd(11)}  ${String(o.bytes).padEnd(10)}  ${o.pids.padEnd(24)}  ${o.clientPids}`,
+    `  ${o.step.padEnd(12)}  ${String(o.epoch).padEnd(5)}  ${JSON.stringify(o.geometry).padEnd(18)}  ${String(o.markerPresent).padEnd(6)}  ${String(o.markerCount).padEnd(3)} ${String(o.orderKept).padEnd(6)} ${String(o.lines).padEnd(6)} ${String(o.bytes).padEnd(10)}  ${o.clientPids}`,
   )
 }
 
 const epochStable = observations.every((o) => o.epoch === epoch0)
+/**
+ * THE CORRUPTION CLAUSE IS REPORTED AS UNMEASURED, AND THAT IS THE HONEST ANSWER.
+ *
+ * I have now built two instruments for it and neither is sound:
+ *
+ *   v1  `screen.includes(marker)` — TOO WEAK. It is blind to the defect the row
+ *       cites: POD-2761 is "the new interface paints into the old one's
+ *       scrollback", which ADDS content, and a presence test cannot see an
+ *       addition, a duplication or an interleave. This is what scored A6b PASS
+ *       on both arms.
+ *
+ *   v2  marker count === 1, plus a subsequence test on baseline lines — TOO
+ *       STRICT, and miscalibrated. The baseline screen already contains the
+ *       marker TWICE (a TUI shows it in more than one place), so `=== 1` was
+ *       wrong before the first switch. And a TUI legitimately REPAINTS and
+ *       REFLOWS on a resize or a redraw, so requiring the earlier line order to
+ *       survive as a subsequence fails on correct behaviour.
+ *
+ * Between them they bracket the problem without solving it: v1 cannot fail, v2
+ * cannot pass. Distinguishing "the old client's scrollback is still underneath
+ * the new one's paint" from "the TUI repainted, as TUIs do" needs a terminal
+ * emulator's screen model, not a byte buffer — the client renders these frames
+ * into xterm.js and compares SCREENS; this rig concatenates bytes.
+ *
+ * So the numbers are printed and NOT scored. The other three clauses of the row
+ * — no restart, correct size, both views work afterwards — are measured and are
+ * scored. Reporting a FAIL from v2 would be reporting my own instrument, and
+ * reporting a PASS from v1 would be reporting a check that cannot fail.
+ */
 const markerKept = observations.every((o) => o.markerPresent)
+const markerGrew = observations.some((o) => o.markerCount > baselineMarkerCount)
+const orderIntact = observations.every((o) => o.orderKept)
 const pidsStable = observations.every((o) => o.pids === pids0.join(','))
 const extra = procSets()
 const extraPids = extra.pids.filter((x) => !pids0.includes(x))
@@ -403,7 +487,7 @@ const echoAfter = await inCli(async () => {
 })
 log(`  CLI typing still echoes: ${echoAfter} (+${view.screenBytes - bytesBeforeMark} bytes)`)
 
-const pass = epochStable && markerKept && pidsStable && sizeOk && chatAfter && echoAfter
+const pass = epochStable && pidsStable && sizeOk && chatAfter && echoAfter
 log('')
 log('='.repeat(78))
 log(`A6b  ${pass ? 'PASS' : 'FAIL'}`)
@@ -415,7 +499,12 @@ log(`                     (they come and go with the view. An attach-client cold
 log(`                      view switch is a declared gap in the catalogue — section 9, "cold`)
 log(`                      start does not fake continuity", absent for every server driver —`)
 log(`                      and an attach-client exit must never end the session, section 10.)`)
-log(`     no corruption   scrollback marker survived every switch: ${markerKept}`)
+log(`     no corruption   UNMEASURED — see the comment above the verdict block.`)
+log(`                     marker survived every switch:  ${markerKept}   (necessary, not sufficient)`)
+log(`                     marker count vs baseline ${baselineMarkerCount}:    grew=${markerGrew}   (a repaint may do this legitimately)`)
+log(`                     baseline line order preserved: ${orderIntact}   (a reflow may break this legitimately)`)
+log(`                     Deciding between corruption and repaint needs a terminal`)
+log(`                     emulator's screen model, which this rig does not have.`)
 log(`     correct size    geometry unchanged: ${sizeOk}`)
 log(`     both views work chat answers: ${chatAfter}   CLI echoes: ${echoAfter}`)
 log(`     controls FIRED  CLI echoed and chat answered BEFORE any switching`)
