@@ -294,7 +294,7 @@ export class SessionLifecycle {
     via: ReceiptSendVia,
     input: ReceiptSendInput,
     onReceipt?: (receipt: TurnReceipt) => void,
-  ): { ok: boolean; queued?: boolean; reason?: string } =>
+  ): { ok: boolean; queued?: boolean; position?: number; reason?: string } =>
     this.receiptSender.send(via, input, onReceipt ? (receipt) => onReceipt(receipt) : undefined)
   /**
    * THE PROTOCOL ASK SINK (POD-2023), assigned by the composition root once the

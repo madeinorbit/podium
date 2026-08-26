@@ -138,6 +138,9 @@ export interface SessionStatePorts {
   ) => void
   readonly deliverToClient: (clientId: string, message: LiveServerMessage) => void
   readonly toMachine: (machineId: MachineId, message: ControlMessage) => void
+  /** Re-arm durable inbox delivery after native terminal control is released. */
+  readonly onNativeViewReleased?: (sessionId: SessionId) => void
+
   /** Lifecycle owns process parking and issue cleanup after archive. */
   readonly onArchived: (sessionId: SessionId) => void
 }
@@ -455,7 +458,8 @@ export class SessionStateService {
           (client.viewModes[sessionId] ?? 'native') === 'native',
       )
       const state = `${priority}:${nativeView ? 1 : 0}`
-      if (this.lastPriority.get(sessionId) === state) continue
+      const previous = this.lastPriority.get(sessionId)
+      if (previous === state) continue
       this.lastPriority.set(sessionId, state)
       // No live session means no machine to prioritise on. This used to fall back to
       // the placeholder, which sent the frame to a queue keyed by a name no daemon
@@ -468,6 +472,9 @@ export class SessionStateService {
         priority,
         nativeView,
       })
+      if (!nativeView && previous?.endsWith(':1')) {
+        this.ports.onNativeViewReleased?.(sessionId)
+      }
     }
   }
 

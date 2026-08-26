@@ -137,6 +137,7 @@ interface DeliveryOutcome {
   ok: boolean
   queued?: boolean
   reason?: string
+  position?: number
   disposition: SendDisposition
 }
 
@@ -193,11 +194,13 @@ export interface MessageDeliveryDeps {
       ok: boolean
       queued?: boolean
       reason?: string
+      position?: number
     }
     queueText(input: InboxDeliveryInput): {
       ok: boolean
       queued?: boolean
       reason?: string
+      position?: number
     }
     cancelQueuedMessage?(sessionId: SessionId, sourceMessageId: string): boolean
     hasQueuedMessage?(sessionId: SessionId, sourceMessageId: string): boolean
@@ -215,6 +218,7 @@ export interface MessageDeliveryDeps {
       ok: boolean
       queued?: boolean
       reason?: string
+      position?: number
     }
     /**
      * THE RECEIPT PATH (POD-1761 W4), and the ONLY send port delivery uses when
@@ -238,7 +242,7 @@ export interface MessageDeliveryDeps {
       via: 'now' | 'queue' | 'interrupt',
       input: InboxDeliveryInput,
       onReceipt?: (receipt: TurnReceipt) => void,
-    ): { ok: boolean; queued?: boolean; reason?: string }
+    ): { ok: boolean; queued?: boolean; reason?: string; position?: number }
   }
   /** Legacy mailbox mirror (store.issues.addIssueMessage) — issue-addressed
    *  sends dual-write so inbox/claim/pending keep working (drop with the table). */
@@ -1647,7 +1651,7 @@ export class MessageDeliveryService {
     const push = (
       input: InboxDeliveryInput,
       reconcile: string,
-    ): { ok: boolean; queued?: boolean; reason?: string } =>
+    ): { ok: boolean; queued?: boolean; reason?: string; position?: number } =>
       sessions.receiptSend
         ? sessions.receiptSend('now', input, (receipt) => {
             this.reconcileReceipt(reconcile, session.sessionId, receipt, recorded.has(reconcile))

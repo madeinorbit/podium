@@ -83,6 +83,7 @@ export interface MessageSendResult {
   ok: boolean
   queued?: boolean
   reason?: string
+  position?: number
   /** The honest, sender-facing outcome [POD-834]: what happened to the message,
    *  so `held` and `dead_letter` are never a silent success. */
   disposition: SendDisposition

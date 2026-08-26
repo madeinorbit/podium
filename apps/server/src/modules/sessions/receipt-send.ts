@@ -92,6 +92,8 @@ export interface ReceiptSendResult {
   ok: boolean
   queued?: boolean
   reason?: string
+  /** 1-based position in the server's durable FIFO when queued. */
+  position?: number
 }
 
 /** The legacy verbs, as this seam needs them. Structurally satisfied by
@@ -155,6 +157,13 @@ export interface ReceiptSenderPorts {
    * `now` may go straight to the driver.
    */
   queueNotEmpty(sessionId: SessionId): boolean
+  /**
+   * A native terminal view owns the human-controller lease. Sends received
+   * while it is declared must enter the server FIFO, so the synchronous answer
+   * can honestly say queued and the row survives a daemon restart.
+   */
+  nativeViewActive?(sessionId: SessionId): boolean
+
   /** Human-facing refusal for deliberate archive intent. Never overridable. */
   archiveReason?(sessionId: SessionId): string | undefined
   /** Human-facing refusal when the session is stopped on a non-retryable provider error. */
@@ -264,8 +273,11 @@ export class ReceiptSender {
     // the liveness check and overtake the row currently going out.
     const orderingHold =
       (via === 'now' || via === 'wake') && this.ports.queueNotEmpty(input.sessionId)
+    const nativeViewHold =
+      via !== 'queue' && this.ports.nativeViewActive?.(input.sessionId) === true
     if (
       via === 'queue' ||
+      nativeViewHold ||
       orderingHold ||
       (via === 'wake' && !this.ports.liveWithEmptyQueue(input.sessionId))
     ) {
@@ -384,7 +396,7 @@ export class ReceiptSender {
       },
       via,
     )
-    return { ok: true, queued: true }
+    return { ok: true, queued: true, position: queued.position }
   }
 
   private legacy(via: ReceiptSendVia, input: ReceiptSendInput): ReceiptSendResult {

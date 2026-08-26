@@ -300,6 +300,12 @@ export interface SessionInboxDeps {
    */
   authorizeDrive?(principal: ClientPrincipal, sessionId: SessionId): boolean
   /**
+   * Native terminal ownership parks sends in the durable FIFO until the view
+   * releases the human-controller lease.
+   */
+  nativeViewActive?(sessionId: SessionId): boolean
+
+  /**
    * Is this session driven by a runtime driver with NO PTY bridge behind it
    * (POD-2291)?
    *
@@ -890,6 +896,7 @@ export class SessionInbox {
    * harness state report.
    */
   drain(sessionId: SessionId, opts?: { justBound?: boolean }): void {
+    if (this.deps.nativeViewActive?.(sessionId) === true) return
     if (this.activeDrains.has(sessionId)) return
     const session = this.deps.getSession(sessionId)
     if (!session || session.queuedMessageCount === 0) return
@@ -1022,6 +1029,11 @@ export class SessionInbox {
       const poll = (): void => {
         // A disposed registry has no store to read (see `dispose`): stand down.
         if (this.disposed) return
+        if (this.deps.nativeViewActive?.(sessionId) === true) {
+          stop()
+          return
+        }
+
         const current = this.deps.getSession(sessionId)
         if (!current || (current.status !== 'live' && current.status !== 'starting')) {
           reportPromptFailure(
@@ -1110,6 +1122,11 @@ export class SessionInbox {
     const attemptDelivery = (head: QueuedInboxMessage, attempt: number): void => {
       // A disposed registry has no store to read (see `dispose`): stand down.
       if (this.disposed) return
+      if (this.deps.nativeViewActive?.(sessionId) === true) {
+        stop()
+        return
+      }
+
       const firstPromptNeedsProof = isInitialPromptRow(sessionId, head)
       const current = this.deps.getSession(sessionId)
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
@@ -1292,6 +1309,11 @@ export class SessionInbox {
     const deliverNext = (): void => {
       // A disposed registry has no store to read (see `dispose`): stand down.
       if (this.disposed) return
+      if (this.deps.nativeViewActive?.(sessionId) === true) {
+        stop()
+        return
+      }
+
       const current = this.deps.getSession(sessionId)
       const head = this.deps.queue.list(sessionId)[0]
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
@@ -1475,6 +1497,11 @@ export class SessionInbox {
     const tick = (): void => {
       // A disposed registry has no store to read (see `dispose`): stand down.
       if (this.disposed) return
+      if (this.deps.nativeViewActive?.(sessionId) === true) {
+        stop()
+        return
+      }
+
       const current = this.deps.getSession(sessionId)
       const head = this.deps.queue.list(sessionId)[0]
       if (!current || current.status === 'exited' || current.status === 'hibernated') {

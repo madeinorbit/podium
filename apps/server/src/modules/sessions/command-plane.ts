@@ -423,6 +423,7 @@ export interface SubstrateOutcome {
   ok: boolean
   queued?: boolean
   reason?: string
+  position?: number
   disposition: SendDisposition
 }
 
@@ -442,7 +443,8 @@ export interface SubstrateOutcome {
  * shape for a send to an unknown session. Pre-resolving here would have been a
  * second answer to "who may this caller address".
  *
- * The RETURN is narrowed back to the four pinned keys. `mail.send` answers with
+ * The RETURN is narrowed back to the five pinned keys, including queue position.
+ * `mail.send` answers with
  * more (id, urgency, lifecycle, clamped), and the oracle asserts these results
  * with `toEqual` — widening the chat path's reply is a wire change and not this
  * issue's to make.
@@ -452,7 +454,7 @@ async function substrateSend(
   input: SendInput,
   lifecycle: 'wait' | 'wake',
 ): Promise<SubstrateOutcome> {
-  const { ok, queued, reason, disposition } = (await ctx.deps.mailSend({
+  const { ok, queued, reason, position, disposition } = (await ctx.deps.mailSend({
     to: input.sessionId,
     body: input.text,
     ...(input.attachments?.length ? { attachments: input.attachments } : {}),
@@ -466,6 +468,7 @@ async function substrateSend(
     ...(reason !== undefined ? { reason } : {}),
     // Honest outcome (#834): a send to a gone target dead-letters rather than
     // silently queueing into a black hole.
+    ...(position !== undefined ? { position } : {}),
     disposition,
   }
 }

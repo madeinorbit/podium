@@ -93,6 +93,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     onContract: boolean,
     queueNotEmpty = false,
     reasons: { archive?: string; failure?: string } = {},
+    nativeView = false,
   ) => {
     const forwarded: string[] = []
     const forwardedAttachments: unknown[] = []
@@ -139,6 +140,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
       onContract: () => onContract,
       liveWithEmptyQueue: () => false,
       queueNotEmpty: () => queueNotEmpty,
+      nativeViewActive: () => nativeView,
       archiveReason: () => reasons.archive,
       failureReason: () => reasons.failure,
       systemPrincipal: () => ({
@@ -156,10 +158,18 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     const { s, forwarded, enqueued } = sender(true)
     const r = s.send('queue', { sessionId: asSessionId('s1'), text: 'durable' })
 
-    expect(r).toEqual({ ok: true, queued: true })
+    expect(r).toEqual({ ok: true, queued: true, position: 1 })
     expect(enqueued).toEqual(['durable'])
     // THE PRECONDITION. `authorizeAtDrain` has no daemon provider, so a queue
     // that reached the machine would drain unauthorized.
+    expect(forwarded).toEqual([])
+  })
+  it('reports a native-held send as queued with its durable position', () => {
+    const { s, forwarded, enqueued } = sender(true, false, {}, true)
+    const r = s.send('now', { sessionId: asSessionId('s1'), text: 'held by native' })
+
+    expect(r).toEqual({ ok: true, queued: true, position: 1 })
+    expect(enqueued).toEqual(['held by native'])
     expect(forwarded).toEqual([])
   })
 
@@ -196,7 +206,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
         text: 'recovery answer',
         allowErrored: true,
       }),
-    ).toEqual({ ok: true, queued: true })
+    ).toEqual({ ok: true, queued: true, position: 1 })
     expect(enqueued).toEqual(['recovery answer'])
   })
 
@@ -342,8 +352,8 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
 
   it('forwards only the live deliveries, and only those', () => {
     const { s, forwarded, enqueued } = sender(true)
-    s.send('now', { sessionId: asSessionId('s1'), text: 'a' })
-    s.send('interrupt', { sessionId: asSessionId('s1'), text: 'b' })
+    expect(s.send('now', { sessionId: asSessionId('s1'), text: 'a' })).toEqual({ ok: true })
+    expect(s.send('interrupt', { sessionId: asSessionId('s1'), text: 'b' })).toEqual({ ok: true })
 
     expect(forwarded).toEqual(['when-ready', 'interrupt'])
     expect(enqueued).toEqual([])

@@ -52,6 +52,8 @@ function harness(
     archived?: boolean
     /** Model a server-family session (no PTY bridge behind it) — POD-2291. */
     serverDriven?: boolean
+    /** Whether a native terminal view currently owns the controller lease. */
+    nativeView?: boolean
     /** Receipts the fake contract port answers with, in order; when omitted
      *  entirely the port itself is absent (the bare-fixture shape). */
     contractReceipts?: TurnReceipt[]
@@ -73,6 +75,7 @@ function harness(
     draft = text || undefined
   })
   let authorized = true
+  let nativeView = options.nativeView ?? false
   const applied = vi.fn()
   const injected = vi.fn()
   const handleInput = vi.fn()
@@ -145,6 +148,7 @@ function harness(
       answered: (input) => answered.push(input),
       promptFailed,
     },
+    nativeViewActive: () => nativeView,
     now: () => Date.now(),
     persist: vi.fn(),
     broadcast: vi.fn(),
@@ -236,6 +240,9 @@ function harness(
     /** The harness starting or finishing a turn. */
     setPhase: (phase: string) => {
       ;(session as unknown as { agentState: Record<string, unknown> }).agentState.phase = phase
+    },
+    setNativeView: (active: boolean) => {
+      nativeView = active
     },
   }
 }
@@ -1848,6 +1855,27 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.sent).toEqual([])
     expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_srv_1', sessionId: SID })
     expect(h.rows).toEqual([])
+  })
+  it('parks a durable row while native terminal control is declared', async () => {
+    vi.useFakeTimers()
+    const h = harness({ serverDriven: true, nativeView: true, contractReceipts: [] })
+
+    expect(queueOne(h, 'srv-native', 'msg_srv_native')).toEqual({ ok: true, queued: true })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(h.contractCalls).toEqual([])
+    expect(h.rows).toHaveLength(1)
+
+    h.setNativeView(false)
+    h.inbox.drain(SID)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(h.contractCalls).toHaveLength(1)
+    expect(h.applied).toHaveBeenCalledWith({
+      sourceMessageId: 'msg_srv_native',
+      sessionId: SID,
+    })
+    expect(h.rows).toEqual([])
+    expect(h.sent).toEqual([])
   })
 
   it('keeps the row visibly queued when the contract refuses (not_running)', async () => {

@@ -194,6 +194,16 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     settingsViewer: () => bag.settingsViewer(),
     onWorktreesChanged: (repoPath, machineId) => bag.deps.onWorktreesChanged(repoPath, machineId),
   })
+  const serverDriven = (session: Session): boolean =>
+    session.runtimeContract === true && driverFamilyForId(session.driverId ?? '') !== 'terminal'
+  const nativeViewActive = (sessionId: SessionId): boolean => {
+    const session = bag.sessions.get(sessionId)
+    return (
+      session !== undefined &&
+      serverDriven(session) &&
+      session.terminal.activeNativeRenderers().length > 0
+    )
+  }
 
   bag.state = new SessionStateService({
     store: bag.store,
@@ -219,6 +229,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       if (client) bag.clients.deliver(client, message)
     },
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
+    onNativeViewReleased: (sessionId) => bag.inbox?.drain(sessionId),
     onArchived: (sessionId) => {
       bag.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
       bag.parkArchivedSession(sessionId)
@@ -414,6 +425,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     // Take-control / hold-control re-auth at every apply (POD-1081).
     authorizeDrive: (principal, sessionId) => bag.authorizeClientDrive(principal, sessionId),
+    nativeViewActive,
     /**
      * THE DRAIN'S NO-PTY FACT (POD-2291): this session is behind the runtime
      * contract, and no manifest declares its bound driver TERMINAL-family.
@@ -454,8 +466,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
      * QUEUED. Guess "PTY" for a driver that has none and the bytes are gone.
      * Fail toward keep-queued.
      */
-    serverDriven: (session) =>
-      session.runtimeContract === true && driverFamilyForId(session.driverId ?? '') !== 'terminal',
+    serverDriven,
     // Late-bound on purpose: `bag.runtimeGateway` is constructed further down
     // this function, and the first drain that can need it runs strictly after
     // a bind frame — long past composition.
@@ -725,6 +736,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       const s = bag.sessions.get(sessionId)
       return (s?.queuedMessageCount ?? 0) > 0 || bag.inbox.isDraining(sessionId)
     },
+    nativeViewActive,
     archiveReason: (sessionId: SessionId) => {
       const s = bag.sessions.get(sessionId)
       return s ? archivedSessionSendReason(s) : undefined

@@ -85,6 +85,7 @@ export async function sendHandler(
     ok: r.ok,
     ...(queued !== undefined ? { queued } : {}),
     ...(r.reason !== undefined ? { reason: r.reason } : {}),
+    ...(r.position !== undefined ? { position: r.position } : {}),
     // The honest, sender-facing outcome [POD-834]: held / dead_letter are never
     // hidden behind a bare "queued" success.
     disposition: r.disposition,
