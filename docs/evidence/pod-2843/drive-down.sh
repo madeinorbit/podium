@@ -17,8 +17,18 @@ p2843_stop server
 if pkill -f "$PODIUM_STATE_DIR/agent-home" 2>/dev/null; then
   echo "reaped harness processes spawned from $PODIUM_STATE_DIR/agent-home"
 fi
-# The durable terminals are ours by socket dir, which is inside the drive base.
-if [ -d "$ABDUCO_SOCKET_DIR" ]; then
-  pkill -f "$ABDUCO_SOCKET_DIR" 2>/dev/null && echo "reaped p2843 abduco masters" || true
+# THE DURABLE TERMINALS, MATCHED ON THE VENDORED BINARY'S PATH.
+#
+# Matching on $ABDUCO_SOCKET_DIR was wrong and left nine processes running after
+# a teardown that reported success: the master's command line is
+# `<state>/bin/abduco -n <label> …` and names the SOCKET dir nowhere, so the
+# pattern hit nothing. Every arm leaves a claude behind, so a teardown that
+# silently reaps none of them costs this box about 400MB per arm — the same
+# accounting POD-2773's script had to add for opencode.
+#
+# Still scoped to OUR state root, never a bare `pkill -f claude`: other sessions
+# on this box run their own claude out of $HOME and out of other instances.
+if pkill -f "$PODIUM_STATE_DIR/bin/abduco -n" 2>/dev/null; then
+  echo "reaped p2843 durable terminals"
 fi
 echo "instance '$PODIUM_INSTANCE' down; state kept at $PODIUM_STATE_DIR"
