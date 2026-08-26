@@ -89,6 +89,7 @@
     "lint:shadowing": "bun scripts/check-merge-shadowing.ts",
     "audit:rearch": "bun scripts/rearch-audit.ts",
     "audit:declared-consumers": "bun scripts/audit-declared-consumers.ts",
+    "audit:workspace-imports": "bun scripts/workspace-import-audit.ts",
     "audit:phase2-client": "bun scripts/audit-phase2-client.ts",
     "audit:issues": "bun scripts/audit-issue-commands.ts --probe && bun scripts/audit-issue-commands.ts",
     "audit:sessions": "bun scripts/audit-session-commands.ts --probe && bun scripts/audit-session-commands.ts",

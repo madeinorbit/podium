@@ -20,6 +20,7 @@
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/logger:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "devDependencies": {
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "5.0.0-beta.6"
   }
 }

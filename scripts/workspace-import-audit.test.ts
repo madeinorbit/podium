@@ -64,4 +64,35 @@ describe('Podium workspace imports', () => {
       rmSync(fixture, { recursive: true, force: true })
     }
   })
+
+  it('detects undeclared third-party imports but ignores builtins and aliases', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'podium-third-party-import-audit-'))
+    try {
+      writeFileSync(
+        join(fixture, 'package.json'),
+        JSON.stringify({ private: true, workspaces: ['packages/*'] }),
+      )
+      mkdirSync(join(fixture, 'packages/fixture'), { recursive: true })
+      writeFileSync(
+        join(fixture, 'packages/fixture/package.json'),
+        JSON.stringify({ name: '@podium/fixture', dependencies: {} }),
+      )
+      writeFileSync(
+        join(fixture, 'packages/fixture/entry.ts'),
+        "import 'node:fs'\nimport '@/local'\nimport 'left-pad'\nvi.mock('tinyspy')\n",
+      )
+
+      const audit = auditWorkspaceImports(fixture)
+      expect(audit.thirdPartyImports.map(({ specifier }) => specifier)).toEqual([
+        'left-pad',
+        'tinyspy',
+      ])
+      expect(audit.thirdPartyDeclarationViolations.map(({ specifier }) => specifier)).toEqual([
+        'left-pad',
+        'tinyspy',
+      ])
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  })
 })

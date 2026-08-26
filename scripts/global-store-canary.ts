@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 import { isFullHit, isFullMiss, parseTurboSummary } from './turbo-summary'
 
 const REQUIRED_BUN = '1.3.14'
-export const CANDIDATE_BUNFIG = `[install]\nexact = false\nlinker = "isolated"\nglobalStore = true\nlinkWorkspacePackages = true\n`
+export const CANDIDATE_BUNFIG = `[install]\nexact = false\nlinker = "isolated"\nglobalStore = true\nlinkWorkspacePackages = true\nauto = "disable"\nhoist = false\n`
 const LOG_TAIL_BYTES = 24_000
 
 export interface CanaryOptions {

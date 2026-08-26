@@ -68,6 +68,7 @@ import { VALIDATION_HELD_ENV } from './validation-admission'
 import { workspaceDirectories } from './workspace-resolution-census'
 
 const REQUIRED_BUN = '1.3.14'
+const EXPECTED_TYPECHECK_TASKS = 24
 /**
  * The representative cached test. A leaf package with no workspace dependencies and a
  * green suite: its task hash moves only for its own sources and the global environment,
@@ -429,16 +430,20 @@ async function main(): Promise<void> {
       installsGreen: Object.values(installs).every(
         (result) => result.exitCode === 0 && result.lockfileBefore === result.lockfileAfter,
       ),
-      // The typecheck proofs are counted, not exit-coded. Turbo caches only successful
-      // tasks, and three packages are still red under isolated linking (POD-2781), so a
-      // green tree is not available to assert on. Whether a cache was read is a question
-      // about the counts, and the red task names ride along in the report.
+      // The isolated candidate must be a green 24-task run for this migration. The
+      // summary is still counted rather than inferred from the exit code, and failed
+      // task names remain in the report when a future regression makes the tree red.
+      isolatedTypecheck24of24:
+        candidateTypecheckCold.exitCode === 0 &&
+        candidateTypecheckCold.summary?.successful === EXPECTED_TYPECHECK_TASKS &&
+        candidateTypecheckCold.summary?.total === EXPECTED_TYPECHECK_TASKS &&
+        candidateTypecheckCold.summary?.failed.length === 0,
       hoistedProducesCache: isFullMiss(hoistedTypecheck.summary),
       hoistedToCandidateMiss: isFullMiss(candidateTypecheckCold.summary),
-      candidateTypecheckHit: reusedEverythingCacheable(
-        candidateTypecheckCold.summary,
-        readerTypecheck.summary,
-      ),
+      candidateTypecheckHit:
+        candidateTypecheckCold.exitCode === 0 &&
+        reusedEverythingCacheable(candidateTypecheckCold.summary, readerTypecheck.summary) &&
+        isFullHit(readerTypecheck.summary),
       // The representative test is a green package, so here a hit does mean a green hit.
       candidateTestHit: readerTest.exitCode === 0 && isFullHit(readerTest.summary),
       sourceChangeMiss:

@@ -27,6 +27,8 @@
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",
+    "@trpc/client": "^11.0.0",
+    "hono": "^4.6.14",
     "typescript": "^6.0.3",
     "vitest": "5.0.0-beta.6"
   }

@@ -3,8 +3,9 @@
   "compilerOptions": {
     "strict": true,
     "moduleResolution": "Bundler",
-    "customConditions": ["@podium/source"],
+    "customConditions": ["react-native", "@podium/source"],
     "moduleSuffixes": [".web", ".native", ""],
+    "preserveSymlinks": true,
     "skipLibCheck": true
   },
   "include": ["app", "src", "expo-env.d.ts"]

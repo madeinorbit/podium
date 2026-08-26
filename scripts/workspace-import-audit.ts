@@ -1,5 +1,5 @@
 /**
- * Repository-wide audit for imports of Podium workspace packages.
+ * Repository-wide audit for imports of Podium workspace and third-party packages.
  *
  * The architecture boundary checker predates fixture workspaces and deliberately
  * limits its declared-dependency rule to workspace `src` directories. This audit
@@ -7,17 +7,25 @@
  * tests, build configuration, and fixture entrypoints. A missing edge is dangerous
  * even for a type-only import: a hoisted install can satisfy it by walking into a
  * neighbouring checkout while an isolated install correctly leaves it unresolved.
+ * Third-party imports are checked against the owning workspace manifest as well,
+ * so the same fallback cannot hide a missing external dependency.
  *
  * Run the resolution half with the source export condition enabled:
  *
  *   bun --conditions=@podium/source scripts/workspace-import-audit.ts --resolve
  */
 
+import { builtinModules } from 'node:module'
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const SOURCE_FILE_RE = /(?:\.(?:[cm]?[jt]s|[jt]sx)|\.(?:[jt]s)\.txt)$/
+const builtinPackageNames = new Set([
+  ...builtinModules,
+  ...builtinModules.map((specifier) => `node:${specifier}`),
+])
+
 const SKIP_DIRS = new Set([
   '.git',
   '.turbo',
@@ -60,6 +68,13 @@ export interface WorkspaceImport {
   target: Workspace
 }
 
+export interface ThirdPartyImport {
+  file: string
+  specifier: string
+  packageName: string
+  owner: Workspace | null
+}
+
 export interface AuditViolation {
   file: string
   specifier: string
@@ -70,6 +85,8 @@ export interface WorkspaceImportAudit {
   imports: WorkspaceImport[]
   declarationViolations: AuditViolation[]
   resolutionViolations: AuditViolation[]
+  thirdPartyImports: ThirdPartyImport[]
+  thirdPartyDeclarationViolations: AuditViolation[]
 }
 
 function readManifest(path: string): PackageManifest {
@@ -224,6 +241,8 @@ export function auditWorkspaceImports(
   const imports: WorkspaceImport[] = []
   const declarationViolations: AuditViolation[] = []
   const resolutionViolations: AuditViolation[] = []
+  const thirdPartyImports: ThirdPartyImport[] = []
+  const thirdPartyDeclarationViolations: AuditViolation[] = []
   const resolvedFrom = new Set<string>()
 
   for (const candidateRoot of workspaceRoots) {
@@ -231,6 +250,31 @@ export function auditWorkspaceImports(
     for (const absoluteFile of sourceFiles(candidateRoot)) {
       const file = displayPath(root, absoluteFile)
       const source = readFileSync(absoluteFile, 'utf8')
+      for (const specifier of extractModuleSpecifiers(source, file)) {
+        if (!isExternalPackageSpecifier(specifier)) continue
+        const importedPackageName = packageName(specifier)
+        if (!importedPackageName || importedPackageName === owner?.manifest.name) continue
+        // Workspace packages are audited by the resolution-aware path below. An
+        // unknown @podium package is treated as a third-party import so a typo
+        // cannot become an undeclared fallback dependency.
+        if (packageTargets.has(importedPackageName)) continue
+        thirdPartyImports.push({
+          file,
+          specifier,
+          packageName: importedPackageName,
+          owner,
+        })
+        const version = owner ? declaredVersion(owner.manifest, importedPackageName) : undefined
+        if (!owner || version === undefined) {
+          thirdPartyDeclarationViolations.push({
+            file,
+            specifier,
+            message: owner
+              ? `${file} imports ${specifier} but ${displayPath(root, owner.manifestPath)} does not declare ${importedPackageName}`
+              : `${file} imports ${specifier} but ${displayPath(root, candidateRoot)} has no owning workspace package.json`,
+          })
+        }
+      }
       if (!source.includes('@podium/')) continue
       const executable = options.resolveImports
         ? new Set(extractResolvableWorkspaceSpecifiers(source, file))
@@ -304,6 +348,10 @@ export function auditWorkspaceImports(
     ),
     declarationViolations,
     resolutionViolations,
+    thirdPartyImports: thirdPartyImports.sort((a, b) =>
+      `${a.file}\0${a.specifier}`.localeCompare(`${b.file}\0${b.specifier}`),
+    ),
+    thirdPartyDeclarationViolations,
   }
 }
 
@@ -317,6 +365,7 @@ if (import.meta.main) {
   const audit = auditWorkspaceImports(repoRoot, { resolveImports })
   const violations = [
     ...audit.declarationViolations,
+    ...audit.thirdPartyDeclarationViolations,
     ...(resolveImports ? audit.resolutionViolations : []),
   ]
   if (violations.length > 0) {
@@ -324,7 +373,58 @@ if (import.meta.main) {
     process.exit(1)
   }
   console.log(
-    `workspace import audit passed: ${audit.imports.length} imports are declared` +
+    `workspace import audit passed: ${audit.imports.length} workspace imports and ` +
+      `${audit.thirdPartyImports.length} third-party imports are declared` +
       (resolveImports ? ' and resolve to this checkout source' : ''),
   )
+}
+
+function packageName(specifier: string): string | null {
+  if (specifier.startsWith('@')) {
+    const match = specifier.match(/^(@[^/]+\/[^/]+)(?:\/|$)/)
+    return match?.[1] ?? null
+  }
+  const match = specifier.match(/^([^/]+)(?:\/|$)/)
+  return match?.[1] ?? null
+}
+
+function isExternalPackageSpecifier(specifier: string): boolean {
+  return (
+    !specifier.startsWith('.') &&
+    !specifier.startsWith('/') &&
+    !specifier.startsWith('node:') &&
+    !specifier.startsWith('bun:') &&
+    !specifier.startsWith('virtual:') &&
+    !specifier.startsWith('\0') &&
+    !specifier.startsWith('#') &&
+    !specifier.startsWith('@/') &&
+    !specifier.startsWith('~/') &&
+    !builtinPackageNames.has(specifier)
+  )
+}
+
+function extractModuleSpecifiers(source: string, file: string): string[] {
+  const loader = loaderFor(file)
+  let transpiler = transpilers.get(loader)
+  if (!transpiler) {
+    transpiler = new Bun.Transpiler({ loader })
+    transpilers.set(loader, transpiler)
+  }
+  const specifiers = new Set(transpiler.scan(source).imports.map((entry) => entry.path))
+  // Bun's scanner intentionally reports executable imports only. Test mocks are
+  // still direct package consumers, so include their literal module arguments.
+  const stripped = stripComments(source)
+  for (const match of stripped.matchAll(
+    /\b(?:vi|jest)\.(?:mock|doMock|unmock)\s*\(\s*['"]([^'"]+)['"]/g,
+  )) {
+    const specifier = match[1]
+    if (specifier) specifiers.add(specifier)
+  }
+  for (const match of stripped.matchAll(
+    /\bmock\.module\s*\(\s*['"]([^'"]+)['"]/g,
+  )) {
+    const specifier = match[1]
+    if (specifier) specifiers.add(specifier)
+  }
+  return [...specifiers].sort()
 }

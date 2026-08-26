@@ -60,13 +60,15 @@ function options(root: string): CanaryOptions {
 }
 
 describe('global-store canary boundaries', () => {
-  it('keeps the candidate opt-in while the tracked default stays hoisted', () => {
+  it('uses strict isolated settings for tracked and candidate installs', () => {
     const rootBunfig = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), '..', 'bunfig.toml'),
       'utf8',
     )
-    expect(rootBunfig).toContain('linker = "hoisted"')
-    expect(rootBunfig).not.toContain('globalStore')
+    expect(rootBunfig).toContain('linker = "isolated"')
+    expect(rootBunfig).toContain('globalStore = true')
+    expect(rootBunfig).toContain('auto = "disable"')
+    expect(rootBunfig).toContain('hoist = false')
     expect(CANDIDATE_BUNFIG).toContain('linker = "isolated"')
     expect(CANDIDATE_BUNFIG).toContain('globalStore = true')
     expect(CANDIDATE_BUNFIG).toContain('linkWorkspacePackages = true')

@@ -2,12 +2,14 @@
 # Workspace packages are symlinked into node_modules automatically.
 [install]
 exact = false
-# Gate probes and root-level scripts import workspace packages from outside any
-# individual workspace. Bun's isolated linker exposes only packages used by a
-# workspace, leaving leaf packages absent at the root. A hoisted install links
-# every workspace package into this checkout's node_modules, so resolution cannot
-# walk up into a neighbouring checkout.
-linker = "hoisted"
+# Strict isolated linking keeps each workspace's dependency boundary visible:
+# undeclared imports fail in their owner instead of falling through a root hoist.
+# The global store shares package bytes while workspace links remain owner-local.
+linker = "isolated"
+globalStore = true
+linkWorkspacePackages = true
+auto = "disable"
+hoist = false
 
 [test]
 # Strip the ambient Podium agent-session env before every `bun test` file so a suite run

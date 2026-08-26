@@ -49,9 +49,8 @@ function sameTaskSet(left: string[], right: string[]): boolean {
  * reader attempted the same work to prove it.
  *
  * This is the reuse question, and it is not the same as `isFullHit`. Turbo caches only
- * SUCCESSFUL tasks, so in a repository where some task is red — and under isolated
- * linking three still are, tracked separately — a full hit is unreachable no matter how
- * perfectly the cache works. Comparing against what the producer actually cached asks
+ * SUCCESSFUL tasks, so in a repository where some task is red a full hit is unreachable
+ * no matter how perfectly the cache works. Comparing against what the producer cached asks
  * whether anything reusable was recomputed, which is the property under test.
  *
  * `reader.cached === producer.successful` ALONE is not that property, because it says
