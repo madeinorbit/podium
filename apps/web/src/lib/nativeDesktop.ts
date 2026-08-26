@@ -222,6 +222,19 @@ export function isMacNativeShell(): boolean {
 export function openInSystemBrowser(url: string): Promise<void> | null {
   const openExternal = nativeDesktopBridge()?.openExternal
   if (!openExternal || typeof window === 'undefined') return null
-  if (classifyPodiumLink(url)?.kind !== 'internal') return null
-  return openExternal(url)
+  if (classifyPodiumLink(url)?.kind === 'internal') return openExternal(url)
+  // The resolver only speaks http(s), and the shell's own page origin is not an
+  // http origin: in all-in-one mode it is `tauri://localhost`. A caller that
+  // built its URL from `window.location.origin` — the fallback every one of them
+  // keeps for a client that has not resolved its server yet — would otherwise be
+  // refused by both halves and open nothing at all.
+  return sameOriginAsPage(url) ? openExternal(url) : null
+}
+
+function sameOriginAsPage(url: string): boolean {
+  try {
+    return new URL(url, window.location.href).origin === window.location.origin
+  } catch {
+    return false
+  }
 }
