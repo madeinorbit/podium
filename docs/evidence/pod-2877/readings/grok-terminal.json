@@ -1,0 +1,402 @@
+{
+  "instance": "grok2877",
+  "arm": "terminal",
+  "results": [
+    {
+      "id": "A1a",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A1a arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a1a",
+      "memoryMb": 2269,
+      "pin": "PIN OK row=A1a arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:46:28.678Z"
+    },
+    {
+      "id": "A1b",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A1b arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a1b",
+      "memoryMb": 2826,
+      "pin": "PIN OK row=A1b arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:46:41.693Z"
+    },
+    {
+      "id": "A1c",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A1c arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a1c",
+      "memoryMb": 2363,
+      "pin": "PIN OK row=A1c arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:46:55.480Z"
+    },
+    {
+      "id": "A2a",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A2a arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a2a",
+      "memoryMb": 2199,
+      "pin": "PIN OK row=A2a arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:47:09.857Z"
+    },
+    {
+      "id": "A2b",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A2b arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a2b",
+      "memoryMb": 4022,
+      "pin": "PIN OK row=A2b arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:47:22.941Z"
+    },
+    {
+      "id": "A3",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A3 arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a3",
+      "memoryMb": 3077,
+      "pin": "PIN OK row=A3 arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:47:39.883Z"
+    },
+    {
+      "id": "A4a",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A4a arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a4a",
+      "memoryMb": 2906,
+      "pin": "PIN OK row=A4a arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:47:58.872Z"
+    },
+    {
+      "id": "A4b",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A4b arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a4b",
+      "memoryMb": 2478,
+      "pin": "PIN OK row=A4b arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:48:13.081Z"
+    },
+    {
+      "id": "A5",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A5 arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a5",
+      "memoryMb": 1554,
+      "pin": "PIN OK row=A5 arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:48:37.755Z"
+    },
+    {
+      "id": "A6a",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A6a arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a6a",
+      "memoryMb": 1651,
+      "pin": "PIN OK row=A6a arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:48:54.164Z"
+    },
+    {
+      "id": "A6b",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A6b arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a6b",
+      "memoryMb": 3860,
+      "pin": "PIN OK row=A6b arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:49:07.166Z"
+    },
+    {
+      "id": "A7a",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A7a arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a7a",
+      "memoryMb": 3491,
+      "pin": "PIN OK row=A7a arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:49:20.480Z"
+    },
+    {
+      "id": "A7b",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A7b arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a7b",
+      "memoryMb": 2340,
+      "pin": "PIN OK row=A7b arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:49:34.552Z"
+    },
+    {
+      "id": "A8",
+      "arm": "terminal",
+      "verdict": "PARTIAL",
+      "summary": "logged-out spawn exposed a login path, but no credential was available to restore the authenticated Grok server driver",
+      "control": {
+        "fired": true,
+        "what": "a logged-out Grok spawn binds and produces a visible native login path",
+        "detail": "driver=generic-pty family=terminal screenBytes=1831"
+      },
+      "evidence": [
+        "AUTH OFF          Grok auth already absent",
+        "DAEMON RESTART     daemon left running; derived Grok credential was already absent",
+        "LOGGED OUT         driver=generic-pty family=terminal screen=true",
+        "LOGIN SCREEN       /tmp/pod-2877-grok/cells/terminal-a8/logged-outConnecting...ctrl+qquitApproveinyourbrowser to finishsigningin.EJJ6-A5Y9Makesureyourbrowsershowsthiscode.Ifitdoesn'topen,clickheretocopy.          Copying not working? Click here to show full URL.Waitingforapproval...ctrl+qquit/tmp/pod-2877-grok/cells/terminal-a8/logged-outConnecting...ctrl+qquitApproveinyourbrowser to finishsigningin.EJJ6-A5Y9Makesureyourbrowsershowsthiscode.Ifitdoesn'topen,clickheretocopy.          Copying not working? Click here to show full URL.Waitingforapproval...ctrl+qquit/tmp/pod-2877-grok/cells/terminal-a8/logged-outApproveinyourbrowsertofinishsigningin.EJJ6-A5Y9Makesureyourbrowsershowsthiscode.Ifitdoesn'topen,clickheretocopy.Copying not working? Click here to show full URL.Waitingforapproval...ctrl+qquit",
+        "AUTH RESTORED      no normal-home Grok credential; leaving the derived agent home logged out for A8/login-path evidence\nGrok auth remains absent at /home/mgw/.local/state/podium/grok2877/agent-home/.grok/auth.json; no credential was available to restore",
+        "DAEMON REARMED     daemon left running; there was no credential to restore",
+        "NEXT SESSION       driver=generic-pty family=terminal server=false",
+        "LIMIT              no operator OAuth/login was performed; restored fixture credential is not counted as completing login"
+      ],
+      "data": {
+        "loginPath": true,
+        "expectedServer": false,
+        "authChanged": false,
+        "loggedOutDriver": "generic-pty",
+        "loggedOutFamily": "terminal",
+        "restoredDriver": "generic-pty",
+        "restoredFamily": "terminal",
+        "serverAfterRestore": false
+      },
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a8",
+      "memoryMb": 1926,
+      "pin": "PIN OK row=A8 arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [
+        "ae9ee68f-6e21-43ea-8a1e-43229585d05a",
+        "b74ea6e9-6b22-4b03-8175-1b8b035e3b0c"
+      ],
+      "at": "2026-08-26T12:49:50.893Z"
+    },
+    {
+      "id": "A9",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A9 arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a9",
+      "memoryMb": 1705,
+      "pin": "PIN OK row=A9 arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:50:05.313Z"
+    },
+    {
+      "id": "A10",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=A10 arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-a10",
+      "memoryMb": 1288,
+      "pin": "PIN OK row=A10 arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:50:19.876Z"
+    },
+    {
+      "id": "B-provider-error",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=B-provider-error arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-b-provider-error",
+      "memoryMb": 1294,
+      "pin": "PIN OK row=B-provider-error arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:50:37.892Z"
+    },
+    {
+      "id": "B-oom-kill",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: Grok terminal is logged out; authenticated acceptance control unavailable"
+      },
+      "evidence": [
+        "EXCEPTION         Error: Grok terminal is logged out; authenticated acceptance control unavailable",
+        "PIN               PIN OK row=B-oom-kill arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/terminal-b-oom-kill",
+      "memoryMb": 1554,
+      "pin": "PIN OK row=B-oom-kill arm=terminal instance=grok2877 serverPid=2513914 daemonPid=2514372 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:50:50.879Z"
+    }
+  ]
+}

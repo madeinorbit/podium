@@ -932,22 +932,31 @@ columns prove the untouched paths stayed untouched.
 
 | # | drive | claude | codex | grok | opencode | shell | pass criterion |
 |---|---|---|---|---|---|---|---|
-| A1a | send while idle | ☐ | ☐ | ☐ | ☐ | ☐ | reply arrives; bubble goes `sent`, never silent-settles |
-| A1b | send while busy | ☐ | ☐ | ☐ | ☐ | n/a | shows `queued` with position; survives page reload; delivered when idle |
-| A1c | send to a dead session | ☐ | ☐ | ☐ | ☐ | ☐ | typed refusal or resume-and-send offered; never a lost message |
-| A2a | status while working | ☐ | ☐ | ☐ | ☐ | n/a | badge `working` within 2s of turn start, `idle` after end; no flicker-idle mid-turn |
-| A2b | status at boot | ☐ | ☐ | ☐ | ☐ | ☐ | a fresh idle session shows idle, not `working` or blank |
-| A3 | interrupt mid-turn | ☐ | ☐ | ☐ | ☐ | n/a | turn stops; transcript shows interrupt; refused interrupt says why |
-| A4a | permission ask | ☐ | ☐ | ☐ | ☐ | n/a | card appears in chat AND terminal shows the same ask; answering resolves both |
-| A4b | answer twice | ☐ | ☐ | ☐ | ☐ | n/a | second answer is a typed error, not a double action |
-| A5 | transcript | ☐ | ☐ | ☐ | ☐ | n/a | turns render with tool calls paired to results; reload shows same history |
-| A6a | terminal attach + type | ☐ | ☐ | ☐ | ☐ | ☐ | keystrokes echo; resize refits; second viewer sees the same screen |
-| A6b | chat↔CLI switch, both directions, twice | ☐ | ☐ | ☐ | ☐ | n/a | chat→CLI→chat→CLI: no restart, no scrollback corruption, correct size (POD-2761/2602 fixed); after the switches, a chat send still answers AND typing in the CLI still echoes — the session is fully functional in BOTH views |
-| A7a | daemon restart | ☐ | ☐ | ☐ | ☐ | ☐ | session survives or auto-resumes as the SAME conversation (asks it to recall a codeword from before) |
-| A7b | hibernate + wake | ☐ | ☐ | ☐ | ☐ | n/a | wakes with context intact; never wedges (POD-2775 fixed) |
-| A8 | logged-out spawn | ☐ | ☐ | ☐ | ☐ | n/a | gets a working login path; after login, next session lands on the server driver (POD-2772 fixed) |
-| A9 | kill session | ☐ | ☐ | ☐ | ☐ | ☐ | process tree gone (check the process table, not the UI); no orphan servers after 5 min |
-| A10 | driver identity | n/a | ☐ | ☐ | ☐ | n/a | session reports server family; `PODIUM_RUNTIME_DRIVER=generic-pty` demotes it (escape hatch works) |
+| A1a | send while idle | ☐ | ☐ | BLOCKED (H/T) | ☐ | ☐ | reply arrives; bubble goes `sent`, never silent-settles |
+| A1b | send while busy | ☐ | ☐ | BLOCKED (H/T) | ☐ | n/a | shows `queued` with position; survives page reload; delivered when idle |
+| A1c | send to a dead session | ☐ | ☐ | BLOCKED (H/T) | ☐ | ☐ | typed refusal or resume-and-send offered; never a lost message |
+| A2a | status while working | ☐ | ☐ | BLOCKED (H/T) | ☐ | n/a | badge `working` within 2s of turn start, `idle` after end; no flicker-idle mid-turn |
+| A2b | status at boot | ☐ | ☐ | BLOCKED (H/T) | ☐ | ☐ | a fresh idle session shows idle, not `working` or blank |
+| A3 | interrupt mid-turn | ☐ | ☐ | BLOCKED (H/T) | ☐ | n/a | turn stops; transcript shows interrupt; refused interrupt says why |
+| A4a | permission ask | ☐ | ☐ | BLOCKED (H/T) | ☐ | n/a | card appears in chat AND terminal shows the same ask; answering resolves both |
+| A4b | answer twice | ☐ | ☐ | BLOCKED (H/T) | ☐ | n/a | second answer is a typed error, not a double action |
+| A5 | transcript | ☐ | ☐ | BLOCKED (H/T) | ☐ | n/a | turns render with tool calls paired to results; reload shows same history |
+| A6a | terminal attach + type | ☐ | ☐ | BLOCKED (H/T) | ☐ | ☐ | keystrokes echo; resize refits; second viewer sees the same screen |
+| A6b | chat↔CLI switch, both directions, twice | ☐ | ☐ | BLOCKED (H/T) | ☐ | n/a | chat→CLI→chat→CLI: no restart, no scrollback corruption, correct size (POD-2761/2602 fixed); after the switches, a chat send still answers AND typing in the CLI still echoes — the session is fully functional in BOTH views |
+| A7a | daemon restart | ☐ | ☐ | BLOCKED (H/T) | ☐ | ☐ | session survives or auto-resumes as the SAME conversation (asks it to recall a codeword from before) |
+| A7b | hibernate + wake | ☐ | ☐ | BLOCKED (H/T) | ☐ | n/a | wakes with context intact; never wedges (POD-2775 fixed) |
+| A8 | logged-out spawn | ☐ | ☐ | PARTIAL (H/T) | ☐ | n/a | gets a working login path; after login, next session lands on the server driver (POD-2772 fixed) |
+| A9 | kill session | ☐ | ☐ | BLOCKED (H/T) | ☐ | ☐ | process tree gone (check the process table, not the UI); no orphan servers after 5 min |
+| A10 | driver identity | n/a | ☐ | BLOCKED (H/T) | ☐ | n/a | session reports server family; `PODIUM_RUNTIME_DRIVER=generic-pty` demotes it (escape hatch works) |
+
+POD-2877 drove every Grok row on both arms (H = headless, T = explicit
+`generic-pty` terminal). The normal-home Grok credential was absent: H cells
+bound `generic-pty` instead of `grok-acp`, while T cells reached the same
+logged-out login screen; those cells are BLOCKED because their positive controls
+could not fire. A8 is PARTIAL on both arms: the device-code/browser login path
+appeared, but no credential was available to complete login and demonstrate the
+post-login server binding. Full evidence and per-cell pins are in
+`docs/evidence/pod-2877/GROK-REPORT.md`.
 
 Rows A5 + A6a + A6b together are the "both views work and can be switched"
 guarantee: chat functions (A5, A1, A4), the native view functions (A6a), and
