@@ -157,3 +157,24 @@ Getting the drivers to parity is the work. Integration is not.
 **Do not measure divergence from main and do not raise it as a concern.** If something is
 genuinely blocked by a main-only change, mail the coordinator with the specific block —
 do not merge to unblock yourself.
+
+## Heavy gates take the `test:heavy` lock — this box is shared
+
+`bun run typecheck` and the integration/e2e lanes are HEAVY: a single `tsgo` can hold
+**1.5GB+**, and two at once on this host takes it to load 39 with under 200MB free.
+
+**Before any heavy gate:**
+
+    podium lock status test:heavy      # held? WAIT. Free? take it.
+    podium lock acquire test:heavy --ttl 30m
+    ... run the gate ...
+    podium lock release test:heavy
+
+**Other epics share this machine.** The lock is not a POD-1761 convention — a session on an
+unrelated issue may be holding it, and it will be holding it for a good reason.
+
+**Why this is a correctness rule and not just courtesy:** an out-of-memory `tsgo` exits
+**144 with an EMPTY log**, which reads exactly like a broken build rather than a starved
+one. A gate run against a thrashing box produces *false reds*, and a false red costs the
+same fix-and-redrive cycle as a real one while being harder to recognise. **State free
+memory and load alongside any gate result**, so a reader can tell a red from a starved run.
