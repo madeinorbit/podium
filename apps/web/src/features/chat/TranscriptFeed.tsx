@@ -617,8 +617,11 @@ export function TranscriptFeed({
                 className={cn(
                   'transcript-you-bubble',
                   !handedOver && 'transcript-you-bubble--queued',
-                  )}
                 )}
+              >
+                <div className="transcript-you-body">
+                  <div className="chat-md whitespace-pre-wrap">{message.text}</div>
+                </div>
               </div>
               {!handedOver && (
                 <div className="msg-foot" data-side="right">
