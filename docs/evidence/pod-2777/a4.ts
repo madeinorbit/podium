@@ -138,7 +138,31 @@ if (row0?.status === 'exited') {
 
 const chat = new Chat(sid)
 await chat.open('chat')
+
+/**
+ * A SECOND VIEWER ON THE NATIVE VIEW — because the row has two halves and this
+ * one used to be unreachable.
+ *
+ * A4a asks for the card in chat AND THE SAME ASK IN THE TERMINAL, with answering
+ * resolving both. When this probe was first written the terminal half could not
+ * be driven at all: POD-2853's socket-path overflow meant no client terminal was
+ * ever hosted, so the cell was scored PARTIAL with the terminal half recorded as
+ * BLOCKED.
+ *
+ * THAT BLOCKER LANDED A FIX HOURS AGO and A6a/A6b now pass on both arms. A cell
+ * left PARTIAL for a reason that has since expired is the same trap as a PASS
+ * nobody revisits — it costs nothing to leave alone and it quietly stops being
+ * true. So the terminal half is driven now.
+ *
+ * Two viewers is also what the row describes: a person with the chat open and
+ * the CLI open, which is exactly the configuration POD-2875 showed behaves
+ * differently from either alone.
+ */
+const term = new Chat(sid)
+await term.open('native')
 await settle(sid)
+await wait(8_000)
+log(`terminal viewer    ${term.screenBytes} byte(s) on attach (outputSeen=${term.attached?.outputSeen})`)
 
 const marker = nonce('TOOLRAN')
 const before = chat.items.length
@@ -239,13 +263,45 @@ await wait(8_000)
 const filesAfterFirst = existsSync(EXTERNAL) ? readdirSync(EXTERNAL) : []
 log(`     side effect      ${filesAfterFirst.length} file(s) in ${EXTERNAL}: ${filesAfterFirst.join(', ') || '(none)'}`)
 
+// "answering resolves BOTH" — the chat side is `cleared` above; this is the
+// terminal side. Measured as the screen CHANGING after the answer: a terminal
+// still showing the same ask has not been resolved.
+const termBytesAtAnswer = term.screenBytes
+await wait(8_000)
+const termMoved = term.screenBytes > termBytesAtAnswer
+const termStillAsks = /permission|approve|\[y\/n\]/i.test(stripTerm(term.screen).slice(-1500))
+log(`     terminal after answering: +${term.screenBytes - termBytesAtAnswer} byte(s), still prompting: ${termStillAsks}`)
+const resolvedBoth = cleared && termMoved && !termStillAsks
+
 log('')
-log('A4a  the TERMINAL half — BLOCKED, not driven, and not counted as a pass.')
-log('     The row requires the same ask to appear in the terminal and answering to')
-log('     resolve BOTH. On this rig the native client terminal is never hosted:')
-log('     POD-2853 overflows the abduco socket path, the attach is answered with')
-log('     outputSeen=false and zero bytes, and the cause appears only as a daemon')
-log('     warn. Measured in a6a.ts on this same instance and commit.')
+log('A4a  the TERMINAL half — DRIVEN (POD-2853 landed; this was BLOCKED before)')
+
+const ESC2 = String.fromCharCode(27)
+const stripTerm = (x: string) =>
+  x
+    .replace(new RegExp(`${ESC2}\\][^\u0007]*(?:\u0007|${ESC2}\\\\)`, 'g'), '')
+    .replace(new RegExp(`${ESC2}\\[[0-9;?]*[a-zA-Z]`, 'g'), '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[^\x20-\x7e\n]/g, '')
+
+// Does the SAME ask appear on the terminal screen? Matched on the tool name and
+// on permission wording, not on an exact string: the two surfaces render it
+// differently and requiring identical text would test the renderer, not the ask.
+const termScreen = stripTerm(term.screen)
+const toolOnScreen = String(payload.toolName ?? '')
+const askWordOnScreen = /permission|approve|allow|grant|\[y\/n\]|yes\/no/i.test(termScreen)
+const toolNameOnScreen = toolOnScreen.length > 0 && termScreen.toLowerCase().includes(toolOnScreen.toLowerCase())
+const termShowsAsk = askWordOnScreen || toolNameOnScreen
+log(`     terminal bytes   ${term.screenBytes}`)
+log(`     ask visible on the terminal screen: ${termShowsAsk}`)
+log(`       permission wording present: ${askWordOnScreen}`)
+log(`       tool name '${toolOnScreen}' present: ${toolNameOnScreen}`)
+if (!termShowsAsk) {
+  log('     terminal tail (control codes stripped):')
+  for (const l of termScreen.trim().split('\n').filter((x) => x.trim()).slice(-6)) {
+    log(`       | ${l.slice(0, 96)}`)
+  }
+}
 
 // ---------------------------------------------------------------------------
 // A4b — answer the same ask a second time
@@ -336,11 +392,13 @@ log(
 const a4bPass = typedRefusal && !doubleAction
 log('')
 log('='.repeat(78))
-log(`A4a  ${cleared ? 'PARTIAL' : 'FAIL'} — chat half ${cleared ? 'PASS' : 'FAIL'}, terminal half BLOCKED on POD-2853`)
+const a4aPass = cleared && termShowsAsk && resolvedBoth
+log(`A4a  ${a4aPass ? 'PASS' : cleared ? 'PARTIAL' : 'FAIL'} — chat half ${cleared ? 'PASS' : 'FAIL'}, terminal half ${termShowsAsk ? (resolvedBoth ? 'PASS' : 'shows the ask but did not resolve') : 'did NOT show the ask'}`)
 log(`A4b  ${a4bPass ? 'PASS' : 'FAIL'} — second answer ${typedRefusal ? 'was a typed error' : 'was NOT a typed error'}, double action: ${doubleAction}`)
 log(`     controls: turn produced transcript items FIRED; first answer succeeded and resolved FIRED`)
 log('='.repeat(78))
 
 await chat.close()
+await term.close()
 await mutate('sessions.stop', { sessionId: sid }).catch(() => {})
-process.exit(a4bPass && cleared ? 0 : 1)
+process.exit(a4bPass && a4aPass ? 0 : 1)

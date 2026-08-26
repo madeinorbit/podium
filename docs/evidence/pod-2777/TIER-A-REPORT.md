@@ -207,6 +207,37 @@ latency ones.
 | codex **A2a** re-measured | **PASS** | the original PASS used the wrong instrument |
 | opencode A3 | **not driven** | needs `drive.ts` **and** POD-2885's fix, which has not landed |
 
+### A4a — a blocked cell whose blocker expired, and swapped for another
+
+A PASS is the reading nobody revisits. **A BLOCKED cell is the same trap in the
+other direction**: it costs nothing to leave alone and it quietly stops being
+true. A4a was PARTIAL because POD-2853 meant no client terminal was ever hosted;
+that landed hours ago and A6a/A6b now pass on both arms, so I extended the probe
+to drive the terminal half.
+
+It refused at once — the turn never ran. **Opening a second viewer on the native
+view parks the chat send**, which is POD-2875. So A4a has swapped one blocker for
+another and still cannot be completed.
+
+**The refusal was the finding, and it widened POD-2875 materially.** I had filed
+that defect as *the sender has the CLI view open*. Two clients, one variable —
+the **second** viewer's mode, with the sender in chat both times:
+
+| second viewer declares | send returned | nonce arrived |
+|---|---|---|
+| `chat` | `{"ok":true,"disposition":"delivered"}` | **yes** — 2 items, 2 deltas |
+| `native` | `{"ok":true,"disposition":"delivered"}` | **no** — 0 items, 0 deltas |
+
+It is **any viewer**, not the sender. The real case is an operator with the CLI
+open on their desktop and chat open on their phone: the phone shows a delivered
+tick for a message that will never run, and the person holding it cannot see what
+is causing it. The narrow end still holds — a client that never declares a view
+does *not* park, despite the server defaulting `viewModes` to `native` — so the
+bounds for a regression test are: undeclared passes, explicit-native-by-**any**
+client parks.
+
+---
+
 ### A2a — the cell I had scored with the wrong instrument
 
 The row asks for the **status badge**: "`working` within 2s of turn start, `idle`
