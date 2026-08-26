@@ -2873,3 +2873,37 @@ apply their own stricter thresholds rather than take my word for it.
 
 **Claude stays off limits.** 18 stale credential files quarantined out of rig agent homes at
 17:52; the operator's own verified intact.
+
+
+## THE MERGE IS CLOSED OUT — UNION PROVEN IN BOTH DIRECTIONS (2026-08-26 18:07 CEST)
+
+POD-2876 handed off, and the half I most expected to be skipped is the half it did:
+
+    main-opened DB  -> merged server   health=ok, sessions.list reached,
+                                       schema advanced to 20260821215802_message-attachments
+    epic-only DB    -> merged server   health=ok, sessions.list reached
+    manifest --check green; ledger and table inspection show the full timestamp-ordered union
+
+**The second direction is the one people skip** — it is what catches a manifest regenerated to
+main's shape rather than to the union — and it was driven rather than argued.
+
+Verified independently: merge `7b9d9eacb` and validation `90eb6f127` are both ancestors of the
+tip, main is untouched at `0bd90092c`, the migration count is **92**, and
+`20260821215802_message-attachments` is present. Both locks free.
+
+### The gate reds are UNATTRIBUTED, not inherited — labelled honestly
+
+The filtered server lane leaves **45 boundary and 34 services failures**. **26 of them are
+proven inherited**, reproducing on the pre-merge parent with the same machine-probing error.
+The remaining **53 were described as "concentrated in inherited fixtures" and were never
+measured.**
+
+I asked for the parent-diff by test name — the method already proven on the 26 — and it was
+not run before handoff. So the ledger records them as **UNATTRIBUTED-INHERITED-LIKELY**, not as
+inherited. *Where failures cluster says nothing about whether they pre-date the change*, and
+writing "inherited" next to a number nobody measured is how a regression ships wearing an
+alibi.
+
+**This is a real residual and it belongs in the release decision**, not in a footnote: 53
+failures on the shared gate whose origin is unknown. Cheap to settle whenever the lane is run
+on the parent once more.
