@@ -397,3 +397,24 @@ next drive would have run against a half-logged-out agent home **with nothing sa
 *The refusal was the safest-looking path in the file and it was the only one that leaked.*
 Restore state on **every** exit path, and prefer letting the process end naturally over
 calling `exit()` inside a block whose cleanup you depend on.
+
+## "Fixed" and "landed" are different words (2026-08-26 16:53 CEST)
+
+**A ledger or report row claiming a defect is fixed must name the COMMIT and the BRANCH it is
+fixed on.** Write *"fixed and driven on issue/2885-…, not yet landed"*, never bare *"fixed"*.
+
+The coordinator published "the wedge is fixed and driven" into the shared ledger while the fix
+existed only on one session's branch. That is *committed is not reachable* at the level that
+matters most: **the ledger is what people consult instead of checking**, so a reader would
+have driven the tip, measured unfixed code, and been left deciding which of two true-looking
+statements was wrong.
+
+## Re-measure the alarming number (2026-08-26 16:53 CEST)
+
+A watch fired with swap-out at **107,144 KB/s** — an order of magnitude worse than anything
+seen all day — and was about to be escalated. Three fresh samples: **swap-out zero**, 4,575MB
+free, load falling. A transient spike, almost certainly a neighbouring test run releasing.
+
+**A single sample of a volatile quantity is not a state.** The threshold that requires three
+consecutive checks exists for exactly this, and *the alarming reading is the one you are most
+tempted to skip it for*. Alarming numbers are the ones most worth re-measuring.

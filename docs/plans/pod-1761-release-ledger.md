@@ -2643,7 +2643,7 @@ that idle is not the same as blocked, and given the check that costs five minute
 instance: confirm something actually consumes the manifest declaration it added.
 
 
-## THE WEDGE IS FIXED AND DRIVEN (2026-08-26 16:47 CEST) — one of the two worse-than-main cells
+## THE WEDGE IS FIXED AND DRIVEN ON issue/2885 — NOT YET LANDED (2026-08-26 16:47 CEST) — one of the two worse-than-main cells
 
 **Root cause, stated rather than implied:** *a bounded replay-log trim invalidated the
 array-position reader, so the first post-trim wake left it sleeping forever.* The fix resumes
@@ -2695,3 +2695,29 @@ what makes it a measurement.
 **Host conditions stated because they were bad:** swap-out at 7,320 KB/s. The presence/absence
 verdict holds; the timings inside it are inflated and were explicitly **not** offered as
 performance numbers.
+
+
+### CORRECTION 2026-08-26 16:53 CEST: I wrote "fixed and driven" in a SHARED ledger about an UNLANDED branch
+
+POD-2777 checked the tip as I had told it to and found the fix is **not on the epic branch** —
+only my ledger row saying it is. Verified: `6b4da5b7b` is not an ancestor of
+`issue/1761-agent-runtime`, the shared events layer on the tip is unchanged, and my commit
+`b08359df1` touched **two docs files and nothing else**.
+
+POD-2885's work is real and its ledger claim is true **on its own branch**. What it is not is
+*reachable*, and I published it into the document everyone consults.
+
+**This is "committed is not reachable" one level up, and the more dangerous level.** Its own
+version was six probes on a branch I had already promised to another session. Mine is a
+shared **planning document** announcing a state the shared branch is not in — worse, because
+*the ledger is the thing people consult INSTEAD of checking*. Anyone reading "fixed and
+driven" and then driving the tip would measure unfixed code and be left deciding which of two
+true-looking things was wrong.
+
+**New rule, from POD-2777's suggestion, now in the standing brief: a ledger row that says a
+defect is fixed must name the COMMIT and the BRANCH**, so *fixed* and *landed* cannot be read
+as the same word. Heading corrected above.
+
+**Consequence: A3 on codex stays unmeasurable.** Its control needs the turn observed in flight
+and both planes still freeze on the tip. It becomes driveable when the fix actually lands, and
+POD-2777 will check the tip for the **runtime change** rather than for the ledger row.
