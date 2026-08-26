@@ -215,6 +215,46 @@ address rides on argv, and whether per-session server credentials ride in the en
 The last three are all `launch()`, and the address/secret split was not a new axis
 at all — it is `ServerRuntimeSpec.transport`, which W1 had already declared.
 
+## A FLAW IN MY OWN ATTRIBUTION METHOD, found by the work it produced
+
+POD-2839 corrected me twice and the second one matters more than the issue.
+
+**I claimed all four failing files "exist on main and pass there". Two do not
+exist on main at all** — `spawn-strip-env.test.ts` and `opencode-server.test.ts`
+are epic-only. My method was to diff the FAIL-file lists between the two sweep
+logs and take the set difference as "epic-only failures". **A file absent from
+main never appears in main's failure list**, so that difference silently
+conflates *fails only on the epic* with *exists only on the epic*. The per-file
+A/B and the bisect are sound; the cheap list-diff that chooses what to A/B is not,
+and it reads as evidence when it is only a filter.
+
+**And the four reds were not one bug.** I attributed all four to `90396a92d` from
+one bisect; only that file's failure was. The other three each had their own
+commit, each found separately:
+
+| file | first bad commit |
+| --- | --- |
+| `spawn-strip-env` | `90396a92d` scrub parent harness environment (POD-2117) |
+| `harness-runtime` | `fccd20d28` login reads for the instance's own home (POD-2692) |
+| `instance-bootstrap` | `85564b383` an instance uuid a reaper can attribute by |
+| `opencode-server` | `ae6379b19` let a parked server session come back |
+
+**The scrub decision went the way the widening argued for, and the reasoning is
+worth keeping.** The daemon is routinely started *from inside a Claude session*,
+so `CLAUDE_CODE_CHILD_SESSION` and its three siblings really do reach every
+child — and a child that reads them **subordinates itself to that conversation and
+stops writing a transcript**, which is Podium's own state and history channel. It
+was already pinned in two other places; `spawn-strip-env.test.ts` was the only
+stale reader.
+
+**The limit survived the widening**, which was the thing I asked them to establish
+first: *"never deletes a credential the server put on the frame"* was failing on
+the ARRAY, not on its subject — `ANTHROPIC_API_KEY` stayed out of the strip list
+throughout, because the sessionEnv exemption lives inside the credential half. It
+now asserts that limit on its own line.
+
+**Verified at the tip by me: 5, 4, 2 and 39 passed.**
+
 ## THE DECISION THE REGRESSIONS FORCED — the readiness queue IS the contract
 
 Chasing the write-path regressions turned up the real finding underneath them:
