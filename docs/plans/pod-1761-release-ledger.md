@@ -2974,3 +2974,38 @@ three-agent permission-instrument pattern.
 
 *Both are the failure mode the epic named this afternoon: "inherited" and "stale base" look
 identical from inside a failing run, and the difference is one git command.*
+
+
+## TICK 2026-08-26 18:47 CEST — the ordered queue had STALLED, and idle sessions were the load
+
+    driven          69 of 80 (86%)
+    defects         8 found, 3 CLOSED AND DRIVEN, 5 open
+    product fixes   23 landed today
+
+**Verified from outside every worktree — `pgrep -x bun` filtered by cwd — that NOBODY WAS
+DRIVING.** The ordered queue I built at 18:21 to replace the stampede had stalled: I named an
+order and then waited for handovers that never came. *A queue built on self-report inherits
+every reporting bug in the self-reports*, which is precisely what POD-2777 warned. **The
+coordinator verifies; it does not wait.**
+
+### Ten sessions were the reason the box could not get quiet
+
+Five `vmstat` samples: swap-in **4,056–6,488 KB/s sustained**, ~600MB free. Not starvation, but
+never quiet — and it **could not become quiet while ten agents existed**. Four of them were
+finished and idle, holding **636 MB between them against ~600 MB free**.
+
+**Closed all four**, with their work delivered and their remainders blocked on decisions or on
+tomorrow's quota rather than on effort:
+
+    POD-2858  the upgrade path — BOTH codex and opencode lose their conversation on rebind,
+              which is what established it as the rebind path rather than one driver
+    POD-2874  claude and shell — shell 6/6 clean; claude's blocked cells are instrument-blocked
+    POD-2876  the main merge, union proven in both directions
+    POD-2877  grok — three cells passing, the rest quota-blocked until 11:03 tomorrow
+
+**An idle session holding memory is a cost paid by whoever is still blocked.** Their evidence is
+on the branch and their open items are in the decisions file; a closed issue with landed
+evidence is a better record than a live session holding it in RAM.
+
+**Then released ONE session — not a broadcast.** POD-2885's conformance is the last step before
+the long-turn wedge closes, and its landing unblocks an interrupt cell that is not its own.
