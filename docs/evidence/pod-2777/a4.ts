@@ -31,7 +31,7 @@
  * effect happened anyway is the failure this row exists to catch, so the probe
  * records whether the tool ran once or twice.
  */
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import {
   AGENT_KIND,
   Chat,
@@ -72,10 +72,46 @@ async function openAsks(sid: string): Promise<any[]> {
   return (listed.result?.data ?? []) as any[]
 }
 
+/**
+ * THE ASKING POSTURE BELONGS TO THIS ROW, NOT TO THE RIG.
+ *
+ * A4 needs a permission ask to exist before the product can be judged on
+ * surfacing it, and opencode only raises one under `permission.bash = ask`.
+ * That posture used to be seeded rig-wide by drive-up.sh, and it silently broke
+ * every OTHER opencode cell that touches a tool: the call blocks at
+ * phase=needs_user awaiting an approval nobody answers, no toolResult is ever
+ * attached, and no assistant text arrives. Row A5 scored a FAIL on opencode
+ * because of it — a red that was entirely this rig's doing.
+ *
+ * So it is set here, for the duration of this probe, and restored in a finally
+ * block whatever happens.
+ */
+const OC_CFG = `${process.env.P2777_STATE_ROOT}/agent-home/.config/opencode/opencode.jsonc`
+let cfgBefore: string | undefined
+function setAskingPosture(): void {
+  if (harness !== 'opencode') return
+  cfgBefore = existsSync(OC_CFG) ? readFileSync(OC_CFG, 'utf8') : undefined
+  writeFileSync(
+    OC_CFG,
+    '{\n  "$schema": "https://opencode.ai/config.json",\n  "permission": {\n    "bash": "ask"\n  }\n}\n',
+    { mode: 0o600 },
+  )
+}
+function restorePosture(): void {
+  if (harness !== 'opencode' || cfgBefore === undefined) return
+  writeFileSync(OC_CFG, cfgBefore, { mode: 0o600 })
+}
+
 await login()
 log('='.repeat(78))
 log(`A4a / A4b  permission ask, and answering it twice   harness=${harness}`)
 log('='.repeat(78))
+setAskingPosture()
+if (harness === 'opencode') {
+  log('posture            permission.bash=ask set for this probe only; restored on exit')
+  log('                   (a rig-wide asking posture blocks every other tool cell)')
+}
+process.on('exit', restorePosture)
 
 rmSync(EXTERNAL, { recursive: true, force: true })
 mkdirSync(EXTERNAL, { recursive: true })

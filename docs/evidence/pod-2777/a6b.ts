@@ -170,9 +170,26 @@ log(`TUI PRIMING        ${primed.length > 0 ? primed.join('; ') : 'nothing to cl
  * at the CLI. The switching is still real — four declared switches, and the
  * marker, epoch and pid witnesses span all of them.
  */
+/**
+ * The settle after declaring a view is 10s, not 3s, and the extra 7 seconds are
+ * a RIG correction rather than a product allowance.
+ *
+ * At 3s this refused on opencode/headless — control B, "chat answers before
+ * switching", came back false — while the identical sequence passed on codex.
+ * The two-arm diagnostic showed POD-2875 reproduces on opencode exactly as on
+ * codex (declared-native parks, declared-chat delivers), so the mode change is
+ * honoured; it simply had not taken effect by the time the send went out. A
+ * send that races its own view declaration measures the race, and on this
+ * loaded host (load ~20) 3s was not enough.
+ *
+ * A readback would be better than a delay, but the client is never told its own
+ * effective view mode — there is no frame to wait on. So the wait is generous
+ * and the reason is written down, rather than a tight number that will refuse
+ * again the next time the box is busy.
+ */
 async function inChat<T>(fn: () => Promise<T>): Promise<T> {
   view.send({ type: 'viewState', visible: [sid], focused: sid, modes: { [sid]: 'chat' } })
-  await wait(3_000)
+  await wait(10_000)
   return fn()
 }
 

@@ -167,25 +167,26 @@ do
   from="${pair%%:*}"; to="${pair#*:}"
   if [ -f "$from" ] && [ ! -f "$to" ]; then cp "$from" "$to" && chmod 600 "$to"; fi
 done
-# A POSTURE THAT ACTUALLY ASKS — required for the A4 rows, and not an override
-# of any product path.
+# THE DEFAULT PERMISSION POSTURE, AND ONLY THE DEFAULT — a correction.
 #
-# Row A4a needs a permission ask to exist before the product can be judged on
-# surfacing it. Under the default posture NOTHING asks: codex's app-server child
-# runs with `sandbox_mode="workspace-write"` and wrote to $HOME without a word,
-# and — measured as a control — CODEX DOES THE SAME OUTSIDE PODIUM with the same
-# flag, so that is the harness on this host, not Podium. opencode was equally
-# permissive until told otherwise. Both made A4 report BLOCKED for want of an
-# ask, which says nothing about the ask plane.
+# This script used to seed `permission.bash = ask` into opencode's config so row
+# A4 would have an ask to measure. That posture is correct FOR A4 and wrong for
+# everything else: with it in place, EVERY opencode tool call blocks on an
+# approval nobody answers. The session sits at phase=needs_user, the tool never
+# produces a result, and no assistant text ever arrives.
 #
-# `permission.bash = ask` is opencode's own configuration knob and is exactly
-# the posture a cautious operator runs. Written only if the seeded config does
-# not already carry a permission block, so an operator's own choice wins.
+# It cost a false red. Row A5 on opencode scored FAIL — "tool calls paired to
+# results: false" — because the tool call was parked awaiting an approval this
+# rig had asked for and never answered. Nothing was wrong with the product.
+#
+# So the asking posture now belongs to a4.ts, which sets it immediately before
+# it needs it and restores it in a finally block. A rig-wide posture that only
+# one row wants is a rig-wide contaminant.
 OC_CFG="$AGENT_HOME/.config/opencode/opencode.jsonc"
-if [ -f "$OC_CFG" ] && ! grep -q '"permission"' "$OC_CFG"; then
-  printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "permission": {\n    "bash": "ask"\n  }\n}\n' > "$OC_CFG"
+if [ -f "$OC_CFG" ] && grep -q '"permission"' "$OC_CFG"; then
+  printf '{\n  "$schema": "https://opencode.ai/config.json"\n}\n' > "$OC_CFG"
   chmod 600 "$OC_CFG"
-  echo "opencode posture set to permission.bash=ask (so A4 has an ask to measure)"
+  echo "opencode posture reset to default (the asking posture belongs to a4.ts)"
 fi
 
 echo "agent home seeded at $AGENT_HOME"

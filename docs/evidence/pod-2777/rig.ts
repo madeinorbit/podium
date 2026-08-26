@@ -330,7 +330,25 @@ export class Chat {
       // resume into a fresh transcript looks like. Honouring it keeps a
       // post-resume read from carrying pre-kill items it no longer owns.
       if (m.reset === true) this.items.length = 0
-      for (const it of (m.items ?? []) as TranscriptItemLite[]) this.items.push(it)
+      /**
+       * ITEMS ARE UPSERTED BY ID, NOT APPENDED — and appending was wrong.
+       *
+       * A transcript item can be re-sent as it is refined. opencode streams a
+       * tool call twice under ONE id: first `toolInput: "{}"`, then
+       * `toolInput: "echo SHAPE-…"`. Appending both made one tool call read as
+       * TWO, which is how row A5 on opencode reported "2 call(s)" and scored
+       * itself FAIL for a pairing that had never been broken — and it would
+       * silently inflate every item count this rig takes, on every cell.
+       *
+       * The later copy wins: it is the same item, further along. Order is kept
+       * by replacing in place rather than moving the item to the end, so a
+       * refinement cannot reorder a transcript.
+       */
+      for (const it of (m.items ?? []) as TranscriptItemLite[]) {
+        const at = this.items.findIndex((prev) => prev.id === it.id)
+        if (at >= 0) this.items[at] = it
+        else this.items.push(it)
+      }
       return
     }
     if (type === 'attached' && m.sessionId === this.sid) {

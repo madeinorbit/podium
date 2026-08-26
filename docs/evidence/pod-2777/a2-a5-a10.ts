@@ -193,20 +193,51 @@ if (toolItems.length === 0) {
    * with no id to tie it to a call would satisfy "a result is present" while
    * pairing nothing.
    */
-  const paired: { name: string; hasResult: boolean; hasId: boolean; result: string }[] = []
+  /**
+   * PAIRED BY toolUseId, WHICH IS THE MECHANISM — the two harnesses use
+   * different SHAPES and an earlier version of this check encoded codex's.
+   *
+   *   codex     ONE item carries both halves:
+   *             { role:'tool', toolName:'Bash', toolInput:'…', toolResult:'…', toolUseId:'exec-…' }
+   *   opencode  TWO items share one toolUseId — the call, then the result:
+   *             { role:'tool', toolName:'bash', toolInput:'echo …', toolUseId:'call_…' }
+   *             { role:'tool', toolName:'bash', toolResult:'TR-…\n',  toolUseId:'call_…' }
+   *
+   * Requiring `toolResult` on EVERY tool item is true of codex and false of
+   * opencode, and scoring it that way reported "tool calls paired to results:
+   * false (2 call(s))" for a transcript that was correct — one call, correctly
+   * paired, counted twice and judged by the wrong rule.
+   *
+   * So the unit is the toolUseId, not the item: every distinct id must have a
+   * result somewhere among the items that carry it. That is what "paired" means
+   * and it is the same question for both shapes. An item with no toolUseId at
+   * all is reported separately — a result with nothing to tie it to a call
+   * satisfies "a result is present" while pairing nothing.
+   */
+  const byUse = new Map<string, { name: string; hasResult: boolean; items: number; result: string }>()
+  let orphans = 0
   for (const it of chat.items) {
     if (!(it.role === 'tool' || it.toolName)) continue
-    paired.push({
+    const id = it.toolUseId
+    if (!id) {
+      orphans += 1
+      continue
+    }
+    const got = typeof it.toolResult === 'string' && it.toolResult.length > 0
+    const prev = byUse.get(id)
+    byUse.set(id, {
       name: it.toolName ?? it.role,
-      hasResult: typeof it.toolResult === 'string' && it.toolResult.length > 0,
-      hasId: typeof it.toolUseId === 'string' && it.toolUseId.length > 0,
-      result: (it.toolResult ?? '').replace(/\n/g, '\\n').slice(0, 60),
+      hasResult: (prev?.hasResult ?? false) || got,
+      items: (prev?.items ?? 0) + 1,
+      result: got ? it.toolResult!.replace(/\n/g, '\\n').slice(0, 60) : (prev?.result ?? ''),
     })
   }
+  const paired = [...byUse.entries()].map(([id, v]) => ({ id, ...v }))
   for (const p of paired) {
-    log(`    tool ${p.name.padEnd(14)} toolUseId: ${p.hasId}  result: ${p.hasResult}  ${JSON.stringify(p.result)}`)
+    log(`    toolUseId ${p.id.slice(0, 28).padEnd(28)} tool=${p.name.padEnd(8)} items=${p.items} result=${p.hasResult}  ${JSON.stringify(p.result)}`)
   }
-  const allPaired = paired.every((p) => p.hasResult && p.hasId)
+  if (orphans > 0) log(`    ${orphans} tool item(s) carried NO toolUseId — nothing ties them to a call`)
+  const allPaired = paired.length > 0 && paired.every((p) => p.hasResult) && orphans === 0
 
   // RELOAD: drop the socket and open a new one, then compare the history the
   // server serves a fresh client against what this one was streamed live.
@@ -231,7 +262,7 @@ if (toolItems.length === 0) {
   const a5 = allPaired && missing.length === 0 && sameNonce ? 'PASS' : 'FAIL'
   log('')
   log(`  A5 ${a5}`)
-  log(`      tool calls paired to results: ${allPaired} (${paired.length} call(s))`)
+  log(`      tool calls paired to results: ${allPaired} (${paired.length} distinct toolUseId(s))`)
   log(`      reload shows the same history: ${missing.length === 0 && sameNonce}`)
   log(`      control FIRED — the turn produced ${toolItems.length} tool item(s)`)
 }
