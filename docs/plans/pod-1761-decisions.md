@@ -277,3 +277,39 @@ That moves this from *"a thing you can do to yourself"* to *"a thing another ope
 to you, invisibly"*. It is the same defect, not a new one, and its owner has the bounds:
 undeclared passes, explicit-native-by-any-client parks — so a fix that only consults the
 sender's own mode would leave it reachable.
+
+
+---
+
+## 14. The Claude column is gated by a credential risk nobody has characterised.
+**Raised 2026-08-26 17:39 CEST. Status: OPEN — being investigated read-only, no decision needed from you yet.**
+
+Claude is the driver people use today, so it is the one column where a regression definitively
+blocks this release. It is currently the least-measured, and the reason is a risk to **your own
+login**:
+
+> *Claude authenticates by OAuth only, no API key exists on this box, and a refresh in either
+> home rotates the token and invalidates the other holder — so re-seeding could log the
+> operator out of their daily driver mid-release.*
+
+That was recorded earlier and declined in writing. **It is still live, not historical:**
+`~/.claude/.credentials.json` was modified at **15:47 today**, and the coordinator session
+itself runs on that credential. A rig that triggers a refresh would log you out mid-release
+and take this session with it.
+
+**But one drive did complete a Claude column** — ten checks passing — so either a safe path
+exists or that drive took the risk without knowing it was one. Nobody has established which.
+
+A read-only investigation is now placed: how that drive authenticated, whether an *unexpired*
+token actually triggers a refresh or only one near expiry, whether validity can be confirmed
+without consuming it, and what exactly would rotate it.
+
+- **If an unexpired token is safe** — the whole column opens up, including the two permission
+  checks currently blocked on an instrument problem, and no decision from you is needed.
+- **If any spawn rotates it** — then the named residual already in the ledger is the honest
+  ceiling for Claude, and we should say so in the release note rather than keep trying.
+- **If you are willing to accept one rotation at a chosen moment** — that is yours to offer,
+  and it would close the column. It would log you out once, deliberately, at a time you pick.
+
+**No action needed now.** Recorded because it is the largest measurement gap on the release and
+its resolution may turn out to require you.
