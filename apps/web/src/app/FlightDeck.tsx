@@ -1468,6 +1468,7 @@ const TaskRow = memo(
   function TaskRow({
     row,
     displayTitle,
+    renameSeed,
     byId,
     carries,
     mode,
@@ -1489,13 +1490,15 @@ const TaskRow = memo(
     onMenu,
     onRenameIssue,
     onStatusPick,
-    renaming,
     onRenameDone,
   }: {
     row: FlightDeckRow
     /** The shared human-facing issue name. A draft's stored title is only a
      *  placeholder until somebody names it. */
     displayTitle: string
+    /** The displayed title captured when Rename opened. `null` keeps the row in
+     *  read mode; a string keeps the editor and its no-op comparison in sync. */
+    renameSeed: string | null
     byId: ReadonlyMap<string, IssueNavigationModel>
     /** Which ancestor guide rails cross this row — see `treeGuides`. */
     carries: readonly boolean[]
@@ -1531,11 +1534,7 @@ const TaskRow = memo(
      *  the commit policy lives in the deck, next to the state that opens the
      *  editor, so the row has no rename decision of its own to get wrong. */
     onRenameIssue: (title: string) => void
-    /** True while the deck's menu has this row's editor open. Rename state is
-     *  the DECK's (one id), not the row's: the menu that starts a rename is
-     *  mounted once for the whole column and cannot reach into a row's hook. */
-    renaming: boolean
-    /** Commit or cancel — either way the deck clears `renamingIssueId`. */
+    /** Commit or cancel — either way the deck clears its rename target. */
     onRenameDone: () => void
   }): JSX.Element {
     const intent = useClickIntent()
@@ -1690,10 +1689,10 @@ const TaskRow = memo(
             entry — so the column the operator works in was the one column that
             could not fix a title. Same hook and same editor the sidebar row and
             the session row above already use. */}
-          {renaming ? (
+          {renameSeed !== null ? (
             <span className={cn('flex min-w-0 flex-1 items-center', proposed ? 'py-0.5' : 'py-1')}>
               <SessionNameEditor
-                value={displayTitle}
+                value={renameSeed}
                 onCommit={(next) => {
                   onRenameIssue(next)
                   onRenameDone()
@@ -1824,6 +1823,7 @@ const TaskRow = memo(
   (previous, next) =>
     previous.row === next.row &&
     previous.displayTitle === next.displayTitle &&
+    previous.renameSeed === next.renameSeed &&
     previous.byId === next.byId &&
     previous.carries === next.carries &&
     previous.rails === next.rails &&
@@ -3261,8 +3261,12 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * WHICH STRIP IS RENAMING (POD-1077) — deck state, for the same reason the
    * menu is: the menu is mounted once for the column, so the row it names has to
    * be addressed by id rather than by reaching into that row's own hook.
+   *
+   * The displayed title is captured at OPEN time (POD-1618). A draft's visible
+   * name belongs to its agent and can change while this uncontrolled input is
+   * open; the seed must stay equal to what the operator actually saw and edited.
    */
-  const [renamingIssueId, setRenamingIssueId] = useState<string | null>(null)
+  const [renameTarget, setRenameTarget] = useState<{ id: string; seed: string } | null>(null)
   /**
    * The shared commit policy (POD-407), applied here so no strip carries a
    * second copy: trim, then no-op on empty or unchanged. The no-op is the part
@@ -3271,10 +3275,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * on a title that did not change.
    */
   const renameIssue = useCallback(
-    (issueId: string, next: string, displayedTitle: string): void => {
+    (issueId: string, next: string, openedTitle: string): void => {
       const trimmed = next.trim()
       const current = issues.find((issue) => issue.id === issueId)?.title
-      if (!trimmed || trimmed === current || trimmed === displayedTitle.trim()) return
+      if (!trimmed || trimmed === current || trimmed === openedTitle.trim()) return
       void updateIssue(issueId, { title: trimmed })
     },
     [issues, updateIssue],
@@ -3733,6 +3737,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 key={row.issue.id}
                 row={row}
                 displayTitle={rowDisplayTitles.get(row.issue.id) ?? row.issue.title}
+                renameSeed={renameTarget?.id === row.issue.id ? renameTarget.seed : null}
                 byId={byId}
                 carries={guides[index] ?? []}
                 rails={rails[index] ?? []}
@@ -3764,15 +3769,16 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 }
                 onMenu={(event) => openIssueMenu(row.issue.id, event)}
                 onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
-                renaming={renamingIssueId === row.issue.id}
                 onRenameIssue={(title) =>
                   renameIssue(
                     row.issue.id,
                     title,
-                    rowDisplayTitles.get(row.issue.id) ?? row.issue.title,
+                    renameTarget?.id === row.issue.id
+                      ? renameTarget.seed
+                      : (rowDisplayTitles.get(row.issue.id) ?? row.issue.title),
                   )
                 }
-                onRenameDone={() => setRenamingIssueId(null)}
+                onRenameDone={() => setRenameTarget(null)}
               />
             ))}
             {visibleRows.length === 0 &&
@@ -3941,7 +3947,13 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
           onClose={() => setIssueMenu(null)}
           onRename={(id) => {
             setIssueMenu(null)
-            setRenamingIssueId(id)
+            const issue = rows.find((candidate) => candidate.issue.id === id)?.issue
+            if (issue) {
+              setRenameTarget({
+                id,
+                seed: rowDisplayTitles.get(id) ?? issue.title,
+              })
+            }
           }}
           onOpen={(id) => {
             setIssueMenu(null)

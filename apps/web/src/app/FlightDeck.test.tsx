@@ -159,8 +159,8 @@ const session = (id: string, over: Record<string, unknown> = {}): SessionMeta =>
 /** An agent mid-turn — what `Working` asks about, once per agent (POD-1452). */
 const WORKING = { phase: 'working', since: '2026-01-01T00:00:00.000Z' } as const
 
-const deck = (): void => {
-  render(
+function DeckHarness() {
+  return (
     // ConfirmProvider because the task menu's Archive/Delete now use the
     // app-wide dialog (POD-1077), exactly as AppShell supplies it in the app.
     <ConfirmProvider>
@@ -172,9 +172,11 @@ const deck = (): void => {
           <FlightDeck onCollapse={vi.fn()} />
         </IssueExplorerProvider>
       </OperatorFocusProvider>
-    </ConfirmProvider>,
+    </ConfirmProvider>
   )
 }
+
+const deck = (): ReturnType<typeof render> => render(<DeckHarness />)
 
 /** The single-click action is deferred by the double-click window. */
 const settle = (): void => {
@@ -1261,7 +1263,7 @@ describe('flight deck task menu (POD-771)', () => {
         ? { ...meta, name: undefined, title: 'Unrelated older conversation' }
         : meta
     })
-    deck()
+    const view = deck()
     const strip = stripOf('t1')
     expect(strip.querySelector('.deck-task-content')?.textContent).toContain('New Claude session')
 
@@ -1269,6 +1271,15 @@ describe('flight deck task menu (POD-771)', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }))
     const editor = strip.querySelector('input')
     expect(editor).not.toBeNull()
+    expect((editor as HTMLInputElement).value).toBe('New Claude session')
+
+    // The draft's visible name can move while the uncontrolled editor is open.
+    // Its seed and no-op comparison must stay on the title the operator opened.
+    harness.sessions = harness.sessions.map((candidate) => {
+      const meta = candidate as SessionMeta
+      return meta.sessionId === 's1' ? { ...meta, name: 'Agent renamed while open' } : meta
+    })
+    view.rerender(<DeckHarness />)
     expect((editor as HTMLInputElement).value).toBe('New Claude session')
 
     fireEvent.blur(editor as HTMLInputElement)
