@@ -94,7 +94,7 @@ H = headless arm, T = terminal arm.
 | — | long turn completes | **FAIL** | **PASS** 61s | **FAIL** | **PASS** 92s |
 | — | parked turn survives restart | **FAIL** | **n/a** | ☐ | ☐ |
 
-**FIVE DISTINCT DEFECTS**, appearing in more cells than that:
+**FIVE DISTINCT DEFECTS IN THE PRODUCT**, appearing in more cells than that:
 
 | | defect | where |
 |---|---|---|
@@ -103,6 +103,14 @@ H = headless arm, T = terminal arm.
 | | POD-2862 — one permission opens two asks | opencode H |
 | | POD-2870 — no queue position for a chat caller | codex H **and** opencode H |
 | | A3 unmeasurable until POD-2885 is fixed | codex H |
+
+Plus **POD-2895**, which was the *merge* rather than the product: the main merge
+left `TranscriptFeed.tsx:621` unparseable, so no rig on the epic could pin its
+three components. The same hunk had also deleted the queued bubble's body, so a
+syntax-only fix would have compiled and rendered an empty bubble — the compiler
+points at the last thing the splice broke, the parents show what it deleted.
+Fixed at `aad84ec21`; I corroborated it with an independent full build (exit 0)
+and a parse sweep that went to zero broken files across all 236 changed files.
 
 **The two columns agree everywhere they overlap.** Every defect found in codex and
 re-driven on opencode replicates; nothing yet distinguishes them. That is the
