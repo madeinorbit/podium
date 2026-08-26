@@ -2907,3 +2907,39 @@ alibi.
 **This is a real residual and it belongs in the release decision**, not in a footnote: 53
 failures on the shared gate whose origin is unknown. Cheap to settle whenever the lane is run
 on the parent once more.
+
+
+## TICK 2026-08-26 18:15 CEST — the window opened: quiet box AND a free lock, first time today
+
+    driven          67 of 80 (84%)
+    defects         8 found, 2 CLOSED AND DRIVEN, 6 open
+    of the 6 open   4 have a COMMITTED FIX awaiting only its drive
+    product fixes   22 landed today
+    remaining       ~2 rounds — four drives, then two fixes still being written
+
+    swap-in  248-304 KB/s   (was 11,480-27,928 at 17:23)   swap-out 0
+    free     3,428 MB        load 9.87, down from 27        test:heavy FREE, no queue
+
+**This is the first moment today when the box was quiet AND the heavy lock was free at the
+same time**, and four drives have been waiting on exactly that conjunction. Each was told what
+its own next step is, and reminded that **a drive needs an instance while a gate needs the
+lock** — conflating those cost one session three hours waiting for a resource its next step
+never required.
+
+### The shape of the remaining work has changed
+
+Earlier today the constraint was *finding* defects. It is now *proving fixes*: **four of the
+six open defects already have code written and committed**, and what stands between them and
+closed is one drive each —
+
+    the long-turn wedge      interval-sampled drive + conformance   (P1)
+    delivered-then-destroyed restart drive, both arms               (P1)
+    one permission two asks  both-edges drive
+    the badge latency        reproduce the separation, then the fix
+    cross-session transcript drive written, needs an instance
+    claude interrupt         BLOCKED — no main baseline obtainable, and claude is quarantined
+
+**Two rounds, not two days**, provided the box stays quiet. The honest caveat: the claude
+interrupt defect cannot be closed at all by driving, because today's release cannot start a
+named-instance claude session and the credentials are quarantined. That one needs the
+operator.
