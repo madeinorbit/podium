@@ -17,6 +17,26 @@ Nine behaviours from `docs/architecture/driver-capability-catalog.md`, driven on
 four harnesses, each on BOTH drivers where the harness can run both ways.
 
 
+
+## A sequencing rule the pin guard taught me
+
+**Do not rebase while the rig is building.** I started `drive-up.sh` in the
+background, then committed and rebased onto the merged tip while it ran. The rig
+came up pinned to the pre-rebase commit, and `drive-verify.sh` refused the very
+next drive:
+
+```
+VERIFY FAILED: server (pid 2475410) was SPAWNED AT 53be0c55d…,
+you named 9f0b12308… (HEAD) — restart it with drive-up.sh
+```
+
+Which is the guard working. The build reads the worktree continuously — the web
+bundle stamp, the source the server and daemon import under
+`--conditions=@podium/source` — so moving HEAD underneath it produces a rig whose
+components disagree about which commit they are. The order is: **commit, rebase,
+THEN build.** Never overlap the last two.
+
+
 ## Two rig defects the sweep found in itself
 
 **An unknown probe name in `P2777_ONLY` used to be an empty selection, not an

@@ -70,31 +70,44 @@ Two guards were added so this cannot silently come back:
 
 ## The matrix as it stands
 
-**23 cells driven.** Claude and shell are POD-2874's columns; grok is unassigned.
+**33 cells driven.** Claude and shell are POD-2874's columns; grok unassigned.
+H = headless arm, T = terminal arm.
 
-| # | drive | codex H | codex T | opencode H | notes |
+| # | drive | codex H | codex T | opencode H | opencode T |
 |---|---|---|---|---|---|
-| A1a | send while idle | **PASS** 4.1s | **PASS** 6.4s | ☐ | headless faster |
-| A1b | send while busy | **PARTIAL** | ☐ | ☐ | no position — POD-2870 |
-| A1c | send to a dead session | **PASS** | ☐ | ☐ | typed `dead_letter` |
-| A2a | status while working | **PASS** | ☐ | ☐ | 51 previews, monotonic, fine watch acquired |
-| A2b | status at boot | **PASS** | ☐ | ☐ | idle at t+2.0s |
-| A3 | interrupt mid-turn | **REFUSED** | ☐ | ☐ | unmeasurable until POD-2884 |
-| A4a | permission ask | **BLOCKED** | ☐ | **PARTIAL** | codex raises no approval (controlled) |
-| A4b | answer twice | **BLOCKED** | ☐ | **PASS** | typed `already-answered` |
-| A5 | transcript | **PASS** | ☐ | ☐ | call+result on one item |
-| A6a | terminal attach + type | **PASS** | **PASS** | ☐ | was blocked |
-| A6b | chat↔CLI twice | **PASS** | **PASS** | ☐ | was blocked |
-| A7a | daemon restart | **PASS** | ☐ | ☐ | same conversation pointer |
-| A7b | hibernate + wake | **PASS** | ☐ | ☐ | |
-| A8 | logged-out spawn | ☐ | ☐ | **PARTIAL** | demotion declared; no login affordance |
-| A9 | kill session | **PASS** | ☐ | ☐ | 0 orphans after 300s |
-| A10 | driver identity | **PASS / PARTIAL** | ☐ | ☐ | |
-| — | long turn completes | **FAIL** | **PASS** 61s | ☐ | POD-2884 |
-| — | parked turn survives restart | **FAIL** | **n/a** | ☐ | POD-2875 |
+| A1a | send while idle | **PASS** 4.1s | **PASS** 6.4s | ☐ | **PASS** 7.8s |
+| A1b | send while busy | **PARTIAL** | ☐ | **PARTIAL** | ☐ |
+| A1c | send to a dead session | **PASS** | ☐ | **PASS** | ☐ |
+| A2a | status while working | **PASS** | ☐ | ☐ | ☐ |
+| A2b | status at boot | **PASS** | ☐ | **PASS** | ☐ |
+| A3 | interrupt mid-turn | **REFUSED** | ☐ | ☐ | ☐ |
+| A4a | permission ask | **BLOCKED** | ☐ | **PARTIAL** | ☐ |
+| A4b | answer twice | **BLOCKED** | ☐ | **PASS** | ☐ |
+| A5 | transcript | **PASS** | ☐ | **PASS** | ☐ |
+| A6a | terminal attach + type | **PASS** | **PASS** | **PASS** | **PASS** |
+| A6b | chat↔CLI twice | **PASS** | **PASS** | **PASS** | **PASS** |
+| A7a | daemon restart | **PASS** | ☐ | ☐ | ☐ |
+| A7b | hibernate + wake | **PASS** | ☐ | ☐ | ☐ |
+| A8 | logged-out spawn | ☐ | ☐ | **PARTIAL** | ☐ |
+| A9 | kill session | **PASS** | ☐ | ☐ | ☐ |
+| A10 | driver identity | **PASS / PARTIAL** | ☐ | **PASS** | ☐ |
+| — | long turn completes | **FAIL** | **PASS** 61s | **FAIL** | **PASS** 92s |
+| — | parked turn survives restart | **FAIL** | **n/a** | ☐ | ☐ |
 
-**FIVE REDS: POD-2884 (P1), POD-2875 (P1), POD-2862, POD-2870, and A3 refused
-pending POD-2884.** Twelve PASS, four PARTIAL, two BLOCKED with a stated cause.
+**FIVE DISTINCT DEFECTS**, appearing in more cells than that:
+
+| | defect | where |
+|---|---|---|
+| P1 | POD-2885 — long turns wedge | codex H **and** opencode H; both terminal arms fine |
+| P1 | POD-2875 — delivered message destroyed by a restart | codex H; reproduces on opencode H |
+| | POD-2862 — one permission opens two asks | opencode H |
+| | POD-2870 — no queue position for a chat caller | codex H **and** opencode H |
+| | A3 unmeasurable until POD-2885 is fixed | codex H |
+
+**The two columns agree everywhere they overlap.** Every defect found in codex and
+re-driven on opencode replicates; nothing yet distinguishes them. That is the
+answer to "do the harness columns behave alike" so far, and it means a red found
+in one column should be assumed present in the others until driven.
 
 ## The cells that were driven
 
