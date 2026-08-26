@@ -285,8 +285,16 @@ export interface OpencodeClientTerminalPorts {
   /** Injection seams. The defaults are the real abduco. */
   spawn?(opts: AbducoSpawnOptions): Promise<AgentSession>
   reclaim?(label: string): Promise<void>
-  /** Is a durable master still holding this label? A socket-dir read, not an
-   *  `abduco` fork — this runs on the session teardown path. */
+  /**
+   * Is a durable master still holding this label? A socket-dir read, not an
+   * `abduco` fork — this runs on the session teardown path.
+   *
+   * ONLY FOR THE CALLERS THAT HOLD NO SESSION: `close()`, which reclaims a
+   * parked master nothing is attached to, and `adopt()`, which takes one that
+   * outlived the daemon back under a deadline. The generation reset does NOT
+   * ask this — see `start()` — because a spawn can answer the same question
+   * later and better.
+   */
   hasMaster?(label: string): boolean
   geometry?: Geometry
   warmTtlMs?: number
@@ -313,7 +321,37 @@ export function createOpencodeClientTerminals(
 ): OpencodeClientTerminals {
   const spawn = ports.spawn ?? spawnAbducoAgent
   const reclaim = ports.reclaim ?? ((label: string) => killAbducoSession(label))
-  const hasMaster = ports.hasMaster ?? ((label: string) => abducoSocketPath(label) !== undefined)
+  /**
+   * THE PROBE MUST LOOK WHERE THE SPAWN PUT IT (POD-2761).
+   *
+   * `abducoSocketDirs` falls back to `$HOME/.abduco` when `ABDUCO_SOCKET_DIR` is
+   * unset, and the master is created against the CLIENT's environment — whose
+   * `HOME` is the instance agent home (`ports.homeDir`), not the daemon's. A
+   * default probe on `process.env` therefore reads a different directory and
+   * answers "no master" for one that is running.
+   *
+   * WHICH CONFIGURATION IS EXPOSED, precisely: a named instance is safe, because
+   * `applyInstanceRuntimeEnv` pins `ABDUCO_SOCKET_DIR` on the daemon's own env
+   * and the child inherits that same value — both sides then resolve one root
+   * and `HOME` never enters it. What is exposed is an agent home that differs
+   * from the daemon's `HOME` with no such pin: `PODIUM_AGENT_HOME` or
+   * `config.agentHome` on the default instance.
+   *
+   * The error is ONE-SIDED toward "absent", so both callers fail open in the
+   * expensive direction: `close()` reclaims nothing and the master leaks until
+   * the machine reboots, and `adopt()` never takes back a client that outlived
+   * the daemon — which is the same orphan by the other road.
+   *
+   * `process.env` is read PER CALL rather than captured, because the instance
+   * env is applied to it during boot and this module is built on that path.
+   */
+  const hasMaster =
+    ports.hasMaster ??
+    ((label: string) =>
+      abducoSocketPath(
+        label,
+        ports.homeDir ? { ...process.env, HOME: ports.homeDir } : process.env,
+      ) !== undefined)
   const geometry = ports.geometry ?? DEFAULT_GEOMETRY
   const warmTtlMs = ports.warmTtlMs ?? WARM_TTL_MS
   const setTimer =
@@ -405,22 +443,10 @@ export function createOpencodeClientTerminals(
      * `start()` serves both cases. A view-switch reclaims the abduco master, so
      * no master exists and spawn creates a new TUI generation. After a daemon
      * restart or lost client handle, the master and its TUI survive; spawn
-     * reconnects to that same generation instead. Capture that distinction
-     * BEFORE spawn, because a cold spawn creates the master itself.
-     *
-     * A new generation draws into a browser terminal addressed by SESSION, not
-     * by attachment (POD-2108), so one stream outlives every client generation.
-     * Without a reset the next full interface lands below the first. A reattach
-     * is the opposite: `[3J` would delete the surviving TUI's history from both
-     * the browser and replay log, while its resize redraw restores only the
-     * viewport.
-     *
-     * Emit only after spawn succeeds, so a refusal cannot blank a terminal, and
-     * before subscribing to client frames, so every observable byte from a new
-     * generation follows its anchor. The pair also matches the server's reset
-     * test, so the replay log re-anchors with the browser.
+     * reconnects to that same generation instead. The reset below is emitted for
+     * the first case and withheld for the second, so which one just happened is
+     * the whole question — see the spawn call for where it is answered.
      */
-    const reattaching = hasMaster(record.label)
     const launch = client.launch({
       cwd: target.workdir,
       conversation: target.conversation,
@@ -477,7 +503,38 @@ export function createOpencodeClientTerminals(
       // serve half (POD-2247).
       env: spawnEnv({ podiumEnv }),
     })
-    if (!reattaching)
+    /**
+     * ASK THE SPAWN WHICH CASE THIS WAS — do not sample the socket directory
+     * beforehand (POD-2761).
+     *
+     * This was `hasMaster(record.label)`, read before `await spawn`, and that
+     * was wrong twice over. It asked under the WRONG ENVIRONMENT, because the
+     * default probe reads the daemon's `HOME` while the master lives under the
+     * agent home (see `hasMaster` above) — one-sided toward "cold", so the reset
+     * fired on an adopted live TUI and `[3J` deleted the very history it was
+     * reattaching to. And it asked TOO EARLY: a master exiting inside the spawn
+     * window left `reattaching` true while spawn created a new generation, which
+     * then painted a whole fresh interface below the old one with no anchor —
+     * the original symptom this issue exists to fix.
+     *
+     * `AgentSession.adopted` is the same fact established at the only moment it
+     * is knowable. Spawn sets it when it found a live master owning the label
+     * and attached to that instead of creating one, resolved with the child's
+     * own environment and AFTER the create race it just ran.
+     *
+     * WHAT THE TWO BRANCHES PROTECT. A new generation draws into a browser
+     * terminal addressed by SESSION, not by attachment (POD-2108), so one stream
+     * outlives every client generation; without a reset the next full interface
+     * lands below the first. A reattach is the opposite: `[3J` would delete the
+     * surviving TUI's history from both the browser and the replay log, while
+     * its resize redraw restores only the viewport.
+     *
+     * Emitted only after spawn succeeds, so a refusal cannot blank a terminal,
+     * and before subscribing to client frames, so every observable byte from a
+     * new generation follows its anchor. The pair also matches the server's
+     * reset test, so the replay log re-anchors with the browser.
+     */
+    if (!session.adopted)
       ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET).toString('base64'))
     session.onFrame((frame) => ports.frames(record.streamId, frame.data))
     record.session = session

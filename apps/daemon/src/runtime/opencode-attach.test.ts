@@ -19,6 +19,9 @@ import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
 import type { AgentFrame, AgentSession } from '@podium/pty'
 import { asSessionId, type SessionId } from '@podium/model'
 import { scopeUnitName } from '@podium/pty'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { hostname, tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { attributeMemory, type ProcSample } from '../memory-breakdown'
 import {
@@ -98,6 +101,12 @@ function fakeClient(
 
 interface HarnessOptions {
   hasMaster?: (label: string) => boolean
+  /**
+   * What the SPAWN reports: it found a live master owning the label and attached
+   * to that instead of creating one. This — not `hasMaster` — is what decides the
+   * generation reset, so the adopted rows below must drive it here.
+   */
+  adopted?: boolean
   redrawFrame?: string
   subscribeFrame?: string
   /** Browser/replay history already owned by a master that survived the daemon. */
@@ -147,7 +156,7 @@ function harness(opts: HarnessOptions = {}) {
       if (opts.spawnError) throw opts.spawnError
       const client = fakeClient(opts.redrawFrame, opts.subscribeFrame)
       state.clients.push(client)
-      return client
+      return opts.adopted ? { ...client, adopted: true } : client
     },
     reclaim: async (label) => {
       state.reclaimed.push(label)
@@ -358,7 +367,11 @@ describe('the client terminal a server-family attach produces', () => {
     const priorHistory = Buffer.from('older scrollback').toString('base64')
     const { terminals, state } = harness({
       redrawFrame: initialPaint,
+      // `hasMaster` seeds `adopt()`, which holds no session and must still probe
+      // by label. `adopted` is what the spawn reports, and it is what the reset
+      // is decided on.
       hasMaster: () => adopted,
+      adopted,
       priorFrames: adopted ? [{ streamId: SESSION, data: priorHistory }] : [],
     })
 
@@ -392,6 +405,59 @@ describe('the client terminal a server-family attach produces', () => {
     expect(state.frames.at(-1)).toEqual({ streamId: endpoint.streamId, data: initialPaint })
     expect(state.frames.every((frame) => frame.streamId === endpoint.streamId)).toBe(true)
     expect(state.clients[0]?.redraws).toBe(1)
+  })
+
+  /**
+   * THE CONFIGURATION NO FIXTURE COULD REPRESENT (POD-2761).
+   *
+   * The reset used to be decided by `hasMaster`, sampled before the spawn. In
+   * PRODUCTION nothing passes that port, so the default ran — and the default
+   * probed the DAEMON's `HOME` for a master created under the agent home. The
+   * two rows below are the two ways that answer is wrong, and neither could be
+   * written while the fixture drove the same port the discriminator read: the
+   * fake was always self-consistent, so the divergence had nowhere to appear.
+   */
+  it('withholds the reset when the SPAWN adopted, even where a label probe is blind', async () => {
+    const priorHistory = Buffer.from('older scrollback').toString('base64')
+    const { terminals, state } = harness({
+      redrawFrame: Buffer.from('\x1b[2Jcodex ready').toString('base64'),
+      // The live master is invisible to a probe reading the wrong socket root —
+      // exactly what the default `hasMaster` did to an agent home.
+      hasMaster: () => false,
+      adopted: true,
+      priorFrames: [{ streamId: SESSION, data: priorHistory }],
+    })
+
+    await terminals.attach({ sessionId: SESSION, target })
+
+    const decoded = state.frames.map((frame) =>
+      Buffer.from(frame.data, 'base64').toString('latin1'),
+    )
+    // A reset here is destructive, not cosmetic: `[3J` drops the surviving TUI's
+    // scrollback from the browser AND the replay log, and the reattach's resize
+    // redraw brings back only the viewport. The history must survive untouched.
+    expect(decoded.filter((data) => data.includes('\x1b[3J'))).toEqual([])
+    expect(decoded).toEqual(['older scrollback', '\x1b[2Jcodex ready'])
+  })
+
+  it('emits the reset when the spawn CREATED, even though a master existed a moment earlier', async () => {
+    // The TOCTOU the old ordering carried: a master alive when the probe ran and
+    // gone by the time the spawn landed. The client is then a brand-new TUI
+    // generation with no anchor, painting its whole interface below the last
+    // one — the duplicated-interface report this issue was opened for.
+    const { terminals, state } = harness({
+      redrawFrame: Buffer.from('\x1b[2Jcodex ready').toString('base64'),
+      hasMaster: () => true,
+      adopted: false,
+    })
+
+    await terminals.attach({ sessionId: SESSION, target })
+
+    const decoded = state.frames.map((frame) =>
+      Buffer.from(frame.data, 'base64').toString('latin1'),
+    )
+    expect(decoded.filter((data) => data.includes('\x1b[3J'))).toHaveLength(1)
+    expect(decoded[0]).toContain('\x1b[3J')
   })
 
   it('routes browser input, geometry, and redraw back to the attached TUI', async () => {
@@ -607,6 +673,92 @@ describe('warm-parking', () => {
     await terminals.close(SESSION)
     expect(state.armed).toBe(0)
     expect(state.reclaimed).toEqual([])
+  })
+
+  /**
+   * THE DEFAULT PROBE — THE ONLY ONE PRODUCTION EVER RUNS (POD-2761).
+   *
+   * Every other test here injects `hasMaster`, so none of them touches the
+   * default, and the default was wrong: it read the DAEMON's `HOME` for a master
+   * abduco created under the instance agent home. `abducoSocketDirs` falls back
+   * to `$HOME/.abduco` only when `ABDUCO_SOCKET_DIR` is unset — which is why a
+   * NAMED instance never saw this (`applyInstanceRuntimeEnv` pins that variable
+   * on both sides) and an agent home on the default instance did.
+   *
+   * Driven against the real filesystem and the real `abducoSocketPath`, because
+   * a fake socket root is the one thing that cannot pin a bug about which socket
+   * root gets read. Only `reclaim` is injected, so nothing forks `abduco`.
+   */
+  describe('the default master probe, against a real socket directory', () => {
+    const realHome = process.env.HOME
+    const realSocketDir = process.env.ABDUCO_SOCKET_DIR
+    let agentHome: string
+    let daemonHome: string
+
+    beforeEach(() => {
+      agentHome = mkdtempSync(join(tmpdir(), 'pod2761-agent-home-'))
+      daemonHome = mkdtempSync(join(tmpdir(), 'pod2761-daemon-home-'))
+      // The EXPOSED configuration is the unpinned one. With ABDUCO_SOCKET_DIR
+      // set, both sides resolve one root and `HOME` never enters the answer.
+      delete process.env.ABDUCO_SOCKET_DIR
+      process.env.HOME = daemonHome
+      // A live master, where abduco puts one for a client whose HOME is the
+      // agent home. Relative names are stored `<label>@<hostname>`, and a clear
+      // group-execute bit is what abduco writes to mean "not terminated".
+      const dir = join(agentHome, '.abduco')
+      mkdirSync(dir, { recursive: true })
+      const socket = join(dir, `${codexAttachLabel(SESSION)}@${hostname()}`)
+      writeFileSync(socket, '')
+      chmodSync(socket, 0o600)
+    })
+
+    afterEach(() => {
+      if (realHome === undefined) delete process.env.HOME
+      else process.env.HOME = realHome
+      if (realSocketDir !== undefined) process.env.ABDUCO_SOCKET_DIR = realSocketDir
+      rmSync(agentHome, { recursive: true, force: true })
+      rmSync(daemonHome, { recursive: true, force: true })
+    })
+
+    function subject(homeDir?: string) {
+      const reclaimed: string[] = []
+      const terminals = createOpencodeClientTerminals({
+        frames: () => {},
+        // `hasMaster` is DELIBERATELY not injected here: it is the subject.
+        reclaim: async (label) => {
+          reclaimed.push(label)
+        },
+        setTimer: () => 1,
+        clearTimer: () => {},
+        ...(homeDir ? { homeDir } : {}),
+      })
+      return { terminals, reclaimed }
+    }
+
+    it('reclaims a parked master that lives under the agent home', async () => {
+      const { terminals, reclaimed } = subject(agentHome)
+      // No attachment record, so teardown has nothing but the label to go on.
+      await terminals.close(SESSION)
+      expect(reclaimed).toEqual([codexAttachLabel(SESSION)])
+    })
+
+    it('adopts that same master back under a deadline', () => {
+      const { terminals } = subject(agentHome)
+      terminals.adopt(SESSION, 'codex')
+      expect(terminals.reclaimable()).toBe(1)
+    })
+
+    it('follows homeDir, and is not merely answering yes to everything', async () => {
+      // The control that gives the two rows above their direction. With no agent
+      // home the daemon's own `HOME` IS the right place to look, and there is no
+      // master in it — so the probe must say no. Before the fix both arms said
+      // no, and the master leaked while nothing ever adopted it back.
+      const { terminals, reclaimed } = subject(undefined)
+      await terminals.close(SESSION)
+      terminals.adopt(SESSION, 'codex')
+      expect(reclaimed).toEqual([])
+      expect(terminals.reclaimable()).toBe(0)
+    })
   })
 
   it('holds the warm window OFF while somebody is watching the session', async () => {
