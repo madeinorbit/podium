@@ -418,3 +418,26 @@ free, load falling. A transient spike, almost certainly a neighbouring test run 
 **A single sample of a volatile quantity is not a state.** The threshold that requires three
 consecutive checks exists for exactly this, and *the alarming reading is the one you are most
 tempted to skip it for*. Alarming numbers are the ones most worth re-measuring.
+
+## Credentials: what is forbidden, and what is merely unfamiliar (2026-08-26 17:09 CEST)
+
+Three things are forbidden and this epic has held the line on all of them:
+
+- **Do not CREATE or fabricate a credential.**
+- **Do not ROTATE the operator's** — completing an interactive OAuth login mid-release does
+  exactly that.
+- **Do not set `PODIUM_RUNTIME_DRIVER` to fake a binding.** A drive that forces the driver it
+  is trying to measure measures nothing.
+
+**Copying an EXISTING credential into an isolated agent home is none of those, and it is what
+the rigs already do.** `docs/evidence/pod-2877/grok-rig.sh:145-151` copies the real
+`~/.grok/auth.json` into the derived home at bring-up, **refusing if there is none** rather
+than proceeding without. That is also what the product itself does for a named instance.
+
+A drive stopped a step early on this distinction — its isolated home reported zero
+credentials, so it concluded a genuine binding needed an interactive login, when a real
+credential existed on the box and was copyable. **Being unable to mint one is not the same as
+having none available.**
+
+**And after copying, confirm the PRODUCT sees it** — the harness's own logged-in readout, not
+the file's presence on disk. A setup step is not a condition until the product says so.
