@@ -36,7 +36,7 @@ const FAULT_MODEL = process.env.P2871_FAULT_MODEL ?? 'opencode/laguna-s-2.1-free
 const STORE_WAIT_MS = positiveMs('P2871_STORE_WAIT_MS', 30_000)
 const ANSWER_WAIT_MS = positiveMs('P2871_ANSWER_WAIT_MS', 120_000)
 const FAULT_WAIT_MS = positiveMs('P2871_FAULT_WAIT_MS', 190_000)
-const STATE_DIR = process.env.PODIUM_STATE_DIR
+const STATE_DIR = process.env.P2777_STATE_ROOT
 if (!STATE_DIR) throw new Error('source docs/evidence/pod-2811/drive-env.sh first')
 
 const AGENT_HOME = join(STATE_DIR, 'agent-home')
