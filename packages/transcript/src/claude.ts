@@ -232,6 +232,14 @@ function stripSystemReminders(text: string): string {
 // Harvest the paths into toolPaths — the web renders them as inline thumbnails
 // and the server's file-relay policy allow-lists exactly the paths a transcript
 // references — and strip the raw markers from the shown text.
+//
+// Claude Code writes a SECOND marker for the same image: a bare `[Image #N]`
+// placeholder sitting inline at the paste position, ahead of the prompt the
+// human typed. It carries no path, so harvesting never touched it — and because
+// only the `: source:` form was stripped, every pasted screenshot left a literal
+// "[Image #1]" glued to the front of the message the feed showed (POD-1605).
+// Strip it after the source form, which also matches `[Image #N: source: …]`
+// and must get first refusal on the numbered spelling.
 function harvestImageMarkers(raw: string): { text: string; paths: string[] } {
   const paths: string[] = []
   const text = stripSystemReminders(raw)
@@ -239,6 +247,7 @@ function harvestImageMarkers(raw: string): { text: string; paths: string[] } {
       paths.push(p.trim())
       return ''
     })
+    .replace(/\[Image #\d+\]/g, '')
     .replace(/[ \t]+\n/g, '\n')
     .trim()
   return { text, paths }
