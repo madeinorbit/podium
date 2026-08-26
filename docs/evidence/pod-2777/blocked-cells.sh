@@ -55,6 +55,7 @@ A3 opencode|POD-2885|no|the long-turn wedge freezes both planes, so the interrup
 A3 codex|POD-2885|no|same. Run a3.ts after POD-2885 lands: the refusal turning into a SCORE is the signal the wedge fix reached this path|apps/daemon/src/runtime apps/server/src/modules/sessions packages/agent-runtime
 A4a terminal half|POD-2875|no|opening a second viewer on the native view parks the chat send, so the ask never gets raised|apps/server/src/modules/sessions packages/protocol
 A4a/A4b codex|the harness itself|n/a|codex raises no approval on this host; controlled against codex run OUTSIDE Podium with the same flag|
+A4a/A4b opencode STALE|exception expired|YES|POD-1761's stale-bundle ruling covered drift confined to apps/web. interactions/service.ts and relay.ts have since moved, so the readings taken under it no longer count. RE-DRIVE after a rebuild|apps/server/src/modules/interactions
 ROWS
 )
 

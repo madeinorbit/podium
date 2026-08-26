@@ -103,8 +103,8 @@ H = headless arm, T = terminal arm.
 | A2a | status while working | **PASS** | ☐ | ☐ | ☐ |
 | A2b | status at boot | **PASS** | ☐ | **PASS** | ☐ |
 | A3 | interrupt mid-turn | **REFUSED** | ☐ | ☐ | ☐ |
-| A4a | permission ask | **BLOCKED** | ☐ | **PARTIAL** | ☐ |
-| A4b | answer twice | **BLOCKED** | ☐ | **PASS** | ☐ |
+| A4a | permission ask | **BLOCKED** | ☐ | **PARTIAL — now STALE** | ☐ |
+| A4b | answer twice | **BLOCKED** | ☐ | **PASS — now STALE** | ☐ |
 | A5 | transcript | **PASS** | ☐ | **PASS** | ☐ |
 | A6a | terminal attach + type | **PASS** | **PASS** | **PASS** | **PASS** |
 | A6b | chat↔CLI twice | **PASS\*** | **PASS\*** | **PASS\*** | **PASS\*** |
@@ -206,6 +206,39 @@ latency ones.
 | opencode **A2a** status while working | **FAIL** | prediction was PASS — **wrong**; filed POD-2902 |
 | codex **A2a** re-measured | **PASS** | the original PASS used the wrong instrument |
 | opencode A3 | **not driven** | needs `drive.ts` **and** POD-2885's fix, which has not landed |
+
+### An exception that expired, which is not the same as a fix that landed
+
+POD-1761 ruled at **16:20 CEST** that these cells could be driven at pin
+`372ae4de2` despite a stale bundle, because the drift was *"confined to two
+`apps/web` files, every runtime path byte-identical"*. That was true when granted.
+
+Recomputing the same diff at **18:20** — two hours later:
+
+```
+git diff --name-only 372ae4de2..HEAD -- apps packages scripts
+  apps/server/src/modules/interactions/service.ts     <- the permission/ask path
+  apps/server/src/relay.ts                            <- the socket plane every probe drives
+  … plus test files and the two apps/web files
+```
+
+`interactions/service.ts` is **A4a and A4b territory** — the ask being raised,
+enumerated, answered, and answered twice. So the exception's own basis is gone,
+and the readings taken under it are stale. **A4a (PARTIAL) and A4b (PASS) on
+opencode are marked stale rather than left looking current.**
+
+**The check has to be "is the exception still true", not "was it true when
+granted."** A ruling is a statement about a tree at a moment; the tree keeps
+moving. This is the mirror of the blocked-cell trap — there, a *blocker landed*
+and made a cell drivable; here, *drift accumulated* and made a permission expire.
+Both are invisible unless something recomputes, which is why `blocked-cells.sh`
+now carries the exception as a row.
+
+The other cells driven under the exception — A7a, A7b, A8, A9, A2a — sit on paths
+that have **not** moved, so by POD-1761's own file-level method they still count
+and are not being re-run.
+
+---
 
 ### A6b\* — three clauses measured, one I cannot measure
 
