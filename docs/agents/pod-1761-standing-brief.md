@@ -570,3 +570,20 @@ one would have been a plausible number if the refusal had not fired.**
 The corollary: **a refusal is only valuable if whoever meets it recognises it as information
 rather than as breakage.** Hence — say what a probe's pass looks like, and if its pass is a
 refusal, say that loudest.
+
+## Release your locks before you go idle (2026-08-26 17:56 CEST)
+
+**A session that stands down while holding a shared lease blocks everyone behind it and saves
+nobody anything.** The lease is held from the grab until that session acts again — and a
+parked session does not act again.
+
+Measured 2026-08-26 17:56 CEST: a session held `test:heavy` for **2h18m**, renewing it, with **zero writes in
+ten minutes and no gate process of any kind** — while two sessions waited behind it, one from a
+different epic, the first of them for **three hours**.
+
+**When you are told to stand down, or you decide to go idle: release every lock you hold
+first.** And whoever issues a stand-down must say so — this one did not, which is why it is
+written here rather than sent as a correction.
+
+**Check before you assume a hold is legitimate**, in either direction: a lease naming a gate is
+not evidence a gate is running. Look for the process.
