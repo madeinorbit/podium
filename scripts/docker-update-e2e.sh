@@ -13,6 +13,27 @@ PROVE_FAILURE="${PODIUM_UPDATE_E2E_PROVE_FAILURE:-}"
 ONLY="${PODIUM_UPDATE_E2E_ONLY:-}"
 HOLD="${PODIUM_UPDATE_E2E_HOLD:-0}"
 HOLD_REF="${PODIUM_UPDATE_E2E_HOLD_REF:-worktree-pod-2462-update-path}"
+# WHETHER THESE INSTANCES REQUIRE A LOGIN (POD-2828).
+#
+# Every run before this one set `acknowledgeNoPassword`, so the whole gate has
+# only ever exercised the update path with authentication OFF — which is not
+# what any real install looks like. Set a password here and setup requires one,
+# so the fleet join, the `/client` websocket handshake and the update grants all
+# cross an authenticated boundary the way they do in the field.
+#
+# It is set AT SETUP, never changed afterwards: changing a password on an
+# already-configured box is a different act, and on builds predating POD-2766 it
+# is the one that locks the operator out.
+E2E_PASSWORD="${PODIUM_UPDATE_E2E_PASSWORD:-}"
+# The credential clause `setup.complete` gets: a real password, or the explicit
+# acknowledgement that this instance has none.
+setup_auth_clause() {
+  if [[ -n "$E2E_PASSWORD" ]]; then
+    printf '"password":%s' "$(jq -Rn --arg p "$E2E_PASSWORD" '$p')"
+  else
+    printf '"acknowledgeNoPassword":true'
+  fi
+}
 # THE COORDINATOR'S OWN SHAPE. Defaults to `server`, which is what the scenario
 # rows assert against: a server-only coordinator is the shape that exposed
 # POD-2668 (the machine running the server could not update itself) and the rows
@@ -736,7 +757,7 @@ fresh_install() {
     container_http_probe "$container" GET http://127.0.0.1:18787/health
   container_http_request "$container" POST \
     http://127.0.0.1:18787/trpc/setup.complete \
-    '{"publicUrl":"http://127.0.0.1:18787","mode":"all-in-one","port":18787,"acknowledgeNoPassword":true}'
+    "{\"publicUrl\":\"http://127.0.0.1:18787\",\"mode\":\"all-in-one\",\"port\":18787,$(setup_auth_clause)}"
   ! jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"
   container_exec "$container" pkill -f 'podium-cli setup' >/dev/null 2>&1 || true
   sleep 1
@@ -924,7 +945,7 @@ setup_source() {
   [[ -n "$ADVERTISED_URL" ]] || die "setup_source ran before the advertised address was resolved"
   container_http_request "$SOURCE" POST \
     http://127.0.0.1:18787/trpc/setup.complete \
-    "{\"publicUrl\":\"$ADVERTISED_URL\",\"mode\":\"$COORDINATOR_MODE\",\"port\":18787,\"acknowledgeNoPassword\":true}" ||
+    "{\"publicUrl\":\"$ADVERTISED_URL\",\"mode\":\"$COORDINATOR_MODE\",\"port\":18787,$(setup_auth_clause)}" ||
     return 1
   ! jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"
 }
@@ -2030,7 +2051,11 @@ fi)
   A cold server-only coordinator has no local coding harness. Open this update-only
   entry and press "Finish setup" to bypass agent selection, exactly as the automated
   updater probe does. This does not verify agent onboarding.
-Authentication: none; this isolated coordinator explicitly acknowledges no password.
+Authentication: $(if [[ -n "$E2E_PASSWORD" ]]; then
+    printf 'REQUIRED. Log in with the password this run was given (PODIUM_UPDATE_E2E_PASSWORD).'
+  else
+    printf 'none; this isolated coordinator explicitly acknowledges no password.'
+  fi)
 EOF
 }
 
