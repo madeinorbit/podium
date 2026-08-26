@@ -3,7 +3,7 @@
   "compilerOptions": {
     "paths": { "@/*": ["./src/*"] },
     "types": ["node", "chai", "react", "react-dom"],
-    "preserveSymlinks": true
+    "preserveSymlinks": false
   },
   "include": ["src", "test", "vite.config.ts"]
 }
