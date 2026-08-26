@@ -111,6 +111,40 @@ Gates: `bun run typecheck` plain — 25/25 successful. Per-file, with
 `PODIUM_TEST_WORKERS` unset via `env -u`: `inbox.test.ts` +
 `oracle-idempotency.test.ts` 98 passed (98).
 
+## The numbers raised to tolerate the bug, brought back down
+
+`oracle-idempotency.test.ts` carried `FIRST_SEND_AFTER_BIND_MS = 10_000` and
+three 30-second per-test bounds, raised for no reason but this latency. All four
+are gone: the constant is back to the helper's own 2s default, stated explicitly
+only so a future regression in the clock fails here rather than quietly getting
+slow again, and the three `}, 30_000)` bounds are removed.
+
+They come down by a change of SETUP, not by a looser assertion. The fixture's
+registry now takes a movable clock (`makeOracle({ now })`, additive and opt-in —
+every other caller still gets `Date.now`), and `goIdle` advances it by 60s after
+announcing the bind. The drain still polls on real timers; only the elapsed time
+it asks the registry for moves. So the send those three make is the send they
+were always about — a dedup replay into a session whose composer has
+demonstrably had its window — rather than a measurement of how long a fresh CLI
+takes to mount one.
+
+| test | before | after |
+| --- | --- | --- |
+| `resumeAndSend` dedupes its replay | 2108ms | 320ms |
+| `sendText` dedupes its replay | 2056ms | 351ms |
+| a replayed send does not double-type | 2075ms | 260ms |
+
+Both halves are load-bearing, each pinned by its own mutation:
+
+| mutation | result |
+| --- | --- |
+| `BIND_AGED_BY_MS` 60_000 → 0 (stop ageing the bind) | all 3 time out |
+| the fix reverted, tightened rig kept | all 3 time out |
+
+The second row is the honest statement of the dependency: the tightened bound is
+affordable only because the clock is anchored to the bind. None of the three
+still needs a raised bound.
+
 `relay.outbox.test.ts` is 5 failed / 12 on BOTH arms — identical failure names,
 pre-existing on the epic tip (the confirmed-turn contract, POD-2831/POD-2837
 territory). The eleven services-lane `oracle-*` failures are likewise 34 failed

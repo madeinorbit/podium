@@ -187,6 +187,15 @@ export function makeOracle(
     machineId?: MachineId
     offlineMachines?: OfflineMachine[]
     portableStateFence?: PortableStateFence
+    /**
+     * The registry's clock, when a test needs to age something rather than wait
+     * for it (POD-2836). The composer-readiness window is measured from the
+     * BIND, so a fixture that wants a send to behave like one into a session
+     * bound minutes ago moves this rather than sleeping — the drain still polls
+     * on real timers, it just asks this for the elapsed time. Absent means
+     * `Date.now`, which is every other caller.
+     */
+    now?: () => number
   } = {},
 ): Oracle {
   const store = new SessionStore(':memory:')
@@ -215,6 +224,7 @@ export function makeOracle(
   const reg = new SessionRegistry(store, undefined, {
     instanceId: 'default',
     ...(opts.portableStateFence ? { portableStateFence: opts.portableStateFence } : {}),
+    ...(opts.now ? { now: opts.now } : {}),
   })
   registries.push(reg)
   // The daemon the oracle attaches is THIS HOST's (POD-318): the registry
