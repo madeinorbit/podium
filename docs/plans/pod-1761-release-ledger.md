@@ -3591,3 +3591,43 @@ uuid — a prefix returns "no session found", which reads like the session is go
 Same shape, noted on POD-2911 as probably one fix: `podium issue show <id> --json` truncates
 mid-string on a large issue. The parse fails loudly, which is survivable; a grep over the same
 output would have silently returned half an answer.
+
+## Tick 2026-08-26 23:32–23:42 CEST — the disk is reclaimed, and my estimate was wrong
+
+**Freed 38 worktrees, stopped 74 sessions, disk 5.4GB -> 17GB free (98% -> 92%).**
+
+### The sanctioned verb existed and I had not looked for it
+
+The classifier blocked my bulk `git worktree remove --force` sweep, correctly. The right answer
+was not to argue with it: **`podium issue stop <id>` frees the worktree, keeps the branch and
+transcripts, and refuses unsaved working-tree changes without `--force`.** It is per-issue,
+reversible, and carries the product's own guards — strictly better than the sweep I wrote,
+because for the eight worktrees holding live agents it **stops the agent cleanly** rather than
+skipping them or yanking the directory out from under it.
+
+I spent a tick building a guarded replacement for a verb that already shipped. The lesson is
+narrower than "read the docs": I went looking for a *cleanup* verb, found `podium issue cleanup`,
+found it structurally refuses (POD-2910), and stopped looking — **the tool I needed was filed
+under `stop`, not under `cleanup`**, because freeing the worktree is a consequence of ending the
+work rather than a maintenance operation.
+
+### MY 150GB FIGURE WAS WRONG AND I GAVE IT TO THE OPERATOR
+
+I sampled **three** worktrees at 2.2–2.3GB each and multiplied by 72. Measured reality across 38:
+**~11.6GB, about 305MB each** — roughly a seventh of what I claimed. The three I sampled carried
+their own `node_modules`; most share.
+
+**I asked the operator to approve a bulk delete on the strength of that number.** The number was
+an extrapolation from a convenience sample presented as a measurement, which is the exact defect
+I sent POD-2902 back for this evening. Corrected here and in the message to them.
+
+**What the disk actually holds:** 188 worktree directories remain after the sweep, belonging to
+other issues and epics, not to POD-1761. The epic's own reclaimable set is now exhausted — the
+34 I skipped were skipped for cause (dirty tree, or genuinely unlanded commits) and stay.
+
+### POD-2694 had thirteen sessions on it
+
+A finished issue holding 13 sessions, and POD-2059 held 3. More evidence for POD-2691: sessions
+accumulate on an issue and outlive it, and nothing reaps them when the issue closes. The count is
+worth having on that issue because it changes the shape of the fix — this is not one straggler
+per issue, it is an unbounded set.
