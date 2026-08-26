@@ -3218,3 +3218,40 @@ required — the most-repeated mistake on this epic, and the fourth session to m
     PARITY      everything else driven
 
 **Four of eight defects closed and driven. 24 product fixes landed today.**
+
+
+## THE RE-DRIVE LIST IS 10 CELLS, NOT 30 ROWS — narrowed by checking rather than assuming (2026-08-26 21:17 CEST)
+
+I reported at 20:47 that landing the wedge fix invalidated **30 of 67 rows**. That was the
+right alarm and the wrong unit. Narrowed three times, each step by measurement:
+
+**1. Rows are not cells.** Several rows are the *same cell* recorded at different commits —
+`long turn completes`, `…POST-MERGE`, `…POST-FIX` are one cell, three readings. Counting
+distinct cells: **15**, not 30.
+
+**2. The long-turn cells were driven against the code that landed.** I cherry-picked
+`e6d951065` onto the tip as `fdfbe9343`, and the patch-ids **differ** — which alarmed me,
+since a cherry-pick onto a different base can silently change what lands. So I compared file
+contents rather than patches:
+
+    SAME       terminal-driver.ts, codex/grok-acp/opencode runtimes, events.ts, fake-driver.ts
+    DIFFERENT  terminal-driver.test.ts   — one line
+
+**Every product file is byte-identical.** The single differing line is in a TEST and is a
+deliberate guard — `if (index < EVENT_LOG_LIMIT) pending = stream.next()` — present in the
+landed version, absent in the earlier one. So I cherry-picked the *refined* commit, and the
+product code POD-2885 drove is exactly the product code that shipped. **Those cells stand.**
+
+**3. The reattach cell is unaffected.** The fix touches no abduco or session-control file, and
+that cell measures the socket-resolution path rather than the event stream.
+
+    FINAL: 10 distinct cells need re-confirmation
+      codex-headless    A1a, A2a, A5, A6a, A6b
+      codex-terminal    A1a, A6a, A6b
+      opencode-headless A2a  (currently FAIL — POD-2902's open defect)
+      opencode-terminal (covered by the long-turn re-drive)
+
+**The lesson is the one this epic keeps paying for, applied to my own alarm:** *a plausible
+count is not a measured one.* "30 rows stale" would have sent three sessions re-driving work
+that was already valid. **Patch-ids differing is a reason to look, not a conclusion** — and the
+thing that settled it was comparing what the files actually contain.
