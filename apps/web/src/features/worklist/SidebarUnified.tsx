@@ -12,6 +12,7 @@ import {
 import { asIssueId, type IssueId, isIssueDeferred } from '@podium/model/browser'
 import * as m from 'motion/react-m'
 import type {
+  AnimationEvent as ReactAnimationEvent,
   CSSProperties,
   JSX,
   MouseEvent as ReactMouseEvent,
@@ -628,7 +629,7 @@ export function WorkSections({
         }
         onAnimationEnd={
           arriving
-            ? (e) => {
+            ? (e: ReactAnimationEvent<HTMLDivElement>) => {
                 // The wash is the longest of the three one-shots — its end (which
                 // bubbles up from the row) means the arrival is fully over.
                 if (e.animationName === 'podium-arrive-wash') settle(item.key, item.placement)

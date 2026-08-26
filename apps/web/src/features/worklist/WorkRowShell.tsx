@@ -377,7 +377,7 @@ export function WorkRowShell({
             style={{ top: 'calc(var(--work-row-pad) - 2px)' }}
             title="Tuck this finished task down into Closed — it stays reachable there (click to reopen, or start an agent to pick it back up). Nothing is killed or closed."
             aria-label={`Tuck ${label} into Closed`}
-            onClick={(event) => {
+            onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
               event.stopPropagation()
               onTuck()
             }}
