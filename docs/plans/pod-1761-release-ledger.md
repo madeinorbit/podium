@@ -4217,3 +4217,34 @@ fixes.**
 agents in `/tmp` state roots, and now stopped agents coming back — all of them are sessions
 outliving the thing that was supposed to end them, and all of them cost gigabytes on a box that
 ran out of disk tonight.
+
+### The second disk wall was NOT ours (2026-08-27 01:54 CEST)
+
+Root hit 100% again at 01:45 — 1.5GB free, down from 12GB in six minutes. I had assumed my own
+parallelisation, having made exactly that mistake an hour earlier. **It was not.**
+
+    4.3G  /tmp/podium-2781-cache.d8e9cfc90
+    4.3G  /tmp/podium-2781-cache.6c0714167
+    4.3G  /tmp/podium-2781-cache.2e1842c9f      <- new in that window
+    4.3G  /tmp/podium-2781-cache.2e1842c9f-r2   <- new in that window
+    653M  /tmp/podium-2781-work.2e1842c9f-r2
+
+**A neighbour issue is accumulating one 4.3GB cache per run — 17.2GB across four, up from two an
+hour ago.** The `-r2` pair looks like a retry taking a second full copy of the same hash.
+
+**I did not touch them and will not.** They are not mine, they may be live, and I cannot tell a
+cache still in use from one that is finished. **Mailed POD-2781 instead** with the measurement,
+my guess at the cause, and an explicit note that I am not asking it to stop or hurry —
+`test:heavy` is legitimately theirs and they have taken it properly all night.
+
+**What I did reclaim: `/tmp/pod-2876-epic`, 2.2GB**, after checking it had zero live processes and
+that POD-2876 is `done`. That is the fourth time tonight the `readlink /proc/<pid>/cwd` check has
+decided whether a directory was safe to remove, and the second time it said no.
+
+**THE CORRECTION I OWE MY OWN DECISION 19.** I wrote it minutes ago blaming this box's capacity on
+my four drive sessions plus the neighbour's lock, and recommended capping my concurrency at three.
+**The ceiling arithmetic still holds — a worktree with `node_modules` really does cost 2–3GB —
+but the proximate cause of THIS wall was 8.6GB of someone else's cache appearing in six minutes,
+and capping my sessions would not have prevented it.** Both things are true and I stated only the
+one that was my fault. Overcorrecting toward self-blame is still getting the cause wrong, and it
+would have had me throttle the only thing moving coverage.
