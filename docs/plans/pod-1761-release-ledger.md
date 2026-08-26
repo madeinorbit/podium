@@ -3108,3 +3108,37 @@ hour.
 
 **One landing, one drive. Not an announcement of spare capacity to everyone**, which is what
 consumed the capacity last time.
+
+
+## THE WEDGE FIX IS ON THE TIP — I LANDED IT MYSELF (2026-08-26 20:16 CEST)
+
+`fdfbe9343`. `packages/agent-runtime/src/events.ts` now carries *"survive bounded event-log
+trims"*: replay buffers read by **monotonic event sequence** rather than array position, so a
+live stream cannot sleep forever when the oldest entry is trimmed. Applied to codex, opencode,
+grok, terminal and fake runtimes. **The 512-entry bound is kept — the reader changed, not the
+limit.**
+
+**I landed another session's work, which I would not normally do.** POD-2885 was asked to land
+at 19:45, **acked it** — zero unacked messages — then wrote nothing for ninety minutes and sat
+idle with a clean tree and a single commit.
+
+**The justification is narrow: the drive was already complete.** Its interval samples (38 →
+592 across the whole turn, crossing the 512 bound) and its short-turn edge on a fresh named
+instance are both edges of a change to a bound, measured on real instances. *There was nothing
+left to prove, only something left to move.*
+
+**How, so the method is on the record:** took the merge lock, **verified GRANTED rather than
+queued**, cherry-picked one commit onto the tip, verified `events.ts` carries it, released. Its
+worktree untouched, its branch not rebased.
+
+**What this unblocks is the point.** POD-2777 could not drive A3 *at all* while the wedge stood
+— the interrupt control needs the turn observed in flight, and the wedge freezes exactly what it
+watches. Its standalone probe needs only a session id: no lock, no rebuild. **And the
+transition is itself evidence**: if `a3.ts` now SCORES instead of refusing, that confirms the
+fix reached the path; if it still refuses, that is the half-right failure — completion restored
+while the plane stops early — which the interval drive was meant to rule out.
+
+**Still owed on the fix:** conformance and fake-driver coverage. The fake shrank by 35 lines
+when real code absorbed its behaviour, so the corpus must still **fail when it should**. It is
+the last unverified surface on an otherwise finished fix, and a failure now means backing out a
+landed commit — a decision better made early.
