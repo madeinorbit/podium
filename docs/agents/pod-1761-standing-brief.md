@@ -825,3 +825,13 @@ The coordinator can now check whether a session is running anything. It still ca
 whether a session has *finished* — a session that believes it is done while a probe is still
 draining will hand the turn on early. **Self-report remains load-bearing for completion**, so
 a handover should say what was observed, not just that it ended.
+
+### Knowing the trap is not a control (2026-08-26 18:38 CEST)
+
+The coordinator wrote the backtick rule into this brief at 17:57, after it silently ate three
+values out of a ledger entry — **and hit it again at 18:37**, in a message about a guard that
+had never protected the thing it was written for.
+
+**A rule you have written down and not enforced is the same class as that broken guard: a
+protection that exists in intent and not in mechanism.** Quote the delimiter (`<<'EOF'`), or
+write the text through a file. Do not rely on remembering.
