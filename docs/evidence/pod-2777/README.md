@@ -53,6 +53,37 @@ a second reason to prefer the within-one-commit comparison over a
 before-and-after in time.
 
 
+## Two ways a number lies: a spike, and a ledger row
+
+**A single sample of a volatile quantity is not a state.** My host watch fired at
+`swap-out 107,144 KB/s, available 1,325 MB` — an order of magnitude worse than
+anything else that day, and I was about to report the box as failing. Three fresh
+samples taken immediately after: **swap-out zero, 4,575 MB available, load
+falling**. It was a transient spike as a neighbouring test run released. This is
+exactly why the resume threshold requires *three consecutive* checks, and I
+nearly ignored my own rule because the number was alarming. **Alarming numbers
+are the ones most worth re-measuring**, not least.
+
+**A ledger row is not the branch.** The shared ledger carried
+`docs(plans): the long-turn wedge is fixed and driven`. Checked:
+
+```
+git show --stat b08359df1      -> 2 files, BOTH under docs/plans
+git diff --name-only HEAD..issue/1761-agent-runtime -- apps packages
+                               -> two test files, nothing else
+git log HEAD..issue/1761-agent-runtime -- apps/daemon/src/runtime \
+        apps/server/src/modules/sessions packages/agent-runtime
+                               -> empty
+```
+
+The fix is real and driven — on its own branch. The ledger entry is true *there*
+and reads, on the shared branch, as though the code is here. That is
+"committed is not reachable" one level up, and it is the more dangerous version,
+because a ledger is what people consult *instead of* checking.
+
+When recording a fix, name the commit **and the branch**, so *fixed* and *landed*
+cannot be read as the same word.
+
 ## A sequencing rule the pin guard taught me
 
 **Do not rebase while the rig is building.** I started `drive-up.sh` in the
