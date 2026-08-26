@@ -154,6 +154,30 @@ alarming finding than a new defect, and worth reporting as such.
 
 ---
 
+## Predictions for the six undriven cells, recorded BEFORE driving them
+
+Written down while blocked on the heavy-work lock, so that when these run the
+results are falsifiable rather than rationalised afterwards. Where a prediction
+is wrong, that is the interesting outcome and it will be reported as one.
+
+| cell | prediction | why |
+|---|---|---|
+| opencode **A3** interrupt | **REFUSES**, same as codex | its control needs the turn observed in flight; opencode wedges the same way (POD-2885), so both planes are frozen by the time the control samples. If it instead SCORES, the wedge is not identical across harnesses and that matters to POD-2885. |
+| opencode **A2a** status while working | **PASS** | codex passed with 51 preview frames; opencode's preview plane demonstrably works for its first ~20s before the wedge. A2a and the wedge are the same behaviour at different timescales. |
+| opencode **A7a** daemon restart | **PASS** | codex passed; opencode's resume path is exercised by A7b already. |
+| opencode **A7b** hibernate + wake | **PASS** | it passed on codex and POD-2775 fixed opencode's adopt path specifically. |
+| opencode **A9** kill session | **PASS** | codex passed; the kill path is shared, not per-driver. |
+| codex **A8** logged-out spawn | **PARTIAL**, same as opencode | the demotion should be declared (`condition`, `requestedDriverId`, `loginRequired`) with no login affordance on the session, because the missing affordance is a contract-level gap the catalogue already declares absent — not a per-driver one. |
+
+Five of six predict the columns keep agreeing. **The one I would most like to be
+wrong about is opencode A3**: if it scores where codex refuses, the two wedges
+differ in a way POD-2885 needs to know.
+
+Two of these six are timing-sensitive (A2a, A3) and will be driven **last**, with
+host load and swap stated alongside the result.
+
+---
+
 ## The cells that were driven
 
 ### A1a — send while idle · codex · headless · **PASS**
