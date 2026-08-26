@@ -12,9 +12,11 @@
  * keeping the terminal path as its permanent fallback.
  */
 
-import { describe, expect, it } from 'vitest'
+import { asSessionId } from '@podium/model'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   codexAppServerConfigArgs,
+  codexClientSocketPath,
   codexAppServerVersionProbe,
   codexScopeLabel,
   resetCodexAppServerVersionProbe,
@@ -27,6 +29,73 @@ import {
   isServerDriverId,
   resolveRuntimeDriver,
 } from './registry'
+
+/**
+ * Temporary local form of the shared Unix-socket predicate. Once POD-2853's
+ * utility lands on this branch, this one line becomes its import; the boundary
+ * and the two edge cases stay exactly the same.
+ */
+const socketPathFits = (path: string): boolean => Buffer.byteLength(path, 'utf8') < 108
+
+const LEGACY_SOCKET_ROOT = '/home/mgw/.local/state/podium'
+const CODEX_SOCKET_DIR = 'runtime/codex-app-server-sockets'
+const CODEX_SOCKET_BASENAME = 'abcdefabcdef-123456789012.sock'
+
+const legacyCodexSocketPath = (instanceId: string): string =>
+  `${LEGACY_SOCKET_ROOT}/${instanceId}/${CODEX_SOCKET_DIR}/${CODEX_SOCKET_BASENAME}`
+
+const savedInstanceEnv = {
+  HOME: process.env.HOME,
+  PODIUM_INSTANCE: process.env.PODIUM_INSTANCE,
+  PODIUM_STATE_DIR: process.env.PODIUM_STATE_DIR,
+  XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+  XDG_STATE_HOME: process.env.XDG_STATE_HOME,
+}
+
+beforeEach(() => {
+  process.env.HOME = '/home/mgw'
+  process.env.XDG_RUNTIME_DIR = '/run/user/1001'
+  delete process.env.PODIUM_STATE_DIR
+  delete process.env.XDG_STATE_HOME
+})
+
+afterEach(() => {
+  for (const [key, value] of Object.entries(savedInstanceEnv)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+})
+
+describe('the Codex app-server socket path budget', () => {
+  it('keeps the measured old boundary and fits both edge instance ids', () => {
+    const lastAccepted = 'i'.repeat(13)
+    const firstRefused = 'i'.repeat(14)
+
+    // These are the measured legacy compositions this regression closes: the
+    // last accepted path is 107 bytes, while the first refused path reaches
+    // the 108-byte sockaddr_un ceiling.
+    expect(Buffer.byteLength(legacyCodexSocketPath(lastAccepted), 'utf8')).toBe(107)
+    expect(Buffer.byteLength(legacyCodexSocketPath(firstRefused), 'utf8')).toBe(108)
+    expect(socketPathFits(legacyCodexSocketPath(lastAccepted))).toBe(true)
+    expect(socketPathFits(legacyCodexSocketPath(firstRefused))).toBe(false)
+
+    process.env.PODIUM_INSTANCE = lastAccepted
+    const lastPath = codexClientSocketPath(
+      asSessionId('019edef7-3e34-7513-92b9-35f3a0dac891'),
+      'abcdefabcdef-123456789012',
+    )
+    process.env.PODIUM_INSTANCE = firstRefused
+    const firstPath = codexClientSocketPath(
+      asSessionId('019edef7-3e34-7513-92b9-35f3a0dac891'),
+      'abcdefabcdef-123456789012',
+    )
+
+    expect(lastPath).toContain(`/run/user/1001/podium-${lastAccepted}/`)
+    expect(firstPath).toContain(`/run/user/1001/podium-${firstRefused}/`)
+    expect(socketPathFits(lastPath)).toBe(true)
+    expect(socketPathFits(firstPath)).toBe(true)
+  })
+})
 
 describe('env hygiene — the subscription-auth mechanism', () => {
   it('strips every credential that could outrank the stored ChatGPT login', () => {
