@@ -973,3 +973,26 @@ Resolve ids with `podium issue show <id> --json` and read `data.sessions[].sessi
 silence from the recipient does not distinguish "read it and disagreed" from "never saw it". If
 something is gating, put it where the recipient will trip over it — a session send, or a comment
 on the issue — not only in mail.
+
+### Before queueing for test:heavy, ask whether the arms differ (2026-08-27 00:02 CEST)
+
+A session reported itself blocked: its pre-fix control needed a web build, and `test:heavy` was
+held with a queue forming. It was right not to bypass the lock and wrong about being blocked.
+
+**Check what the fix commit actually touches before you build anything.** Of the nine landed fixes
+that session was sent to drive, **eight change zero files under `apps/web`**. For those, the two
+arms are **byte-identical in web**, so the arms cannot differ in a bundle — you need ONE, and you
+swap only the daemon between arms. That halves the lock time. Only one of the nine changed web
+files at all.
+
+**Two questions, and they are not the same:**
+1. *Do the arms differ in what I would build?* Only if the fix touches that layer. A daemon-side
+   fix needs one bundle for both arms, never two.
+2. *Do I need a bundle at all?* Only if the SYMPTOM is visible on screen. Five of those nine had
+   symptoms observable from the daemon or server, so they need no bundle and no lock — they can be
+   driven while the lock is contended by someone else.
+
+**So a contended lock is a reason to reorder your work, not to stop.** Drive the cells that do not
+need it, and queue for the ones that do when their turn comes. `test:heavy` is the most contended
+resource on this box, and a meaningful share of the builds taken under it are for arms that are
+identical to each other.
