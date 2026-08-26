@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { DOUBLE_CLICK_MS } from './click-intent'
 import {
   continuationPresenceLine,
   deckTaskUnread,
@@ -713,13 +714,21 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
   })
 
   it('changes a proposed issue from its status icon without opening the row', async () => {
+    // This file's fake clock is for the click-intent window. Base UI positions
+    // the status menu on rAF, and the two together make `findByRole` miss the
+    // item. The rest of the suite can keep the fake clock; this test needs the
+    // menu to actually open, then a real wait past the double-click window so
+    // a leaked row click would still have fired.
+    vi.useRealTimers()
     const openPanel = vi.fn()
     window.addEventListener('podium:open-right-panel', openPanel)
     deck()
 
     fireEvent.click(screen.getByLabelText('Status: Proposed'))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Backlog' }))
-    settle()
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, DOUBLE_CLICK_MS + 40))
+    })
 
     expect(harness.updateIssue).toHaveBeenCalledWith('p1', { stage: 'backlog' })
     expect(openPanel).not.toHaveBeenCalled()
