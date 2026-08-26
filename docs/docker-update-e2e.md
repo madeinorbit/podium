@@ -22,9 +22,8 @@ The command needs Docker, Bun, Git, curl, jq, OpenSSL, Zig, rcodesign, an instal
 Playwright Chromium, and at least 10 GiB free on both the worktree and Docker-data
 filesystems. Zig and rcodesign are
 mounted read-only into the source builder because the production publisher cross-builds
-all four headless targets. The official `ubuntu:24.04` image must already be present; the
-gate never pulls or removes a shared base image. It provisions one uniquely labeled seed,
-commits one exact run-owned image, and removes both without leaving BuildKit cache. The
+all four headless targets. The gate never pulls or removes a shared base image. It
+provisions one uniquely labeled seed, and removes it, without leaving BuildKit cache. The
 command refuses before creating a Docker object when either disk floor is not met. Raise
 the floor when the release host needs more safety margin:
 
@@ -51,10 +50,54 @@ PODIUM_UPDATE_E2E_OUTPUT_DIR=/path/on-a-roomy-disk/update-e2e-evidence \
 Ordinary runs rely on stdout/CI capture and remove their scratch files. Preserved evidence
 also includes the rendered offer and post-rollout version-display screenshots. The gate
 rechecks its disk margin after every build, rollout, and rollback boundary. Cleanup selects
-containers only by the run's unique Docker label, then removes the exact network and
-committed image the run created. It never invokes BuildKit, calls `docker system prune`,
-creates volumes, or touches an existing image. The final cleanup row goes red if a labeled
-object remains. A separate, non-gating host-disk row reports `RESOURCE` if host-wide free
+containers only by the run's unique Docker label, then removes the exact network and the
+image tag the run created. It never invokes BuildKit, calls `docker system prune`, or
+creates volumes. The final cleanup row goes red if a labeled object remains.
+
+### The provisioned base image is cached
+
+`prepare_image` has never used `docker build`, so it has never had a layer cache — that
+exists only for `build`, not for `commit`. It used to provision a bare Ubuntu and commit
+the result to a tag unique to the run, which cleanup then deleted, so every run paid the
+full apt install of a compiler toolchain that never changes: 635 lines of output before
+the first meaningful step, and nothing reusable even in principle.
+
+The provisioned layer is now content-addressed. It is tagged
+`podium-update-e2e-base:<hash>`, where the hash covers `provision.sh`, the base OS image,
+the invoking uid and gid, and the image config the commit bakes on. It is built only when
+that tag is absent. The uid and gid are in the key because provisioning bakes ownership
+in — `provision.sh` creates the `podium` account from the two arguments it is handed — so
+a cache keyed without them would hand a second user an image whose bind-mounted evidence
+they cannot write.
+
+What the gate needs fresh is the **Podium install**, not the base OS. POD-2565 (a clean
+named-instance install that could not start) was findable only on a machine with no prior
+install, and every unit test passed straight over it. No assertion depends on gcc and the
+apt layer being newly provisioned.
+
+Measured on one host, driving the real `prepare_image`:
+
+| | wall clock | apt output lines |
+| --- | --- | --- |
+| first run, cold | 37.4s | 334 |
+| second run, unchanged `provision.sh` | 0.1s | 0 |
+| after one byte changes in `provision.sh` | 34.8s | 334 |
+
+**Cleanup did not have to be weakened to get this.** `$IMAGE` is still the run-scoped tag;
+the cached base is merely tagged into it, and removing one of two tags that share an image
+id removes only that tag. Cleanup removes `$IMAGE` and asserts it is gone exactly as
+before. The shared base carries no run label, is owned by no run, and survives on purpose
+— the same way a pulled `ubuntu:24.04` does.
+
+Force a rebuild when a cached layer is suspect for a reason the hash cannot see, such as
+an `ubuntu:24.04` that moved underneath its own tag:
+
+```bash
+PODIUM_UPDATE_E2E_REBUILD_BASE=1 bun run test:update-e2e
+```
+
+The OS image must be present locally only for a run that will actually provision; one
+served by the cache does not need it and is not refused for its absence. A separate, non-gating host-disk row reports `RESOURCE` if host-wide free
 space does not return within the documented tolerance; concurrent usage is not attributed
 to the harness after all of its exact objects are gone.
 
@@ -99,6 +142,54 @@ agent and a new browser's ordinary onboarding stops at **Set up your agents**. F
 update-only rehearsal, use the printed diagnostic entry URL and press **Finish setup**. That
 URL selects the same final activation route used by the automated updater probe; it bypasses
 agent selection and therefore proves nothing about agent installation or onboarding.
+
+## Put a new version into a sandbox that is already running
+
+Testing a new version used to mean tearing the hold down and running the gate again, which
+rebuilt a whole container image to change one binary. Caching the base image removed most
+of that wait, but not the shape of the mistake: this epic exists to prove that a **running
+install takes a new version in place**, so a sandbox that has to be rebuilt to change its
+version was never using the mechanism the gate proves.
+
+`scripts/docker-update-e2e-revise.sh` addresses a hold that is already standing and puts a
+new version into it through the product path:
+
+```bash
+PODIUM_UPDATE_E2E_PASSWORD=<the run's password> \
+  scripts/docker-update-e2e-revise.sh --run <RUN_ID> --ref <git-ref>
+```
+
+`RUN_ID` is the `Run label:` value the hold printed, minus the label key. The tool moves
+the source the coordinator watches onto `--ref`, waits for the development release
+proposal that names that commit, checks it against the same HEAD/version identity contract
+the `dev-release` row asserts, approves it, and waits for the offer to reach the fleet.
+Nothing is rebuilt and nothing restarts that the updater would not itself restart. The
+fetch costs no copying: `/input` is still mounted and the clone was made `--local
+--shared`, so the objects are already reachable.
+
+By default the offer is left **pending**, because that is the state a sandbox is usually
+for — every machine still runs what it ran before, and you accept from the running UI. Add
+`--accept` to have the tool drive the acceptance itself through `updates.start`, the same
+call the UI's Update button makes, and wait for the fleet to install the new version.
+
+It borrows `rpc`, `container_exec`, `wait_for`, the authenticated session handling and the
+identity contract from the gate by sourcing it rather than reimplementing any of them.
+That contract has drifted from a second copy before (POD-2747), so it has one
+implementation.
+
+### The bundle swap, and why it is not the default
+
+```bash
+scripts/docker-update-e2e-revise.sh --run <RUN_ID> \
+  --swap-bundle <tarball> --into <container>
+```
+
+This writes an install directory from a tarball with no grant, no signature check by the
+running product, and no operation recorded. It is not a way to deliver a version. It is a
+way to **construct a starting state the updater would never legitimately produce** — a
+machine pinned to an old build, a deliberately mismatched pair — so that a real update can
+then be driven from it. A swapped install proves nothing about the update path, and the
+tool says so out loud when it runs.
 
 ## Reading a failing request
 
