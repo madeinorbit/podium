@@ -101,6 +101,11 @@ RUN_ID="podium-update-e2e-$(date +%s)-$$"
 # need, so it is the flag now.
 EVIDENCE_DIR="${PODIUM_UPDATE_E2E_OUTPUT_DIR:-${TMPDIR:-/tmp}/$RUN_ID-evidence}"
 LABEL="dev.podium.update-e2e.run=$RUN_ID"
+# STILL RUN-SCOPED, AND DELIBERATELY SO (POD-2835).
+#
+# The provisioned layer is now cached and shared between runs, but this name is
+# not: it is the tag cleanup removes, and cleanup asserting that no owned Docker
+# object survives is load-bearing. See `prepare_image` for how the two relate.
 IMAGE="$RUN_ID:ubuntu24"
 NETWORK="$RUN_ID"
 SOURCE="$RUN_ID-source"
@@ -116,6 +121,38 @@ SEED="$RUN_ID-seed"
 WORK=""
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
+# THE PROVISIONED BASE, CONTENT-ADDRESSED AND SHARED BETWEEN RUNS (POD-2835).
+#
+# `prepare_image` has never used `docker build`, so it has never had a layer
+# cache — that exists only for `build`, not for `commit`. It provisioned a bare
+# Ubuntu and committed the result to a tag unique per run, which cleanup then
+# deleted. Every run therefore paid the full apt install of a compiler toolchain
+# that never changes: 635 lines of output before the first meaningful step, and
+# nothing reusable even in principle.
+#
+# What the gate actually needs fresh is the PODIUM INSTALL. POD-2565 (a clean
+# named-instance install that could not start) was findable only on a machine
+# with no prior install, and every unit test passed straight over it. No
+# assertion anywhere depends on gcc and the apt layer being newly provisioned,
+# so that half of the wait bought nothing and is now cached.
+#
+# The cache is keyed by everything that can change what the layer CONTAINS. A
+# hash that missed an input would be worse than no cache at all: it would serve
+# a stale image that no longer matches the provisioning that named it. The
+# invoking user is in the key because provisioning bakes ownership in —
+# `provision.sh` creates the `podium` account from the uid and gid it is handed.
+BASE_OS_IMAGE="${PODIUM_UPDATE_E2E_BASE_OS_IMAGE:-ubuntu:24.04}"
+PROVISION_SCRIPT="$ROOT/scripts/docker-update-e2e/provision.sh"
+BASE_IMAGE_REPO=podium-update-e2e-base
+REBUILD_BASE="${PODIUM_UPDATE_E2E_REBUILD_BASE:-0}"
+# The image config the commit bakes on top of the provisioned filesystem. It is
+# one array so the hash and the commit cannot drift: change what is committed
+# and the tag changes with it, without anyone having to remember to say so.
+BASE_IMAGE_CHANGES=(
+  --change 'ENV container=docker'
+  --change 'STOPSIGNAL SIGRTMIN+3'
+  --change 'CMD ["/sbin/init"]'
+)
 DOCKER_ROOT=""
 ZIG_BIN=""
 ZIG_ROOT=""
@@ -431,6 +468,9 @@ usage() {
 Usage: bun run test:update-e2e [--preflight]
 
 PODIUM_UPDATE_E2E_MIN_FREE_GB=N       disk floor (default 10)
+PODIUM_UPDATE_E2E_REBUILD_BASE=1      provision the shared base image again even
+                                      though its content hash is already built
+PODIUM_UPDATE_E2E_BASE_OS_IMAGE=REF   the OS image to provision from (ubuntu:24.04)
 PODIUM_UPDATE_E2E_OUTPUT_DIR=PATH     preserve bounded matrix/journal evidence
 PODIUM_UPDATE_E2E_PROVE_FAILURE=NAME  leave `tampered` or `schema` broken; the
                                       ordinary rollout assertion must go red
@@ -586,6 +626,10 @@ cleanup() {
     docker rm -f $ids >/dev/null 2>&1
   fi
   docker network rm "$NETWORK" >/dev/null 2>&1
+  # UNCHANGED, AND THE ASSERTION BELOW IS UNCHANGED WITH IT (POD-2835). `$IMAGE`
+  # is this run's own tag onto the shared provisioned base, so this removes a tag
+  # and not the cache: Docker deletes only the named tag while another names the
+  # same image id. The cached base is owned by no run and survives on purpose.
   docker image rm "$IMAGE" >/dev/null 2>&1
   if [[ -n "$(owned_ids)" ]] ||
      docker network inspect "$NETWORK" >/dev/null 2>&1 ||
@@ -724,16 +768,54 @@ start_container() {
   wait_for 30 "$name user manager" container_exec "$name" systemctl --user show-environment
 }
 
+# The tag this host's provisioned base belongs under, derived from every input
+# that decides what is inside it. Same inputs, same tag; one changed byte in
+# `provision.sh`, a different base OS, or a different invoking user all name a
+# different image, so a stale layer can never be served as a current one.
+base_image_tag() {
+  local digest
+  digest="$(
+    {
+      printf '%s\0' "$BASE_OS_IMAGE" "$HOST_UID" "$HOST_GID" "${BASE_IMAGE_CHANGES[@]}"
+      cat "$PROVISION_SCRIPT"
+    } | sha256sum
+  )"
+  printf '%s:%s' "$BASE_IMAGE_REPO" "${digest:0:16}"
+}
+
+# Provision the base once per distinct content, then give this run its own tag
+# onto it.
+#
+# THE SHARED BASE IS DELIBERATELY OWNED BY NO RUN. It carries no run label, and
+# nothing here ever removes it — it is a host-level cache, the way a pulled
+# `ubuntu:24.04` is, and it outlives every run that used it. That is what makes
+# the second run fast, and it is also why cleanup did not have to be weakened to
+# get the speed: `$IMAGE` remains this run's own tag, cleanup still removes it
+# and still asserts it is gone, and removing one of two tags that share an image
+# id removes only that tag. The cache survives an assertion that never relaxed.
+#
+# Set PODIUM_UPDATE_E2E_REBUILD_BASE=1 to provision again regardless — the
+# escape for a host whose cached layer is suspect for a reason the hash cannot
+# see, such as an `ubuntu:24.04` that moved underneath its own tag.
 prepare_image() {
-  docker run -d --name "$SEED" --label "$LABEL" --hostname seed \
-    -v "$ROOT/scripts/docker-update-e2e:/harness:ro" ubuntu:24.04 sleep infinity >/dev/null
-  docker exec "$SEED" bash /harness/provision.sh "$HOST_UID" "$HOST_GID"
-  docker commit \
-    --change 'ENV container=docker' \
-    --change 'STOPSIGNAL SIGRTMIN+3' \
-    --change 'CMD ["/sbin/init"]' \
-    "$SEED" "$IMAGE" >/dev/null
-  docker rm -f "$SEED" >/dev/null
+  local cached
+  cached="$(base_image_tag)"
+  if (( REBUILD_BASE == 1 )) || ! docker image inspect "$cached" >/dev/null 2>&1; then
+    say "provisioning base image $cached (this is the slow apt step; later runs reuse it)"
+    # The mount is derived from `$PROVISION_SCRIPT` rather than named again, so
+    # the file that RUNS is the same one the tag hashed. Two spellings of the
+    # path would let the cache key and the provisioning drift apart, which is
+    # the one way a content-addressed tag can lie about its contents.
+    docker run -d --name "$SEED" --label "$LABEL" --hostname seed \
+      -v "$(dirname "$PROVISION_SCRIPT"):/harness:ro" "$BASE_OS_IMAGE" \
+      sleep infinity >/dev/null
+    docker exec "$SEED" bash "/harness/$(basename "$PROVISION_SCRIPT")" "$HOST_UID" "$HOST_GID"
+    docker commit "${BASE_IMAGE_CHANGES[@]}" "$SEED" "$cached" >/dev/null
+    docker rm -f "$SEED" >/dev/null
+  else
+    say "reusing cached base image $cached; no provisioning needed"
+  fi
+  docker tag "$cached" "$IMAGE"
 }
 
 command_path() { printf '/home/podium/.local/bin/podium-%s' "$INSTANCE"; }
@@ -2243,7 +2325,12 @@ main() {
   for tool in base64 bun curl git jq mktemp openssl rcodesign realpath stat tar zig; do
     command -v "$tool" >/dev/null 2>&1 || die "missing command '$tool'"
   done
-  docker image inspect ubuntu:24.04 >/dev/null 2>&1 || die "missing base image ubuntu:24.04"
+  # Only a run that will actually provision needs the OS image on disk; one
+  # served by the cached base does not, and must not be refused for its absence.
+  if (( REBUILD_BASE == 1 )) || ! docker image inspect "$(base_image_tag)" >/dev/null 2>&1; then
+    docker image inspect "$BASE_OS_IMAGE" >/dev/null 2>&1 ||
+      die "missing base image $BASE_OS_IMAGE"
+  fi
   [[ -d "$ROOT/node_modules" ]] || die "worktree node_modules is missing"
   local dependency_root
   dependency_root="$(realpath "$ROOT/node_modules/@podium/protocol" 2>/dev/null)" ||
