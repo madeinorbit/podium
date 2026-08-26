@@ -3300,3 +3300,38 @@ is the one outcome that must not happen.
 **The general lesson, and it is mine:** *"hard" became "impossible" because I stopped checking.*
 Six hours of "every route needs the operator" survived because nobody, including me, re-tested
 the premise once the alarming version was written down.
+
+
+## TICK 2026-08-26 22:04 CEST — the box recovered, and the last blocking defect is under the probe
+
+    load 7.99   available 3,376 MB   swap-in 224-888 KB/s   swap-out 0
+    claude credential window remaining: 1h44m (closes 23:47)
+
+**POD-2878 is running `parked-turn-survives.ts codex` right now**, with its own server and
+daemon alongside it — the restart drive on the last of the two cells where the new drivers
+were worse than what they replace. It survived the memory pressure that killed another
+session's rig.
+
+**Everyone else is holding, correctly.** POD-2777 refused to rebuild into a thrashing box and
+was right; POD-2905 has been reordered to take presence/absence cells first and to skip the
+interrupt baseline entirely if the box does not stay quiet.
+
+### A check of mine returned nothing and the truth was three
+
+Matching rigs by `PODIUM_INSTANCE` in `/proc/<pid>/environ` found **zero** live rigs. The cwd
+match found **three** processes for POD-2878 in the same moment. *The environ check is wrong,
+not the rigs* — and had I trusted it I would have concluded every rig on the box was dead and
+started restarting things that were already running.
+
+**That is the fourth instrument failure today whose output was a confident zero**, and the
+first of mine that I caught before acting on it rather than after: gitignored evidence logs, an
+empty probe selection, a no-op edit, a substring matching every agent — and now an environ
+match that reads nothing. *A zero from an unverified instrument is not a measurement.*
+
+### Standing
+
+    defects       8 found, 4 CLOSED AND DRIVEN, 4 open
+    product fixes 24 landed today
+    the bar       3 cells BETTER, 1 WORSE (under the probe now), rest at parity
+    coverage      codex ~30 rows, opencode ~13, grok 6, claude 3 — and claude is being
+                  driven for the first time tonight, inside the credential window
