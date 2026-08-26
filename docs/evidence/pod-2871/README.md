@@ -1,5 +1,7 @@
 # POD-2871 — OpenCode transcript-isolation probe
 
+Evidence plan updated: 2026-08-26 16:06:58 CEST
+
 This is the live measurement for the terminal-path defect where OpenCode's
 directory-keyed store let a session with no assistant answer display a
 neighbour's transcript. It is deliberately separate from the unit tests: the
