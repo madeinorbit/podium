@@ -3679,3 +3679,36 @@ close conditions, and 1 no-code question left at `review`.
 The five `+` rows are the only not-landed implementations in this direct review queue. The
 minus-only rows are content twins and therefore do not count as unlanded work, but they still
 required the second evidence test above before any stage change.
+
+### Forest count after the audit (2026-08-26 23:52 CEST)
+
+**The board moved 82 done / 31 review -> 97 done / 17 review**, and the movement is real: every
+one of the 14 the audit promoted names a specific pre-fix reading (POD-2830's 1/14 before versus
+16/16 after; POD-2853's 98 bytes versus 108; POD-2843's five-attempt wizard reproduction), not a
+git count. It also declined to promote nine, which is the number that matters.
+
+**THE NINE LANDED-BUT-NEVER-DRIVEN ARE NOW THE EPIC'S LARGEST UNKNOWN:** POD-2298, POD-2408,
+POD-2602, POD-2604, POD-2622, POD-2637, POD-2691, POD-2761, POD-2773. Code is on the branch, the
+issue reads finished, and nothing has shown the defect gone. **This is not nine defects — it is
+nine unknowns**, and the honest position is that some fraction of them are still broken. Two are
+specific enough to name the gap: POD-2761's fixture drives adoption but nobody has done the real
+Chat->CLI->Chat switch the issue is about, and POD-2773 drove opencode but grok stopped at a 402
+before producing a token, so the two-driver claim rests on one driver.
+
+**Release check: 105 recorded rows** — 45 PASS, 8 FAIL, 5 BLOCKED (instrument, not product), 4
+UNMEASURED, 4 PARTIAL, 2 REFUSED, 2 INCONCLUSIVE, plus the audit's 16 LANDED-AND-DRIVEN / 9
+LANDED-NOT-DRIVEN / 5 NOT-LANDED verdicts.
+
+**Distinct open defects: 3, all fixable, none "how the new design works".**
+1. POD-2878 parked send — fix written, codex arm driven and SURVIVED a real restart, terminal arm
+   invalidated by the rebase amendment and needs one re-drive.
+2. POD-2871 cross-session transcript — fix written, never driven, pre-fix control ordered first.
+3. POD-2902 opencode badge latency — fix written, handed over on a unit test, sent back for
+   interleaved measurement.
+
+**Rounds to parity: 3–4.** One drive each for the three, plus roughly one repeat for a control
+that fails to fire first time — the observed rate tonight is about one in three (POD-2905's A3
+refused, POD-2902's ENOSPC refused). **The nine unknowns are NOT in that number** and are the
+reason I will not put a date on parity yet: each one that turns out still-broken adds a round.
+
+**Product fixes landed today: 24.**
