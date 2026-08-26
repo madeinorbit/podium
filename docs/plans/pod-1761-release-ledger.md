@@ -2641,3 +2641,57 @@ rather than in my memory. Two specifics worth keeping:
 **One session idle for 35 minutes with three commits and no drive** — woken, with the reminder
 that idle is not the same as blocked, and given the check that costs five minutes and no
 instance: confirm something actually consumes the manifest declaration it added.
+
+
+## THE WEDGE IS FIXED AND DRIVEN (2026-08-26 16:47 CEST) — one of the two worse-than-main cells
+
+**Root cause, stated rather than implied:** *a bounded replay-log trim invalidated the
+array-position reader, so the first post-trim wake left it sleeping forever.* The fix resumes
+by **monotonic sequence** while keeping the 512-entry bound — it does not remove the bound,
+which was the obvious wrong repair and would have traded a wedge for unbounded memory.
+
+That also retrospectively explains every odd detail: the freeze points **differed** (82 frames
+on codex, 21 on opencode) because a trim bites where volume takes it, not at a constant; the
+durable transcript was **empty for the whole 426 seconds** because the turn never reached the
+turn-end write; and **both server drivers** failed while the `generic-pty` they share worked,
+because the reader is in the shared layer.
+
+    BEFORE  codex/codex-app-server   426s at working, previews frozen at 80, 0 transcript chars
+    AFTER   codex/codex-app-server   COMPLETED — 643 previews, idle, 20,192 chars   16:33 CEST
+            codex/generic-pty        COMPLETED — 269,889 screen bytes, 14,183 chars 16:39 CEST
+            codex direct, no Podium  COMPLETED — exit 0, line 400                   16:42 CEST
+            grok/grok-acp            UNDRIVEN — quota exhausted until 27th 11:03
+
+**The terminal arm was re-driven, not assumed.** That is the both-edges pin: the change is in
+the layer every driver reads, so "the broken arm now works" proves nothing on its own.
+
+**And the grok arm is declared UNDRIVEN rather than assumed covered**, with the argument
+stated separately and marked weaker than a drive: the shared helper is driver-agnostic and the
+grok diff only removes duplicated reader logic. That is honest and checkable; it is not
+evidence, and it is not written as if it were.
+
+**Still owed before it closes:** the short-turn edge (a change to a bound must show the small
+case still works), conformance and fake-driver coverage, and the gates.
+
+## A7b PASSES ON OPENCODE, AND AN HOUR WAS LOST TO A WRONG ASSUMPTION ABOUT ITS OWN RIG
+
+POD-2777 had bucketed A7b with A2a and A3 as blocked behind `drive.ts`, because all three
+appear in that file — **without checking whether it needed that machinery.** It does not:
+hibernate/wake is self-contained and drives standalone. The cell cost an hour of waiting for a
+lock it never needed.
+
+    parked in 217ms      — read from the row's own `hibernated` status, NOT from hibernate returning ok
+    woke live in 7031ms  — never wedged
+    conversation pointer IDENTICAL either side
+    codeword recalled, transcript kept the pre-park exchange
+    C1 context planted, C2 really parked, C3 post-wake turn answered — all three fired
+
+**Three controls because this rig has already produced a vacuous PASS on a resume cell.**
+*"It woke with context intact", measured across a session that never parked, is a statement
+about a session that never went anywhere* — the same shape as the codex A8 pass an hour
+earlier. Reading the park from the session row rather than from the call returning `ok` is
+what makes it a measurement.
+
+**Host conditions stated because they were bad:** swap-out at 7,320 KB/s. The presence/absence
+verdict holds; the timings inside it are inflated and were explicitly **not** offered as
+performance numbers.

@@ -47,3 +47,8 @@ A10 driver identity	grok-headless	PASS grok-acp/server	e222e9cb	yes	yes	2026-08-
 A10 driver identity + escape hatch	grok-terminal	PASS generic-pty under override	e222e9cb	yes	yes	2026-08-26 16:10 CEST	POD-2877
 TierB provider error names quota	grok-headless	PASS usage_limit retryable:false 402	e222e9cb	yes	yes	2026-08-26 16:10 CEST	POD-2877
 TierB provider error names quota	grok-terminal	PASS Weekly limit left: 0%	e222e9cb	yes	yes	2026-08-26 16:10 CEST	POD-2877
+long turn completes POST-FIX	codex-headless	PASS completed 643 previews 20192 chars	6b4da5b7	yes	yes	2026-08-26 16:33 CEST	POD-2885
+long turn completes POST-FIX	codex-terminal	PASS 269889 screen bytes 14183 chars	6b4da5b7	yes	yes	2026-08-26 16:39 CEST	POD-2885
+long turn completes POST-FIX	codex-outside-podium	PASS exit 0 line 400	6b4da5b7	yes	yes	2026-08-26 16:42 CEST	POD-2885
+long turn completes POST-FIX	grok-headless	UNDRIVEN quota exhausted until 27th 11:03	6b4da5b7	n/a	n/a	2026-08-26 16:42 CEST	POD-2885
+A7b hibernate and wake	opencode-headless	PASS pointer identical codeword recalled	372ae4de	yes	yes	2026-08-26 16:44 CEST	POD-2777
