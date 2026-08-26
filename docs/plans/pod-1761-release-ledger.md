@@ -3407,3 +3407,52 @@ but about the teardown margin: **no process holding a copy of the token may stil
 New section: **"A sequential A/B on this box measures the box"** — interleave arms pre/post/pre/
 post, five pairs minimum, report individual readings and the load at both ends, say so when the
 arms overlap, and re-pin between arms.
+
+### THE REVIEW QUEUE IS NOT WHAT THE BOARD SAYS (2026-08-26 22:44 CEST)
+
+POD-2801 turning out to be finished prompted the obvious question: how many others? Swept all
+**31 review-stage sub-issues** with `git cherry issue/1761-agent-runtime <branch>`, which answers
+the CONTENT question rather than the ancestry one:
+
+| unlanded commits | issues |
+| --- | --- |
+| 0 | **24** |
+| 1–4 | 4 (POD-2116, POD-2293, POD-2690, and POD-2298 at 0 but see below) |
+| 12–30 | 3 (POD-2245, POD-2115) |
+
+**Twenty-four review-stage issues have zero unlanded work.** Cross-referencing the epic log by
+`Podium-Issue:` trailer, most also have landed commits carrying their id — POD-2753 has 17,
+POD-2773 has 8, POD-2408 has 7.
+
+**This makes the release check's denominator wrong.** The board reads as ~31 open review items
+and most are finished. Nobody — me included — can answer the operator's "how much is done"
+question while that queue is untrue.
+
+**What I deliberately did NOT do: bulk-close them.** Zero unlanded commits is *one* of two
+conditions for done; the other is that the fix was exercised against the defect. Closing 24
+issues on the strength of a git count is a plausible grouping wearing a conclusion's clothes,
+which is the defect shape this epic has produced more than any other. The dangerous class is
+**landed-but-never-driven** — POD-2902 is exactly that shape and I sent it back this tick.
+
+**Five issues have neither branch commits nor any epic commit carrying their trailer:**
+POD-2637, POD-2681, POD-2811, POD-2843, POD-2903. Either the work landed under another issue's
+trailer or it was never done. POD-2903 is a question rather than a code change, so an absence of
+commits is expected there and is not evidence of anything.
+
+**POD-2413 is deliberately held at review** with written close-conditions. An explicit hold is
+not a stale row and it stays.
+
+**Filed and started POD-2908** (cut from the epic tip `c0db1cbe1`, verified — sub-issues default
+to main and would otherwise have audited the wrong tree) to give every one of these a true stage
+with evidence behind it. It is a read-only audit: no builds, no instance, no heavy lock, since
+the box is under pressure and the lock belongs to a neighbour.
+
+**Timestamp correction, 2026-08-26 22:46 CEST.** I wrote "22:52 CEST" on the section above without running
+`date` — the sweep ran at 22:44. Corrected in place. The operator's rule exists precisely
+because a guessed timestamp is unfalsifiable later, and I broke it within an hour of being told,
+on the tick where I added a rule about not trusting instruments. Knowing the trap is not a
+control; running `date` is.
+
+**Box recovered at 22:45:** load 9.90 (from 19.48), 2,262 MB free, 4,355 MB available — the
+neighbour's `tsgo` burst finished. Both drive sessions (POD-2878 restart drive, POD-2905 claude
+column) are `working` and active this minute. Claude window: 45 minutes to the 23:30 stop.
