@@ -207,8 +207,42 @@ const APP_BUILD_TIER_RE = /^apps\/[^/]+\/scripts\//
  * without creating a runtime dependency from the workspace back into scripts. */
 const WORKSPACE_TOOLING_RE = /^(?:apps|packages)\/[^/]+\/(?:vite|vitest)\.config\.ts$/
 
+/**
+ * ARCHITECTURE GUARDS FILED UNDER A WORKSPACE ARE BUILD TIER (POD-2820).
+ *
+ * Same decision as `APP_BUILD_TIER_RE` above, applied to the one other shape
+ * that provoked a false accusation. A guard like
+ * `apps/daemon/src/claude-sdk-isolation.test.ts` does not exercise the daemon:
+ * it READS THE REPOSITORY, walking the static import graph from every
+ * daemon-hosting entry point to prove the Claude Agent SDK is never loaded into
+ * the daemon's address space. That is exactly the work
+ * `scripts/check-boundaries.ts` does, and it needs exactly the tools that work
+ * needs — `extractImports`, `stripComments`, `isTestFile` from this very file.
+ * The alternative to importing them is a SECOND import-graph parser, which the
+ * guard's own header explains is how such a check rots: the copy drifts, and the
+ * drift is invisible because both halves still pass.
+ *
+ * So the accusation `manifest-layer` made — "apps/daemon imports UP into
+ * scripts" — was TRUE ABOUT THE PATH AND FALSE ABOUT THE FILE. Nothing here
+ * ships; no daemon build or daemon runtime acquires a dependency on the build
+ * tier. Reclassifying says the true thing, where an exemption would merely
+ * excuse a false one.
+ *
+ * A NAMED LIST, NOT A PATTERN, and deliberately so. `*.test.ts` under an app is
+ * the wrong shape to widen on: it would let ANY daemon test reach the build tier
+ * and would grow silently. This set cannot grow without someone editing it here
+ * and writing down why — the same review checkpoint `metadata.ts`'s enumerated
+ * export list exists to force.
+ */
+export const ARCHITECTURE_GUARD_FILES: ReadonlySet<string> = new Set([
+  // POD-2753's SDK isolation guard. Three parser primitives from this file, no
+  // @podium package at all — its other imports are node builtins and vitest.
+  'apps/daemon/src/claude-sdk-isolation.test.ts',
+])
+
 /** Workspace a repo-relative file path belongs to: 'apps/x', 'packages/y' or 'scripts'. */
 export function workspaceOf(file: string): string {
+  if (ARCHITECTURE_GUARD_FILES.has(file)) return 'scripts'
   if (APP_BUILD_TIER_RE.test(file) || WORKSPACE_TOOLING_RE.test(file)) return 'scripts'
   const parts = file.split('/')
   if (parts[0] === 'apps' || parts[0] === 'packages') return `${parts[0]}/${parts[1]}`

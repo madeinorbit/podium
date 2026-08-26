@@ -15,10 +15,10 @@
  */
 
 import type { SessionId } from '@podium/model'
+import { streamItemIdOf } from '@podium/transcript'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'
-import { streamItemIdOf } from '../../stream-identity.js'
 import { createCodexClient } from './client.js'
 import {
   type CodexJournal,

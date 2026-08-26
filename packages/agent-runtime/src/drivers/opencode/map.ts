@@ -33,9 +33,9 @@ import {
   type OpencodeMessagePartRow,
   opencodeFileId,
   stampOpencodeItems,
+  streamItemIdOf,
 } from '@podium/transcript'
 import type { InteractionAnswer, PendingInteraction, QuestionPrompt, Refusal } from '../../index.js'
-import { streamItemIdOf } from '../../stream-identity.js'
 import type {
   OpencodeMessageInfo,
   OpencodePart,

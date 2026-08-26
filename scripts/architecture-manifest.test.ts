@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   type AllowlistEntry,
+  ARCHITECTURE_GUARD_FILES,
   applyAllowlist,
   applyManifestPolicy,
   checkManifestEdge,
@@ -62,6 +63,23 @@ describe('MANIFEST coverage', () => {
   it('classifies workspace Vite and Vitest configs as build-tier tooling', () => {
     expect(workspaceOf('apps/web/vite.config.ts')).toBe('scripts')
     expect(workspaceOf('packages/model/vitest.config.ts')).toBe('scripts')
+  })
+
+  // POD-2820. Both edges of the class, because the narrowness IS the property:
+  // a named guard is build tier, and an ordinary test one directory over is not.
+  it('classifies a named architecture guard as build tier, and nothing near it', () => {
+    expect(workspaceOf('apps/daemon/src/claude-sdk-isolation.test.ts')).toBe('scripts')
+    expect(workspaceOf('apps/daemon/src/runtime/opencode-attach.test.ts')).toBe('apps/daemon')
+    expect(workspaceOf('apps/daemon/src/claude-sdk-host.ts')).toBe('apps/daemon')
+  })
+
+  // A named file that no longer exists is a DEAD exemption: it excuses nothing,
+  // and it reads to the next person as a live decision someone made on purpose.
+  // Same hazard `manifest-open-entrypoint` refuses for a missing entrypoint.
+  it('names only architecture guards that exist on disk', () => {
+    for (const file of ARCHITECTURE_GUARD_FILES) {
+      expect(existsSync(join(REPO_ROOT, file)), `${file} is named but absent`).toBe(true)
+    }
   })
   it('owns every feature exactly once', () => {
     expect(duplicateFeatureOwners()).toEqual([])

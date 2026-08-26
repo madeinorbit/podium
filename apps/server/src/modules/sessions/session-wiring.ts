@@ -14,7 +14,7 @@
  * (activityFlushTimer stays a field initializer on SessionLifecycle).
  */
 
-import { initialAgentState, reduceAgentState, type AgentStateEvent } from '@podium/harness'
+import { type AgentStateEvent, initialAgentState, reduceAgentState } from '@podium/harness/metadata'
 import { asUserId, computePriorities, type SessionId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import type { RuntimeEvent } from '@podium/protocol/daemon'

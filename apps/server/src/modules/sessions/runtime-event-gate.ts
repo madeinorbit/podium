@@ -1,12 +1,11 @@
+import { type AgentStateEvent, compareProviderCursor } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
-import type { AgentStateEvent } from '@podium/harness'
-import { compareProviderCursor } from '@podium/harness/metadata'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { InteractionEvent } from '@podium/protocol'
 import { isRuntimeFineEvent, type RuntimeEvent, type TurnEvent } from '@podium/protocol/daemon'
 import {
-  RUNTIME_EVENT_LOG_KIND,
   type EventsRepository,
+  RUNTIME_EVENT_LOG_KIND,
   type RuntimeEventCheckpoint,
   type RuntimeEventLogRecord,
 } from '../../store/events'

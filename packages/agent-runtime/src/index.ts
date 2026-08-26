@@ -57,6 +57,11 @@
  * `@podium/agent-runtime/testing` for the conformance corpus.
  */
 
+// Stream identity moved down to `packages/transcript` in POD-2820 — it is
+// cursor arithmetic, not a host capability, and this package's consumer
+// restriction was refusing the server the one function it legitimately needed.
+// Re-exported by name so the contract surface is unchanged for the drivers.
+export { streamIdOfCursor, streamItemIdOf } from '@podium/transcript'
 export * from './attach.js'
 export * from './binding.js'
 export * from './capabilities.js'
@@ -93,6 +98,5 @@ export * from './queue-abandonment.js'
 export * from './runtime.js'
 export * from './schemas.js'
 export * from './session-spec.js'
-export * from './stream-identity.js'
 export * from './tiers.js'
 export * from './turns.js'

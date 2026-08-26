@@ -39,10 +39,10 @@
  *      lossy on purpose.
  */
 
-import { streamItemIdOf } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
 import type { TurnPreviewItem, TurnPreviewMessage } from '@podium/protocol'
 import type { RuntimeEvent } from '@podium/protocol/daemon'
+import { streamItemIdOf } from '@podium/transcript'
 
 /**
  * How often a session may emit a preview frame, at most.

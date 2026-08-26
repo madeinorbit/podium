@@ -1,8 +1,29 @@
-// Part of the Agent Runtime contract (POD-1761 W1; POD-2293). See ./index.ts for
-// the surface's five governing rules.
+// Stream identity for a transcript item (POD-1761 W1; POD-2293).
+//
+// WHY THIS SITS IN packages/transcript RATHER THAN packages/agent-runtime
+// (POD-2820). It began life on the Agent Runtime contract, next to the event
+// types whose join it defines. But `packages/agent-runtime` RESTRICTS ITS
+// CONSUMERS to the machine host and the build tier, because importing it means
+// taking a host capability — and the join is not a capability. It is cursor
+// arithmetic over a `TranscriptItem`: two lines of it, reading the very codec
+// that already lives in this package. When the server grew its own consumer of
+// the fragment stream (`turn-preview.ts`), it needed the join and nothing else
+// around it, and the honest reading of `manifest-consumers` refusing that import
+// was that the FUNCTION was filed on the wrong plane, not that the server was
+// wrong to want it. So it moved down to the plane both halves may reach.
+// `@podium/agent-runtime` re-exports it, so the contract's surface is unchanged
+// and drivers still emit what the one named function returns.
+//
+// The other route was `@podium/agent-runtime/metadata`, the open entrypoint that
+// package already declares for the server. It was not taken because this
+// function's true home was never the contract: it is
+// `encodeCursor({...decodeCursor(c), offset: 0})` with a fallback, a thin wrapper
+// over two primitives that live HERE and that agent-runtime already depends on
+// this package to get. Opening a door for it would have left it reaching back
+// across an edge it should have been on the near side of.
 
 import type { TranscriptItem } from '@podium/model'
-import { decodeCursor, encodeCursor } from '@podium/transcript'
+import { decodeCursor, encodeCursor } from './cursor-codec'
 
 /**
  * THE JOIN KEY BETWEEN A `{kind:'delta'}` FRAGMENT AND THE `{kind:'complete'}`

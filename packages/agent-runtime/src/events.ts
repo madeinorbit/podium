@@ -100,7 +100,7 @@ export interface GitActivity {
  *    the item's `id` — opencode's ids are derived from their own text and change
  *    on every update — and not the raw provider part/message id either, which is
  *    a family-local name a consumer never sees on the complete item. See
- *    `./stream-identity.ts` for why one named function owns both sides, and the
+ *    `@podium/transcript`'s `stream-identity.ts` for why one named function owns both sides, and the
  *    conformance corpus's `delta identity` group for the property that refuses a
  *    driver whose fragments join to nothing.
  *
