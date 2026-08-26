@@ -1,8 +1,25 @@
 # Tier-A release matrix — driven on a rig with no overrides
 
 Instance `p2777`; server + daemon + web bundle verified at the same commit before
-every run. Two phases: `15cdfa0`/`6685c59` before POD-2853 landed, and `6685c59`
-with the fix in. 2026-08-26.
+every run. Last updated **2026-08-26 16:07 CEST**.
+
+**When each block of readings was taken, and against what.** Every reading
+post-dates the commit it is pinned to, so these commit times are a verifiable
+lower bound on each block — the ordering of a reading against a landing is what
+decides whether it still counts.
+
+| pin | committed | what was driven against it |
+|---|---|---|
+| `15cdfa0ea` | 2026-08-26 01:50 CEST | first drive on the un-overridden rig; A1a, A7a, A4a/A4b, A9; A6a/A6b BLOCKED on POD-2853 |
+| `6685c5956` | 2026-08-26 12:50 CEST | after POD-2853 landed: A6a/A6b green on both arms, the long-turn wedge found on codex **and** opencode, the opencode column |
+| `7b9d9eacb` | 2026-08-26 15:10 CEST | main merged into the epic — *nothing driven*, the web bundle would not build (POD-2895) |
+| `aad84ec21` | 2026-08-26 15:28 CEST | the queued-bubble restore; unblocked the rig |
+| `372ae4de2` | 2026-08-26 15:36 CEST | the wedge **re-confirmed after the main merge**: 426s at `working`, previews frozen at 80, zero transcript |
+
+Readings taken before `7b9d9eacb` predate the main merge. Per POD-1761's
+file-level analysis the opencode *driver* cells and the terminal-arm attach rows
+are unaffected (neither driver moved); the codex headless column and A1a/A1b/A5
+on both columns are stale and are queued for re-drive.
 
 ---
 

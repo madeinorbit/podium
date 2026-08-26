@@ -1,5 +1,10 @@
 # POD-1761's acceptance drive
 
+*Last updated 2026-08-26 16:08 CEST. Entries below carry the time as well as the date:
+this epic moves in hours, and a dozen notes sharing one date cannot be put in
+sequence afterwards — which is exactly what says whether a reading predates a
+fix.*
+
 *Are the new headless agents better than the old terminal ones, and are the
 harnesses still on the old path any worse?*
 
