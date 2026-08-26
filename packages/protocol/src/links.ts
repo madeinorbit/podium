@@ -133,16 +133,19 @@ function decodeSegment(segment: string): string {
 export function podiumTargetForPath(pathname: string, search = ''): PodiumTarget {
   const segments = pathname.split('/').filter(Boolean).map(decodeSegment)
   const [head, second, third, fourth, ...rest] = segments
-  const normalized = `/${segments.map(encodeURIComponent).join('/')}`
+  // Every `view` answer hands back the path AS WRITTEN, for the client's own
+  // router to parse. Re-encoding a decoded copy would be a second opinion about
+  // escaping in the one branch that has no opinion about the path at all.
+  const view = { kind: 'view', path: pathname === '' ? '/' : pathname, search } as const
 
   if ((head === 'issues' || head === 'issue') && second) {
     if (third === 'artifacts' || third === 'artifact') {
-      if (!fourth) return { kind: 'view', path: normalized, search }
+      if (!fourth) return view
       const entry = rest.length > 0 ? rest.join('/') : null
       return { kind: 'artifact', issue: second, artifactId: fourth, entry }
     }
     if (third === undefined) return { kind: 'issue', issue: second }
-    return { kind: 'view', path: normalized, search }
+    return view
   }
 
   if ((head === 'sessions' || head === 'session') && second && third === undefined) {
@@ -157,7 +160,7 @@ export function podiumTargetForPath(pathname: string, search = ''): PodiumTarget
     }
   }
 
-  return { kind: 'view', path: pathname === '' ? '/' : pathname, search }
+  return view
 }
 
 /**
