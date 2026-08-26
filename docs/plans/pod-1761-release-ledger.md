@@ -3843,3 +3843,29 @@ run is still owed and I will do it.
 Took `test:heavy` (queue was 0) and started it at the tip `0d00f6c34`, clean tree,
 `PODIUM_TEST_WORKERS=1` to match the arm POD-2878 reported — that variable decides whether this
 gate is red at all, so an arm without it would not be comparable.
+
+### ATTRIBUTION COMPLETE — 80 of 80 are inherited (2026-08-27 00:39 CEST)
+
+Ran `PODIUM_TEST_WORKERS=1 bun run test:unit -- --filter @podium/server` on the epic tip
+`0d00f6c34`, which does **not** contain POD-2878's fix:
+
+| package | epic tip, fix ABSENT | POD-2878 reported, fix PRESENT |
+| --- | --- | --- |
+| services | 34 failed / 1822 passed | 34 |
+| boundary | 45 failed / 2032 passed | 45 |
+| contracts | 1 failed / 1303 passed | 1 |
+| normalized-wire | 8 passed | 8 passed |
+
+**Every count matches, on a tree where the fix is absent. The fix introduces nothing.**
+
+**I waited for the last package rather than landing on 79 of 80.** With services and boundary
+already matching I had 79, and the temptation was to call it. But the whole instruction I gave
+POD-2878 was *"only a name that fails on the fix and passes on the parent blocks landing"* — and a
+single contracts failure absent from the tip would have been exactly that. **A rule I apply to a
+session and not to myself is not a rule.** It cost ten minutes.
+
+Recorded as **Decision 18**, which supersedes the open half of Decision 15 (53 unattributed
+failures, asked for in the small hours of the 26th and never measured). The recommendation there —
+check the failing names into a baseline the gate compares against — is not done and is the
+operator's call: the value is not the 79, it is that a real regression currently arrives as "80
+failures" against an expected "79" and nobody sees it.

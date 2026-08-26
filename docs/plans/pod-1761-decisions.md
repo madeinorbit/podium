@@ -427,7 +427,7 @@ epic tip `0d00f6c34`, a tree that does **not** contain POD-2878's fix (`git cher
 | services | **34 failed** / 1822 passed | 34 |
 | boundary | **45 failing** | 45 |
 | normalized-wire | 8 passed | 8 passed |
-| contracts | pending at time of writing | 1 |
+| contracts | **1 failed** / 1303 passed | 1 |
 
 **The counts match exactly in both failing packages, on a tree where the fix is absent.** So the
 fix introduces no new failures there — if it had, its count would exceed the tip's. The failing
