@@ -23,6 +23,7 @@ import {
   isCoordinatorSession,
   issueAbandoned,
   issueContinuation,
+  issueDisplayTitle,
   issueNote,
   issueOwnContentUnread,
   type MissionDeparture,
@@ -1466,6 +1467,7 @@ function HungRows(ctx: HungContext): JSX.Element | null {
 const TaskRow = memo(
   function TaskRow({
     row,
+    displayTitle,
     byId,
     carries,
     mode,
@@ -1491,6 +1493,9 @@ const TaskRow = memo(
     onRenameDone,
   }: {
     row: FlightDeckRow
+    /** The shared human-facing issue name. A draft's stored title is only a
+     *  placeholder until somebody names it. */
+    displayTitle: string
     byId: ReadonlyMap<string, IssueNavigationModel>
     /** Which ancestor guide rails cross this row — see `treeGuides`. */
     carries: readonly boolean[]
@@ -1667,7 +1672,7 @@ const TaskRow = memo(
               data-pressable
               type="button"
               className="flex size-5 flex-none items-center justify-center text-text-dim hover:text-text-strong"
-              aria-label={collapsed ? `Expand ${row.issue.title}` : `Collapse ${row.issue.title}`}
+              aria-label={collapsed ? `Expand ${displayTitle}` : `Collapse ${displayTitle}`}
               aria-expanded={!collapsed}
               // The chevron is the ONE control that folds without navigating, and
               // it acts immediately — the row's own click is deferred by the
@@ -1688,7 +1693,7 @@ const TaskRow = memo(
           {renaming ? (
             <span className={cn('flex min-w-0 flex-1 items-center', proposed ? 'py-0.5' : 'py-1')}>
               <SessionNameEditor
-                value={row.issue.title}
+                value={displayTitle}
                 onCommit={(next) => {
                   onRenameIssue(next)
                   onRenameDone()
@@ -1739,7 +1744,7 @@ const TaskRow = memo(
                   <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
                     {issueDisplayRef(row.issue)}
                   </span>
-                  {row.issue.title}
+                  {displayTitle}
                 </span>
                 {unread ? (
                   <>
@@ -1777,7 +1782,7 @@ const TaskRow = memo(
               variant="ghost"
               size="icon-sm"
               className="size-5 text-text-dim"
-              aria-label={`Task actions for ${row.issue.title}`}
+              aria-label={`Task actions for ${displayTitle}`}
               title="Task actions"
               onClick={(event) => {
                 event.stopPropagation()
@@ -1818,6 +1823,7 @@ const TaskRow = memo(
   },
   (previous, next) =>
     previous.row === next.row &&
+    previous.displayTitle === next.displayTitle &&
     previous.byId === next.byId &&
     previous.carries === next.carries &&
     previous.rails === next.rails &&
@@ -2778,6 +2784,13 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     stableRowsRef.current = stable
     return stable
   }, [computedRows])
+  const rowDisplayTitles = useMemo(
+    () =>
+      new Map(
+        rows.map((row) => [row.issue.id, issueDisplayTitle(row.issue, sessions, allWorktreePaths)]),
+      ),
+    [allWorktreePaths, rows, sessions],
+  )
   const byId = useMemo(() => new Map(issues.map((issue) => [issue.id, issue])), [issues])
   /**
    * The session the operator is ACTUALLY in.
@@ -3050,6 +3063,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   }, [rows])
   const rootSession = root ? rows[0]?.sessions[0] : focusedSession
   const draftFilling = Boolean(root?.draft && rootSession)
+  // Naming and lifecycle answer different questions. `draftFilling` governs
+  // the temporary mission brief; the title switches as soon as the optimistic
+  // rename carries a non-placeholder value, before the server clears `draft`.
+  const rootDisplayTitle = root ? issueDisplayTitle(root, sessions, allWorktreePaths) : ''
   const rootDraft = useSessionDraft(draftFilling ? rootSession?.sessionId : undefined)
   /**
    * The header's one paragraph, resolved and rendered in one place (POD-1455).
@@ -3254,10 +3271,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * on a title that did not change.
    */
   const renameIssue = useCallback(
-    (issueId: string, next: string): void => {
+    (issueId: string, next: string, displayedTitle: string): void => {
       const trimmed = next.trim()
       const current = issues.find((issue) => issue.id === issueId)?.title
-      if (!trimmed || trimmed === current) return
+      if (!trimmed || trimmed === current || trimmed === displayedTitle.trim()) return
       void updateIssue(issueId, { title: trimmed })
     },
     [issues, updateIssue],
@@ -3524,7 +3541,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                     scanned list, so the mission's name is allowed to be read
                     from across the desk. 17px is the artifact's own measure. */}
                   <h2 className="shell-type-column-title font-semibold text-text-strong">
-                    {draftFilling ? sessionDisplayName(rootSession as SessionMeta) : root.title}
+                    {rootDisplayTitle}
                   </h2>
                 </button>
                 {/* THE BRIEF IS THE ONE THING HERE THAT IS READ RATHER THAN
@@ -3715,6 +3732,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               <TaskRow
                 key={row.issue.id}
                 row={row}
+                displayTitle={rowDisplayTitles.get(row.issue.id) ?? row.issue.title}
                 byId={byId}
                 carries={guides[index] ?? []}
                 rails={rails[index] ?? []}
@@ -3747,7 +3765,13 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 onMenu={(event) => openIssueMenu(row.issue.id, event)}
                 onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
                 renaming={renamingIssueId === row.issue.id}
-                onRenameIssue={(title) => renameIssue(row.issue.id, title)}
+                onRenameIssue={(title) =>
+                  renameIssue(
+                    row.issue.id,
+                    title,
+                    rowDisplayTitles.get(row.issue.id) ?? row.issue.title,
+                  )
+                }
                 onRenameDone={() => setRenamingIssueId(null)}
               />
             ))}

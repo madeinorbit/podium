@@ -1,10 +1,10 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { useSlice } from '@podium/client-core/react'
 import {
-  draftIssueLabel,
   formatClock,
   type IssueNavigationModel,
   isDraftAgentVessel,
+  issueDisplayTitle,
   missionProgress,
   pendingDecisionLabel,
   planReorderKeys,
@@ -603,9 +603,7 @@ function WorkRow({
   // clicks straight into the session (desktop POD-282).
   const draftOnly = issue ? isDraftAgentVessel(issue, sessions) : false
   const label = issue
-    ? draftOnly
-      ? draftIssueLabel(issue, [...allSessions], allWorktreePaths)
-      : issue.title
+    ? issueDisplayTitle(issue, [...allSessions], allWorktreePaths)
     : `${worktree?.repoName ?? ''}${worktree?.branch ? ` · ${worktree.branch}` : ''}`
   const stamp = timeStamp(row, now)
   const statusLine =

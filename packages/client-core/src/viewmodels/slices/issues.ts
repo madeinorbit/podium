@@ -230,9 +230,9 @@ export function draftIssueLabel(
  *  provenance" in one column and "Draft" in the other, which reads as two
  *  different tasks rather than as one unnamed one.
  *
- *  Shared by the sidebar row and the task panel, so those two cannot get it
- *  half-right. The Flight Deck and mobile still name drafts their own ways
- *  (POD-1626). Non-drafts are untouched: their title IS their name. */
+ *  Shared by every issue-title surface, so the sidebar, task panel, Flight Deck,
+ *  and mobile work list cannot name the same task differently. Non-drafts are
+ *  untouched: their title IS their name. */
 export function issueDisplayTitle(
   issue: IssueNavigationModel,
   sessions: SessionMeta[],

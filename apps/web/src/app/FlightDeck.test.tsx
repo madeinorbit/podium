@@ -260,6 +260,30 @@ describe('the cold deck (POD-1112)', () => {
     expect(screen.getByText('Full spine')).toBeTruthy()
   })
 
+  it('names an unnamed mission from the shared draft fallback, not the harness title', () => {
+    harness.issues = [vessel({ memberSessionIds: ['s-new'] })]
+    harness.sessions = [
+      session('s-new', {
+        issueId: 'v1',
+        name: undefined,
+        title: 'Unrelated older conversation',
+      }),
+    ]
+    harness.selectedIssueId = 'v1'
+    deck()
+    expect(document.querySelector('.shell-type-column-title')?.textContent).toBe(
+      'New Claude session',
+    )
+  })
+
+  it('shows an optimistic rename before the server clears the draft flag', () => {
+    harness.issues = [vessel({ title: 'Renamed mission', memberSessionIds: ['s-new'] })]
+    harness.sessions = [session('s-new', { issueId: 'v1', name: 'Agent label' })]
+    harness.selectedIssueId = 'v1'
+    deck()
+    expect(document.querySelector('.shell-type-column-title')?.textContent).toBe('Renamed mission')
+  })
+
   it('shows the empty state when nothing at all is selected', () => {
     harness.selectedIssueId = null as unknown as string
     deck()
@@ -1223,6 +1247,32 @@ describe('flight deck task menu (POD-771)', () => {
   it('shows the hover affordance for operators who never right-click', () => {
     deck()
     expect(screen.getByRole('button', { name: 'Task actions for Task t1' })).toBeTruthy()
+  })
+
+  it('uses the shared draft name in the strip and its rename editor', () => {
+    harness.issues = harness.issues.map((candidate) =>
+      (candidate as Issue).id === 't1'
+        ? { ...(candidate as Issue), title: 'Draft', draft: true }
+        : candidate,
+    )
+    harness.sessions = harness.sessions.map((candidate) => {
+      const meta = candidate as SessionMeta
+      return meta.sessionId === 's1'
+        ? { ...meta, name: undefined, title: 'Unrelated older conversation' }
+        : meta
+    })
+    deck()
+    const strip = stripOf('t1')
+    expect(strip.querySelector('.deck-task-content')?.textContent).toContain('New Claude session')
+
+    fireEvent.contextMenu(strip)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }))
+    const editor = strip.querySelector('input')
+    expect(editor).not.toBeNull()
+    expect((editor as HTMLInputElement).value).toBe('New Claude session')
+
+    fireEvent.blur(editor as HTMLInputElement)
+    expect(harness.updateIssue).not.toHaveBeenCalled()
   })
 })
 
