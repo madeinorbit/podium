@@ -104,6 +104,11 @@ export const PROVISIONAL_REFERENCES = [
   'readiness-4',
   'POD-393',
   'POD-1070',
+  // The handoff surface's wording for "this daemon has attached but has not
+  // reported an inventory yet". POD-2631 introduced the state and gave the
+  // machines service its own phrasing for it; the two surfaces have not been
+  // reconciled, so the handoff pin is evidence rather than a demand.
+  'POD-2631',
 ] as const
 
 export type ProvisionalReference = (typeof PROVISIONAL_REFERENCES)[number]
