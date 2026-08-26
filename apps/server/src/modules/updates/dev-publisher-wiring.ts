@@ -125,27 +125,60 @@ export const ARTIFACT_ORIGIN_UNCONFIGURED_REASON =
 export function selectDevelopmentArtifactOrigin(input: {
   externalOrigin: string | undefined
   localOrigin: string
-  hasRemoteManagedMachines: boolean
+  hasRemoteUpdateConsumers: boolean
 }): string {
   if (input.externalOrigin) return input.externalOrigin
-  if (input.hasRemoteManagedMachines) {
+  if (input.hasRemoteUpdateConsumers) {
     // TYPED, so the refusal can travel (POD-2227). It used to be a bare Error
     // whose only reader was `publishTarget`'s catch, which logged it and
     // returned undefined — the operator was left watching a step that waited
     // for a package this server had already decided it would never hand over.
     throw new DevBundleUnavailableError(
       'development artifact publishing requires PODIUM_DEV_ARTIFACT_BASE_URL or ' +
-        'config.publicUrl while remote managed machines are registered',
+        'config.publicUrl while remote update consumers are registered',
       ARTIFACT_ORIGIN_UNCONFIGURED_REASON,
     )
   }
   return input.localOrigin
 }
 
-export interface RemoteManagedMachine {
+export interface RemoteUpdateConsumer {
   readonly id: string
   readonly name: string
   readonly online: boolean
+}
+
+/**
+ * Proof membership follows the daemon-reported delivery contract used by the
+ * wave planner. Pairing policy is deliberately absent: a machine that accepts
+ * feed updates needs this guarantee whether or not Podium manages its agents.
+ */
+export function isRemoteUpdateConsumer(
+  machine: {
+    readonly id: string
+    readonly deliveryCaps: readonly string[]
+  },
+  hostMachineId: string,
+): boolean {
+  return machine.id !== hostMachineId && machine.deliveryCaps.includes('update.delivery.feed')
+}
+
+export function selectRemoteUpdateConsumers(
+  machines: readonly {
+    readonly id: string
+    readonly name: string
+    readonly deliveryCaps: readonly string[]
+  }[],
+  hostMachineId: string,
+  isOnline: (machineId: string) => boolean,
+): RemoteUpdateConsumer[] {
+  return machines
+    .filter((machine) => isRemoteUpdateConsumer(machine, hostMachineId))
+    .map((machine) => ({
+      id: machine.id,
+      name: machine.name,
+      online: isOnline(machine.id),
+    }))
 }
 
 export function wireDevBundlePublisher(deps: {
@@ -153,10 +186,10 @@ export function wireDevBundlePublisher(deps: {
   readonly sourceRoot: string | undefined
   /** Validated external origin. Absent is allowed only for same-host publication. */
   readonly artifactOrigin: string | undefined
-  /** Loopback origin used only when the registered managed fleet is same-host. */
+  /** Loopback origin used only when the registered update fleet is same-host. */
   readonly localArtifactOrigin: () => string
   /** Read at publication time so a newly joined remote machine fails closed immediately. */
-  readonly hasRemoteManagedMachines: () => boolean
+  readonly hasRemoteUpdateConsumers: () => boolean
   /**
    * The platforms the registered fleet actually runs — what this host mints bundles
    * for beyond its own [spec:SP-6144 section 8b]. Absent mints only this host's.
@@ -167,7 +200,7 @@ export function wireDevBundlePublisher(deps: {
     headSha: string,
   ) => string | undefined | Promise<string | undefined>
   /** Every remote that could later be offered this immutable release. */
-  readonly remoteManagedMachines?: () => readonly RemoteManagedMachine[]
+  readonly remoteUpdateConsumers?: () => readonly RemoteUpdateConsumer[]
   /** Executes the exact authenticated artifact request from the named daemon. */
   readonly probeArtifact?: (
     url: string,
@@ -298,7 +331,7 @@ export function wireDevBundlePublisher(deps: {
             selectDevelopmentArtifactOrigin({
               externalOrigin: artifactOrigin,
               localOrigin: deps.localArtifactOrigin(),
-              hasRemoteManagedMachines: deps.hasRemoteManagedMachines(),
+              hasRemoteUpdateConsumers: deps.hasRemoteUpdateConsumers(),
             }),
             version,
             deps.artifactToken,
@@ -339,7 +372,7 @@ export function wireDevBundlePublisher(deps: {
       selectDevelopmentArtifactOrigin({
         externalOrigin: artifactOrigin,
         localOrigin: deps.localArtifactOrigin(),
-        hasRemoteManagedMachines: deps.hasRemoteManagedMachines(),
+        hasRemoteUpdateConsumers: deps.hasRemoteUpdateConsumers(),
       })
       return undefined
     } catch (error) {
@@ -368,7 +401,7 @@ export function wireDevBundlePublisher(deps: {
 
   /**
    * A URL inside a signed manifest cannot be repaired. Before the manifest is
-   * written into the served feed, prove every registered remote managed daemon
+   * written into the served feed, prove every registered remote update consumer
    * can reach every exact, authenticated artifact route it could later receive.
    *
    * An offline registered machine fails closed deliberately: it remains a
@@ -380,11 +413,11 @@ export function wireDevBundlePublisher(deps: {
   let proofInFlight: { key: string; proof: Promise<void> } | undefined
 
   const proveRemoteArtifactReachability = async (bundle: BuiltDevBundle): Promise<void> => {
-    if (!deps.hasRemoteManagedMachines()) return
+    if (!deps.hasRemoteUpdateConsumers()) return
     const origin = selectDevelopmentArtifactOrigin({
       externalOrigin: artifactOrigin,
       localOrigin: deps.localArtifactOrigin(),
-      hasRemoteManagedMachines: true,
+      hasRemoteUpdateConsumers: true,
     })
     const urls = [
       ...new Set(
@@ -393,7 +426,7 @@ export function wireDevBundlePublisher(deps: {
         ),
       ),
     ].sort()
-    const machines = [...(deps.remoteManagedMachines?.() ?? [])].sort((a, b) =>
+    const machines = [...(deps.remoteUpdateConsumers?.() ?? [])].sort((a, b) =>
       a.id.localeCompare(b.id),
     )
     const key = JSON.stringify({ urls, machines: machines.map((machine) => machine.id) })
@@ -403,7 +436,7 @@ export function wireDevBundlePublisher(deps: {
     const proof = (async () => {
       if (machines.length === 0) {
         throw new DevBundleUnavailableError(
-          `development artifact address ${origin} cannot be proved: no remote managed machine is registered`,
+          `development artifact address ${origin} cannot be proved: no remote update consumer is registered`,
           `The update package address ${origin} could not be checked from another machine, so no release was published.`,
         )
       }
@@ -411,7 +444,7 @@ export function wireDevBundlePublisher(deps: {
       if (offline) {
         throw new DevBundleUnavailableError(
           `development artifact address ${origin} cannot be proved from offline machine ${offline.id}`,
-          `The update package address ${origin} could not be checked from ${offline.name} because that machine is offline. Wake it or remove it from the managed fleet, then publish again.`,
+          `The update package address ${origin} could not be checked from ${offline.name} because that machine is offline. Wake it or remove it from the update fleet, then publish again.`,
         )
       }
       if (!deps.probeArtifact) {
@@ -603,7 +636,7 @@ export function wireDevBundlePublisher(deps: {
         origin = selectDevelopmentArtifactOrigin({
           externalOrigin: artifactOrigin,
           localOrigin: deps.localArtifactOrigin(),
-          hasRemoteManagedMachines: deps.hasRemoteManagedMachines(),
+          hasRemoteUpdateConsumers: deps.hasRemoteUpdateConsumers(),
         })
       } catch {
         // The refusal is already reported through `requestBuild`/`preparation`;

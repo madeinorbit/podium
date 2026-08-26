@@ -16,6 +16,7 @@ import {
   developmentArtifactUrl,
   selectDevelopmentArtifactOrigin,
   wireDevBundlePublisher,
+  selectRemoteUpdateConsumers,
 } from './dev-publisher-wiring'
 
 const bytes = new Uint8Array([9, 8, 7, 6])
@@ -128,7 +129,7 @@ describe('development artifact route', () => {
       sourceRoot: '/repo/podium',
       artifactOrigin: 'https://podium.example.test',
       localArtifactOrigin: () => 'http://127.0.0.1:18787',
-      hasRemoteManagedMachines: () => false,
+      hasRemoteUpdateConsumers: () => false,
       artifactToken: 'random-token',
       signingKey: 'unused-until-build',
       setTarget: () => {},
@@ -165,7 +166,7 @@ describe('development artifact route', () => {
         sourceRoot: root,
         artifactOrigin: 'https://podium.example.test',
         localArtifactOrigin: () => 'http://127.0.0.1:18787',
-        hasRemoteManagedMachines: () => false,
+        hasRemoteUpdateConsumers: () => false,
         artifactToken: 'random-token',
         signingKey: 'unused-until-build',
         setTarget: () => {},
@@ -193,27 +194,59 @@ describe('development artifact route', () => {
     }
   })
 
-  it('uses loopback only for a same-host managed fleet', () => {
+  it('selects update consumers by reported feed capability, not pairing policy', () => {
+    const onlineChecks: string[] = []
+    const machines = [
+      {
+        id: 'source-host',
+        name: 'Source host',
+        podiumManaged: true,
+        deliveryCaps: ['update.delivery.feed'],
+      },
+      {
+        id: 'careful-remote',
+        name: 'Security-conscious remote',
+        podiumManaged: false,
+        deliveryCaps: ['update.delivery.feed'],
+      },
+      {
+        id: 'managed-nonconsumer',
+        name: 'Managed source checkout',
+        podiumManaged: true,
+        deliveryCaps: ['shipping.train.v2'],
+      },
+    ]
+
+    expect(
+      selectRemoteUpdateConsumers(machines, 'source-host', (machineId) => {
+        onlineChecks.push(machineId)
+        return true
+      }),
+    ).toEqual([{ id: 'careful-remote', name: 'Security-conscious remote', online: true }])
+    expect(onlineChecks).toEqual(['careful-remote'])
+  })
+
+  it('uses loopback only for a same-host update fleet', () => {
     const localOrigin = 'http://127.0.0.1:18787'
     expect(
       selectDevelopmentArtifactOrigin({
         externalOrigin: 'https://podium.example.test',
         localOrigin,
-        hasRemoteManagedMachines: true,
+        hasRemoteUpdateConsumers: true,
       }),
     ).toBe('https://podium.example.test')
     expect(
       selectDevelopmentArtifactOrigin({
         externalOrigin: undefined,
         localOrigin,
-        hasRemoteManagedMachines: false,
+        hasRemoteUpdateConsumers: false,
       }),
     ).toBe(localOrigin)
     expect(() =>
       selectDevelopmentArtifactOrigin({
         externalOrigin: undefined,
         localOrigin,
-        hasRemoteManagedMachines: true,
+        hasRemoteUpdateConsumers: true,
       }),
     ).toThrow(/requires PODIUM_DEV_ARTIFACT_BASE_URL/)
   })
@@ -234,7 +267,7 @@ describe('development artifact route', () => {
       selectDevelopmentArtifactOrigin({
         externalOrigin: undefined,
         localOrigin: 'http://127.0.0.1:18787',
-        hasRemoteManagedMachines: true,
+        hasRemoteUpdateConsumers: true,
       })
     } catch (error) {
       thrown = error
@@ -245,7 +278,7 @@ describe('development artifact route', () => {
     expect(reason).toMatch(/Public URL/)
     expect(reason).toMatch(/PODIUM_DEV_ARTIFACT_BASE_URL/)
     // …and the console half keeps naming the condition for whoever reads a log.
-    expect((thrown as Error).message).toMatch(/remote managed machines are registered/)
+    expect((thrown as Error).message).toMatch(/remote update consumers are registered/)
   })
 
   it('gives up before the build rather than packing what it cannot hand out', async () => {
@@ -258,7 +291,7 @@ describe('development artifact route', () => {
         sourceRoot: root,
         artifactOrigin: undefined,
         localArtifactOrigin: () => 'http://127.0.0.1:18787',
-        hasRemoteManagedMachines: () => true,
+        hasRemoteUpdateConsumers: () => true,
         artifactToken: 'random-token',
         signingKey: 'unused-until-build',
         setTarget: () => {},
@@ -307,7 +340,7 @@ describe('development artifact route', () => {
         sourceRoot: '/repo/podium',
         artifactOrigin: 'https://podium.example.test',
         localArtifactOrigin: () => 'http://127.0.0.1:18787',
-        hasRemoteManagedMachines: () => false,
+        hasRemoteUpdateConsumers: () => false,
         artifactToken: 'random-token',
         signingKey: 'unused-until-build',
         setTarget: () => {},
@@ -347,7 +380,7 @@ describe('development artifact route', () => {
       expect(
         wiringFor({
           artifactOrigin: undefined,
-          hasRemoteManagedMachines: () => true,
+          hasRemoteUpdateConsumers: () => true,
         }).channelFeed(),
       ).toBeUndefined()
     })
@@ -365,7 +398,7 @@ describe('development artifact route', () => {
         sourceRoot: '/repo/podium',
         artifactOrigin: 'http://source:18787',
         localArtifactOrigin: () => 'http://127.0.0.1:18787',
-        hasRemoteManagedMachines: () => true,
+        hasRemoteUpdateConsumers: () => true,
         artifactToken: 'random-token',
         signingKey: 'test-key',
         setTarget: () => {},
@@ -408,7 +441,7 @@ describe('development artifact route', () => {
       const probed: { url: string; machineId: string }[] = []
       let reachable = false
       const { wiring, publications, unavailable } = wiringFor({
-        remoteManagedMachines: () => [
+        remoteUpdateConsumers: () => [
           { id: 'linux-1', name: 'Linux host', online: true },
           { id: 'mac-1', name: 'joined Mac', online: true },
         ],
@@ -453,7 +486,7 @@ describe('development artifact route', () => {
     it('withholds the release while a registered remote is asleep', async () => {
       const probed: string[] = []
       const { wiring, publications, unavailable } = wiringFor({
-        remoteManagedMachines: () => [{ id: 'sleeping-1', name: 'Sleeping Mac', online: false }],
+        remoteUpdateConsumers: () => [{ id: 'sleeping-1', name: 'Sleeping Mac', online: false }],
         probeArtifact: async (url) => {
           probed.push(url)
           return { ok: true, status: 200 }
@@ -463,7 +496,7 @@ describe('development artifact route', () => {
       await expect(wiring.requestBuild()).rejects.toThrow('offline machine sleeping-1')
       expect(publications()).toBe(0)
       expect(probed).toEqual([])
-      expect(unavailable.at(-1)).toContain('Wake it or remove it from the managed fleet')
+      expect(unavailable.at(-1)).toContain('Wake it or remove it from the update fleet')
     })
   })
 

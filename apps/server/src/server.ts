@@ -81,7 +81,11 @@ import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT, fleetHeadlessPlatforms } from './modules/updates/dev-bundle'
 import { resolveDevelopmentRuntime } from './modules/updates/development-runtime'
-import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
+import {
+  selectRemoteUpdateConsumers,
+  isRemoteUpdateConsumer,
+  wireDevBundlePublisher,
+} from './modules/updates/dev-publisher-wiring'
 import {
   createInstalledCoordinatorRestart,
   createInstalledCoordinatorUpdate,
@@ -657,10 +661,10 @@ export async function startServer(
     instanceId,
     artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
     localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
-    hasRemoteManagedMachines: () =>
+    hasRemoteUpdateConsumers: () =>
       store.machines
         .listMachines()
-        .some((machine) => machine.id !== hostMachineId && machine.podiumManaged),
+        .some((machine) => isRemoteUpdateConsumer(machine, hostMachineId)),
     // FLEET-SCOPED darwin production [spec:SP-6144 section 8b]: this host mints a Mac
     // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
     // inventories the daemons themselves reported.
@@ -679,15 +683,13 @@ export async function startServer(
       // here so the commit range stays bounded while the fleet converges.
       return distinct[0] ?? `dev+${headSha}`
     },
-    remoteManagedMachines: () =>
-      store.machines
-        .listMachines()
-        .filter((machine) => machine.id !== hostMachineId && machine.podiumManaged)
-        .map((machine) => ({
-          id: machine.id,
-          name: machine.name,
-          online: registry.modules.machines.hasDaemon(machine.id),
-        })),
+    remoteUpdateConsumers: () =>
+      selectRemoteUpdateConsumers(store.machines.listMachines(), hostMachineId, (machineId) => {
+        // POD-2861 owns degraded presence when a daemon is absent or refused.
+        // Here daemon presence says only whether this selected update consumer
+        // can execute the reachability probe now.
+        return registry.modules.machines.hasDaemon(asMachineId(machineId))
+      }),
     probeArtifact: (url, machineId) =>
       registry.modules.rpc.probeDevArtifact(url, asMachineId(machineId)),
     artifactToken: devArtifactToken,

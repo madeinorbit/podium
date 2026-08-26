@@ -2334,7 +2334,7 @@ describe('surviving the coordinator restart', () => {
         Promise.reject(
           new DevBundleUnavailableError(
             'development artifact publishing requires PODIUM_DEV_ARTIFACT_BASE_URL or ' +
-              'config.publicUrl while remote managed machines are registered',
+              'config.publicUrl while remote update consumers are registered',
             ARTIFACT_ORIGIN_UNCONFIGURED_REASON,
           ),
         ),
