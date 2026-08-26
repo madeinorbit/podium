@@ -187,6 +187,40 @@ the truth** — it is not what to change:
 Measured live on opencode 1.18.16: before, 1 failed with 3 errors; after,
 1 passed, 0 errors, 31s of assertions against 184s of timeouts.
 
+## STEP 2's CRITERION IS MET — the epic's violations are a strict subset of main's
+
+POD-2823 closed the last ten harness-branching lines. Verified by running the
+gate: **zero** remain in the two files it owned, and the fifteen still reported
+are all in files that exist on main (`control/credentials.ts`, three mobile
+screens, `FirstTaskActivation.tsx`) — main's own 21.
+
+**The tenth was the one that mattered, and it was a trap.** The literal was NOT
+standing in for "this is Claude": it was **narrowing** the capability on the line
+below it. Grok declares `submitVerification` true as well, so dropping the name
+and keeping the capability would have put **every post-first-turn grok send
+behind a readiness proof grok does not need.**
+
+The property both lines were reaching for is **when a harness's composer is known
+to accept typed input after a bind** — a PTY bind makes a session live before the
+CLI has mounted its composer, and bytes written into that window are accepted by
+the pty and dropped by the app. What varies is how Podium can tell the window has
+closed:
+
+| value | meaning | harnesses |
+| --- | --- | --- |
+| `on-bind` | no window worth guarding | codex, opencode, cursor |
+| `process-settle` | visible in status; wait for the TUI to settle | grok |
+| `confirmed-turn` | invisible; only a transcript turn proves it | claude |
+
+**Single-valued on purpose** — "a harness has one answer, and two booleans could
+say both or neither". An unknown harness falls to `on-bind`, because
+`confirmed-turn` would queue its sends behind a proof this build has no idea how
+to obtain: *"`on-bind` is a claim, not a default you fall into."*
+
+**Verified by mutation:** widening grok onto `confirmed-turn` kills four tests,
+including *types a later Grok send directly, though Grok verifies submits too*.
+Restored byte-identical.
+
 ## THE BAR IS MET — ZERO CELLS WHERE HEADLESS IS WORSE (POD-2819, landed)
 
 The one `worse` cell is now **PASS on both arms**, re-driven on POD-2777's rig
