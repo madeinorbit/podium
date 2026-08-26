@@ -97,6 +97,23 @@ everything general lives here so it stops being re-typed one session at a time.
   signal for this branch — but it must not get worse.
 - Do not over-test. This box is CPU constrained.
 
+## Landing — USE docs/evidence/pod-2777/land.sh (2026-08-26 18:02 CEST)
+
+**Do not hand-roll the landing sequence.** It is on the branch, it landed itself, and it
+carries five guards each of which exists because someone got it wrong first:
+
+    grant vs queue      queued is NOT granted — that distinction was the original bug
+    cancel the slot     never strand a queue entry; this box grants stranded slots to dead processes
+    --ff-only           refuse rather than quietly create a merge commit
+    trap on release     an error between acquire and release cannot leave the branch locked
+    clean tree          reset --hard discards the working tree, not just commits
+    + rebase recovery   it REBASES a moved tip rather than advising you to
+
+**Known untested path, stated by its author rather than discovered by you:** a rebase that
+genuinely CONFLICTS. That branch aborts and refuses by construction and by reading, but no
+conflict has occurred to prove it. *If it misbehaves, that is the branch to look at first.*
+Five verified guards do not imply a sixth.
+
 ## Landing (this replaces every "hold the branch" mail)
 
 **Land only while `merge:issue/1761-agent-runtime` is FREE, and take it for your own
@@ -619,3 +636,22 @@ Locks are advisory and a parked holder can block work for hours. Before taking o
    waiting, including sessions from other epics.
 4. **Take it, release it to the queue immediately**, and **tell the holder what you did, what
    you checked, and that you will own it if you were wrong.**
+
+## Every guard here was written AFTER something got through it (2026-08-26 18:02 CEST)
+
+Five, in order, each added because a result was already wrong:
+
+    drive-verify        after a stale pin was nearly measured
+    A8 logged-out ctrl  after a vacuous PASS that measured nothing
+    the park control    after another vacuous PASS on a resume cell
+    land.sh gate        after a lock was bypassed by a check that only printed
+    land.sh rebase      after that gate produced a refusal no caller could act on
+
+**Not one was designed in advance.** The tempting lesson is *"ask what would let this pass
+while nothing happened"* — and the author who wrote all five says plainly that **they could not
+answer that question in advance in any of the five cases.** So do not treat it as a checklist
+that would have prevented them.
+
+**What actually worked: measure, notice the result was TOO COMFORTABLE, and go back.** A cell
+that passes first time, a control that fires exactly as hoped, a gate that never refuses —
+those are the readings to distrust. Comfort is the signal.
