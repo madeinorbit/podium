@@ -1087,3 +1087,29 @@ like one.
 **This is the same failure as a check that cannot fail, inverted:** a condition so easy to satisfy
 that it is satisfied by the wrong thing. Both give you a confident answer at the wrong moment. Ask
 of any wait: *what else in this output could match, and would I notice?*
+
+### The server gate is red with 80 INHERITED failures — the names are written down (2026-08-27 00:55 CEST)
+
+`bun run test:unit -- --filter @podium/server` on this branch returns **80 failures that are not
+yours**: 45 boundary, 34 services, 1 contracts. They have been red for days.
+
+**The names are in `docs/evidence/pod-1761/known-red-server-tests.txt`.** Diff your failing names
+against that file rather than re-running anything. **A name in the file is inherited. A name NOT in
+the file is yours, and it is the only kind that blocks a landing.**
+
+**Compare by NAME, never by COUNT.** A count that moves by one or two on this host is flake. The
+question is never "how many failed" — it is "did anything fail that is not on the list".
+
+**`PODIUM_TEST_WORKERS=1` must match.** That variable decides whether this gate is red at all, so
+a run without it is not comparable to the file and not comparable to anyone else's run either.
+State whether you set it whenever you report a gate result.
+
+**How this was established, because the method generalises.** The suite was run on the epic tip —
+a tree that did NOT contain the fix under test. Every task's count came back identical to the run
+WITH the fix, including turbo's own "2 successful, 5 total". Since the fix is absent from that
+tree, nothing in that run can be its fault. **The test is ONE-SIDED: it exonerates a change and
+cannot convict one.** It only works when the tip genuinely lacks the change — check that with
+`git cherry` first, and if the tip comes back green you still owe the two-arm run.
+
+**It is a snapshot, not a gate.** Nothing compares against it automatically. If you land something
+that legitimately changes this set, update the file in the same commit and say so.
