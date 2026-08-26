@@ -3974,3 +3974,31 @@ commits" while it had 13 dirty files. Sent as an interrupt before it wrote anyth
 **The general rule: `--start` on a NEW issue cuts from the parent branch you name; `agent spawn
 --issue` on an EXISTING one inherits whatever base that issue last had.** The second case needs
 the base checked every time.
+
+### The orphan population moves while you are counting it (2026-08-27 00:54 CEST)
+
+POD-2691's implementer repaired its base to `63f76ad3f`, verified the ancestry, and re-took the
+census before touching code. **7-in-5 forty minutes ago; 5-in-4 now** — POD-91, POD-2059,
+POD-2291, and POD-2908 twice. Neither reading is wrong.
+
+**Its own sentence carries the hardest requirement in the issue:** *"POD-2902 exited between
+readings."* Between two of its own censuses, minutes apart, a member of the population died
+unaided. That turns the reaper's race from theoretical into measured:
+
+- **A pid selected in one pass and killed in a later one may belong to something else by then**,
+  and on this box the something else is a live agent mid-drive. Identity has to be re-verified at
+  the moment of the kill, by something that cannot be recycled along with the pid. **That is the
+  argument for consuming the instance UUID which the original commit never made** — it was added
+  as a field, not as an answer to this.
+- Any design that enumerates, decides, and acts in three passes has **two windows** in it.
+
+**POD-2908 appearing with two live processes is the cleanest single example of the defect** — it
+is the audit issue that produced the list of unexamined fixes, closed while its own agents kept
+running. Nobody can call that historical residue.
+
+**And the liveness signal cannot be the tracker's phase field.** Tonight it read `working` for a
+session that was genuinely alive and idle for 90 minutes, and `working` for one that had been
+dead for 101. **Wrong in both directions.** Age is no better: two of the orphans are over a day
+old, and a legitimate long turn is indistinguishable from them by age alone. Working out what the
+real liveness evidence is, and why it cannot produce a false positive, is more of that issue's
+deliverable than the code is.
