@@ -455,3 +455,40 @@ session that meets them spends time deciding whether they are theirs. Three opti
 now a real regression would arrive as "80 failures" against an expected "79" and nobody would see
 it — which is exactly how this epic loses a defect. **I have not done it, because it is a
 session-day of work and the epic's three open defects come first.**
+
+## Decision 19 — this box cannot run four drive sessions and a neighbour's heavy gate (2026-08-27 01:52 CEST)
+
+**Measured tonight, twice.** Root filesystem hit 100% at ~22:50 (375MB free) and again at 01:45
+(1.5GB free). The first killed a live measurement mid-run with ENOSPC. The second was caught by
+POD-2913 refusing to record a number through it.
+
+**The arithmetic, which I got wrong once already tonight.** I reclaimed 38 finished worktrees and
+took the disk to 17GB, then started three sessions and watched it fall back to 11GB — **a worktree
+with its own `node_modules` costs 2–3GB.** Between 01:39 and 01:45 it went 12GB -> 1.5GB while
+four of my sessions drove and a neighbour issue held `test:heavy` for memory-heavy cache work
+(its caches ran 4.3GB each earlier in the night).
+
+**So the ceiling is roughly three concurrent drive sessions, and fewer while a neighbour holds the
+heavy lock.** Load and memory are NOT the constraint — both were comfortable at the moment the
+disk filled. I reasoned from CPU headroom when I parallelised, and the headroom I was looking at
+was the wrong resource.
+
+**THE DECISION FOR THE OPERATOR.** Parallelism is what makes coverage move — 25 of 69 cells at 36%,
+with 44 to go and grok's 16 unblocking at 11:03. Three options:
+
+1. **Cap concurrency at three and accept the slower burn-down.** Free, immediate, and it is what I
+   am doing tonight by default. Costs roughly a third of the throughput.
+2. **Reclaim the 34 worktrees my sweep skipped for cause** — dirty trees and genuinely unlanded
+   branches, some weeks old. Real space, but each needs three checks individually; it is a
+   session's work, not a sweep, and some of that dirt is somebody's unlanded evidence.
+3. **Give the box more disk**, if that is possible at all. The only option that raises the ceiling
+   rather than rationing under it.
+
+**My recommendation is 2 then 1**, in that order: recover the space first so that capping at three
+is a choice rather than a floor. **I have not started it, because the epic's open defects and the
+44 undriven cells come first and this is a session-day.**
+
+**Related and not incidental:** POD-2916 (a queued message resurrects a stopped session and
+recreates its worktree) means reclamation is not durable, so any space recovered under option 2
+can quietly come back. That one should be fixed before a large reclamation, or the reclamation
+gets done twice.
