@@ -163,4 +163,4 @@ echo "  ok  arm live in the processes: daemon CONTRACT=$RUNNING_CONTRACT DRIVER=
 # The machine-readable line drive.ts reads back, so a report can carry the pin
 # it actually ran under rather than one a human retyped.
 echo "PINJSON {\"want\":\"$WANT_SHA\",\"short\":\"$WANT_SHORT\",\"spawnedSha\":\"$spawned\",\"serverPid\":$SERVER_PID,\"daemonPid\":$DAEMON_PID,\"webSourceSha\":\"$WEB_SHA\",\"contract\":\"$RUNNING_CONTRACT\",\"streaming\":\"$RUNNING_STREAMING\",\"driver\":\"${RUNNING_DRIVER:-}\"}"
-echo "VERIFIED: p2777 (server + daemon + web bundle) is running $WANT_SHA in arm CONTRACT=$RUNNING_CONTRACT STREAMING=$RUNNING_STREAMING DRIVER='${RUNNING_DRIVER:-(policy)}'"
+echo "VERIFIED: $PODIUM_INSTANCE (server + daemon + web bundle) is running $WANT_SHA in arm CONTRACT=$RUNNING_CONTRACT STREAMING=$RUNNING_STREAMING DRIVER='${RUNNING_DRIVER:-(policy)}'"

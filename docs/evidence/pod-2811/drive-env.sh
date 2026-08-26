@@ -29,3 +29,10 @@ export P2777_RELAY_PORT=46858
 # THE CODE UNDER TEST IS THIS WORKTREE. Left unset it is POD-2777's, which is a
 # different branch at a different commit — the neighbour's, not ours.
 export P2777_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+
+# THEN THE RIG'S OWN ENVIRONMENT, with the overrides above already exported.
+# Sourcing it here rather than leaving it to the caller is not tidiness: it is
+# what puts ~/.bun/bin and the harness binaries on PATH and scrubs the inherited
+# Podium session. Forgetting it is the documented way to end up driving the
+# neighbour's instance — and, more quietly, `bun: command not found`.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../pod-2777" && pwd)/drive-env.sh"
