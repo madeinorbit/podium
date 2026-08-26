@@ -1341,6 +1341,49 @@ describe('adopt', () => {
     expect(after.binding.bindingVersion).toBeGreaterThan(checkpoint.binding.bindingVersion)
   })
 
+  it('continues a live stream after its bounded replay buffer trims', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+    const checkpoint = await session.snapshot()
+    const stream = session.events(checkpoint.cursor)[Symbol.asyncIterator]()
+    let pending = stream.next()
+
+    const nextWithDeadline = (
+      candidate: Promise<IteratorResult<RuntimeEvent>>,
+    ): Promise<IteratorResult<RuntimeEvent>> =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('event stream stopped delivering')), 100)
+        void candidate.then(
+          (value) => {
+            clearTimeout(timer)
+            resolve(value)
+          },
+          (error: unknown) => {
+            clearTimeout(timer)
+            reject(error)
+          },
+        )
+      })
+
+    // One observation emits one state event. The final iteration is the first
+    // event after the log has trimmed, which is where the old index cursor
+    // became equal to the trimmed log length and slept forever.
+    for (let index = 0; index < EVENT_LOG_LIMIT + 1; index += 1) {
+      world.observe(sessionId, {
+        transitionKind: 'activity',
+        priorPhase: 'working',
+        nextPhase: 'working',
+      })
+      const next = await nextWithDeadline(pending)
+      expect(next.done).toBe(false)
+      if (index < EVENT_LOG_LIMIT) pending = stream.next()
+    }
+
+    await stream.return?.()
+  })
+
   it('refuses a binding whose durable host did not survive', async () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)

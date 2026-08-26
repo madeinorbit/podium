@@ -32,7 +32,13 @@ import type {
 } from '../../capabilities.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
 import { DriverRefusalError } from '../../errors.js'
-import type { EventStreamStart, RuntimeEvent, RuntimeEventBody, WatchLevel } from '../../events.js'
+import {
+  createRuntimeEventStream,
+  type EventStreamStart,
+  type RuntimeEvent,
+  type RuntimeEventBody,
+  type WatchLevel,
+} from '../../events.js'
 import { sessionHealth } from '../../health.js'
 import type {
   InteractionAnswerOutcome,
@@ -1400,34 +1406,12 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       },
 
       events(after: EventStreamStart): AsyncIterable<RuntimeEvent> {
-        return {
-          async *[Symbol.asyncIterator]() {
-            let position =
-              after === 'bootstrap'
-                ? 0
-                : session.log.findIndex((entry) => entry.seq > Number(after.components.seq ?? 0))
-            if (position < 0) position = session.log.length
-            const bootstrapUntil = after === 'bootstrap' ? session.seq : 0
-            while (true) {
-              while (position < session.log.length) {
-                const entry = session.log[position]
-                position += 1
-                if (!entry) continue
-                yield entry.seq <= bootstrapUntil
-                  ? ({ ...entry.event, provenance: 'bootstrap' } as RuntimeEvent)
-                  : entry.event
-              }
-              if (session.disposed) return
-              await new Promise<void>((resolve) => {
-                const wake = (): void => {
-                  session.wakers.delete(wake)
-                  resolve()
-                }
-                session.wakers.add(wake)
-              })
-            }
-          },
-        }
+        return createRuntimeEventStream(after, {
+          log: session.log,
+          wakers: session.wakers,
+          currentSeq: () => session.seq,
+          isDisposed: () => session.disposed,
+        })
       },
 
       async watch(level: WatchLevel): Promise<() => void> {

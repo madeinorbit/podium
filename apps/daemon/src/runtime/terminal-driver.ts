@@ -84,6 +84,7 @@ import type {
   WatchLevel,
 } from '@podium/agent-runtime'
 import {
+  createRuntimeEventStream,
   createTerminalInjection,
   DriverRefusalError,
   driverLocalCursor,
@@ -1474,38 +1475,12 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
       // ---- observation ----
       events(after: EventStreamStart): AsyncIterable<RuntimeEvent> {
-        return {
-          async *[Symbol.asyncIterator]() {
-            // EXACTLY ONE SNAPSHOT OPENS A STREAM. `'bootstrap'` replays what is
-            // already known, tagged as such so a consumer never applies live
-            // effects from it; a cursor resumes strictly AFTER that position, so
-            // a rebind delivers no retroactive live events at all.
-            let position =
-              after === 'bootstrap'
-                ? 0
-                : session.log.findIndex((entry) => entry.seq > cursorSeqOf(after))
-            if (position < 0) position = session.log.length
-            const bootstrapUntil = after === 'bootstrap' ? session.seq : 0
-            while (true) {
-              while (position < session.log.length) {
-                const entry = session.log[position]
-                position += 1
-                if (!entry) continue
-                yield entry.seq <= bootstrapUntil
-                  ? ({ ...entry.event, provenance: 'bootstrap' } as RuntimeEvent)
-                  : entry.event
-              }
-              if (session.disposed) return
-              await new Promise<void>((resolve) => {
-                const waker = (): void => {
-                  session.wakers.delete(waker)
-                  resolve()
-                }
-                session.wakers.add(waker)
-              })
-            }
-          },
-        }
+        return createRuntimeEventStream(after, {
+          log: session.log,
+          wakers: session.wakers,
+          currentSeq: () => session.seq,
+          isDisposed: () => session.disposed,
+        })
       },
 
       async watch(level: WatchLevel) {
@@ -1867,8 +1842,6 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
   capabilityCache.set(resolved, built)
   return built
 }
-
-const cursorSeqOf = (cursor: ProviderCursor): number => Number(cursor.components.seq ?? 0)
 
 /**
  * Who an `answered` event names, from the acting principal that answered.

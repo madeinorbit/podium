@@ -67,6 +67,7 @@ import type {
   UsageSnapshot,
   WatchLevel,
 } from '../index.js'
+import { createRuntimeEventStream } from '../events.js'
 
 // ---------------------------------------------------------------------------
 // The surviving-process registry — what makes `adopt()` testable
@@ -887,34 +888,12 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
 
       // ---- observation ----
       events(after: EventStreamStart): AsyncIterable<RuntimeEvent> {
-        return {
-          async *[Symbol.asyncIterator]() {
-            // BOOTSTRAP vs LIVE is a provenance fact, not a delivery detail: a
-            // replayed event must never carry live effects, which is why the
-            // envelope says which it is rather than the consumer guessing.
-            let position = after === 'bootstrap' ? 0 : Number(after.components.seq ?? 0)
-            const bootstrapUntil = after === 'bootstrap' ? core.seq : position
-            while (true) {
-              while (position < core.log.length) {
-                const entry = core.log[position]
-                position += 1
-                if (!entry) continue
-                yield {
-                  ...entry.event,
-                  provenance: entry.seq <= bootstrapUntil ? 'bootstrap' : entry.event.provenance,
-                } as RuntimeEvent
-              }
-              if (!core.alive) return
-              await new Promise<void>((resolve) => {
-                const waker = () => {
-                  core.wakers.delete(waker)
-                  resolve()
-                }
-                core.wakers.add(waker)
-              })
-            }
-          },
-        }
+        return createRuntimeEventStream(after, {
+          log: core.log,
+          wakers: core.wakers,
+          currentSeq: () => core.seq,
+          isDisposed: () => !core.alive,
+        })
       },
 
       async watch(level: WatchLevel) {

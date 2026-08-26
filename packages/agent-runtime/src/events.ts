@@ -140,6 +140,72 @@ export type TranscriptItemDelta =
  */
 export type WatchLevel = 'coarse' | 'fine'
 
+/** One entry in a driver's bounded causal-event replay log. */
+export interface RuntimeEventLogEntry {
+  seq: number
+  event: RuntimeEvent
+}
+
+/** The small mutable part of a driver's event stream used by the shared reader. */
+export interface RuntimeEventStreamSource {
+  readonly log: readonly RuntimeEventLogEntry[]
+  readonly wakers: Set<() => void>
+  currentSeq(): number
+  isDisposed(): boolean
+}
+
+/**
+ * Read a bounded event log without confusing its replay index with its cursor.
+ *
+ * The log is deliberately a ring-shaped array: trimming its oldest entries
+ * shifts every array index while a live reader is asleep. An index-based reader
+ * can therefore wake on the next event, observe `position === log.length` and
+ * go back to sleep forever. The sequence is the stable identity, so a trim only
+ * means that an unreplayed prefix is no longer available; it never hides the
+ * events that arrived after the trim.
+ */
+export function createRuntimeEventStream(
+  after: EventStreamStart,
+  source: RuntimeEventStreamSource,
+): AsyncIterable<RuntimeEvent> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      let lastSeq = after === 'bootstrap' ? 0 : Number(after.components.seq ?? 0)
+      const bootstrapUntil = after === 'bootstrap' ? source.currentSeq() : 0
+
+      while (true) {
+        let found = false
+        for (const entry of source.log) {
+          if (entry.seq <= lastSeq) continue
+          found = true
+          lastSeq = entry.seq
+          const event =
+            entry.seq <= bootstrapUntil
+              ? ({ ...entry.event, provenance: 'bootstrap' } as RuntimeEvent)
+              : entry.event
+          yield event
+        }
+        if (found) continue
+        if (source.isDisposed()) return
+
+        await new Promise<void>((resolve) => {
+          let awake = false
+          const wake = (): void => {
+            if (awake) return
+            awake = true
+            source.wakers.delete(wake)
+            resolve()
+          }
+          source.wakers.add(wake)
+          // Do not lose an event emitted between the scan above and registering
+          // the waker. This check also makes disposal wake a reader cleanly.
+          if (source.isDisposed() || source.log.some((entry) => entry.seq > lastSeq)) wake()
+        })
+      }
+    },
+  }
+}
+
 /** Where to resume an event stream. `'bootstrap'` asks for the snapshot plus
  *  everything after it. */
 export type EventStreamStart = ProviderCursor | 'bootstrap'

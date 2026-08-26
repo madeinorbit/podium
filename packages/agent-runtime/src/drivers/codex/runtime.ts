@@ -72,7 +72,13 @@ import type {
 } from '../../capabilities.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
 import type { ProcessEvent } from '../../errors.js'
-import type { EventStreamStart, RuntimeEvent, RuntimeEventBody, WatchLevel } from '../../events.js'
+import {
+  createRuntimeEventStream,
+  type EventStreamStart,
+  type RuntimeEvent,
+  type RuntimeEventBody,
+  type WatchLevel,
+} from '../../events.js'
 import { sessionHealth } from '../../health.js'
 import type {
   InteractionAnswer,
@@ -1569,37 +1575,12 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
 
       // ---- observation ----
       events(after: EventStreamStart): AsyncIterable<RuntimeEvent> {
-        return {
-          async *[Symbol.asyncIterator]() {
-            // EXACTLY ONE SNAPSHOT OPENS A STREAM. `'bootstrap'` replays what is
-            // already known, tagged so a consumer never applies live effects
-            // from it; a cursor resumes strictly AFTER that position.
-            let position =
-              after === 'bootstrap'
-                ? 0
-                : session.log.findIndex((entry) => entry.seq > Number(after.components.seq ?? 0))
-            if (position < 0) position = session.log.length
-            const bootstrapUntil = after === 'bootstrap' ? session.seq : 0
-            while (true) {
-              while (position < session.log.length) {
-                const entry = session.log[position]
-                position += 1
-                if (!entry) continue
-                yield entry.seq <= bootstrapUntil
-                  ? ({ ...entry.event, provenance: 'bootstrap' } as RuntimeEvent)
-                  : entry.event
-              }
-              if (session.disposed) return
-              await new Promise<void>((resolve) => {
-                const waker = (): void => {
-                  session.wakers.delete(waker)
-                  resolve()
-                }
-                session.wakers.add(waker)
-              })
-            }
-          },
-        }
+        return createRuntimeEventStream(after, {
+          log: session.log,
+          wakers: session.wakers,
+          currentSeq: () => session.seq,
+          isDisposed: () => session.disposed,
+        })
       },
 
       /**
