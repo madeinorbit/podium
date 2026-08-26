@@ -1,7 +1,6 @@
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
-import { Button } from '@/components/ui/button'
 import { NetworkStep } from '@/features/setup/network-step'
 import { Row, Section } from './shared'
 
@@ -19,7 +18,6 @@ export function NetworkSection(): JSX.Element {
     publicUrl: string | null
     serverUrl: string | null
   } | null>(null)
-  const [editing, setEditing] = useState(false)
 
   const load = (): void => {
     trpc.setup.info
@@ -54,34 +52,9 @@ export function NetworkSection(): JSX.Element {
   return (
     <Section
       title="Network"
-      hint="How this server is reached from your browser and other machines. The join tokens you hand out to new machines embed this URL — change it here when you switch to a different address."
+      hint="Choose how phones, browsers, and other machines reach this Podium server."
     >
-      <Row label="Reachable URL">
-        <span className="min-w-0 flex-1 truncate text-[13.5px] text-foreground">
-          {info?.publicUrl ?? <span className="text-muted-foreground">not set</span>}
-        </span>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="flex-none"
-          onClick={() => setEditing((v) => !v)}
-        >
-          {editing ? 'Cancel' : info?.publicUrl ? 'Change…' : 'Set up…'}
-        </Button>
-      </Row>
-      {editing && (
-        <div className="mt-3">
-          <NetworkStep
-            embedded
-            trpc={trpc}
-            onSaved={() => {
-              setEditing(false)
-              load()
-            }}
-          />
-        </div>
-      )}
+      <NetworkStep embedded trpc={trpc} onSaved={load} />
     </Section>
   )
 }

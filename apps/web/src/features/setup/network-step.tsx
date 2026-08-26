@@ -55,7 +55,7 @@ export type SetupCompleteInput = Parameters<Trpc['setup']['complete']['mutate']>
 export interface NetworkStepInitialState {
   /** The saved reachable URL, seeded into the input. Empty when there is none. */
   url: string
-  /** Which exposure option to preselect, or `null` for "don't claim to remember one". */
+  /** Which saved exposure option to preselect, or `null` for an older unclassified URL. */
   option: NetOption | null
   /** Does the CALLER already have a credential — i.e. is "keep current password" offered. */
   hasPassword: boolean
@@ -68,19 +68,17 @@ export interface NetworkStepInitialState {
  * actually configured, so the one thing the server does remember (`publicUrl`) was thrown away
  * and the one thing it does NOT remember (the tunnel option) was displayed as if it did.
  *
- * The option is deliberately `null` once a URL exists rather than guessed from its hostname:
- * `applySetup` stores only publicUrl/mode/port, so there is no saved answer to restore and a
- * preselected radio would be an invention. Nothing selected = "pick one to print its command
- * again", which is all these radios have ever done.
+ * Older configs can have a URL without a saved option. Keep those unselected rather than
+ * guessing from the hostname; every new save records the explicit choice.
  */
 export function networkStepInitialState(
-  info: { publicUrl: string | null } | null,
+  info: { publicUrl: string | null; networkOption?: NetOption | null } | null,
   status: { hasOwnCredential: boolean } | null,
 ): NetworkStepInitialState {
   const url = info?.publicUrl ?? ''
   return {
     url,
-    option: url ? null : 'tailscale-funnel',
+    option: info?.networkOption ?? (url ? null : 'tailscale-funnel'),
     hasPassword: Boolean(status?.hasOwnCredential),
   }
 }
@@ -174,6 +172,7 @@ function NetworkStepForm({
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
   const hasPassword = initial.hasPassword
   // Ephemeral quick-tunnel flag for the pasted URL (mirrors the CLI's warning).
   const urlWarning = quickTunnelWarning(url)
@@ -220,6 +219,7 @@ function NetworkStepForm({
     setBusy(true)
     const payload: SetupCompleteInput = {
       publicUrl: url,
+      ...(option ? { networkOption: option } : {}),
       ...(mode ? { mode } : {}),
       // 'keep' sends neither field → the server leaves the existing password untouched.
       ...(authMode === 'password'
@@ -252,6 +252,7 @@ function NetworkStepForm({
           body: JSON.stringify({ password: payload.password }),
         }).catch(() => {})
       }
+      setSaved(true)
       onSaved()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
@@ -281,13 +282,9 @@ function NetworkStepForm({
       )}
       <fieldset className="flex flex-col gap-2">
         <legend className="text-[12px] text-muted-foreground">How to expose this instance</legend>
-        {/* Nothing is preselected once a URL is saved, because nothing about this choice IS
-            saved — `applySetup` records the URL, not how you produced it. Say so rather than
-            leave an invented radio standing where a remembered one would be. */}
         {initial.option === null && (
           <p className="text-[12px] text-muted-foreground">
-            Podium doesn’t record which of these you used. Pick one to print its command again, or
-            just edit the URL below.
+            Choose how this URL is exposed. Podium will save the selection with the URL.
           </p>
         )}
         {options.map((o) => (
@@ -302,7 +299,10 @@ function NetworkStepForm({
               value={o.id}
               id={`net-${o.id}`}
               checked={option === o.id}
-              onChange={() => setOption(o.id)}
+              onChange={() => {
+                setOption(o.id)
+                setSaved(false)
+              }}
               className="mt-1"
             />
             <span className="flex flex-col">
@@ -330,14 +330,17 @@ function NetworkStepForm({
       {cmd?.hint ? <p className="text-[12px] text-muted-foreground">{cmd.hint}</p> : null}
       <div className="flex flex-col gap-1">
         <label htmlFor="public-url" className="text-[12px] text-muted-foreground">
-          Public URL
+          Podium URL
         </label>
         <Input
           id="public-url"
           type="text"
           placeholder="https://box.tailnet.ts.net"
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={(e) => {
+            setUrl(e.target.value)
+            setSaved(false)
+          }}
         />
         {/* Same *.trycloudflare.com flag the CLI setup shows — warn, never block. */}
         {urlWarning && (
@@ -362,6 +365,7 @@ function NetworkStepForm({
               onChange={() => {
                 setAuthMode('keep')
                 setAckNoPassword(false)
+                setSaved(false)
               }}
               className="mt-1"
             />
@@ -386,6 +390,7 @@ function NetworkStepForm({
             onChange={() => {
               setAuthMode('password')
               setAckNoPassword(false)
+              setSaved(false)
             }}
             className="mt-1"
           />
@@ -409,7 +414,10 @@ function NetworkStepForm({
               autoComplete="new-password"
               placeholder="Password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                setSaved(false)
+              }}
             />
             <p className="text-[11px] text-muted-foreground">
               Devices will need this password to connect.
@@ -426,7 +434,10 @@ function NetworkStepForm({
             name="setup-auth"
             value="open"
             checked={authMode === 'open'}
-            onChange={() => setAuthMode('open')}
+            onChange={() => {
+              setAuthMode('open')
+              setSaved(false)
+            }}
             className="mt-1"
           />
           <span className="flex flex-col">
@@ -440,7 +451,10 @@ function NetworkStepForm({
           <Label className="ml-6 cursor-pointer items-start rounded-md border border-border px-3 py-2 text-[12px] text-muted-foreground">
             <Checkbox
               checked={ackNoPassword}
-              onCheckedChange={(checked) => setAckNoPassword(checked === true)}
+              onCheckedChange={(checked) => {
+                setAckNoPassword(checked === true)
+                setSaved(false)
+              }}
             />
             <span>
               I understand that anyone who can reach this Podium URL can control agents and shells.
@@ -451,6 +465,11 @@ function NetworkStepForm({
       {err && (
         <p role="alert" className="text-[12px] text-destructive">
           {err}
+        </p>
+      )}
+      {saved && (
+        <p role="status" className="text-[12px] text-success">
+          Network settings saved.
         </p>
       )}
       <div className="flex items-center justify-between gap-2">
@@ -476,7 +495,7 @@ function NetworkStepForm({
             }
             onClick={() => void finish()}
           >
-            {busy ? 'Saving…' : embedded ? 'Save URL' : 'Finish'}
+            {busy ? 'Saving…' : embedded ? 'Save network settings' : 'Finish'}
           </Button>
         </div>
       </div>

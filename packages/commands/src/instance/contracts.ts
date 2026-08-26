@@ -141,6 +141,10 @@ const CREATES_NOTHING = {
 
 export const setupCompleteInput = z.object({
   publicUrl: z.string(),
+  /** The reachability method selected alongside the URL. */
+  networkOption: z
+    .enum(['tailscale-funnel', 'tailscale-serve', 'cloudflare-tunnel', 'manual'])
+    .optional(),
   /** Which host mode this reachable box is (the web runs this step for both);
    *  absent preserves the existing mode (default all-in-one on first run). */
   mode: z.enum(['all-in-one', 'server']).optional(),
@@ -181,8 +185,8 @@ export const setupCompleteContract = {
     outputPaths: [],
     note:
       '`password` IS credential material and is redacted from any log or audit record of this ' +
-      'command. `publicUrl` and `mode` are deployment identity and stay visible — the URL is public ' +
-      'by definition and a refusal must name it to be actionable. The telemetry answers are ' +
+      'command. `publicUrl`, `networkOption`, and `mode` are deployment identity and stay visible. ' +
+      'A refusal must name the URL to be actionable. The telemetry answers are ' +
       'consent booleans, not data. The RESULT is the resolved config and carries no password back, ' +
       'which is why `outputPaths` is empty rather than unexamined.',
   } satisfies RedactionPolicy,

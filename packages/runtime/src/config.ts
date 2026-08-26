@@ -140,8 +140,12 @@ export const PodiumConfig = z.object({
    * on, but honoured here whatever the UI is currently showing.
    */
   updateChannel: z.enum(['stable', 'edge', 'dev']).optional(),
-  /** Externally-reachable base URL captured at setup; embedded into machine join tokens. */
+  /** Device-reachable base URL captured at setup; embedded into machine join tokens. */
   publicUrl: z.string().optional(),
+  /** How the reachable URL is exposed. Saved so Settings can restore the operator's choice. */
+  networkOption: z
+    .enum(['tailscale-funnel', 'tailscale-serve', 'cloudflare-tunnel', 'manual'])
+    .optional(),
   /**
    * How the headless backend is kept running, chosen at setup (docs/internal/superpowers/specs/
    * 2026-07-06-headless-process-model-design.md): `systemd` = supervised `--user` units that

@@ -53,7 +53,12 @@ beforeEach(() => {
     command: 'tailscale funnel 18787',
     hint: 'Then paste the https URL it prints.',
   })
-  trpcMock.info.mockResolvedValue({ mode: null, publicUrl: null, serverUrl: null }) // first run
+  trpcMock.info.mockResolvedValue({
+    mode: null,
+    publicUrl: null,
+    networkOption: null,
+    serverUrl: null,
+  }) // first run
   trpcMock.complete.mockResolvedValue({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
   trpcMock.connect.mockResolvedValue({ mode: 'all-in-one' })
   // POD-1554 made "a password is already set" PER-ACCOUNT: SetupView reads
@@ -179,7 +184,7 @@ describe('SetupView', () => {
     ).toBe(true)
     expect(view.queryByText(/I understand that anyone who can reach this Podium URL/i)).toBeNull()
 
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://box.ts.net' },
     })
     fireEvent.click(view.getByRole('radio', { name: /run without a podium password/i }))
@@ -207,7 +212,7 @@ describe('SetupView', () => {
       fireEvent.click(view.getByRole('button', { name: /continue/i }))
       await flush()
     })
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://box.ts.net' },
     })
     fireEvent.change(view.getByLabelText(/^login password$/i), {
@@ -238,7 +243,7 @@ describe('SetupView', () => {
     expect(
       (view.getByRole('radio', { name: /keep current password/i }) as HTMLInputElement).checked,
     ).toBe(true)
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://box.ts.net' },
     })
     await act(async () => {
@@ -290,12 +295,12 @@ describe('SetupView', () => {
       await flush()
     })
     // Stable URL: no warning.
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://box.ts.net' },
     })
     expect(view.queryByText(/quick tunnel/i)).toBeNull()
     // Quick-tunnel URL: inline warning, but the flow is not blocked.
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://random-words.trycloudflare.com' },
     })
     expect(view.getByText(/quick tunnel/i)).toBeTruthy()
@@ -368,7 +373,7 @@ describe('SetupView', () => {
       fireEvent.click(view.getByRole('button', { name: /continue/i }))
       await flush()
     })
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://relay.ts.net' },
     })
     fireEvent.change(view.getByLabelText(/^login password$/i), { target: { value: 'pw' } })
@@ -401,7 +406,7 @@ describe('SetupView', () => {
         fireEvent.click(view.getByRole('button', { name: /continue/i }))
         await flush()
       })
-      fireEvent.change(view.getByLabelText(/public url/i), {
+      fireEvent.change(view.getByLabelText(/podium url/i), {
         target: { value: 'https://box.ts.net' },
       })
       fireEvent.change(view.getByLabelText(/^login password$/i), { target: { value: 'pw' } })

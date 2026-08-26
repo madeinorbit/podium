@@ -86,9 +86,9 @@ type PairingFlow =
 type StartFailure = 'public-url' | 'transport' | 'auth' | 'unavailable' | 'invalid-response'
 
 const SAFE_START_ERRORS: Record<StartFailure, string> = {
-  'public-url': 'Set a valid Public URL under Settings → Network, then try again.',
+  'public-url': 'Set a valid Podium URL under Settings → Network before pairing a phone.',
   transport:
-    'Mobile pairing requires trusted HTTPS. Configure Tailscale Serve or a trusted HTTPS reverse proxy under Settings → Network.',
+    'Mobile pairing requires trusted HTTPS. Set up Tailscale Serve or a trusted HTTPS reverse proxy under Settings → Network.',
   auth: 'Your sign-in is no longer authorized. Sign in again, then create a new code.',
   unavailable: 'Couldn’t reach this server. Check the connection and try again.',
   'invalid-response':
@@ -905,7 +905,7 @@ export function ConnectedDevicesSection({
 
   const canStartAgain =
     flow.kind === 'open' ||
-    flow.kind === 'error' ||
+    (flow.kind === 'error' && flow.reason !== 'public-url' && flow.reason !== 'transport') ||
     (flow.kind === 'pair' &&
       flow.stage.kind !== 'waiting' &&
       (flow.stage.kind !== 'claimed' || actionError !== null))
@@ -945,8 +945,7 @@ export function ConnectedDevicesSection({
           <div className="rounded-lg border border-hairline-soft bg-muted/20 p-3.5">
             <p className="settings-label">Server pairing address</p>
             <p className="settings-prose mt-1">
-              Podium will use the server’s configured Public URL and show its connection guidance
-              here.
+              Podium will use the configured Podium URL and show its connection guidance here.
             </p>
           </div>
         )}
@@ -1019,7 +1018,7 @@ export function ConnectedDevicesSection({
               onClick={() => void start()}
             >
               <RefreshCw aria-hidden="true" />
-              Create a new code
+              {flow.kind === 'error' ? 'Try again' : 'Create a new code'}
             </Button>
           )}
         </div>

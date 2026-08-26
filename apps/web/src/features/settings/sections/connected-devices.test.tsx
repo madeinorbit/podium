@@ -253,7 +253,7 @@ describe('ConnectedDevicesSection', () => {
   })
 
   it.each([
-    [409, /Set a valid Public URL under Settings → Network/],
+    [409, /Set a valid Podium URL under Settings → Network/],
     [400, /requires trusted HTTPS/],
     [401, /sign-in is no longer authorized/],
   ] as const)('maps start HTTP %s to safe actionable copy', async (status, expected) => {
@@ -270,6 +270,11 @@ describe('ConnectedDevicesSection', () => {
     expect(await screen.findByText(expected)).toBeTruthy()
     expect(screen.getAllByText(expected)).toHaveLength(1)
     expect(screen.queryByText(/do-not-render-this/i)).toBeNull()
+    if (status === 400 || status === 409) {
+      expect(screen.queryByRole('button', { name: /new code|try again/i })).toBeNull()
+    } else {
+      expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
+    }
   })
 
   it('distinguishes a network failure without reflecting arbitrary error text', async () => {

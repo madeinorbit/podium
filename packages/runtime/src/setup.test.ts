@@ -55,11 +55,12 @@ describe('setup core', () => {
     expect(wssFrom('http://10.0.0.1:18787')).toBe('ws://10.0.0.1:18787')
   })
   it('applySetup persists mode + publicUrl (first run → all-in-one)', () => {
-    applySetup({ publicUrl: 'https://box.ts.net' })
+    applySetup({ publicUrl: 'https://box.ts.net', networkOption: 'tailscale-serve' })
     expect(loadConfig()).toEqual({
       configVersion: CURRENT_CONFIG_VERSION,
       mode: 'all-in-one',
       publicUrl: 'https://box.ts.net',
+      networkOption: 'tailscale-serve',
       // Web setup can't START the backend from inside the serving process, but
       // it records the CHOICE — one field, not an intent beside a result
       // (POD-333). The next `podium` invocation brings the split up.
@@ -111,6 +112,7 @@ describe('setup core', () => {
     saveConfig({
       mode: 'all-in-one',
       publicUrl: 'https://old-host.ts.net',
+      networkOption: 'tailscale-serve',
       pairCode: 'STALE',
       updateChannel: 'edge',
       port: 19999,
@@ -126,7 +128,7 @@ describe('setup core', () => {
       updateChannel: 'edge', // preserved
       port: 19999, // preserved
       persistence: 'systemd', // preserved, not re-decided
-      // publicUrl dropped: a daemon box hosts nothing
+      // publicUrl and networkOption dropped: a daemon box hosts nothing
     })
   })
   it('applyJoin throws on a malformed token', () => {

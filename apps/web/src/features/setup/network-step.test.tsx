@@ -18,6 +18,7 @@ import { NetworkStep, networkStepInitialState } from './network-step'
 function fakeTrpc(
   overrides: {
     publicUrl?: string | null
+    networkOption?: 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual' | null
     hasOwnCredential?: boolean
     complete?: ReturnType<typeof vi.fn>
   } = {},
@@ -25,7 +26,12 @@ function fakeTrpc(
   const complete = overrides.complete ?? vi.fn().mockResolvedValue({ mode: 'all-in-one' })
   return {
     setup: {
-      info: { query: vi.fn().mockResolvedValue({ publicUrl: overrides.publicUrl ?? null }) },
+      info: {
+        query: vi.fn().mockResolvedValue({
+          publicUrl: overrides.publicUrl ?? null,
+          networkOption: overrides.networkOption ?? null,
+        }),
+      },
       options: {
         query: vi.fn().mockResolvedValue([
           { id: 'tailscale-funnel', label: 'Tailscale Funnel', note: 'Reachable anywhere.' },
@@ -90,12 +96,11 @@ describe('NetworkStep', () => {
         onSaved={vi.fn()}
       />,
     )
-    const input = (await screen.findByLabelText(/public url/i)) as HTMLInputElement
+    const input = (await screen.findByLabelText(/podium url/i)) as HTMLInputElement
     expect(input.value).toBe('https://box.tail.ts.net')
   })
 
-  /** The tunnel option is not persisted anywhere, so the form must not act as if it were. */
-  it('preselects no exposure option once a URL exists, and says why', async () => {
+  it('does not guess an exposure option for an older saved URL', async () => {
     render(
       <NetworkStep
         embedded
@@ -103,7 +108,7 @@ describe('NetworkStep', () => {
         onSaved={vi.fn()}
       />,
     )
-    expect(await screen.findByText(/doesn’t record which of these/i)).toBeTruthy()
+    expect(await screen.findByText(/choose how this url is exposed/i)).toBeTruthy()
     for (const radio of await screen.findAllByRole('radio', { name: /tailscale|reverse proxy/i })) {
       expect((radio as HTMLInputElement).checked).toBe(false)
     }
@@ -113,11 +118,11 @@ describe('NetworkStep', () => {
     stubFetch()
     const trpc = fakeTrpc()
     render(<NetworkStep embedded trpc={trpc} onSaved={vi.fn()} />)
-    fireEvent.change(await screen.findByLabelText(/public url/i), {
+    fireEvent.change(await screen.findByLabelText(/podium url/i), {
       target: { value: 'https://box.tail.ts.net' },
     })
     fireEvent.change(screen.getByLabelText(/^login password$/i), { target: { value: ' spaced ' } })
-    fireEvent.click(screen.getByRole('button', { name: /save url/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save network settings/i }))
     await waitFor(() =>
       expect(trpc.setup.complete.mutate).toHaveBeenCalledWith(
         expect.objectContaining({ password: ' spaced ' }),
@@ -129,11 +134,11 @@ describe('NetworkStep', () => {
     const fetchMock = stubFetch()
     const onSaved = vi.fn()
     render(<NetworkStep embedded trpc={fakeTrpc()} onSaved={onSaved} />)
-    fireEvent.change(await screen.findByLabelText(/public url/i), {
+    fireEvent.change(await screen.findByLabelText(/podium url/i), {
       target: { value: 'https://box.tail.ts.net' },
     })
     fireEvent.change(screen.getByLabelText(/^login password$/i), { target: { value: 'hunter2' } })
-    fireEvent.click(screen.getByRole('button', { name: /save url/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save network settings/i }))
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/auth/login'),
@@ -159,7 +164,7 @@ describe('NetworkStep', () => {
       name: /keep current password/i,
     })) as HTMLInputElement
     expect(keep.checked).toBe(true)
-    fireEvent.click(screen.getByRole('button', { name: /save url/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save network settings/i }))
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -174,5 +179,29 @@ describe('NetworkStep', () => {
     render(<NetworkStep embedded trpc={trpc} onSaved={vi.fn()} />)
     expect(screen.queryByLabelText(/login password/i)).toBeNull()
     expect(screen.getByText(/loading/i)).toBeTruthy()
+  })
+
+  it('restores and persists the selected network method', async () => {
+    const complete = vi.fn().mockResolvedValue({ mode: 'all-in-one' })
+    const trpc = fakeTrpc({
+      publicUrl: 'https://box.tail.ts.net',
+      networkOption: 'tailscale-serve',
+      hasOwnCredential: true,
+      complete,
+    })
+    render(<NetworkStep embedded trpc={trpc} onSaved={vi.fn()} />)
+
+    const serve = (await screen.findByRole('radio', {
+      name: /tailscale serve/i,
+    })) as HTMLInputElement
+    expect(serve.checked).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: /save network settings/i }))
+
+    await waitFor(() =>
+      expect(complete).toHaveBeenCalledWith(
+        expect.objectContaining({ networkOption: 'tailscale-serve' }),
+      ),
+    )
+    expect(await screen.findByText('Network settings saved.')).toBeTruthy()
   })
 })
