@@ -143,3 +143,17 @@ opencode and grok drivers were **untouched**, so every opencode driver cell stil
 while codex cells and the shared chat-send/inbox rows did not. *Re-driving wholesale after a
 merge wastes days; re-driving nothing ships numbers taken against a tree that no longer
 exists.*
+
+## Do not merge main
+
+**Operator ruling, 2026-08-26: no session merges main into the epic branch.** Main is
+already merged in once (`7b9d9eacb`). It stays that way until the operator says otherwise,
+however far the branch drifts.
+
+The reason is a schedule argument, not a technical one: main moves constantly, each merge
+costs hours, and merging on a cadence turns this epic into a full-time integration job.
+Getting the drivers to parity is the work. Integration is not.
+
+**Do not measure divergence from main and do not raise it as a concern.** If something is
+genuinely blocked by a main-only change, mail the coordinator with the specific block —
+do not merge to unblock yourself.

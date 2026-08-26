@@ -2337,3 +2337,29 @@ directional, not settled.
 **61 seconds** while screen bytes grew 57,400 → 238,722 — the known "terminal never reports
 working" defect reproducing on the tip. Not filed (terminal path, already known), but it is
 why the interrupt probe keys its control on PTY bytes rather than phase on that arm.
+
+## MERGE CADENCE: OVERRULED, AND CORRECTLY (operator, 2026-08-26)
+
+I proposed merging main in whenever the branch drifted more than ~20 commits behind, on the
+theory that many cheap merges beat one expensive one. **Overruled:**
+
+> *"your decision about merging regularly is worst case. it took you 3h. main will move
+> regularly. no point doing it and just being occupied with merging all the time. do not
+> merge until i tell you to. focus on getting the epic done."*
+
+**The arithmetic I did not do.** I costed a merge at three hours and then proposed doing it
+repeatedly, without multiplying. Main moves daily; a cadence of merges is a standing tax on
+the one coordination channel this epic has, paid in exactly the hours that should go to
+closing defects. My "merge often, it's cheaper" reasoning optimised the *unit* cost of a
+merge and ignored the *total*.
+
+**And it mistook integration for the job.** The epic's deliverable is every driver at parity
+with today's. Main being merged is a precondition of *landing*, once, at the end — not a
+property to maintain throughout.
+
+**Standing position from here:** main stays merged at `7b9d9eacb` and is not merged again
+until the operator says so, however far behind the branch drifts. Divergence is not measured
+and not raised. A session genuinely blocked by a main-only change mails me with the specific
+block rather than merging to unblock itself.
+
+Removed from the per-tick routine and from the standing brief. **Back to the defects.**
