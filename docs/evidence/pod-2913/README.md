@@ -12,17 +12,20 @@ then show it gone at the epic tip. The server, web bundle, and daemon must be
 pinned to the same commit before each reading; the daemon pin is the SHA written
 at process spawn. Each drive also needs a positive control and one isolated,
 named instance.
+The POD-2691 process/tracker cell has no product runtime to start; its measured surface is the /proc census and tracker state.
 
 ## Findings
 
-### POD-2622 — invalid pre-fix boundary
 
-The audit names 'b266484d8'. Its parent is '1641d823c'. The substantive
-child-environment changes are already present in the parent ancestry
-('aa8cdacff' and 'aba4d4ff9'); the listed commit is a reconciliation/formatting
-boundary rather than the first fix. A probe at 'b266484d8^' therefore cannot
-reproduce the pre-fix symptom. Verdict: **UNDRIVEN — invalid listed boundary**.
-No live yes/no result was inferred.
+### POD-2691 — still broken
+
+The same process/tracker probe was run against parent '7ef0f5c979b067a8be6286f8e27a868186ed3cbe' and epic tip 'b08e7d65c503c5a85e8a7d2c46d002eae5229fce' at '2026-08-27 00:39 CEST'. Parent had no UUID/guard code. Tip had the UUID definition, but the non-test consumer search was empty.
+Both arms saw the positive-control sentinel and seven live agent processes in the five tracker-done worktrees for POD-91, POD-2059, POD-2291, POD-2902, and POD-2908.
+
+At '2026-08-27 00:40 CEST', tracker checks confirmed all five stages were done; process ages ranged from 50 minutes to more than one day.
+
+Because the tip never invokes the new guard, the same orphan process symptom remains after the fix commit. Verdict: **FAIL — still broken**.
+No process was killed.
 
 ### POD-2773 — invalid pre-fix boundary; Grok unavailable
 
@@ -48,7 +51,8 @@ window. Starting a Vite build under that lease would invalidate the reading.
 ## Ledger
 
 Complete rows are appended to 'docs/plans/pod-1761-results.tsv'. The remaining
-children (POD-2298, POD-2408, POD-2602, POD-2604, POD-2637, and POD-2691) were
-not touched in this gated interval and have no result claimed here.
+children (POD-2298, POD-2408, POD-2602, POD-2604, and POD-2637) were not touched
+in this interval and have no result claimed here. POD-2622 is handed to POD-2914;
+this report does not claim a drive for it.
 
-Last evidence update: '2026-08-27 00:26 CEST'.
+Last evidence update: '2026-08-27 00:40 CEST'.
