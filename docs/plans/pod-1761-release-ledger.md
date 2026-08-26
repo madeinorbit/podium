@@ -2568,3 +2568,41 @@ looser guard.** *A guard loosened under time pressure is how guards die.*
 **Rejected: waiting for the lock** — and not only for the sweep's sake. `test:heavy` is held
 with two sessions queued, one of them POD-2878, waiting to verify the P1 fix that POD-2777's
 own finding produced. Taking the lock ahead of them would delay the fix for its own defect.
+
+
+## THE FIRST COLUMN ASYMMETRY (2026-08-26 16:35 CEST) — alike-columns is a working assumption, not a finding
+
+Every overlapping cell had agreed across harnesses, and I had been leaning on that to argue
+the remaining reds would mostly replicate rather than add. **POD-2777 has now found a case
+where the columns genuinely differ**, and it found it by being wrong on purpose-stated
+grounds: it predicted codex A8 would be PARTIAL because the missing login affordance is a
+contract-level gap and therefore column-independent.
+
+**What actually differs is whether removing the credential REACHES the product at all.**
+opencode's did — `loginRequired` flipped. codex's did not: the session still bound
+`codex-app-server` with `loginRequired` false and `condition` empty. Its likeliest cause is a
+running app-server child that had already authenticated being reused, or login state cached
+from the control spawn seconds earlier — *worth its own cell, not A8's question, correctly not
+filed*.
+
+**This does not overturn alike-columns and it does change how I state it.** From here it is a
+**working assumption with one counter-example**, not an established property. The forecast
+still leans low, but "a red found in one column is assumed present in the others" keeps its
+force while "a pass in one column suggests a pass in the others" loses some of its.
+
+    driven under the stale-bundle exception, 16:21-16:35 CEST, rig 372ae4de2
+      codex    A8   REFUSED  (vacuous PASS caught and corrected)
+      opencode A7a  PASS
+      opencode A9   PASS
+    host: load 33-42, swap-out 0, 2.8-3.6GB available — contention, not starvation
+
+**And it deleted a runner it had started writing.** The last three cells need a rebuild at a
+frozen HEAD; it began building a runner to carry the stale-bundle exception through
+`drive.ts`, realised that could only work by adding a bypass flag — *option C moved into the
+caller, same effect, different file* — and deleted it. That is the rejected weakening being
+recognised in disguise.
+
+**One pin detail recorded because it looks broken and is not:** A7a restarts the daemon, and
+the restart script spawns at HEAD, so from that point the components name **two shas** —
+server and bundle at `372ae4de2`, daemon at `f92a8891d`. The diff is the same two `apps/web`
+files, so all three still run identical runtime code.

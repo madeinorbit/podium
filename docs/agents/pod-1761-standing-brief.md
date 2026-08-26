@@ -371,3 +371,29 @@ mtime is the fact that tells them apart.
 **So: when a run spans a change in conditions, record the event that divides them**, with its
 own timestamp, from the filesystem or from git rather than from memory. A reader who does not
 trust your labels can still order the evidence.
+
+## A setup step is not a condition until the PRODUCT says so (2026-08-26 16:35 CEST)
+
+A cell scored **PASS** and the pass was worthless. The probe moved `.codex/auth.json` aside
+and checked the session did not silently take the old driver — and it did not, because the
+product never noticed anything had been taken away: it still bound the server driver,
+`loginRequired` stayed **false**, `condition` stayed empty. *"It did not silently take the old
+path" was a true sentence about a measurement that never happened.*
+
+**Moving a file is an action on the disk. Being logged out is a state of the PRODUCT, and only
+the product can report it.** The probe had one control — with the credential present, the
+harness binds its server driver — and needed a second: **the absence must reach the product**.
+
+**Every setup step needs a control proving it took effect**, read from the product's own
+readout, not from the filesystem. Here that is `loginRequired` — and it is not an
+unclearable bar, because it *did* flip on the other column. Same bar, both columns.
+
+## `process.exit()` does not run `finally` (2026-08-26 16:35 CEST)
+
+A probe that moves a credential aside and restores it in a `finally` **leaks it on any path
+that calls `process.exit()`**. One refusal path did, so the credential stayed parked and the
+next drive would have run against a half-logged-out agent home **with nothing saying so**.
+
+*The refusal was the safest-looking path in the file and it was the only one that leaked.*
+Restore state on **every** exit path, and prefer letting the process end naturally over
+calling `exit()` inside a block whose cleanup you depend on.
