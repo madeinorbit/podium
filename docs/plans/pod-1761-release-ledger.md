@@ -3932,3 +3932,45 @@ audit refused to promote these nine on a git count, and why "landed" and "works"
 **Two of nine now driven, both FAIL.** POD-2622 (three of nine call sites fixed) and POD-2691 (a
 consumer that was never built). If that rate continues the remaining seven carry several more
 rounds, and it is the strongest argument yet that the review queue was not a bookkeeping problem.
+
+### Parallelised the unknowns, split by whether they need a build (2026-08-27 00:51 CEST)
+
+Box recovered to load 6.4, 5.2GB available, swap-out zero, 20GB disk — room for a fourth driver,
+so the nine unknowns are now being worked by two sessions instead of one.
+
+**The split is by BUILD ECONOMICS, not by count**, which is the useful part:
+
+- **POD-2913** keeps the ones needing no bundle and no lock: POD-2298 (running), POD-2408,
+  POD-2602, POD-2773 (its grok half blocked until 11:03).
+- **POD-2915** (new) takes the three only visible on screen: POD-2604, POD-2761, POD-2637.
+
+**POD-2915's order is dictated by which arms differ in web**, and it saves a build:
+POD-2604 touches 5 files under `apps/web`, so its arms genuinely differ and it needs two
+bundles. POD-2761 touches **zero** web files — its fix is entirely `opencode-attach.ts` — so its
+arms are byte-identical in web and ONE bundle serves both while only the daemon swaps. Build at
+POD-2604's parent, then at the tip, and the tip bundle covers POD-2604's fix arm **and both of
+POD-2761's**. Two builds for two issues instead of four.
+
+**Both briefs lead with the two checks that have each been the whole answer once tonight, in
+seconds rather than a drive:** grep for a CONSUMER of what the fix added (POD-2691 — definition
+plus one test, no importer anywhere), and `git show <rev>:<file>` on both sides of the boundary
+(POD-2622 — the defective line sitting right there at the parent while three reports concluded
+otherwise from ancestry).
+
+Bases verified: POD-2915 cut from the tip `63f76ad3f`; POD-2914 at `57aa3c5b0`, 11 commits back
+with no overlap with what it is editing, so left alone.
+
+### POD-2691's implementer was spawned onto a 259-commit-stale branch — mine to catch
+
+Spawning onto an EXISTING issue reuses its old branch, and POD-2691's sat at `85564b383` — the
+very commit that introduced the unconsumed UUID. **The session would have written a reaper against
+a session model three days stale**, missing tonight's `b1c725716` and `ffa2fadcd`, both of which
+touch session lifecycle.
+
+Caught by the cron's step-2 base check. Verified BOTH halves before prescribing a reset — zero own
+commits *and* a clean tree — because I once told a session a reset was safe "if you have no
+commits" while it had 13 dirty files. Sent as an interrupt before it wrote anything.
+
+**The general rule: `--start` on a NEW issue cuts from the parent branch you name; `agent spawn
+--issue` on an EXISTING one inherits whatever base that issue last had.** The second case needs
+the base checked every time.
