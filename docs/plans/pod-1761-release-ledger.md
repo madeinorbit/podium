@@ -215,6 +215,47 @@ address rides on argv, and whether per-session server credentials ride in the en
 The last three are all `launch()`, and the address/secret split was not a new axis
 at all — it is `ServerRuntimeSpec.transport`, which W1 had already declared.
 
+## TWO RELEASE BLOCKERS FOUND BY TRYING TO HAND THE OPERATOR AN INSTANCE
+
+Standing up their test environment found more than the drive matrix did, because
+it exercised a path no test and no rig covers: **a named instance on a real box.**
+
+**POD-2853 — a named instance cannot start ANY terminal session.** Two defects,
+one on top of the other:
+
+1. **The socket path is 112 bytes against a 108-byte kernel limit.** Three things
+   compose it, and only for a NAMED instance: `applyInstanceRuntimeEnv` pins
+   `ABDUCO_SOCKET_DIR = <stateDir>/runtime/abduco`; `abducoSocketDirs` then appends
+   `abduco/<user>` — note the **doubled `abduco/abduco`** — and the label is
+   instance-prefixed `podium-<instance>-<uuid>@<hostname>`. It surfaces as
+   `create-session: File name too long`, naming neither the path nor the limit.
+2. **Underneath it, the creator and the prober disagree.** Force a short socket
+   dir and the length error is replaced by *"did not publish a live socket"* —
+   **while the socket is on disk.** I listed it while the daemon reported it
+   absent. Same class as POD-2761's `hasMaster` (wrong environment, wrong moment,
+   one-sided toward absent), but at the **spawn** path, which that fix did not
+   cover.
+
+**Every acceptance rig, every evidence drive and the operator's instance is a
+named instance.** The default instance never hits either, which is why a week of
+work did not surface them.
+
+**POD-2854 — `bun run build` fails its own size budget**, 7,810,696 against
+7,780,000. I built the instance with `build:dist`, which skips the check, so the
+instance exists but the RELEASE build does not pass. Filed with the budget file's
+own policy quoted, because it is unusually clear that a raise without a paydown
+is not acceptable: *"they pass THINLY… the next feature of any size turns one of
+those red, and a payload budget going red means shipping more to the browser.
+That is not this argument, and it does not get this raise."*
+
+**And a process failure of mine worth recording.** I handed over an instance
+verified only by its PINS — server, daemon and bundle all reading the right
+commit — and called it ready. **A pin check proves the right code is loaded; it
+proves nothing about whether a session starts.** The rule I have enforced on every
+agent all night is that a deliverable gets driven by whoever hands it over, and I
+exempted myself. I then guessed the cause twice before reading `instance.ts` and
+measuring the actual string.
+
 ## THE LATENCY IS GONE WHERE IT WAS UNEARNED, AND KEPT WHERE IT IS EARNED
 
 POD-2836 landed (`ab9d5bcb9`). `liveAtMs` was stamped in the drain's first tick;
