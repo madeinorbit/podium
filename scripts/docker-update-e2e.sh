@@ -13,26 +13,22 @@ PROVE_FAILURE="${PODIUM_UPDATE_E2E_PROVE_FAILURE:-}"
 ONLY="${PODIUM_UPDATE_E2E_ONLY:-}"
 HOLD="${PODIUM_UPDATE_E2E_HOLD:-0}"
 HOLD_REF="${PODIUM_UPDATE_E2E_HOLD_REF:-worktree-pod-2462-update-path}"
-# WHETHER THESE INSTANCES REQUIRE A LOGIN (POD-2828).
+# EVERY INSTANCE REQUIRES A LOGIN (POD-2832).
 #
 # Every run before this one set `acknowledgeNoPassword`, so the whole gate has
 # only ever exercised the update path with authentication OFF — which is not
-# what any real install looks like. Set a password here and setup requires one,
-# so the fleet join, the `/client` websocket handshake and the update grants all
-# cross an authenticated boundary the way they do in the field.
+# what any real install looks like. There is deliberately no no-password row:
+# every shipped topology crosses this boundary, so every gate topology does too.
+# The override exists for a held sandbox, not to opt a lane out of authentication.
 #
 # It is set AT SETUP, never changed afterwards: changing a password on an
 # already-configured box is a different act, and on builds predating POD-2766 it
 # is the one that locks the operator out.
-E2E_PASSWORD="${PODIUM_UPDATE_E2E_PASSWORD:-}"
-# The credential clause `setup.complete` gets: a real password, or the explicit
-# acknowledgement that this instance has none.
+DEFAULT_E2E_PASSWORD=podium-update-e2e
+E2E_PASSWORD="${PODIUM_UPDATE_E2E_PASSWORD:-$DEFAULT_E2E_PASSWORD}"
+# All three `setup.complete` sites use this one JSON-safe clause.
 setup_auth_clause() {
-  if [[ -n "$E2E_PASSWORD" ]]; then
-    printf '"password":%s' "$(jq -Rn --arg p "$E2E_PASSWORD" '$p')"
-  else
-    printf '"acknowledgeNoPassword":true'
-  fi
+  printf '"password":%s' "$(jq -Rn --arg p "$E2E_PASSWORD" '$p')"
 }
 
 # CARRY THE SESSION ON EVERY LATER CALL, or the run tests nothing (POD-2832).
@@ -48,12 +44,25 @@ setup_auth_clause() {
 # Native bearer delivery is not an option here — it requires HTTPS, and the
 # harness talks to 127.0.0.1 over plain HTTP inside the container.
 e2e_login() {
-  [[ -n "$E2E_PASSWORD" ]] || return 0
-  local container=$1 headers cookie
-  headers="$(container_exec "$container" curl -s -D - -o /dev/null \
+  local container=$1 password="$E2E_PASSWORD" raw headers status cookie
+  # The authentication control changes only the credential presented at the
+  # first protected boundary. Setup still stores the real gate password, so a
+  # 401 here proves the run is armed rather than merely malformed at setup.
+  if [[ "$PROVE_FAILURE" == authentication && "$container" == "$SOURCE" ]]; then
+    password="$E2E_PASSWORD-deliberately-wrong"
+    say "deliberate authentication failure armed for the coordinator login"
+  fi
+  raw="$(container_exec "$container" curl -sS -D - -o /dev/null -w $'\n%{http_code}' \
     -H 'content-type: application/json' \
-    -d "{\"password\":$(jq -Rn --arg p "$E2E_PASSWORD" '$p')}" \
+    -d "{\"password\":$(jq -Rn --arg p "$password" '$p')}" \
     http://127.0.0.1:18787/auth/login)" || return 1
+  status="${raw##*$'\n'}"
+  headers="${raw%$'\n'*}"
+  if [[ "$status" != 2?? ]]; then
+    say "LOGIN FAILED: POST http://127.0.0.1:18787/auth/login (in $container)" >&2
+    say "  status: $status" >&2
+    return 1
+  fi
   cookie="$(sed -n 's/.*podium_session=\([^;]*\).*/\1/p' <<<"$headers" | head -1)"
   [[ -n "$cookie" ]] || {
     say "login returned no session cookie; headers were: $headers" >&2
@@ -483,8 +492,13 @@ PODIUM_UPDATE_E2E_REBUILD_BASE=1      provision the shared base image again even
                                       though its content hash is already built
 PODIUM_UPDATE_E2E_BASE_OS_IMAGE=REF   the OS image to provision from (ubuntu:24.04)
 PODIUM_UPDATE_E2E_OUTPUT_DIR=PATH     preserve bounded matrix/journal evidence
+PODIUM_UPDATE_E2E_PASSWORD=VALUE      login password set during setup
+                                      (default podium-update-e2e; never disabled)
 PODIUM_UPDATE_E2E_PROVE_FAILURE=NAME  leave `tampered` or `schema` broken; the
                                       ordinary rollout assertion must go red
+PODIUM_UPDATE_E2E_PROVE_FAILURE=authentication
+                                      present a wrong password after setup; the
+                                      coordinator login must fail with HTTP 401
 PODIUM_UPDATE_E2E_PROVE_FAILURE=canary  build a coordinator that skips the
                                       canary stage; `rollout` must go red for
                                       that reason and nothing else
@@ -1545,6 +1559,7 @@ dump_update_operations() {
 ui_probe() {
   local mode=$1 target=$2 screenshot=$3
   PODIUM_UPDATE_E2E_ORIGIN="http://127.0.0.1:$SOURCE_PORT" \
+    PODIUM_UPDATE_E2E_SESSION="${HTTP_SESSION_COOKIE[host]}" \
     PODIUM_UPDATE_E2E_UI_MODE="$mode" PODIUM_UPDATE_E2E_TARGET="$target" \
     PODIUM_UPDATE_E2E_SCREENSHOT="$screenshot" \
     bun --conditions=@podium/source "$ROOT/scripts/docker-update-e2e/ui-update.ts"
@@ -2183,11 +2198,8 @@ fi)
   A cold server-only coordinator has no local coding harness. Open this update-only
   entry and press "Finish setup" to bypass agent selection, exactly as the automated
   updater probe does. This does not verify agent onboarding.
-Authentication: $(if [[ -n "$E2E_PASSWORD" ]]; then
-    printf 'REQUIRED. Log in with the password this run was given (PODIUM_UPDATE_E2E_PASSWORD).'
-  else
-    printf 'none; this isolated coordinator explicitly acknowledges no password.'
-  fi)
+Authentication: REQUIRED. Use PODIUM_UPDATE_E2E_PASSWORD when supplied; otherwise
+  use the gate default: $DEFAULT_E2E_PASSWORD
 EOF
 }
 
@@ -2196,7 +2208,7 @@ print_hold_footer() {
   # Built here rather than inline: an apostrophe inside a `${VAR:+...}` in the
   # heredoc below opens a quote bash never closes, and the whole footer dies
   # with `bad substitution` at the moment a hold is trying to report itself.
-  if [[ -n "$E2E_PASSWORD" ]]; then
+  if [[ "$E2E_PASSWORD" != "$DEFAULT_E2E_PASSWORD" ]]; then
     revise_env="PODIUM_UPDATE_E2E_PASSWORD=<the password this run was given> "
   fi
   if git -C "$ROOT" merge-base --is-ancestor 4a8c7afda "$candidate" ||
@@ -2296,7 +2308,8 @@ main() {
   else
     (( MIN_FREE_GB >= 10 )) || die "disk floor cannot be lower than 10 GiB"
   fi
-  [[ -z "$PROVE_FAILURE" || "$PROVE_FAILURE" == schema ||
+  [[ -z "$PROVE_FAILURE" || "$PROVE_FAILURE" == authentication ||
+    "$PROVE_FAILURE" == schema ||
     "$PROVE_FAILURE" == tampered || "$PROVE_FAILURE" == canary ||
     "$PROVE_FAILURE" == server-assets ||
     "$PROVE_FAILURE" == coordinator-participant ||

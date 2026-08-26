@@ -2,16 +2,22 @@ import { writeFileSync } from 'node:fs'
 import { chromium, type WebSocket } from '@playwright/test'
 
 const origin = process.env.PODIUM_UPDATE_E2E_ORIGIN
+const session = process.env.PODIUM_UPDATE_E2E_SESSION
 const target = process.env.PODIUM_UPDATE_E2E_TARGET
 const readyFile = process.env.PODIUM_UPDATE_E2E_READY_FILE
 const resultFile = process.env.PODIUM_UPDATE_E2E_RESULT_FILE
 const breakClient = process.env.PODIUM_UPDATE_E2E_BREAK_CLIENT === '1'
-if (!origin || !target || !readyFile || !resultFile) {
-  throw new Error('ORIGIN, TARGET, READY_FILE, and RESULT_FILE are required')
+if (!origin || !session || !target || !readyFile || !resultFile) {
+  throw new Error('ORIGIN, SESSION, TARGET, READY_FILE, and RESULT_FILE are required')
 }
 
 const browser = await chromium.launch()
-const page = await browser.newPage()
+const context = await browser.newContext()
+// The cookie is minted by a real /auth/login request in the shell harness. Put
+// it into the browser context before navigation so the first `/client` upgrade,
+// not merely later API fetches, crosses the authenticated boundary.
+await context.addCookies([{ name: 'podium_session', value: session, url: origin }])
+const page = await context.newPage()
 page.setDefaultTimeout(120_000)
 const sockets: WebSocket[] = []
 let closed = 0

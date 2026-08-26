@@ -34,8 +34,8 @@ HTTP_EXTRA_ARGS=()
 # `wait_for` loop as "not ready yet" and times out with no mention of auth.
 #
 # The key is the container name, or `host` for calls curl makes from the host
-# (which reach the coordinator on its published port). Empty means no login was
-# needed, which is the unauthenticated default.
+# (which reach the coordinator on its published port). A missing entry is an
+# error once setup closes the guard; the gate has no unauthenticated row.
 declare -A HTTP_SESSION_COOKIE=()
 
 # Sourceable on its own so the reporting can be tested without running the gate.

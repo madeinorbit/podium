@@ -353,7 +353,7 @@ run_server_lane() {
   SERVER_ABDUCO_PID="$(server_abduco_pid "$shell_id")"
   server_parent_facts SERVER_BEFORE
   [[ "$PROVE_FAILURE" == server-client ]] && break_client=1
-  PODIUM_UPDATE_E2E_BREAK_CLIENT="$break_client" PODIUM_UPDATE_E2E_ORIGIN="http://127.0.0.1:$SERVER_PORT" PODIUM_UPDATE_E2E_TARGET="$SERVER_TARGET_VERSION" PODIUM_UPDATE_E2E_READY_FILE="$browser_ready" PODIUM_UPDATE_E2E_RESULT_FILE="$browser_result" bun --conditions=@podium/source "$ROOT/scripts/docker-update-e2e/server-client.ts" >"$WORK/logs/server-client.stdout" 2>"$WORK/logs/server-client.stderr" &
+  PODIUM_UPDATE_E2E_BREAK_CLIENT="$break_client" PODIUM_UPDATE_E2E_ORIGIN="http://127.0.0.1:$SERVER_PORT" PODIUM_UPDATE_E2E_SESSION="${HTTP_SESSION_COOKIE[host]}" PODIUM_UPDATE_E2E_TARGET="$SERVER_TARGET_VERSION" PODIUM_UPDATE_E2E_READY_FILE="$browser_ready" PODIUM_UPDATE_E2E_RESULT_FILE="$browser_result" bun --conditions=@podium/source "$ROOT/scripts/docker-update-e2e/server-client.ts" >"$WORK/logs/server-client.stdout" 2>"$WORK/logs/server-client.stderr" &
   CLIENT_PROBE_PID=$!
   wait_for 120 "connected packaged web client" test -s "$browser_ready"
 

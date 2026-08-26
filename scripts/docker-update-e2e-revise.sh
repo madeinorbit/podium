@@ -49,9 +49,9 @@ RUN_ID is the `Run label:` value the hold printed, minus the label key.
                      state the updater would not legitimately produce.
   --into CONTAINER   which container --swap-bundle writes into (required with it)
 
-PODIUM_UPDATE_E2E_PASSWORD must match the password the run was created with, and
-PODIUM_UPDATE_E2E_INSTANCE the instance it was created with if that was not the
-default. Both are printed by the hold.
+PODIUM_UPDATE_E2E_PASSWORD must match the password the run was created with when
+that run overrode the gate default, and PODIUM_UPDATE_E2E_INSTANCE must match the
+instance if it was not the default. Both are printed by the hold.
 EOF
 }
 
@@ -105,16 +105,14 @@ attach() {
     jq -r '.[0].NetworkSettings.Ports["18787/tcp"][] |
       select(.HostIp=="127.0.0.1") | .HostPort')"
   [[ -n "$SOURCE_PORT" ]] || die "source container publishes no 127.0.0.1 port for 18787"
-  # A run created WITH a password answers 401 to every call made without one,
+# Every run answers 401 to protected calls made without its password,
   # and a 401 reads to a wait_for loop as "not ready yet" — it would time out
   # with no mention of auth at all (POD-2832). So the login is checked here,
   # once, where it can still say what is wrong.
-  if [[ -n "$E2E_PASSWORD" ]]; then
-    e2e_login "$SOURCE" ||
-      die "could not log in to $SOURCE; PODIUM_UPDATE_E2E_PASSWORD must match the password this run was created with"
-  fi
+  e2e_login "$SOURCE" ||
+    die "could not log in to $SOURCE; PODIUM_UPDATE_E2E_PASSWORD must match the password this run was created with"
   rpc GET updates.fleet >/dev/null ||
-    die "the coordinator refused a fleet read; if this run has a password, set PODIUM_UPDATE_E2E_PASSWORD"
+    die "the coordinator refused a fleet read; PODIUM_UPDATE_E2E_PASSWORD may not match this run"
   # THE INSTANCE NAME IS CHECKED, NOT ASSUMED. `install_path` and `unit_name`
   # are both built from `$INSTANCE`, which defaults to `update-e2e` — so a run
   # created with PODIUM_UPDATE_E2E_INSTANCE set would have every path here point

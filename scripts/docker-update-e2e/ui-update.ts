@@ -12,11 +12,14 @@ import { chromium, type Locator, type Page } from '@playwright/test'
 import { formatDevVersionShort as formatDisplayedVersion } from '@podium/protocol/update-dev-version'
 
 const origin = process.env.PODIUM_UPDATE_E2E_ORIGIN
+const session = process.env.PODIUM_UPDATE_E2E_SESSION
 const mode = process.env.PODIUM_UPDATE_E2E_UI_MODE ?? 'accept'
 const target = process.env.PODIUM_UPDATE_E2E_TARGET
 const screenshot = process.env.PODIUM_UPDATE_E2E_SCREENSHOT
 
-if (!origin || !target) throw new Error('PODIUM_UPDATE_E2E_ORIGIN and TARGET are required')
+if (!origin || !session || !target) {
+  throw new Error('PODIUM_UPDATE_E2E_ORIGIN, SESSION, and TARGET are required')
+}
 
 const browser = await chromium.launch()
 let page: Page | undefined
@@ -44,6 +47,10 @@ try {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
   })
+  // The page and its `/client` WebSocket must cross the same logged-in boundary
+  // as an operator browser. Reusing the coordinator login proves that boundary;
+  // an isolated context with no cookie would only exercise the login gate.
+  await context.addCookies([{ name: 'podium_session', value: session, url: origin }])
   page = await context.newPage()
   page.setDefaultTimeout(120_000)
   await page.goto(`${origin}?e2e=1`, {

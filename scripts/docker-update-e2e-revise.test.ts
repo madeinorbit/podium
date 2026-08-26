@@ -125,7 +125,7 @@ describe('the hold footer', () => {
     expect(text).toContain('One-line teardown')
   })
 
-  it('renders whole, and omits the password hint, when the run has none', async () => {
+  it('renders whole, and omits the override hint, when the run uses the default password', async () => {
     const text = await footer('')
     expect(text).toContain('docker-update-e2e-revise.sh --run demo-run')
     expect(text).not.toContain('PODIUM_UPDATE_E2E_PASSWORD=')

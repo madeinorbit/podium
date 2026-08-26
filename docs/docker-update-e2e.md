@@ -18,6 +18,13 @@ stays inside that clone before it trusts any build output.
 bun run test:update-e2e
 ```
 
+Every instance is password-protected at setup, including the source coordinator,
+fresh all-in-one installs, and the real-release consumer. The default password is
+`podium-update-e2e`; `PODIUM_UPDATE_E2E_PASSWORD` may replace it for a held sandbox,
+but no lane can disable authentication. The coordinator's local update participant
+still connects internally by design; the harness observes it through an authenticated
+coordinator RPC, while each separate all-in-one instance carries its own login session.
+
 The command needs Docker, Bun, Git, curl, jq, OpenSSL, Zig, rcodesign, an installed
 Playwright Chromium, and at least 10 GiB free on both the worktree and Docker-data
 filesystems. Zig and rcodesign are
@@ -155,9 +162,12 @@ version was never using the mechanism the gate proves.
 new version into it through the product path:
 
 ```bash
-PODIUM_UPDATE_E2E_PASSWORD=<the run's password> \
-  scripts/docker-update-e2e-revise.sh --run <RUN_ID> --ref <git-ref>
+scripts/docker-update-e2e-revise.sh --run <RUN_ID> --ref <git-ref>
 ```
+
+That command uses the gate's default password. Prefix it with
+`PODIUM_UPDATE_E2E_PASSWORD=<the run's password>` only when the hold overrode the
+default.
 
 `RUN_ID` is the `Run label:` value the hold printed, minus the label key. The tool moves
 the source the coordinator watches onto `--ref`, waits for the development release
@@ -223,7 +233,13 @@ ordinary positive rollout assertion. They must exit non-zero with a red matrix:
 PODIUM_UPDATE_E2E_PROVE_FAILURE=tampered bun run test:update-e2e
 PODIUM_UPDATE_E2E_PROVE_FAILURE=schema bun run test:update-e2e
 PODIUM_UPDATE_E2E_PROVE_FAILURE=canary bun run test:update-e2e
+PODIUM_UPDATE_E2E_PROVE_FAILURE=authentication bun run test:update-e2e
 ```
+
+The `authentication` control keeps the password stored by `setup.complete` intact,
+presents a deliberately wrong password at the first coordinator login, and must stop
+there with HTTP 401. This distinguishes a genuinely authenticated gate from one that
+would pass regardless of the credential.
 
 `tampered` appends a byte to the artifact without changing its signed manifest. `schema`
 removes an applied migration from the target. Manifest mutations are followed by a cold
