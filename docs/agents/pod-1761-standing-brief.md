@@ -441,3 +441,17 @@ having none available.**
 
 **And after copying, confirm the PRODUCT sees it** — the harness's own logged-in readout, not
 the file's presence on disk. A setup step is not a condition until the product says so.
+
+## Re-check a BLOCKED cell whose blocker has expired (2026-08-26 17:19 CEST)
+
+A PASS is the reading nobody revisits — and **a BLOCKED is the reading nobody revisits for the
+opposite reason**: it has a documented cause, so it looks settled. But blockers *land*. A cell
+blocked this morning may be drivable this afternoon, and nothing tells you.
+
+**Every blocked cell carries the reason it is blocked. When that reason lands, re-check the
+cell.** One row had been PARTIAL because no client terminal could be hosted; that defect landed
+hours later, and re-driving found the row blocked *again by a different defect entirely* —
+which is a finding, not a re-block.
+
+**And the refusal can be the finding.** That second attempt is what proved a P1's blast radius
+was far wider than filed.

@@ -7,6 +7,7 @@ between sessions and the human does not read every message.
 ---
 
 ## 1. A parked chat message is destroyed by a daemon restart — fix or ship with it?
+**SCOPE WIDENED 2026-08-26 17:19 CEST: it is ANY viewer, not the sender.**
 **Raised 2026-08-26. Status: OPEN. Blocking, on the release bar.**
 
 Sending from chat while the CLI view is open returns `delivered`, the turn parks
@@ -256,3 +257,23 @@ Three consequences, and the third is the one that could be quietly mis-stated:
    is a structural limit on the comparison, not a gap in anyone's work, and the release note
    has to say so rather than let a reader assume those checks were compared against the
    current release and passed.
+
+
+---
+
+### Update to decision 1, 2026-08-26 17:19 CEST — the parked-message defect is worse than filed
+
+It was filed as *"the sender has the CLI view open"*. Measured with two clients and one
+variable — the **second** viewer's mode, sender always in chat:
+
+    second viewer "chat"    -> delivered, nonce ARRIVED, 2 items
+    second viewer "native"  -> delivered, nonce NEVER ARRIVED, 0 items, phase idle
+
+**Any viewer on the native view parks the send.** The realistic case is you with the CLI open
+on your desktop and chat open on your phone: **the phone shows a delivered tick for a message
+that will never run, and the person holding it cannot see what is causing it.**
+
+That moves this from *"a thing you can do to yourself"* to *"a thing another open window does
+to you, invisibly"*. It is the same defect, not a new one, and its owner has the bounds:
+undeclared passes, explicit-native-by-any-client parks — so a fix that only consults the
+sender's own mode would leave it reachable.
