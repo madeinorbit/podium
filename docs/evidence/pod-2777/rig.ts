@@ -179,6 +179,29 @@ export interface TranscriptItemLite {
   text: string
   event?: string
   toolName?: string
+  /**
+   * A TOOL CALL AND ITS RESULT ARE ONE ITEM, NOT TWO.
+   *
+   * These three fields were missing from this type, and their absence produced a
+   * false FAIL on row A5. The row asks whether "tool calls are paired to
+   * results", and the probe looked for a FOLLOWING item with role
+   * `tool_result` — a shape this transcript does not use. The real shape carries
+   * the call and its output on the SAME item:
+   *
+   *   { id: 'exec-6712…', role: 'tool', text: '', toolName: 'Bash',
+   *     toolInput: "/bin/bash -lc 'echo SHAPE-0DN8QS'",
+   *     toolResult: 'SHAPE-0DN8QS\n',
+   *     toolUseId: 'exec-6712…', toolPaths: ['/tmp/pod-2777/repo'] }
+   *
+   * `text` is empty on such an item, so a pairing check written against `text`
+   * reports every tool call unpaired. Declared here rather than cast at the one
+   * call site, so the next probe reads the shape off the type instead of
+   * guessing it again.
+   */
+  toolInput?: string
+  toolResult?: string
+  toolUseId?: string
+  toolPaths?: string[]
   tags?: { kind: string; label?: string }[]
 }
 
@@ -222,6 +245,18 @@ export class Chat {
    * in exactly the same words.
    */
   attached?: Record<string, unknown>
+  /**
+   * Every frame that mentions a queue position, kept whole.
+   *
+   * Row A1b asks for "queued WITH POSITION". `sessions.sendText` narrows its
+   * return to four pinned keys (`command-plane.ts:459`) and position is not one
+   * of them — but the product does compute one (`runtime-gateway.ts:49`, 1-based
+   * and read off the real queue depth) and does emit it on the message-receipt
+   * path. So before concluding a chat caller cannot see a position, every frame
+   * on the chat socket is searched for one. Concluding an absence from the ONE
+   * surface I happened to read would be exactly the "grep | head lies" mistake.
+   */
+  readonly positionFrames: Record<string, unknown>[] = []
   firstDeltaAtMs?: number
   openedAt = 0
   private ws?: WebSocket
@@ -286,6 +321,7 @@ export class Chat {
     }
     const type = String(m.type ?? '')
     this.frameTypes.set(type, (this.frameTypes.get(type) ?? 0) + 1)
+    if (/"(position|queuePosition|queueDepth)"\s*:/.test(raw)) this.positionFrames.push(m)
 
     if (type === 'transcriptDelta' && m.sessionId === this.sid) {
       this.deltaFrames += 1
