@@ -3903,3 +3903,32 @@ superseding row beside it carrying the reading that refutes it rather than delet
 **A wrong row that is deleted teaches nobody the check.** Left in place with its refutation
 underneath, the next reader learns that ancestry answers a question about a topic and
 `git show <rev>:<file>` answers one about a call site.
+
+### POD-2691 DRIVEN, and the answer is FAIL — the second still-broken (2026-08-27 00:44 CEST)
+
+POD-2913 drove both arms with a positive-control sentinel that fired on each:
+
+| arm | commit | result |
+| --- | --- | --- |
+| parent | `7ef0f5c97` | **7 live agent processes in 5 worktrees whose tracker stage is `done`**; no UUID, no guard |
+| epic tip | `b08e7d65c` | **the same 7, in the same 5** — UUID defined, symptom unchanged |
+
+The five are POD-91, POD-2059, POD-2291, POD-2902 and POD-2908, with ages from 50 minutes to over
+a day. **Two of those I closed within the last two hours** (POD-2902, and POD-2908 is the audit's
+own issue), so this is not historical residue — it reproduces as fast as issues close.
+
+**THE CAUSE IS THE SHAPE THIS EPIC KEEPS FINDING: a declared thing nothing reads.** `85564b383`
+adds an instance UUID "a reaper can attribute by" and its own commit message says the consumer is
+not built. I verified independently rather than taking the report, and it is **stronger** than
+reported: `acquireStateRootLock` and `acquireInstanceUuidLock` appear in exactly **two files** —
+`packages/runtime/src/instance-guard.ts`, where they are defined, and `instance-uuid.test.ts`.
+**No file outside those imports `instance-guard` at all.** The identity is not under-used; it is
+entirely unconsumed, and the tests are the only thing keeping it compiled.
+
+**So POD-2691 is landed, has tests, reads as finished, and changes nothing an operator would
+notice.** A test suite can pass in full over a feature with no caller — which is exactly why the
+audit refused to promote these nine on a git count, and why "landed" and "works" needed separating.
+
+**Two of nine now driven, both FAIL.** POD-2622 (three of nine call sites fixed) and POD-2691 (a
+consumer that was never built). If that rate continues the remaining seven carry several more
+rounds, and it is the strongest argument yet that the review queue was not a bookkeeping problem.
