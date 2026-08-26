@@ -18,7 +18,11 @@ import {
   unsupported,
 } from '../manifest.js'
 import { detectOpencodeLogin } from '../opencode/auth.js'
-import { loadOpencodeTranscriptTail, openOpencodeDb } from '../opencode/db.js'
+import {
+  loadOpencodeTranscriptTail,
+  openOpencodeDb,
+  opencodeDbPathForSession,
+} from '../opencode/db.js'
 
 /**
  * Source for opencode. opencode stores transcript "parts" in SQLite ordered by
@@ -29,11 +33,15 @@ import { loadOpencodeTranscriptTail, openOpencodeDb } from '../opencode/db.js'
  * index-slice it in memory, exactly matching `readTranscriptSlice`'s semantics.
  */
 /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-export function opencodeDbSource(input: { sessionId: string; homeDir?: string }): TranscriptSource {
+export function opencodeDbSource(input: {
+  sessionId: string
+  homeDir?: string
+  databasePath?: string
+}): TranscriptSource {
   return {
     readSlice: async (opts) => {
       if (opts.limit <= 0) return { items: [], hasMore: false }
-      const db = openOpencodeDb(input.homeDir)
+      const db = openOpencodeDb(input.homeDir, input.databasePath)
       if (!db) return { items: [], hasMore: false }
       let rows: OpencodeMessagePartRow[]
       try {
@@ -124,6 +132,11 @@ export const opencodeManifest: AgentManifest = {
   },
 
   launch(opts) {
+    const databasePath = opencodeDbPathForSession({
+      homeDir: opts.homeDir,
+      podiumSessionId: opts.podiumSessionId,
+      resumeValue: opts.resume?.value,
+    })
     const base = {
       cmd: resolveOpencodeBin(undefined, opts.env),
       args: [
@@ -132,6 +145,7 @@ export const opencodeManifest: AgentManifest = {
         ...(isSet(opts.effort) ? ['--variant', opts.effort] : []),
       ],
       cwd: opts.cwd,
+      ...(databasePath ? { env: { OPENCODE_DB: databasePath } } : {}),
     }
     const instructions = composeAgentInstructions(opts.instructions)
     if (!instructions) return base
@@ -152,6 +166,7 @@ export const opencodeManifest: AgentManifest = {
     return {
       ...base,
       env: {
+        ...(base.env ?? {}),
         OPENCODE_CONFIG_CONTENT: JSON.stringify({
           ...config,
           instructions: [...configuredInstructions, instructionPath],
@@ -287,6 +302,7 @@ export const opencodeManifest: AgentManifest = {
   observer: supported((input, host) => {
     const obs = observeOpencodeState({
       cwd: input.cwd,
+      ...(input.podiumSessionId ? { podiumSessionId: input.podiumSessionId } : {}),
       ...(input.statTick ? { statTick: input.statTick } : {}),
       ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
       ...(input.homeDir ? { homeDir: input.homeDir } : {}),
@@ -314,9 +330,15 @@ export const opencodeManifest: AgentManifest = {
       if (!input.resumeValue) {
         return { readSlice: async () => ({ items: [], hasMore: false }) }
       }
+      const databasePath = opencodeDbPathForSession({
+        homeDir: input.homeDir,
+        podiumSessionId: input.podiumSessionId,
+        resumeValue: input.resumeValue,
+      })
       return opencodeDbSource({
         sessionId: input.resumeValue,
         ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+        ...(databasePath ? { databasePath } : {}),
       })
     },
   }),

@@ -1,4 +1,9 @@
-import type { AgentInterview, AgentPermissionAsk, AgentRuntimeState } from '@podium/model'
+import type {
+  AgentInterview,
+  AgentPermissionAsk,
+  AgentRuntimeState,
+  SessionId,
+} from '@podium/model'
 
 /** State-channel provenance. Confidence orders competing observations; source never names a person. */
 export type AgentStateEventSource = 'hook' | 'poll' | 'classifier'
@@ -162,6 +167,8 @@ export interface AgentStateProvider {
    */
   bootEvents?(opts: {
     cwd: string
+    /** Stable Podium row identity used to select a provider-owned store. */
+    podiumSessionId?: SessionId
     resumeValue?: string
     /** Recorded segment evidence: absolute transcript path, tried before any
      *  cwd-derived location (conversation registry §3.3). */

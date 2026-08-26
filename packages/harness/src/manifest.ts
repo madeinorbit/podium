@@ -88,8 +88,10 @@ export function declaredValue<T>(declared: Declared<T>): T | undefined {
 export interface HarnessLaunchOptions {
   /** Working directory the agent runs in (a project or worktree path). */
   cwd: string
+  /** Instance agent home; adapters may use it for per-session state selectors. */
+  homeDir?: string
   /** Stable Podium row identity for this interactive launch. Harnesses may use
-   *  it only as runtime correlation metadata; it is not a native resume id. */
+   *  it for runtime correlation or instance-scoped state selectors; it is not a native resume id. */
   podiumSessionId?: SessionId
   /** Present to resume an existing on-disk conversation; absent to start fresh. */
   resume?: ResumeRef
@@ -454,6 +456,8 @@ export interface TranscriptSourceInput {
   /** Recorded segment evidence: absolute transcript path, checked before any
    *  cwd-derived location (conversation registry §3.3). */
   pathHint?: string
+  /** Stable Podium row identity used by providers with a shared native store. */
+  podiumSessionId?: SessionId
   homeDir?: string
 }
 

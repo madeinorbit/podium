@@ -206,6 +206,7 @@ const AGENT_ERROR_LABELS: Record<string, string> = {
   rate_limit: 'Provider rate limit reached',
   overloaded: 'Provider is temporarily overloaded',
   server_error: 'Provider server error',
+  transcript_identity_unavailable: 'Transcript identity unavailable',
   network_error: 'Provider connection failed',
   context_overflow: 'Context window exceeded',
 }

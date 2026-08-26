@@ -1259,6 +1259,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     try {
       events = await provider.bootEvents({
         cwd,
+        podiumSessionId: sessionId,
+        ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(resumeValue ? { resumeValue } : {}),
         ...(pathHint ? { pathHint } : {}),
       })
@@ -1478,6 +1480,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     startObservation(sessionId, adapter, {
       cwd,
       statTick,
+      podiumSessionId: sessionId,
       resumeValue,
       ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
     })

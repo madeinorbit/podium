@@ -57,12 +57,7 @@ import { beginServerDriverReap } from '../runtime/server-reap'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
-import {
-  harnessChildStripEnv,
-  harnessCompatEnv,
-  harnessInstanceEnv,
-  spawnEnv,
-} from './session-env'
+import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
 export { harnessCompatEnv } from './session-env'
 import { sourceForRead } from './transcripts'
 
@@ -533,6 +528,7 @@ export async function launchSpawn(
     }
     const launchOptions = {
       cwd: msg.cwd,
+      ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
       podiumSessionId: msg.sessionId,
       ...(msg.resume ? { resume: msg.resume } : {}),
       ...(newSessionId ? { newSessionId } : {}),
@@ -560,6 +556,12 @@ export async function launchSpawn(
         ? await ctx.harnessRuntime.launch(msg.agentKind, launchOptions)
         : ctx.launch(msg.agentKind, launchOptions)
     materializeLaunchFiles(cmd.files)
+    // OpenCode creates its SQLite parent lazily. Create the Podium-owned
+    // directory before the PTY starts so two fresh sessions cannot race on a
+    // missing per-session store directory.
+    if (msg.agentKind === 'opencode' && !msg.loginHarness && cmd.env?.OPENCODE_DB) {
+      mkdirSync(dirname(cmd.env.OPENCODE_DB), { recursive: true })
+    }
     const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
     const provider = agentStateProviderFor(msg.agentKind)
     let extraArgs: string[] = []

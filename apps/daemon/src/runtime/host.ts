@@ -55,6 +55,7 @@ export function daemonRuntimeHost(
     launch: (msg) => launchSpawn(ctx, msg),
     readTranscript: async (session, range) => {
       const source = await sourceForRead(ctx, {
+        sessionId: session.sessionId,
         agentKind: session.agentKind,
         cwd: session.cwd,
         ...(session.resume ? { resume: session.resume } : {}),

@@ -1,10 +1,10 @@
 import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { agentStateProviderFor } from '../registry.js'
-import { loadOpencodeMessageParts } from '../opencode/db.js'
+import { loadOpencodeMessageParts, opencodeSessionDbPath } from '../opencode/db.js'
 import { observeOpencodeState, opencodeStateProvider } from './opencode.js'
 
 // Mock the opencode DB module so the gate test can (a) count handle opens and the
@@ -26,8 +26,8 @@ vi.mock('../opencode/db.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../opencode/db.js')>()
   return {
     ...real,
-    openOpencodeDb: (homeDir?: string) => {
-      const db = real.openOpencodeDb(homeDir)
+    openOpencodeDb: (homeDir?: string, databasePath?: string) => {
+      const db = real.openOpencodeDb(homeDir, databasePath)
       dbHooks.openCount += 1
       if (db) {
         const realClose = db.close.bind(db)
@@ -42,7 +42,8 @@ vi.mock('../opencode/db.js', async (importOriginal) => {
       dbHooks.getCount += 1
       return real.getOpencodeSession(db, id)
     },
-    opencodeDbMtimeMs: (homeDir?: string) => dbHooks.mtimeMs ?? real.opencodeDbMtimeMs(homeDir),
+    opencodeDbMtimeMs: (homeDir?: string, databasePath?: string) =>
+      dbHooks.mtimeMs ?? real.opencodeDbMtimeMs(homeDir, databasePath),
   }
 })
 
@@ -61,9 +62,10 @@ async function seedSessionDb(
   sessionId: string,
   cwd: string,
   assistantText: string,
+  databasePath = join(root, 'opencode.db'),
+  messageRole: 'user' | 'assistant' = 'assistant',
 ): Promise<void> {
-  const dbPath = join(root, 'opencode.db')
-  const db = openDatabase(dbPath)
+  const db = openDatabase(databasePath)
   db.exec(`CREATE TABLE session (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL DEFAULT 'proj',
@@ -117,12 +119,28 @@ async function seedSessionDb(
   db.prepare(
     `INSERT INTO message (id, session_id, time_created, time_updated, data)
      VALUES (?, ?, ?, ?, ?)`,
-  ).run('msg-a', sessionId, 1, 2, JSON.stringify({ role: 'assistant' }))
+  ).run('msg-a', sessionId, 1, 2, JSON.stringify({ role: messageRole }))
   db.prepare(
     `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
      VALUES (?, ?, ?, ?, ?, ?)`,
   ).run('prt-a', 'msg-a', sessionId, 1, 2, JSON.stringify({ type: 'text', text: assistantText }))
   db.close()
+}
+function opencodeMessageCounts(
+  databasePath: string,
+  sessionId: string,
+): { messageRows: number; assistantRows: number; partRows: number } {
+  const db = openDatabase(databasePath)
+  const messages = db.prepare('SELECT data FROM message WHERE session_id = ?').all(sessionId) as {
+    data: string
+  }[]
+  const parts = db.prepare('SELECT id FROM part WHERE session_id = ?').all(sessionId) as unknown[]
+  db.close()
+  return {
+    messageRows: messages.length,
+    assistantRows: messages.filter((row) => JSON.parse(row.data).role === 'assistant').length,
+    partRows: parts.length,
+  }
 }
 
 describe('opencode state provider', () => {
@@ -195,16 +213,188 @@ describe('opencode state provider', () => {
     await mkdir(root, { recursive: true })
     await seedSessionDb(root, 'ses_cursor', '/repo/cursor', 'initial')
     const db = openDatabase(join(root, 'opencode.db'))
-    db.prepare('INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)').run('msg-b', 'ses_cursor', 3, 3, JSON.stringify({ role: 'assistant' }))
-    db.prepare('INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)').run('msg-c', 'ses_cursor', 3, 3, JSON.stringify({ role: 'assistant' }))
-    db.prepare('INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)').run('prt-b', 'msg-b', 'ses_cursor', 3, 2, JSON.stringify({ type: 'text', text: 'b' }))
-    db.prepare('INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)').run('prt-c', 'msg-c', 'ses_cursor', 3, 2, JSON.stringify({ type: 'text', text: 'c' }))
+    db.prepare(
+      'INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)',
+    ).run('msg-b', 'ses_cursor', 3, 3, JSON.stringify({ role: 'assistant' }))
+    db.prepare(
+      'INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)',
+    ).run('msg-c', 'ses_cursor', 3, 3, JSON.stringify({ role: 'assistant' }))
+    db.prepare(
+      'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run('prt-b', 'msg-b', 'ses_cursor', 3, 2, JSON.stringify({ type: 'text', text: 'b' }))
+    db.prepare(
+      'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run('prt-c', 'msg-c', 'ses_cursor', 3, 2, JSON.stringify({ type: 'text', text: 'c' }))
     const rows = loadOpencodeMessageParts(db, 'ses_cursor', 2, 'prt-a')
     db.close()
     expect(rows.map((row) => row.partId)).toEqual(['prt-b', 'prt-c'])
   })
 })
 
+describe('OpenCode session identity (POD-2871)', () => {
+  const discoveryStartMs = 1_700_000_000_000
+
+  it('isolates same-directory sessions and measures the fault row, not just visible text', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-same-dir-'))
+    const faultDb = opencodeSessionDbPath(home, 'pod-fault')
+    const peerDb = opencodeSessionDbPath(home, 'pod-peer')
+    await mkdir(dirname(faultDb), { recursive: true })
+    await seedSessionDb(
+      dirname(faultDb),
+      'ses-fault',
+      '/repo/shared',
+      'fault prompt',
+      faultDb,
+      'user',
+    )
+    await seedSessionDb(dirname(peerDb), 'ses-peer', '/repo/shared', 'PODIUM-7ZP0U7', peerDb)
+
+    const faultText: string[] = []
+    const peerText: string[] = []
+    const fault = observeOpencodeState({
+      cwd: '/repo/shared',
+      homeDir: home,
+      podiumSessionId: 'pod-fault',
+      startedAtMs: discoveryStartMs,
+      pollMs: 10,
+      onEvents: () => {},
+      onTranscriptItems: (items) => faultText.push(...items.map((item) => item.text ?? '')),
+    })
+    const peer = observeOpencodeState({
+      cwd: '/repo/shared',
+      homeDir: home,
+      podiumSessionId: 'pod-peer',
+      startedAtMs: discoveryStartMs,
+      pollMs: 10,
+      onEvents: () => {},
+      onTranscriptItems: (items) => peerText.push(...items.map((item) => item.text ?? '')),
+    })
+    try {
+      await waitFor(() => fault.sessionId === 'ses-fault' && peer.sessionId === 'ses-peer')
+      await waitFor(() => faultText.length > 0 && peerText.length > 0)
+
+      expect(faultText).toEqual(['fault prompt'])
+      expect(faultText).not.toContain('PODIUM-7ZP0U7')
+      expect(peerText).toContain('PODIUM-7ZP0U7')
+      expect(opencodeMessageCounts(faultDb, 'ses-fault')).toEqual({
+        messageRows: 1,
+        assistantRows: 0,
+        partRows: 1,
+      })
+      expect(opencodeMessageCounts(peerDb, 'ses-peer')).toEqual({
+        messageRows: 1,
+        assistantRows: 1,
+        partRows: 1,
+      })
+    } finally {
+      fault.stop()
+      peer.stop()
+    }
+  })
+
+  it('keeps different-directory sessions readable from their own stores', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-different-dir-'))
+    const leftDb = opencodeSessionDbPath(home, 'pod-left')
+    const rightDb = opencodeSessionDbPath(home, 'pod-right')
+    await mkdir(dirname(leftDb), { recursive: true })
+    await seedSessionDb(dirname(leftDb), 'ses-left', '/repo/left', 'LEFT-OWN', leftDb)
+    await seedSessionDb(dirname(rightDb), 'ses-right', '/repo/right', 'RIGHT-OWN', rightDb)
+
+    const leftText: string[] = []
+    const rightText: string[] = []
+    const left = observeOpencodeState({
+      cwd: '/repo/left',
+      homeDir: home,
+      podiumSessionId: 'pod-left',
+      startedAtMs: discoveryStartMs,
+      pollMs: 10,
+      onEvents: () => {},
+      onTranscriptItems: (items) => leftText.push(...items.map((item) => item.text ?? '')),
+    })
+    const right = observeOpencodeState({
+      cwd: '/repo/right',
+      homeDir: home,
+      podiumSessionId: 'pod-right',
+      startedAtMs: discoveryStartMs,
+      pollMs: 10,
+      onEvents: () => {},
+      onTranscriptItems: (items) => rightText.push(...items.map((item) => item.text ?? '')),
+    })
+    try {
+      await waitFor(() => left.sessionId === 'ses-left' && right.sessionId === 'ses-right')
+      await waitFor(() => leftText.length > 0 && rightText.length > 0)
+
+      expect(leftText).toEqual(['LEFT-OWN'])
+      expect(rightText).toEqual(['RIGHT-OWN'])
+      expect(opencodeMessageCounts(leftDb, 'ses-left')).toEqual({
+        messageRows: 1,
+        assistantRows: 1,
+        partRows: 1,
+      })
+      expect(opencodeMessageCounts(rightDb, 'ses-right')).toEqual({
+        messageRows: 1,
+        assistantRows: 1,
+        partRows: 1,
+      })
+    } finally {
+      left.stop()
+      right.stop()
+    }
+  })
+
+  it('fails closed when a legacy shared store has no session identity', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-legacy-'))
+    const root = join(home, '.local', 'share', 'opencode')
+    await mkdir(root, { recursive: true })
+    await seedSessionDb(root, 'ses-legacy-a', '/repo/shared', 'LEGACY-A')
+    const db = openDatabase(join(root, 'opencode.db'))
+    db.prepare(
+      `INSERT INTO session (id, directory, title, time_created, time_updated)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run('ses-legacy-b', '/repo/shared', 't', 1_700_000_000_000, 1_700_000_100_000)
+    db.prepare(
+      `INSERT INTO message (id, session_id, time_created, time_updated, data)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run('msg-b', 'ses-legacy-b', 1, 2, JSON.stringify({ role: 'assistant' }))
+    db.prepare(
+      `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'prt-b',
+      'msg-b',
+      'ses-legacy-b',
+      1,
+      2,
+      JSON.stringify({ type: 'text', text: 'LEGACY-B' }),
+    )
+    db.close()
+
+    const events: Array<{ kind: string; errorClass?: string; retryable?: boolean }> = []
+    const text: string[] = []
+    const obs = observeOpencodeState({
+      cwd: '/repo/shared',
+      homeDir: home,
+      startedAtMs: discoveryStartMs,
+      pollMs: 10,
+      onEvents: (next) => events.push(...next),
+      onTranscriptItems: (items) => text.push(...items.map((item) => item.text ?? '')),
+    })
+    try {
+      await waitFor(() => events.some((event) => event.kind === 'turn_failed'))
+      expect(obs.sessionId).toBeUndefined()
+      expect(text).toEqual([])
+      expect(events).toEqual([
+        expect.objectContaining({
+          kind: 'turn_failed',
+          errorClass: 'transcript_identity_unavailable',
+          retryable: false,
+        }),
+      ])
+    } finally {
+      obs.stop()
+    }
+  })
+})
 describe('observeOpencodeState DB handle reuse + mtime gate', () => {
   it('reuses one handle, skips the per-tick query while mtime is unchanged, re-runs when it advances, and closes on stop', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-opencode-gate-'))

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { resolveCursorBin } from './cursor/cli.js'
 import { agentLaunchCommand, agentSupportsInitialPrompt } from './launch'
 import { resolveOpencodeBin } from './opencode/cli.js'
+import { opencodeSessionDbPath } from './opencode/db.js'
 
 const CODEX_NETWORK_ARGS = ['-c', 'sandbox_workspace_write.network_access=true']
 describe('agentLaunchCommand', () => {
@@ -108,6 +109,17 @@ describe('agentLaunchCommand', () => {
       cmd: resolveOpencodeBin(),
       args: [],
       cwd: '/w',
+    })
+  })
+
+  it('selects a session-owned OpenCode store for a fresh terminal', () => {
+    const spec = agentLaunchCommand('opencode', {
+      cwd: '/w',
+      homeDir: '/instance/home',
+      podiumSessionId: asSessionId('podium-opencode-a'),
+    })
+    expect(spec.env).toEqual({
+      OPENCODE_DB: opencodeSessionDbPath('/instance/home', 'podium-opencode-a'),
     })
   })
 

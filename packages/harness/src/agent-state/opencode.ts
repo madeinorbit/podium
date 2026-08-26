@@ -57,8 +57,12 @@ export const opencodeStateProvider: AgentStateProvider = {
 
 export function observeOpencodeState(opts: {
   cwd: string
+  /** Stable Podium row identity; used to select a session-owned store. */
+  podiumSessionId?: string
   resumeValue?: string
   homeDir?: string
+  /** Explicit store path for tests/embedders that already selected one. */
+  databasePath?: string
   startedAtMs?: number
   pollMs?: number
   statTick?: StatTick
@@ -78,6 +82,7 @@ export function observeOpencodeState(opts: {
   let lastObservedModel: string | undefined
   let lastObservedEffort: string | undefined
   let firstTranscript = true
+  let identityFailureReported = false
 
   // A single opencode DB handle reused across every ~700ms poll tick (was opened
   // and closed per tick, per call). A `readOnly` SQLite handle re-reads the latest
@@ -85,8 +90,15 @@ export function observeOpencodeState(opts: {
   // query error drops the handle (via `dropDb`) so the next call reopens — a broken
   // handle is never reused. Closed once in `stop()`.
   let db: OpencodeDb | undefined
+  const databasePathFor = (rt: OpencodeRuntime): string | undefined =>
+    opts.databasePath ??
+    rt.opencodeDbPathForSession({
+      homeDir: opts.homeDir,
+      podiumSessionId: opts.podiumSessionId,
+      resumeValue: opts.resumeValue,
+    })
   const getDb = (rt: OpencodeRuntime): OpencodeDb => {
-    db ??= rt.openOpencodeDb(opts.homeDir)
+    db ??= rt.openOpencodeDb(opts.homeDir, databasePathFor(rt))
     return db
   }
   const dropDb = (): void => {
@@ -134,11 +146,29 @@ export function observeOpencodeState(opts: {
     const handle = getDb(rt)
     if (!handle) return
     try {
-      const session = rt.findLatestOpencodeSession(
+      const candidates = rt.findOpencodeSessions(
         handle,
         opts.cwd,
         startedAtMs - FRESH_SESSION_MARGIN_MS,
       )
+      if (candidates.length === 0) return
+      const databasePath = databasePathFor(rt)
+      if (!databasePath) {
+        if (!identityFailureReported) {
+          identityFailureReported = true
+          opts.onEvents([
+            {
+              kind: 'turn_failed',
+              errorClass: 'transcript_identity_unavailable',
+              retryable: false,
+              detail:
+                'OpenCode transcript withheld: no session-specific store was selected; refusing cwd-based discovery.',
+            },
+          ])
+        }
+        return
+      }
+      const session = candidates[0]
       if (session && !stopped) attach(session)
     } catch {
       dropDb()
@@ -183,7 +213,10 @@ export function observeOpencodeState(opts: {
       const session = rt.getOpencodeSession(handle, attached.id)
       if (!session) return
       const observed = parseOpencodeModel(session.model)
-      if (observed.model && (observed.model !== lastObservedModel || observed.effort !== lastObservedEffort)) {
+      if (
+        observed.model &&
+        (observed.model !== lastObservedModel || observed.effort !== lastObservedEffort)
+      ) {
         lastObservedModel = observed.model
         lastObservedEffort = observed.effort
         opts.onModel?.(observed.model, observed.effort)
@@ -264,7 +297,7 @@ export function observeOpencodeState(opts: {
     if (stopped || !attached) return
     const rt = await maybeLoadOpencodeRuntime()
     if (!rt || stopped || !attached) return
-    const mtimeMs = rt.opencodeDbMtimeMs(opts.homeDir)
+    const mtimeMs = rt.opencodeDbMtimeMs(opts.homeDir, databasePathFor(rt))
     if (mtimeMs !== undefined && mtimeMs === lastPollMtimeMs) return
     lastPollMtimeMs = mtimeMs
     if (firstTranscript) await emitTranscript(false)
@@ -314,12 +347,21 @@ export function observeOpencodeState(opts: {
 
 async function opencodeBootEvents(opts: {
   cwd: string
+  podiumSessionId?: string
   resumeValue?: string
   homeDir?: string
+  databasePath?: string
 }): Promise<AgentStateEvent[]> {
   const rt = await maybeLoadOpencodeRuntime()
   if (!rt) return [{ kind: 'session_started' }]
-  const db = rt.openOpencodeDb(opts.homeDir)
+  const databasePath =
+    opts.databasePath ??
+    rt.opencodeDbPathForSession({
+      homeDir: opts.homeDir,
+      podiumSessionId: opts.podiumSessionId,
+      resumeValue: opts.resumeValue,
+    })
+  const db = rt.openOpencodeDb(opts.homeDir, databasePath)
   if (!db) return [{ kind: 'session_started' }]
   try {
     const sessionId = opts.resumeValue
@@ -391,15 +433,15 @@ function parseOpencodeModel(raw: string | null | undefined): {
   } catch {
     return {}
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return {}
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
   const record = value as Record<string, unknown>
-  const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : undefined
+  const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : undefined
   const provider =
-    typeof record.providerID === "string" && record.providerID.trim()
+    typeof record.providerID === 'string' && record.providerID.trim()
       ? record.providerID.trim()
       : undefined
   const model = id ? (id.includes('/') || !provider ? id : provider + '/' + id) : undefined
   const effort =
-    typeof record.variant === "string" && record.variant.trim() ? record.variant.trim() : undefined
+    typeof record.variant === 'string' && record.variant.trim() ? record.variant.trim() : undefined
   return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) }
 }
