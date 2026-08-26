@@ -516,3 +516,36 @@ twenty seconds, stopped, and the turn completed anyway"*.
 
 **Sample the moving quantity at intervals across the whole run**, and show it climbing. Then
 have an *independent* probe — one whose control needs mid-flight motion — confirm it.
+
+## Gate the action on the check, not on reading its output (2026-08-26 17:53 CEST)
+
+A session ran `merge-lock acquire` and then ran the ff-merge **unconditionally**, without
+testing whether the acquire had succeeded. It had not — the lock was held and that session was
+queued at position 1. **The merge ran anyway.**
+
+*"Check the lock at the moment you act" is only worth something if the action is GATED on the
+check.* A step that prints an answer and carries on regardless is not a guard; it is a log
+line. **Make it a script that exits non-zero, not a step you read.**
+
+    podium merge-lock acquire ... || exit 1     # fail closed
+    ... land ...
+    podium lock release ...
+
+**And when you land out of turn, say so immediately and precisely** — what landed, whether it
+was a true fast-forward, whether any product code was touched, and whose base may now be
+stale. The session that hit this reported it in full, said it was its own error rather than a
+tooling one, and cancelled its queue slot. That turned a silent corruption risk into a
+two-minute check.
+
+## Rig credentials are quarantined, not seeded (2026-08-26 17:53 CEST)
+
+**18 stale Claude credential files were quarantined out of rig agent homes.** Every one held an
+expired access token *and* a refresh token the operator's live credential had already
+superseded — and **presenting a superseded refresh token can be treated as replay and revoke
+the whole family**, logging the operator out of their own tool.
+
+**A rig must not carry a Claude credential it did not check.** The read-only check is a file
+read: `claudeAiOauth.expiresAt` against now. An expired access token in a rig home makes that
+home **dangerous**, not merely stale.
+
+Failing loudly with no credential is strictly better than revoking silently with a stale one.
