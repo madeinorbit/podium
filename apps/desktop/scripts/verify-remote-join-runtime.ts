@@ -2,7 +2,8 @@
 /**
  * Join a standing Podium with the real Linux Tauri shell, then prove its supervised daemon is
  * ONLINE while the WebKitGTK window signs in and renders the remote app. The optional reset mode
- * reuses a consumed join token from a fresh client state and records the resulting rejection.
+ * reuses a consumed join token from a fresh client state and proves the terminal rejection is
+ * visible in the app without entering the desktop supervisor's respawn loop.
  *
  * The app owns a dedicated X server, state, payload, HOME and XDG directories. Remote daemon
  * mode starts no local HTTP backend; the launch log, server observation and before/after window
@@ -32,7 +33,7 @@ const repoRoot = resolve(import.meta.dirname, '../../..')
 const desktopDir = join(repoRoot, 'apps/desktop')
 const tauriDir = join(desktopDir, 'src-tauri')
 const binary = join(tauriDir, 'target/debug/Podium')
-const payload = join(tauriDir, 'resources/payload/podium')
+const payload = join(tauriDir, 'resources/podium')
 const x11Driver = join(desktopDir, 'scripts/x11-window-drive.py')
 const args = new Set(process.argv.slice(2))
 const prepare = args.has('--prepare')
@@ -49,6 +50,7 @@ const remotePassword = process.env.PODIUM_REMOTE_PASSWORD
 const nativeTitle = 'Podium ADE'
 const beforeScreenshot = evidencePath.replace(/\.json$/u, '-before-login.png')
 const afterScreenshot = evidencePath.replace(/\.json$/u, '-after-login.png')
+const failureScreenshot = evidencePath.replace(/\.json$/u, '-failure.png')
 const saveJoinPath = saveJoinArg
   ? resolve(saveJoinArg.slice('--save-join-token='.length))
   : undefined
@@ -296,6 +298,13 @@ let xvfb: ChildProcess | undefined
 let desktop: ChildProcess | undefined
 let output = ''
 let display: string | undefined
+async function currentBodyText(): Promise<string> {
+  try {
+    const nativeText = await readFile(join(stateDir, 'runtime-window.txt'), 'utf8')
+    if (nativeText.trim()) lastProbeBodyText = nativeText
+  } catch {}
+  return lastProbeBodyText
+}
 try {
   const hostLoopbackWasReachable = await hostRelayReachable()
 
@@ -395,25 +404,49 @@ try {
     'the native WebKitGTK window',
     60_000,
   )
-  // The GTK window exists before its remote document has painted. Give WebKit time to reach the
-  // autofocus password field so the XTest events exercise the page rather than the loading frame.
-  await sleep(12_000)
+  // The GTK window exists before its remote document has painted. Wait for the
+  // actual login document so XTest never types into the loading frame.
+  await waitFor(
+    async () => {
+      const bodyText = await currentBodyText()
+      return /enter your password|sign in to/iu.test(bodyText) ? bodyText : undefined
+    },
+    'the password UI inside WebKitGTK',
+    60_000,
+    250,
+  )
   await mkdir(dirname(evidencePath), { recursive: true })
   captureDisplay(display, beforeScreenshot)
 
   typePassword(display, remotePassword)
-  await sleep(12_000)
+  const authenticatedText = await waitFor(
+    async () => {
+      const bodyText = await currentBodyText()
+      return bodyText.trim().length > 50 && !/enter your password|sign in to/iu.test(bodyText)
+        ? bodyText
+        : undefined
+    },
+    'authenticated non-login UI',
+    60_000,
+    250,
+  )
   if (expectUnauthorized) {
     await waitFor(
-      () =>
-        lastProbeBodyText.trim().length > 50 &&
-        !/enter your password|sign in to/iu.test(lastProbeBodyText)
-          ? lastProbeBodyText
-          : undefined,
-      'authenticated non-login UI after the daemon rejection',
-      60_000,
+      async () => {
+        const bodyText = await currentBodyText()
+        return /machine was not added|pairing code is invalid, expired/iu.test(bodyText) &&
+          /create a new one-use code/iu.test(bodyText)
+          ? bodyText
+          : undefined
+      },
+      'the permanent pairing refusal and recovery instructions in the app',
+      30_000,
       250,
     )
+  } else if (
+    /machine was not added|pairing code is invalid|artifact address/iu.test(authenticatedText)
+  ) {
+    throw new Error('healthy pairing unexpectedly rendered permanent-failure messaging')
   }
   const renderedTitle = await waitFor(() => x11Title(display), 'the native window after login')
   captureDisplay(display, afterScreenshot)
@@ -474,8 +507,16 @@ try {
       cwd: repoRoot,
       encoding: 'utf8',
     }).stdout.trim()
+    const supervisorRespawns = output.match(/respawning in 500ms \(daemon\)/gu)?.length ?? 0
+    if (supervisorRespawns !== 0) {
+      throw new Error(`terminal daemon refusal was respawned ${supervisorRespawns} times`)
+    }
+    if (!output.includes('after a terminal server refusal')) {
+      throw new Error('desktop did not record that it stopped after the terminal refusal')
+    }
+
     const evidence = {
-      issue: 'POD-2859 reproduced from POD-2855',
+      issue: 'POD-2859',
       date: new Date().toISOString().slice(0, 10),
       source: { commit },
       platform: 'Linux native Tauri/WebKitGTK under dedicated Xvfb',
@@ -504,31 +545,32 @@ try {
           authorizationReason: connectivity.authorizationReason,
           pairCodeRemainsInConfig: config.pairCode !== undefined,
           retriedByDaemon: false,
-          desktopSupervisorRespawns: output.match(/respawning in 500ms \(daemon\)/gu)?.length ?? 0,
-          desktopSupervisorIgnoredBlockedExitCode: output.includes('unix_wait_status(19968)'),
+          desktopSupervisorRespawns: supervisorRespawns,
+          desktopSupervisorStoppedOnBlockedExit: output.includes('after a terminal server refusal'),
         },
         appSurface: {
           webClientStayedAuthenticated: true,
           visiblePage: 'authenticated non-login surface',
           probeReportsReceived: reportCount,
           visibleTextCharacters: lastProbeBodyText.length,
-          visibleTextMentionsAuthorizationFailure: /unauthor|invalid or expired|re-pair/iu.test(
+          visibleTextNamesPermanentFailure: /machine was not added|pairing code is invalid/iu.test(
             lastProbeBodyText,
           ),
+          visibleTextExplainsRecovery: /create a new one-use code/iu.test(lastProbeBodyText),
           screenshot: afterScreenshot.replace(`${repoRoot}/`, ''),
         },
       },
       observedDesktopLog: output
         .split('\n')
         .filter((line) =>
-          /launch action|spawning daemon|server rejected|invalid or expired|Authorization will not be retried|backend exited|respawning/.test(
+          /launch action|spawning daemon|server rejected|invalid or expired|Pairing will not be retried|backend exited|respawning|terminal server refusal/.test(
             line,
           ),
         )
         .map((line) => line.replaceAll(root, '<isolated-root>')),
     }
     await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`)
-    console.log(`native reset/re-pair rejection reproduced; evidence: ${evidencePath}`)
+    console.log(`native reset/re-pair refusal UX passed; evidence: ${evidencePath}`)
   } else {
     const machine = await waitFor(
       async () => {
@@ -564,7 +606,7 @@ try {
       encoding: 'utf8',
     }).stdout.trim()
     const evidence = {
-      issue: 'POD-2855',
+      issue: 'POD-2859',
       date: new Date().toISOString().slice(0, 10),
       source: { commit },
       platform: 'Linux native Tauri WebView under dedicated Xvfb — WebKitGTK, not WKWebView',
@@ -618,6 +660,10 @@ try {
         },
       },
       runtimeProbeReportsReceived: reportCount,
+      armedControl: {
+        validOneUseCodeJoinedOnline: machine.online,
+        reachableServerRenderedNoPermanentFailure: true,
+      },
       observedDesktopLog: output
         .split('\n')
         .filter((line) => /launch action|spawning daemon|backend exited|respawning/.test(line))
@@ -628,6 +674,10 @@ try {
   }
 } catch (error) {
   const currentWindowTitle = display ? x11Title(display, 'Podium') : undefined
+  if (display) {
+    await mkdir(dirname(failureScreenshot), { recursive: true })
+    captureDisplay(display, failureScreenshot)
+  }
   console.error(`native window at failure: ${currentWindowTitle ?? '<not found>'}`)
   throw error
 } finally {

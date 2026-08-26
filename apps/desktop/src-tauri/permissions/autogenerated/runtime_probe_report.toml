@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-runtime-probe-report"
+description = "Enables the runtime_probe_report command without any pre-configured scope."
+commands.allow = ["runtime_probe_report"]
+
+[[permission]]
+identifier = "deny-runtime-probe-report"
+description = "Denies the runtime_probe_report command without any pre-configured scope."
+commands.deny = ["runtime_probe_report"]

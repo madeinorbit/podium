@@ -352,6 +352,8 @@ fn check_error(error: &tauri_plugin_updater::Error, channel: UpdateChannel) -> U
 
 fn public_download_address(url: &tauri::Url) -> String {
     let mut public = url.clone();
+    let _ = public.set_username("");
+    let _ = public.set_password(None);
     public.set_query(None);
     public.set_fragment(None);
     public.to_string()

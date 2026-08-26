@@ -411,6 +411,29 @@ describe('every refusal a daemon can produce is classified by the shared table',
     expect(classifyUpdateFailureDetail(detail)).toBe('download-failed')
   })
 
+  it('classifies an unreachable published artifact address as permanent', async () => {
+    let detail = ''
+    try {
+      await fetchArtifact(
+        {
+          url: 'https://missing.example/a.tgz?X-Amz-Signature=secret',
+          digest: 'd',
+        } as never,
+        {
+          fetch: async () => {
+            throw Object.assign(new Error('host lookup failed'), { code: 'ENOTFOUND' })
+          },
+        } as never,
+      )
+    } catch (error) {
+      detail = error instanceof Error ? error.message : String(error)
+    }
+    expect(detail).toContain('https://missing.example/a.tgz')
+    expect(detail).not.toContain('secret')
+    expect(matchUpdateFailureToken(detail)).toBe('artifact-address-unreachable')
+    expect(classifyUpdateFailureDetail(detail)).toBe('artifact-unreachable')
+  })
+
   /**
    * The boot reconciler's two verdicts, from `resolveOnBoot` and from the
    * sentence `host-runtime` composes around a retry. The machine is UP in both

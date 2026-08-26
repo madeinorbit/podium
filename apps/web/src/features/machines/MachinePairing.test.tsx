@@ -167,7 +167,7 @@ describe('MachinePairing', () => {
     )
 
     expect(screen.queryByRole('checkbox', { name: /podium-managed machine/i })).toBeNull()
-    expect(screen.getByRole('button', { name: /create another code/i })).toHaveProperty(
+    expect(screen.getByRole('button', { name: /creating/i })).toHaveProperty(
       'disabled',
       true,
     )

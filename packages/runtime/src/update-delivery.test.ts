@@ -163,7 +163,6 @@ describe('fetchArtifact progress', () => {
     await expect(
       fetchArtifact(
         { ...artifact, url: 'https://missing.example/a.tgz?signature=secret' },
-        'feed',
         {
           fetch: (async () => {
             throw new TypeError('fetch failed', {

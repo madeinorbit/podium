@@ -844,6 +844,10 @@ describe('the error taxonomy', () => {
     ['no-artifact for linux-x64', 'machine-unsupported'],
     ['fetch failed', 'download-failed'],
     ['ECONNREFUSED 127.0.0.1:18787', 'download-failed'],
+    [
+      'artifact address unreachable: https://missing.example/a.tgz — ECONNREFUSED',
+      'artifact-unreachable',
+    ],
     ['The machine stopped reporting progress while updating.', 'machine-unreachable'],
     [undefined, 'machine-unreachable'],
     // POD-2210: the daemon that declined ON PURPOSE, because finishing would
@@ -1598,6 +1602,33 @@ describe('the step runners', () => {
     expect(h.read().state).toBe('failed')
     expect(h.read().error?.code).toBe('download-failed')
     expect(h.read().error?.detail).toContain('signature verification FAILED')
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it('server: records an unreachable published artifact as permanent', async () => {
+    const snapshot = vi.fn(() => '/state/podium.db.backup')
+    const restart = vi.fn()
+    const h = harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      prepareCoordinatorUpdate: async () => {
+        throw new Error(
+          'artifact address unreachable: https://missing.example/a.tgz — ECONNREFUSED',
+        )
+      },
+      createDatabaseSnapshot: snapshot,
+      requestCoordinatorRestart: restart,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read().state).toBe('failed')
+    expect(h.read().error?.code).toBe('artifact-unreachable')
+    expect(h.read().error?.detail).toContain('https://missing.example/a.tgz')
+    expect(h.read().error?.message).not.toMatch(/try again|connection/iu)
     expect(snapshot).not.toHaveBeenCalled()
     expect(restart).not.toHaveBeenCalled()
   })

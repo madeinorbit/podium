@@ -49,6 +49,7 @@ const NATIVE_WINDOW_PERMISSIONS: &[&str] = &[
     "allow-set-update-channel",
     "allow-repair-payload",
     "allow-daemon-connectivity",
+    "allow-runtime-probe-report",
     "process:allow-restart",
 ];
 
@@ -878,6 +879,11 @@ fn runtime_probe_script() -> String {
               bodyText: (document.body && document.body.innerText || '').slice(0, 6000)
             }});
             fetch(endpoint, {{ method: 'POST', mode: 'no-cors', body: payload }}).catch(() => {{}});
+            if (window.__TAURI_INTERNALS__) {{
+              window.__TAURI_INTERNALS__.invoke('runtime_probe_report', {{
+                bodyText: (document.body && document.body.innerText || '').slice(0, 6000)
+              }}).catch(() => {{}});
+            }}
           }};
           window.addEventListener('DOMContentLoaded', report);
           window.addEventListener('load', report);
@@ -921,6 +927,23 @@ fn parse_daemon_connectivity(text: &str) -> Option<DaemonConnectivity> {
 fn daemon_connectivity() -> Option<DaemonConnectivity> {
     let text = std::fs::read_to_string(bootstrap::state_dir().join("connectivity.json")).ok()?;
     parse_daemon_connectivity(&text)
+}
+
+/// Debug acceptance seam: page text crosses the real WebKit→Tauri invoke
+/// boundary into this run's isolated state. Production calls are a no-op.
+#[tauri::command]
+fn runtime_probe_report(body_text: String) -> Result<(), String> {
+    if !cfg!(debug_assertions)
+        || std::env::var("PODIUM_DESKTOP_RUNTIME_PROBE").as_deref() != Ok("1")
+    {
+        return Ok(());
+    }
+    let state = bootstrap::state_dir();
+    std::fs::create_dir_all(&state).map_err(|error| error.to_string())?;
+    let pending = state.join("runtime-window.txt.pending");
+    let target = state.join("runtime-window.txt");
+    std::fs::write(&pending, body_text).map_err(|error| error.to_string())?;
+    std::fs::rename(pending, target).map_err(|error| error.to_string())
 }
 
 /// [spec:SP-3701] In-app "host sessions on this device": rewrite the local config from client
@@ -1112,6 +1135,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             enable_hosting,
             daemon_connectivity,
+            runtime_probe_report,
             claim_update_ownership,
             check_update,
             install_update,
@@ -2085,6 +2109,7 @@ mod tests {
                 "allow-set-update-channel",
                 "allow-repair-payload",
                 "allow-daemon-connectivity",
+                "allow-runtime-probe-report",
                 "process:allow-restart",
             ]
         );

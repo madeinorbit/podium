@@ -752,6 +752,27 @@ describe('MachinesPanel server transfer', () => {
     expect((await screen.findByRole('dialog')).textContent).toMatch(/laptop to vps/i)
   })
 
+  it('removes a spent code even when the paired machine is not transfer-eligible', async () => {
+    const current = machine({ id: asMachineId('source'), name: 'laptop', online: true })
+    const paired = machine({ id: asMachineId('paired'), name: 'workstation', online: true })
+    storeState.machines = [current]
+    setServerTransferTrpc(vi.fn(), vi.fn().mockResolvedValue(status({ targetEligibility: [] })))
+    const view = render(<MachinesPanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
+    expect(await screen.findByText('CODE')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /copy command/i })).toBeTruthy()
+
+    storeState.machines = [current, paired]
+    view.rerender(<MachinesPanel />)
+
+    expect(await screen.findByText(/one-use code has been spent/i)).toBeTruthy()
+    expect(screen.queryByText('CODE')).toBeNull()
+    expect(screen.queryByRole('button', { name: /copy command/i })).toBeNull()
+    expect(screen.getByRole('button', { name: /create another code/i })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /review transfer/i })).toBeNull()
+  })
+
   it('does not recommend a server when adding before the first or after the second machine', async () => {
     setServerTransferTrpc(vi.fn())
     render(<MachinesPanel />)

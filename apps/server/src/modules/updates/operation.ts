@@ -2051,11 +2051,13 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
       try {
         await context.prepareCoordinatorUpdate(details.target)
       } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        const classified = classifyMachineFailure(detail)
         return {
           state: 'failed',
           error: describeUpdateOperationFailure({
-            code: 'download-failed',
-            detail: error instanceof Error ? error.message : String(error),
+            code: classified === 'artifact-unreachable' ? classified : 'download-failed',
+            detail,
           }),
         }
       }

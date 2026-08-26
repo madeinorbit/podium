@@ -162,11 +162,13 @@ function publicArtifactAddress(raw: string): string {
   try {
     const url = new URL(raw)
     // Signed query parameters are credentials, not useful operator context.
+    url.username = ''
+    url.password = ''
     url.search = ''
     url.hash = ''
     return url.toString()
   } catch {
-    return raw
+    return raw.split(/[?#]/u, 1)[0] ?? raw
   }
 }
 

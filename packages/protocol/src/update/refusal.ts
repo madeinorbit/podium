@@ -357,7 +357,7 @@ const UPDATE_FAILURE_MATCHERS = [
   {
     token: 'download-unreachable',
     pattern:
-      /failed to fetch|fetch failed|download failed|network(?:error| request failed)|econnreset|etimedout/i,
+      /unable to connect|access the url|failed to fetch|fetch failed|download failed|network(?:error| request failed)|econn(?:refused|reset)|etimedout|enotfound/i,
     code: 'download-failed',
     example: 'fetch failed',
   },

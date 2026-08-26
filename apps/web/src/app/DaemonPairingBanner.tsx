@@ -6,6 +6,19 @@ import { SKEW_BANNER_HEIGHT_VAR } from './WireSkewBanner'
 export const DAEMON_PAIRING_BANNER_HEIGHT_VAR = '--daemon-pairing-banner-h'
 export const DAEMON_CONNECTIVITY_POLL_MS = 500
 
+function publicServerAddress(raw: string): string {
+  try {
+    const url = new URL(raw)
+    url.username = ''
+    url.password = ''
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return raw.split(/[?#]/u, 1)[0] ?? raw
+  }
+}
+
 function isPairingRefusal(
   status: NativeDaemonConnectivity | null,
 ): status is NativeDaemonConnectivity & { state: 'unauthorized' } {
@@ -13,7 +26,7 @@ function isPairingRefusal(
 }
 
 export function pairingRefusalMessage(status: NativeDaemonConnectivity): string {
-  const target = status.serverUrl ? ` at ${status.serverUrl}` : ''
+  const target = status.serverUrl ? ` at ${publicServerAddress(status.serverUrl)}` : ''
   return (
     `This machine was not added to the server${target}: its pairing code is invalid, expired, ` +
     'or has already been used. In Settings → Machines → Add machine, create a new one-use code ' +

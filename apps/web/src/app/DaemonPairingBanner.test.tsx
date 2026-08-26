@@ -37,7 +37,7 @@ describe('DaemonPairingBanner', () => {
   it('stays silent for a valid pairing and reachable server', async () => {
     desktop.__PODIUM_DESKTOP__ = bridge(
       vi.fn(async () => ({
-        state: 'connected',
+        state: 'connected' as const,
         serverUrl: 'wss://podium.example',
         updatedAt: '2026-08-26T10:00:00.000Z',
       })),
@@ -55,7 +55,7 @@ describe('DaemonPairingBanner', () => {
     vi.useFakeTimers()
     const read = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({
       state: 'unauthorized',
-      serverUrl: 'wss://podium.example',
+      serverUrl: 'wss://operator:secret@podium.example/?token=secret',
       authorizationReason: 'peerHelloRejected: invalid or expired code',
       updatedAt: '2026-08-26T10:00:00.000Z',
     })
@@ -71,6 +71,7 @@ describe('DaemonPairingBanner', () => {
 
     const alert = screen.getByRole('alert')
     expect(alert.textContent).toMatch(/wss:\/\/podium\.example/)
+    expect(alert.textContent).not.toMatch(/operator|secret|token/)
     expect(alert.textContent).toMatch(/invalid, expired, or has already been used/i)
     expect(alert.textContent).toMatch(/create a new one-use code/i)
     expect(alert.textContent).not.toMatch(/try again/i)
