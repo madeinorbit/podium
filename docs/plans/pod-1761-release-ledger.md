@@ -3782,3 +3782,42 @@ Per my own rule I ran `git range-diff` against the driven commit before acceptin
 
 **Two defects closed tonight by measurement rather than by argument** (this and POD-2878's parked
 send, the latter pending gate attribution). Open: cross-session transcript isolation.
+
+### The nine-unknowns exercise returned its first STILL BROKEN (2026-08-27 00:23 CEST)
+
+POD-2913 twice reported POD-2622 as UNDRIVEN on an invalid pre-fix boundary. I settled it by
+reading both sides of the boundary rather than reasoning about the commit graph:
+
+    manifests/cursor.ts    parent 1641d823c: cmd: 'agent'      fix b266484d8: resolveCursorBin(undefined, opts.env)
+    manifests/opencode.ts  parent 1641d823c: cmd: 'opencode'   fix b266484d8: resolveOpencodeBin(undefined, opts.env)
+
+**Defect present at the parent, absent after the commit — that is a valid boundary by
+definition.** "The parent ancestry already contains the substantive changes" was a claim about a
+TOPIC; the question is about a CALL SITE, and `git show <rev>:<file>` answers it in two commands.
+
+**And the reading found more than the boundary question.** At the epic tip the fix is applied to
+**three of nine** call sites in its own two files:
+
+| site | `opts` in scope? | state |
+| --- | --- | --- |
+| cursor.ts:88, :107 · opencode.ts:123 | yes | **fixed** |
+| cursor.ts:123, :153 · opencode.ts:164 | **yes** | **still bare — fix trivially available** |
+| opencode.ts:95 (static `loginCommand`) | no | cannot take this fix; never argued either way |
+| opencode.ts:220 (`clientTerminal.launch`) | no (env not destructured) | same |
+
+**So POD-2622's answer is NO — the defect is not gone.** Filed **POD-2914** with the site-by-site
+classification and started it. Its deliverable is two things: fix the three sites where `opts` is
+already in scope, and *decide and write down* what happens at the two that structurally cannot —
+because right now they are indistinguishable from an oversight.
+
+**This is the exercise working.** Nine issues read as finished; the first one examined closely is
+a third-finished. It also confirms the audit's judgement in declining to promote them on a git
+count, and it is the same shape the epic keeps producing: **a fix applied to the call sites
+someone was testing, missing the siblings in the same file.** The guard is to DERIVE the set —
+grep for every construction of the shape and classify each — rather than fixing the one that
+reproduced.
+
+**Correction I owe POD-2913:** on my first pass I asserted the commit was substantive without
+handing over the check that proves it. Asserting a conclusion at a session that has just reported
+the opposite is not a correction, it is a contradiction; the two `git show <rev>:<file>` commands
+are what settle it and I should have led with them.
