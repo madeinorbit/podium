@@ -282,6 +282,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** One modeled per-session rendered mode. AgentPanel resolves defaults and capability, then records the effective value here; the same value persists and is reported to the server. */
   panelMode: Record<string, 'chat' | 'native'>
   setPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => void
+  /** Where NAVIGATION would like this session to open. Writes the mode only when
+   *  the operator has never picked one for this session, so a row that focuses a
+   *  session "in CLI" cannot overwrite a standing Chat pick (POD-1702). */
+  preferPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => void
   /** The right dock's shell per worktree (#23): worktreePath → the shell session
    *  living in the dock's Shell panel. Dock shells render THERE, not as workspace
    *  tabs — the tab strip filters every id in this map. Persisted so a reload

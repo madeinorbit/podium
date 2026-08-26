@@ -40,6 +40,7 @@ const harness = vi.hoisted(() => ({
   openSessionTab: vi.fn(),
   focusIssueSession: vi.fn(async () => null),
   setPanelMode: vi.fn(),
+  preferPanelMode: vi.fn(),
   setSelectedIssueId: vi.fn(),
   setIssueTucked: vi.fn(async () => undefined),
   updateIssue: vi.fn(async (_id: string, _patch: unknown) => undefined),
@@ -91,6 +92,7 @@ vi.mock('./store', () => ({
       openSessionTab: harness.openSessionTab,
       focusIssueSession: harness.focusIssueSession,
       setPanelMode: harness.setPanelMode,
+      preferPanelMode: harness.preferPanelMode,
       setView: vi.fn(),
       markIssueRead: vi.fn(async () => undefined),
       markIssueUnread: vi.fn(async () => undefined),
@@ -192,6 +194,7 @@ beforeEach(() => {
   harness.openSessionTab.mockClear()
   harness.focusIssueSession.mockClear()
   harness.setPanelMode.mockClear()
+  harness.preferPanelMode.mockClear()
   harness.setSelectedIssueId.mockClear()
   harness.setIssueTucked.mockClear()
   harness.updateIssue.mockClear()
@@ -602,6 +605,31 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(harness.openSessionTab).not.toHaveBeenCalled()
     settle()
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
+  })
+
+  it('lands a native worker row on the terminal without overruling a Chat pick', () => {
+    // POD-1702. These rows are navigation — "take me to the agent running this
+    // worker, on the terminal it is running in" — so they SUGGEST the CLI. They
+    // used to write it as the session's mode, which overwrote an explicit Chat
+    // pick and persisted it, so the session reopened on the terminal too.
+    harness.sessions = [
+      session('s1', { issueId: 't1' }),
+      session('s2', {
+        issueId: 't2',
+        agentState: { nativeSubagents: [{ id: 'w1', type: 'general-purpose' }] },
+      }),
+      session('s3', { issueId: 't2' }),
+      session('s4', { issueId: 't3' }),
+    ]
+    deck()
+
+    const worker = document.querySelector('[data-testid="flight-native-agents"] button')
+    expect(worker).toBeTruthy()
+    fireEvent.click(worker as HTMLElement)
+    settle()
+
+    expect(harness.preferPanelMode.mock.calls).toEqual([['s2', 'native']])
+    expect(harness.setPanelMode).not.toHaveBeenCalled()
   })
 
   it('reopens the Task dock when an issue is picked', () => {

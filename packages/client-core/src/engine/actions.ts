@@ -118,6 +118,7 @@ export const COMMAND_ACTIONS = [
   'setSuperOpen',
   'setDockTab',
   'setPanelMode',
+  'preferPanelMode',
   'tldrSession',
   'writeFileScoped',
   'spawnDraftAgent',
@@ -644,6 +645,27 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       const panelMode = rt.state().panelMode
       if (panelMode[sessionId] !== mode)
         rt.apply({ panelMode: { ...panelMode, [sessionId]: mode } })
+    },
+    /**
+     * A SUGGESTION, NOT A PICK (POD-1702).
+     *
+     * Navigation that lands on one surface rather than the other — the native
+     * worker rows' "focus this session in CLI", a launch with nothing written —
+     * is stating where it would LIKE the panel to open, not choosing the
+     * session's view on the operator's behalf. `setPanelMode` is the operator's
+     * own choice (the Chat/CLI segment) and outranks every such suggestion: a
+     * session the operator has explicitly put in chat kept jumping back to the
+     * terminal because a row whose whole job is navigation wrote `native` over
+     * that choice, and persisted it, so the session reopened in CLI too.
+     *
+     * A session with no explicit pick still follows the suggestion — that is
+     * what makes "in CLI" mean something for the sessions nobody has decided
+     * about, which is nearly all of them.
+     */
+    preferPanelMode: (sessionId, mode) => {
+      const panelMode = rt.state().panelMode
+      if (panelMode[sessionId] !== undefined) return
+      rt.apply({ panelMode: { ...panelMode, [sessionId]: mode } })
     },
     setDockVisibleSession: (dockVisibleSession) => rt.apply({ dockVisibleSession }),
     setDockShell: (worktreePath, sessionId) => {

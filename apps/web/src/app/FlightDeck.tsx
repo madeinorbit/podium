@@ -2672,7 +2672,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     setSelectedIssueId,
     openSessionTab,
     focusIssueSession,
-    setPanelMode,
+    preferPanelMode,
     setView,
     markIssueRead,
     markSessionRead,
@@ -2700,7 +2700,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       // which session the operator is actually in.
       openSessionTab: store.openSessionTab,
       focusIssueSession: store.focusIssueSession,
-      setPanelMode: store.setPanelMode,
+      preferPanelMode: store.preferPanelMode,
       setView: store.setView,
       markIssueRead: store.markIssueRead,
       markSessionRead: store.markSessionRead,
@@ -3331,7 +3331,14 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     if (issueId) setFocusedIssueId(issueId)
     if (session.cwd) setSelectedWorktree(session.cwd)
     openSessionTab(session.sessionId, { permanent: opts.permanent })
-    if (opts.native) setPanelMode(session.sessionId, 'native')
+    // WHERE THE ROW WOULD LIKE THE PANEL TO OPEN, not what the operator chose
+    // (POD-1702). The native worker rows below a session are navigation — their
+    // job is "take me to the agent running this worker, on the terminal it is
+    // running in" — and a session the operator has explicitly put in chat used
+    // to snap straight back to the CLI on the next such click, durably, so it
+    // reopened there too. `preferPanelMode` lands on the terminal for every
+    // session nobody has decided about and leaves a standing pick alone.
+    if (opts.native) preferPanelMode(session.sessionId, 'native')
     if (issueId) void markIssueRead(issueId)
     void markSessionRead(session.sessionId)
     setView('workspace')
