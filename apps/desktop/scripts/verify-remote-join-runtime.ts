@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Join a standing Podium with the real Linux Tauri shell, then prove its supervised daemon is
- * ONLINE while the WebKitGTK window signs in and renders the remote app.
+ * ONLINE while the WebKitGTK window signs in and renders the remote app. The optional reset mode
+ * reuses a consumed join token from a fresh client state and records the resulting rejection.
  *
  * The app owns a dedicated X server, state, payload, HOME and XDG directories. Remote daemon
  * mode starts no local HTTP backend; the launch log, server observation and before/after window
@@ -35,7 +36,11 @@ const payload = join(tauriDir, 'resources/payload/podium')
 const x11Driver = join(desktopDir, 'scripts/x11-window-drive.py')
 const args = new Set(process.argv.slice(2))
 const prepare = args.has('--prepare')
+const expectUnauthorized = args.has('--expect-unauthorized')
 const outputArg = process.argv.find((arg) => arg.startsWith('--out='))
+const saveJoinArg = process.argv.find((arg) => arg.startsWith('--save-join-token='))
+const reuseJoinArg = process.argv.find((arg) => arg.startsWith('--reuse-join-token='))
+const previousEvidenceArg = process.argv.find((arg) => arg.startsWith('--previous-evidence='))
 const evidencePath = resolve(
   outputArg?.slice('--out='.length) ?? '.tmp/pod-2855-linux-remote-join.json',
 )
@@ -44,6 +49,15 @@ const remotePassword = process.env.PODIUM_REMOTE_PASSWORD
 const nativeTitle = 'Podium ADE'
 const beforeScreenshot = evidencePath.replace(/\.json$/u, '-before-login.png')
 const afterScreenshot = evidencePath.replace(/\.json$/u, '-after-login.png')
+const saveJoinPath = saveJoinArg
+  ? resolve(saveJoinArg.slice('--save-join-token='.length))
+  : undefined
+const reuseJoinPath = reuseJoinArg
+  ? resolve(reuseJoinArg.slice('--reuse-join-token='.length))
+  : undefined
+const previousEvidencePath = previousEvidenceArg
+  ? resolve(previousEvidenceArg.slice('--previous-evidence='.length))
+  : undefined
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
@@ -99,6 +113,9 @@ function prepareRuntime(): void {
   }
   for (const required of [binary, payload, x11Driver]) {
     if (!existsSync(required)) throw new Error(`missing ${required}; rerun with --prepare`)
+  }
+  if (expectUnauthorized && (!reuseJoinPath || !previousEvidencePath)) {
+    throw new Error('--expect-unauthorized requires --reuse-join-token and --previous-evidence')
   }
 }
 
@@ -259,11 +276,18 @@ await Promise.all([
 ])
 
 let reportCount = 0
+let lastProbeBodyText = ''
 const receiver = Bun.serve({
   hostname: '127.0.0.1',
   port: 0,
-  fetch(request) {
-    if (request.method === 'POST') reportCount += 1
+  async fetch(request) {
+    if (request.method === 'POST') {
+      reportCount += 1
+      try {
+        const report = JSON.parse(await request.text()) as { bodyText?: string }
+        lastProbeBodyText = report.bodyText ?? ''
+      } catch {}
+    }
     return new Response('ok')
   },
 })
@@ -279,11 +303,29 @@ try {
   const api = trpc(cookie)
   const before = (await api.machines.list.query()) as MachineListing[]
   const beforeIds = new Set(before.map((machine) => machine.id))
-  const pairing = await api.machines.pairingCode.mutate({
-    copyAgentCredentials: false,
-    podiumManaged: true,
-  })
-  const token = joinToken(pairing.joinCommand)
+  let token: string
+  if (reuseJoinPath) {
+    token = (await readFile(reuseJoinPath, 'utf8')).trim()
+  } else {
+    const pairing = await api.machines.pairingCode.mutate({
+      copyAgentCredentials: false,
+      podiumManaged: true,
+    })
+    token = pairing.joinCommand
+      ? joinToken(pairing.joinCommand)
+      : Buffer.from(
+          JSON.stringify({
+            v: 1,
+            serverUrl: remoteOrigin.replace(/^http/u, 'ws'),
+            pairCode: pairing.code,
+            podiumManaged: true,
+          }),
+        ).toString('base64url')
+  }
+  if (saveJoinPath) {
+    await mkdir(dirname(saveJoinPath), { recursive: true })
+    await writeFile(saveJoinPath, token, { mode: 0o600 })
+  }
 
   const baseEnv: NodeJS.ProcessEnv = {
     HOME: home,
@@ -312,6 +354,7 @@ try {
   const config = JSON.parse(await readFile(join(stateDir, 'config.json'), 'utf8')) as {
     mode?: string
     persistence?: string
+    pairCode?: string
   }
   if (config.mode !== 'daemon' || config.persistence !== 'systemd') {
     throw new Error(
@@ -360,104 +403,229 @@ try {
 
   typePassword(display, remotePassword)
   await sleep(12_000)
+  if (expectUnauthorized) {
+    await waitFor(
+      () =>
+        lastProbeBodyText.trim().length > 50 &&
+        !/enter your password|sign in to/iu.test(lastProbeBodyText)
+          ? lastProbeBodyText
+          : undefined,
+      'authenticated non-login UI after the daemon rejection',
+      60_000,
+      250,
+    )
+  }
   const renderedTitle = await waitFor(() => x11Title(display), 'the native window after login')
   captureDisplay(display, afterScreenshot)
 
-  const machine = await waitFor(
-    async () => {
-      const machines = (await api.machines.list.query()) as MachineListing[]
-      return machines.find(
-        (candidate) =>
-          !beforeIds.has(candidate.id) && candidate.hostname === hostname() && candidate.online,
-      )
-    },
-    'the newly joined native machine to be ONLINE on the standing server',
-    60_000,
-    500,
-  )
-  const daemonPid = await waitFor(() => readPid(stateDir, 'daemon'), 'the supervised daemon pid')
-  const daemonEnv = await procEnvironment(daemonPid)
-  const supervisorPid = Number(daemonEnv.PODIUM_SUPERVISOR_PID)
-  const daemonParentPid = await processParent(daemonPid)
-  if (daemonEnv.PODIUM_DESKTOP_SUPERVISED !== '1' || !Number.isInteger(supervisorPid)) {
-    throw new Error('daemon is online but lacks the desktop supervision markers')
-  }
-  if (daemonParentPid !== supervisorPid) {
-    throw new Error('the online daemon is not the desktop supervisor process direct child')
-  }
+  if (expectUnauthorized) {
+    const previous = JSON.parse(await readFile(previousEvidencePath as string, 'utf8')) as {
+      join?: { serverMachine?: { id?: string } }
+    }
+    const previousMachineId = previous.join?.serverMachine?.id
+    if (!previousMachineId) throw new Error('previous evidence has no joined server machine id')
+    const rejectedIdentity = await waitFor(async () => {
+      const value = JSON.parse(await readFile(join(stateDir, 'daemon.json'), 'utf8')) as {
+        machineId?: string
+        token?: string
+      }
+      return value.machineId ? value : undefined
+    }, 'the reset daemon identity')
+    if (rejectedIdentity.machineId === previousMachineId) {
+      throw new Error('the reset did not create a different machine identity')
+    }
+    const connectivity = await waitFor(
+      async () => {
+        const value = JSON.parse(await readFile(join(stateDir, 'connectivity.json'), 'utf8')) as {
+          state?: string
+          authorizationReason?: string
+          updatedAt?: string
+        }
+        return value.state === 'unauthorized' ? value : undefined
+      },
+      'the reused pair code to be rejected as unauthorized',
+      30_000,
+      200,
+    )
+    if (!connectivity.authorizationReason?.includes('invalid or expired code')) {
+      throw new Error(`unexpected authorization refusal: ${connectivity.authorizationReason}`)
+    }
+    if (!config.pairCode) throw new Error('the rejected pair code did not remain in config')
 
-  const remoteVersion = (await (
-    await fetch(new URL('/version', remoteOrigin), { signal: AbortSignal.timeout(5_000) })
-  ).json()) as Record<string, unknown>
-  const webkitVersion = spawnSync('pkg-config', ['--modversion', 'webkit2gtk-4.1'], {
-    encoding: 'utf8',
-  }).stdout.trim()
-  const commit = spawnSync('git', ['rev-parse', '--short=9', 'HEAD'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  }).stdout.trim()
-  const evidence = {
-    issue: 'POD-2855',
-    date: new Date().toISOString().slice(0, 10),
-    source: { commit },
-    platform: 'Linux native Tauri WebView under dedicated Xvfb — WebKitGTK, not WKWebView',
-    webkitGtkVersion: webkitVersion,
-    packaging: {
-      form: 'debug Tauri binary with staged packaged payload',
-      supervisionDifferenceFromAppImage: 'none',
-      excludedBoundary: 'AppImage self-replacement/update packaging',
-    },
-    isolation: {
-      hostname: hostname(),
-      display: display.replace(/\d+/, '<isolated>'),
-      network: 'host network; remote daemon mode starts no local HTTP backend',
-      hostLoopbackPodiumReachable: hostLoopbackWasReachable,
-      remoteOriginProvedByConfigAndDaemonLaunch: true,
-      environment: 'allowlisted app env; dedicated HOME, XDG dirs, state, agent home and payload',
-      inheritedRelayVariables: false,
-    },
-    remote: {
-      origin: remoteOrigin,
-      instanceId: remoteVersion.instanceId,
-      appVersion: remoteVersion.appVersion,
-      sourceDigest: remoteVersion.sourceDigest,
-    },
-    join: {
-      configMode: config.mode,
-      persistedPersistence: config.persistence,
-      windowBeforeLogin: {
-        nativeTitle: signedOutTitle,
-        screenshot: beforeScreenshot.replace(`${repoRoot}/`, ''),
+    const previousMachine = await waitFor(
+      async () => {
+        const machines = (await api.machines.list.query()) as MachineListing[]
+        const old = machines.find((candidate) => candidate.id === previousMachineId)
+        return old && !old.online ? old : undefined
       },
-      windowAfterLogin: {
-        nativeTitle: renderedTitle,
-        screenshot: afterScreenshot.replace(`${repoRoot}/`, ''),
+      'the first machine record to become an offline stale row',
+      30_000,
+      300,
+    )
+    const machinesAfter = (await api.machines.list.query()) as MachineListing[]
+    if (machinesAfter.some((candidate) => candidate.id === rejectedIdentity.machineId)) {
+      throw new Error('the rejected reset identity unexpectedly gained a server machine row')
+    }
+
+    const remoteVersion = (await (
+      await fetch(new URL('/version', remoteOrigin), { signal: AbortSignal.timeout(5_000) })
+    ).json()) as Record<string, unknown>
+    const commit = spawnSync('git', ['rev-parse', '--short=9', 'HEAD'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    }).stdout.trim()
+    const evidence = {
+      issue: 'POD-2859 reproduced from POD-2855',
+      date: new Date().toISOString().slice(0, 10),
+      source: { commit },
+      platform: 'Linux native Tauri/WebKitGTK under dedicated Xvfb',
+      remote: {
+        origin: remoteOrigin,
+        instanceId: remoteVersion.instanceId,
+        appVersion: remoteVersion.appVersion,
+        sourceDigest: remoteVersion.sourceDigest,
       },
-      serverMachine: {
-        id: machine.id,
-        name: machine.name,
-        hostname: machine.hostname,
-        online: machine.online,
-        supervised: machine.supervised === true,
-        installKind: machine.installKind,
-        appVersion: machine.appVersion,
-        components: machine.components,
+      resetRepair: {
+        reusedExactFirstJoinToken: true,
+        firstMachine: {
+          id: previousMachine.id,
+          hostname: previousMachine.hostname,
+          onlineAfterReset: previousMachine.online,
+          supervised: previousMachine.supervised === true,
+        },
+        resetIdentity: {
+          id: rejectedIdentity.machineId,
+          differsFromFirstMachine: rejectedIdentity.machineId !== previousMachine.id,
+          hasServerRow: false,
+          issuedToken: rejectedIdentity.token !== undefined,
+        },
+        refusal: {
+          state: connectivity.state,
+          authorizationReason: connectivity.authorizationReason,
+          pairCodeRemainsInConfig: config.pairCode !== undefined,
+          retriedByDaemon: false,
+          desktopSupervisorRespawns: output.match(/respawning in 500ms \(daemon\)/gu)?.length ?? 0,
+          desktopSupervisorIgnoredBlockedExitCode: output.includes('unix_wait_status(19968)'),
+        },
+        appSurface: {
+          webClientStayedAuthenticated: true,
+          visiblePage: 'authenticated non-login surface',
+          probeReportsReceived: reportCount,
+          visibleTextCharacters: lastProbeBodyText.length,
+          visibleTextMentionsAuthorizationFailure: /unauthor|invalid or expired|re-pair/iu.test(
+            lastProbeBodyText,
+          ),
+          screenshot: afterScreenshot.replace(`${repoRoot}/`, ''),
+        },
       },
-      localSupervision: {
-        desktopSupervisedEnvironment: daemonEnv.PODIUM_DESKTOP_SUPERVISED === '1',
-        supervisorPidEnvironment: Number.isInteger(supervisorPid),
-        daemonIsDirectDesktopChild: daemonParentPid === supervisorPid,
-        systemdPersistenceBypassed: config.persistence === 'systemd',
+      observedDesktopLog: output
+        .split('\n')
+        .filter((line) =>
+          /launch action|spawning daemon|server rejected|invalid or expired|Authorization will not be retried|backend exited|respawning/.test(
+            line,
+          ),
+        )
+        .map((line) => line.replaceAll(root, '<isolated-root>')),
+    }
+    await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`)
+    console.log(`native reset/re-pair rejection reproduced; evidence: ${evidencePath}`)
+  } else {
+    const machine = await waitFor(
+      async () => {
+        const machines = (await api.machines.list.query()) as MachineListing[]
+        return machines.find(
+          (candidate) =>
+            !beforeIds.has(candidate.id) && candidate.hostname === hostname() && candidate.online,
+        )
       },
-    },
-    runtimeProbeReportsReceived: reportCount,
-    observedDesktopLog: output
-      .split('\n')
-      .filter((line) => /launch action|spawning daemon|backend exited|respawning/.test(line))
-      .map((line) => line.replaceAll(root, '<isolated-root>')),
+      'the newly joined native machine to be ONLINE on the standing server',
+      60_000,
+      500,
+    )
+    const daemonPid = await waitFor(() => readPid(stateDir, 'daemon'), 'the supervised daemon pid')
+    const daemonEnv = await procEnvironment(daemonPid)
+    const supervisorPid = Number(daemonEnv.PODIUM_SUPERVISOR_PID)
+    const daemonParentPid = await processParent(daemonPid)
+    if (daemonEnv.PODIUM_DESKTOP_SUPERVISED !== '1' || !Number.isInteger(supervisorPid)) {
+      throw new Error('daemon is online but lacks the desktop supervision markers')
+    }
+    if (daemonParentPid !== supervisorPid) {
+      throw new Error('the online daemon is not the desktop supervisor process direct child')
+    }
+
+    const remoteVersion = (await (
+      await fetch(new URL('/version', remoteOrigin), { signal: AbortSignal.timeout(5_000) })
+    ).json()) as Record<string, unknown>
+    const webkitVersion = spawnSync('pkg-config', ['--modversion', 'webkit2gtk-4.1'], {
+      encoding: 'utf8',
+    }).stdout.trim()
+    const commit = spawnSync('git', ['rev-parse', '--short=9', 'HEAD'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    }).stdout.trim()
+    const evidence = {
+      issue: 'POD-2855',
+      date: new Date().toISOString().slice(0, 10),
+      source: { commit },
+      platform: 'Linux native Tauri WebView under dedicated Xvfb — WebKitGTK, not WKWebView',
+      webkitGtkVersion: webkitVersion,
+      packaging: {
+        form: 'debug Tauri binary with staged packaged payload',
+        supervisionDifferenceFromAppImage: 'none',
+        excludedBoundary: 'AppImage self-replacement/update packaging',
+      },
+      isolation: {
+        hostname: hostname(),
+        display: display.replace(/\d+/, '<isolated>'),
+        network: 'host network; remote daemon mode starts no local HTTP backend',
+        hostLoopbackPodiumReachable: hostLoopbackWasReachable,
+        remoteOriginProvedByConfigAndDaemonLaunch: true,
+        environment: 'allowlisted app env; dedicated HOME, XDG dirs, state, agent home and payload',
+        inheritedRelayVariables: false,
+      },
+      remote: {
+        origin: remoteOrigin,
+        instanceId: remoteVersion.instanceId,
+        appVersion: remoteVersion.appVersion,
+        sourceDigest: remoteVersion.sourceDigest,
+      },
+      join: {
+        configMode: config.mode,
+        persistedPersistence: config.persistence,
+        windowBeforeLogin: {
+          nativeTitle: signedOutTitle,
+          screenshot: beforeScreenshot.replace(`${repoRoot}/`, ''),
+        },
+        windowAfterLogin: {
+          nativeTitle: renderedTitle,
+          screenshot: afterScreenshot.replace(`${repoRoot}/`, ''),
+        },
+        serverMachine: {
+          id: machine.id,
+          name: machine.name,
+          hostname: machine.hostname,
+          online: machine.online,
+          supervised: machine.supervised === true,
+          installKind: machine.installKind,
+          appVersion: machine.appVersion,
+          components: machine.components,
+        },
+        localSupervision: {
+          desktopSupervisedEnvironment: daemonEnv.PODIUM_DESKTOP_SUPERVISED === '1',
+          supervisorPidEnvironment: Number.isInteger(supervisorPid),
+          daemonIsDirectDesktopChild: daemonParentPid === supervisorPid,
+          systemdPersistenceBypassed: config.persistence === 'systemd',
+        },
+      },
+      runtimeProbeReportsReceived: reportCount,
+      observedDesktopLog: output
+        .split('\n')
+        .filter((line) => /launch action|spawning daemon|backend exited|respawning/.test(line))
+        .map((line) => line.replaceAll(root, '<isolated-root>')),
+    }
+    await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`)
+    console.log(`native remote-join runtime exercise passed; evidence: ${evidencePath}`)
   }
-  await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`)
-  console.log(`native remote-join runtime exercise passed; evidence: ${evidencePath}`)
 } catch (error) {
   const currentWindowTitle = display ? x11Title(display, 'Podium') : undefined
   console.error(`native window at failure: ${currentWindowTitle ?? '<not found>'}`)
