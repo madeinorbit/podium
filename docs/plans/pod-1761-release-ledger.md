@@ -3869,3 +3869,37 @@ failures, asked for in the small hours of the 26th and never measured). The reco
 check the failing names into a baseline the gate compares against — is not done and is the
 operator's call: the value is not the 79, it is that a real regression currently arrives as "80
 failures" against an expected "79" and nobody sees it.
+
+### POD-2878 LANDED as `b1c725716` (2026-08-27 00:42 CEST)
+
+The parked-send defect is closed. The full attribution came back **identical on every task**, on
+the epic tip where the fix is absent:
+
+    normalized-wire   8 passed        = 8 passed
+    services         34 failed        = 34
+    boundary         45 failed        = 45
+    contracts         1 failed        = 1
+    store           351 passed        = 351
+    Tasks: 2 successful, 5 total      = "2/5 package tasks successful"
+
+Not one number differs. **The fix introduces nothing.** `git range-diff` against the driven
+commit reads `1: 68d2c3ba1 = 1: b1c725716`, so the patch is byte-identical and the A/B carries:
+parked nonce ABSENT after a real restart before, arriving ONCE after, with the generic-pty arm
+re-driven post-rebase and still reporting `delivered`.
+
+**Its session died at 22:53 and never saw this.** Zero processes, tracker reading `working` for
+101 minutes. The work was complete and banked; only the last mechanical step was missing, and
+restarting a session to run one command would have cost an hour.
+
+### POD-2913's evidence landed as `f8259b934`, with one row superseded rather than removed
+
+Three of its four rows were right — POD-2773 genuinely docs-only, grok blocked on quota until
+11:03, POD-2761 gated on the lock I was holding. Its POD-2622 row was wrong, and I appended a
+superseding row beside it carrying the reading that refutes it rather than deleting it:
+
+    1641d823c:manifests/cursor.ts  ->  cmd: 'agent'
+    b266484d8:manifests/cursor.ts  ->  cmd: resolveCursorBin(undefined, opts.env)
+
+**A wrong row that is deleted teaches nobody the check.** Left in place with its refutation
+underneath, the next reader learns that ancestry answers a question about a topic and
+`git show <rev>:<file>` answers one about a call site.
