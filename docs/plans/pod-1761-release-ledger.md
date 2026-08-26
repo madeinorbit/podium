@@ -964,7 +964,9 @@ spot-check remains BLOCKED. Full evidence and per-cell pins are in
 `docs/evidence/pod-2877/GROK-REPORT.md`.
 The operator confirmed the account is out of quota until 2026-08-27 11:03 CEST;
 that quota cause is kept distinct from the initial logged-out cause, and the
-remaining ordinary rows were not retried.
+remaining ordinary rows were not retried. Their historical logged-out BLOCKED
+evidence remains recorded, but with authentication present their current
+BLOCKED cause is quota exhaustion; it is not a second logged-out finding.
 After the release merge landed at `7b9d9eacb`, this branch was rebased and the
 three newly drivable checks were re-run at server/daemon SHA
 `ac391d07c23aba33ac1fe6c40c390c33d1929941` with web source `ac391d0`; all

@@ -88,9 +88,13 @@ was absent and no `XAI_API_KEY` was present. That is the distinct logged-out
 cause for the original H/T BLOCKED cells and A8 PARTIALs; H's policy binding
 fell back to `generic-pty`, while T showed the device-code login screen. The
 operator then supplied `/home/mgw/.grok/auth.json` (1738 bytes, mode 600) and
-confirmed the account is out of quota until **2026-08-27 11:03 CEST**. The
-quota exhaustion is a separate Tier-B observation, not a reason to reclassify
-the ordinary rows as product reds.
+confirmed the account is out of quota until **2026-08-27 11:03 CEST**. With
+authentication now present, the 28 ordinary rows were intentionally not
+retried and remain BLOCKED for the current **quota exhausted** reason. That is
+distinct from the historical logged-out signature and is not a product-red
+verdict. The OOM spot-check is likewise currently BLOCKED because the exhausted
+quota prevents a completed turn; its earlier no-safe-injector note remains in
+the initial table.
 
 No better/worse claim is made for the ordinary acceptance rows: they remain
 unscored on both arms. The explicit H/T comparison is complete for A10 and the
