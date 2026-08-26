@@ -413,3 +413,45 @@ a whole, with A3-specific causation not demonstrated.**
 **Recommendation: accept and document, unless you are giving us a real home anyway.** The two
 new hazards it found are worth their own attention regardless, and they are on the *server*
 path where they CAN be driven.
+
+## Decision 18 — the 80 red server tests are inherited, and that is now measured (2026-08-27 00:37 CEST)
+
+**Supersedes the open half of Decision 15** (53 unattributed gate failures), which asked for one
+lane run on the pre-merge parent and never got one.
+
+**What I measured.** `PODIUM_TEST_WORKERS=1 bun run test:unit -- --filter @podium/server` on the
+epic tip `0d00f6c34`, a tree that does **not** contain POD-2878's fix (`git cherry` confirms):
+
+| package | epic tip (no fix) | POD-2878 reported (with fix) |
+| --- | --- | --- |
+| services | **34 failed** / 1822 passed | 34 |
+| boundary | **45 failing** | 45 |
+| normalized-wire | 8 passed | 8 passed |
+| contracts | pending at time of writing | 1 |
+
+**The counts match exactly in both failing packages, on a tree where the fix is absent.** So the
+fix introduces no new failures there — if it had, its count would exceed the tip's. The failing
+names are session-handoff and fleet-routing characterizations ("the row is re-homed onto the
+target", "routes an explicit host id to the host daemon"), which is a different subsystem from
+chat-send receipts.
+
+**THE LIMIT OF THIS TEST, stated plainly:** it is ONE-SIDED. It can exonerate a change and cannot
+convict one. It works here because the fix is absent from the tree I ran, so nothing in that run
+can be its fault. It would NOT settle a case where the tip came back green.
+
+**THE DECISION FOR THE OPERATOR.** These 79 tests have been red on this branch for days and every
+session that meets them spends time deciding whether they are theirs. Three options:
+
+1. **Accept and record them as a known baseline** — write the failing names into a checked-in
+   file, and have the gate compare against it so a NEW failure is loud and these are silent.
+   Cost: a session-day. Benefit: every future gate result becomes readable at a glance.
+2. **Fix them.** Unknown cost — they are characterization tests over session handoff and fleet
+   routing, subsystems this epic has been rewriting, so some fraction are *correctly* red and
+   encode behaviour we deliberately changed.
+3. **Leave as is.** Free, and it keeps costing every session that runs the gate the same hour it
+   cost POD-2878 and then me.
+
+**My recommendation is 1.** The value is not in the 79; it is in making the 80th visible. Right
+now a real regression would arrive as "80 failures" against an expected "79" and nobody would see
+it — which is exactly how this epic loses a defect. **I have not done it, because it is a
+session-day of work and the epic's three open defects come first.**
