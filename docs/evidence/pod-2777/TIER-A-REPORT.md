@@ -207,6 +207,34 @@ latency ones.
 | codex **A2a** re-measured | **PASS** | the original PASS used the wrong instrument |
 | opencode A3 | **not driven** | needs `drive.ts` **and** POD-2885's fix, which has not landed |
 
+### Four times I mis-scoped my own tooling
+
+Written down together because the pattern is the finding, not any one instance.
+
+| I believed | actually |
+|---|---|
+| A7b needs `drive.ts` | self-contained; needed nothing but a session |
+| A2a needs `drive.ts` | self-contained; the badge is a session-row field |
+| switching arms needs a bundle rebuild (and so the lock) | the arm is **daemon-level**; a daemon restart flips it |
+| A3 needs `drive.ts` and the lock | the `interrupt` probe reads exactly one field off the context — `ctx.sid` — and builds its own socket and its own turn |
+
+Every one was an assumption about **my own rig**, not about the product, which is
+the harder kind to catch because I wrote the thing I was assuming about. Three of
+the four cost a cell real waiting time.
+
+The generalisation: **grouping by FILE is not grouping by DEPENDENCY.** Three
+probes living in `drive.ts` does not make them need `drive.ts`. The check is
+cheap — read what the thing actually reads — and I did not do it until the third
+repeat.
+
+`a3.ts` now exists as a standalone probe, so when POD-2885 lands A3 needs neither
+`drive.ts` nor the heavy lock. And the cell has a built-in signal: **while the
+wedge is unfixed it must REFUSE**, because its control is the turn observed in
+flight and both planes freeze within ~20s. The refusal turning into a score is
+itself the evidence that the wedge fix reached this path.
+
+---
+
 ### A10 half 2 — a second expired blocker, found by my own checker
 
 A4a taught me that a BLOCKED cell is the reading nobody revisits, because a
