@@ -22,6 +22,7 @@ import {
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionId } from '@podium/model'
+import { instanceAbducoSocketRoots } from './abduco-socket.js'
 
 export const DEFAULT_INSTANCE_ID = 'default'
 export const INSTANCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/
@@ -603,9 +604,33 @@ export function rekeyInstanceStateIdentity(
 }
 
 /**
- * Pin named-instance durable backend sockets to private state-owned roots.
+ * Pin named-instance durable backend sockets to private per-instance roots.
  * Explicit ABDUCO_SOCKET_DIR/TMUX_TMPDIR values are preserved as an intentional
  * sharing/configuration choice. The default instance keeps legacy global sockets.
+ *
+ * THE ABDUCO ROOT IS NOT UNDER THE STATE DIRECTORY, and that is the fix for
+ * POD-2853 rather than an aesthetic choice. This pin used to be
+ * `<state>/runtime/abduco`, which was wrong twice over:
+ *
+ *   - It DOUBLED the segment. abduco appends `abduco/<user>/` itself, so the
+ *     composed directory was `<state>/runtime/abduco/abduco/<user>/`.
+ *   - Length. Measured on a real named instance at the state root
+ *     docs/multi-instance.md documents, the composed socket path was 121 bytes
+ *     against a 108-byte `sun_path`, and every spawn died on abduco's
+ *     "create-session: File name too long". De-duplicating the segment alone
+ *     brought it to 114 — STILL over. A named instance's state root plus its
+ *     instance-prefixed label simply cannot fit, so no amount of tidying the
+ *     pin would have made a named instance able to start a terminal.
+ *
+ * See {@link instanceAbducoSocketRoot} for the budget and the ladder of roots.
+ * TMUX_TMPDIR stays state-owned: tmux composes a much shorter path
+ * (`<dir>/tmux-<uid>/default`) and has never been near the ceiling.
+ *
+ * SOCKETS MOVE for a named instance that did not set ABDUCO_SOCKET_DIR itself,
+ * so masters created by an older build are not found after an upgrade and their
+ * sessions have to be resumed. Every instance this pin applies to is one that
+ * could not start a durable session at all, so in practice there is nothing to
+ * orphan; an instance that DID set the variable is untouched.
  */
 export function applyInstanceRuntimeEnv(
   instanceId: string = resolveInstanceId(),
@@ -616,8 +641,25 @@ export function applyInstanceRuntimeEnv(
   env.PODIUM_INSTANCE = id
   if (id === DEFAULT_INSTANCE_ID) return env
   if (!env.ABDUCO_SOCKET_DIR) {
-    env.ABDUCO_SOCKET_DIR = join(dir, 'runtime', 'abduco')
-    mkdirSync(env.ABDUCO_SOCKET_DIR, { recursive: true, mode: 0o700 })
+    // The first root that both fits and can actually be created. CREATION IS
+    // NOT A FORMALITY here the way it was under the state directory: an
+    // XDG_RUNTIME_DIR inherited from another uid, or a read-only runtime
+    // directory, would otherwise throw out of instance bootstrap and take the
+    // daemon down before it served anything — a worse outcome than a socket
+    // root with less isolation. The last candidate is used unconditionally so
+    // the variable is always pinned and abduco's own fall-through never gets to
+    // pick a root behind Podium's back.
+    const roots = instanceAbducoSocketRoots(id, env)
+    for (const root of roots) {
+      try {
+        mkdirSync(root, { recursive: true, mode: 0o700 })
+        env.ABDUCO_SOCKET_DIR = root
+        break
+      } catch {
+        // Not creatable — try the next one down the ladder.
+      }
+    }
+    env.ABDUCO_SOCKET_DIR ??= roots[roots.length - 1]
   }
   if (!env.TMUX_TMPDIR) {
     env.TMUX_TMPDIR = join(dir, 'runtime', 'tmux')

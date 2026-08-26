@@ -1,0 +1,40 @@
+[2026-08-26T09:54:10.382Z] POD-2853 drive — instance 'p2853'
+  state root         /home/mgw/.local/state/podium/p2853  (35 bytes)
+  ABDUCO_SOCKET_DIR  /tmp/p2853-gone/deeper
+  arm                /home/mgw/pod2853-control-f6a6c8625
+  arm HEAD           f6a6c86254fdfcb990ea571441acfdf032193cc2
+[2026-08-26T09:54:10.942Z] session 3a2c2b18-b1fd-49f6-9adf-712e14223f2d created; 45000ms for the spawn to settle or fail
+  durable label      podium-p2853-3a2c2b18-b1fd-49f6-9adf-712e14223f2d  (49 bytes)
+
+--- ROW (the surface a user watches) -------------------------------
+  status         starting
+  spawnFailure   "abduco session podium-p2853-3a2c2b18-b1fd-49f6-9adf-712e14223f2d did not publish a live socket within 5000ms"
+  durableLabel   ?
+  full row       {"sessionId":"3a2c2b18-b1fd-49f6-9adf-712e14223f2d","agentKind":"claude-code","harness":"claude-code","driverId":null,"requestedDriverId":null,"status":"starting","phase":"idle","machine":"flatblock","model":null,"effort":null,"contextUsagePercent":null,"account":"native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241","error":null,"draft":false,"nativeSubagentCount":0,"nativeSubagents":[],"subagents":[],"issue":null,"commits":["c6ff691 scratch repo for the POD-2853 drive"],"files":["## main"],"unackedMessages":0}
+
+--- DISK (walked directly, independent of Podium's resolver) -------
+  LIVE      /tmp/p2853-ah/.abduco/podium-p2853-3a2c2b18-b1fd-49f6-9adf-712e14223f2d@flatblock
+             81 bytes   (agent HOME/.abduco (abduco's HOME fallback))
+
+--- COMPOSED LENGTHS vs the 108-byte sun_path limit --------------
+  user=mgw  host=@flatblock  label=49B
+  fits    93B  /tmp/p2853-gone/deeper/abduco/mgw/
+           ABDUCO_SOCKET_DIR (hand-set by the rig)
+  OVER   121B  /home/mgw/.local/state/podium/p2853/runtime/abduco/abduco/mgw/
+           instance pin <state>/runtime/abduco
+  OVER   114B  /home/mgw/.local/state/podium/p2853/runtime/abduco/mgw/
+           instance pin <state>/runtime
+  fits    98B  /run/user/1001/podium-p2853/abduco/mgw/
+           XDG_RUNTIME_DIR per-instance root
+  fits    81B  /tmp/p2853-ah/.abduco/
+           agent HOME/.abduco (abduco's HOME fallback)
+  fits    77B  /home/mgw/.abduco/
+           daemon HOME/.abduco
+  fits    75B  /tmp/abduco/mgw/
+           /tmp/abduco/<user>
+
+--- VERDICT --------------------------------------------------------
+  DEFECT 2: the row says no live socket, and a LIVE socket is on disk.
+            creator wrote /tmp/p2853-ah/.abduco/podium-p2853-3a2c2b18-b1fd-49f6-9adf-712e14223f2d@flatblock
+
+  daemon log: /tmp/pod-2853/logs/daemon.log

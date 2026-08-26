@@ -10,10 +10,11 @@ import {
   statSync,
   unlinkSync,
 } from 'node:fs'
-import { tmpdir, userInfo } from 'node:os'
+import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
+import { ABDUCO_SUN_PATH_MAX, abducoSocketPathBytes } from '@podium/runtime/abduco-socket'
 import { instanceSessionSliceName } from '@podium/runtime/instance'
 import {
   resolveScopeBudget,
@@ -395,24 +396,61 @@ const ABDUCO_SOCKET_POLL_MS = 10
 /** Ceiling for the global `abduco` listing — see {@link listSessions}. */
 const ABDUCO_LIST_TIMEOUT_MS = 8000
 
-/** Candidate roots in abduco's resolution order. */
+/**
+ * Candidate roots in abduco's resolution order — ALL FOUR OF THEM (POD-2853).
+ *
+ * abduco does not resolve one directory, it walks a FALL-THROUGH CHAIN:
+ * `ABDUCO_SOCKET_DIR`, then `HOME`, then `TMPDIR`, then `/tmp` (config.h), and
+ * it moves to the next one on ANY failure of the current one — the directory's
+ * parent does not exist, `mkdir` is refused, the per-user subdirectory is owned
+ * by someone else or group/world accessible, the composed name truncates, or
+ * the probe bind fails. It says nothing when it does: the create SUCCEEDS, at a
+ * different root.
+ *
+ * This function used to stop at the first root. When `ABDUCO_SOCKET_DIR` was
+ * set it looked ONLY under it, and when it was unset ONLY under `$HOME/.abduco`
+ * — so a master that fell through to `/tmp` was invisible to every caller that
+ * asks "is this label alive". Measured directly: an abduco master created with
+ * a given environment, alive and holding its socket, while `abducoSocketPath`
+ * called with THAT SAME ENVIRONMENT answered `undefined`.
+ *
+ * THE ERROR IS ONE-SIDED TOWARD "ABSENT", which is the expensive direction on
+ * every caller — the spawn path reports "did not publish a live socket" for a
+ * session that is running, `reclaimStaleScope` clears a scope out from under a
+ * live master, and the reattach path answers "session not found". Same shape as
+ * POD-2761, which fixed the ATTACH path's environment and left this one.
+ *
+ * The two non-user-specific entries under `ABDUCO_SOCKET_DIR` are historical
+ * compatibility, not abduco's behaviour, and are kept so nothing that resolves
+ * today stops resolving.
+ */
 function abducoSocketDirs(env: NodeJS.ProcessEnv, username?: string): string[] {
   const dirs: string[] = []
-  if (env.ABDUCO_SOCKET_DIR) {
-    let user = username
-    if (!user) {
-      try {
-        user = userInfo().username
-      } catch {
-        // Fall through to the non-user-specific compatibility candidates.
-      }
+  let user = username
+  if (!user) {
+    try {
+      user = userInfo().username
+    } catch {
+      // No passwd entry: abduco names the subdirectory by numeric uid instead.
+      user = typeof process.getuid === 'function' ? String(process.getuid()) : undefined
     }
-    if (user) dirs.push(join(env.ABDUCO_SOCKET_DIR, 'abduco', user))
-    dirs.push(join(env.ABDUCO_SOCKET_DIR, 'abduco'), env.ABDUCO_SOCKET_DIR)
-  } else if (env.HOME) {
-    dirs.push(join(env.HOME, '.abduco'))
   }
-  return dirs
+  /** A non-personal root: `<root>/abduco/<user>`, exactly as create_socket_dir builds it. */
+  const shared = (root: string) => {
+    if (user) dirs.push(join(root, 'abduco', user))
+  }
+  if (env.ABDUCO_SOCKET_DIR) {
+    shared(env.ABDUCO_SOCKET_DIR)
+    dirs.push(join(env.ABDUCO_SOCKET_DIR, 'abduco'), env.ABDUCO_SOCKET_DIR)
+  }
+  // HOME is abduco's `personal` root: `$HOME/.abduco`, with NO user subdirectory.
+  if (env.HOME) dirs.push(join(env.HOME, '.abduco'))
+  if (env.TMPDIR) shared(env.TMPDIR)
+  shared('/tmp')
+  // De-duplicated because the chain overlaps in ordinary configurations —
+  // TMPDIR is very often /tmp — and every duplicate is another readdir on the
+  // spawn path's poll loop.
+  return dirs.filter((dir, i) => dirs.indexOf(dir) === i)
 }
 
 /**
@@ -896,6 +934,49 @@ async function execCreate(file: string, args: string[], options: SpawnOptions): 
 }
 
 /**
+ * Say WHICH PATH was too long, and by how much (POD-2853).
+ *
+ * abduco's whole diagnosis of a socket path over `sun_path` is the eight words
+ * "create-session: File name too long". It names neither the path it composed
+ * nor the limit it measured against, and the path is not visible anywhere else:
+ * it is built inside abduco out of `ABDUCO_SOCKET_DIR`, the user name, the
+ * durable label and the hostname. A named instance hit this on EVERY spawn and
+ * the message sent the first investigation to systemd, which was only relaying
+ * the inner exit status.
+ *
+ * So the numbers are attached here, where the label and the environment are
+ * both in hand. Only the length failure is rewritten — every other create
+ * failure is returned untouched, because abduco's own text is the diagnosis for
+ * those and a wrapper would only bury it.
+ *
+ * EVERY CANDIDATE IS LISTED, not just the first. abduco fails with ENAMETOOLONG
+ * at the first root it managed to CREATE and then could not fit the name in,
+ * and which root that was depends on `mkdir` results this side cannot see —
+ * naming one would be a guess, and a confident wrong path is worse than the
+ * message it replaced. The list is short (three or four entries) and shows at a
+ * glance which root would have fitted.
+ */
+export function withComposedSocketPath(
+  err: unknown,
+  label: string,
+  env: NodeJS.ProcessEnv,
+): unknown {
+  const message = err instanceof Error ? err.message : String(err)
+  if (!/File name too long|ENAMETOOLONG/i.test(message)) return err
+  const host = `@${hostname()}`
+  const measured = abducoSocketDirs(env).map((dir) => {
+    const bytes = abducoSocketPathBytes(`${dir}/`, label, host)
+    return `${dir}/${label}${host} = ${bytes}`
+  })
+  if (measured.length === 0) return err
+  return new Error(
+    `${message} — no socket path may exceed ${ABDUCO_SUN_PATH_MAX} bytes, and abduco composes ` +
+      `<dir>/<label>@<host>: ${measured.join('; ')}. ` +
+      'Set ABDUCO_SOCKET_DIR to a shorter directory.',
+  )
+}
+
+/**
  * Create a detached abduco session running the agent, then attach a client.
  * The session app inherits cwd/env from the CREATE call (abduco has no flags for
  * either); TERM/COLORTERM must be forced here — there is no tmux
@@ -992,10 +1073,20 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
       if (raced) return raced
       // A direct master would be reaped on the next redeploy, so make the
       // degradation loud rather than silently reintroducing the original bug.
-      log.warn('systemd scope unavailable; session will NOT survive a podium restart', {
-        label: opts.label,
-        err,
-      })
+      //
+      // BUT SAY WHICH FAILURE THIS IS (POD-2777). `systemd-run` also fails when
+      // the socket path is too long, and the durability wording then blames the
+      // wrong thing entirely: it promises a session that merely will not
+      // survive a restart, when in fact nothing started and the direct create
+      // below is about to fail for the same reason. Read top-down, the log told
+      // an operator about restarts and never about a path or a limit.
+      const detail = withComposedSocketPath(err, opts.label, childEnv)
+      log.warn(
+        detail === err
+          ? 'systemd scope unavailable; session will NOT survive a podium restart'
+          : 'the durable session socket path is too long — the session will not start at all',
+        { label: opts.label, err: detail },
+      )
     }
     // Do not treat an attach/readiness failure as a scope-launch failure: the
     // master is already alive, and creating a second one with the same label
@@ -1014,7 +1105,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     await execCreate(bin, createArgs, execOpts)
   } catch (err) {
     const raced = adoptRaceWinner()
-    if (!raced) throw err
+    if (!raced) throw withComposedSocketPath(err, opts.label, childEnv)
     return raced
   }
   return attachCreated()

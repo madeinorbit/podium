@@ -48,12 +48,38 @@ Duplicate selectors and invalid IDs are rejected.
 | Hook port | `45777` | next port in the ID-derived triplet | `PODIUM_HOOK_PORT` or config `hookPort` |
 | Agent relay port | `45778` | final port in the ID-derived triplet | `PODIUM_AGENT_RELAY_PORT` or config `agentRelayPort` |
 | Durable terminal label | `podium-<session>` | `podium-blue-<session>` | none |
+| Durable socket root | `$HOME/.abduco` | `$XDG_RUNTIME_DIR/podium-blue` | `ABDUCO_SOCKET_DIR` |
+| tmux socket root | `$TMPDIR` | `<state>/runtime/tmux` | `TMUX_TMPDIR` |
 | Server unit | `podium-server.service` | `podium-blue-server.service` | none |
 | Janitor unit | `podium-janitor.service` | `podium-blue-janitor.service` | none |
 | Daemon unit | `podium-daemon.service` | `podium-blue-daemon.service` | none |
 
 Named endpoint triplets are deterministic and non-overlapping for ordinary IDs. Set all three port
 overrides when an operator needs a fixed allocation.
+
+## Why the durable socket root is not under the state directory
+
+A durable terminal is a unix socket, and a unix socket path has a hard kernel ceiling:
+`sun_path` is 108 bytes on Linux. abduco composes
+`<root>/abduco/<user>/podium-<instance>-<uuid>@<hostname>` and refuses the whole create past
+that ceiling, with a one-line `create-session: File name too long` that names neither the
+path nor the limit.
+
+The label alone spends 44 bytes plus the instance id, and `@<hostname>` and `abduco/<user>/`
+take most of what is left, so the root gets roughly 33 bytes on a typical host — while the
+documented named-instance state root (`~/.local/state/podium/blue`) is already 35. Measured
+on a real instance, a socket root under the state directory composed to **121 bytes**, and
+every terminal session on that instance failed to start.
+
+So a named instance pins `ABDUCO_SOCKET_DIR` to the first of these that both fits and can be
+created: `$XDG_RUNTIME_DIR/podium-<instance>`, then `$XDG_RUNTIME_DIR/podium` (shared between
+instances — nothing collides, since labels carry the instance id), then
+`<TMPDIR|/tmp>/podium-<uid>` for a host with no user manager at all. Sockets are runtime
+state; the state root that outlives a login has no business holding them.
+
+An operator who sets `ABDUCO_SOCKET_DIR` themselves keeps that value untouched — **and owns
+the budget**: on a very long instance id, user name or hostname, no root fits, and the spawn
+then reports the composed path with its byte count next to the limit.
 
 A collision — a rare hash collision, an explicit one, or another instance already on the default
 triplet — is handled differently per port, because the two kinds of port are dialed by different

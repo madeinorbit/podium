@@ -1,8 +1,14 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
+import {
+  ABDUCO_SUN_PATH_MAX,
+  abducoSocketDir,
+  abducoSocketPathBytes,
+  longestDurableLabelFor,
+} from './abduco-socket.js'
 import {
   applyInstanceRuntimeEnv,
   assertInstanceStateIdentity,
@@ -27,6 +33,20 @@ import {
 const roots: string[] = []
 const temp = (): string => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-instance-'))
+  roots.push(dir)
+  return dir
+}
+/**
+ * A SHORT temp root, for the cases about socket-path length (POD-2853).
+ *
+ * `temp()` above sits under a vitest run directory and is ~50 bytes before
+ * anything is joined to it, which is over half of `sun_path`. A named
+ * instance's abduco root is chosen by whether it FITS, so a long fixture makes
+ * the chooser correctly reject it and fall to /tmp — and the test then reads as
+ * a failure of the code rather than of its own fixture.
+ */
+const shortTemp = (): string => {
+  const dir = mkdtempSync('/tmp/pod-rt-')
   roots.push(dir)
   return dir
 }
@@ -141,17 +161,52 @@ describe('state ownership marker', () => {
 
 it('named durable backend env is private unless explicitly overridden', () => {
   const dir = join(temp(), 'state')
-  const env: NodeJS.ProcessEnv = {}
+  const runtimeDir = shortTemp()
+  const env: NodeJS.ProcessEnv = { XDG_RUNTIME_DIR: runtimeDir }
   applyInstanceRuntimeEnv('blue', env, dir)
   expect(env).toMatchObject({
     PODIUM_INSTANCE: 'blue',
-    ABDUCO_SOCKET_DIR: join(dir, 'runtime', 'abduco'),
+    // The abduco root comes from the RUNTIME directory, not the state root
+    // (POD-2853): a named instance's state root plus its instance-prefixed
+    // label does not fit in a 108-byte `sun_path`, so pinning under the state
+    // directory made every terminal spawn fail with "File name too long".
+    ABDUCO_SOCKET_DIR: join(runtimeDir, 'podium-blue'),
     TMUX_TMPDIR: join(dir, 'runtime', 'tmux'),
   })
   const shared: NodeJS.ProcessEnv = { ABDUCO_SOCKET_DIR: '/shared/a', TMUX_TMPDIR: '/shared/t' }
   applyInstanceRuntimeEnv('blue', shared, dir)
   expect(shared.ABDUCO_SOCKET_DIR).toBe('/shared/a')
   expect(shared.TMUX_TMPDIR).toBe('/shared/t')
+})
+
+it('pins a named instance somewhere abduco can actually bind a socket', () => {
+  // THE PROPERTY, not the path. The old pin was a perfectly reasonable-looking
+  // directory that no session could ever use, and a test that only compared
+  // strings would have passed against it in exactly the same way. This one
+  // composes what abduco composes and measures it.
+  const env: NodeJS.ProcessEnv = { XDG_RUNTIME_DIR: shortTemp() }
+  applyInstanceRuntimeEnv('blue', env, join(temp(), 'state'))
+  const composed = abducoSocketPathBytes(
+    abducoSocketDir(env.ABDUCO_SOCKET_DIR ?? '', 'mgw'),
+    longestDurableLabelFor('blue'),
+    '@flatblock',
+  )
+  expect(composed).toBeLessThan(ABDUCO_SUN_PATH_MAX)
+})
+
+it('falls down the ladder rather than throwing when a root cannot be created', () => {
+  // An XDG_RUNTIME_DIR that is not ours is an ordinary inherited-environment
+  // accident, and it used to be harmless because the pin lived under the state
+  // directory, which the daemon owns. It is not harmless now: an unhandled
+  // mkdir would throw out of instance bootstrap, before the daemon has served
+  // anything, and take down an instance over a socket directory.
+  const root = shortTemp()
+  const unusable = join(root, 'not-a-dir')
+  writeFileSync(unusable, '') // a FILE where a directory is wanted — mkdir refuses
+  const env: NodeJS.ProcessEnv = { XDG_RUNTIME_DIR: unusable, TMPDIR: join(root, 'tmp') }
+  expect(() => applyInstanceRuntimeEnv('blue', env, join(temp(), 'state'))).not.toThrow()
+  expect(env.ABDUCO_SOCKET_DIR).toBe(join(root, 'tmp', `podium-${process.getuid?.() ?? 0}`))
+  expect(existsSync(env.ABDUCO_SOCKET_DIR ?? '')).toBe(true)
 })
 
 it('gives builds their own slice, a sibling of the sessions slice', () => {
