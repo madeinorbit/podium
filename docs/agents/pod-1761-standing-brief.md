@@ -927,3 +927,29 @@ ordering test stays green and the user still waits.
 **And re-pin BETWEEN arms.** Switching the checkout under a running daemon measures the same
 driver twice and returns two near-identical numbers, which reads exactly like an honest null
 result. See the three-part pin rule above; the daemon is the part that catches people out.
+
+### "I rebased it" is not "the patch is unchanged" (2026-08-26 23:30 CEST)
+
+A session reported a drive result and added that it had rebased the fix onto the current epic
+tip, so **"the pre-rebase exact drives remain."** They did not. `git range-diff <oldbase>..<old>
+<newbase>..<new>` was not empty: the condition under test had been narrowed from
+`renderers > 0` to `serverDriven(session) && renderers > 0`, and a helper had been lifted out of
+its lambda. No conflict forced it — the commits rebased over were docs-only — so the patch was
+amended during the rebase, deliberately and probably correctly. But amended.
+
+**`git log` cannot tell those two apart.** Both show one tidy commit with the same subject on a
+new base. The only instrument that separates them is **`git range-diff`**, and it costs one
+command.
+
+**The consequence is not all-or-nothing, so do not treat it that way.** Work out which arm of
+your evidence the amendment actually touches:
+
+- The arm whose behaviour the change alters is **invalidated** — here the terminal arm, because
+  the new conjunction flips `nativeViewActive` to false for exactly that family.
+- The arm where the change reduces to the old expression is **probably** still good, and
+  *probably is not a verdict*. Either show it by reading and label the row as an argument rather
+  than a measurement, or re-drive it.
+
+**So: after any rebase of a driven fix, run `range-diff` before you repeat the reading.** If it
+is non-empty, name which arms survive and which do not, rather than declaring the whole set
+either dead or alive.

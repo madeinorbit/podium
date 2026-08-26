@@ -3540,3 +3540,31 @@ The alternative cost a blocker.
 
 A1a, A2a and A5 not started; A4a/A4b not attempted — the credential gate expired with heavy-lock
 contention and swap pressure still on the box. **An undriven cell is honest.**
+
+### The last blocking cell is measured, and half of it needs re-driving (2026-08-26 23:30 CEST)
+
+**POD-2878 drove it: the parked send SURVIVED a real restart.** Codex arm — queued at
+position 1, C1 parked, real restart 3861849 -> 3878089, message survived. Terminal arm —
+generic-PTY delivered with 2 items and 2 deltas and refused C1, which is the shape I told it to
+expect (with the fix in, nothing parks, so the refusal IS the pass).
+
+**But its rebase amended the patch, and it reported the drives as still exact.** `git range-diff`
+shows `nativeViewActive` narrowed from `renderers > 0` to `serverDriven(session) && renderers > 0`.
+The two commits it rebased over are **docs-only**, so no conflict forced the change — it was
+amended on purpose. Consequence, split by arm rather than declared wholesale:
+
+- **Terminal arm invalidated.** The new conjunction returns false for exactly the family that
+  reading measured.
+- **Codex arm probably intact** — for a server-driven session the conjunction reduces to the old
+  expression — but *probably is not a verdict*, so it is either shown by reading and labelled an
+  argument, or re-driven.
+
+**My own lock reading was stale and POD-2878's was right.** I had it holding `test:heavy` from
+20:56; it had released, and POD-2781 re-took the lock at 23:12 until about 23:53. It was correct
+to wait, and correct to refuse to claim post-rebase gates it had not run.
+
+**No re-drive ordered yet.** Load 21.5, root 98% full with 5GB free. A write failure right now
+would produce a false refusal on C1 that is indistinguishable from a pass.
+
+New brief section: **"I rebased it" is not "the patch is unchanged"** — `git log` cannot separate
+them, `git range-diff` can, and it costs one command.
