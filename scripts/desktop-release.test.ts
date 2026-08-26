@@ -109,6 +109,7 @@ describe('desktop release manifest', () => {
         channel: 'edge',
         artifacts: [
           linuxArtifact,
+          windowsArtifact,
           { ...macArtifact, signature: 'DIFFERENT-MAC-SIGNATURE' },
           macIntelArtifact,
         ],
@@ -155,10 +156,7 @@ describe('desktop release manifest', () => {
     writeFileSync(join(linuxDir, 'Podium_0.2.0_amd64.AppImage'), 'APPIMAGE')
     writeFileSync(join(linuxDir, 'Podium_0.2.0_amd64.AppImage.sig'), '  LINUX-SIGNATURE\n')
     writeFileSync(join(windowsDir, 'Podium_0.2.0_x64-setup.exe'), 'WINDOWS-INSTALLER')
-    writeFileSync(
-      join(windowsDir, 'Podium_0.2.0_x64-setup.exe.sig'),
-      '  WINDOWS-SIGNATURE\n',
-    )
+    writeFileSync(join(windowsDir, 'Podium_0.2.0_x64-setup.exe.sig'), '  WINDOWS-SIGNATURE\n')
     writeFileSync(join(macUpdaterDir, 'Podium.app.tar.gz'), 'MAC-UPDATER')
     writeFileSync(join(macUpdaterDir, 'Podium.app.tar.gz.sig'), '  MAC-SIGNATURE\n')
     writeFileSync(join(macDmgDir, 'Podium_0.2.0_aarch64.dmg'), 'DMG')
@@ -292,6 +290,10 @@ describe('desktop release manifest', () => {
     mkdirSync(bundleDir)
     writeFileSync(join(bundleDir, 'Podium.AppImage'), 'LINUX')
     writeFileSync(join(bundleDir, 'Podium.AppImage.sig'), 'LINUX-SIGNATURE')
+    // No _x64 marker: the darwin-x86_64 bundle claims any path matching it, and this
+    // fixture must reach the darwin-aarch64 DMG check, not trip an earlier target.
+    writeFileSync(join(bundleDir, 'Podium-setup.exe'), 'WINDOWS')
+    writeFileSync(join(bundleDir, 'Podium-setup.exe.sig'), 'WINDOWS-SIGNATURE')
     writeFileSync(join(bundleDir, 'Podium.app.tar.gz'), 'MAC')
     writeFileSync(join(bundleDir, 'Podium.app.tar.gz.sig'), 'MAC-SIGNATURE')
     expect(() =>
