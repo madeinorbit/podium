@@ -687,6 +687,92 @@ export interface ServerRuntimeSpec {
    * protocol nobody verified while looking like it had been checked.
    */
   versionRange: Declared<string>
+  /**
+   * THE HARNESS'S OWN TUI, POINTED AT A SESSION THIS SERVER IS ALREADY RUNNING
+   * (POD-2823).
+   *
+   * A server-family session has no PTY, so the daemon PRODUCES one on demand by
+   * running the vendor's stock client beside the engine — `opencode attach`,
+   * `codex resume --remote`, `grok --resume`. Until POD-2823 the daemon decided
+   * what to run by asking WHICH HARNESS THIS IS, in nine places, which is the
+   * defect this epic exists to remove: the policy layer knew three names and a
+   * fourth driver meant editing a branch nobody remembers exists.
+   *
+   * `Declared<T>` because a stock client is a thing a vendor either ships or
+   * does not. UNSUPPORTED is a real answer — a server-family harness with no
+   * attachable TUI simply has no Native view, and the daemon refuses the attach
+   * with the reason declared here rather than spawning something that opens the
+   * wrong conversation.
+   */
+  clientTerminal: Declared<ClientTerminalSpec>
+}
+
+/**
+ * WHERE THE RUNNING ENGINE IS, in the shape this harness's `transport` implies.
+ *
+ * The three server harnesses differ here in exactly the way `transport` already
+ * says they do, which is why this is one field and not three payload shapes:
+ *
+ * - `loopback-tcp` (opencode) — `address` is the loopback URL, and because
+ *   `requiresPerSessionSecret` is true the credentials come with it.
+ * - `unix-socket` (codex) — `address` is the 0600 socket path the stock TUI
+ *   dials directly. Filesystem permission is the authentication, so no secret.
+ * - `stdio` (grok) — there is NOTHING to address. The engine's channel is a
+ *   private pipe pair, and the client reopens the conversation from the native
+ *   store instead. `address` absent is that fact, not an omission.
+ */
+export interface ClientTerminalEndpoint {
+  address?: string
+  /** Set only where {@link ServerRuntimeSpec.requiresPerSessionSecret} is. */
+  username?: string
+  secret?: string
+}
+
+export interface ClientTerminalLaunchOptions {
+  /** The session's working directory. */
+  cwd: string
+  /**
+   * THE CONVERSATION TO REOPEN — the resume ref's VALUE, whatever this harness
+   * calls it (an opencode session id, a codex thread id, a grok session id).
+   *
+   * Required, and there is no "just open the client" mode: a client terminal
+   * that lands in a DIFFERENT conversation is worse than a refusal, because it
+   * looks like the session's screen. Callers that have no conversation yet
+   * refuse before they get here.
+   */
+  conversation: string
+  endpoint: ClientTerminalEndpoint
+}
+
+/**
+ * What a harness declares about its own client terminal, so the daemon's
+ * attach path never learns a harness name.
+ */
+export interface ClientTerminalSpec {
+  /**
+   * THIS HARNESS'S SLOT IN THE DURABLE LABEL `podium-<token>-attach-<sessionId>`.
+   *
+   * Podium owns the shape; the harness owns its token, because the token is
+   * what keeps three parked abduco masters for one session distinguishable. It
+   * is also the reason this is a declaration rather than a derivation from the
+   * harness id: the label is DURABLE — a master outlives the daemon — so
+   * changing it orphans a live client, and a value that can be recomputed from
+   * a name is a value that silently changes when the name does.
+   *
+   * Short on purpose. The session's own scope label must never be a SUBSTRING
+   * of this one (memory attribution is a substring test), which the
+   * `-attach-` infix guarantees regardless of token.
+   */
+  labelToken: string
+  /**
+   * The argv that reopens `conversation` in this harness's stock TUI.
+   *
+   * This is the whole of what used to be four separate name checks in the
+   * daemon: which command to run, which resume-ref shape to put the
+   * conversation in, whether an out-of-band engine address rides on argv, and
+   * whether per-session server credentials ride in the env.
+   */
+  launch(opts: ClientTerminalLaunchOptions): LaunchSpec
 }
 
 /** The harness ships a library; the runtime hosts the loop in a worker child it

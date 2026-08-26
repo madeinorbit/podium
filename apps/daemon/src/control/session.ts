@@ -275,14 +275,26 @@ export function reconcileNativeClientTerminal(
         // to honour a request the user still has open; firing it after they went
         // back to Chat would take the lease behind their back.
         ctx.nativeClientRetries?.delete(sessionId)
-        // The stock TUI owns a direct WebSocket to the Codex Unix listener.
-        // Releasing the lease must revoke that writer before another client can
-        // take control; leaving it warm would let queued keystrokes bypass the
-        // daemon's lease gate. The next Native view starts a fresh client.
-        await ctx.clientTerminals?.close(
-          sessionId,
-          handle.binding.driver === 'codex-app-server' ? 'codex' : undefined,
-        )
+        /**
+         * TEARDOWN IS UNCONDITIONAL, AND CODEX IS WHY (POD-2823).
+         *
+         * The stock TUI owns a direct WebSocket to the Codex Unix listener.
+         * Releasing the lease must revoke that writer before another client can
+         * take control; leaving it warm would let queued keystrokes bypass the
+         * daemon's lease gate. The next Native view starts a fresh client.
+         *
+         * This used to pass `'codex'` when the binding's driver was the codex
+         * one, which read as "codex is torn down differently". It never was.
+         * `close()` reclaims the record's own label whatever kind it is given,
+         * and on a release straight after an attach there is ALWAYS a record —
+         * so the argument only ever narrowed the no-record probe, and narrowing
+         * it is not something the obligation above wants. Without a kind the
+         * probe asks every harness that declares a client terminal, which is
+         * both the safer answer and one this arm cannot get wrong for a driver
+         * that does not exist yet. The capability stays real by being applied to
+         * everyone, rather than declared as a flag no code reads.
+         */
+        await ctx.clientTerminals?.close(sessionId)
         await handle.lease.release(nativeClientHolder(sessionId))
       }
       applied = wanted

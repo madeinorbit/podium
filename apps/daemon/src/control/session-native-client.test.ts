@@ -12,8 +12,10 @@ const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const CODEX = 'codex-app-server' as const
 
 /**
- * The driver matters: the release arm below branches on it, and only codex can
- * issue the `busy`/`needs_user` refusals the retry tests drive.
+ * The driver matters because only codex can issue the `busy`/`needs_user`
+ * refusals the retry tests drive. It no longer changes the release arm: that arm
+ * used to ask which driver this was, and POD-2823 established the teardown is
+ * owed to every one of them.
  */
 function world(driver: 'opencode-server' | 'codex-app-server' = 'opencode-server') {
   const attach = vi.fn(async () => ({
@@ -101,7 +103,7 @@ describe('server-family native client control', () => {
       nativeView: false,
     })
     await vi.waitFor(() => expect(release).toHaveBeenCalledWith(`podium-native:${SESSION}`))
-    expect(clientTerminals.close).toHaveBeenCalledWith(SESSION, undefined)
+    expect(clientTerminals.close).toHaveBeenCalledWith(SESSION)
     expect(clientTerminals.viewers).toHaveBeenLastCalledWith(SESSION, false)
   })
 
@@ -322,18 +324,43 @@ describe('a native attach the session refused', () => {
     expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
   })
 
-  it('revokes the codex writer when Native is closed', async () => {
-    const { ctx, clientTerminals } = world(CODEX)
+  /**
+   * THE OBLIGATION, NOT THE NAME (POD-2823).
+   *
+   * This used to assert `close(SESSION, 'codex')` and explain that "the kind is
+   * what revokes the stock TUI's direct WebSocket writer". The kind never
+   * revoked anything — `close()` reclaims the record's own label whatever kind
+   * it is given, and on a release straight after an attach there is always a
+   * record. So the assertion pinned an IDENTIFIER while believing it pinned a
+   * teardown, which is this epic's signature defect wearing a test's clothes.
+   *
+   * What actually protects the lease gate is ORDER: the client that holds a
+   * direct writer to the codex listener must be gone BEFORE the lease is handed
+   * to anyone else. That is what is asserted now, and it is asserted for every
+   * server driver rather than for the one whose name someone remembered.
+   */
+  it.each([
+    'codex-app-server',
+    'opencode-server',
+  ] as const)('takes the client down before releasing the lease (%s)', async (driver) => {
+    const order: string[] = []
+    const { ctx, clientTerminals, release } = world(driver)
+    clientTerminals.close.mockImplementation(async () => {
+      order.push('close')
+    })
+    release.mockImplementation(async () => {
+      order.push('release')
+    })
 
     openNative(ctx)
     await settled(ctx)
     openNative(ctx, false)
     await settled(ctx)
 
-    // The kind is what revokes the stock TUI's direct WebSocket writer, so
-    // queued keystrokes cannot bypass the daemon's lease gate. The opencode arm
-    // asserts the `undefined` side in the first test of this file.
-    expect(clientTerminals.close).toHaveBeenCalledWith(SESSION, 'codex')
+    expect(clientTerminals.close).toHaveBeenCalledWith(SESSION)
+    // A lease released while the stock TUI still holds its own writer lets
+    // queued keystrokes bypass the gate entirely.
+    expect(order).toEqual(['close', 'release'])
   })
 
   it('forgets a request whose session ended before it could be honoured', async () => {

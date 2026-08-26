@@ -13,12 +13,17 @@
  */
 
 import type { SessionBinding } from '@podium/agent-runtime'
+import { STRIPPED_CODEX_CREDENTIALS } from '@podium/agent-runtime'
+import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor } from '@podium/harness'
+import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
 import type { AgentFrame, AgentSession } from '@podium/pty'
 import { asSessionId, type SessionId } from '@podium/model'
 import { scopeUnitName } from '@podium/pty'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { attributeMemory, type ProcSample } from '../memory-breakdown'
 import {
+  type ClientTerminalKind,
+  clientTerminalLabel,
   codexAttachLabel,
   createOpencodeClientTerminals,
   grokAttachLabel,
@@ -31,13 +36,14 @@ import type { OpencodeJournal, OpencodeJournalEntry } from '@podium/agent-runtim
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const SECRET = 'e2d1c0ffee5eba11deadbeefcafef00dfeedfacefeedfacefeedfacefeedface'
 
+const URL = 'http://127.0.0.1:41234'
+
 const target = {
-  url: 'http://127.0.0.1:41234',
-  username: 'podium',
-  secret: SECRET,
-  opencodeSessionId: 'ses_abc123',
+  kind: 'opencode',
+  conversation: 'ses_abc123',
+  endpoint: { address: URL, username: 'podium', secret: SECRET },
   workdir: '/home/agent/work',
-}
+} as const
 
 /** A stand-in for the abduco client PTY: records what was wired to it. */
 function fakeClient(
@@ -169,7 +175,7 @@ describe('the client terminal a server-family attach produces', () => {
     expect(spawn.cmd).toBe('opencode')
     // `--session` is what makes this an ATTACH: without it the TUI opens a
     // different conversation on the same server.
-    expect(spawn.args).toEqual(['attach', target.url, '--session', 'ses_abc123'])
+    expect(spawn.args).toEqual(['attach', URL, '--session', 'ses_abc123'])
     expect(endpoint.warmTtlMs).toBe(WARM_TTL_MS)
   })
 
@@ -313,8 +319,8 @@ describe('the client terminal a server-family attach produces', () => {
       'cold',
       {
         kind: 'codex' as const,
-        threadId: 'thread-paint',
-        clientAddress: 'unix:///instance/runtime/codex-paint.sock',
+        conversation: 'thread-paint',
+        endpoint: { address: 'unix:///instance/runtime/codex-paint.sock' },
         workdir: '/work/codex',
       },
       'codex',
@@ -323,7 +329,7 @@ describe('the client terminal a server-family attach produces', () => {
     [
       'grok',
       'cold',
-      { kind: 'grok' as const, grokSessionId: 'grok-paint', workdir: '/work/grok' },
+      { kind: 'grok' as const, conversation: 'grok-paint', endpoint: {}, workdir: '/work/grok' },
       'grok',
       false,
     ],
@@ -333,8 +339,8 @@ describe('the client terminal a server-family attach produces', () => {
       'adopted',
       {
         kind: 'codex' as const,
-        threadId: 'thread-paint',
-        clientAddress: 'unix:///instance/runtime/codex-paint.sock',
+        conversation: 'thread-paint',
+        endpoint: { address: 'unix:///instance/runtime/codex-paint.sock' },
         workdir: '/work/codex',
       },
       'codex',
@@ -343,7 +349,7 @@ describe('the client terminal a server-family attach produces', () => {
     [
       'grok',
       'adopted',
-      { kind: 'grok' as const, grokSessionId: 'grok-paint', workdir: '/work/grok' },
+      { kind: 'grok' as const, conversation: 'grok-paint', endpoint: {}, workdir: '/work/grok' },
       'grok',
       true,
     ],
@@ -400,14 +406,85 @@ describe('the client terminal a server-family attach produces', () => {
     expect(terminals.input(asSessionId('not-attached'), 'eA==')).toBe(false)
   })
 
+  /**
+   * THE DECLARATION IS WHAT DECIDES (POD-2823).
+   *
+   * The three rows above pin the argv a reader wants to SEE. These pin the
+   * property behind them, derived from the registry, so a fourth server driver
+   * is covered by declaring itself rather than by someone remembering to add a
+   * row — which is exactly the failure the nine name checks were.
+   */
+  it('reclaims a parked master for EVERY harness that declares a client terminal', async () => {
+    // No attachment record, so the teardown path must probe by label alone. A
+    // hand-written list of three names here would silently strand a fourth
+    // driver's abduco master until the machine rebooted.
+    for (const kind of CLIENT_TERMINAL_HARNESSES) {
+      const label = clientTerminalLabel(SESSION, kind)
+      expect(label, `${kind} declares a client terminal but has no label`).toBeDefined()
+      const { terminals, state } = harness({ hasMaster: (probed) => probed === label })
+      await terminals.close(SESSION)
+      expect(state.reclaimed, `${kind} parked master was not reclaimed`).toEqual([label])
+    }
+  })
+
+  it('refuses a harness that declares no client terminal, rather than defaulting', async () => {
+    // Claude Code ships no server mode at all, so nothing here could open its
+    // conversation. Falling back to another harness's client would run the wrong
+    // CLI against the wrong session while LOOKING like the session's screen.
+    const noClient = BUILTIN_HARNESS_KINDS.find((kind) => clientTerminalFor(kind) === undefined)
+    expect(noClient, 'every builtin harness declares a client terminal').toBeDefined()
+    const { terminals, state } = harness()
+    await expect(
+      terminals.attach({
+        sessionId: SESSION,
+        target: {
+          kind: noClient as ClientTerminalKind,
+          conversation: 'whatever',
+          endpoint: {},
+          workdir: '/work',
+        },
+      }),
+    ).rejects.toThrow(/no client terminal/)
+    expect(state.spawns).toEqual([])
+  })
+
+  it('strips exactly what each harness declares its client must not inherit', async () => {
+    // ONE HOME FOR THE FACT. This used to be a three-way name check unioned with
+    // the manifest read that already answered it, and codex's two copies had
+    // drifted three variables apart.
+    for (const [kind, launchTarget] of [
+      ['opencode', target],
+      [
+        'codex',
+        {
+          kind: 'codex',
+          conversation: 'thread-strip',
+          endpoint: { address: 'unix:///instance/runtime/codex-strip.sock' },
+          workdir: '/work/codex',
+        },
+      ],
+      ['grok', { kind: 'grok', conversation: 'grok-strip', endpoint: {}, workdir: '/work/grok' }],
+    ] as const) {
+      const { terminals, state } = harness()
+      await terminals.attach({ sessionId: SESSION, target: launchTarget })
+      expect(state.spawns[0]?.stripEnv, `${kind} client strip list`).toEqual(
+        AGENT_MANIFESTS[kind].inventory.foreignCredentialEnv,
+      )
+    }
+    // And the codex list is the reconciled one, named so a silent narrowing back
+    // to the three it used to carry fails here rather than in a billing report.
+    expect(AGENT_MANIFESTS.codex.inventory.foreignCredentialEnv).toEqual(STRIPPED_CODEX_CREDENTIALS)
+    expect(STRIPPED_CODEX_CREDENTIALS).toContain('OPENAI_BASE_URL')
+  })
+
   it('launches Codex and Grok original resume TUIs under sibling labels', async () => {
     const codex = harness()
     await codex.terminals.attach({
       sessionId: SESSION,
       target: {
         kind: 'codex',
-        threadId: 'thread-9',
-        clientAddress: 'unix:///instance/runtime/codex-9.sock',
+        conversation: 'thread-9',
+        endpoint: { address: 'unix:///instance/runtime/codex-9.sock' },
         workdir: '/work/codex',
       },
     })
@@ -430,7 +507,7 @@ describe('the client terminal a server-family attach produces', () => {
     const grok = harness()
     await grok.terminals.attach({
       sessionId: SESSION,
-      target: { kind: 'grok', grokSessionId: 'grok-9', workdir: '/work/grok' },
+      target: { kind: 'grok', conversation: 'grok-9', endpoint: {}, workdir: '/work/grok' },
     })
     expect(grok.state.spawns[0]).toMatchObject({
       label: grokAttachLabel(SESSION),
@@ -655,7 +732,7 @@ describe('what a machine can give back under pressure (spec §5)', () => {
 const journalEntry = (over: Partial<OpencodeJournalEntry> = {}): OpencodeJournalEntry => ({
   sessionId: SESSION,
   opencodeSessionId: 'ses_abc123' as OpencodeJournalEntry['opencodeSessionId'],
-  baseUrl: target.url,
+  baseUrl: URL,
   username: 'podium',
   secret: SECRET,
   workdir: target.workdir,
@@ -686,7 +763,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
       journal: memoryJournal(journalEntry()),
     })
     expect(
-      await host.attachClient({ sessionId: SESSION, url: target.url, mode: 'takeover' }),
+      await host.attachClient({ sessionId: SESSION, url: URL, mode: 'takeover' }),
     ).toBeUndefined()
   })
 
@@ -698,7 +775,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
       clientTerminals: terminals,
     })
     expect(
-      await host.attachClient({ sessionId: SESSION, url: target.url, mode: 'takeover' }),
+      await host.attachClient({ sessionId: SESSION, url: URL, mode: 'takeover' }),
     ).toBeUndefined()
     expect(state.spawns).toHaveLength(0)
   })
@@ -743,7 +820,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
     // A throw would surface to the caller as a driver crash; the port's contract
     // is a value.
     expect(
-      await host.attachClient({ sessionId: SESSION, url: target.url, mode: 'takeover' }),
+      await host.attachClient({ sessionId: SESSION, url: URL, mode: 'takeover' }),
     ).toBeUndefined()
   })
 })

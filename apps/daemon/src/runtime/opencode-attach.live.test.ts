@@ -163,10 +163,9 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
     const endpoint = await terminals.attach({
       sessionId,
       target: {
-        url,
-        username: USERNAME,
-        secret,
-        opencodeSessionId: conversationId,
+        kind: 'opencode',
+        conversation: conversationId,
+        endpoint: { address: url, username: USERNAME, secret },
         workdir,
       },
     })

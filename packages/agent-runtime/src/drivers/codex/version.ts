@@ -26,6 +26,8 @@
  * silent widening of the other.
  */
 
+import { AGENT_MANIFESTS } from '@podium/harness'
+
 /** How the range is written, so a bump is one edit in one place. */
 export interface CodexVersion {
   raw: string
@@ -128,32 +130,19 @@ export function gateCodexVersion(output: string): CodexVersionDiagnostic | null 
 /**
  * CREDENTIALS THAT MUST NOT REACH A CODEX CHILD (POD-1761 W6).
  *
- * IT LIVES HERE, BESIDE THE GATE, SO IT CANNOT DRIFT — the same argument as the
- * probe budget one directory over, and for a defect that had already happened:
- * the daemon host held this list and `live.test.ts` restated it, and the
- * restatement was already missing `OPENAI_ORG_ID` (POD-2024 review, finding 8).
- * That test's own header promises it "mirrors what the daemon does"; a second
- * copy makes that aspirational rather than true.
+ * ONE HOME, AND IT IS THE MANIFEST (POD-2823). The list first lived here beside
+ * the gate, for a defect that had already happened once — the daemon host held
+ * it and `live.test.ts` restated it, and the restatement was already missing
+ * `OPENAI_ORG_ID` (POD-2024 review, finding 8). The same defect then happened
+ * AGAIN one level up: `codex.inventory.foreignCredentialEnv` answers the same
+ * question for every non-app-server codex spawn, and it had drifted three
+ * entries behind this array. "Beside the gate so it cannot drift" was the right
+ * instinct pointed at the wrong home — the honest one is the manifest, which is
+ * where every OTHER harness already answers this, and where the spawn path,
+ * the login probes and this driver can all read the same array.
  *
- * WHY THE LIST EXISTS: codex PREFERS an inherited API key over the stored
- * ChatGPT login. A daemon carries whatever the operator's shell had, so without
- * the strip a session bills an API account while the operator believes they are
- * demonstrating subscription auth — invisibly, with a working session as the
- * evidence.
- *
- * `OPENAI_BASE_URL` is here though it is not a credential: it redirects the
- * session to a different provider entirely, which is the same silent
- * substitution wearing a different name.
- *
- * THE STRIP IS THE MECHANISM, NOT THE PROOF. The driver separately asks the
- * server which credential it actually chose (`getAuthStatus`), because codex
- * resolves them from several places and a strip only proves what WE did.
+ * WHY THE LIST EXISTS, and why `OPENAI_BASE_URL` is on it though it is not a
+ * credential, are recorded with the declaration. Existing importers keep this
+ * name.
  */
-export const STRIPPED_CODEX_CREDENTIALS = [
-  'OPENAI_API_KEY',
-  'CODEX_API_KEY',
-  'CODEX_ACCESS_TOKEN',
-  'OPENAI_ORGANIZATION',
-  'OPENAI_ORG_ID',
-  'OPENAI_BASE_URL',
-] as const
+export const STRIPPED_CODEX_CREDENTIALS = AGENT_MANIFESTS.codex.inventory.foreignCredentialEnv

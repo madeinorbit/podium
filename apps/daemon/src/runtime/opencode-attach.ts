@@ -2,6 +2,41 @@
  * THE CLIENT TERMINAL FOR A SERVER-FAMILY SESSION (POD-2059; spec §5).
  *
  * ---------------------------------------------------------------------------
+ * THIS FILE DOES NOT KNOW WHICH HARNESS IT IS RUNNING (POD-2823)
+ * ---------------------------------------------------------------------------
+ *
+ * It used to. Nine times: twice to pick a label, twice to pick a launch
+ * command, once to add codex's `--remote`, twice to add opencode's server
+ * credentials, and twice to pick a credential strip list. Three harnesses, nine
+ * branches, and a fourth driver would have meant finding all nine.
+ *
+ * They were four questions wearing nine faces, and every one of them is a fact
+ * about a harness rather than a decision this layer gets to make:
+ *
+ *   which durable label a parked client holds   → `clientTerminal.labelToken`
+ *   what to run to reopen this conversation     → `clientTerminal.launch()`
+ *     …including the engine address on argv     → its `endpoint.address`
+ *     …and the per-session server credentials   → its `endpoint` secret
+ *   which env would let it inherit a foreign
+ *     credential the session never chose        → `inventory.foreignCredentialEnv`
+ *
+ * The last one was already declared, per harness, and already applied by
+ * `harnessChildStripEnv` — the branch had been redundant since POD-2296, and
+ * the union it was folded into had been hiding a real drift in codex's two
+ * copies of the list. That is the shape of this defect: not a decision made in
+ * the wrong place, but a decision made TWICE, in a place where nobody would
+ * think to reconcile it.
+ *
+ * WHAT IS DELIBERATELY NOT DECLARED. The architecture note that named this
+ * defect (`docs/architecture/attachment-lifecycle.md` §3.2) sketched `parkable`
+ * and `revokeOnRelease`. Neither is here, because neither would be READ: its own
+ * correction block establishes that no driver parks today, and the release arm
+ * closes every client terminal unconditionally for the reason codex gave it. A
+ * field no code consults is the same defect as a name check — a property that
+ * holds by accident rather than by declaration — with the accident moved
+ * somewhere more flattering. They belong with the code that would honour them.
+ *
+ * ---------------------------------------------------------------------------
  * WHAT THIS IS, AND WHY IT IS A SEPARATE PROCESS FROM THE SESSION
  * ---------------------------------------------------------------------------
  *
@@ -72,9 +107,14 @@
  * a switch back to Chat.
  */
 
-import { agentLaunchCommand } from '@podium/harness'
+import {
+  CLIENT_TERMINAL_HARNESSES,
+  type ClientTerminalEndpoint,
+  clientTerminalFor,
+} from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
+import type { BuiltinHarnessKind } from '@podium/protocol'
 import {
   type AbducoSpawnOptions,
   type AgentSession,
@@ -88,8 +128,6 @@ import {
   harnessInstanceEnv,
   spawnEnv,
 } from '../control/session-env'
-import { STRIPPED_CODEX_CREDENTIALS } from './codex-app-server'
-import { STRIPPED_PROVIDER_KEYS } from './opencode-server'
 
 const log = createLogger('daemon:opencode-attach')
 
@@ -113,45 +151,65 @@ const DEFAULT_GEOMETRY: Geometry = { cols: 120, rows: 40 }
  *  the replay log the next attach rebuilds from. */
 const CLIENT_GENERATION_RESET = '\x1b[H\x1b[2J\x1b[3J'
 
-/** The durable label of a session's client terminal. See the header: the session's
- *  own label must NOT be a substring of it. */
-export const opencodeAttachLabel = (sessionId: SessionId): string => `podium-oc-attach-${sessionId}`
-export const codexAttachLabel = (sessionId: SessionId): string => `podium-cx-attach-${sessionId}`
-export const grokAttachLabel = (sessionId: SessionId): string => `podium-gk-attach-${sessionId}`
-
-export type ClientTerminalKind = 'opencode' | 'codex' | 'grok'
-
-/** Everything the client needs to open the RIGHT conversation on the RIGHT server. */
-export interface OpencodeClientTerminalTarget {
-  kind?: 'opencode'
-  /** The session's own loopback server. */
-  url: string
-  username: string
-  secret: string
-  /** opencode's id for the conversation the agent is running. Without it the TUI
-   *  would open a different one, which is not an attach. */
-  opencodeSessionId: string
-  workdir: string
+/**
+ * The durable label of a session's client terminal. See the header: the
+ * session's own label must NOT be a substring of it.
+ *
+ * PODIUM OWNS THE SHAPE, THE HARNESS OWNS ITS TOKEN. This file used to hold the
+ * three whole labels and pick between them by name; what actually varies is the
+ * two-letter slot, and that is now declared where the harness is defined. A
+ * harness that declares no client terminal has no label — `undefined`, so a
+ * caller cannot accidentally reclaim under a name nothing ever spawned.
+ */
+export const clientTerminalLabel = (
+  sessionId: SessionId,
+  kind: ClientTerminalKind,
+): string | undefined => {
+  const token = clientTerminalFor(kind)?.labelToken
+  return token === undefined ? undefined : `podium-${token}-attach-${sessionId}`
 }
 
-export interface CodexClientTerminalTarget {
-  kind: 'codex'
-  threadId: string
-  /** The running session's mode-0600 Unix app-server listener. */
-  clientAddress: string
-  workdir: string
+/** The three server-family labels by name, for the callers and tests that hold
+ *  one harness in mind. Each is the SAME composition every other kind gets;
+ *  these three exist because their harnesses declare a client terminal, and the
+ *  throw says so rather than handing back a label nothing answers to. */
+const requireLabel = (sessionId: SessionId, kind: ClientTerminalKind): string => {
+  const label = clientTerminalLabel(sessionId, kind)
+  if (label === undefined) throw new Error(`${kind} declares no client terminal`)
+  return label
 }
 
-export interface GrokClientTerminalTarget {
-  kind: 'grok'
-  grokSessionId: string
+export const opencodeAttachLabel = (sessionId: SessionId): string =>
+  requireLabel(sessionId, 'opencode')
+export const codexAttachLabel = (sessionId: SessionId): string => requireLabel(sessionId, 'codex')
+export const grokAttachLabel = (sessionId: SessionId): string => requireLabel(sessionId, 'grok')
+
+export type ClientTerminalKind = BuiltinHarnessKind
+
+/**
+ * Everything the client needs to open the RIGHT conversation on the RIGHT
+ * engine — in ONE shape for every harness (POD-2823).
+ *
+ * It used to be a union of three per-harness payloads, and that union was the
+ * reason this file branched: a `url`/`username`/`secret`/`opencodeSessionId`
+ * arm, a `threadId`/`clientAddress` arm and a `grokSessionId` arm cannot be read
+ * without asking which one you have. The two things they were all carrying are a
+ * CONVERSATION to reopen and an ENGINE to reach, and both are declared shapes —
+ * so the daemon carries those, and the harness's own adapter turns them into
+ * argv.
+ */
+export interface ClientTerminalTarget {
+  /** Which harness's client to run. A REGISTRY KEY, not a branch: it is only
+   *  ever used to look the declaration up. */
+  kind: ClientTerminalKind
+  /** The native conversation the client must reopen. Without it the TUI would
+   *  open a different one, which is not an attach. */
+  conversation: string
+  /** Where the running engine listens, in the shape this harness's transport
+   *  implies — see `ClientTerminalEndpoint`. Empty for a stdio engine. */
+  endpoint: ClientTerminalEndpoint
   workdir: string
 }
-
-export type ClientTerminalTarget =
-  | OpencodeClientTerminalTarget
-  | CodexClientTerminalTarget
-  | GrokClientTerminalTarget
 
 export interface OpencodeClientTerminals {
   /**
@@ -250,16 +308,6 @@ interface Attachment {
   watched?: boolean
 }
 
-function targetKind(target: ClientTerminalTarget): ClientTerminalKind {
-  return target.kind ?? 'opencode'
-}
-
-function attachLabel(sessionId: SessionId, kind: ClientTerminalKind): string {
-  if (kind === 'codex') return codexAttachLabel(sessionId)
-  if (kind === 'grok') return grokAttachLabel(sessionId)
-  return opencodeAttachLabel(sessionId)
-}
-
 export function createOpencodeClientTerminals(
   ports: OpencodeClientTerminalPorts,
 ): OpencodeClientTerminals {
@@ -331,7 +379,25 @@ export function createOpencodeClientTerminals(
   }
 
   async function start(record: Attachment, target: ClientTerminalTarget): Promise<AgentSession> {
-    const kind = targetKind(target)
+    const kind = target.kind
+    /**
+     * THE HARNESS SAYS WHAT TO RUN; THIS FUNCTION NEVER LEARNS ITS NAME
+     * (POD-2823).
+     *
+     * Four of the nine name checks this file used to carry lived in the next
+     * twenty lines: which command, which resume-ref shape the conversation goes
+     * in, whether an engine address rides on argv, and whether per-session
+     * server credentials ride in the env. All four are one question — "how is
+     * this harness's stock TUI pointed at a running session?" — and it is now
+     * asked of the harness's own declaration.
+     *
+     * REFUSED, NOT DEFAULTED, when a harness declares none. Falling back to some
+     * other harness's client would open a terminal running the wrong CLI against
+     * the wrong conversation; the caller turns this into the per-machine refusal
+     * an attach already knows how to report.
+     */
+    const client = clientTerminalFor(kind)
+    if (!client) throw new Error(`${kind} declares no client terminal to attach`)
     /**
      * A NEW CLIENT MUST NOT PAINT INTO THE OLD ONE'S SCROLLBACK (POD-2761),
      * BUT A REATTACHED CLIENT MUST KEEP THE SCROLLBACK IT ALREADY OWNS.
@@ -355,32 +421,17 @@ export function createOpencodeClientTerminals(
      * test, so the replay log re-anchors with the browser.
      */
     const reattaching = hasMaster(record.label)
-    const launch =
-      target.kind === 'codex'
-        ? agentLaunchCommand('codex', {
-            cwd: target.workdir,
-            resume: { kind: 'codex-thread', value: target.threadId },
-          })
-        : target.kind === 'grok'
-          ? agentLaunchCommand('grok', {
-              cwd: target.workdir,
-              resume: { kind: 'grok-session', value: target.grokSessionId },
-            })
-          : {
-              cmd: 'opencode',
-              args: ['attach', target.url, '--session', target.opencodeSessionId],
-              cwd: target.workdir,
-            }
-    if (target.kind === 'codex') launch.args.push('--remote', target.clientAddress)
+    const launch = client.launch({
+      cwd: target.workdir,
+      conversation: target.conversation,
+      endpoint: target.endpoint,
+    })
     const podiumEnv = {
+      // Whatever the harness's own declaration put there — for opencode that is
+      // the per-session server credentials, which stay in the ENV and out of
+      // argv exactly as its server half requires.
       ...(launch.env ?? {}),
       ...harnessCompatEnv(kind),
-      ...(target.kind !== 'codex' && target.kind !== 'grok'
-        ? {
-            OPENCODE_SERVER_USERNAME: target.username,
-            OPENCODE_SERVER_PASSWORD: target.secret,
-          }
-        : {}),
       ...(ports.homeDir ? { HOME: ports.homeDir } : {}),
       ...harnessInstanceEnv(kind, ports.homeDir),
     }
@@ -409,17 +460,17 @@ export function createOpencodeClientTerminals(
        * client is thin today and may never call one, which is exactly why the
        * asymmetry would go unnoticed: two processes of one binary, opposite
        * treatment, for no stated reason.
+       *
+       * THE BRANCH THAT WAS HERE WAS ALREADY REDUNDANT (POD-2823). It picked
+       * between three constants by harness name and then UNIONED the result with
+       * `harnessChildStripEnv(kind)` — which reads exactly the same fact off the
+       * manifest. For opencode and grok the two sides were the identical array;
+       * for codex they were not, and the difference was a real drift the union
+       * had been quietly papering over (see the codex manifest). The property
+       * this branch wanted has been declared per harness since POD-2296; the
+       * helper is how you ask for it.
        */
-      stripEnv: [
-        ...new Set([
-          ...(kind === 'codex'
-            ? STRIPPED_CODEX_CREDENTIALS
-            : kind === 'grok'
-              ? ['XAI_API_KEY']
-              : STRIPPED_PROVIDER_KEYS),
-          ...harnessChildStripEnv(kind),
-        ]),
-      ],
+      stripEnv: harnessChildStripEnv(kind),
       // The overlay abduco layers over the daemon env — composed through the
       // same `spawnEnv` the PTY path uses, so an instance home overrides HOME
       // (and prepends its bin roots to PATH) here exactly as it does for the
@@ -464,12 +515,19 @@ export function createOpencodeClientTerminals(
       // would ever drop the attachment's pending output after teardown.
       ports.releaseStream?.(record.streamId)
     }
-    // Nothing of ours, and no master holding the label: do not pay three process
-    // spawns per session teardown to reclaim something that was never started.
+    // Nothing of ours, and no master holding the label: do not pay a process
+    // spawn per session teardown to reclaim something that was never started.
+    //
+    // THE CANDIDATE SET IS THE REGISTRY'S (POD-2823), not three names written
+    // here. A caller that knows its harness names it; one that does not asks
+    // every harness that declares a client terminal, so a fourth driver's parked
+    // master is reclaimed by declaring itself rather than by somebody
+    // remembering this line.
     const labels = record
       ? [record.label]
-      : (kind ? [kind] : (['opencode', 'codex', 'grok'] as const))
-          .map((kind) => attachLabel(sessionId, kind))
+      : (kind ? [kind] : CLIENT_TERMINAL_HARNESSES)
+          .map((candidate) => clientTerminalLabel(sessionId, candidate))
+          .filter((label): label is string => label !== undefined)
           .filter(hasMaster)
     if (labels.length === 0) return
     try {
@@ -484,13 +542,15 @@ export function createOpencodeClientTerminals(
     async attach({ sessionId, target }) {
       let record = attachments.get(sessionId)
       if (!record) {
-        const kind = targetKind(target)
+        const label = clientTerminalLabel(sessionId, target.kind)
+        if (label === undefined)
+          throw new Error(`${target.kind} declares no client terminal to attach`)
         record = {
           // The terminal relay is session-addressed in both directions. The
           // stream ref remains typed, but its resolvable wire identity is the
           // parent Podium session rather than an orphan UUID (POD-2108).
           streamId: sessionId,
-          label: attachLabel(sessionId, kind),
+          label,
           // Born knowing whether anyone is looking: see `watchedSessions`.
           watched: watchedSessions.has(sessionId),
         }
@@ -538,8 +598,10 @@ export function createOpencodeClientTerminals(
 
     adopt(sessionId, kind = 'opencode') {
       if (attachments.has(sessionId)) return
-      const label = attachLabel(sessionId, kind)
-      if (!hasMaster(label)) return
+      const label = clientTerminalLabel(sessionId, kind)
+      // No declaration means no label, and no label means there is nothing this
+      // daemon could have spawned to adopt.
+      if (label === undefined || !hasMaster(label)) return
       const record: Attachment = {
         streamId: sessionId,
         label,

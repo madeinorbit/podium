@@ -223,6 +223,24 @@ export const grokManifest: AgentManifest = {
       // 0.2.23 is the first build with the complete agent operator set. The
       // protocol shapes are fixture-pinned separately against the W7 captures.
       versionRange: supported('>=0.2.23'),
+      /**
+       * `grok --resume <id>` — the stock TUI, reopening the same conversation
+       * the ACP engine is running.
+       *
+       * NOTHING TO ADDRESS, and that is a fact about `transport: 'stdio'` rather
+       * than a gap. The engine's channel is a private pipe pair the daemon owns;
+       * there is no socket or port for a second client to dial, so the TUI comes
+       * back through grok's own native store instead. An `endpoint.address`
+       * would have nowhere to go, which is why it is absent rather than empty.
+       *
+       * BUILT FROM THIS MANIFEST'S OWN `launch()`: the resume flag and the
+       * new-session rules that go with it are declared once, above.
+       */
+      clientTerminal: supported({
+        labelToken: 'gk',
+        launch: ({ cwd, conversation }) =>
+          grokManifest.launch({ cwd, resume: { kind: 'grok-session', value: conversation } }),
+      }),
     }),
     embedded: unsupported('grok ships no library to host in-process'),
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },

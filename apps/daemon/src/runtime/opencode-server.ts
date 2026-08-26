@@ -664,10 +664,10 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
           sessionId: input.sessionId,
           target: {
             kind: 'opencode',
-            url: input.url,
-            username: entry.username,
-            secret: entry.secret,
-            opencodeSessionId: entry.opencodeSessionId,
+            conversation: entry.opencodeSessionId,
+            // Loopback TCP with a mandatory per-session secret: the URL and the
+            // credential travel together because the transport says they must.
+            endpoint: { address: input.url, username: entry.username, secret: entry.secret },
             workdir: entry.workdir,
           },
         })

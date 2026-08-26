@@ -193,6 +193,53 @@ nobody will remember exists.
 This also makes the consequence *visible*: `parkable: false` is a thing a reader can
 see and ask about, which is what nobody could do with a `===` buried in a release arm.
 
+> ### LANDED — POD-2823
+>
+> The direction shipped; the two field names in the sketch above did not, and the
+> reason is worth more than the fields would have been.
+>
+> **What shipped.** `ServerRuntimeSpec.clientTerminal` — a `Declared<T>` on the
+> harness's own manifest carrying a `labelToken` and a `launch()`. The daemon's
+> attach path (`apps/daemon/src/runtime/opencode-attach.ts`) now looks the harness
+> up and never compares it to anything. Nine `harness-branching` violations in that
+> file went to zero with no new violation anywhere.
+>
+> **The nine were four questions.** Which durable label a parked client holds; what
+> to run to reopen this conversation; whether an engine address rides on argv;
+> whether per-session server credentials ride in the env. The last three are all
+> `launch()`, and the address/secret split is not a new axis at all — it is
+> `transport`, which the spec already declared. Two branches wanting one property
+> is the finding this file predicted.
+>
+> **The fifth was already declared, twice, differently.** The strip-list branch
+> picked between three constants by name and then unioned the result with
+> `harnessChildStripEnv(kind)`, which reads exactly the same fact off the manifest.
+> For opencode and grok the two sides were the identical array. For codex they were
+> not: `STRIPPED_CODEX_CREDENTIALS` carried six variables and
+> `codex.inventory.foreignCredentialEnv` carried three, so every codex spawn that
+> read the manifest — the PTY path, the login probes — had been leaving
+> `OPENAI_ORGANIZATION`, `OPENAI_ORG_ID` and `OPENAI_BASE_URL` in the child's
+> environment while the app-server path stripped them. The union in the attach path
+> had been quietly papering over that for both. The manifest is now the only home
+> and the constant reads it.
+>
+> **`parkable` and `revokeOnRelease` were NOT added, on purpose.** The correction
+> at the top of this file establishes that no driver parks today, and the release
+> arm closes every client terminal unconditionally for the very reason codex gave
+> it. Declaring either would have produced a field no code reads — the same defect
+> as a name check, relocated somewhere more flattering. §3.3's obligation still
+> wants `parkable`; it should arrive with the code that honours it.
+>
+> **The archetype in §2.3 is gone too.** `close(sessionId, driver === 'codex-app-server' ? 'codex' : undefined)`
+> was already inert — `close()` reclaims the record's own label whatever kind it is
+> given, and on a release straight after an attach there is always a record — so
+> the argument only ever narrowed the no-record probe, which is not something the
+> teardown obligation wants narrowed. It now passes no kind, and the probe asks
+> every harness that declares a client terminal. The test that guarded it had the
+> same defect: it asserted `close(SESSION, 'codex')` while believing it asserted a
+> teardown. It now asserts the order that actually protects the lease gate — client
+> down, then lease released — for every server driver.
+
 ### 3.3 A non-parkable driver owes the user an honest cold start
 
 The moment `parkable: false` is written down, an obligation follows: **a cold start

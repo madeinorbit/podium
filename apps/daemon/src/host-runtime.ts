@@ -783,7 +783,14 @@ export async function createDaemonHostRuntime(args: {
         try {
           return await clientTerminals.attach({
             sessionId,
-            target: { kind: 'codex', threadId, clientAddress, workdir },
+            // The 0600 Unix listener the stock TUI dials directly; filesystem
+            // permission is the authentication, so there is no secret with it.
+            target: {
+              kind: 'codex',
+              conversation: threadId,
+              endpoint: { address: clientAddress },
+              workdir,
+            },
           })
         } catch (err) {
           log.warn('could not host a Codex client terminal', { err, sessionId })
@@ -803,7 +810,9 @@ export async function createDaemonHostRuntime(args: {
         try {
           return await clientTerminals.attach({
             sessionId,
-            target: { kind: 'grok', grokSessionId, workdir },
+            // A stdio engine has nothing to address: the client comes back
+            // through grok's own native store, so the endpoint is empty.
+            target: { kind: 'grok', conversation: grokSessionId, endpoint: {}, workdir },
           })
         } catch (err) {
           log.warn('could not host a Grok client terminal', { err, sessionId })

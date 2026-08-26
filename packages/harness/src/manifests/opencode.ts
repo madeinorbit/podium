@@ -196,6 +196,35 @@ export const opencodeManifest: AgentManifest = {
       // enforces this range is `gateOpencodeVersion`, and widening it means
       // re-recording those fixtures first.
       versionRange: supported('>=1.18 <1.25'),
+      /**
+       * `opencode attach <url> --session <id>` — the stock TUI, pointed at the
+       * loopback server this session is already running.
+       *
+       * NOT `launch()`. The interactive spawn STARTS a conversation; this JOINS
+       * one that a headless server already owns, which is a different verb with
+       * a different argv, and the only place either shape is written down.
+       *
+       * `--session` IS WHAT MAKES IT AN ATTACH. Without it the TUI opens a
+       * different conversation on the same server — a screen showing someone
+       * else's chat, which is worse than a refusal.
+       *
+       * THE SECRET RIDES IN THE ENV, NEVER ARGV, exactly as `spawn` above says
+       * for the server half. `requiresPerSessionSecret` is true for this
+       * transport, so the endpoint always carries credentials and a client
+       * without them gets 401 on every route.
+       */
+      clientTerminal: supported({
+        labelToken: 'oc',
+        launch: ({ cwd, conversation, endpoint }) => ({
+          cmd: 'opencode',
+          args: ['attach', endpoint.address ?? '', '--session', conversation],
+          cwd,
+          env: {
+            ...(endpoint.username ? { OPENCODE_SERVER_USERNAME: endpoint.username } : {}),
+            ...(endpoint.secret ? { OPENCODE_SERVER_PASSWORD: endpoint.secret } : {}),
+          },
+        }),
+      }),
     }),
     embedded: unsupported('opencode ships a server, not a library to host in-process'),
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },

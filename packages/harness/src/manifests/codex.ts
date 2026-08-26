@@ -227,7 +227,38 @@ export const codexManifest: AgentManifest = {
     // `@podium/agent-runtime`), reaching org and base-url as well; those redirect
     // a session rather than re-authenticate it, and this field is only about
     // which account answers.
-    foreignCredentialEnv: ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN'],
+    /**
+     * WHY THE LIST EXISTS: codex PREFERS an inherited API key over the stored
+     * ChatGPT login. A daemon carries whatever the operator's shell had, so
+     * without the strip a session bills an API account while the operator
+     * believes they are demonstrating subscription auth — invisibly, with a
+     * working session as the evidence.
+     *
+     * `OPENAI_BASE_URL` is here though it is not a credential: it redirects the
+     * session to a different provider entirely, which is the same silent
+     * substitution wearing a different name.
+     *
+     * THE LAST THREE ARRIVED FROM `STRIPPED_CODEX_CREDENTIALS` (POD-2823). That
+     * constant was declared beside the app-server version gate and this array
+     * was declared here, and the two had already drifted: every codex spawn that
+     * read the MANIFEST — the PTY path, the login probes — was leaving
+     * `OPENAI_ORGANIZATION`, `OPENAI_ORG_ID` and `OPENAI_BASE_URL` in the child's
+     * environment, while the app-server path stripped them. Same question, two
+     * homes, different answers. This is now the only home; the constant reads it.
+     *
+     * THE STRIP IS THE MECHANISM, NOT THE PROOF. The app-server driver
+     * separately asks the server which credential it actually chose
+     * (`getAuthStatus`), because codex resolves them from several places and a
+     * strip only proves what WE did.
+     */
+    foreignCredentialEnv: [
+      'OPENAI_API_KEY',
+      'CODEX_API_KEY',
+      'CODEX_ACCESS_TOKEN',
+      'OPENAI_ORGANIZATION',
+      'OPENAI_ORG_ID',
+      'OPENAI_BASE_URL',
+    ],
     detectLogin(homeDir, env?: HarnessEnvironment) {
       const path = codexAuthPath(homeDir, env)
       let contents: string
@@ -359,6 +390,37 @@ export const codexManifest: AgentManifest = {
       // re-recording those fixtures first — which the binary makes cheap, since
       // `codex app-server generate-ts` emits the whole protocol.
       versionRange: supported('>=0.147 <0.150'),
+      /**
+       * `codex resume --remote <socket>` — the stock TUI, joined to the
+       * app-server this session is already running.
+       *
+       * BUILT FROM THIS MANIFEST'S OWN `launch()`, not restated. How codex is
+       * told which thread to reopen (`resume -C <cwd> <threadId>`, and the
+       * `-C` reason recorded there) is one fact, and a second copy of it here
+       * would drift the way this epic keeps finding second copies drift. What
+       * is genuinely extra is `--remote`: the address of the per-session Unix
+       * listener the TUI dials DIRECTLY.
+       *
+       * THAT DIRECT DIAL IS ALSO A TEARDOWN OBLIGATION. The stock TUI holds its
+       * own writer to the listener, so a client left alive after the control
+       * lease is released could push queued keystrokes past the lease gate. The
+       * daemon closes every client terminal on release for exactly this reason
+       * — unconditionally, so the obligation cannot be lost by asking which
+       * harness this is.
+       */
+      clientTerminal: supported({
+        labelToken: 'cx',
+        launch: ({ cwd, conversation, endpoint }) => {
+          const spec = codexManifest.launch({
+            cwd,
+            resume: { kind: 'codex-thread', value: conversation },
+          })
+          return {
+            ...spec,
+            args: [...spec.args, ...(endpoint.address ? ['--remote', endpoint.address] : [])],
+          }
+        },
+      }),
     }),
     embedded: unsupported('Codex ships a server, not a library to host in-process'),
     // The permanent fallback: a protocol break degrades Codex sessions to the

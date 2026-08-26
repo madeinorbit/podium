@@ -9,6 +9,7 @@ import type { TranscriptRecordMapper, TranscriptRuntimeReader } from '@podium/tr
 import type { AgentStateProvider } from './agent-state/types.js'
 import {
   type AgentManifest,
+  type ClientTerminalSpec,
   declaredValue,
   type DriverFamily,
   type HarnessCapabilities,
@@ -60,6 +61,37 @@ export function manifestFor(kind: AgentKind | string): AgentManifest | undefined
 export function harnessCapabilitiesFor(kind: AgentKind | string): HarnessCapabilities | undefined {
   return manifestFor(kind)?.capabilities
 }
+
+/**
+ * THE ONE LOOKUP THE ATTACH PATH USES (POD-2823).
+ *
+ * The daemon produces a Native view for a server-family session by running the
+ * harness's own TUI beside the engine. It used to decide WHAT to run by asking
+ * which harness this is; it now asks the harness, through here. Unknown ids, a
+ * harness with no server mode, and a server harness that ships no attachable
+ * client all answer `undefined` — three different reasons, one caller-visible
+ * outcome ("this session has no Native view"), which is the only distinction the
+ * attach path can act on.
+ */
+export function clientTerminalFor(kind: AgentKind | string): ClientTerminalSpec | undefined {
+  const server = manifestFor(kind)?.runtime.server
+  const clientTerminal = server && declaredValue(server)?.clientTerminal
+  return clientTerminal ? declaredValue(clientTerminal) : undefined
+}
+
+/**
+ * Every harness that declares a client terminal, DERIVED from the registry.
+ *
+ * The teardown path needs this: with no attachment record in hand, "is a parked
+ * master still holding a label for this session?" has to be asked of every
+ * label that could exist. A hand-written list of three names there was the same
+ * defect as a branch — a fourth driver would have been silently skipped, and its
+ * abduco master left resident until the machine rebooted. Reading it off the
+ * manifests makes the declaration the only thing that has to be right.
+ */
+export const CLIENT_TERMINAL_HARNESSES: readonly BuiltinHarnessKind[] = (
+  Object.keys(AGENT_MANIFESTS) as BuiltinHarnessKind[]
+).filter((kind) => clientTerminalFor(kind) !== undefined)
 
 /** Portable native-login declaration without exposing process-driving APIs. */
 export function harnessPortableCredential(

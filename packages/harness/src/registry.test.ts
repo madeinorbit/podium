@@ -16,6 +16,8 @@ import {
 import {
   AGENT_MANIFESTS,
   agentStateProviderFor,
+  CLIENT_TERMINAL_HARNESSES,
+  clientTerminalFor,
   driverFamilyForId,
   driverIdIsServerFamily,
   harnessCapabilitiesFor,
@@ -132,6 +134,86 @@ describe('agent manifest registry', () => {
     for (const kind of BUILTIN_HARNESS_KINDS) {
       for (const key of AGENT_MANIFESTS[kind].inventory.foreignCredentialEnv) {
         expect(key.startsWith('PODIUM_'), `${kind} declares ${key}`).toBe(false)
+      }
+    }
+  })
+
+  /**
+   * THE CLIENT-TERMINAL DECLARATION (POD-2823).
+   *
+   * These replace nine harness-name checks in the daemon's attach path. A
+   * declaration nobody checks is the other half of the defect this epic keeps
+   * finding, so every assertion below is DERIVED from the registry: a fourth
+   * server driver is covered the moment it is added, and cannot pass by being
+   * absent from a list written here.
+   */
+  it('gives every server-family harness a client terminal, or says it has none', () => {
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      const server = declaredValue(AGENT_MANIFESTS[kind].runtime.server)
+      if (!server) {
+        // No server, no Native view to produce: the field must not exist to be
+        // half-answered.
+        expect(clientTerminalFor(kind), `${kind} has no server runtime`).toBeUndefined()
+        continue
+      }
+      // Required on the spec, so a new server driver cannot land without saying
+      // whether its CLI can be attached — `unsupported` is a legitimate answer,
+      // `undefined` is not.
+      expect(server.clientTerminal, `${kind}.runtime.server.clientTerminal`).toBeDefined()
+      const client = clientTerminalFor(kind)
+      if (!client) {
+        expect(declaredValue(server.clientTerminal)).toBeUndefined()
+        continue
+      }
+      expect(CLIENT_TERMINAL_HARNESSES).toContain(kind)
+    }
+    // And the derived set is the declarations, not a name list kept in step by
+    // hand — the enumeration the daemon reclaims parked masters from.
+    expect([...CLIENT_TERMINAL_HARNESSES].sort()).toEqual(
+      BUILTIN_HARNESS_KINDS.filter((kind) => clientTerminalFor(kind) !== undefined).sort(),
+    )
+  })
+
+  it('keeps every client-terminal label distinct, and clear of the session’s own', () => {
+    const tokens = CLIENT_TERMINAL_HARNESSES.map((kind) => clientTerminalFor(kind)?.labelToken)
+    // A shared token would give two harnesses ONE durable abduco label: attaching
+    // the second would adopt the first's parked master and put the user in
+    // another CLI's conversation.
+    expect(new Set(tokens).size, `duplicate labelToken among ${tokens.join()}`).toBe(tokens.length)
+    for (const token of tokens) {
+      expect(token, 'an empty token collapses the label shape').toBeTruthy()
+      // Memory attribution claims processes by SUBSTRING of the session label,
+      // so a token containing a separator could let one label swallow another.
+      expect(token).toMatch(/^[a-z0-9]+$/)
+    }
+  })
+
+  it('launches a client that names the conversation and reaches the declared engine', () => {
+    for (const kind of CLIENT_TERMINAL_HARNESSES) {
+      const client = clientTerminalFor(kind)
+      const server = declaredValue(AGENT_MANIFESTS[kind].runtime.server)
+      if (!client || !server) throw new Error(`${kind} lost its declaration mid-test`)
+      const address = server.transport === 'stdio' ? undefined : `addr-for-${kind}`
+      const spec = client.launch({
+        cwd: '/work',
+        conversation: `conversation-for-${kind}`,
+        endpoint: {
+          ...(address ? { address } : {}),
+          ...(server.requiresPerSessionSecret ? { username: 'podium', secret: 's3cr3t' } : {}),
+        },
+      })
+      expect(spec.cwd, `${kind} client cwd`).toBe('/work')
+      // THE CONVERSATION IS THE WHOLE POINT. A client that opens a different one
+      // looks like the session's screen, which is worse than a refusal.
+      expect(spec.args.join(' '), `${kind} client argv`).toContain(`conversation-for-${kind}`)
+      // A transport with an address must USE it; a stdio engine has none to use,
+      // and its client comes back through the native store instead.
+      if (address) expect(spec.args, `${kind} client argv`).toContain(address)
+      // The secret rides in the ENV, never argv — the same rule the server half
+      // is held to, applied to the client that authenticates against it.
+      if (server.requiresPerSessionSecret) {
+        expect(JSON.stringify(spec.args), `${kind} put its secret in argv`).not.toContain('s3cr3t')
+        expect(Object.values(spec.env ?? {}), `${kind} client env`).toContain('s3cr3t')
       }
     }
   })
