@@ -3041,3 +3041,38 @@ fell to **12–316 KB/s** — so the cost is bounded and visible rather than urg
 **The box got quiet anyway**, which is worth noting against my own theory: I had argued it could
 not settle while ten agents existed. It settled with all ten still resident. *The load was the
 work, not the presence.*
+
+
+## TICK 2026-08-26 19:15 CEST — "86% driven" WAS MASKING A VERY UNEVEN DISTRIBUTION
+
+I have been quoting a single coverage number. Counting the results table by driver shows the
+coverage is not spread the way that number implies:
+
+    codex-headless        22 rows
+    opencode-headless      9
+    codex-terminal         8
+    opencode-terminal      4
+    grok-headless          4
+    claude-pty             3      <- the driver people use TODAY
+    grok-terminal          2
+    claude-pty-on-main     2      <- and both of those are UNOBTAINABLE / BLOCKED
+
+    68 rows total: 40 PASS, 8 FAIL, 5 BLOCKED, 4 UNMEASURED, 4 PARTIAL,
+                   2 INCONCLUSIVE, 1 UNOBTAINABLE, 1 UNDRIVEN, 1 UNATTRIBUTED, 1 REFUSED
+
+**Codex has thirty rows. Claude has three.** The release bar is that **every** driver be at
+least as good as today's — and the driver with the thinnest evidence is the incumbent, the one
+whose regression would definitively block the release.
+
+**That is not an accident of effort, and the reasons are already recorded:** claude's
+credentials are quarantined after the superseded-refresh-token finding; its permission path
+cannot be exercised in a hermetic home at all; and **no main baseline is obtainable**, because
+today's release cannot start a named-instance claude session. Three independent walls, each
+measured, all on the same driver.
+
+**So the honest headline is not "86% driven". It is: codex and opencode are well covered,
+grok is deferred to 11:03 tomorrow with a handover, and CLAUDE IS THE HOLE** — and every route
+to filling it needs the operator rather than more agent-hours.
+
+**What I will stop doing:** quoting a single coverage percentage as though the matrix were
+uniform. **The number that matters is per-driver**, because the bar is per-driver.
