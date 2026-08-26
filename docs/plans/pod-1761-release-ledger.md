@@ -3712,3 +3712,40 @@ refused, POD-2902's ENOSPC refused). **The nine unknowns are NOT in that number*
 reason I will not put a date on parity yet: each one that turns out still-broken adds a round.
 
 **Product fixes landed today: 24.**
+
+### The last blocking defect is demonstrated on both arms (2026-08-26 23:57 CEST)
+
+POD-2878 re-drove after my range-diff correction rather than arguing, and the A/B is now clean on
+the rebased commit `68d2c3ba1`:
+
+| arm | commit | reading |
+| --- | --- | --- |
+| codex app-server, PRE-FIX | `aad84ec21` | delivered receipt, real restart 3038442->3045364, parked nonce **ABSENT**, C3 answered — **LOST** |
+| codex app-server, POST | `68d2c3ba1` | queued position 1, C1 fired at 45s, real restart 4004323->4013566, parked nonce arrived **once** — **SURVIVED** |
+| generic-pty control, POST | `68d2c3ba1` | delivered, 2 items / 2 deltas, nonce present, probe **refused C1** — direct terminal delivery unchanged |
+
+**The terminal arm was RE-TAKEN, not carried over.** That is the arm the mid-rebase amendment
+invalidated, and re-driving it is what makes the pair evidence rather than assertion.
+
+**Its weighting of the main comparison is right and I have told it so.** It observed that main
+shows the same delivered-while-native-parked behaviour, called it inherited, and then explicitly
+rested the release claim on the **within-commit headless-versus-generic-PTY** comparison instead.
+"Inherited" is the claim on this epic most easily manufactured by a busy box — a starved host
+makes a turn that would have stopped appear not to — so a within-commit comparison is durable
+where a cross-branch one is not.
+
+### Landing is blocked on ATTRIBUTION, not on the drive
+
+`bun run test:unit --filter @podium/server` came back red: 2 of 5 package tasks, **80 failures**
+(contracts 1, services 34, boundary 45), described as "baseline-red as previously reported".
+That may be true and it has not been demonstrated on this tree. **"Baseline-red" is the phrase
+that has hidden real breakage on this epic before, and eighty is too many to wave through on a
+description.**
+
+Ordered the identical command on `3a2bf060f` (its parent), with three constraints:
+`PODIUM_TEST_WORKERS=1` on **both** arms because that setting decides whether this gate is red at
+all; comparison **by failing test NAME, not by count**, since a count moving by one or two on a
+loaded host is flake; and the known closed-database unhandled errors named and set aside
+explicitly rather than padding either side. **Only a name that fails on the fix and passes on the
+parent blocks landing.** Told it to take `test:heavy` and queue rather than contend — the drive
+result is banked, so there is no hurry.

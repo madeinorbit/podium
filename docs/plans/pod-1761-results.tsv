@@ -112,3 +112,6 @@ review-stage audit	git-cherry	LANDED AND DRIVEN; done	f6a6c8625	n/a	n/a	2026-08-
 review-stage audit	git-cherry	LANDED AND DRIVEN; done	b4724584a	n/a	n/a	2026-08-26 23:19 CEST	POD-2843
 review-stage audit	git-cherry	LANDED AND DRIVEN; done	d4fb68408	n/a	n/a	2026-08-26 23:19 CEST	POD-2853
 review-stage audit	git-cherry	NO CODE EXPECTED; review	none	n/a	n/a	2026-08-26 23:19 CEST	POD-2903
+parked send survives a real restart (POST-REBASE)	codex-headless	PASS queued pos=1, restart 4004323->4013566, nonce arrived once, C3 answered SURVIVED	68d2c3ba	yes C1 fired 45s	no 2871+2902+2913 live	2026-08-26 23:53 CEST	POD-2878
+parked send survives a real restart (PRE-FIX CONTROL)	codex-headless	FAIL delivered receipt, restart 3038442->3045364, nonce ABSENT, LOST	aad84ec2	yes C1 parked	unknown	2026-08-26 23:53 CEST	POD-2878
+direct terminal delivery unaffected (POST-REBASE)	generic-pty	PASS delivered, 2 items/2 deltas, nonce present, probe refused C1	68d2c3ba	yes probe refusal	no 2871+2902+2913 live	2026-08-26 23:53 CEST	POD-2878
