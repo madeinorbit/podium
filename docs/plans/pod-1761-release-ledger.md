@@ -949,12 +949,14 @@ columns prove the untouched paths stayed untouched.
 | A9 | kill session | ☐ | ☐ | BLOCKED (H/T) | ☐ | ☐ | process tree gone (check the process table, not the UI); no orphan servers after 5 min |
 | A10 | driver identity | n/a | ☐ | PASS (H/T) | ☐ | n/a | session reports server family; `PODIUM_RUNTIME_DRIVER=generic-pty` demotes it (escape hatch works) |
 
-POD-2877 drove every Grok row on both arms in the initial pass (H = headless, T
+POD-2877 drove every Grok row on both arms in the initial pass at
+2026-08-26 14:42:58–14:50:50 CEST (H = headless, T
 = explicit `generic-pty` terminal). The normal-home Grok credential was absent:
 H cells bound `generic-pty` instead of `grok-acp`, while T cells reached the
 logged-out login screen; those ordinary cells are BLOCKED because their
 positive controls could not fire. A8's login-path control fired on both arms;
-the authenticated follow-up then proved the post-login server binding on H, so
+the authenticated follow-up at 2026-08-26 15:16:08–15:27:13 CEST then proved the
+post-login server binding on H, so
 A8 is PASS on H and remains PARTIAL on T because T is the intentional terminal
 comparison arm. A10 is PASS on both arms: H reported `grok-acp`/server and T
 reported `generic-pty`/terminal under the explicit override. The Tier-B provider
@@ -962,13 +964,16 @@ spot-check is also PASS on both arms: H exposed the typed `usage_limit` error
 and T showed Grok's `Weekly limit left: 0%` after the delivered probe. The OOM
 spot-check remains BLOCKED. Full evidence and per-cell pins are in
 `docs/evidence/pod-2877/GROK-REPORT.md`.
-The operator confirmed the account is out of quota until 2026-08-27 11:03 CEST;
+The operator's normal-home credential had mtime 2026-08-26 15:02:59 CEST, and
+the first exhausted-quota provider error was observed at 2026-08-26 15:16:15
+CEST; the account is out of quota until 2026-08-27 11:03 CEST;
 that quota cause is kept distinct from the initial logged-out cause, and the
 remaining ordinary rows were not retried. Their historical logged-out BLOCKED
 evidence remains recorded, but with authentication present their current
 BLOCKED cause is quota exhaustion; it is not a second logged-out finding.
 After the release merge landed at `7b9d9eacb`, this branch was rebased and the
-three newly drivable checks were re-run at server/daemon SHA
+three newly drivable checks were re-run at 2026-08-26 15:44:51–15:48:25 CEST at
+server/daemon SHA
 `ac391d07c23aba33ac1fe6c40c390c33d1929941` with web source `ac391d0`; all
 post-merge verdicts matched the authenticated follow-up above.
 

@@ -1,10 +1,22 @@
 # Grok acceptance drive
 
-POD-2877 drove the Grok column on 2026-08-26. The ledger describes this as 15
+POD-2877 drove the Grok column on 2026-08-26 14:42:58–14:50:50 CEST. The ledger describes this as 15
 rows, but the Tier-A table contains 16 named rows (A1a through A10); all 16
 were driven on both arms, serially, with a free-memory check before each cell.
 
-## Initial unauthenticated drive matrix
+## Timestamped drive timeline
+
+All times below are CEST and come from the raw reading timestamps, except the
+credential timestamp, which is the normal-home `auth.json` mtime. This record
+amendment was written at 2026-08-26 16:21:31 CEST.
+
+- Initial unauthenticated drive: 2026-08-26 14:42:58–14:50:50 CEST.
+- Normal-home credential: 2026-08-26 15:02:59 CEST, 1738 bytes, mode 600.
+- Authenticated follow-up, including the neutral-token quota confirmations:
+  2026-08-26 15:16:08–15:27:13 CEST.
+- Post-merge confirmation: 2026-08-26 15:44:51–15:48:25 CEST.
+
+## Initial unauthenticated drive matrix — 2026-08-26 14:42:58–14:50:50 CEST
 
 H is the normal headless policy arm; T is the explicit
 `PODIUM_RUNTIME_DRIVER=generic-pty` terminal arm.
@@ -35,9 +47,10 @@ H is the normal headless policy arm; T is the explicit
 | Provider error names the quota reason | BLOCKED | BLOCKED | No authenticated Grok turn could be created; no provider error was scored |
 | OOM-killed session is not shown as finished | BLOCKED | BLOCKED | No safe OOM injector was used; a raw SIGKILL would not prove OOM classification |
 
-## Authenticated follow-up — the three requested checks
+## Authenticated follow-up — the three requested checks — 2026-08-26 15:16:08–15:27:13 CEST
 
-The operator supplied the normal Grok credential after the initial drive. The
+The operator supplied the normal Grok credential after the initial drive; its
+normal-home `auth.json` mtime was 2026-08-26 15:02:59 CEST. The
 follow-up deliberately drove only the newly measurable cells; it did not retry
 the ordinary turn-dependent rows while Grok's quota was exhausted.
 
@@ -53,10 +66,11 @@ original A8 T cell remains **PARTIAL**: its login-path control fired, while the
 explicit `generic-pty` arm is intentionally not a server-driver arm; that
 server-family comparison is scored by A10.
 
-## Post-merge confirmation — release tip
+## Post-merge confirmation — release tip — 2026-08-26 15:44:51–15:48:25 CEST
 
 After the release merge landed at `7b9d9eacb`, this branch was rebased onto the
-local epic ref and `git merge-base --is-ancestor 7b9d9eacb HEAD` passed. The
+local epic ref and `git merge-base --is-ancestor 7b9d9eacb HEAD` passed before
+the 2026-08-26 15:44:51–15:48:25 CEST readings. The
 served web bundle was rebuilt, and the same three requested checks were driven
 again on H; A10 and the quota spot-check were then driven on T. No other rows
 were retried.
@@ -73,7 +87,7 @@ both processes to `ac391d07c23aba33ac1fe6c40c390c33d1929941` and the web bundle 
 `ac391d0`, with the same named instance and no product-derived-path overrides.
 The post-merge memory readings were 1982–2816 MiB on H and 2356–3444 MiB on T.
 
-## Red count
+## Red count — final post-merge reading at 2026-08-26 15:48:25 CEST
 
 **FAIL reds: 0.** There were no scored FAIL cells, so no product-red issue was
 filed. The current record has **1 PARTIAL attention cell** (A8 T) and **28
