@@ -187,6 +187,46 @@ the truth** — it is not what to change:
 Measured live on opencode 1.18.16: before, 1 failed with 3 errors; after,
 1 passed, 0 errors, 31s of assertions against 184s of timeouts.
 
+## THE FULL SUITE — RED, AND MY FIRST BASELINE COMPARISON WAS INVALID
+
+**The epic's full `test:unit` sweep is RED**: 12 of 28 tasks, 26m57s, nothing
+cached. `@podium/web` alone is **84 tests failed across 22 files** (3161 passed),
+with `useStore outside StoreProvider` recurring. This is the first time this
+branch has ever had that gate run, which is why it was worth running before
+anyone merges.
+
+**Red is not the same as OURS**, and the known baseline (POD-2040) covers about
+six tests, so twelve failing packages needed a comparison rather than an
+assumption.
+
+**MY FIRST COMPARISON WAS MY OWN RIG AND I AM DISCARDING IT.** I stood a detached
+`main` worktree at `206693584` with per-entry `node_modules` symlinks and ran the
+identical sweep. It came back far redder — web `1104 failed / 2023 passed` against
+the epic's `84 / 3161` — which was too good to believe, so I checked before
+reporting it. The failures are:
+
+```
+639  TypeError: null is not an object (evaluating 'resolveDispatcher().useState')
+184  ... useMemo      121  ... useRef      57  ... dispatcher.useContext
+```
+
+That is **React failing to resolve**, not a product defect. And the decisive
+tell: `main-baseline` has **0 built `dist` directories against the epic
+worktree's 8**. A per-entry symlink tree without built packages cannot run the
+web suite at all.
+
+So the honest position is: **the epic's 12 red packages are unattributed.** Not
+"main is worse" — that claim was available, flattering, and false. This is the
+same rule POD-2777 arrived at from the other side: *a guard cannot tell the rig's
+fault from the product's, which is why each refusal needs a diagnosis before it
+becomes a report.*
+
+**Next**: the epic sweep is re-running with full capture (its first run was piped
+through `tail -60`, which discarded eleven of the twelve per-package summaries —
+my error), to get the failing test NAMES. Those specific files can then be run
+against a properly BUILT main worktree, which is a far cheaper and more honest
+comparison than another whole-suite sweep on a rig I have not validated.
+
 ## STEP 2's CRITERION IS MET — the epic's violations are a strict subset of main's
 
 POD-2823 closed the last ten harness-branching lines. Verified by running the
