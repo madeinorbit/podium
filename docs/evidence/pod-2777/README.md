@@ -36,6 +36,17 @@ bundle stamp, the source the server and daemon import under
 components disagree about which commit they are. The order is: **commit, rebase,
 THEN build.** Never overlap the last two.
 
+**And I broke this rule again within the hour, in its other direction** — not by
+rebasing under a running build but by COMMITTING under one. The bundle stamp
+carries the source sha, so a commit mid-build leaves the rig pinned to the
+pre-commit sha and `drive-verify.sh` refuses exactly as before. The rule is
+therefore stronger than "commit, rebase, then build": **freeze HEAD for the whole
+build.** Any git operation that moves HEAD — commit, rebase, checkout —
+invalidates a build in flight, and the cost is a full bundle rebuild on a loaded
+box.
+
+Written down twice because I made it twice, an hour apart, in both directions.
+
 
 ## Two rig defects the sweep found in itself
 
