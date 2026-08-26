@@ -151,12 +151,34 @@ echo "server healthy on :$PODIUM_PORT"
 # session degrades to a generic PTY, which is a PERFECT false negative for a
 # drive whose whole subject is headless-vs-terminal. drive.ts refuses any probe
 # whose session did not bind the driver its arm asked for, for this reason.
+# THIS RIG NO LONGER SEEDS CLAUDE'S CREDENTIAL, DELIBERATELY.
+#
+# It used to copy $HOME/.claude/.credentials.json into the agent home. That
+# copy is a HAZARD and this rig has no use for it — POD-2777 drives codex and
+# opencode, never claude.
+#
+# Why it is a hazard, established read-only in claude-credential-safety.md:
+# rotation is triggered by RUNNING THE CLAUDE BINARY AGAINST A HOME WHOSE ACCESS
+# TOKEN HAS EXPIRED. A seeded copy goes stale on its own — this one expired at
+# 15:52 while the operator's live credential rotated at 15:47 to a DIFFERENT
+# refresh token. So the agent home ends up holding an expired access token beside
+# an already-SUPERSEDED refresh token, and presenting a rotated refresh token is
+# the case that may be treated as replay and revoke the whole family — the
+# operator's daily driver included.
+#
+# The copy that was there has been quarantined out of the home rather than
+# deleted (/tmp/pod-2777/quarantine/), so this rig can no longer fire that
+# trigger even by accident. `.claude.json` is still seeded: it carries folder
+# trust and settings, not a token.
+#
+# If a future drive here needs a logged-in claude, do NOT re-add this line.
+# Read claude-credential-safety.md first — there is a safe path and a deadline,
+# and it is the operator's decision rather than a rig's.
 AGENT_HOME="$P2777_STATE_ROOT/agent-home"
 mkdir -p "$AGENT_HOME/.claude" "$AGENT_HOME/.grok" "$AGENT_HOME/.codex" \
          "$AGENT_HOME/.local/share/opencode" "$AGENT_HOME/.config/opencode"
 chmod 700 "$AGENT_HOME"
 for pair in \
-  "$HOME/.claude/.credentials.json:$AGENT_HOME/.claude/.credentials.json" \
   "$HOME/.claude.json:$AGENT_HOME/.claude.json" \
   "$HOME/.codex/auth.json:$AGENT_HOME/.codex/auth.json" \
   "$HOME/.codex/config.toml:$AGENT_HOME/.codex/config.toml" \
