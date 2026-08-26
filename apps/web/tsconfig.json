@@ -2,6 +2,7 @@
   "extends": "../../tooling/tsconfig/react.json",
   "compilerOptions": {
     "paths": { "@/*": ["./src/*"] },
+    "types": ["node", "chai", "react", "react-dom"],
     "preserveSymlinks": true
   },
   "include": ["src", "test", "vite.config.ts"]

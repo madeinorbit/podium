@@ -191,7 +191,7 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
 
     const started = performance.now()
     const originalConsoleError = console.error
-    vi.spyOn(console, 'error').mockImplementation((...args) => {
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
       if (!String(args[0]).startsWith('Base UI: A component that acts as a button')) {
         originalConsoleError(...args)
       }

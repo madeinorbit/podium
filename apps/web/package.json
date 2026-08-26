@@ -78,6 +78,8 @@
     "@tailwindcss/vite": "^4.3.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/chai": "^5.2.2",
+    "@types/node": "^25.9.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vite-pwa/assets-generator": "^1.0.2",

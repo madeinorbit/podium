@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, type Plugin, type PreviewServer, type ViteDevServer } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import {
   developmentSourceSha,
@@ -76,10 +76,10 @@ function mobileEntryRedirectPlugin(): Plugin {
   return {
     name: 'podium-mobile-entry-redirect',
     // Both source-mode Vite and built preview sit in front of the backend.
-    configureServer(server) {
+    configureServer(server: ViteDevServer) {
       server.middlewares.use(redirect)
     },
-    configurePreviewServer(server) {
+    configurePreviewServer(server: PreviewServer) {
       server.middlewares.use(redirect)
     },
   }

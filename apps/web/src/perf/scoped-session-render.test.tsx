@@ -60,7 +60,10 @@ const fakeTrpc = {
 
 vi.mock('../app/trpc', () => ({ makeTrpc: () => fakeTrpc }))
 
-vi.mock('@podium/terminal-client-react', async (importOriginal) => {
+type TerminalClientReactModule = typeof import('@podium/terminal-client-react')
+type ImportOriginal = <T extends TerminalClientReactModule = TerminalClientReactModule>() => Promise<T>
+
+vi.mock('@podium/terminal-client-react', async (importOriginal: ImportOriginal) => {
   const real = await importOriginal<typeof import('@podium/terminal-client-react')>()
   const React = await import('react')
   return {
