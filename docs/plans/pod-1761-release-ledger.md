@@ -282,6 +282,33 @@ restart. They worked around it with a fresh session per rep and said plainly it 
 be the rig. If it is real, the readiness queue is not covering the case it was
 built for.
 
+## A TEST CANNOT SCRUB PATH TO BECOME HERMETIC — worth knowing beyond its issue
+
+POD-2826's three host-dependent inventory tests are fixed (`ef1fe5838`), and it
+answered the question rather than guessing between the two options: **the injected
+exec WAS meant to bypass PATH resolution, and resolution was leaking past it.**
+History proves intent — before POD-2280 introduced `resolve()`, the probe used
+unresolved candidates and the same test asserted a path under the FIXTURE home;
+that commit rewrote the expectation to the bare name, **which is exactly what the
+fallback yields when resolution fails.** That is the day the assertion started
+depending on the host.
+
+**The general finding: you cannot make such a suite hermetic by editing PATH.**
+`createCommandEnvironment()` always appends `/usr/local/bin`, `/usr/bin`, `/bin`
+(plus `/opt/homebrew` on darwin) *after* the inherited PATH. Demonstrated: with a
+PATH holding only node and bun shims, the two agent assertions **flipped green**
+pre-fix — the host was deciding the verdict — while the `gh` one stayed red,
+because `gh` lives in `/usr/bin` and no PATH edit can hide it.
+
+**And the guards are built the right way round.** Rather than asserting the
+absence of resolution, two new tests **plant a real runnable file** named `claude`
+and `gh` in a temp dir on PATH, so the resolver genuinely answers and the guard
+fails on *every* machine — not only one that happens to have the CLIs installed.
+`probeTool` resolves separately from `candidatePaths`, so there is one guard each.
+
+**Verified by my own mutation:** restoring the old expression puts 3 of 28 back
+red; the fixed form is 28 passed, restored byte-identical.
+
 ## THE SWEEP'S RED, ATTRIBUTED — most of the remainder is MAIN'S
 
 Re-run per file against a detached main worktree, using the corrected method
