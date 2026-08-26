@@ -2441,3 +2441,49 @@ That last question settles something nobody has: **the driver is not persisted a
 auth — nothing carrying what the session was bound to before. So an old terminal session
 *should* rebind to a server driver, and whether its conversation survives that rebind is what
 this drive answers and nothing else can.
+
+## EXACT CELL ACCOUNTING, AND THE WEDGE SURVIVES THE MERGE (2026-08-26)
+
+**The P1 is on the branch that ships, not just on the pre-merge epic.** POD-2885 re-driven at
+`372ae4d` with main in and the TranscriptFeed repair in, rig pinned on all three components:
+**426 seconds at `phase=working`, previews frozen at 80, `transcriptChars=0`, `items=1`,
+never completes** — identical to the pre-merge shape, which froze at 82. That was the right
+cell to take first off the staleness list, since `inbox.ts`, `command-plane.ts` and
+`session.ts` all moved and the wedge is in shared code.
+
+### The codex + opencode scope, counted rather than estimated
+
+    scope        16 rows x 2 columns = 32 cells
+    DRIVEN       26   codex 15/16, opencode 11/16
+    NEVER DRIVEN  6   codex A8; opencode A2a A3 A7a A7b A9
+    of the 26:   A3 REFUSED on codex (unmeasurable until the wedge is fixed — its control
+                 needs the turn observed in flight and both planes are frozen by then)
+                 A4a/A4b BLOCKED on codex (that harness raises no approval on this host,
+                 controlled against codex run OUTSIDE Podium with the same flag)
+
+    STALE, by file-level analysis rather than wholesale
+      re-drive   codex column headless        (codex-app-server.ts moved)
+      re-drive   A1a A1b A5 on BOTH columns   (ten session-module files moved)
+      leave      opencode driver cells        (opencode-server.ts did not move)
+      leave      A6a A6b terminal arm         (generic-pty did not move)
+      done       the wedge, re-confirmed at 372ae4d
+
+So the outstanding work in that scope is **6 never-driven cells plus ~11 re-drives, not 32**.
+
+### A distinction that changes what a future red MEANS
+
+New defects can now only come from those six unknowns, **or from a re-drive changing a
+verdict** — and those are not the same finding. *A cell that passed before the merge and
+fails after it is a regression the merge introduced*, which is more alarming than a new
+defect and belongs in a different bucket. The five re-drivable rows have all passed once.
+
+**Defects: 7 found, 2 CLOSED AND DRIVEN, 5 open.**
+
+    CLOSED  POD-2867 codex socket overflow   POD-2873 reattach under a custom agent home
+    OPEN    POD-2885 long turns wedge (P1, confirmed post-merge)
+            POD-2878 delivered-then-destroyed (P1; POD-2870/2879 are the same defect
+                     showing on codex and claude)
+            POD-2893 one permission, two asks
+            POD-2871 cross-session transcript bleed
+            POD-2880 claude interrupt returns but the turn runs on — NEEDS ITS MAIN
+                     COMPARISON, and claude is the incumbent driver
