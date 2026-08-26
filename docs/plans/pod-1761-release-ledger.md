@@ -4055,3 +4055,28 @@ exists to fix.** The reason now sits at the call site too, pointing at the binde
 rather than a round: the hygiene rule says no reviewer round for a nitpick, and this was one line.
 
 **Three of nine unknowns now driven: two were broken, and this one is repaired.**
+
+### Parallelism on this box is bounded by DISK, not by CPU or memory (2026-08-27 01:27 CEST)
+
+Two hours ago I freed 38 worktrees and took root from 375MB to 17GB. **It is back to 11GB**, and
+the cause is me: I started three new sessions, and a worktree with its own `node_modules` costs
+**2–3GB**. Three sessions ate two thirds of what the sweep recovered, plus POD-2915's web builds
+on top.
+
+**So the constraint on running more drivers is not load and not memory — both are comfortable
+(load 11.9, 5GB available, swap-out zero). It is disk, and I did not see that coming when I
+split the unknowns across two sessions.** The CPU headroom I was reasoning from was real and
+irrelevant.
+
+**The working rule from now on: free a finished worktree BEFORE starting a new session, not after.**
+`podium issue stop <id>` is the verb; it keeps the branch and transcripts. Freed POD-2902,
+POD-2878 and POD-2914 just now on that basis — all three closed tonight — for about 1.5GB.
+
+**Remaining headroom I have not taken:** the 34 worktrees my sweep SKIPPED, each for cause — a
+dirty tree, or genuinely unlanded commits. Some of that dirt is weeks old and some of those
+branches have since landed by content. Working through them individually would free real space,
+but each one needs the same three checks and it is not a sweep — it is a session's work, and the
+epic's open defects come first.
+
+**Ceiling as it stands: about three more concurrent sessions before the disk is the wall again**,
+and a web build needs room on top of that. I am not starting more drivers tonight.
