@@ -1,3 +1,13 @@
+/**
+ * The pre-POD-1677 composer — the model rail slung UNDER the capsule through
+ * the `below` prop, taken from 1b1253ef0 so the move into the control row can
+ * be judged against the thing it replaced. Capture only; nothing ships this.
+ *
+ * Changed from that revision in two ways and no others: the relative imports
+ * are rewritten for this directory, and the exports are renamed so both
+ * layouts can stand on one page. The layout, the styles and the geometry are
+ * untouched.
+ */
 import { BlurView } from 'expo-blur'
 import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from 'lucide-react-native'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
@@ -17,25 +27,28 @@ import {
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
-import { useReduceMotion } from '../hooks/useReduceMotion'
-import { type VoiceInput, useVoiceInput } from '../hooks/useVoiceInput'
-import { onMediaPaste } from '../lib/composer-media'
-import { alpha } from '../theme/mix'
-import { color, font, leading, radius, sans, space, spring } from '../theme/theme'
-import { AttachmentStrip } from './AttachmentStrip'
+import { AttachmentStrip } from '../src/components/AttachmentStrip'
 import {
   COMPOSER_LINE,
   composerAtRest,
   composerFieldHeight,
   composerMaxHeight,
   composerScrolls,
-} from './composer-height'
-import { composerKeyAction, hasHardwareKeyboard } from './composer-keys'
-import { useComposerMeasure } from './composer-measure'
-import { Icon } from './Icon'
-import { PressableScale } from './PressableScale'
-import type { ComposerAttachmentsApi, SentAttachment } from './useComposerAttachments'
+} from '../src/components/composer-height'
+import { composerKeyAction, hasHardwareKeyboard } from '../src/components/composer-keys'
+import { useComposerMeasure } from '../src/components/composer-measure'
+import { Icon } from '../src/components/Icon'
+import { PressableScale } from '../src/components/PressableScale'
+import type {
+  ComposerAttachmentsApi,
+  SentAttachment,
+} from '../src/components/useComposerAttachments'
+import { useKeyboardVisible } from '../src/hooks/useKeyboardVisible'
+import { useReduceMotion } from '../src/hooks/useReduceMotion'
+import { useVoiceInput, type VoiceInput } from '../src/hooks/useVoiceInput'
+import { onMediaPaste } from '../src/lib/composer-media'
+import { alpha } from '../src/theme/mix'
+import { color, font, leading, radius, sans, space, spring } from '../src/theme/theme'
 
 const CONTROL_TARGET = 44
 /** The filled disc inside a control's 44pt target — send, and mic while live. */
@@ -49,14 +62,14 @@ const GLYPH = 20
  */
 const TEXT_INSET = space.xs
 
-export function appendDictation(current: string, phrase: string): string {
+function appendDictation(current: string, phrase: string): string {
   const finalized = phrase.trim()
   if (!finalized) return current
   if (!current || /\s$/.test(current)) return `${current}${finalized}`
   return `${current} ${finalized}`
 }
 
-export function composerVoiceStatus(
+function composerVoiceStatus(
   voice: Pick<VoiceInput, 'starting' | 'listening' | 'statusMessage' | 'error'>,
 ): string {
   if (voice.starting) return voice.statusMessage ?? 'Starting dictation…'
@@ -102,7 +115,7 @@ export function composerVoiceStatus(
  * this app means "waiting on you"; a permanently accented composer spends the
  * one signal on furniture.
  */
-export function Composer({
+export function BelowComposer({
   placeholder,
   onSend,
   disabled,
@@ -110,8 +123,7 @@ export function Composer({
   captionTone = 'working',
   draftInsertion,
   attachments,
-  // Aliased: `leading` is also the theme's line-height helper, imported above.
-  leading: leadingSlot,
+  below,
   bottomInset = 0,
   onRestingHeight,
 }: {
@@ -136,19 +148,10 @@ export function Composer({
    */
   attachments?: ComposerAttachmentsApi
   /**
-   * Rides at the LEADING end of the control row, after the attach control —
-   * the Superagent model/effort rail.
-   *
-   * It used to hang under the capsule as a third band, on the reasoning that
-   * anything inside the well would steal tap targets from the text. That held
-   * while the field shared its line with the controls; it does not now that
-   * the field owns a full-width row of its own [POD-1659]. Below the capsule
-   * it left the control row's whole leading half empty and stacked a third
-   * band under a two-row box. Whatever lands here has to SHRINK — the row's
-   * trailing pair is two fixed 44pt targets, and the leading slot gets what
-   * is left.
+   * Sits UNDER the well, still inside the dock — the Superagent model/effort
+   * rail. Outside the capsule so it is never an unreachable text target.
    */
-  leading?: ReactNode
+  below?: ReactNode
   /**
    * Chrome already sitting below the composer that has paid the bottom safe
    * area for it — the floating tab bar. Zero (the default) means the composer
@@ -185,7 +188,6 @@ export function Composer({
   const { width, fontScale } = useWindowDimensions()
   const attached = attachments?.attachments ?? []
   const uploading = attachments?.uploading ?? false
-  const takesAttach = Boolean(attachments?.pick ?? attachments?.paste)
   // An attachment with no words IS a message — "look at this" is the whole
   // prompt half the time. What must never be sent is a path that has not
   // finished uploading, so a chip in flight blocks the send rather than racing
@@ -361,15 +363,12 @@ export function Composer({
             so the row keeps its shape when one end is empty — a composer with
             no attach control must not centre its send disc. */}
         <View style={styles.controls}>
-          {takesAttach ? (
+          {attachments?.pick || attachments?.paste ? (
             <AttachButton
-              mode={attachments?.pick ? 'pick' : 'paste'}
+              mode={attachments.pick ? 'pick' : 'paste'}
               disabled={disabled === true}
-              onPress={attachments?.pick ?? attachments?.paste ?? (() => {})}
+              onPress={attachments.pick ?? attachments.paste ?? (() => {})}
             />
-          ) : null}
-          {leadingSlot ? (
-            <View style={[styles.leading, !takesAttach && styles.leadingAlone]}>{leadingSlot}</View>
           ) : null}
           <View style={styles.controlGap} pointerEvents="none" />
           {voice.supported ? (
@@ -385,6 +384,7 @@ export function Composer({
           <SendButton ready={canSend} onPress={send} reduceMotion={reduceMotion} />
         </View>
       </BlurView>
+      {below}
     </View>
   )
 }
@@ -668,28 +668,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: -(CONTROL_TARGET - GLYPH) / 2 + TEXT_INSET,
     marginTop: space.xs,
-  },
-  /**
-   * The leading slot's box. It SHRINKS and the trailing pair does not: the two
-   * 44pt targets are fixed, so a long model label ellipsizes rather than
-   * pushing send off the row.
-   */
-  leading: {
-    flexShrink: 1,
-    minWidth: 0,
-    // Shrinking stops exactly where the trailing target begins, which reads as
-    // a chip kissing the mic once a long label truncates. This is the air the
-    // flexing gap cannot guarantee, because at narrow widths there is none.
-    marginRight: space.sm,
-  },
-  /**
-   * With no attach control in front of it, the slot pays back half the
-   * difference the row's negative inset took out, so a chip's border starts on
-   * the same left edge a glyph would have. Alongside the paperclip it needs
-   * nothing: that target already carries those 12 points as trailing air.
-   */
-  leadingAlone: {
-    marginLeft: (CONTROL_TARGET - GLYPH) / 2,
   },
   controlGap: {
     flex: 1,

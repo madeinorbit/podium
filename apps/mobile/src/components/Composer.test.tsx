@@ -117,20 +117,20 @@ describe('Composer floating dock', () => {
     expect(dockOf(container)?.style.paddingBottom).toBe('42px')
   })
 
-  it('renders a below slot outside the well', () => {
+  it('renders a leading slot inside the control row, ahead of send', () => {
     const { container } = render(
       <Composer
         placeholder="Message the agent…"
         onSend={vi.fn()}
-        below={<div data-testid="composer-below">rail</div>}
+        leading={<div data-testid="composer-leading">rail</div>}
       />,
     )
-    const bar = container.querySelector('[data-testid="composer-bar"]')
-    const below = container.querySelector('[data-testid="composer-below"]')
-    expect(bar).not.toBeNull()
-    expect(below).not.toBeNull()
-    expect(bar?.contains(below)).toBe(false)
-    expect(dockOf(container)?.contains(below)).toBe(true)
+    const slot = container.querySelector('[data-testid="composer-leading"]')
+    const send = screen.getByRole('button', { name: 'Send' })
+    if (!slot) throw new Error('leading slot not rendered')
+    // Inside the capsule now, not slung under it [POD-1677].
+    expect(container.querySelector('[data-testid="composer-bar"]')?.contains(slot)).toBe(true)
+    expect(slot.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('lets chrome below it replace that inset rather than stacking on it', () => {

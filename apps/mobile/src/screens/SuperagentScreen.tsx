@@ -507,7 +507,7 @@ export function SuperagentScreen() {
             onSend={send}
             draftInsertion={draftInsertion}
             bottomInset={tabBarInset}
-            below={
+            leading={
               <SuperagentBackendRail
                 backend={backend}
                 modelCatalog={modelCatalog}

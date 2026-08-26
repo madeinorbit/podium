@@ -83,9 +83,9 @@ vi.mock('../components/TranscriptList', () => ({
   },
 }))
 vi.mock('../components/Composer', () => ({
-  Composer: ({ below, onSend }: { below?: ReactNode; onSend: (text: string) => void }) => (
+  Composer: ({ leading, onSend }: { leading?: ReactNode; onSend: (text: string) => void }) => (
     <div>
-      {below}
+      {leading}
       <button type="button" onClick={() => onSend('hello')}>
         send
       </button>

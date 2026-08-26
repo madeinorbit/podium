@@ -39,6 +39,20 @@ export default defineConfig({
         find: /^lucide-react-native$/,
         replacement: fileURLToPath(new URL('./harness/stub-lucide.tsx', import.meta.url)),
       },
+      // The backend-rail harness (POD-1677) pulls the real rail, whose model
+      // picker is the app's one BottomSheet — reanimated, gesture-handler and
+      // worklets, none of which a plain vite page has a runtime for. Every
+      // captured state has the sheet closed, so a closed sheet is the whole
+      // contract. Anchored per import site: a bare suffix match would rewrite
+      // the specifier into a relative-plus-absolute path.
+      {
+        find: /^\.\/BottomSheet$/,
+        replacement: fileURLToPath(new URL('./harness/stub-bottom-sheet.tsx', import.meta.url)),
+      },
+      {
+        find: /^\.\.\/src\/components\/BottomSheet$/,
+        replacement: fileURLToPath(new URL('./harness/stub-bottom-sheet.tsx', import.meta.url)),
+      },
       // react-native-svg's package entry points at Flow-typed native source
       // (its `react-native` export condition), which nothing here can parse,
       // and its web barrel re-exports an XML/uri layer with its own tangles.
