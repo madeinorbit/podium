@@ -487,3 +487,32 @@ written for. It reported a cell as still blocked by a fix already sitting in its
 
 **When you automate a rule, check the automation against the case that motivated it**, not
 against the next case.
+
+## If a probe's PASS is a REFUSAL, say that loudest (2026-08-26 17:35 CEST)
+
+Two probes on this epic both **refuse** once the defect they were built for is gone, because
+there is nothing left to measure:
+
+- the parked-turn probe refuses on its first control once nothing parks any more
+- the interrupt probe refuses while a freeze is present, because its control watches for the
+  turn **in flight** and the freeze stops exactly what it watches
+
+**Found cold, either reads as a broken run and costs an hour** of debugging a working fix.
+`REFUSED` is the verdict that looks most like failure while meaning least like it.
+
+**So: when you hand over a probe, say what its pass looks like — and publish the baseline of
+what the refusal itself looks like**, field by field, so someone meeting it cold recognises it:
+
+    control watched: <what must be moving>
+    control saw:     <the frozen values>
+    verdict:         REFUSED — control did not fire, refusing to report this measurement
+
+## A completion test cannot prove a freeze is gone (2026-08-26 17:35 CEST)
+
+A fix to a freeze can **restore completion while the plane still stops early** — the turn
+finishes, and anyone watching mid-flight still sees a dead session. A count taken at the end
+cannot tell *"frames arrived steadily for four hundred seconds"* from *"frames arrived for
+twenty seconds, stopped, and the turn completed anyway"*.
+
+**Sample the moving quantity at intervals across the whole run**, and show it climbing. Then
+have an *independent* probe — one whose control needs mid-flight motion — confirm it.
