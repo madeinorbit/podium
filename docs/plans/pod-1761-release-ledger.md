@@ -2398,3 +2398,46 @@ moment there is room — waking it at load 41 would only produce readings on a s
 **The lesson I keep re-learning at a different scale:** ten sessions is more than this box
 supports, and I discover that by watching load climb rather than by planning for it. The
 defect owners are the work; everything else yields to them.
+
+## TWO OF SIX DEFECTS CLOSED AND DRIVEN (2026-08-26)
+
+**POD-2873 closed** — reattach reading the daemon's `HOME` while the master was created under
+`ctx.homeDir`. I read the readings rather than the summary, and all three arms hold:
+
+| arm | result |
+| --- | --- |
+| **legacy control** | PASS — the row went `exited`/`-1` **while its live master remained on disk** |
+| **fixed, exposed** | PASS — reattach found the live master after a real daemon restart |
+| **fixed, safe** | PASS — named instance and unmodified default both still work |
+
+A positive control fired in each: live row *and* live terminal master present before anything
+was measured. 930 lines of rig and readings, with complete API rows, SQLite rows and direct
+socket scans.
+
+**The safe-config arm is the one most fixes skip.** Proving the exposed configuration now
+works is easy; proving the two *safe* ones still work is what rules out a fix that overlays
+the wrong `HOME` and breaks the ordinary case silently.
+
+**And sending it back was right for a reason worth restating.** Its original three-line fix
+was *correct* — I said so then and still think so. But the defect is **one-sided toward
+absent**: it fails by reporting a live session as gone and leaking its master until reboot.
+That is exactly the class a unit test passes and a real daemon still gets wrong, because what
+differs is *which `HOME` a process was actually spawned with*, not what the code says it
+passes. Only a drive separates those.
+
+**Closed so far:** POD-2867 (codex socket overflow), POD-2873 (reattach under a custom agent
+home). **Open:** the two P1s (long turns wedge, delivered-then-destroyed), one permission
+opening two cards, cross-session transcript bleed.
+
+### The upgrade drive is woken
+
+POD-2858 had hibernated waiting for a second arm that did not exist. It exists now. Its
+before-arm was banked hours ago across all four harnesses with boot SHAs recorded, so what
+remains is the **read**, not a re-run: does each pre-cutover session list, resume, keep its
+history, and **which driver does it come back on**.
+
+That last question settles something nobody has: **the driver is not persisted anywhere.**
+`resolveDriver` takes agent kind, request, machine default, available drivers, platform and
+auth — nothing carrying what the session was bound to before. So an old terminal session
+*should* rebind to a server driver, and whether its conversation survives that rebind is what
+this drive answers and nothing else can.
