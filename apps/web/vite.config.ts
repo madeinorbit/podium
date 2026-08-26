@@ -386,6 +386,16 @@ export default defineConfig(({ mode }) => {
         'crelt',
         'style-mod',
         'clsx',
+        // `motion` is declared here, but bun hoists it and its two internal
+        // packages to the repo root. From a worktree the web build then
+        // resolved `motion-dom` twice — once from its own root and once by
+        // walking up into the parent checkout, since `.worktrees/` lives
+        // inside it — and the budget check refused the bundle. Containers
+        // never saw it because they have no parent checkout to walk up into,
+        // so this only ever failed for someone building from a worktree.
+        'motion',
+        'motion-dom',
+        'motion-utils',
         '@dnd-kit/core',
         '@dnd-kit/utilities',
         '@dnd-kit/sortable',
