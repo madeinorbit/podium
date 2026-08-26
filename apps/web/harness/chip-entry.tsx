@@ -21,7 +21,8 @@
  */
 import type { IssueStage } from '@podium/model'
 import { decorateIssueRefAnchors, issueReferenceLookup } from '@/lib/issue-chip-liveness'
-import { renderMarkdown, setKnownRefPrefixes } from '@/lib/markdown'
+import { renderMarkdown } from '@/lib/markdown'
+import { setKnownRefPrefixes } from '@/lib/markdown-references'
 import { makeIssue } from '@/lib/test-issue'
 import '@/index.css'
 import '@/styles.css'
