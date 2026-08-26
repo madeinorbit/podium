@@ -5,6 +5,7 @@ import {
   type AgentPhase,
   type AgentRuntimeState,
   actorAgent,
+  actorUser,
   agentCapabilityRejection,
   asAgentIdentityId,
   asMachineId,
@@ -16,8 +17,8 @@ import {
   type SessionId,
   SOLE_USER_ID,
 } from '@podium/model'
-import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
-import { type ControlMessage } from '@podium/protocol/daemon'
+import { asDelegationRef, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
 /** Every durable session row names a machine (POD-318) — there is no column default. */
@@ -2740,6 +2741,35 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
   })
 })
 
+/**
+ * THE TWO LANES AGREE FROM HERE, AND THIS IS THE SENTENCE THAT SAYS SO (POD-2837).
+ *
+ * `apps/server/src/modules/sessions/inbox.test.ts` is the unit lane over the
+ * same call, and it asserts `{ok: true, queued: true}` for a chat send to a
+ * bound claude-code session with nothing on the PTY until the readiness window
+ * has run. This file used to assert the opposite about that one call — a bare
+ * `{ok: true}` and a bracketed paste on the wire at +100ms of fake time. The
+ * tip carried both answers; only one lane was gated; an eleven-test regression
+ * stayed invisible for three days.
+ *
+ * THE QUEUE IS THE CONTRACT for a bound, idle claude-code session (ruled
+ * 2026-08-26, `docs/plans/pod-1761-release-ledger.md`). A bind makes a session
+ * live BEFORE its composer is mounted, and bytes typed into an unmounted
+ * composer are accepted by the pty and dropped by the app (POD-2116) — a
+ * SILENT loss, where the queue's cost is a visible wait. Claude's composer
+ * readiness cannot be observed at all (`composerReadiness: 'confirmed-turn'`,
+ * POD-2823), so the only proof it will take typing is a user turn in the
+ * transcript, and no synchronous contract can be honoured for it.
+ *
+ * SO IF YOU CHANGE ONE LANE, CHANGE THE OTHER. A repo that asserts both
+ * answers drifts back to whichever one nobody runs.
+ *
+ * WHAT DID NOT CHANGE IS A SINGLE BYTE. The paste wrapper, the separated CR,
+ * the bounded submit retry and the needs_user guard are asserted below exactly
+ * as they were — same envelopes, same `\r`, same counts. Only the moment they
+ * are asserted at moved, and the tests now reach the typing by driving the
+ * queue instead of by assuming there is no queue.
+ */
 describe('sendText (chat send path)', () => {
   const readInputs = (daemon: ControlMessage[]): string[] =>
     daemon
@@ -2755,6 +2785,53 @@ describe('sendText (chat send path)', () => {
       sessionId,
       state: { phase, since: '2026-01-01T00:00:00.000Z', nativeSubagentCount: 0, ...extra },
     }) as const
+
+  /**
+   * Run fake time forward until the readiness queue types its head row, and
+   * STOP THERE — inside the `SUBMIT_CR_DELAY_MS` window, so the caller can
+   * still assert that the submitting CR is a separate, later write. That
+   * separation is the POD-152 property these tests exist for, and asserting it
+   * is the reason this steps rather than jumping.
+   *
+   * DELIBERATELY NOT A HARDCODED WAIT. `inbox.ts` polls readiness every 200ms
+   * and, for a session whose terminal never paints, has nothing to settle
+   * against — so it delivers at the `READY_MAX_MS` ceiling. Writing that
+   * ceiling down here would make these tests re-fail the day POD-2836 anchors
+   * the same window to the BIND instead of to the send, which moves WHEN the
+   * row is typed and changes nothing about WHAT is typed. The step is smaller
+   * than the CR delay, so no advance can ever fuse the paste and the CR into
+   * one assertion.
+   */
+  const READY_STEP_MS = 50
+  const READY_CEILING_MS = 15_000
+  const advanceToComposerReady = (typedCount: () => number): void => {
+    const before = typedCount()
+    for (let waited = 0; waited < READY_CEILING_MS; waited += READY_STEP_MS) {
+      vi.advanceTimersByTime(READY_STEP_MS)
+      if (typedCount() > before) return
+    }
+    throw new Error('the queued row never reached the PTY inside the readiness window')
+  }
+
+  /**
+   * THE SUBMITTING CR IS A SEPARATE PTY READ, not merely a separate frame — and
+   * this is the assertion POD-152 actually needs. A CR fused to the paste-end
+   * marker is swallowed by the Claude renderer: the message types in and the
+   * turn never starts.
+   *
+   * IT NEEDED STRENGTHENING TO SURVIVE THE MOVE, and the weakness was there
+   * before it. This fake clock does not run a timer scheduled DURING a tick
+   * until the next advance, so "the paste is alone at the moment of delivery"
+   * is equally true of a CR sent with no delay at all — mutating
+   * `SUBMIT_CR_DELAY_MS` to 0 left every one of these tests green, on the old
+   * synchronous shape as much as on this one. One millisecond tells them
+   * apart: a zero-delay CR has already landed, a deferred one has not.
+   */
+  const expectSubmitStillDeferred = (read: () => string[], paste: string): void => {
+    expect(read()).toEqual([paste])
+    vi.advanceTimersByTime(1)
+    expect(read()).toEqual([paste])
+  }
 
   it('POD-901: first Grok chat send types raw keystrokes, not bracketed paste', () => {
     vi.useFakeTimers()
@@ -2789,13 +2866,23 @@ describe('sendText (chat send path)', () => {
         cwd: '/w',
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      // ONE ANSWER, THE SAME ONE `inbox.test.ts` GIVES: the send is accepted and
+      // held, not typed. `queued: true` is the caller's warning that the bytes
+      // are not on the wire yet.
       expect(reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })).toEqual({
         ok: true,
+        queued: true,
       })
-      // The paste block goes out immediately; the submitting CR is DEFERRED so it
+      // And nothing is typed into a composer that has not proven it is mounted.
+      // This is the whole point of the queue: the pty would ACCEPT these bytes
+      // and the app would drop them, with nothing to say so.
+      vi.advanceTimersByTime(100)
+      expect(readInputs(daemon)).toEqual([])
+      // The paste block goes out as one write; the submitting CR is DEFERRED so it
       // lands in a separate PTY read — a CR fused to the paste-end marker is swallowed
       // by the new Claude renderer, so the message types in but the turn never starts.
-      expect(readInputs(daemon)).toEqual(['\x1b[200~run the tests\x1b[201~'])
+      advanceToComposerReady(() => readInputs(daemon).length)
+      expectSubmitStillDeferred(() => readInputs(daemon), '\x1b[200~run the tests\x1b[201~')
       vi.advanceTimersByTime(100)
       expect(readInputs(daemon)).toEqual(['\x1b[200~run the tests\x1b[201~', '\r'])
     } finally {
@@ -2814,7 +2901,14 @@ describe('sendText (chat send path)', () => {
         cwd: '/w',
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      reg.modules.sessions.sendText({ sessionId, text: 'a\nb' })
+      expect(reg.modules.sessions.sendText({ sessionId, text: 'a\nb' })).toEqual({
+        ok: true,
+        queued: true,
+      })
+      advanceToComposerReady(() => readInputs(daemon).length)
+      // The embedded newline stays INSIDE the paste envelope — it must never be
+      // the thing that submits a half-written message.
+      expectSubmitStillDeferred(() => readInputs(daemon), '\x1b[200~a\nb\x1b[201~')
       vi.advanceTimersByTime(100)
       expect(readInputs(daemon)).toEqual(['\x1b[200~a\nb\x1b[201~', '\r'])
     } finally {
@@ -2836,6 +2930,11 @@ describe('sendText (chat send path)', () => {
       // An image send: the composer converts the pasted path to an attachment,
       // which outlasts the CR delay — the CR is swallowed, nothing submits.
       reg.modules.sessions.sendText({ sessionId, text: '/up/img.png\nlook at this' })
+      advanceToComposerReady(() => readInputs(daemon).length)
+      expectSubmitStillDeferred(
+        () => readInputs(daemon),
+        '\x1b[200~/up/img.png\nlook at this\x1b[201~',
+      )
       vi.advanceTimersByTime(100)
       expect(readInputs(daemon)).toEqual(['\x1b[200~/up/img.png\nlook at this\x1b[201~', '\r'])
       // No user-turn echo and the phase never left idle → verify resends the CR.
@@ -2863,6 +2962,10 @@ describe('sendText (chat send path)', () => {
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })
+      // Reach the typing FIRST. Setting the phase before the paste is on the
+      // wire would make this pass for the wrong reason — the retry it forbids
+      // is the one that fires after a submit, so the submit has to happen.
+      advanceToComposerReady(() => readInputs(daemon).length)
       vi.advanceTimersByTime(100)
       reg.gateway.routeDaemonFrame(
         reg.sessionStore.hostMachineId,
@@ -2887,6 +2990,7 @@ describe('sendText (chat send path)', () => {
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       reg.modules.sessions.sendText({ sessionId, text: 'quick one' })
+      advanceToComposerReady(() => readInputs(daemon).length)
       vi.advanceTimersByTime(100)
       // The turn ran so fast the phase is already back to idle — but the user turn
       // reached the transcript cache, which is submit evidence on its own.
@@ -2915,6 +3019,7 @@ describe('sendText (chat send path)', () => {
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       reg.modules.sessions.sendText({ sessionId, text: 'hello' })
+      advanceToComposerReady(() => readInputs(daemon).length)
       vi.advanceTimersByTime(100)
       // A trailing assistant item from the PREVIOUS turn arrives late; it must not
       // be mistaken for the echo of the just-sent user turn.
@@ -2943,6 +3048,7 @@ describe('sendText (chat send path)', () => {
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       reg.modules.sessions.sendText({ sessionId, text: 'submitted fine' })
+      advanceToComposerReady(() => readInputs(daemon).length)
       vi.advanceTimersByTime(100)
       // The turn started and hit an AskUserQuestion before the verify fired. A
       // retry CR would answer the menu's highlighted default (#473) — forbidden.
@@ -2985,6 +3091,50 @@ describe('sendText (chat send path)', () => {
     }
   })
 
+  /**
+   * THE BACKSTOP, REACHED THE WAY THE QUEUE REACHES IT (POD-2837, #473).
+   *
+   * The test above refuses a menu that is ALREADY up, at accept time. This is
+   * the other order, and the queue is what created it: the send is accepted
+   * while the session is idle, and the menu opens while the row is still
+   * waiting for the composer to mount. Nothing about accepting was wrong;
+   * typing it NOW would be — a submitting CR at a live AskUserQuestion answers
+   * the highlighted default, picking an option on the human's behalf.
+   *
+   * So `typeText`'s own refusal is not redundant with `sendText`'s, and this is
+   * the case that says why: A CHECK THAT RUNS AT ACCEPT TIME CANNOT SEE A MENU
+   * THAT APPEARS AFTERWARDS. Deleting the inner guard leaves every other test
+   * in this file green.
+   */
+  it('#473: a menu that opens WHILE the row waits still stops the typing', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      // Idle at accept time, so the send is legitimately taken and held.
+      expect(reg.modules.sessions.sendText({ sessionId, text: 'queued before the menu' })).toEqual({
+        ok: true,
+        queued: true,
+      })
+      reg.gateway.routeDaemonFrame(
+        'local',
+        agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
+      )
+      // Well past the readiness window: the drain reached the typing and was
+      // refused there. No paste, and above all no CR.
+      vi.advanceTimersByTime(60_000)
+      expect(readInputs(daemon)).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('#473: once the menu resolves (phase leaves needs_user), a fresh sendText types normally', () => {
     vi.useFakeTimers()
     try {
@@ -3004,13 +3154,23 @@ describe('sendText (chat send path)', () => {
       // Human answers the menu → phase → idle.
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentStateMsg(sessionId, 'idle'))
       const before = daemon.length
-      expect(reg.modules.sessions.sendText({ sessionId, text: 'now ok' }).ok).toBe(true)
+      const inputsSince = (): string[] =>
+        daemon
+          .slice(before)
+          .filter((m) => m.type === 'input')
+          .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
+      // ACCEPTED now, because the menu is gone — and the refusal above is the
+      // proof the queue did not swallow it. `readinessQueueRefusal` asks the
+      // needs_user question BEFORE the diversion (POD-2828), so "not yet" and
+      // "no" stay different answers.
+      expect(reg.modules.sessions.sendText({ sessionId, text: 'now ok' })).toEqual({
+        ok: true,
+        queued: true,
+      })
+      advanceToComposerReady(() => inputsSince().length)
+      expectSubmitStillDeferred(inputsSince, '\x1b[200~now ok\x1b[201~')
       vi.advanceTimersByTime(100)
-      const inputs = daemon
-        .slice(before)
-        .filter((m) => m.type === 'input')
-        .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
-      expect(inputs).toEqual(['\x1b[200~now ok\x1b[201~', '\r'])
+      expect(inputsSince()).toEqual(['\x1b[200~now ok\x1b[201~', '\r'])
     } finally {
       vi.useRealTimers()
     }
@@ -5670,7 +5830,23 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
 })
 
 describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
-  it('delivers once when bind/live metadata makes queued issue mail eligible', () => {
+  /**
+   * THE WIRING IS WHAT THIS PINS, NOT THE LATENCY (POD-2837).
+   *
+   * The assertion below is the one it always was: the mail is NOT on the PTY
+   * while the session is unbound, and after the bind makes it eligible it
+   * arrives EXACTLY ONCE. What moved is that it no longer arrives inside the
+   * synchronous return of `flushDeliveryTriggers`. The target is a claude-code
+   * session, so the send rides the readiness queue and is typed once the
+   * composer window has run — see the note above `describe('sendText …')` for
+   * why that is the contract, and `inbox.test.ts` for the same answer stated
+   * against the same call.
+   *
+   * Fake timers, installed before the registry so the drain's own polling is
+   * under this test's control, and `…Async` because the delivery path awaits.
+   */
+  it('delivers once when bind/live metadata makes queued issue mail eligible', async () => {
+    vi.useFakeTimers()
     const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
@@ -5710,14 +5886,92 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
       registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
       registry.modules.messages.flushDeliveryTriggers()
 
-      const deliveredInputs = daemon.filter(
-        (message) =>
-          message.type === 'input' &&
-          Buffer.from(message.data, 'base64').toString().includes('deliver after bind'),
-      )
-      expect(deliveredInputs).toHaveLength(1)
+      const deliveredInputs = (): ControlMessage[] =>
+        daemon.filter(
+          (message) =>
+            message.type === 'input' &&
+            Buffer.from(message.data, 'base64').toString().includes('deliver after bind'),
+        )
+      // The bind alone does not put it on the wire; the readiness window does.
+      expect(deliveredInputs()).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(15_000)
+
+      expect(deliveredInputs()).toHaveLength(1)
     } finally {
       registry.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  /**
+   * THE DRAIN SURVIVES A PRINCIPAL IT CANNOT RESOLVE (POD-2838).
+   *
+   * `authorizeQueuedInputAtApply` is typed to return a VERDICT, and it used to
+   * throw instead: an agent principal whose delegation names no live session
+   * produces the empty capability `capabilityForSession` gives an unknown id,
+   * and `resolvePrincipal` reads that as a human capability and raises. The
+   * throw escaped `deliverNext` into `tick`, so the pass died with the row
+   * neither delivered, nor removed, nor reported — the silent loss the durable
+   * queue exists to prevent, reached through the guard meant to prevent it.
+   * The mail test above is how it was found: every superagent send takes that
+   * path, because `superagent` is a literal identity and not a session id.
+   *
+   * THE ASSERTION IS THE MECHANISM, not a proxy for it. A refusal that merely
+   * dropped the bad row would look identical to a crash on the bad row alone —
+   * so a legitimate row is queued BEHIND it, and the property is that the
+   * second row still reaches the PTY. A dead tick cannot deliver it.
+   */
+  it('refuses an unresolvable delegation without killing the pass', async () => {
+    vi.useFakeTimers()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
+
+      const ghost = 'sess_no_such_session'
+      registry.modules.sessions.queueText({
+        sessionId,
+        text: 'from a session that is gone',
+        principal: {
+          kind: 'agent',
+          principalRef: ghost,
+          delegation: asDelegationRef(ghost),
+          attribution: {
+            actor: actorAgent(asAgentIdentityId(ghost)),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
+          },
+        },
+      })
+      registry.modules.sessions.queueText({
+        sessionId,
+        text: 'the row behind it',
+        principal: {
+          kind: 'user',
+          principalRef: FIRST_ADMIN_USER_ID,
+          delegation: null,
+          attribution: { actor: actorUser(FIRST_ADMIN_USER_ID), onBehalfOf: FIRST_ADMIN_USER_ID },
+        },
+      })
+      await vi.advanceTimersByTimeAsync(20_000)
+
+      const typed = daemon
+        .filter((message) => message.type === 'input')
+        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
+      // Refused: an unresolvable principal carries no authority, so its bytes
+      // never reach the terminal.
+      expect(typed.filter((data) => data.includes('from a session that is gone'))).toEqual([])
+      // And the pass lived: the row behind it was delivered.
+      expect(typed.filter((data) => data.includes('the row behind it'))).toHaveLength(1)
+    } finally {
+      registry.dispose()
+      vi.useRealTimers()
     }
   })
 
