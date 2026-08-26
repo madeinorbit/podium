@@ -50,6 +50,7 @@ interface Control {
 interface Pin {
   cell: string
   at: string
+  sourceRoot: string
   checkoutSha: string
   serverSha: string
   daemonSha: string
@@ -83,9 +84,12 @@ const harness = (process.argv[3] ?? 'claude') as Harness
 const BASE = process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-2874'
 const PORT = process.env.PODIUM_PORT ?? '31178'
 const ROOT = process.cwd()
+const SOURCE_ROOT = process.env.POD2874_SOURCE_ROOT ?? ROOT
 const READING_DIR = join(ROOT, 'docs/evidence/pod-2874/readings')
 const PIN_DIR = join(ROOT, 'docs/evidence/pod-2874/pins')
-const AGENT_HOME = join(process.env.HOME ?? '', '.local/state/podium/p2874/agent-home')
+const AGENT_HOME = process.env.POD2874_AGENT_HOME ?? join(process.env.HOME ?? '', '.local/state/podium/p2874/agent-home')
+const READING_PREFIX = process.env.POD2874_READING_PREFIX ?? harness
+const PIN_PREFIX = process.env.POD2874_PIN_PREFIX ?? ''
 const REPLY_MS = Number(process.env.POD2874_REPLY_MS ?? 120_000)
 const BUSY_MS = Number(process.env.POD2874_BUSY_MS ?? 90_000)
 const STEP_MS = 500
@@ -131,7 +135,7 @@ function memInfo(): Record<string, string> {
 }
 
 async function pinFor(label: string): Promise<Pin> {
-  const checkoutSha = outputOf('git', ['rev-parse', 'HEAD'])
+  const checkoutSha = outputOf('git', ['-C', SOURCE_ROOT, 'rev-parse', 'HEAD'])
   const server = pidInfo(join(BASE, 'server.pid'))
   const daemon = pidInfo(join(BASE, 'daemon.pid'))
   const serverSha = existsSync(join(BASE, 'server.sha')) ? readFileSync(join(BASE, 'server.sha'), 'utf8').trim() : ''
@@ -150,6 +154,7 @@ async function pinFor(label: string): Promise<Pin> {
   const pin: Pin = {
     cell: label,
     at: stamp(),
+    sourceRoot: SOURCE_ROOT,
     checkoutSha,
     serverSha,
     daemonSha,
@@ -164,7 +169,8 @@ async function pinFor(label: string): Promise<Pin> {
     forbiddenOverrides,
   }
   mkdirSync(PIN_DIR, { recursive: true })
-  writeFileSync(join(PIN_DIR, label.toLowerCase() + '.json'), JSON.stringify(pin, null, 2) + '\n')
+  const pinName = PIN_PREFIX ? PIN_PREFIX + '-' + label.toLowerCase() : label.toLowerCase()
+  writeFileSync(join(PIN_DIR, pinName + '.json'), JSON.stringify(pin, null, 2) + '\n')
   const webSha = typeof web === 'object' && 'sourceSha' in web ? textOf(web.sourceSha) : ''
   const webMatches = webSha === checkoutSha.slice(0, 7)
   const overrides = Object.entries(forbiddenOverrides).filter(([, value]) => value !== null)
@@ -581,7 +587,7 @@ async function runA6b() {
 }
 
 async function restartDaemon(mode: Harness): Promise<void> {
-  const r = spawnSync('bash', [join(ROOT, 'docs/evidence/pod-2874/drive-daemon.sh'), mode], { encoding: 'utf8', env: { ...process.env, PODIUM_DRIVE_BASE: BASE } })
+  const r = spawnSync('bash', [join(ROOT, 'docs/evidence/pod-2874/drive-daemon.sh'), mode], { encoding: 'utf8', env: { ...process.env, PODIUM_DRIVE_BASE: BASE, POD2874_REPO_ROOT: SOURCE_ROOT } })
   if (r.status !== 0) throw new Error('daemon restart failed: ' + (r.stdout ?? '') + (r.stderr ?? ''))
 }
 
@@ -728,7 +734,7 @@ async function main(): Promise<void> {
     out = result('BLOCKED', 'cell could not be driven: ' + String(error).slice(0, 240), { fired: false, what: 'the complete pinned cell running to a result', detail: String(error) }, ['ERROR             ' + String(error)])
   }
   const reading: Reading = { cell, harness, cwd, at, pin, ...out }
-  writeFileSync(join(READING_DIR, harness + '.' + cell.toLowerCase() + '.json'), JSON.stringify(reading, null, 2) + '\n')
+  writeFileSync(join(READING_DIR, READING_PREFIX + '.' + cell.toLowerCase() + '.json'), JSON.stringify(reading, null, 2) + '\n')
   console.log(harness + '/' + cell + ' ' + reading.verdict + ' — ' + reading.summary)
   console.log('control=' + (reading.control.fired ? 'FIRED' : 'MISSING') + ' ' + reading.control.detail)
   for (const line of reading.evidence) console.log(line)

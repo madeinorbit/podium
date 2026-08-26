@@ -8,9 +8,11 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../../.." && pwd)"
+REPO="${POD2874_REPO_ROOT:-$(cd "$HERE/../../.." && pwd)}"
 BASE="${PODIUM_DRIVE_BASE:-/tmp/pod-2874}"
 MODE="${1:-claude}"
+INSTANCE="${POD2874_INSTANCE:-p2874}"
+PASSWORD="${POD2874_PASSWORD:-$INSTANCE}"
 
 case "$MODE" in
   claude|shell) ;;
@@ -31,7 +33,7 @@ if [[ -f "$BASE/daemon.pid" ]]; then
 fi
 
 start_line="$(wc -l < "$BASE/logs/daemon.log" 2>/dev/null || echo 0)"
-printf '=== p2874 daemon boot mode=%s at %s ===\n' "$MODE" "$(date -Is)" >> "$BASE/logs/daemon.log"
+printf '=== %s daemon boot mode=%s at %s ===\n' "$INSTANCE" "$MODE" "$(date -Is)" >> "$BASE/logs/daemon.log"
 
 cd "$REPO"
 common=(env
@@ -43,9 +45,9 @@ common=(env
   -u PODIUM_RUNTIME_DRIVER
 )
 common+=(
-  PODIUM_INSTANCE=p2874
+  PODIUM_INSTANCE="$INSTANCE"
   PODIUM_DRIVE_BASE="$BASE"
-  PODIUM_PASSWORD=p2874
+  PODIUM_PASSWORD="$PASSWORD"
   PODIUM_NO_RELAY=1
   PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
 )
@@ -59,7 +61,7 @@ git rev-parse HEAD > "$BASE/daemon.sha"
 for _ in $(seq 1 120); do
   if tail -n +$((start_line + 1)) "$BASE/logs/daemon.log" 2>/dev/null | \
     rg -q 'podium daemon up: connected to'; then
-    printf 'daemon connected mode=%s pid=%s sha=%s\n' "$MODE" "$pid" "$(<"$BASE/daemon.sha")"
+    printf 'daemon connected instance=%s mode=%s pid=%s sha=%s\n' "$INSTANCE" "$MODE" "$pid" "$(<"$BASE/daemon.sha")"
     exit 0
   fi
   sleep 1

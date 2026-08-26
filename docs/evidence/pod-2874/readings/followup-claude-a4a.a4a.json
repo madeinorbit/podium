@@ -1,0 +1,65 @@
+{
+  "cell": "A4A",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2874-perm/probes/claude-a4a",
+  "at": "2026-08-26T13:53:54.640Z",
+  "pin": {
+    "cell": "A4A",
+    "at": "2026-08-26T13:53:54.719Z",
+    "sourceRoot": "/tmp/pod-2867-codex-control",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T13:51:49.706Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2788993",
+    "daemonPid": "2791405",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/tmp/pod-2867-codex-control",
+    "daemonCwd": "/tmp/pod-2867-codex-control",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "3672684 kB",
+      "SwapFree": "36016504 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "no permission ask was raised under the seeded auto-mode posture",
+  "control": {
+    "fired": true,
+    "what": "the session attach/terminal stream becoming live independent of whether auto mode raises an ask",
+    "detail": "attached=1; screenBytes=6024; transcriptItems=0"
+  },
+  "evidence": [
+    "SEND              {\"result\":{\"data\":{\"ok\":true,\"queued\":true,\"disposition\":\"queued\"}}}",
+    "ASK LIST          [] after 45931ms",
+    "TERMINAL          true",
+    "CHAT FRAME        true",
+    "ITEMS             []"
+  ],
+  "data": {
+    "sid": "46116d91-1983-4336-af6f-96575493fe68",
+    "probe": {
+      "asks": [],
+      "terminal": true,
+      "chatFrame": true,
+      "ms": 45931,
+      "marker": "P2874-A4A-MTA5N5TX"
+    },
+    "items": []
+  }
+}
