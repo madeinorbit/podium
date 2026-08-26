@@ -189,6 +189,7 @@ export const codexManifest: AgentManifest = {
     observationProvider: 'codex',
     observationProtocol: 'codex-exact',
     submitVerification: false,
+    composerReadiness: 'on-bind',
     rawFirstTurn: false,
     exclusiveInteractiveResume: true,
     promptTitleFallback: false,

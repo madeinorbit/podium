@@ -121,6 +121,7 @@ export const grokManifest: AgentManifest = {
     // Bracketed-paste + one CR can leave Grok's paste chip unsubmitted; retry
     // Enter until a user turn appears or the phase leaves idle (POD-552).
     submitVerification: true,
+    composerReadiness: 'process-settle',
     // A fresh Grok TUI does not start a turn from bracketed paste (POD-549).
     // Chat-view first send must type like the native composer; later turns
     // keep paste + submitVerification (POD-901).

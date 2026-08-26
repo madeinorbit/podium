@@ -11,7 +11,13 @@ import { asDelegationRef } from '@podium/protocol'
 import type { TurnReceipt } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
-import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'
+import {
+  harnessComposerReadiness,
+  harnessDisplayName,
+  harnessInterrupt,
+  harnessNeedsSubmitVerification,
+  harnessUsesRawFirstTurn,
+} from '../../harness-manifest'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { type InboxPrincipalReference, type QueuedInboxMessage, SessionInbox } from './inbox'
 import type { Session } from './session'
@@ -142,10 +148,21 @@ function harness(
     now: () => Date.now(),
     persist: vi.fn(),
     broadcast: vi.fn(),
-    needsSubmitVerification: (agentKind) => agentKind === 'claude-code',
-    usesRawFirstTurn: (agentKind) => agentKind === 'grok',
-    // The REAL manifest lookups, not stubs: which key aborts which CLI is the
-    // fact under test, and a stubbed table would let the manifests drift from it.
+    // THE REAL MANIFEST LOOKUPS, NOT STUBS — for these three as well now
+    // (POD-2823). The comment below has always said a stubbed table lets the
+    // manifests drift from the fact under test, and these two were the proof:
+    // `needsSubmitVerification` was stubbed as `agentKind === 'claude-code'`
+    // while the real manifest declares it TRUE FOR GROK TOO. Every test of the
+    // readiness path therefore ran against a world where grok could not reach
+    // it — so deleting the harness-name check that was holding grok out would
+    // have widened a readiness requirement in production with the suite still
+    // green. A fixture narrower than the manifest cannot fail the way the
+    // product can.
+    needsSubmitVerification: harnessNeedsSubmitVerification,
+    usesRawFirstTurn: harnessUsesRawFirstTurn,
+    composerReadiness: harnessComposerReadiness,
+    // Which key aborts which CLI is the fact under test, and a stubbed table
+    // would let the manifests drift from it.
     harnessInterrupt,
     harnessName: harnessDisplayName,
     prepareSend: vi.fn(),
@@ -522,6 +539,43 @@ describe('SessionInbox authorization and identity', () => {
     })
     expect(h.sent).toEqual([])
     expect(h.rows).toHaveLength(1)
+  })
+
+  /**
+   * THE COMPOSER-READINESS CLASS, PINNED AT BOTH EDGES (POD-2823).
+   *
+   * The line these replace read `agentKind === 'claude-code' &&
+   * needsSubmitVerification(agentKind)`, and the literal was load-bearing:
+   * grok declares `submitVerification: true` too, so the obvious relocation —
+   * drop the name, keep the capability — would have put every post-first-turn
+   * grok send behind a readiness proof it does not need.
+   *
+   * One test naming the harness that IS in the class is half a guard. What
+   * catches a widening is the harness that shares the OTHER capability and is
+   * still out, which is what the second row is for.
+   */
+  it('queues a first Claude send after a bind, because nothing else can witness it', () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'claude-code' })
+    // `live` says nothing about whether the composer is mounted, so the first
+    // send goes through the queue and is confirmed from the transcript.
+    expect(h.inbox.sendText({ sessionId: SID, text: 'first' })).toEqual({ ok: true, queued: true })
+    expect(h.sent).toEqual([])
+    expect(h.rows).toHaveLength(1)
+  })
+
+  it('types a later Grok send directly, though Grok verifies submits too', () => {
+    vi.useFakeTimers()
+    // THE EDGE THAT CATCHES A WIDENING. Grok shares `submitVerification` with
+    // Claude and does NOT share composer readiness: its start-up window is
+    // visible in `status`, so once the TUI has settled there is nothing left to
+    // prove and the send is typed rather than queued.
+    expect(harnessNeedsSubmitVerification('grok')).toBe(true)
+    expect(harnessComposerReadiness('grok')).not.toBe(harnessComposerReadiness('claude-code'))
+    const h = harness({ agentKind: 'grok', userTurns: 1 })
+    expect(h.inbox.sendText({ sessionId: SID, text: 'follow up' })).toEqual({ ok: true })
+    expect(h.rows).toHaveLength(0)
+    expect(h.sent.length).toBeGreaterThan(0)
   })
 
   it('delivers OpenCode mail through the generic bracketed-paste route', () => {
@@ -1094,7 +1148,10 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
       ownerUserId: ALICE,
       sessionId: SID,
       text: 'hi',
-      reason: 'this Claude input is too short to witness in the transcript',
+      // NAMED FROM THE MANIFEST, not spelled into the string (POD-2823): the
+      // path is chosen by capability now, so a second harness declaring
+      // `confirmed-turn` must not be told it is Claude.
+      reason: `this ${harnessDisplayName('claude-code')} input is too short to witness in the transcript`,
       initialPrompt: false,
     })
   })
@@ -1114,7 +1171,7 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
       ownerUserId: ALICE,
       sessionId: SID,
       text: PROMPT,
-      reason: 'the agent transcript is not available to confirm this Claude input',
+      reason: `the agent transcript is not available to confirm this ${harnessDisplayName('claude-code')} input`,
       initialPrompt: false,
     })
   })

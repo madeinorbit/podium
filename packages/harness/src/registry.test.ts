@@ -21,6 +21,7 @@ import {
   driverFamilyForId,
   driverIdIsServerFamily,
   harnessCapabilitiesFor,
+  harnessComposerReadiness,
   harnessDisplayName,
   harnessInterrupt,
   harnessLoginNeedsInteractive,
@@ -216,6 +217,43 @@ describe('agent manifest registry', () => {
         expect(Object.values(spec.env ?? {}), `${kind} client env`).toContain('s3cr3t')
       }
     }
+  })
+
+  /**
+   * COMPOSER READINESS (POD-2823) — the capability that replaced
+   * `agentKind === 'claude-code'` in the server's inbox.
+   *
+   * The literal was narrowing `submitVerification`, which grok also declares. So
+   * the one thing worth pinning here is that the two axes are INDEPENDENT: a
+   * build where they coincide is a build where the old conflation would go
+   * unnoticed again.
+   */
+  it('declares when each harness’s composer is known to take input', () => {
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      // Required, so a new harness cannot inherit a start-up window nobody
+      // decided on. `on-bind` is a claim, not a default you fall into.
+      expect(AGENT_MANIFESTS[kind].capabilities.composerReadiness, kind).toBeDefined()
+      expect(harnessComposerReadiness(kind)).toBe(
+        AGENT_MANIFESTS[kind].capabilities.composerReadiness,
+      )
+    }
+    // An unknown CLI cannot have its start-up window known, and guessing
+    // `confirmed-turn` would queue its sends behind a proof nothing can obtain.
+    expect(harnessComposerReadiness('some-future-cli')).toBe('on-bind')
+
+    // THE INDEPENDENCE THAT MADE THE NAME CHECK LOOK NECESSARY. Two harnesses
+    // verify submits; exactly one of them needs a confirmed turn before its
+    // composer can be typed at. If these ever line up, the server's readiness
+    // predicate could be rewritten as `submitVerification` and nothing would
+    // catch it — so this asserts they do not.
+    const verifying = BUILTIN_HARNESS_KINDS.filter(
+      (kind) => AGENT_MANIFESTS[kind].capabilities.submitVerification,
+    )
+    const confirming = BUILTIN_HARNESS_KINDS.filter(
+      (kind) => harnessComposerReadiness(kind) === 'confirmed-turn',
+    )
+    expect(verifying.length).toBeGreaterThan(confirming.length)
+    for (const kind of confirming) expect(verifying).toContain(kind)
   })
 
   it('declares parent controls and named-instance state selectors', () => {

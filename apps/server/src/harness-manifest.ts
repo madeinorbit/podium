@@ -7,11 +7,12 @@
  * this projection to its final browser-safe package so the temporary package
  * boundary exception can disappear.
  */
-export type { HarnessInterrupt } from '@podium/harness/metadata'
+export type { HarnessComposerReadiness, HarnessInterrupt } from '@podium/harness/metadata'
 export {
   driverFamilyForId,
   driverIdIsServerFamily,
   harnessCapabilitiesFor,
+  harnessComposerReadiness,
   harnessDisplayName,
   harnessInterrupt,
   harnessNeedsSubmitVerification,

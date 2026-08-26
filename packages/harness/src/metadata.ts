@@ -83,7 +83,7 @@ export type {
   LoginIdentity,
   PortableCredential,
 } from './manifest.js'
-export type { HarnessInterrupt } from './registry.js'
+export type { HarnessComposerReadiness, HarnessInterrupt } from './registry.js'
 // Static per-CLI facts. Each resolves through `manifestFor`, which returns
 // `undefined` for a harness this build has never heard of rather than
 // substituting another CLI's row.
@@ -91,6 +91,7 @@ export {
   driverFamilyForId,
   driverIdIsServerFamily,
   harnessCapabilitiesFor,
+  harnessComposerReadiness,
   harnessDetectLogin,
   harnessDisplayName,
   harnessInterrupt,

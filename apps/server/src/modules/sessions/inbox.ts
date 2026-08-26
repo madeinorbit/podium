@@ -39,7 +39,7 @@ import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
-import type { HarnessInterrupt } from '../../harness-manifest'
+import type { HarnessComposerReadiness, HarnessInterrupt } from '../../harness-manifest'
 import { injectionPayload } from './paste'
 import type { Session } from './session'
 
@@ -259,6 +259,9 @@ export interface SessionInboxDeps {
   broadcast(): void
   needsSubmitVerification(agentKind: AgentKind): boolean
   usesRawFirstTurn(agentKind: AgentKind): boolean
+  /** When this harness's composer is known to accept typed input after a bind —
+   *  see {@link SessionInbox.needsInputReadiness}. */
+  composerReadiness(agentKind: AgentKind): HarnessComposerReadiness
   /** Which key aborts this harness's running turn, and whether it is safe to
    *  press outside one — see {@link SessionInbox.abortKeyFor}. */
   harnessInterrupt(agentKind: AgentKind): HarnessInterrupt
@@ -482,6 +485,12 @@ export function terminalSessionSendFailureReason(
   return formatAgentError(state.error) + '. ' + agentErrorRecoveryInstruction(state.error)
 }
 
+/** Has this session ever carried a user turn? The transcript is the only record
+ *  that survives a rebind, which is what makes it the start-up window's edge. */
+function hasSeenUserTurn(session: Session): boolean {
+  return session.terminal.transcriptItems().some((item) => item.role === 'user')
+}
+
 /** Refuse archive unconditionally; only provider failure is overridable. */
 function sessionSendRefusalReason(
   session: Pick<Session, 'agentState' | 'archived'>,
@@ -533,10 +542,32 @@ export class SessionInbox {
     })
   }
 
+  /**
+   * A BIND MAKES A SESSION LIVE BEFORE ITS COMPOSER IS UP, and for some
+   * harnesses nothing says when that changed (POD-2823).
+   *
+   * This asked `session.agentKind === 'claude-code'` first. The literal was not
+   * standing in for "this is Claude": it was NARROWING the capability on the
+   * line below it, because `submitVerification` is true for grok as well, and
+   * reading that field alone would have put every post-first-turn grok send
+   * behind a readiness proof grok does not need. Two harnesses share the
+   * verification property and do not share this one — which is exactly why the
+   * name looked load-bearing.
+   *
+   * `composerReadiness` is the property the literal actually meant, so the
+   * `needsSubmitVerification` conjunct goes with it: it was the nearest existing
+   * capability, not the right one, and it is not load-bearing here. A readiness
+   * proof drives its own `confirm()` in the drain loop (`needsReadinessProof`
+   * below), independently of whether a submit is separately verified.
+   *
+   * `!isRawFirstTurn` STAYS, and now guards something statable rather than
+   * something incidental: a harness that needs a confirmed turn AND injects its
+   * first turn raw would have that turn queued twice over, once by `sendText`'s
+   * settle wait and once here. No harness declares both today.
+   */
   private needsInputReadiness(session: Session): boolean {
     return (
-      session.agentKind === 'claude-code' &&
-      this.deps.needsSubmitVerification(session.agentKind) &&
+      this.deps.composerReadiness(session.agentKind) === 'confirmed-turn' &&
       !this.isRawFirstTurn(session) &&
       !this.inputReadySessions.has(session)
     )
@@ -556,9 +587,19 @@ export class SessionInbox {
     ) {
       return this.queueText(input)
     }
-    // A grok process that has bound but not finished its TUI still reports
-    // `starting`. Typing into that PTY is the POD-549 no-op; wait for settle.
-    if (session?.status === 'starting' && this.isRawFirstTurn(session)) {
+    // THE SAME QUESTION AS `needsInputReadiness`, ASKED OF A HARNESS THAT CAN
+    // ANSWER IT FROM STATUS (POD-2823). A process that has bound but not
+    // finished its TUI still reports `starting`; typing into that PTY is the
+    // POD-549 no-op, so wait for settle. This used to read the raw-first-turn
+    // flag, which conflated two facts that only happen to coincide in grok —
+    // how a first turn is INJECTED, and how the composer's start-up window is
+    // OBSERVED. The injection meaning stays on `rawFirstTurn`; this one is the
+    // readiness declaration.
+    if (
+      session?.status === 'starting' &&
+      this.deps.composerReadiness(session.agentKind) === 'process-settle' &&
+      !hasSeenUserTurn(session)
+    ) {
       return this.queueText(input)
     }
     return this.typeText(input)
@@ -922,7 +963,7 @@ export class SessionInbox {
             reportPromptFailure(
               current,
               head,
-              'the agent transcript is not available to confirm this Claude input',
+              `the agent transcript is not available to confirm this ${this.deps.harnessName(current.agentKind)} input`,
             )
             return
           }
@@ -1037,18 +1078,20 @@ export class SessionInbox {
         reportPromptFailure(
           current,
           head,
-          'this Claude input is too short to witness in the transcript',
+          `this ${this.deps.harnessName(current.agentKind)} input is too short to witness in the transcript`,
         )
         return
       }
-      // An ordinary Claude send cannot safely be typed while there is no
-      // transcript to witness it. A creation row is the exception: its first
-      // prompt may be the write that creates the transcript in the first place.
+      // A send from a harness that needs a CONFIRMED TURN cannot safely be
+      // typed while there is no transcript to witness it. A creation row is the
+      // exception: its first prompt may be the write that creates the
+      // transcript in the first place. The harness is named in the refusal
+      // because an operator reads it, never to decide anything (POD-2823).
       if (needsReadinessProof && !current.transcriptAvailable && !firstPromptNeedsProof) {
         reportPromptFailure(
           current,
           head,
-          'the agent transcript is not available to confirm this Claude input',
+          `the agent transcript is not available to confirm this ${this.deps.harnessName(current.agentKind)} input`,
         )
         return
       }
@@ -1092,7 +1135,11 @@ export class SessionInbox {
       if (needle !== null && (witnessable || firstPromptNeedsProof || needsReadinessProof)) {
         confirm(head, needle, attempt)
       } else if (needsReadinessProof) {
-        reportPromptFailure(current, head, 'the agent transcript did not confirm this Claude input')
+        reportPromptFailure(
+          current,
+          head,
+          `the agent transcript did not confirm this ${this.deps.harnessName(current.agentKind)} input`,
+        )
       } else settleHead(current, head)
     }
     const deliverNext = (): void => {
@@ -1652,7 +1699,7 @@ export class SessionInbox {
 
   private isRawFirstTurn(session: Session): boolean {
     if (!this.deps.usesRawFirstTurn(session.agentKind)) return false
-    return session.terminal.transcriptItems().every((item) => item.role !== 'user')
+    return !hasSeenUserTurn(session)
   }
 
   private sendInput(

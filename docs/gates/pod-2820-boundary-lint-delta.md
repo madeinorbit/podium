@@ -144,6 +144,41 @@ descriptor on each manifest. The server's one looks like a one-line tidy-up and 
 `submitVerification` is true for grok as well as claude-code, so deleting the literal
 would widen a readiness requirement rather than relocate it.
 
+## RESOLVED — POD-2823
+
+All ten landed. `bun scripts/check-boundaries.ts` on the epic tip now prints **17**
+architecture-manifest lines against main's **27**, and the dependency-boundary section is
+**41 on both**. Compared as sets by rule and file, the epic tip's violations are a strict
+SUBSET of main's in both sections — nothing red is this branch's doing, which is the bar
+this document defined.
+
+The nine became a `clientTerminal` descriptor (`labelToken` + `launch()`) on each
+server-family manifest, as predicted. Two things the write-up above could not have known:
+
+**The credential-strip branch was not just misplaced, it was hiding a drift.** It picked
+between three constants by harness name and then unioned the result with
+`harnessChildStripEnv(kind)`, which reads the same fact off the manifest — redundant
+since POD-2296. For opencode and grok both sides were the identical array. For codex they
+were not: `STRIPPED_CODEX_CREDENTIALS` carried six variables and
+`codex.inventory.foreignCredentialEnv` carried three, so every codex spawn that read the
+MANIFEST was leaving `OPENAI_ORGANIZATION`, `OPENAI_ORG_ID` and `OPENAI_BASE_URL` in the
+child's environment while the app-server path stripped them.
+
+**The tenth's trap was invisible to the suite, and the fixture is why.** This document
+warned that `submitVerification` is true for grok as well as claude-code. It is — but
+`inbox.test.ts` stubbed the dependency as `agentKind === 'claude-code'`, three lines above
+a comment explaining that the interrupt lookups use the REAL manifest because "a stubbed
+table would let the manifests drift from it". So the naive relocation — drop the literal,
+keep `needsSubmitVerification` — passes **68/68 against that stub**, measured. Only after
+the fixture was repointed at the real manifests does the same mutation go red.
+
+The capability that replaced the literal is `composerReadiness: 'on-bind' |
+'process-settle' | 'confirmed-turn'`: WHEN a harness's composer is known to accept typed
+input after a bind. It is not `submitVerification` and it is not `rawFirstTurn`. It also
+subsumes a second call site fifteen lines below that was asking the same question through
+`rawFirstTurn`, which had been carrying two meanings — how a first turn is INJECTED, and
+how the start-up window is OBSERVED. Those only coincide in grok.
+
 ## Reproducing
 
 ```

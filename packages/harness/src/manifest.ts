@@ -1023,6 +1023,37 @@ export interface HarnessCapabilities {
   /** A submitted CR needs transcript/state verification and bounded retry. */
   submitVerification: boolean
   /**
+   * WHEN THIS HARNESS'S COMPOSER IS KNOWN TO ACCEPT TYPED INPUT (POD-2823).
+   *
+   * A PTY bind makes a session LIVE before the CLI has mounted its composer.
+   * Bytes written into that window are accepted by the pty and dropped by the
+   * app — a send that leaves no trace anywhere, which is the worst shape a lost
+   * message can have. Every harness has the window; what varies is how Podium
+   * can tell it has closed, and that is what this declares.
+   *
+   * - `on-bind` — no window worth guarding. The composer takes input as soon as
+   *   the session is live.
+   * - `process-settle` — the window is VISIBLE: the process reports `starting`
+   *   until its TUI is up, so waiting for the status to settle is proof enough.
+   *   Grok, whose first-turn no-op POD-549 measured.
+   * - `confirmed-turn` — the window is INVISIBLE. `live` says nothing about the
+   *   composer, so the only proof an input landed is the user turn appearing in
+   *   the transcript. The first send after a bind is routed through the queue
+   *   and confirmed; later sends type directly. Claude Code.
+   *
+   * IT REPLACED A HARNESS NAME, AND IT IS NOT `submitVerification`. The server
+   * asked `agentKind === 'claude-code' && needsSubmitVerification(agentKind)`,
+   * and the literal was there because the capability OVER-MATCHES: grok declares
+   * `submitVerification: true` as well, so reading that field alone would have
+   * put every post-first-turn grok send behind a readiness proof it does not
+   * need. Two harnesses share the verification property and do NOT share this
+   * one; conflating them is what made a name check look necessary.
+   *
+   * SINGLE-VALUED on purpose: a harness has one answer to "how do I know the
+   * composer is up", and two booleans could say both or neither.
+   */
+  composerReadiness: 'on-bind' | 'process-settle' | 'confirmed-turn'
+  /**
    * The first user turn cannot be started by bracketed-paste into a fresh TUI.
    * Chat send must type the prompt as raw keystrokes (the native-view path)
    * until a user turn exists; later turns keep paste. [POD-549, POD-901]

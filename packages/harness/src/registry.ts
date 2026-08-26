@@ -158,6 +158,19 @@ export function harnessUsesRawFirstTurn(kind: AgentKind | string): boolean {
   return harnessCapabilitiesFor(kind)?.rawFirstTurn ?? false
 }
 
+/**
+ * When this harness's composer is known to accept typed input (POD-2823).
+ *
+ * `on-bind` for an unknown harness: a build that has never heard of this CLI
+ * cannot claim to know its start-up window, and guessing `confirmed-turn` would
+ * queue every send behind a proof this build has no idea how to obtain.
+ */
+export type HarnessComposerReadiness = HarnessCapabilities['composerReadiness']
+
+export function harnessComposerReadiness(kind: AgentKind | string): HarnessComposerReadiness {
+  return harnessCapabilitiesFor(kind)?.composerReadiness ?? 'on-bind'
+}
+
 /** How to abort a running turn in one harness's TUI: the key, the bytes that key
  *  is on a PTY, and whether pressing it outside a turn would exit the CLI. */
 export interface HarnessInterrupt {

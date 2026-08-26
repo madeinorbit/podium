@@ -26,6 +26,7 @@ import { BrowserOpenGateway } from '../../gateway/browser-open'
 import { ClientRegistry } from '../../gateway/client-registry'
 import {
   driverFamilyForId,
+  harnessComposerReadiness,
   harnessDisplayName,
   harnessInterrupt,
   harnessNeedsSubmitVerification,
@@ -400,6 +401,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcast: () => bag.broadcastSessions(),
     needsSubmitVerification: harnessNeedsSubmitVerification,
     usesRawFirstTurn: harnessUsesRawFirstTurn,
+    composerReadiness: harnessComposerReadiness,
     harnessInterrupt,
     harnessName: harnessDisplayName,
     prepareSend: (sessionId, attribution, kind, origin) =>
