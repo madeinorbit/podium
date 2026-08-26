@@ -76,6 +76,7 @@ import { MessageMailbox } from './mailbox'
 import { INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
 import { type DeliveryRunner, DeliveryScheduler, type MessageDeliveryStats } from './scheduler'
 import type { MessageSender, MessageSendInput, MessageSendResult, SendDisposition } from './types'
+import { SUPERAGENT_AGENT_IDENTITY } from './types'
 
 export { INTERRUPT_DELIVERY_CEILING_MS, NEXT_TURN_DELIVERY_BUDGET_MS } from './mailbox'
 
@@ -2428,10 +2429,10 @@ export class MessageDeliveryService {
       case 'superagent':
         return {
           attribution: {
-            actor: actorAgent(asAgentIdentityId('superagent')),
+            actor: actorAgent(asAgentIdentityId(SUPERAGENT_AGENT_IDENTITY)),
             onBehalfOf: FIRST_ADMIN_USER_ID,
           },
-          delegationRef: 'superagent',
+          delegationRef: SUPERAGENT_AGENT_IDENTITY,
         }
       case 'agent': {
         const actorId = from.sessionId ?? ('unbound-agent' as SessionId)

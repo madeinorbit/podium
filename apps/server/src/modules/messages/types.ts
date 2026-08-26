@@ -88,3 +88,21 @@ export interface MessageSendResult {
    *  mail inbox/claim/pending working until those readers migrate. */
   legacy?: IssueMessageRow
 }
+
+/**
+ * The agent identity the built-in superagent sends mail under (POD-2838).
+ *
+ * IT IS NOT A SESSION ID, and everything downstream has to know that. The
+ * superagent is an in-process server job with no transport row, so the
+ * capability minted for it carries this literal where a delegated agent would
+ * carry its own `SessionId`. A reader that assumes "agent principal ⇒ resolvable
+ * session" is wrong here, and `SessionAuthz.authorizeQueuedInputAtApply` used to
+ * be exactly that reader: it fed this string to `capabilityForSession`, got back
+ * the empty capability an unknown session produces, and threw out of the drain
+ * tick instead of returning a verdict.
+ *
+ * Named here rather than spelled at each site so the identity and the code that
+ * has to recognise it cannot drift apart. `types.ts` is the leaf vocabulary
+ * module by design — importing it does not pull the delivery service in.
+ */
+export const SUPERAGENT_AGENT_IDENTITY = 'superagent'
