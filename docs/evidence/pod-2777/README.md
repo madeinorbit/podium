@@ -53,6 +53,35 @@ a second reason to prefer the within-one-commit comparison over a
 before-and-after in time.
 
 
+## When you hand over a probe, say what its PASS looks like
+
+Two probes in this directory pass by **refusing**, and found cold either reads as
+a broken run:
+
+- **`parked-turn-survives.ts`** — with POD-2878's fix in, control C1 cannot fire,
+  because nothing parks any more and there is nothing whose survival could be
+  measured. It exits 2 saying so. *For the person verifying that fix, the refusal
+  is the pass.*
+- **`a3.ts`** — while POD-2885's wedge is present, the interrupt control cannot
+  fire, because the control watches for motion (previews arriving, or PTY bytes
+  growing) and the wedge freezes exactly that. It exits 3. *The refusal turning
+  into a score is the evidence the wedge fix reached this path.*
+
+Both are the same shape: a probe built to catch a defect, meeting a world where
+the defect is gone, and correctly declining to measure something that is no
+longer there.
+
+**`REFUSED` is the verdict that looks most like failure while meaning least like
+it.** A probe's vocabulary is not self-explanatory to whoever did not write it,
+so the handover has to carry the expected outcome — and when the expected outcome
+is a refusal, that belongs at the top of the message, not the bottom.
+
+The related half, from the other direction: **an inverted cell is worth flagging
+to the issue that owns the fix**, because it gives them a check their own drive
+does not. POD-2885's drive shows a long turn now *completes*; `a3.ts` shows the
+planes stay *alive mid-turn* long enough for another observer to see motion. A
+fix could satisfy the first and not the second.
+
 ## Two ways a number lies: a spike, and a ledger row
 
 **A single sample of a volatile quantity is not a state.** My host watch fired at
