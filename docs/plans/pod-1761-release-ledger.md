@@ -2721,3 +2721,55 @@ as the same word. Heading corrected above.
 **Consequence: A3 on codex stays unmeasurable.** Its control needs the turn observed in flight
 and both planes still freeze on the tip. It becomes driveable when the fix actually lands, and
 POD-2777 will check the tip for the **runtime change** rather than for the ledger row.
+
+
+## A SIXTH DEFECT, FOUND BY RE-MEASURING A PASS (2026-08-26 17:11 CEST) — POD-2902, started
+
+**The strongest column asymmetry yet, and it exists only because a PASS was not trusted.**
+
+POD-2777 re-drove codex A2a, which it had already scored PASS, and found **two of its own
+errors**:
+
+**Wrong instrument.** The row asks for the STATUS BADGE — *working within 2s of turn start,
+idle after end, no flicker-idle mid-turn*. It had scored the cell off the stream probe: 51
+preview frames, monotonic, fine watch acquired. All true, and **none of it what the row asks**.
+A session can stream perfectly while its badge sits at idle — *and this rig had already
+recorded exactly that on the terminal arm: 13,250 characters produced while phase read idle at
+all 60 polls*. **The counter-example was in its own evidence and it still used the wrong
+instrument.**
+
+**Wrong clock.** The replacement probe set t0 *before* `sessions.sendText`. On a loaded box
+that call took ~3.2s to return, so the reading was *round-trip plus badge latency* scored
+against a bar covering only the second half. The clock now starts when the send is **accepted**,
+and the round-trip is reported separately.
+
+    harness   load   send round-trip   first "working"
+    opencode  17.25       484 ms          2744 ms
+    opencode  21.04        43 ms          3033 ms
+    opencode  21.44       222 ms          3201 ms
+    opencode  17.84       505 ms          3568 ms
+    codex     20.77       156 ms           398 ms
+    codex     19.84       144 ms           365 ms
+    codex     18.34       337 ms           205 ms
+
+**The host does not explain it, and the round-trip column is what makes that checkable rather
+than asserted.** Round-trip varies **12x** (43–505ms) while opencode's badge latency stays in
+a tight 2744–3568ms band and codex's in a tight 205–398ms band. **The run with the fastest
+round-trip, 43ms, still took 3033ms to show working.** Same box, same commit, minutes apart.
+
+### This is the second column asymmetry and it is stronger than the first
+
+codex A8 was an asymmetry in whether a **setup step** landed. This is **a defect present in one
+column and absent in the other**, on the same row, same commit, same machine. It is direct
+evidence for the revised framing: *a red in one column is assumed present in the others; a
+**pass** in one column only **suggests** a pass in the others.* **It would not have been found
+by trusting the codex PASS and skipping opencode.**
+
+**User-visible consequence:** for the first three seconds of every opencode turn, the session
+reads **idle while it is working** — the window in which a person decides whether their message
+landed. Same class as A1a's *never silent-settles*.
+
+**Filed correctly as a sub-issue** rather than top-level, so it is startable — the proposed-trap
+rule landing. Started on codex/luna/max.
+
+    defects now: 8 found, 2 CLOSED AND DRIVEN, 6 open

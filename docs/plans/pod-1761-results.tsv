@@ -57,3 +57,5 @@ upgrade: codex rebinds to server driver	codex	FAIL old transcript pair vanished 
 upgrade: claude terminal unchanged	claude-pty	PASS transcript intact codeword returned	55f7e235	yes	yes	2026-08-26 16:53 CEST	POD-2858
 upgrade: opencode logged-out fallback	opencode	INCONCLUSIVE fell back to generic-pty not a rebind	55f7e235	yes	yes	2026-08-26 16:53 CEST	POD-2858
 upgrade: grok logged-out fallback	grok	INCONCLUSIVE fell back to generic-pty not a rebind	55f7e235	yes	yes	2026-08-26 16:53 CEST	POD-2858
+A2a status while working	opencode-headless	FAIL badge idle 2744-3568ms bar is 2000ms	372ae4de	yes	yes	2026-08-26 17:04 CEST	POD-2902
+A2a status while working	codex-headless	PASS badge working 205-398ms	372ae4de	yes	yes	2026-08-26 17:04 CEST	POD-2902
