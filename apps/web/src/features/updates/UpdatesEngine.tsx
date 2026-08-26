@@ -99,7 +99,6 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     proposal,
     proposalPending,
     proposalError,
-    fleet,
     approveProposal,
   } = useUpdateState({
     httpOrigin: resolvedOrigin,
@@ -122,18 +121,6 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   // "state derived from a prop that changed", and it repaints once instead of
   // showing the collapsed panel for a frame first.
   const activeProposal = view.state === 'none' ? proposal : null
-  const runningVersions = [
-    ...new Set(
-      (fleet.allMachines ?? fleet.machines ?? [])
-        .filter(
-          (machine) =>
-            machine.installKind !== 'source' &&
-            machine.version.length > 0 &&
-            machine.version !== 'unknown',
-        )
-        .map((machine) => machine.version),
-    ),
-  ]
   const showingProposal = activeProposal != null
   const situation = activeProposal
     ? `proposal:${activeProposal.headSha}:${activeProposal.state}`
@@ -252,7 +239,6 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
       <ReleaseProposalCard
         proposal={activeProposal}
         pending={proposalPending}
-        runningVersions={runningVersions}
         {...(proposalError ? { error: proposalError } : {})}
         onApprove={() => void approveProposal()}
         onHide={hide}

@@ -76,11 +76,11 @@ describe('releaseProposalFacts', () => {
     ])
   })
 
-  it('bounds a never-published proposal to the running fleet release', async () => {
+  it('uses the running server commit when the publisher is behind the build target', async () => {
     const { root, base, migration } = repository()
     execFileSync('git', ['tag', 'v0.1.1-edge.1', base], { cwd: root })
-    writeFileSync(join(root, 'operator-note.txt'), 'fleet stays on the published release\n')
-    commit(root, 'record fleet baseline')
+    writeFileSync(join(root, 'operator-note.txt'), 'server stays on its booted release\n')
+    commit(root, 'record server baseline')
     const added = join(
       root,
       'apps/server/src/migrations/drizzle/20260821110000_proposal/migration.sql',
@@ -98,13 +98,13 @@ describe('releaseProposalFacts', () => {
 
     expect(facts.commits.map((entry) => entry.summary)).toEqual([
       'publish fleet proposal',
-      'record fleet baseline',
+      'record server baseline',
     ])
     expect(facts.commits.map((entry) => entry.summary)).not.toContain('base migration')
     expect(facts.addedMigrations).toEqual(['20260821110000_proposal'])
   })
 
-  it('uses the running fleet baseline when the server has published a newer commit', async () => {
+  it('uses the running server baseline when the server has published a newer commit', async () => {
     const { root, base } = repository()
     writeFileSync(join(root, 'published.txt'), 'published release\n')
     const publishedSha = commit(root, 'published but not adopted')
@@ -122,6 +122,32 @@ describe('releaseProposalFacts', () => {
       'server HEAD proposal',
       'published but not adopted',
     ])
+  })
+
+  it('returns an empty range when the publisher is level with the build target', async () => {
+    const { root } = repository()
+    writeFileSync(join(root, 'head.txt'), 'running and proposed\n')
+    const headSha = commit(root, 'running server HEAD')
+
+    const facts = await releaseProposalFacts({
+      root,
+      headSha,
+      runningSha: headSha,
+    })
+
+    expect(facts.commits).toEqual([])
+    expect(facts.addedMigrations).toEqual([])
+  })
+
+  it('keeps the directed server-to-build range when the publisher is ahead', async () => {
+    const { root, base: targetSha } = repository()
+    writeFileSync(join(root, 'running.txt'), 'server booted ahead of checked-out target\n')
+    const runningSha = commit(root, 'running server is ahead')
+
+    const facts = await releaseProposalFacts({ root, headSha: targetSha, runningSha })
+
+    expect(facts.commits).toEqual([])
+    expect(facts.addedMigrations).toEqual([])
   })
 
   it('names detached HEAD and leaves a migration-free branch unflagged', async () => {

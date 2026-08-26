@@ -9,18 +9,15 @@ export function ReleaseProposalCard({
   error,
   onApprove,
   onHide,
-  runningVersions,
 }: {
   proposal: ReleaseProposal
   pending: boolean
   error?: string
   onApprove: () => void
   onHide: () => void
-  runningVersions?: readonly string[]
 }): JSX.Element {
   const building = proposal.state === 'building' || pending
   const targetVersion = formatDisplayedVersion(proposal.version)
-  const fleetVersions = [...new Set((runningVersions ?? []).filter(Boolean))]
   return (
     <aside
       data-testid="release-proposal-card"
@@ -35,10 +32,10 @@ export function ReleaseProposalCard({
           Build {targetVersion} for the fleet?
         </h2>
         <p className="text-[11px] leading-[1.5] text-muted-foreground">
-          {fleetVersions.length > 0 && (
+          {proposal.runningVersion && (
             <>
-              <span data-testid="release-proposal-fleet-transition">
-                Fleet: {fleetVersions.map(formatDisplayedVersion).join(', ')} → {targetVersion}
+              <span data-testid="release-proposal-server-transition">
+                Server: {formatDisplayedVersion(proposal.runningVersion)} → {targetVersion}
               </span>
               <br />
             </>
@@ -49,7 +46,7 @@ export function ReleaseProposalCard({
         </p>
       </div>
       <div className="flex flex-col gap-3 px-4 py-4">
-        {proposal.commits.length > 0 && (
+        {proposal.commits.length > 0 ? (
           <ul className="flex flex-col gap-1.5" aria-label="Commits in this release">
             {proposal.commits.map((commit) => (
               <li key={commit.sha} className="text-[11px] leading-[1.5] text-muted-foreground">
@@ -58,6 +55,10 @@ export function ReleaseProposalCard({
               </li>
             ))}
           </ul>
+        ) : (
+          <p className="text-[11px] leading-[1.5] text-muted-foreground">
+            No changes since what this server is running.
+          </p>
         )}
         {proposal.addedMigrations.length > 0 && (
           <div

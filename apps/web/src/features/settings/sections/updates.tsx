@@ -60,20 +60,6 @@ interface FleetSnapshot {
   channelChecks?: ChannelCheck[]
 }
 
-function proposalFleetVersions(fleet: FleetSnapshot | null): string[] {
-  return [
-    ...new Set(
-      (fleet?.allMachines ?? fleet?.machines ?? [])
-        .filter(
-          (machine) =>
-            machine.installKind !== 'source' &&
-            machine.version.length > 0 &&
-            machine.version !== 'unknown',
-        )
-        .map((machine) => machine.version),
-    ),
-  ]
-}
 
 interface VersionInfo {
   appVersion?: string
@@ -461,10 +447,6 @@ export function UpdatesSection(): JSX.Element {
     channel,
   })
   const showComponentVersions = fleet !== null && versions.single === null
-  // Every version this panel prints goes through the same display form, so a
-  // minted development target reads `dev.8 (77f0e91)` here exactly as it does
-  // in the rows above it (POD-2502).
-  const proposalRunningVersions = proposalFleetVersions(fleet)
   const targetVersionLabel = fleet?.targetVersion
     ? formatDisplayedVersion(fleet.targetVersion)
     : null
@@ -543,12 +525,12 @@ export function UpdatesSection(): JSX.Element {
               <p className="settings-prose text-foreground">
                 Build {formatDisplayedVersion(proposal.version)} for the fleet.
               </p>
-              {proposalRunningVersions.length > 0 && (
+              {proposal.runningVersion && (
                 <p
                   className="settings-micro"
-                  data-testid="settings-release-proposal-fleet-transition"
+                  data-testid="settings-release-proposal-server-transition"
                 >
-                  Fleet: {proposalRunningVersions.map(formatDisplayedVersion).join(', ')} →{' '}
+                  Server: {formatDisplayedVersion(proposal.runningVersion)} →{' '}
                   {formatDisplayedVersion(proposal.version)}
                 </p>
               )}
@@ -556,7 +538,7 @@ export function UpdatesSection(): JSX.Element {
                 {proposal.branch} · {proposal.headSha}
               </p>
             </div>
-            {proposal.commits.length > 0 && (
+            {proposal.commits.length > 0 ? (
               <ul className="flex flex-col gap-1" aria-label="Commits in proposed release">
                 {proposal.commits.map((commit) => (
                   <li key={commit.sha} className="settings-micro">
@@ -565,6 +547,8 @@ export function UpdatesSection(): JSX.Element {
                   </li>
                 ))}
               </ul>
+            ) : (
+              <p className="settings-micro">No changes since what this server is running.</p>
             )}
             {proposal.addedMigrations.length > 0 && (
               <p

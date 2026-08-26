@@ -76,7 +76,7 @@ async function resolveBaselineSha(
 }
 
 /**
- * Read the human-facing facts for HEAD relative to the fleet's RUNNING commit.
+ * Read the human-facing facts for HEAD relative to this server's RUNNING commit.
  *
  * A proposal is recomputed from HEAD on every read, so rapid commits collapse
  * naturally. Endpoint comparison (not ancestry) makes branch hops first-class:
@@ -85,9 +85,9 @@ async function resolveBaselineSha(
 export async function releaseProposalFacts(input: {
   root: string
   headSha: string
-  /** Commit currently running on the fleet, when it is known directly. */
+  /** Commit currently running on this server, when it is known directly. */
   runningSha?: string
-  /** Product version currently running on the fleet, resolved to a commit when needed. */
+  /** Product version currently running on this server, resolved to a commit when needed. */
   runningVersion?: string
   /** Last published commit, retained as provenance and a compatibility fallback. */
   sinceSha?: string

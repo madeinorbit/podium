@@ -2116,6 +2116,8 @@ describe('the dev feed manifest the publisher writes', () => {
       readIgnoredSourceInputs: () => '',
       root: '/repo/podium',
       headSha: head,
+      proposalRunningVersion: 'dev+1111111',
+      proposalRunningSha: '1111111',
       proposalFacts,
       snapshotBuild: async (_approvedSha, build) => build('/repo/podium-snapshot'),
       ...(prepareWebDist ? { prepareWebDist } : {}),
@@ -2429,7 +2431,7 @@ describe('the dev feed manifest the publisher writes', () => {
   it('collapses rapid commits to HEAD and disappears only after publication', async () => {
     const store = memoryFs()
     let head = 'aaaaaaa'
-    const ranges: Array<{ headSha: string; sinceSha?: string }> = []
+    const ranges: Array<{ headSha: string; runningSha?: string; sinceSha?: string }> = []
     const publisher = publisherFor(
       store,
       () => head,
@@ -2447,6 +2449,7 @@ describe('the dev feed manifest the publisher writes', () => {
     head = 'ccccccc'
     expect(await publisher.proposal()).toMatchObject({
       headSha: 'ccccccc',
+      runningVersion: 'dev+1111111',
       branch: 'feature/collapsing',
       addedMigrations: ['20260821110000_release'],
       commits: [{ sha: 'ccccccc' }],
@@ -2458,6 +2461,10 @@ describe('the dev feed manifest the publisher writes', () => {
 
     head = 'ddddddd'
     expect(await publisher.proposal()).toMatchObject({ headSha: 'ddddddd' })
-    expect(ranges.at(-1)).toEqual({ headSha: 'ddddddd', sinceSha: 'ccccccc' })
+    expect(ranges.at(-1)).toEqual({
+      headSha: 'ddddddd',
+      runningSha: '1111111',
+      sinceSha: 'ccccccc',
+    })
   })
 })

@@ -209,10 +209,9 @@ export function wireDevBundlePublisher(deps: {
    * for beyond its own [spec:SP-6144 section 8b]. Absent mints only this host's.
    */
   readonly fleetPlatforms?: () => readonly string[]
-  /** Product version currently running on the fleet this proposal would update. */
-  readonly proposalBaselineVersion?: (
-    headSha: string,
-  ) => string | undefined | Promise<string | undefined>
+  /** Product version and source commit captured by the server producing this proposal. */
+  readonly proposalRunningVersion?: string
+  readonly proposalRunningSha?: string
   /** Every remote that could later be offered this immutable release. */
   readonly remoteUpdateConsumers?: () => readonly RemoteUpdateConsumer[]
   /** Executes the exact authenticated artifact request from the named daemon. */
@@ -355,7 +354,10 @@ export function wireDevBundlePublisher(deps: {
         // server is running must be covered by the next build, and this server runs for
         // days at a time.
         fleetPlatforms: deps.fleetPlatforms,
-        proposalBaselineVersion: deps.proposalBaselineVersion,
+        ...(deps.proposalRunningVersion
+          ? { proposalRunningVersion: deps.proposalRunningVersion }
+          : {}),
+        ...(deps.proposalRunningSha ? { proposalRunningSha: deps.proposalRunningSha } : {}),
       })
     : undefined
 

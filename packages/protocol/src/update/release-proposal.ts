@@ -39,6 +39,8 @@ export const ReleaseProposal = z
     headSha: z.string().min(1),
     version: z.string().min(1),
     branch: z.string().min(1),
+    /** Version captured from the server process that would build this proposal. */
+    runningVersion: z.string().min(1).optional(),
     commits: z.array(ReleaseProposalCommit),
     addedMigrations: z.array(z.string()),
     state: z.enum(['pending', 'building', 'failed']),

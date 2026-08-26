@@ -421,6 +421,7 @@ export async function startServer(
   const trustedProxyHops = configuredProxyHops
   const tls = opts.tls ?? tlsFromEnv(process.env)
   const appVersion = captureServerBuildVersion()
+  const appSourceDigest = serverBuildSourceDigest()
   const instanceId = resolveInstanceId()
   ensureInstanceStateIdentity({ instanceId })
   // Role composition (roles.ts): which optional module groups this process
@@ -672,20 +673,10 @@ export async function startServer(
     // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
     // inventories the daemons themselves reported.
     fleetPlatforms: () => fleetHeadlessPlatforms(store.machines.listMachines()),
-    // Proposals describe the packaged fleet consumers, not this source publisher.
-    // A source-only fleet is already at HEAD, so keep its baseline bounded too.
-    proposalBaselineVersion: (headSha) => {
-      const versions = registry.modules.updates
-        .fleet()
-        .filter((machine) => machine.id !== hostMachineId)
-        .filter((machine) => machine.installKind !== 'source')
-        .map((machine) => machine.version)
-        .filter((version) => version.length > 0 && version !== 'unknown')
-      const distinct = [...new Set(versions)]
-      // Mixed rollout versions are all shown in the UI; use the first real fleet baseline
-      // here so the commit range stays bounded while the fleet converges.
-      return distinct[0] ?? `dev+${headSha}`
-    },
+    // A proposal answers what THIS running server would change by building HEAD.
+    // Fleet skew belongs to rollout; it must never move the build's changelog baseline.
+    proposalRunningVersion: appVersion,
+    ...(appSourceDigest ? { proposalRunningSha: appSourceDigest } : {}),
     remoteUpdateConsumers: () =>
       selectRemoteUpdateConsumers(store.machines.listMachines(), hostMachineId, (machineId) => {
         // POD-2861 owns degraded presence when a daemon is absent or refused.

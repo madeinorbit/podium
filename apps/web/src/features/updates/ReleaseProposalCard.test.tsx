@@ -6,6 +6,7 @@ import { ReleaseProposalCard } from './ReleaseProposalCard'
 const PROPOSAL: ReleaseProposal = {
   headSha: 'abcdef1',
   version: '0.1.2-dev.7+abcdef1',
+  runningVersion: '0.1.1-edge.1',
   branch: 'feature/branch-release',
   commits: [{ sha: 'abcdef1', summary: 'Add approval flow' }],
   addedMigrations: ['20260821110000_release_proposals'],
@@ -20,14 +21,13 @@ describe('ReleaseProposalCard', () => {
       <ReleaseProposalCard
         proposal={PROPOSAL}
         pending={false}
-        runningVersions={['0.1.1-edge.1']}
         onApprove={vi.fn()}
         onHide={vi.fn()}
       />,
     )
     expect(screen.getByText(/feature\/branch-release/)).toBeTruthy()
     expect(screen.getByText(/Build dev\.7 \(abcdef1\) for the fleet/)).toBeTruthy()
-    expect(screen.getByTestId('release-proposal-fleet-transition').textContent).toContain(
+    expect(screen.getByTestId('release-proposal-server-transition').textContent).toContain(
       '0.1.1-edge.1 → dev.7 (abcdef1)',
     )
     expect(screen.getByText(/Add approval flow/)).toBeTruthy()
@@ -50,7 +50,6 @@ describe('ReleaseProposalCard', () => {
           },
         }}
         pending={false}
-        runningVersions={['0.1.1-edge.1']}
         onApprove={vi.fn()}
         onHide={vi.fn()}
       />,
@@ -67,7 +66,6 @@ describe('ReleaseProposalCard', () => {
       <ReleaseProposalCard
         proposal={PROPOSAL}
         pending={false}
-        runningVersions={['0.1.1-edge.1']}
         onApprove={approve}
         onHide={vi.fn()}
       />,
@@ -77,5 +75,18 @@ describe('ReleaseProposalCard', () => {
     expect(
       screen.getByText(/will not install until someone accepts that second prompt/i),
     ).toBeTruthy()
+  })
+
+  it('states an empty server-to-build range instead of rendering a blank changelog', () => {
+    render(
+      <ReleaseProposalCard
+        proposal={{ ...PROPOSAL, commits: [], addedMigrations: [] }}
+        pending={false}
+        onApprove={vi.fn()}
+        onHide={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('No changes since what this server is running.')).toBeTruthy()
   })
 })

@@ -7,6 +7,7 @@ describe('ReleaseProposal', () => {
       ReleaseProposal.parse({
         headSha: 'abcdef1',
         version: '0.1.2-dev.7+abcdef1',
+        runningVersion: 'dev+1234567',
         branch: 'feature/proposal',
         commits: [{ sha: 'abcdef1', summary: 'Add proposal approval' }],
         addedMigrations: ['20260821110000_release_proposals'],

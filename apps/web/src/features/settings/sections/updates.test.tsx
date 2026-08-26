@@ -106,6 +106,7 @@ describe('UpdatesSection', () => {
     const first = {
       headSha: 'aaaaaaa',
       version: '0.4.2-dev.1+aaaaaaa',
+      runningVersion: 'dev+7777777',
       branch: 'main',
       commits: [{ sha: 'aaaaaaa', summary: 'First proposal' }],
       addedMigrations: [],
@@ -140,6 +141,33 @@ describe('UpdatesSection', () => {
       headSha: latest.headSha,
       version: latest.version,
     })
+  })
+
+  it('uses the server range and states an empty changelog without fleet data', async () => {
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: 'dev+aaaaaaa' })
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    quietHistory()
+    trpc.updates.proposal.query.mockResolvedValue({
+      headSha: 'aaaaaaa',
+      version: '0.4.2-dev.1+aaaaaaa',
+      runningVersion: 'dev+aaaaaaa',
+      branch: 'main',
+      commits: [],
+      addedMigrations: [],
+      state: 'pending',
+    })
+
+    render(<UpdatesSection />)
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId('settings-release-proposal-server-transition').textContent).toContain(
+      'Server: dev (aaaaaaa) → dev.1 (aaaaaaa)',
+    )
+    expect(screen.getByText('No changes since what this server is running.')).toBeTruthy()
   })
 
   it('shows the running version, target, and per-machine version state', async () => {
