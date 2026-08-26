@@ -178,3 +178,48 @@ unrelated issue may be holding it, and it will be holding it for a good reason.
 one. A gate run against a thrashing box produces *false reds*, and a false red costs the
 same fix-and-redrive cycle as a real one while being harder to recognise. **State free
 memory and load alongside any gate result**, so a reader can tell a red from a starved run.
+
+## Repairing a bad merge: the compiler and the parents answer different questions
+
+**The compiler points at the SYNTAX, which is the last thing a bad splice broke. The
+parents show what the splice DELETED.** Only one of those questions has a compiler behind
+it, and it is not the important one.
+
+A merge left a JSX block with a duplicated `)}`, a missing `>`, *and the element body
+gone*. The build named line 621. Fixing what it named would have compiled cleanly and
+shipped a queued message that renders an **empty bubble** — a silent product defect created
+by the repair, not by the merge.
+
+**So: diff the hunk against BOTH PARENTS, not against the error.** If the parents agree on
+the block, the repair is a restore and not a guess. If they disagree, you have a real
+resolution to make and should say so.
+
+**And check the scope rather than assuming it.** Parse every source file the merge touched
+— 236 of them here — so "there is one landmine" is a measurement rather than a hope.
+
+## Commit, rebase, THEN build — never overlap the last two
+
+A rig started building in the background, then the session committed and rebased underneath
+it. The rig came up pinned to the **pre-rebase** commit and the next drive was correctly
+refused.
+
+The build reads the worktree *continuously* — the bundle stamp, and the source the pair
+imports under `--conditions=@podium/source` — so moving `HEAD` underneath it produces
+components that **disagree about which commit they are**. That is the same failure as a
+stale pin, manufactured on purpose.
+
+## One rule over two shapes is the defect this epic keeps repeating
+
+Three instances, all in one session, all producing a **confident red on something that was
+fine**:
+
+- one pairing rule over two harnesses (one item carrying call+result, versus two sharing a
+  `toolUseId`)
+- one loader over two file extensions (a TSX loader reading `.ts`, so `<T>` generics parse
+  as JSX)
+- one rig-wide posture for a check only one row wanted
+
+**The cure is the same every time: key on the thing that actually distinguishes them** — the
+`toolUseId`, the file extension, the probe scope — rather than on a shape you assumed was
+universal. It is the mirror of the fixture-too-forgiving defect, and it is easier to miss
+because the tool looks rigorous while it is wrong.
