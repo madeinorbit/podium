@@ -41,13 +41,20 @@ printf '  HEAD %s   epic tip %s\n\n' \
 # So a blocker is now marked LANDED explicitly, and a landed blocker means
 # RE-CHECK NOW rather than "wait". The status column carries which it is.
 #
+# A ROW LEAVES THIS LIST THE MOMENT ITS CELL IS DRIVEN.
+#
+# A10 half 2 was here, correctly flagged RE-CHECK because POD-2853 had landed.
+# It was then driven and PASSED — and the row stayed, so every subsequent run
+# shouted RE-CHECK about a cell that was finished. A checker that always reports
+# something to do is a checker people stop reading, which is precisely the
+# failure it exists to prevent. Prune on drive, not eventually.
+#
 # cell | blocking issue | landed? | what it blocks | runtime paths that would carry the fix
 CELLS=$(cat <<'ROWS'
 A3 opencode|POD-2885|no|the long-turn wedge freezes both planes, so the interrupt control cannot observe a turn in flight. Needs POD-2885 ONLY — a3.ts is standalone, no drive.ts and no lock|apps/daemon/src/runtime apps/server/src/modules/sessions packages/agent-runtime
 A3 codex|POD-2885|no|same. Run a3.ts after POD-2885 lands: the refusal turning into a SCORE is the signal the wedge fix reached this path|apps/daemon/src/runtime apps/server/src/modules/sessions packages/agent-runtime
 A4a terminal half|POD-2875|no|opening a second viewer on the native view parks the chat send, so the ask never gets raised|apps/server/src/modules/sessions packages/protocol
 A4a/A4b codex|the harness itself|n/a|codex raises no approval on this host; controlled against codex run OUTSIDE Podium with the same flag|
-A10 half 2|POD-2853|YES|the demoted session used to die before it could report its driver identity — that fix is IN my tree, so this is drivable NOW|apps/daemon/src/runtime packages/pty
 ROWS
 )
 
