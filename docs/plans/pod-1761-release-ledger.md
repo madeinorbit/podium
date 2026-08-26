@@ -4248,3 +4248,39 @@ but the proximate cause of THIS wall was 8.6GB of someone else's cache appearing
 and capping my sessions would not have prevented it.** Both things are true and I stated only the
 one that was my fault. Overcorrecting toward self-blame is still getting the cause wrong, and it
 would have had me throttle the only thing moving coverage.
+
+### A consumer sweep over everything this epic exported (2026-08-27 01:57 CEST)
+
+The disk is at 99% so no rig can run; the consumer check needs none, and it found POD-2691's
+defect in thirty seconds. **So I ran it over every symbol this epic's fix commits have exported
+since 2026-08-24** — 40 commits, **39 new exported symbols**.
+
+**22 of the 39 have no non-test file naming them beyond their own definition.** But that number is
+not a finding on its own, and I nearly reported it as one: **a symbol used only inside its own
+module looks identical to a dead one** from a file-level grep. Refining by counting occurrences
+within the defining file:
+
+    abducoSocketPathFits    1 occurrence in its own file  -> the DEFINITION only. Genuinely dead.
+    abducoSocketDir         2                             -> defined and used internally.
+    longestDurableLabelFor  2                             -> defined and used internally.
+
+**The cluster that matters is the instance-guard / instance-uuid family** — roughly 15 of the 22:
+`INSTANCE_MARKER_VERSION`, `INSTANCE_UUID_PATTERN`, `InstanceGuardHeldError`,
+`acquireInstanceSingleton`, `acquireStateRootLock`, `defaultInstanceGuardIo`, `holderIsLive`,
+`identityIsVerifiable`, `instanceGuardDir`, `instanceUuidShort`, `mintInstanceUuid`,
+`mintUuidIntoMarker`, `parseProcStatStartTime`, `rekeyInstanceStateIdentity`,
+`selfIdentityTriple`.
+
+**That is POD-2691's defect, quantified: not one unconsumed field but an entire module of ~15
+exported, tested symbols that no production code imports.** It also makes the shape legible — this
+was not an oversight on one line, it was a whole capability built and never wired up, with a green
+test suite over the top of it.
+
+**And it is about to stop being true**: POD-2691's implementer is building the consumer now, so
+these symbols get their caller. Which is the honest reading of the sweep — most of the 22 are one
+defect already owned, plus `abducoSocketPathFits`, which is a genuinely dead export and too small
+to spend a round on.
+
+**Method note for reuse:** file-level `grep -rl` answers "does anything else mention this", and
+occurrence-count within the defining file answers "is it used at all". **Both are needed; the first
+alone over-reports by counting internal helpers as dead.**
