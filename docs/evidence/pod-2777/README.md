@@ -53,6 +53,46 @@ a second reason to prefer the within-one-commit comparison over a
 before-and-after in time.
 
 
+## `pgrep -f` cannot answer "am I mid-drive?" on this box
+
+Asked whether I had a drive running, I ran `pgrep -f 'pod-2777/(a[0-9]|drive)'`
+and `pgrep -f drive-up.sh`. **Both reported hits. Both were wrong.**
+
+```
+2161771  abduco -n podium-a9d8a200-…  /home/mgw/.local/bin/codex --model …
+2161772  codex --model gpt-5.6-luna -c developer_instructions="This project uses Podium's…
+3318026  /bin/bash -c source /home/mgw/.claude/shell-snapshots/…
+```
+
+Two causes, and every session on this box has both:
+
+1. **Every Podium agent carries the entire developer-instructions prompt in its
+   command line.** That blob mentions `docs/evidence`, `drive`, issue refs and
+   much else, so `pgrep -f` on almost any project string matches *every agent
+   session on the machine* — none of them yours.
+2. **`pgrep -f` matches the grepping shell itself**, because the pattern is in
+   its own `argv`.
+
+So a session asked "are you mid-drive?" can answer **yes** while running nothing,
+and would then abandon a turn it never had — or, worse, answer confidently in
+either direction from a check that cannot discriminate.
+
+**What actually works** — identity plus location, not a substring of a command
+line:
+
+```bash
+for pid in $(pgrep -x bun); do
+  [ "$(readlink /proc/$pid/cwd)" = "$PWD" ] && echo "$pid"
+done
+```
+
+`pgrep -x` matches the executable name exactly, and the `cwd` check confines it
+to this worktree. That returned exactly the two processes that are really mine —
+the idle server and daemon — and no probes.
+
+Same family as the other silent-zeros here: the check ran, produced an answer,
+and the answer was about something else.
+
 ## When you hand over a probe, say what its PASS looks like
 
 Two probes in this directory pass by **refusing**, and found cold either reads as
