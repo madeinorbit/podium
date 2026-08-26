@@ -1,0 +1,1 @@
+{"ts":"2026-08-26T12:45:41.707Z","level":"info","ns":"runtime:boot","msg":"podium daemon up: connected to ws://localhost:30374/daemon","logs":"stdout (journald)","role":"daemon","v":"dev+6c10b66-dirty","platform":"linux","instance":"grok2877"}

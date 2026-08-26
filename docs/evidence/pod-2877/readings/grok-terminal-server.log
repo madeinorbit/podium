@@ -1,0 +1,3 @@
+{"ts":"2026-08-26T12:45:38.012Z","level":"info","ns":"runtime:boot","msg":"podium server up: relay on http://localhost:30374 (daemon connects separately)","logs":"stdout (journald)","role":"server","v":"dev+6c10b66-dirty","platform":"linux","instance":"grok2877"}
+{"ts":"2026-08-26T12:45:41.535Z","level":"info","ns":"server:gateway","msg":"daemon attached — the machine is now online","machineId":"4c0070fa-e5b2-4c6b-a10e-efc504c11670","role":"server","v":"dev+6c10b66-dirty","platform":"linux","instance":"grok2877"}
+{"ts":"2026-08-26T12:50:05.284Z","level":"warn","ns":"server:trpc","msg":"slow rpc","path":"sessions.kill","durationMs":1077.849533999979,"role":"server","v":"dev+6c10b66-dirty","platform":"linux","instance":"grok2877"}
