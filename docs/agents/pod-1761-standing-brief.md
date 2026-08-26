@@ -678,3 +678,36 @@ failure sets BY TEST NAME.** Every failure then lands in exactly one bucket:
 **If the lane is too expensive to run twice, label the remainder
 `UNATTRIBUTED-INHERITED-LIKELY` and say so.** Never write "inherited" next to a number nobody
 measured.
+
+## A check that CANNOT FAIL is not a check (2026-08-26 18:21 CEST)
+
+A row asks for *"no scrollback corruption"*. It was scored with `screen.includes(marker)` — a
+substring presence test. **The defect the row cites is corruption that ADDS content**:
+repainting the new interface into the old one's scrollback. *A presence test cannot see an
+addition, a duplication or an interleave — every one of those leaves the marker exactly where
+it was.* **It could not fail, and four PASSes across four columns rested on it.**
+
+**Ask of every check: what reading would make this FAIL?** If you cannot construct one, the
+check is decoration. This is the same family as the vacuous pass where a credential was removed
+and the product never noticed — *a true sentence about a measurement that never happened.*
+
+**And the replacement can be wrong in the other direction.** Counting the marker and demanding
+exactly one FAILED, because the baseline screen legitimately contains it twice and a TUI
+repaints and reflows by design. Between them: **v1 cannot fail, v2 cannot pass.** Bracketing the
+problem is progress; report the clause **UNMEASURED** rather than scoring it on either
+instrument.
+
+## The accumulating buffer, and why asymmetry hides it (2026-08-26 18:21 CEST)
+
+That replacement's first run showed marker counts **2 → 6 → 6 → 10** and line counts
+**20 → 34 → 48** — every view switch adding content, *exactly* the signature of the defect it
+was hunting. The issue number was in hand.
+
+**It was the rig's own buffer.** Its screen accessor only ever *appended*, while the server
+replays its whole output log on every attach — so each re-attach concatenated another copy.
+**A non-resumed attach means REBUILD your screen, not APPEND to it.**
+
+**The asymmetry is what hid it:** the transcript side of the same object had always cleared its
+items on reset; the terminal side never did. One plane accounting correctly and the other
+silently accumulating, *in the same object*, is much harder to see than either being wrong
+alone — the correct half makes the object look maintained.
