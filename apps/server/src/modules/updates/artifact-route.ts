@@ -38,6 +38,15 @@ export interface DevFeedRouteDeps {
     platform?: string,
   ): DevBundleArtifact | null | Promise<DevBundleArtifact | null>
   /**
+   * The built candidate may answer an authenticated HEAD before publication so
+   * remote consumers can prove its exact route. It is never used for GET: an
+   * unpublished bundle must not become downloadable merely because it was built.
+   */
+  probeArtifact?(
+    version: string,
+    platform?: string,
+  ): DevBundleArtifact | null | Promise<DevBundleArtifact | null>
+  /**
    * Where the publisher wrote `podium-update.json`, or nothing on a server that
    * publishes no feed. Read per request rather than captured: the manifest is a
    * few hundred bytes and it changes underneath this process every publish.
@@ -124,7 +133,11 @@ export function registerDevFeedRoutes(app: Hono, deps: DevFeedRouteDeps): void {
 
     let artifact: DevBundleArtifact | null
     try {
-      artifact = await deps.publishedArtifact(requestedVersion, requestedPlatform)
+      const candidate =
+        c.req.method === 'HEAD'
+          ? await deps.probeArtifact?.(requestedVersion, requestedPlatform)
+          : undefined
+      artifact = candidate ?? (await deps.publishedArtifact(requestedVersion, requestedPlatform))
     } catch (error) {
       if (!(error instanceof DevArtifactIntegrityError)) throw error
       // Keep the route fail-closed and non-enumerating: authenticated callers
@@ -165,11 +178,16 @@ export function registerDevFeedRoutes(app: Hono, deps: DevFeedRouteDeps): void {
       return c.text('not found', 404)
     }
 
-    return c.body(opened.stream, 200, {
+    const headers = {
       'content-type': DEV_BUNDLE_CONTENT_TYPE,
       'content-length': String(opened.size),
       'cache-control': 'no-store',
-    })
+    }
+    if (c.req.method === 'HEAD') {
+      await opened.stream.cancel()
+      return c.body(null, 200, headers)
+    }
+    return c.body(opened.stream, 200, headers)
   }
 
   app.get(DEV_FEED_ROUTE + '/' + DEV_DESKTOP_MANIFEST, async (c) => {
@@ -212,17 +230,20 @@ export function registerDevFeedRoutes(app: Hono, deps: DevFeedRouteDeps): void {
     })
   })
 
-  app.get(`${DEV_FEED_ROUTE}/${DEV_FEED_ARTIFACT_SEGMENT}/:version/:platform`, async (c) =>
-    serve(
-      c,
-      decodeURIComponent(c.req.param('version')),
-      decodeURIComponent(c.req.param('platform')),
-    ),
+  app.on(
+    ['GET', 'HEAD'],
+    `${DEV_FEED_ROUTE}/${DEV_FEED_ARTIFACT_SEGMENT}/:version/:platform`,
+    async (c) =>
+      serve(
+        c,
+        decodeURIComponent(c.req.param('version')),
+        decodeURIComponent(c.req.param('platform')),
+      ),
   )
 
   // Kept for a daemon still holding a URL minted before one build published several
   // platforms. It serves the host's bundle, which is what that URL always meant.
-  app.get(`${DEV_FEED_ROUTE}/${DEV_FEED_ARTIFACT_SEGMENT}/:version`, async (c) =>
+  app.on(['GET', 'HEAD'], `${DEV_FEED_ROUTE}/${DEV_FEED_ARTIFACT_SEGMENT}/:version`, async (c) =>
     serve(c, decodeURIComponent(c.req.param('version')), undefined),
   )
 }

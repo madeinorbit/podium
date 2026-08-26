@@ -68,7 +68,7 @@ import {
   SpawnMessage,
 } from './terminal'
 import { TranscriptMirrorReadMessage, TranscriptReadRequestMessage } from './transcript'
-import { UpdateGrantMessage } from './update'
+import { DevArtifactProbeRequestMessage, UpdateGrantMessage } from './update'
 import {
   WorkspaceCleanRequestMessage,
   WorkspaceExportRequestMessage,
@@ -100,6 +100,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   AgentQuotaRequestMessage,
   InventoryRequestMessage,
   ModelProbeRequestMessage,
+  DevArtifactProbeRequestMessage,
   UpdateGrantMessage,
   ImageUploadRequestMessage,
   SpawnMessage,

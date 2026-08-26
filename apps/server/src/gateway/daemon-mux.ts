@@ -194,6 +194,7 @@ const DISPATCH: Dispatcher = {
   usageResult: toRpc,
   agentQuotaResult: toRpc,
   modelProbeResult: toRpc,
+  devArtifactProbeResult: toRpc,
   imageUploadResult: toRpc,
   transcriptReadResult: toRpc,
   fileReadResult: toRpc,

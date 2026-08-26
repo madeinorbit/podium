@@ -21,6 +21,7 @@ import type {
   BrowseDirsResultMessage,
   CredentialExportResultMessage,
   CredentialInstallResultMessage,
+  DevArtifactProbeResultMessage,
   DirListResultMessage,
   DirOp,
   FileAssetResultMessage,
@@ -177,6 +178,7 @@ const USAGE = daemonRequestKind<{
 }>('us')
 const AGENT_QUOTA = daemonRequestKind<{ hostname: string; agents: AgentQuotaWire[] }>('aq')
 const MODEL_PROBE = daemonRequestKind<Record<string, ModelChoiceWire[]>>('mp')
+const DEV_ARTIFACT_PROBE = daemonRequestKind<Payload<DevArtifactProbeResultMessage>>('up')
 const TRANSCRIPT_READ = daemonRequestKind<TranscriptSlice>('tr')
 const IMAGE_UPLOAD = daemonRequestKind<{ path: string; error?: string }>('iu')
 const FILE_READ = daemonRequestKind<Payload<FileReadResultMessage>>('fr')
@@ -262,6 +264,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     }),
   modelProbeResult: (broker, machineId, msg) =>
     void broker.settle(MODEL_PROBE, msg.requestId, machineId, msg.byAgent),
+  devArtifactProbeResult: (broker, machineId, msg) =>
+    void broker.settle(DEV_ARTIFACT_PROBE, msg.requestId, machineId, payloadOf(msg)),
   imageUploadResult: (broker, machineId, msg) =>
     void broker.settle(IMAGE_UPLOAD, msg.requestId, machineId, {
       path: msg.path,
@@ -518,6 +522,30 @@ export class DaemonRpcService {
       20_000,
       () => ({}),
       (requestId) => ({ type: 'modelProbeRequest', requestId }),
+      machineId,
+    )
+  }
+
+  /**
+   * Prove the exact authenticated development artifact route from one managed
+   * machine. A timeout is a failed proof, never permission to publish.
+   */
+  probeDevArtifact(
+    url: string,
+    machineId: MachineId,
+  ): Promise<Payload<DevArtifactProbeResultMessage>> {
+    return this.request(
+      DEV_ARTIFACT_PROBE,
+      20_000,
+      () => ({
+        ok: false,
+        detail: 'the machine did not answer the artifact reachability probe',
+      }),
+      (requestId) => ({
+        type: 'devArtifactProbeRequest',
+        requestId,
+        url,
+      }),
       machineId,
     )
   }

@@ -37,6 +37,30 @@ describe('update frames', () => {
     expect(m.type).toBe('updateStatus')
   })
 
+  it('routes the development artifact probe as a correlated request and result', () => {
+    const url = 'http://source:18787/updates/dev-bundle/dev%2Babc1234?token=authenticated-route'
+    expect(
+      ControlMessage.parse({
+        type: 'devArtifactProbeRequest',
+        requestId: 'up1',
+        url,
+      }),
+    ).toEqual({ type: 'devArtifactProbeRequest', requestId: 'up1', url })
+    expect(
+      DaemonMessage.parse({
+        type: 'devArtifactProbeResult',
+        requestId: 'up1',
+        ok: false,
+        detail: 'Unable to connect',
+      }),
+    ).toEqual({
+      type: 'devArtifactProbeResult',
+      requestId: 'up1',
+      ok: false,
+      detail: 'Unable to connect',
+    })
+  })
+
   it('carries no machineId: the machine comes from the authenticated transport', () => {
     const s = UpdateStatusMessage.parse({
       type: 'updateStatus',

@@ -73,7 +73,7 @@ import {
   TranscriptMirrorResultMessage,
   TranscriptReadResultMessage,
 } from './transcript'
-import { UpdateStatusMessage } from './update'
+import { DevArtifactProbeResultMessage, UpdateStatusMessage } from './update'
 import {
   WorkspaceCleanResultMessage,
   WorkspaceExportResultMessage,
@@ -179,6 +179,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   SessionGitActivityMessage,
   NativeDraftMessage,
   InventoryReportMessage,
+  DevArtifactProbeResultMessage,
   UpdateStatusMessage,
   ModelProbeResultMessage,
   BindMessage,

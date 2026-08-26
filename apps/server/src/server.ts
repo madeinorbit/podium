@@ -679,6 +679,17 @@ export async function startServer(
       // here so the commit range stays bounded while the fleet converges.
       return distinct[0] ?? `dev+${headSha}`
     },
+    remoteManagedMachines: () =>
+      store.machines
+        .listMachines()
+        .filter((machine) => machine.id !== hostMachineId && machine.podiumManaged)
+        .map((machine) => ({
+          id: machine.id,
+          name: machine.name,
+          online: registry.modules.machines.hasDaemon(machine.id),
+        })),
+    probeArtifact: (url, machineId) =>
+      registry.modules.rpc.probeDevArtifact(url, asMachineId(machineId)),
     artifactToken: devArtifactToken,
     setTarget: (target) => registry.modules.updates.setTarget(target),
     setTargetUnavailable: (reason) => registry.modules.updates.setTargetUnavailable('dev', reason),

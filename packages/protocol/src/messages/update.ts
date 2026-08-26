@@ -25,6 +25,29 @@ export const UpdateGrantMessage = z.object({
 })
 export type UpdateGrantMessage = z.infer<typeof UpdateGrantMessage>
 
+/**
+ * Before a development target is published, the coordinator asks each remote
+ * managed daemon to prove that the target's exact authenticated artifact route
+ * is reachable from that machine. This is deliberately not an update grant:
+ * probing must have no install side effect and must finish before the signed
+ * target enters the fleet read model.
+ */
+export const DevArtifactProbeRequestMessage = z.object({
+  type: z.literal('devArtifactProbeRequest'),
+  requestId: z.string(),
+  url: z.string().url(),
+})
+export type DevArtifactProbeRequestMessage = z.infer<typeof DevArtifactProbeRequestMessage>
+
+export const DevArtifactProbeResultMessage = z.object({
+  type: z.literal('devArtifactProbeResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  status: z.number().int().min(100).max(599).optional(),
+  detail: z.string().optional(),
+})
+export type DevArtifactProbeResultMessage = z.infer<typeof DevArtifactProbeResultMessage>
+
 /** Where a machine is, relative to its grant. */
 export const CONVERGENCE_STATES = [
   'current',

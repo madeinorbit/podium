@@ -357,6 +357,116 @@ describe('development artifact route', () => {
     })
   })
 
+  describe('the release publication boundary', () => {
+    const wiringFor = (over: Partial<Parameters<typeof wireDevBundlePublisher>[0]> = {}) => {
+      let publications = 0
+      const unavailable: string[] = []
+      const wiring = wireDevBundlePublisher({
+        sourceRoot: '/repo/podium',
+        artifactOrigin: 'http://source:18787',
+        localArtifactOrigin: () => 'http://127.0.0.1:18787',
+        hasRemoteManagedMachines: () => true,
+        artifactToken: 'random-token',
+        signingKey: 'test-key',
+        setTarget: () => {},
+        setTargetUnavailable: (reason) => unavailable.push(reason),
+        locks: {
+          acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
+          cancel: () => {},
+          renew: () => {},
+          release: () => {},
+        },
+        createPublisher: () => ({
+          requestBuild: async () => built,
+          current: () => built,
+          publishedArtifact: async (version, platform) =>
+            resolveBuiltArtifact(built, version, platform),
+          target: async () => undefined,
+          feedManifest: async () => undefined,
+          publishFeed: async () => {
+            publications += 1
+            return true
+          },
+          proposal: async () => undefined,
+          feedManifestPath: () => manifestPath,
+          desktopManifestPath: () => desktopManifestPath,
+          desktopManifestSource: () => undefined,
+          readiness: async () => ({
+            state: 'ready' as const,
+            headSha: 'abc1234',
+            version: built.version,
+          }),
+          unavailable: () => undefined,
+        }),
+        ...over,
+      })
+      return { wiring, publications: () => publications, unavailable }
+    }
+
+    it('refuses an unreachable remote address before publication and proceeds once reachable', async () => {
+      const address = 'http://source:18787'
+      const probed: { url: string; machineId: string }[] = []
+      let reachable = false
+      const { wiring, publications, unavailable } = wiringFor({
+        remoteManagedMachines: () => [
+          { id: 'linux-1', name: 'Linux host', online: true },
+          { id: 'mac-1', name: 'joined Mac', online: true },
+        ],
+        probeArtifact: async (url, machineId) => {
+          probed.push({ url, machineId })
+          return reachable || machineId === 'linux-1'
+            ? { ok: true, status: 200 }
+            : { ok: false, detail: 'Unable to connect' }
+        },
+      })
+
+      await expect(wiring.requestBuild()).rejects.toThrow(address)
+      expect(publications()).toBe(0)
+      expect(unavailable.at(-1)).toContain(address)
+      expect(unavailable.at(-1)).toContain('joined Mac')
+      expect(probed).toHaveLength(2)
+      for (const probe of probed) {
+        expect(new URL(probe.url).searchParams.get('token')).toBe('random-token')
+      }
+
+      reachable = true
+      await expect(wiring.requestBuild()).resolves.toEqual(built)
+      expect(publications()).toBe(1)
+      expect(new Set(probed.slice(2).map(({ machineId }) => machineId))).toEqual(
+        new Set(['linux-1', 'mac-1']),
+      )
+      expect(new Set(probed.slice(2).map(({ url }) => new URL(url).pathname))).toEqual(
+        new Set([
+          '/updates/feed/dev/artifact/dev%2Babc1234/linux-x86_64',
+          '/updates/feed/dev/artifact/dev%2Babc1234/darwin-aarch64',
+        ]),
+      )
+
+      // Retrying the same built candidate with the same fleet does not fan out
+      // another proof; a roster or URL change invalidates this key.
+      const proofCount = probed.length
+      await expect(wiring.requestBuild()).resolves.toEqual(built)
+      expect(probed).toHaveLength(proofCount)
+      expect(publications()).toBe(2)
+    })
+
+    it('withholds the release while a registered remote is asleep', async () => {
+      const probed: string[] = []
+      const { wiring, publications, unavailable } = wiringFor({
+        remoteManagedMachines: () => [{ id: 'sleeping-1', name: 'Sleeping Mac', online: false }],
+        probeArtifact: async (url) => {
+          probed.push(url)
+          return { ok: true, status: 200 }
+        },
+      })
+
+      await expect(wiring.requestBuild()).rejects.toThrow('offline machine sleeping-1')
+      expect(publications()).toBe(0)
+      expect(probed).toEqual([])
+      expect(unavailable.at(-1)).toContain('Wake it or remove it from the managed fleet')
+    })
+  })
+
   describe('the manifest leg of the feed', () => {
     it('serves the shell manifest without machine credentials, naming its release', async () => {
       const response = await appFor(false).request('/updates/feed/dev/latest.json')
@@ -440,6 +550,37 @@ describe('development artifact route', () => {
     expect(response.headers.get('content-length')).toBe(String(bytes.length))
     expect(Array.from(served)).toEqual(Array.from(bytes))
     expect(verify(null, served, publicKey, Buffer.from(built.signature, 'base64'))).toBe(true)
+  })
+
+  it('answers an authenticated artifact HEAD without sending the bundle body', async () => {
+    const response = await appFor().request(
+      '/updates/feed/dev/artifact/dev%2Babc1234/linux-x86_64',
+      {
+        method: 'HEAD',
+        headers: { authorization: 'Bearer machine-token' },
+      },
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-length')).toBe(String(bytes.length))
+    expect(await response.text()).toBe('')
+  })
+
+  it('lets HEAD prove a built candidate without exposing it to GET before publication', async () => {
+    const app = new Hono()
+    registerDevFeedRoutes(app, {
+      publishedArtifact: () => null,
+      probeArtifact: (version, platform) => resolveBuiltArtifact(built, version, platform),
+      manifestPath: () => undefined,
+      authenticate: () => true,
+    })
+    const url = '/updates/feed/dev/artifact/dev%2Babc1234/linux-x86_64'
+    const head = await app.request(url, { method: 'HEAD' })
+    const get = await app.request(url)
+
+    expect(head.status).toBe(200)
+    expect(head.headers.get('content-length')).toBe(String(bytes.length))
+    expect(await head.text()).toBe('')
+    expect(get.status).toBe(404)
   })
 
   it('serves each platform its OWN bundle', async () => {

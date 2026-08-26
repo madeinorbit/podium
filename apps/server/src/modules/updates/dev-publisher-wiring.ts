@@ -23,6 +23,7 @@ import type { ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import type { Hono } from 'hono'
 import { registerDevFeedRoutes } from './artifact-route'
 import {
+  type BuiltDevBundle,
   createDevBundlePublisher,
   DEV_ARTIFACT_ROUTE,
   DevBundleProposalMovedError,
@@ -141,6 +142,12 @@ export function selectDevelopmentArtifactOrigin(input: {
   return input.localOrigin
 }
 
+export interface RemoteManagedMachine {
+  readonly id: string
+  readonly name: string
+  readonly online: boolean
+}
+
 export function wireDevBundlePublisher(deps: {
   /** Absent (an installed server) disables the whole thing. */
   readonly sourceRoot: string | undefined
@@ -159,6 +166,13 @@ export function wireDevBundlePublisher(deps: {
   readonly proposalBaselineVersion?: (
     headSha: string,
   ) => string | undefined | Promise<string | undefined>
+  /** Every remote that could later be offered this immutable release. */
+  readonly remoteManagedMachines?: () => readonly RemoteManagedMachine[]
+  /** Executes the exact authenticated artifact request from the named daemon. */
+  readonly probeArtifact?: (
+    url: string,
+    machineId: string,
+  ) => Promise<{ ok: boolean; status?: number; detail?: string }>
   readonly artifactToken: string
   readonly signingKey: string
   readonly setTarget: (target: UpdateTarget) => void
@@ -182,6 +196,10 @@ export function wireDevBundlePublisher(deps: {
   readonly instanceId?: string
   /** Seam for tests; defaults to `git rev-parse --short=7 HEAD` in `sourceRoot`. */
   readonly readHeadSha?: (root: string) => Promise<string>
+  /** Constructor seam for publication-boundary tests; production never supplies it. */
+  readonly createPublisher?: (
+    input: Parameters<typeof createDevBundlePublisher>[0],
+  ) => ReturnType<typeof createDevBundlePublisher>
 }): DevPublisherWiring {
   const sourceRoot = deps.sourceRoot
   const artifactOrigin = deps.artifactOrigin
@@ -213,7 +231,7 @@ export function wireDevBundlePublisher(deps: {
       })
     : undefined
   const publisher = sourceRoot
-    ? createDevBundlePublisher({
+    ? (deps.createPublisher ?? createDevBundlePublisher)({
         sourceCheckoutAvailable: true,
         root: sourceRoot,
         instanceId,
@@ -349,6 +367,89 @@ export function wireDevBundlePublisher(deps: {
   }
 
   /**
+   * A URL inside a signed manifest cannot be repaired. Before the manifest is
+   * written into the served feed, prove every registered remote managed daemon
+   * can reach every exact, authenticated artifact route it could later receive.
+   *
+   * An offline registered machine fails closed deliberately: it remains a
+   * consumer when it wakes, so publishing without its proof would recreate the
+   * same permanent split-fleet risk. Wake it or remove it from the managed
+   * fleet, then retry the publication.
+   */
+  let provenArtifactKey: string | undefined
+  let proofInFlight: { key: string; proof: Promise<void> } | undefined
+
+  const proveRemoteArtifactReachability = async (bundle: BuiltDevBundle): Promise<void> => {
+    if (!deps.hasRemoteManagedMachines()) return
+    const origin = selectDevelopmentArtifactOrigin({
+      externalOrigin: artifactOrigin,
+      localOrigin: deps.localArtifactOrigin(),
+      hasRemoteManagedMachines: true,
+    })
+    const urls = [
+      ...new Set(
+        bundle.artifacts.map((artifact) =>
+          developmentArtifactUrl(origin, bundle.version, deps.artifactToken, artifact.platform),
+        ),
+      ),
+    ].sort()
+    const machines = [...(deps.remoteManagedMachines?.() ?? [])].sort((a, b) =>
+      a.id.localeCompare(b.id),
+    )
+    const key = JSON.stringify({ urls, machines: machines.map((machine) => machine.id) })
+    if (provenArtifactKey === key) return
+    if (proofInFlight?.key === key) return proofInFlight.proof
+
+    const proof = (async () => {
+      if (machines.length === 0) {
+        throw new DevBundleUnavailableError(
+          `development artifact address ${origin} cannot be proved: no remote managed machine is registered`,
+          `The update package address ${origin} could not be checked from another machine, so no release was published.`,
+        )
+      }
+      const offline = machines.find((machine) => !machine.online)
+      if (offline) {
+        throw new DevBundleUnavailableError(
+          `development artifact address ${origin} cannot be proved from offline machine ${offline.id}`,
+          `The update package address ${origin} could not be checked from ${offline.name} because that machine is offline. Wake it or remove it from the managed fleet, then publish again.`,
+        )
+      }
+      if (!deps.probeArtifact) {
+        throw new DevBundleUnavailableError(
+          `development artifact address ${origin} cannot be proved: no remote probe is wired`,
+          `The update package address ${origin} could not be checked from another machine, so no release was published.`,
+        )
+      }
+
+      for (const url of urls) {
+        const results = await Promise.all(
+          machines.map(async (machine) => ({
+            machine,
+            outcome: await deps.probeArtifact?.(url, machine.id),
+          })),
+        )
+        const failed = results.find(({ outcome }) => !outcome?.ok)
+        if (failed) {
+          const detail =
+            failed.outcome?.detail ??
+            (failed.outcome?.status ? `HTTP ${failed.outcome.status}` : 'reachability failed')
+          throw new DevBundleUnavailableError(
+            `development artifact address ${origin} is unreachable from ${failed.machine.id}: ${detail}`,
+            `The update package address ${origin} could not be reached from ${failed.machine.name} (${detail}), so no release was published.`,
+          )
+        }
+      }
+      provenArtifactKey = key
+    })()
+    proofInFlight = { key, proof }
+    try {
+      await proof
+    } finally {
+      if (proofInFlight?.proof === proof) proofInFlight = undefined
+    }
+  }
+
+  /**
    * PUBLISH, THEN HAND OFF (spec §6 step 4).
    *
    * Writing the manifest into the served feed IS the publication; nudging the
@@ -365,6 +466,17 @@ export function wireDevBundlePublisher(deps: {
    */
   const publishToFeed = async (): Promise<boolean> => {
     if (!publisher) return false
+    const candidate = publisher.current()
+    if (!candidate) return false
+    try {
+      await proveRemoteArtifactReachability(candidate)
+    } catch (error) {
+      if (error instanceof DevBundleUnavailableError) {
+        recordPublishFailure(error)
+        deps.setTargetUnavailable?.(error.publicReason)
+      }
+      throw error
+    }
     const published = await publisher.publishFeed()
     if (published) await deps.refreshDevTarget?.()
     return published
@@ -513,6 +625,12 @@ export function wireDevBundlePublisher(deps: {
       if (!publisher) return
       registerDevFeedRoutes(app, {
         publishedArtifact: (version, platform) => publisher.publishedArtifact(version, platform),
+        probeArtifact: (version, platform) => {
+          const candidate = publisher.current()
+          if (!candidate || candidate.version !== version) return null
+          if (platform === undefined) return candidate.artifacts[0] ?? null
+          return candidate.artifacts.find((artifact) => artifact.platform === platform) ?? null
+        },
         manifestPath: () => publisher.feedManifestPath(),
         desktopManifestPath: () => publisher.desktopManifestPath(),
         /**
