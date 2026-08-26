@@ -974,7 +974,7 @@ silence from the recipient does not distinguish "read it and disagreed" from "ne
 something is gating, put it where the recipient will trip over it — a session send, or a comment
 on the issue — not only in mail.
 
-### Before queueing for test:heavy, ask whether the arms differ (2026-08-27 00:02 CEST)
+### Before queueing for test:heavy, ask whether the arms differ (2026-08-26 23:58 CEST)
 
 A session reported itself blocked: its pre-fix control needed a web build, and `test:heavy` was
 held with a queue forming. It was right not to bypass the lock and wrong about being blocked.
@@ -996,3 +996,18 @@ files at all.
 need it, and queue for the ones that do when their turn comes. `test:heavy` is the most contended
 resource on this box, and a meaningful share of the builds taken under it are for arms that are
 identical to each other.
+
+### I guessed a timestamp twice in one evening (corrected 2026-08-27 00:00 CEST)
+
+The heading above originally read **00:02 CEST**. Thu Aug 27 00:00:15 CEST 2026 said **23:58**. Earlier tonight I made
+the identical error on a ledger section — wrote 22:52 when it was 22:44 — and corrected it with a
+note saying *"knowing the trap is not a control; running `date` is."* I then did it again, four
+hours later, in the very file where the rules live.
+
+**Both errors ran the same direction: forward.** That is not random. I write the timestamp when I
+start composing and the write lands minutes later, so guessing always dates a note LATER than the
+observation it records. On an epic where ordering decides whether a reading predates a fix, a
+systematic forward skew is the worst-shaped error available — it makes stale readings look fresh.
+
+**The control is mechanical, not attentional:** capture `date` into a shell variable in the same
+command that writes the file, and interpolate it. Do not type a time you have not just read.
