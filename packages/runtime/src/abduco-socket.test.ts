@@ -5,7 +5,10 @@ import {
   abducoSocketPathBytes,
   abducoSocketPathFits,
   instanceAbducoSocketRoot,
+  instanceRuntimeSocketRoot,
   longestDurableLabelFor,
+  unixSocketPathBytes,
+  unixSocketPathFits,
 } from './abduco-socket.js'
 
 /**
@@ -23,6 +26,31 @@ import {
 const RIG = { username: 'u', hostname: 'h', uid: 1000 } as const
 const ENV = { XDG_RUNTIME_DIR: '/run/user/1000' } as NodeJS.ProcessEnv
 const HOST = `@${RIG.hostname}`
+
+describe('the shared Unix socket path budget', () => {
+  it('accepts the last byte below the ceiling and refuses the ceiling', () => {
+    const lastAccepted = 'x'.repeat(ABDUCO_SUN_PATH_MAX - 1)
+    const firstRefused = 'x'.repeat(ABDUCO_SUN_PATH_MAX)
+
+    expect(unixSocketPathBytes(lastAccepted)).toBe(107)
+    expect(unixSocketPathBytes(firstRefused)).toBe(108)
+    expect(unixSocketPathFits(lastAccepted)).toBe(true)
+    expect(unixSocketPathFits(firstRefused)).toBe(false)
+  })
+
+  it('keeps a full named instance in its private runtime socket root', () => {
+    const instanceId = 'i'.repeat(32)
+    const root = instanceRuntimeSocketRoot(
+      instanceId,
+      { XDG_RUNTIME_DIR: '/run/user/1001' },
+      { uid: 1001 },
+    )
+    const socket = `${root}/abcdefabcdef-123456789012.sock`
+
+    expect(root).toBe(`/run/user/1001/podium-${instanceId}`)
+    expect(unixSocketPathFits(socket)).toBe(true)
+  })
+})
 
 const composed = (root: string, id: string) =>
   abducoSocketPathBytes(abducoSocketDir(root, RIG.username), longestDurableLabelFor(id), HOST)

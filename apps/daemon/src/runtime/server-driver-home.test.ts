@@ -55,6 +55,8 @@ interface Landing {
   CODEX_HOME: string | undefined
   GROK_HOME: string | undefined
 }
+let previousRuntimeDir: string | undefined
+let previousInstance: string | undefined
 
 let root: string
 let instanceHome: string
@@ -171,6 +173,10 @@ beforeAll(() => {
   previousStateDir = process.env.PODIUM_STATE_DIR
   previousCodexHome = process.env.CODEX_HOME
   previousGrokHome = process.env.GROK_HOME
+  previousRuntimeDir = process.env.XDG_RUNTIME_DIR
+  previousInstance = process.env.PODIUM_INSTANCE
+  process.env.XDG_RUNTIME_DIR = join(root, 'runtime')
+  process.env.PODIUM_INSTANCE = 'named-instance'
   process.env.PODIUM_STATE_DIR = join(root, 'state')
   process.env.CODEX_HOME = '/daemon/operator/.codex'
   process.env.GROK_HOME = '/daemon/operator/.grok'
@@ -180,6 +186,10 @@ beforeAll(() => {
 afterAll(() => {
   if (previousStateDir === undefined) delete process.env.PODIUM_STATE_DIR
   else process.env.PODIUM_STATE_DIR = previousStateDir
+  if (previousRuntimeDir === undefined) delete process.env.XDG_RUNTIME_DIR
+  else process.env.XDG_RUNTIME_DIR = previousRuntimeDir
+  if (previousInstance === undefined) delete process.env.PODIUM_INSTANCE
+  else process.env.PODIUM_INSTANCE = previousInstance
   if (previousCodexHome === undefined) delete process.env.CODEX_HOME
   else process.env.CODEX_HOME = previousCodexHome
   if (previousGrokHome === undefined) delete process.env.GROK_HOME
@@ -246,10 +256,9 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       expect(seen.CODEX_HOME).toBe(join(instanceHome, '.codex'))
       expect(seen.CODEX_HOME).not.toBe('/daemon/operator/.codex')
       const socketPath = endpoint.clientAddress.slice('unix://'.length)
-      expect(socketPath.startsWith(join(root, 'state', 'runtime'))).toBe(true)
-      expect(
-        statSync(join(root, 'state', 'runtime', 'codex-app-server-sockets')).mode & 0o777,
-      ).toBe(0o700)
+      const socketRoot = join(root, 'runtime', 'podium-named-instance')
+      expect(socketPath.startsWith(socketRoot)).toBe(true)
+      expect(statSync(socketRoot).mode & 0o777).toBe(0o700)
       expect(statSync(socketPath).mode & 0o777).toBe(0o600)
     } finally {
       await endpoint.kill()

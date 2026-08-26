@@ -25,6 +25,7 @@
  * outlives a login has no business holding them.
  */
 
+import { existsSync } from 'node:fs'
 import { hostname, userInfo } from 'node:os'
 import { join } from 'node:path'
 
@@ -36,6 +37,16 @@ import { join } from 'node:path'
  * Linux-only in practice (abduco needs forkpty and the scope needs systemd).
  */
 export const ABDUCO_SUN_PATH_MAX = 108
+
+/** Number of UTF-8 bytes occupied by a complete Unix socket pathname. */
+export function unixSocketPathBytes(path: string): number {
+  return Buffer.byteLength(path, 'utf8')
+}
+
+/** Unix socket paths must be strictly shorter than `sun_path`, not equal to it. */
+export function unixSocketPathFits(path: string): boolean {
+  return unixSocketPathBytes(path) < ABDUCO_SUN_PATH_MAX
+}
 
 /**
  * The directory abduco binds in under `root`, WITH the trailing slash abduco
@@ -63,16 +74,12 @@ export function abducoHomeSocketDir(home: string): string {
  * relaying a message that omits it.
  */
 export function abducoSocketPathBytes(dir: string, label: string, host: string): number {
-  return (
-    Buffer.byteLength(dir, 'utf8') +
-    Buffer.byteLength(label, 'utf8') +
-    Buffer.byteLength(host, 'utf8')
-  )
+  return unixSocketPathBytes(`${dir}${label}${host}`)
 }
 
 /** Whether a session under `dir` fits. abduco refuses at `>=`, not `>`. */
 export function abducoSocketPathFits(dir: string, label: string, host: string): boolean {
-  return abducoSocketPathBytes(dir, label, host) < ABDUCO_SUN_PATH_MAX
+  return unixSocketPathFits(`${dir}${label}${host}`)
 }
 
 /**
@@ -193,6 +200,33 @@ export function instanceAbducoSocketRoots(
   ]
 }
 
+/**
+ * The private runtime root for a Podium-owned Unix socket.
+ *
+ * The instance id is deliberately kept in the root name: unlike abduco's
+ * durable labels, a Codex app-server basename has no instance identity of its
+ * own, so sharing one directory would make cleanup and ownership ambiguous.
+ * The root is the socket directory itself; the short Codex basename is placed
+ * directly inside it, with no state-tree or descriptive directory segments.
+ *
+ * `XDG_RUNTIME_DIR` is already private to the user and is removed with the
+ * login session. A system service with `User=` may not inherit it, so use the
+ * same fixed logind path when it exists. If no user runtime namespace exists,
+ * the `/tmp` fallback includes both uid and instance id so another user cannot
+ * claim the name first and collapse the isolation boundary.
+ */
+export function instanceRuntimeSocketRoot(
+  instanceId: string,
+  env: NodeJS.ProcessEnv = process.env,
+  opts: { uid?: number } = {},
+): string {
+  const uid = opts.uid ?? safeUid()
+  const runtimeDir = userRuntimeDir(env, uid)
+  return runtimeDir
+    ? join(runtimeDir, `podium-${instanceId}`)
+    : join('/tmp', `podium-${uid}-${instanceId}`)
+}
+
 function safeHostname(): string {
   try {
     return hostname()
@@ -216,4 +250,11 @@ function safeUsername(): string {
 
 function safeUid(): number {
   return typeof process.getuid === 'function' ? process.getuid() : 0
+}
+
+function userRuntimeDir(env: NodeJS.ProcessEnv, uid: number): string | undefined {
+  if (env.XDG_RUNTIME_DIR) return env.XDG_RUNTIME_DIR
+  if (process.platform !== 'linux') return undefined
+  const dir = `/run/user/${uid}`
+  return existsSync(dir) ? dir : undefined
 }

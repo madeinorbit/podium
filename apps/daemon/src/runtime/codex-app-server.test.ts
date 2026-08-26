@@ -13,6 +13,7 @@
  */
 
 import { asSessionId } from '@podium/model'
+import { unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/abduco-socket'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   codexAppServerConfigArgs,
@@ -29,13 +30,6 @@ import {
   isServerDriverId,
   resolveRuntimeDriver,
 } from './registry'
-
-/**
- * Temporary local form of the shared Unix-socket predicate. Once POD-2853's
- * utility lands on this branch, this one line becomes its import; the boundary
- * and the two edge cases stay exactly the same.
- */
-const socketPathFits = (path: string): boolean => Buffer.byteLength(path, 'utf8') < 108
 
 const LEGACY_SOCKET_ROOT = '/home/mgw/.local/state/podium'
 const CODEX_SOCKET_DIR = 'runtime/codex-app-server-sockets'
@@ -74,13 +68,19 @@ describe('the Codex app-server socket path budget', () => {
     // These are the measured legacy compositions this regression closes: the
     // last accepted path is 107 bytes, while the first refused path reaches
     // the 108-byte sockaddr_un ceiling.
-    expect(Buffer.byteLength(legacyCodexSocketPath(lastAccepted), 'utf8')).toBe(107)
-    expect(Buffer.byteLength(legacyCodexSocketPath(firstRefused), 'utf8')).toBe(108)
-    expect(socketPathFits(legacyCodexSocketPath(lastAccepted))).toBe(true)
-    expect(socketPathFits(legacyCodexSocketPath(firstRefused))).toBe(false)
+    expect(unixSocketPathBytes(legacyCodexSocketPath(lastAccepted))).toBe(107)
+    expect(unixSocketPathBytes(legacyCodexSocketPath(firstRefused))).toBe(108)
+    expect(unixSocketPathFits(legacyCodexSocketPath(lastAccepted))).toBe(true)
+    expect(unixSocketPathFits(legacyCodexSocketPath(firstRefused))).toBe(false)
 
     process.env.PODIUM_INSTANCE = lastAccepted
     const lastPath = codexClientSocketPath(
+      asSessionId('019edef7-3e34-7513-92b9-35f3a0dac891'),
+      'abcdefabcdef-123456789012',
+    )
+    const maximumId = 'i'.repeat(32)
+    process.env.PODIUM_INSTANCE = maximumId
+    const maximumPath = codexClientSocketPath(
       asSessionId('019edef7-3e34-7513-92b9-35f3a0dac891'),
       'abcdefabcdef-123456789012',
     )
@@ -92,8 +92,13 @@ describe('the Codex app-server socket path budget', () => {
 
     expect(lastPath).toContain(`/run/user/1001/podium-${lastAccepted}/`)
     expect(firstPath).toContain(`/run/user/1001/podium-${firstRefused}/`)
-    expect(socketPathFits(lastPath)).toBe(true)
-    expect(socketPathFits(firstPath)).toBe(true)
+    expect(maximumPath).toContain(`/run/user/1001/podium-${maximumId}/`)
+    expect(unixSocketPathBytes(lastPath)).toBe(66)
+    expect(unixSocketPathBytes(firstPath)).toBe(67)
+    expect(unixSocketPathBytes(maximumPath)).toBe(85)
+    expect(unixSocketPathFits(lastPath)).toBe(true)
+    expect(unixSocketPathFits(firstPath)).toBe(true)
+    expect(unixSocketPathFits(maximumPath)).toBe(true)
   })
 })
 

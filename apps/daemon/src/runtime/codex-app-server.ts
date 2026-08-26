@@ -19,10 +19,10 @@
  * Pinned Codex 0.147.0 accepts JSON-RPC clients on `--listen unix://PATH`, and
  * its stock TUI connects with `codex resume <thread> --remote unix://PATH`.
  * Podium's driver and the TUI therefore share one harness server without
- * stopping or replacing it. The socket lives under the instance state root,
- * its directory is 0700, and its mode is forced to 0600 before the endpoint is
- * exposed. A short random incarnation suffix prevents a stale pathname from
- * being reused across child incarnations.
+ * stopping or replacing it. The socket lives directly under the instance's private runtime root,
+ * which is 0700; its mode is forced to 0600 before the endpoint is exposed. A short random
+ * incarnation suffix prevents a stale pathname from being reused across child incarnations.
+ * The journal remains in the state root because it is durable metadata, not a socket.
  */
 
 import { spawn } from 'node:child_process'
@@ -56,7 +56,14 @@ import {
   scopeUnitName,
   systemdScopeArgv,
 } from '@podium/pty'
+import {
+  ABDUCO_SUN_PATH_MAX,
+  instanceRuntimeSocketRoot,
+  unixSocketPathBytes,
+  unixSocketPathFits,
+} from '@podium/runtime/abduco-socket'
 import { stateDir } from '@podium/runtime/config'
+import { resolveInstanceId } from '@podium/runtime/instance'
 import WebSocket, { type RawData } from 'ws'
 import { serverChildEnv } from '../control/session-env'
 import { stageRuntimeAttachment } from './attachment-staging'
@@ -87,13 +94,21 @@ const journalDir = (): string => join(stateDir(), 'codex-app-servers')
 const journalPath = (sessionId: SessionId): string =>
   join(journalDir(), `${encodeURIComponent(sessionId)}.json`)
 
-const socketDir = (): string => join(stateDir(), 'runtime', 'codex-app-server-sockets')
+/** The socket directory is itself the instance-private runtime namespace. */
+const socketDir = (): string => instanceRuntimeSocketRoot(resolveInstanceId())
 
 /** A short basename preserves room under Unix's sockaddr limit. */
 export function codexClientSocketPath(sessionId: SessionId, nonce: string = randomUUID()): string {
   const session = createHash('sha256').update(sessionId).digest('hex').slice(0, 12)
   const incarnation = nonce.replaceAll('-', '').slice(0, 12)
-  return join(socketDir(), `${session}-${incarnation}.sock`)
+  const path = join(socketDir(), `${session}-${incarnation}.sock`)
+  if (!unixSocketPathFits(path)) {
+    throw new Error(
+      `codex app-server socket path is ${unixSocketPathBytes(path)} bytes; ` +
+        `Unix socket paths must be shorter than ${ABDUCO_SUN_PATH_MAX} bytes: ${path}`,
+    )
+  }
+  return path
 }
 
 /**
