@@ -928,11 +928,31 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
 
   // -- sending ---------------------------------------------------------------
 
+  /**
+   * ONE TYPED INPUT PART PER ATTACHMENT — AND CODEX HAS ONE FOR FILES TOO.
+   *
+   * This mapped images and refused everything else, on the strength of a
+   * declaration reading "Codex accepts image attachments only". POD-2819
+   * measured that against the app-server protocol and it is not true. Handed a
+   * variant it does not know, the server names the whole set itself:
+   *
+   *   unknown variant `localFile`, expected one of `text`, `image`,
+   *   `localImage`, `audio`, `localAudio`, `skill`, `mention`
+   *
+   * `mention` is `{ name, path }` — codex's own `@`-mention, the vehicle its
+   * TUI uses to put a file in front of the model. Driven raw against 0.149.1
+   * with the file staged OUTSIDE the thread's cwd, exactly where Podium stages
+   * it, the agent read it and echoed a secret that existed only in those bytes.
+   * So a file attachment becomes a mention and an image stays a `localImage`;
+   * both are typed parts of the prompt payload, which is what `promptForm:
+   * 'file-part'` now declares (see ./capabilities.ts).
+   */
   const codexInput = (input: TurnInput) => [
-    ...(input.attachments ?? []).map((attachment) => ({
-      type: 'localImage',
-      path: attachment.path,
-    })),
+    ...(input.attachments ?? []).map((attachment) =>
+      attachment.kind === 'image'
+        ? { type: 'localImage', path: attachment.path }
+        : { type: 'mention', name: attachment.filename, path: attachment.path },
+    ),
     { type: 'text', text: input.text, text_elements: [] },
   ]
 
@@ -1306,9 +1326,6 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
         if (session.disposed) return refuse('not_running')
-        if ((input.attachments ?? []).some((attachment) => attachment.kind !== 'image')) {
-          return refuse('unsupported', 'Codex accepts staged images, not general file attachments')
-        }
         // ORDER MATTERS AND IS NOT ARBITRARY. An open ask blocks EVERY delivery,
         // including a queue, because the session is stopped waiting for a human
         // and a turn stacked behind that ask buries it.
@@ -1448,9 +1465,6 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
 
       async stageAttachment(source) {
         if (session.disposed) return stageRefusal('not_running')
-        if (!source.mediaType.startsWith('image/')) {
-          return stageRefusal('unsupported', 'Codex accepts image attachments only')
-        }
         try {
           return await host.stageAttachment({ sessionId: session.sessionId, source })
         } catch (err) {

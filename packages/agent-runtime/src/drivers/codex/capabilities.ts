@@ -104,7 +104,38 @@ export function codexAppServerCapabilities(): DriverCapabilities {
       cursorMaterial: 'event-offset',
     },
     transcript: supported({ history: true }),
-    staging: supported({ kinds: ['image'], promptForm: 'local-image' }),
+    /**
+     * BOTH KINDS, BECAUSE CODEX TAKES BOTH — MEASURED, NOT INFERRED (POD-2819).
+     *
+     * This read `kinds: ['image'], promptForm: 'local-image'`, and the driver
+     * refused a text file with "Codex accepts image attachments only". The
+     * refusal was honest about the declaration and the declaration was wrong,
+     * which made it the epic's only cell where headless was WORSE than the
+     * terminal path: codex on a PTY reads an attached text file fine.
+     *
+     * The app-server settles it without needing a guess. Handed an input
+     * variant it does not know, it enumerates the ones it does:
+     *
+     *   unknown variant `localFile`, expected one of `text`, `image`,
+     *   `localImage`, `audio`, `localAudio`, `skill`, `mention`
+     *
+     * `mention` is codex's own `@`-mention — `{ name, path }`, the thing its TUI
+     * builds when you reference a file. Driven raw against codex-cli 0.149.1
+     * with the file staged OUTSIDE the thread's cwd (where Podium stages), the
+     * agent read it and echoed a secret present only in those bytes. The same
+     * turn shaped as PATH-TEXT — the path in the prompt, which is what the
+     * terminal driver does — FAILED on that same run: a mention appears to open
+     * the file to the sandbox in a way a bare path does not. So this driver
+     * carries files as mentions rather than as text, and it is not merely as
+     * good as the PTY path here but better.
+     *
+     * `file-part` RATHER THAN `local-image`. Both kinds now leave as typed parts
+     * of the prompt payload — `localImage` for an image, `mention` for a file —
+     * and `local-image` names only the first of those. It would also be a lie
+     * the corpus catches: `local-image` may only be declared alongside
+     * `kinds: ['image']` exactly (see testing/conformance/suite.ts).
+     */
+    staging: supported({ kinds: ['image', 'file'], promptForm: 'file-part' }),
     /**
      * `client`, not `engine`: the headless app-server remains authoritative and
      * Native launches Codex's original resume TUI beside it.

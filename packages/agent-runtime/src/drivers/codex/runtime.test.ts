@@ -89,11 +89,15 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
     stageAttachment:
       stageAttachment ??
       (async ({ source }) => ({
-        id: 'image-1',
-        path: '/tmp/image-1-' + source.filename,
+        id: 'staged-1',
+        path: '/tmp/staged-1-' + source.filename,
         filename: source.filename,
         mediaType: source.mediaType,
-        kind: 'image',
+        // DERIVED THE WAY THE REAL STAGER DERIVES IT
+        // (apps/daemon/src/runtime/attachment-staging.ts). A fake that always
+        // said 'image' could not tell the two prompt parts apart, which is the
+        // distinction these tests exist to hold.
+        kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
       })),
     journal,
     now: () => Date.UTC(2026, 7, 14) + ++seq * 1000,
@@ -198,17 +202,23 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
  *  tick, but the driver's handlers are async in places. */
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
-describe('attachment local-image prompts', () => {
-  it('returns raw typed refusals for unsupported files and staging failures', async () => {
+describe('attachment prompt parts', () => {
+  it('stages a text file rather than refusing it, and still reports staging failures', async () => {
+    /**
+     * THE REFUSAL THIS ASSERTED IS THE BUG (POD-2819). It pinned
+     * `unsupported: Codex accepts image attachments only` — a declaration the
+     * app-server contradicts, since it accepts `mention` for exactly this.
+     * Pinned the other way now: a text file stages, and only a real staging
+     * failure refuses.
+     */
     const ordinary = await world()
     try {
-      await expect(
-        ordinary.handle.stageAttachment({
-          bytes: new TextEncoder().encode('notes'),
-          filename: 'notes.txt',
-          mediaType: 'text/plain',
-        }),
-      ).resolves.toEqual({ reason: 'unsupported', detail: 'Codex accepts image attachments only' })
+      const staged = await ordinary.handle.stageAttachment({
+        bytes: new TextEncoder().encode('notes'),
+        filename: 'notes.txt',
+        mediaType: 'text/plain',
+      })
+      expect(staged).not.toHaveProperty('reason')
     } finally {
       ordinary.dispose()
     }
@@ -245,6 +255,35 @@ describe('attachment local-image prompts', () => {
       expect(w.server.lastTurnInput).toEqual([
         { type: 'localImage', path: staged.path },
         { type: 'text', text: 'describe this', text_elements: [] },
+      ])
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('sends staged files through Codex mention input', async () => {
+    /**
+     * THE CELL THIS ISSUE EXISTS FOR. A file attachment leaves as a `mention`
+     * carrying the staged filename and path — the variant the app-server names
+     * in its own error when handed one it does not know, and the one measured
+     * live to put the file in front of the agent.
+     */
+    const w = await world()
+    try {
+      const staged = await w.handle.stageAttachment({
+        bytes: new TextEncoder().encode('the secret word is halibut'),
+        filename: 'notes.txt',
+        mediaType: 'text/plain',
+      })
+      if ('reason' in staged) throw new Error(staged.detail ?? staged.reason)
+      expect(staged.kind).toBe('file')
+      await w.handle.send(
+        { text: 'read this', attachments: [staged] },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(w.server.lastTurnInput).toEqual([
+        { type: 'mention', name: 'notes.txt', path: staged.path },
+        { type: 'text', text: 'read this', text_elements: [] },
       ])
     } finally {
       w.dispose()
