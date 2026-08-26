@@ -3821,3 +3821,25 @@ reproduced.
 handing over the check that proves it. Asserting a conclusion at a session that has just reported
 the opposite is not a correction, it is a contradiction; the two `git show <rev>:<file>` commands
 are what settle it and I should have led with them.
+
+### POD-2878's session is dead and I took over its last task (2026-08-27 00:26 CEST)
+
+Zero live processes in its worktree, tracker reads `phase=working`, last activity **90 minutes**
+ago. Another instance of the shape POD-2691 covers and POD-2801 fixed one arm of: **the badge is
+not the event.** Its work is complete and banked — `68d2c3ba1`, clean tree, the A/B recorded — so
+restarting a session to run two commands is not worth an hour.
+
+**I narrowed the attribution from two runs to one, and the narrowing is the interesting part.**
+The order I gave it was: run the server suite on the fix AND on its parent, diff the failing test
+NAMES. But the epic tip does **not** contain `68d2c3ba1` (`git cherry` confirms: `+`), so a
+single run on the tip is already a one-sided test — **if the tip is red in the same three packages,
+the fix cannot be the cause, because the fix is not in that tree.** That halves a 24-minute
+memory-heavy job and needs no checkout of a historical commit.
+
+It only answers one direction, and that is the direction that matters here: it can exonerate the
+change, not convict it. If the tip comes back GREEN, or red in a different shape, then the two-arm
+run is still owed and I will do it.
+
+Took `test:heavy` (queue was 0) and started it at the tip `0d00f6c34`, clean tree,
+`PODIUM_TEST_WORKERS=1` to match the arm POD-2878 reported — that variable decides whether this
+gate is red at all, so an arm without it would not be comparable.
