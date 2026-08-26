@@ -151,6 +151,11 @@ BASE_OS_IMAGE="${PODIUM_UPDATE_E2E_BASE_OS_IMAGE:-ubuntu:24.04}"
 PROVISION_SCRIPT="$ROOT/scripts/docker-update-e2e/provision.sh"
 BASE_IMAGE_REPO=podium-update-e2e-base
 REBUILD_BASE="${PODIUM_UPDATE_E2E_REBUILD_BASE:-0}"
+# Any non-empty value other than `0` forces a rebuild, matching how `$HOLD` is
+# read. An arithmetic test would quietly treat `PODIUM_UPDATE_E2E_REBUILD_BASE=yes`
+# as false — the caller would be told nothing and get the cache they were trying
+# to bypass.
+rebuild_base() { [[ -n "$REBUILD_BASE" && "$REBUILD_BASE" != 0 ]]; }
 # The image config the commit bakes on top of the provisioned filesystem. It is
 # one array so the hash and the commit cannot drift: change what is committed
 # and the tag changes with it, without anyone having to remember to say so.
@@ -806,7 +811,7 @@ base_image_tag() {
 prepare_image() {
   local cached
   cached="$(base_image_tag)"
-  if (( REBUILD_BASE == 1 )) || ! docker image inspect "$cached" >/dev/null 2>&1; then
+  if rebuild_base || ! docker image inspect "$cached" >/dev/null 2>&1; then
     say "provisioning base image $cached (this is the slow apt step; later runs reuse it)"
     # The mount is derived from `$PROVISION_SCRIPT` rather than named again, so
     # the file that RUNS is the same one the tag hashed. Two spellings of the
@@ -2187,7 +2192,13 @@ EOF
 }
 
 print_hold_footer() {
-  local candidate=$1 rollback
+  local candidate=$1 rollback revise_env=""
+  # Built here rather than inline: an apostrophe inside a `${VAR:+...}` in the
+  # heredoc below opens a quote bash never closes, and the whole footer dies
+  # with `bad substitution` at the moment a hold is trying to report itself.
+  if [[ -n "$E2E_PASSWORD" ]]; then
+    revise_env="PODIUM_UPDATE_E2E_PASSWORD=<the password this run was given> "
+  fi
   if git -C "$ROOT" merge-base --is-ancestor 4a8c7afda "$candidate" ||
      git -C "$ROOT" cherry "$candidate" 4a8c7afda | grep -q '^- 4a8c7afda'; then
     rollback="packaged rollback fix 4a8c7afda is included"
@@ -2204,6 +2215,14 @@ Container shells:
   docker exec -it $SOURCE bash
   docker exec -it $FLEET_A bash
   docker exec -it $FLEET_B bash
+
+To test a NEWER version, do NOT tear this down and run the gate again. This
+sandbox can take a new version in place, which is the mechanism this epic
+exists to prove:
+  ${revise_env}scripts/docker-update-e2e-revise.sh --run $RUN_ID --ref <git-ref>
+It moves the coordinator's source onto that ref, approves the release it
+proposes, and leaves the offer pending for you to accept in the UI. Add
+--accept to have it drive the acceptance too. Nothing is rebuilt.
 
 One-line teardown (only this run's labeled containers, exact network, image, and scratch):
   docker ps -aq --filter 'label=$LABEL' | xargs -r docker rm -f && docker network rm '$NETWORK' && docker image rm '$IMAGE' && rm -rf -- '$WORK'$(
@@ -2333,7 +2352,7 @@ main() {
   done
   # Only a run that will actually provision needs the OS image on disk; one
   # served by the cached base does not, and must not be refused for its absence.
-  if (( REBUILD_BASE == 1 )) || ! docker image inspect "$(base_image_tag)" >/dev/null 2>&1; then
+  if rebuild_base || ! docker image inspect "$(base_image_tag)" >/dev/null 2>&1; then
     docker image inspect "$BASE_OS_IMAGE" >/dev/null 2>&1 ||
       die "missing base image $BASE_OS_IMAGE"
   fi

@@ -79,3 +79,56 @@ describe('attaching to a run', () => {
     expect(output).not.toContain('reusing cached base image')
   })
 })
+
+/**
+ * THE HOLD HAS TO SAY THIS PATH EXISTS, OR NOBODY FINDS IT.
+ *
+ * A tool for putting a new version into a standing sandbox is worth nothing if
+ * the sandbox's own instructions still read as though tearing it down were the
+ * only option. The footer therefore names it.
+ *
+ * These render the real `print_hold_footer`. The first version of that block
+ * interpolated the password hint with `${E2E_PASSWORD:+...}`, and the
+ * apostrophe in the hint opened a quote bash never closed: the whole footer
+ * died with `bad substitution` at the moment a hold was trying to report
+ * itself, taking the URLs and the teardown line with it.
+ */
+async function footer(password: string): Promise<string> {
+  const script = [
+    'set -Eeuo pipefail',
+    'shopt -s inherit_errexit',
+    `source ${JSON.stringify(join(ROOT, 'scripts/docker-update-e2e.sh'))}`,
+    'WORK=/tmp/does-not-matter',
+    'HOLD_REF=main',
+    'TAILNET_HTTPS_PORT=""',
+    'print_hold_footer "$(git rev-parse HEAD)"',
+  ].join('\n')
+  const { stdout } = await promisify(execFile)('bash', ['-c', script], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PODIUM_UPDATE_E2E_RUN_ID: 'demo-run',
+      PODIUM_UPDATE_E2E_PASSWORD: password,
+    },
+  })
+  return stdout
+}
+
+describe('the hold footer', () => {
+  it('renders whole, and names the revise path, when the run has a password', async () => {
+    const text = await footer('secret')
+    expect(text).toContain('docker-update-e2e-revise.sh --run demo-run')
+    expect(text).toContain('PODIUM_UPDATE_E2E_PASSWORD=')
+    // The lines AFTER the new block must survive it; a broken expansion took
+    // the teardown command down with it.
+    expect(text).toContain('One-line teardown')
+  })
+
+  it('renders whole, and omits the password hint, when the run has none', async () => {
+    const text = await footer('')
+    expect(text).toContain('docker-update-e2e-revise.sh --run demo-run')
+    expect(text).not.toContain('PODIUM_UPDATE_E2E_PASSWORD=')
+    expect(text).toContain('One-line teardown')
+  })
+})
