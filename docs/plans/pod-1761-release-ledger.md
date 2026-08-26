@@ -2606,3 +2606,38 @@ recognised in disguise.
 the restart script spawns at HEAD, so from that point the components name **two shas** —
 server and bundle at `372ae4de2`, daemon at `f92a8891d`. The diff is the same two `apps/web`
 files, so all three still run identical runtime code.
+
+
+## TICK 2026-08-26 16:46 CEST — three of the five open defects now have candidate fixes
+
+    driven          54 of 80 (68%)
+    defects         7 found, 2 CLOSED AND DRIVEN, 5 open (2 P1)
+    product fixes   22 landed today
+    NEW: 3 of the 5 open defects have a fix committed and awaiting its drive
+
+**The long-turn wedge has a candidate, and it is in the shared layer the evidence pointed
+at.** `6b4da5b7b fix(runtime): survive bounded event-log trims` touches
+`packages/agent-runtime/src/events.ts` plus the grok-acp and opencode runtimes — not one
+driver. It also explains the detail that killed the obvious theory: the freeze points
+**differed** (82 frames on codex, 21 on opencode), ruling out a fixed budget, and *a bounded
+log being trimmed bites wherever volume takes it rather than at a constant*.
+
+**The duplicate-ask defect has one too:** `b00087063 fix(interactions): gate classifier by
+driver family` — decided from the **declaration**, not a driver-name branch, which is what
+POD-2823 established when removing nine name-checks uncovered a live credential leak beneath
+them.
+
+**None of the three is review-ready, and the numbers each must beat are now on the record**
+rather than in my memory. Two specifics worth keeping:
+
+- The wedge fix edits `grok-acp/runtime.ts` and **grok cannot be driven** until its quota
+  resets at 11:03 tomorrow. That arm must be declared UNDRIVEN rather than assumed covered
+  because it was edited.
+- Its `fake-driver.ts` shrank by 35 lines. A fake that simplifies because real code absorbed
+  its behaviour is usually good — but this epic has been bitten by fixtures more *forgiving*
+  than the real thing and by fixtures more *opinionated* than it, so the corpus must still
+  fail when it should.
+
+**One session idle for 35 minutes with three commits and no drive** — woken, with the reminder
+that idle is not the same as blocked, and given the check that costs five minutes and no
+instance: confirm something actually consumes the manifest declaration it added.
