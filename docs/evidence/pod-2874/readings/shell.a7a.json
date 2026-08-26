@@ -1,0 +1,65 @@
+{
+  "cell": "A7A",
+  "harness": "shell",
+  "cwd": "/tmp/pod-2874/probes/shell-a7a",
+  "at": "2026-08-26T12:31:08.064Z",
+  "pin": {
+    "cell": "A7A",
+    "at": "2026-08-26T12:31:08.211Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2420776",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "4459156 kB",
+      "SwapFree": "37467568 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "daemon restart retained the same live conversation and codeword",
+  "control": {
+    "fired": true,
+    "what": "pre-restart shell codeword echo",
+    "detail": "{\"echo\":true,\"echoMs\":519}"
+  },
+  "evidence": [
+    "BASELINE          {\"echo\":true,\"echoMs\":519}",
+    "POST RESTART PIN   6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "RECALL            {\"echo\":true,\"ms\":530}",
+    "STATUS            {\"sessionId\":\"ff6f5aae-e0e3-41a0-88db-2783c02ab524\",\"agentKind\":\"shell\",\"harness\":\"shell\",\"driverId\":null,\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"working\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":null,\"err",
+    "SCREEN TAIL       \"mgw@flatblock:/tmp/pod-2874/probes/shell-a7a$ mgw@flatblock:/tmp/pod-2874/probes/shell-a7a$ mgw@flatblock:/tmp/pod-2874/probes/shell-a7a$ mgw@flatblock:/tmp/pod-2874/probes/shell-a7a$ mgw@flatblock:/tmp/pod-2874/probes/shell-a7a$ mgw@flatblock:/tmp/pod-2874/probes/shell-a7a$ mgw@flatblock:/tmp/pod-2874/probes/shell-a7a$ printf \\\"%s\\\\n\\\" \\\"$POD2874_CODE\\\"\\nP2874-A7A-MTA2OPHV\\nmgw@flatblock:/tmp/pod-2874/probes/shell-a7a$\""
+  ],
+  "data": {
+    "sid": "ff6f5aae-e0e3-41a0-88db-2783c02ab524",
+    "secret": "P2874-A7A-MTA2OPHV",
+    "base": {
+      "echo": true,
+      "echoMs": 519
+    },
+    "recall": {
+      "echo": true,
+      "ms": 530
+    }
+  }
+}

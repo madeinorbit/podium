@@ -1,0 +1,219 @@
+{
+  "cell": "A6B",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2874/probes/claude-a6b",
+  "at": "2026-08-26T12:06:12.268Z",
+  "pin": {
+    "cell": "A6B",
+    "at": "2026-08-26T12:06:12.313Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2253065",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "5440700 kB",
+      "SwapFree": "37110556 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "chat→CLI→chat→CLI retained one live session and both views remained functional",
+  "control": {
+    "fired": true,
+    "what": "the first chat send landing before view switches",
+    "detail": "chat control user=true; reply=true"
+  },
+  "evidence": [
+    "CHAT 1            {\"needle\":\"P2874-A6B-CHAT1-MTA1SN0J\",\"sent\":{\"result\":{\"data\":{\"ok\":true,\"queued\":true,\"disposition\":\"queued\"}}},\"user\":{\"ok\":true,\"ms\":3808,\"items\":[{\"role\":\"user\",\"text\":\"Reply with exactly this word and nothing else: P2874-A6B-CHAT1-MTA1SN0J. Do not use too",
+    "CLI 1             true 500ms",
+    "CHAT 2            {\"needle\":\"P2874-A6B-CHAT2-MTA1SUKB\",\"sent\":{\"result\":{\"data\":{\"ok\":true,\"queued\":true,\"disposition\":\"queued\"}}},\"user\":{\"ok\":true,\"ms\":2263,\"items\":[{\"role\":\"user\",\"text\":\"Reply with exactly this word and nothing else: P2874-A6B-CHAT1-MTA1SN0J. Do not use too",
+    "CLI 2             true 502ms",
+    "GEOMETRY          {\"cols\":80,\"rows\":24}",
+    "SCREEN TAIL       \" Do  not use ools. Grooving Tip:Run tasks in he cloud whileyoukeepcodinglocallyclau.de/web\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\nYou'veused87%ofyourweeklylimitresetsAug28,1pm(Europe/Berlin)\\n*\\n]0; Respond with specific identifier\\nGrooving   Tip: Run tasks in the cloud while you keep coding locally  clau.de/web\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\nYou'veused87%ofyourweeklylimitresetsAug28,1pm(Europe/Berlin)\\n*\\nP2874-A6B-CHAT2-MTA1SUKB\\n(runningstophook)\\n 1s8tokens)\\n]0; Respond with specific identifierCunched fo 1s   auto mode on (shift+tab to cycle)   for agents  You've used 87% o yourweekly limit  resets Aug 28, 1pm (Europe/Berlin)]0; Respond with specific identifier P2874-A6B-CLI2-MTA1SYT6 Whatchamacalliting Tip:Dynamicworklows letClaudewrite ascriptthatorchestratesmanyagentsfor you.Mentionth keyword ultacodeor ask Claude to use a\\nworkflowdirectly.\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\nYou'veused87%ofyourweeklylimitresetsAug28,1pm(Europe/Berlin)\""
+  ],
+  "data": {
+    "sid": "c6eb71c2-4e15-4c9b-b303-385f10b145ad",
+    "c1": {
+      "needle": "P2874-A6B-CHAT1-MTA1SN0J",
+      "sent": {
+        "result": {
+          "data": {
+            "ok": true,
+            "queued": true,
+            "disposition": "queued"
+          }
+        }
+      },
+      "user": {
+        "ok": true,
+        "ms": 3808,
+        "items": [
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A6B-CHAT1-MTA1SN0J. Do not use tools.",
+            "ts": "2026-08-26T12:06:18.864Z"
+          }
+        ]
+      },
+      "assistant": {
+        "ok": true,
+        "ms": 2056,
+        "items": [
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A6B-CHAT1-MTA1SN0J. Do not use tools.",
+            "ts": "2026-08-26T12:06:18.864Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A6B-CHAT1-MTA1SN0J",
+            "ts": "2026-08-26T12:06:21.308Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-26T12:06:21.412Z"
+          }
+        ]
+      }
+    },
+    "cli1": "P2874-A6B-CLI1-MTA1SRUS",
+    "cli1Seen": {
+      "ok": true,
+      "ms": 500
+    },
+    "c2": {
+      "needle": "P2874-A6B-CHAT2-MTA1SUKB",
+      "sent": {
+        "result": {
+          "data": {
+            "ok": true,
+            "queued": true,
+            "disposition": "queued"
+          }
+        }
+      },
+      "user": {
+        "ok": true,
+        "ms": 2263,
+        "items": [
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A6B-CHAT1-MTA1SN0J. Do not use tools.",
+            "ts": "2026-08-26T12:06:18.864Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A6B-CHAT1-MTA1SN0J",
+            "ts": "2026-08-26T12:06:21.308Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-26T12:06:21.412Z"
+          },
+          {
+            "role": "user",
+            "text": "P2874-A6B-CLI1-MTA1SRUS",
+            "ts": "2026-08-26T12:06:23.253Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A6B-CLI1-MTA1SRUS",
+            "ts": "2026-08-26T12:06:26.572Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-26T12:06:26.684Z"
+          },
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A6B-CHAT2-MTA1SUKB. Do not use tools.",
+            "ts": "2026-08-26T12:06:26.869Z"
+          }
+        ]
+      },
+      "assistant": {
+        "ok": true,
+        "ms": 1620,
+        "items": [
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A6B-CHAT1-MTA1SN0J. Do not use tools.",
+            "ts": "2026-08-26T12:06:18.864Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A6B-CHAT1-MTA1SN0J",
+            "ts": "2026-08-26T12:06:21.308Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-26T12:06:21.412Z"
+          },
+          {
+            "role": "user",
+            "text": "P2874-A6B-CLI1-MTA1SRUS",
+            "ts": "2026-08-26T12:06:23.253Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A6B-CLI1-MTA1SRUS",
+            "ts": "2026-08-26T12:06:26.572Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-26T12:06:26.684Z"
+          },
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A6B-CHAT2-MTA1SUKB. Do not use tools.",
+            "ts": "2026-08-26T12:06:26.869Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A6B-CHAT2-MTA1SUKB",
+            "ts": "2026-08-26T12:06:28.667Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-26T12:06:28.723Z"
+          }
+        ]
+      }
+    },
+    "cli2": "P2874-A6B-CLI2-MTA1SYT6",
+    "cli2Seen": {
+      "ok": true,
+      "ms": 502
+    },
+    "geometry": {
+      "cols": 80,
+      "rows": 24
+    }
+  }
+}

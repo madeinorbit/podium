@@ -1,0 +1,114 @@
+{
+  "cell": "A2B",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2874/probes/claude-a2b",
+  "at": "2026-08-26T11:58:10.768Z",
+  "pin": {
+    "cell": "A2B",
+    "at": "2026-08-26T11:58:10.823Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2253065",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "1751708 kB",
+      "SwapFree": "37335960 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "fresh session reported idle at boot",
+  "control": {
+    "fired": true,
+    "what": "new session attach/output evidence independent of the status value",
+    "detail": "created={\"sessionId\":\"d770d623-90ec-4c16-8e15-581933b9bda8\",\"agentId\":\"d770d623-90ec-4c16-8e15-581933b9bda8\",\"harness\":\"claude-code\",\"model\":null,\"effort\":null,\"machine\":\"flatblock\",\"machineId\":\"1755c56a-e4fd-49b0-812e-d11963f60279\",\"accountId\":\"native:claude-code:662; attached=1; screenBytes=0"
+  },
+  "evidence": [
+    "STATUS            {\"sessionId\":\"d770d623-90ec-4c16-8e15-581933b9bda8\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":null,\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":",
+    "SESSION ROW       {\"sessionId\":\"d770d623-90ec-4c16-8e15-581933b9bda8\",\"agentKind\":\"claude-code\",\"accountId\":\"native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241\",\"title\":\"claude-a2b\",\"cwd\":\"/tmp/pod-2874/probes/claude-a2b\",\"status\":\"live\",\"contro",
+    "FRAME TYPES       machinesChanged=2 hostMetricsChanged=2 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1",
+    "SCREEN TAIL       \"\""
+  ],
+  "data": {
+    "sid": "d770d623-90ec-4c16-8e15-581933b9bda8",
+    "status": {
+      "sessionId": "d770d623-90ec-4c16-8e15-581933b9bda8",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": null,
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [],
+      "files": [],
+      "unackedMessages": 0
+    },
+    "row": {
+      "sessionId": "d770d623-90ec-4c16-8e15-581933b9bda8",
+      "agentKind": "claude-code",
+      "accountId": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+      "title": "claude-a2b",
+      "cwd": "/tmp/pod-2874/probes/claude-a2b",
+      "status": "live",
+      "controllerId": "c10",
+      "geometry": {
+        "cols": 80,
+        "rows": 24
+      },
+      "epoch": 0,
+      "clientCount": 1,
+      "createdAt": "2026-08-26T11:58:10.840Z",
+      "lastActiveAt": "2026-08-26T11:58:10.840Z",
+      "origin": {
+        "kind": "spawn"
+      },
+      "archived": false,
+      "readAt": null,
+      "unread": true,
+      "machineId": "1755c56a-e4fd-49b0-812e-d11963f60279",
+      "machineName": "flatblock",
+      "driverFamily": "terminal",
+      "spawnedBy": "user",
+      "createdBy": {
+        "actor": {
+          "kind": "user",
+          "id": "user:sole"
+        },
+        "onBehalfOf": "user:sole"
+      },
+      "harnessHandoff": true,
+      "harnessPromptModeHints": true
+    }
+  }
+}
