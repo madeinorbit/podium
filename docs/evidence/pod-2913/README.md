@@ -17,6 +17,7 @@ named instance.
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 The POD-2691 process/tracker cell has no product runtime to start; its measured surface is the /proc census and tracker state.
 
 ## Findings
@@ -217,11 +218,14 @@ The POD-2691 process/tracker cell has no product runtime to start; its measured 
 <<<<<<< HEAD
 >>>>>>> ca522e00e (docs: record review queue drive gates)
 =======
+=======
+The POD-2691 process/tracker cell has no product runtime to start; its measured surface is the /proc census and tracker state.
+>>>>>>> 9a1562b9e (docs: record dead agent process finding)
 
 ## Findings
 
-### POD-2622 — invalid pre-fix boundary
 
+<<<<<<< HEAD
 >>>>>>> ca522e00e (docs: record review queue drive gates)
 The audit names 'b266484d8'. Its parent is '1641d823c'. The substantive
 child-environment changes are already present in the parent ancestry
@@ -290,6 +294,9 @@ repair was made.
 =======
 ### POD-2691 — still broken
 >>>>>>> 9a1562b9e (docs: record dead agent process finding)
+=======
+### POD-2691 — still broken
+>>>>>>> 9a1562b9e (docs: record dead agent process finding)
 
 The same process/tracker probe was run against parent '7ef0f5c979b067a8be6286f8e27a868186ed3cbe' and epic tip 'b08e7d65c503c5a85e8a7d2c46d002eae5229fce' at '2026-08-27 00:39 CEST'. Parent had no UUID/guard code. Tip had the UUID definition, but the non-test consumer search was empty.
 Both arms saw the positive-control sentinel and seven live agent processes in the five tracker-done worktrees for POD-91, POD-2059, POD-2291, POD-2902, and POD-2908.
@@ -299,6 +306,7 @@ At '2026-08-27 00:40 CEST', tracker checks confirmed all five stages were done; 
 Because the tip never invokes the new guard, the same orphan process symptom remains after the fix commit. Verdict: **FAIL — still broken**.
 No process was killed.
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> 9a1562b9e (docs: record dead agent process finding)
 =======
 >>>>>>> ca522e00e (docs: record review queue drive gates)
@@ -306,6 +314,8 @@ No process was killed.
 >>>>>>> 9a1562b9e (docs: record dead agent process finding)
 =======
 >>>>>>> ca522e00e (docs: record review queue drive gates)
+=======
+>>>>>>> 9a1562b9e (docs: record dead agent process finding)
 
 ### POD-2773 — invalid pre-fix boundary; Grok unavailable
 
@@ -380,6 +390,7 @@ Verdict: **PASS — terminal sizing defect gone**. No product repair was made.
 ## Ledger
 
 Complete rows are appended to 'docs/plans/pod-1761-results.tsv'. The remaining
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -478,3 +489,10 @@ Last evidence update: '2026-08-27 06:06:17 CEST'.
 >>>>>>> 117eca856 (docs(evidence): drive POD-2602 terminal geometry)
 =======
 >>>>>>> ca522e00e (docs: record review queue drive gates)
+=======
+children (POD-2298, POD-2408, POD-2602, POD-2604, and POD-2637) were not touched
+in this interval and have no result claimed here. POD-2622 is handed to POD-2914;
+this report does not claim a drive for it.
+
+Last evidence update: '2026-08-27 00:40 CEST'.
+>>>>>>> 9a1562b9e (docs: record dead agent process finding)
