@@ -1,30 +1,31 @@
-# Tier-A release matrix — first drive on a rig with no overrides
+# Tier-A release matrix — driven on a rig with no overrides
 
-Instance `p2777`, commit `15cdfa0`, server + daemon + web bundle all verified at
-that commit before every run. 2026-08-26.
+Instance `p2777`; server + daemon + web bundle verified at the same commit before
+every run. Two phases: `15cdfa0`/`6685c59` before POD-2853 landed, and `6685c59`
+with the fix in. 2026-08-26.
 
 ---
 
 ## The headline
 
-**Removing one line from the rig blocked the entire terminal column of the
-release matrix, and it was the right thing to happen.**
+**One cell where the new drivers are WORSE, and it destroys messages.**
 
-Every rig on this epic — this one included — set `ABDUCO_SOCKET_DIR` to a short
-path under `/tmp`. POD-1761 ordered that removed (POD-2856's rule: a rig may not
-shorten or relocate a path the product picks). With it gone, this rig runs the
-way an ordinary named installation runs, and on that configuration:
+Under a declared CLI view, a chat send on `codex-app-server` returns
+`{"ok":true,"disposition":"delivered"}` and then parks — 0 transcript items, 0
+deltas, phase idle. Restart the daemon and **the message is gone for good**,
+while the session stays healthy and answers a fresh turn. The same probe on
+`generic-pty`, one variable changed, delivers it normally. Filed **POD-2875, P1**.
 
-- **no terminal-driver session starts at all** — `spawnFailure: "abduco exited 1:
-  create-session: File name too long"`;
-- **the native CLI view never appears on the headless drivers either**, and there
-  it fails *silently*: the session stays `live`, `spawnFailure` stays `null`, the
-  attach is answered normally, and the pane is simply blank forever.
+That is a silent settle with a green tick on it, on the driver family the release
+is switching *to*, and A1a's criterion names silent settles specifically.
 
-That is POD-2853, and the previous matrix headline — "headless better in three
-cells, worse in one" — was measured on a configuration that hid it.
-
-The chat plane is unaffected and is where the driven cells below come from.
+**And removing the rig's path overrides was worth it on its own.** With them gone
+this rig runs the way an ordinary named installation runs, and that immediately
+blocked the whole terminal column — POD-2853's socket path composed to 121 bytes
+against a 107-byte limit, and no named instance could fit *regardless of its
+name*. That is now fixed and landed; my measurements are why the fix moved the
+socket root instead of trimming it, and why its budget takes the attach label
+rather than the session label.
 
 ---
 
@@ -61,42 +62,32 @@ Two guards were added so this cannot silently come back:
 
 ## The matrix as it stands
 
-Sixteen rows × five columns = 80 cells. **14 cells driven, on 2 of 5 columns.**
-The table says what was measured, not what is expected to hold.
+Sixteen rows × five columns = 80 cells. **19 cells driven.** Claude and shell are
+POD-2874's columns; grok is unassigned. The table says what was measured.
 
-| # | drive | claude | codex | grok | opencode | shell |
-|---|---|---|---|---|---|---|
-| A1a | send while idle | ☐ | **PASS** | ☐ | ☐ | ☐ |
-| A1b | send while busy | ☐ | **PARTIAL** | ☐ | ☐ | n/a |
-| A1c | send to a dead session | ☐ | **PASS** | ☐ | ☐ | ☐ |
-| A2a | status while working | ☐ | ☐ | ☐ | ☐ | n/a |
-| A2b | status at boot | ☐ | **PASS** | ☐ | ☐ | ☐ |
-| A3 | interrupt mid-turn | ☐ | ☐ | ☐ | ☐ | n/a |
-| A4a | permission ask | ☐ | **BLOCKED** | ☐ | **PARTIAL** | n/a |
-| A4b | answer twice | ☐ | **BLOCKED** | ☐ | **PASS** | n/a |
-| A5 | transcript | ☐ | **PASS** | ☐ | ☐ | n/a |
-| A6a | terminal attach + type | ☐ | **BLOCKED** (H+T) | ☐ | ☐ | ☐ |
-| A6b | chat↔CLI twice | ☐ | **BLOCKED** | ☐ | ☐ | n/a |
-| A7a | daemon restart | ☐ | **PASS** | ☐ | ☐ | ☐ |
-| A7b | hibernate + wake | ☐ | ☐ | ☐ | ☐ | n/a |
-| A8 | logged-out spawn | ☐ | ☐ | ☐ | ☐ | n/a |
-| A9 | kill session | ☐ | **PASS** | ☐ | ☐ | ☐ |
-| A10 | driver identity | n/a | **PASS / PARTIAL** | ☐ | ☐ | n/a |
+| # | drive | codex H | codex T | opencode H | notes |
+|---|---|---|---|---|---|
+| A1a | send while idle | **PASS** 4.1s | **PASS** 6.4s | ☐ | first real A/B on an un-overridden rig |
+| A1b | send while busy | **PARTIAL** | ☐ | ☐ | queues and delivers; no position — POD-2870 |
+| A1c | send to a dead session | **PASS** | ☐ | ☐ | typed `dead_letter` refusal |
+| A2a | status while working | ☐ | ☐ | ☐ | |
+| A2b | status at boot | **PASS** | ☐ | ☐ | idle at t+2.0s, never `working`, never blank |
+| A3 | interrupt mid-turn | **REFUSED** | ☐ | ☐ | control did not fire; re-drive owed |
+| A4a | permission ask | **BLOCKED** | ☐ | **PARTIAL** | codex raises no approval (controlled) |
+| A4b | answer twice | **BLOCKED** | ☐ | **PASS** | typed `already-answered`, no double action |
+| A5 | transcript | **PASS** | ☐ | ☐ | call+result on one item, reload identical |
+| A6a | terminal attach + type | **PASS** | **PASS** | ☐ | was BLOCKED; POD-2853 fixed it |
+| A6b | chat↔CLI twice | **PASS** | **PASS** | ☐ | was BLOCKED; epoch stable, scrollback kept |
+| A7a | daemon restart | **PASS** | ☐ | ☐ | same conversation pointer, codeword recalled |
+| A7b | hibernate + wake | **PASS** | ☐ | ☐ | |
+| A8 | logged-out spawn | ☐ | ☐ | ☐ | |
+| A9 | kill session | **PASS** | ☐ | ☐ | 0 orphans after the full 300s |
+| A10 | driver identity | **PASS / PARTIAL** | ☐ | ☐ | demotion demonstrated, identity unread |
+| — | **parked turn survives a restart** | **FAIL** | **n/a** | ☐ | POD-2875 — the headline |
 
-All cells are the **headless** arm unless noted. ☐ = **not driven** — no claim
-either way. **The entire terminal column is blocked**: no terminal-driver
-session starts. Grok stays REFUSED on its 402, per POD-1761.
-
-**Seven PASS, three PARTIAL, three BLOCKED, nothing FAILED, 66 cells untouched.
-This is not a release verdict and must not be read as one.**
-
-Two rows fall short of their own criterion and are filed:
-
-- **A1b** — the message is queued, survives a real reload and runs when the
-  session goes idle, but **no position reaches the chat caller** on the return or
-  on any socket frame. `POD-2870`.
-- **A4a** — the chat half is clean, but one permission opens **two** asks on a
-  server driver. `POD-2862`. (The row's terminal half is separately blocked.)
+**FOUR REDS: POD-2875 (P1, data loss, headless-only), POD-2862, POD-2870, and
+A3 refused pending a re-drive.** Eleven PASS, three PARTIAL, two BLOCKED with a
+stated cause, 61 cells untouched.
 
 ## The cells that were driven
 
@@ -323,6 +314,61 @@ not a script's intention — the session did **not** bind a server driver. It to
 the abduco path and died there. The escape hatch demonstrably demoted; what
 cannot be read is the demoted session's reported identity, because POD-2853 stops
 it surviving long enough to report one.
+
+---
+
+### The headline cell — a parked turn is lost, and only on headless
+
+```
+HEADLESS (codex-app-server)
+  sent under a declared native view -> {"ok":true,"disposition":"delivered"}
+  after 45s     0 transcript items, 0 deltas, nonce absent, phase idle    C1 parked
+  daemon restart  pid 2156779 -> 2163850, reconnected                     C2 real restart
+  afterwards, chat view declared:  parked turn arrived = FALSE, 0 items
+  a FRESH turn on the SAME session: answers fine                          C3 session healthy
+
+TERMINAL (generic-pty), one variable changed
+  sent under a declared native view -> {"ok":true,"disposition":"delivered"}
+  after 45s     2 transcript items, 2 deltas, nonce PRESENT, phase idle
+```
+
+The probe **refuses** to score the terminal arm — with nothing parked there is
+nothing whose survival could be measured — and that refusal is the finding:
+`generic-pty` does the right thing under exactly the conditions where
+`codex-app-server` parks and then loses the message. Three outcomes are reported
+separately (LOST / SURVIVED / INCONCLUSIVE) so "the session died" can never be
+read as "the message was lost".
+
+*A correction I made against myself:* I first filed this as a reporting defect
+and offered it as waivable, because I had watched the parked turn drain when a
+chat view was declared. That drain only works if nothing restarts in between.
+The restart question — which POD-1761 asked for — turned a reporting defect into
+data loss.
+
+### A6a and A6b — the two cells that were blocked, now green on both arms
+
+```
+A6a codex/headless   3998 bytes on attach; echo; resize repaint 1854B each way;
+                     second viewer 3264B, 10/11 shared tail lines incl. the typed mark
+A6a codex/terminal   5812 bytes; 12/12 shared lines
+A6b both arms        epoch stable at 0 across four switches; scrollback marker
+                     survived every one; geometry stable; chat AND CLI both work after
+```
+
+The arms differ in one recorded way: the **headless** arm adds three processes per
+CLI switch (`abduco -n podium-cx-attach…`, `codex resume …`, `abduco -a …`) and
+tears them down again; the **terminal** arm adds none. That is the client
+cold-start the catalogue already declares absent for server drivers — recorded,
+not scored.
+
+*Two more corrections against myself, both on A6b.* I counted the attach client
+as the agent and reported "no restart: false"; two attempts to separate them by
+command-line pattern both failed, because the client runs the same binary with
+the same `--listen` shape. The census is now taken while **chat** is declared,
+when no view process exists at all — behaviour, not pattern-matching. And neither
+terminal-view probe primed the TUI: on headless there is no TUI in the way so the
+omission never showed, and the first terminal run reported "chat stopped
+answering" over 599,437 bytes of a dialog repainting.
 
 ---
 

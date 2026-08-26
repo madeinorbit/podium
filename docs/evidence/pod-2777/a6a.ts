@@ -16,7 +16,7 @@
  * A run whose control does not fire reports REFUSED and prints what it saw.
  */
 import { readFileSync } from 'node:fs'
-import { AGENT_KIND, Chat, DRIVE_BASE, REPO, login, mutate, nonce, now, sessionRow, until, wait } from './rig'
+import { AGENT_KIND, Chat, DRIVE_BASE, REPO, login, mutate, nonce, now, primeTerminalTui, sessionRow, until, wait } from './rig'
 
 /**
  * What the DAEMON recorded about this session, which is not what a client can see.
@@ -101,6 +101,23 @@ const v1 = new Chat(sid)
 // view we have open, exactly as the browser's view switcher does.
 await v1.open('native')
 await wait(READY_MS)
+
+/**
+ * CLEAR THE FIRST-RUN MODAL BEFORE MEASURING ANYTHING.
+ *
+ * A fresh TUI opens on a dialog, not on the conversation — codex on "Hooks need
+ * review", claude on its onboarding. A rig that skips this MEASURES THE MODAL:
+ * the prompt is typed into a dialog, no turn ever runs, and the row reports that
+ * chat stopped answering. That is exactly what this probe did on its first
+ * terminal-arm run — control B false, with 599,437 bytes of terminal output that
+ * were a dialog repainting.
+ *
+ * drive.ts has always primed; these probes did not, because on the HEADLESS arm
+ * there is no TUI in the way and the omission never showed. The terminal arm is
+ * the first thing to ask for it.
+ */
+const primed = await primeTerminalTui(v1, sid)
+log(`TUI PRIMING        ${primed.length > 0 ? primed.join('; ') : 'nothing to clear'}`)
 
 const controlBytes = v1.screenBytes
 const controlFired = controlBytes > 0
