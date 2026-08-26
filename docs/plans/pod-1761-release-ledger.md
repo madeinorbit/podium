@@ -2773,3 +2773,53 @@ landed. Same class as A1a's *never silent-settles*.
 rule landing. Started on codex/luna/max.
 
     defects now: 8 found, 2 CLOSED AND DRIVEN, 6 open
+
+
+## TICK 2026-08-26 17:15 CEST — the claude interrupt comparison came back BLOCKED, and that is my fault
+
+    driven          62 of 80 (78%)
+    defects         8 found, 2 CLOSED AND DRIVEN, 6 open
+    product fixes   22 landed today
+    fixes in hand   3 of the 6 open have a committed fix awaiting its drive
+
+**The one question that could still change the release verdict is unanswered.** POD-2880 —
+claude's interrupt returning a keystroke request while the turn runs on for 20 seconds — needs
+a main comparison, because **claude is the driver people use today**. If this epic broke
+interrupt on the incumbent, that is the worst place on the matrix to break something; if main
+does the same, it is inherited and not a blocker.
+
+**The main arm produced nothing:**
+
+    verdict BLOCKED, control fired FALSE
+    control detail: user=false; working=false; BYTES=0
+    summary: no in-flight turn was observed, so interrupt was not exercised
+
+**That is a dead rig, not a product statement**, and the probe correctly refused to read it as
+one. *A zero without a control is a dead rig* — the rule earning its keep on the arm that
+most tempts you to conclude something.
+
+### The likely cause is an instruction of mine, given twice in opposite directions
+
+A hermetic claude home is a **first-run** home: claude-code runs `/auto-mode-setup` once, as
+soon as the first turn ends, whenever the home has no `autoMode` block — *a modal arrow-key
+wizard that consumes typed text without echo and writes no transcript turn*. That produces
+exactly `bytes=0`, no user item, no working phase.
+
+This morning I told POD-2874 to seed a non-empty `autoMode.environment` to avoid it. This
+afternoon I told it to **remove** that seed, because the same setting auto-approves permissions
+and had blocked A4a/A4b. **If its main-arm home was rebuilt after the correction, it is hitting
+the wizard again** — my instruction bouncing it between two failures.
+
+**What the seed actually needs to be, and neither of us has got it right yet:** folder-trust in
+`.claude.json` **and** a `settings.json` that skips the first-run wizard **without** setting
+permissions to auto-approve. *If those cannot be separated on this claude build, that is itself
+a finding* — it would mean a hermetic claude home cannot exercise the permission path at all,
+and A3, A4a and A4b all need a different instrument.
+
+**The diagnostic is not a Podium reading.** POD-2843 established that `sessions.status` reported
+phase idle throughout while five typed attempts vanished into a modal. **Read the pane** through
+the client websocket; a menu on screen is the answer.
+
+**And the obvious positive control does not catch it:** the trust dialog fires *before* a
+session's first turn, the wizard *after* it — so "did my first send land?" passes and everything
+measured afterwards measures the wizard. Three sends, require the last to land.
