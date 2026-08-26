@@ -288,6 +288,38 @@ describe('one default channel', () => {
     registry.dispose()
   })
 
+  it('updates Podium on a machine whose agent software is not Podium-managed', async () => {
+    const { registry, caller } = harness()
+    registry.sessionStore.machines.upsertMachine({
+      id: 'shared',
+      name: 'Shared machine',
+      hostname: 'shared',
+      tokenHash: 'shared-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      podiumManaged: false,
+    })
+    const sharedMachineId = asMachineId('shared')
+    registry.gateway.attachDaemon(sharedMachineId, () => {})
+    registry.modules.machines.setMachineBuild(
+      sharedMachineId,
+      { appVersion: '0.4.1' },
+      [],
+      '2026-08-26T00:00:00.000Z',
+    )
+    const refreshTarget = vi
+      .spyOn(registry.modules.updates, 'refreshTarget')
+      .mockResolvedValue(true)
+    registry.modules.updates.setTarget('dev', target())
+
+    await caller.machines.setUpdateChannel({ id: 'shared', channel: 'dev' })
+    const { outcome } = await caller.machines.applyUpdate({ id: 'shared' })
+
+    expect(registry.modules.machines.updateChannel(sharedMachineId)).toBe('dev')
+    expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['dev', 'dev'])
+    expect(outcome).toEqual({ result: 'granted', version: '0.4.2' })
+    registry.dispose()
+  })
+
   it('lets a pin win over the fleet default on every path', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
     const { registry, caller } = harness()

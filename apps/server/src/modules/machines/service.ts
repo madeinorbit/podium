@@ -875,14 +875,11 @@ export class MachinesService {
     this.broadcastMachines()
   }
 
-  /** Persist the selected source independently for every Podium-managed machine.
+  /** Persist the selected source independently for every joined machine.
    *  `null` removes the pin and hands the machine back to the fleet default. */
   setUpdateChannel(id: MachineId, channel: UpdateChannel | null): void {
     const machine = this.deps.store.machines.getMachine(id)
     if (!machine) throw new Error(`unknown machine '${id}'`)
-    if (!machine.podiumManaged) {
-      throw new Error(`machine '${machine.name}' is shared and does not accept managed updates`)
-    }
     this.deps.store.machines.setUpdateChannel(id, channel)
     this.invalidateMachineCache()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
