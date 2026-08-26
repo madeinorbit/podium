@@ -2943,3 +2943,34 @@ closed is one drive each —
 interrupt defect cannot be closed at all by driving, because today's release cannot start a
 named-instance claude session and the credentials are quarantined. That one needs the
 operator.
+
+
+## POD-2893 CLOSED — one permission, one ask (2026-08-26 18:25 CEST)
+
+**The fix is landed and its server edge is properly proven.** Pre-fix control at `683d613`:
+**two** open asks — the protocol one with `toolName=bash`, and a classifier copy carrying the
+whole shell command line as its tool name — and answering the real one left the copy behind.
+Post-fix: **one** ask, cleared on first answer, typed `already-answered` on the second, one
+side effect. The defect reproduced and then gone.
+
+The mechanism is the shape the brief asked for: `driverFamily` read off the **manifest-derived
+projection**, not a driver-name branch, with **unknown families retaining the legacy fallback**
+— failing toward the old behaviour rather than toward silence.
+
+**The terminal edge is recorded UNMEASURED, not passed.** The arm was pinned and its positive
+control fired, but the ask could not be raised because opencode **auto-approved** under the
+terminal posture. A focused service test pins terminal synthesis; that is how it stays fixed,
+not proof it was ever exercised. Closing anyway: the design cannot have the shape I feared —
+the skip is conditional on a *proven* server family — and the missing half is
+instrument-blocked rather than session-blocked. It belongs to **decision 16**, the
+three-agent permission-instrument pattern.
+
+**It corrected its own record twice, unprompted, in the direction that costs it credit:**
+
+- Its two daemon-lane failures were **inferred inherited, not verified** on the corrected tip.
+  They are recorded **UNATTRIBUTED**, alongside the 53 from the merge gate.
+- The `TranscriptFeed.tsx:621` parse error it had attributed to another issue was a **stale
+  base**, not inherited — my repair had been an ancestor for three hours.
+
+*Both are the failure mode the epic named this afternoon: "inherited" and "stale base" look
+identical from inside a failing run, and the difference is one git command.*
