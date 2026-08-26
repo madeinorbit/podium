@@ -92,6 +92,11 @@ export const opencodeManifest: AgentManifest = {
       fallbackCandidates: (machineHome) => [join(machineHome, '.opencode', 'bin', 'opencode')],
       versionArgs: ['--version'],
     },
+    // DELIBERATELY a bare name, unlike every other cmd in this file: the daemon binds
+    // this one to the current generation's verified executable and command environment
+    // (apps/daemon/src/control/session.ts, above bindHarnessLaunch). Resolving here
+    // would duplicate that snapshot and let login drift from the executable the rest of
+    // the launch uses. Not an oversight — POD-2914.
     loginCommand: supported({ cmd: 'opencode', args: ['auth', 'login'] }),
     loginCommandProbe: unsupported(
       'OpenCode login detection still uses its local authentication database',
