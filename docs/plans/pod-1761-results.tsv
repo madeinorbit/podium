@@ -63,3 +63,4 @@ A3 interrupt MAIN comparison	claude-pty-on-main	BLOCKED bytes=0 no turn observed
 A3 interrupt MAIN baseline	claude-pty-on-main	UNOBTAINABLE main cannot start a named instance	0bd90092c	yes	yes	2026-08-26 17:16 CEST	POD-2874
 A4a permission ask	claude-pty	BLOCKED instrument: claude rewrites manual to auto	0bd90092c	yes	yes	2026-08-26 17:16 CEST	POD-2874
 A4b answer twice	claude-pty	BLOCKED instrument: same	0bd90092c	yes	yes	2026-08-26 17:16 CEST	POD-2874
+A10 escape hatch demotes to terminal	codex-terminal	PASS generic-pty demoted:true identity readable	bea90c29	yes	yes	2026-08-26 17:24 CEST	POD-2777

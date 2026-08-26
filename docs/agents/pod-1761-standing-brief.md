@@ -455,3 +455,35 @@ which is a finding, not a re-block.
 
 **And the refusal can be the finding.** That second attempt is what proved a P1's blast radius
 was far wider than filed.
+
+## Grouping by file is not grouping by dependency (2026-08-26 17:33 CEST)
+
+**Four times in one day**, one drive mis-scoped its own tooling — and three of the four cost a
+cell real waiting time:
+
+    believed                                          actually
+    A7b needs drive.ts                                self-contained
+    A2a needs drive.ts                                self-contained
+    switching arms needs a bundle rebuild + the lock  the arm is DAEMON-LEVEL; restart the daemon
+    A3 needs drive.ts and the lock                    needs only the upstream fix
+
+Every one was an assumption about **its own rig**, not about the product. *That is the harder
+kind to catch, because you wrote the thing you are assuming about and nothing contradicts you.*
+Three probes living in one file does not make them need that file.
+
+**The check is cheap: read what the thing actually reads.** One of those probes consumed a
+single field from the shared context and built its own socket and its own turn.
+
+## A checker can fall into the trap it was built for (2026-08-26 17:33 CEST)
+
+Asked to make "re-check a blocked cell when its blocker lands" mechanical, a drive wrote a tool
+that lists every blocked cell with its blocking issue and the **runtime paths** that would
+carry the fix — checking the paths, never a ledger row.
+
+**Its first run reproduced the exact bug it existed to catch.** It asked only *"has the fix
+landed since my HEAD"*, which finds a blocker landing in future and **misses one that landed
+before your HEAD and whose cell you never went back to** — which is the case the rule was
+written for. It reported a cell as still blocked by a fix already sitting in its own tree.
+
+**When you automate a rule, check the automation against the case that motivated it**, not
+against the next case.

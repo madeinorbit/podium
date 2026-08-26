@@ -2823,3 +2823,22 @@ the client websocket; a menu on screen is the answer.
 **And the obvious positive control does not catch it:** the trust dialog fires *before* a
 session's first turn, the wizard *after* it — so "did my first send land?" passes and everything
 measured afterwards measures the wizard. Three sends, require the last to land.
+
+
+## A10 IS FULLY PASS — THE ESCAPE HATCH WORKS AND ITS IDENTITY IS READABLE (2026-08-26 17:33 CEST)
+
+    daemon restarted with PODIUM_RUNTIME_DRIVER=generic-pty
+      driverId      generic-pty          driverFamily  terminal
+      status        live                 spawnFailure  (none)
+      demoted: true, and it reports its identity WHILE ALIVE: true
+
+**This is the release's documented fallback** — the thing an operator reaches for if a server
+driver misbehaves — and until now it had been PARTIAL on every column.
+
+**It was never broken. It was unreadable.** POD-2853 killed the demoted session before it
+could report what it had been demoted *to*, so the hatch demonstrably worked and the result
+could not be seen. The blocker landed hours ago; the cell was re-checked only because
+"re-check a blocked cell when its blocker lands" became a rule this afternoon.
+
+**And it needed no lock.** The arm is a **daemon-level** setting — `drive-verify` reads it out
+of the running daemon's environ — so flipping it is a daemon restart, not a bundle rebuild.
