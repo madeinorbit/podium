@@ -2510,3 +2510,28 @@ defect and belongs in a different bucket. The five re-drivable rows have all pas
             POD-2871 cross-session transcript bleed
             POD-2880 claude interrupt returns but the turn runs on — NEEDS ITS MAIN
                      COMPARISON, and claude is the incumbent driver
+
+## TICK 2026-08-26 16:15 CEST — 51 of 80 driven, 7 defects, 2 closed, 22 product fixes landed today
+
+    driven          51 of 80 (64%)
+    defects         7 found, 2 CLOSED AND DRIVEN, 5 open (2 of them P1)
+    product fixes   22 landed on the branch today
+    remaining       ~5-8 fixes, roughly 2 rounds at four in parallel
+
+**Grok stopped being a blank column.** Three cells driven and all three pass: A8 post-login
+binding a fresh grok-acp driver, A10 driver identity on both arms *including the escape
+hatch*, and the Tier-B quota check on both arms. 28 cells remain blocked until the quota
+resets at 11:03 tomorrow, with a handover written so the re-run rediscovers nothing.
+
+**A third cell where the new drivers are BETTER**, and the cheapest one to claim because both
+arms pass: quota exhaustion reports as , , **402 Payment
+Required** carrying the provider's own message on headless, against 
+as prose on terminal. Typed and structured versus something the user has to interpret.
+
+**Nine sessions live, all working.** The upgrade drive is back after hibernating and is
+reading its second arm at last. One session (POD-2893, the duplicate-ask defect) has produced
+nothing in two hours and reports `context=unknown` where every other session reports a
+percentage — asked directly for three lines rather than assumed dead.
+
+**Standing state of the bar:** 3 cells better, 2 worse (both P1, both owned, one with a fix
+awaiting its restart drive), everything else driven at parity.
