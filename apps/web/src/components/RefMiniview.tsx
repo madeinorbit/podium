@@ -377,7 +377,7 @@ export function RefCard({
               </div>
             </div>
           )}
-          {onAgentChange && (
+          {onAgentChange && isIssueStartable(target.issue) && (
             <IssueHarnessPicker issue={target.issue} onAgentChange={onAgentChange} />
           )}
           <IssueDetailsStrip issue={target.issue} />

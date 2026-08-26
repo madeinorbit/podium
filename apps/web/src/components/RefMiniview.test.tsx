@@ -391,6 +391,28 @@ describe('RefCard proposal decisions', () => {
     expect(container.textContent).toContain('Claude Code')
     expect(container.querySelector('[aria-label="Planned agent harness"]')).not.toBeNull()
   })
+
+  it('hides the planned harness once the issue has started', () => {
+    act(() => {
+      root.render(
+        <RefCard
+          refToken="POD-517"
+          target={issueTarget({
+            ...proposal,
+            stage: 'in_progress',
+            worktreePath: '/r/.worktrees/issue-517',
+          })}
+          issues={issues}
+          onClose={() => {}}
+          onOpenFull={() => {}}
+          onAgentChange={vi.fn(async () => ({}))}
+        />,
+      )
+    })
+
+    expect(container.textContent).not.toContain('Planned agent')
+    expect(container.querySelector('[aria-label="Planned agent harness"]')).toBeNull()
+  })
 })
 
 describe('RefCard outside-click dismissal', () => {
