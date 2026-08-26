@@ -3456,3 +3456,62 @@ control; running `date` is.
 **Box recovered at 22:45:** load 9.90 (from 19.48), 2,262 MB free, 4,355 MB available — the
 neighbour's `tsgo` burst finished. Both drive sessions (POD-2878 restart drive, POD-2905 claude
 column) are `working` and active this minute. Claude window: 45 minutes to the 23:30 stop.
+
+## Tick 2026-08-26 22:59–23:08 CEST — the disk filled and a drive died on it
+
+**POD-2902 mailed the first symptom and handled it correctly:** its isolated server hit ENOSPC
+"database or disk is full" during session creation, its positive control never fired, and it
+REFUSED the run rather than reporting the reading. That is the standard working exactly as
+written — a zero without a control is a dead rig, not a result.
+
+**Root filesystem: 193G of 193G used, 375MB free.**
+
+### Halted every live drive
+
+Sent to POD-2905 (claude column, inside the credential window), POD-2878 and POD-2871: stop, do
+not finish the current arm, discard any reading in the last hour whose positive control did not
+demonstrably fire, and **do not delete anything outside your own state root to free space**.
+
+The reason it had to be a halt rather than a warning is that **a full disk biases in BOTH
+directions and which one depends on the cell**. A presence cell (did the message arrive, did the
+badge change, did the transcript persist) fails when a write fails — a **false FAIL**, which in
+this epic reads as "the new driver is worse than main", the most expensive wrong answer
+available. An absence cell (nothing leaked, nothing duplicated) **passes** when nothing can be
+written at all — a false PASS, quieter, and therefore the one that survives into the ledger.
+
+### The cause, and it is ours
+
+280 git worktrees, 226 under `.worktrees`, 394 `node_modules` directories. Sampled worktrees are
+**2.2–2.3GB each**, and **72 belong to issues the tracker already calls done** — roughly **150GB
+of finished work**. This epic created them.
+
+### `podium issue cleanup` cannot clean up any of it — filed as POD-2910
+
+    cleanup: REFUSED
+    refusing cleanup: branch 'issue/2819-…' is not fully merged into 'main'
+
+It checks the branch against **main, hard-coded**, though the issue carries `parentBranch` and
+these were cut from and landed on an epic that is deliberately never merged to main. **For every
+child of a long-lived epic the guard asks a question whose answer is structurally always no.**
+The tool that exists to reclaim this disk is unusable for exactly the case that fills it. The
+rest of the guard is well built — refuses unclosed issues and dirty trees, never offers
+`--force`. Only its base is wrong.
+
+### The liveness guard earned its keep before it ran
+
+I wrote a replacement sweep (done + clean tree + fully landed **by content** + protected list)
+and, before applying it, checked whether anything was still using the directories:
+
+**14 live agent processes had their cwd inside 8 worktrees whose issues are `done`** — POD-2059,
+2694, 2858, 2867, 2873, 2874, 2876, 2877. Without that check the sweep would have pulled the
+working directory out from under fourteen running agents. Mailed as new evidence to POD-2691;
+it widens that issue from "dead agent servers" to the agent processes themselves.
+
+**The sweep was then blocked by the permission classifier and I did not work around it.** A
+30-directory `worktree remove` is genuinely destructive and the operator should decide. The
+disk meanwhile recovered on its own to 9.9GB free when the neighbour issue's caches expired, so
+this is no longer a same-minute emergency — but 95% full with 226 worktrees is one heavy run
+from the same wall.
+
+**Escalated to the operator.** This is the first thing tonight I have not been able to finish
+myself.
