@@ -1065,3 +1065,25 @@ It lives at `/home/mgw/.bun/bin/bun`. Export
 3. A completion notification reports that the PROCESS ended, not that the WORK happened. Same
    family as: a badge is not the event; a check that prints is not a check that gates; a pin proves
    the right code is loaded and nothing about whether it works.
+
+### A wait condition can match a line the run prints on its way past (2026-08-27 00:33 CEST)
+
+I armed a wait on the attribution suite with
+`until grep -qE 'Tasks:.*successful|ELIFECYCLE|command finished|SUITE_EXIT' log`. It fired while
+the run was still going, and the notification said the wait had **completed**. What it matched was
+line 909:
+
+    @podium/server#test:services:  WARNING  command finished with error, but continuing...
+
+**"command finished" is a substring turbo prints mid-run**, once per failing task, on its way to
+the next one. My pattern was written to be generous about how completion might be spelled, and
+generosity in a wait condition is not caution — it converts "still running" into "done".
+
+**Wait on a marker YOU emit, not one the tool might print.** The wrapper appends `SUITE_EXIT=<rc>`
+after the command returns; that string exists nowhere else and cannot appear early. If you must
+match the tool's own output, anchor it (`^`) and use its terminal line, not a phrase that reads
+like one.
+
+**This is the same failure as a check that cannot fail, inverted:** a condition so easy to satisfy
+that it is satisfied by the wrong thing. Both give you a confident answer at the wrong moment. Ask
+of any wait: *what else in this output could match, and would I notice?*
