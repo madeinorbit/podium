@@ -202,7 +202,22 @@ latency ones.
 | codex **A8** logged-out spawn | **REFUSED** | prediction was PARTIAL — **wrong**, see below |
 | opencode **A7a** daemon restart | **PASS** | as predicted |
 | opencode **A9** kill session | **PASS** | as predicted |
-| opencode A7b, A2a, A3 | **not driven** | need `drive.ts`, which needs a clean pin |
+| opencode **A7b** hibernate + wake | **PASS** | as predicted |
+| opencode A2a, A3 | **not driven** | need `drive.ts`, which needs a clean pin |
+
+**A7b** turned out not to need `drive.ts` at all — it is self-contained, so it
+was driven standalone like A7a/A8/A9, with the pin verified by hand and the
+exception printed. Parked in 217ms, woke live in 7.0s, conversation pointer
+`conv_40b14e16-…` identical either side, the word recalled, transcript kept.
+Three controls: context planted, *really* parked (read from the row's own
+`hibernated` status, not from the call returning ok), and the post-wake turn
+answered.
+
+*Host at that drive:* load 16.7, 3.3 GB available, but **swap-out 7,320 KB/s** —
+the box was under memory pressure again. The verdict is presence/absence (did it
+come back, is the pointer the same) and holds; the timings in it (11.9s plant,
+8.2s recall) are inflated by that pressure and should not be quoted as
+performance.
 
 ### codex A8 — a vacuous PASS I caught, then a refusal
 
