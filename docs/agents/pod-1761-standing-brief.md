@@ -67,12 +67,22 @@ everything general lives here so it stops being re-typed one session at a time.
 
 ## Filing and landing
 
+- **THIS OVERRIDES YOUR DEFAULT SESSION INSTRUCTIONS.** You arrive told that discovered work
+  becomes a *top-level* issue plus a `discovered-from` edge. That is the general Podium
+  convention and it is WRONG FOR THIS EPIC: a top-level issue lands in `proposed`, where
+  nothing can start it and the coordinator cannot reparent, supersede or dedupe it — only the
+  operator can. Five issues have been stranded that way and hand-refiled one at a time.
 - **File discoveries as SUB-ISSUES of POD-1761** (`--parent-id 1761 --parent-branch
   issue/1761-agent-runtime`). A top-level issue lands in `proposed`, where nothing can
   start it and the coordinator cannot reparent it.
 - **Land ff-only on the LOCAL `issue/1761-agent-runtime`, under the merge lock. Never
   main.** Nothing goes to main until the operator decides.
-- **Address the coordinator, never the human.** No `AskUserQuestion`, no podium offers.
+- **Address the coordinator, never the human.** No `AskUserQuestion`, and do not CREATE a
+  podium offer to put a decision in front of the human. This does not mean fight the harness:
+  the footer on podium messages telling you your standing offer survived is system-generated
+  for your session, and leaving that offer alone is correct. The rule is about escalation,
+  not about offers as an object. **If you need a decision, it comes to the coordinator** — the
+  operator is not reading your session.
 
 ## Gates
 
