@@ -6,6 +6,7 @@ import {
   buildMachineInventory,
   declaredValue,
   harnessDetectLogin,
+  harnessLoginReadEnv,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
@@ -156,16 +157,31 @@ export async function reapServerSessionsBeforeDispose(
     dispose()
   }
 }
-/** Keep the synchronous spawn gate on the exact home inventory uses. */
+/**
+ * Keep the synchronous spawn gate on the exact home inventory uses.
+ *
+ * `credentialHome`, NOT the ambient one (POD-2692). This gate used to read the
+ * right home and then let the daemon's own environment move it: `harnessDetectLogin`
+ * falls back to `process.env` for a harness whose state root is selected by
+ * `CODEX_HOME`/`GROK_HOME`, so an ambient selector pointed the gate at the
+ * operator's harness state while the session it was gating ran under the
+ * instance's. `harnessLoginReadEnv` composes the environment the CHILD gets, so
+ * the gate now answers about the account that child will actually run as.
+ */
 function daemonHarnessLoginContext(
   homeDir: string | undefined,
+  credentialHome: string,
 ): Pick<DaemonContext, 'homeDir' | 'harnessLoginState'> {
   return {
     homeDir,
     harnessLoginState: (agentKind) =>
       agentKind === 'shell'
         ? undefined
-        : harnessDetectLogin(agentKind, homeDir ?? homedir())?.state,
+        : harnessDetectLogin(
+            agentKind,
+            credentialHome,
+            harnessLoginReadEnv(agentKind, credentialHome, process.env),
+          )?.state,
   }
 }
 
@@ -273,12 +289,15 @@ export async function createDaemonHostRuntime(args: {
         })
       : undefined
   const machineHome = opts.discovery?.homeDir ?? process.env.HOME ?? homedir()
+  /**
+   * ONE HOME FOR EVERY LOGIN ANSWER (POD-2692). Named once here and handed to
+   * both the inventory probe and the synchronous spawn gate below, so the two
+   * cannot drift apart the way they did when each derived its own.
+   */
+  const credentialHome = accountHome?.path ?? homeDir ?? machineHome
   const harnessRuntime = opts.launch
     ? undefined
-    : new DaemonHarnessRuntime({
-        machineHome,
-        credentialHome: accountHome?.path ?? homeDir ?? machineHome,
-      })
+    : new DaemonHarnessRuntime({ machineHome, credentialHome })
   const replayPendingBindingReceipts = async (): Promise<number> => {
     let replayed = 0
     for (const owner of await bindingStore.ownersWithPendingReceipts()) {
@@ -618,7 +637,7 @@ export async function createDaemonHostRuntime(args: {
     // synchronously so a spawn racing the asynchronous inventory report cannot
     // start a headless server before a logout or Codex grace state reaches the
     // server cache.
-    ...daemonHarnessLoginContext(homeDir),
+    ...daemonHarnessLoginContext(homeDir, credentialHome),
     bridges,
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     nativeClientRequests: new Set<SessionId>(),

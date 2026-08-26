@@ -18,7 +18,7 @@ import {
   type LoginCommandResult,
   type HarnessLogin,
 } from '../manifest.js'
-import { AGENT_MANIFESTS } from '../registry.js'
+import { AGENT_MANIFESTS, harnessLoginReadEnv } from '../registry.js'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
 
 const log = createLogger('harness:inventory')
@@ -95,16 +95,32 @@ async function probeAgent(
   legacyInjectedExec: boolean,
   hostPlatform: NodeJS.Platform,
 ): Promise<{ inventory: AgentInventory; executable?: ResolvedHarnessExecutable }> {
+  /**
+   * EVERY LOGIN READ RUNS UNDER THE CREDENTIAL HOME (POD-2692), the file detector
+   * and `loginCommandProbe` alike.
+   *
+   * `environment.env` describes the MACHINE — its PATH, its `HOME` — and that is
+   * the right environment for finding and versioning an executable. It is the
+   * wrong one for asking who is signed in: on a named instance the credentials
+   * live under an isolated agent-home, and `claude auth status` run with the
+   * operator's `HOME` cheerfully answers about the operator. It answered `in`
+   * against an agent-home holding no credential at all, and because a
+   * `determined` command verdict OVERRIDES the file detector, that wrong answer
+   * won and became the machine inventory the whole product reads.
+   */
+  const credentialEnv: Readonly<Record<string, string>> = Object.freeze(
+    harnessLoginReadEnv(manifest.kind, credentialHome, environment.env),
+  )
   let detected: HarnessLogin
   try {
-    detected = manifest.inventory.detectLogin(credentialHome, environment.env)
+    detected = manifest.inventory.detectLogin(credentialHome, credentialEnv)
   } catch {
     detected = { state: 'unknown' }
   }
   const identityReader = declaredValue(manifest.inventory.loginIdentity)
   let identity: ReturnType<NonNullable<typeof identityReader>> | undefined
   try {
-    identity = identityReader?.(credentialHome, environment.env)
+    identity = identityReader?.(credentialHome, credentialEnv)
   } catch {
     // Login identity is best-effort metadata.
   }
@@ -149,7 +165,7 @@ async function probeAgent(
             await loginExec(
               [candidate, ...commandProbe.args],
               commandProbe.timeoutMs,
-              environment.env,
+              credentialEnv,
             ),
           )
           login =

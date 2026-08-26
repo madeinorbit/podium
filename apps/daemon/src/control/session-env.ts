@@ -8,7 +8,7 @@
  */
 
 import { delimiter, dirname, join } from 'node:path'
-import { manifestFor } from '@podium/harness'
+import { harnessInstanceHomeEnv, manifestFor } from '@podium/harness'
 import type { AgentKind } from '@podium/model'
 
 const HARNESS_COMPAT_ENV: Partial<Record<AgentKind, Record<string, string>>> = {
@@ -69,14 +69,20 @@ export function harnessChildStripEnv(
   return [...new Set([...foreignCredentialEnv(agentKind, sessionEnv), ...(controls ?? [])])]
 }
 
-/** Redirect a harness-specific state selector into the named instance home. */
+/**
+ * Redirect a harness-specific state selector into the named instance home.
+ *
+ * DELEGATED, NOT REIMPLEMENTED (POD-2692). The same selector now composes the
+ * environment the inventory's login probe and the spawn gate read under
+ * (`harnessLoginReadEnv`), and the whole defect this fixes was two readers of one
+ * declaration quietly diverging. One implementation is what keeps the child and
+ * the readout describing the same account.
+ */
 export function harnessInstanceEnv(
   agentKind: AgentKind | string | undefined,
   homeDir?: string,
 ): Record<string, string> {
-  if (!agentKind || !homeDir) return {}
-  const selector = manifestFor(agentKind)?.environment.instanceHome
-  return selector ? { [selector.variable]: join(homeDir, selector.relativeDir) } : {}
+  return harnessInstanceHomeEnv(agentKind, homeDir)
 }
 
 /** Merge the server-resolved session env (managed credentials, #216) under

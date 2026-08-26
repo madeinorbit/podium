@@ -9,6 +9,7 @@ import {
   type ProbeExec,
 } from './build-inventory.js'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
+import { harnessLoginReadEnv } from '../registry.js'
 import {
   fingerprintForLoginIdentity,
   readFreshnessFromAuthContents,
@@ -144,7 +145,12 @@ describe('buildInventory', () => {
     })
 
     expect(calls).toEqual([{ argv: [resolvedClaude, 'auth', 'status'], timeoutMs: 12_000, env }])
-    expect(calls[0]!.env).toBe(env)
+    // Equal, no longer IDENTICAL: the probe runs under a composed credential
+    // environment now (POD-2692), not the machine environment verbatim. Here the
+    // credential home IS `env.HOME`, so every entry still matches — what changed
+    // is that the composition, not the caller's object, decides `HOME`.
+    expect(calls[0]!.env).not.toBe(env)
+    expect(calls[0]!.env.HOME).toBe(home)
     expect(calls[0]!.env.CLAUDE_CONFIG_DIR).toBe('')
     expect(calls[0]!.env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe('/secure/storage')
     expect(inv.agents.find((agent) => agent.kind === 'claude-code')).toMatchObject({
@@ -176,7 +182,7 @@ describe('buildInventory', () => {
         }
       },
     })
-    expect(observed).toBe(env)
+    expect(observed).toEqual(env)
     expect(observed).not.toHaveProperty('CLAUDE_CONFIG_DIR')
     expect(observed).not.toHaveProperty('CLAUDE_SECURESTORAGE_CONFIG_DIR')
   })
@@ -451,7 +457,18 @@ describe('buildInventory', () => {
     expect(byKind['claude-code']!.installed).toBe(false)
   })
 
-  it('passes the command environment to Codex login detection and identity', async () => {
+  it('reads Codex login from the credential home, not an ambient CODEX_HOME', async () => {
+    /**
+     * THE CREDENTIAL HOME WINS OVER AN AMBIENT SELECTOR (POD-2692), and it has to,
+     * because that is already what the SPAWNED CHILD gets: `harnessInstanceEnv`
+     * sets `CODEX_HOME` to `<instance home>/.codex` on every session. While this
+     * probe followed the ambient value instead, the readout named one account and
+     * the session ran as another — the divergence this issue exists to close.
+     *
+     * The env still reaches the reader (that is what the previous spelling of this
+     * test was really pinning); it is now composed on the way rather than passed
+     * through, so the reader cannot be pointed anywhere but the named home.
+     */
     const codexHome = join(home, 'configured-codex')
     mkdirSync(codexHome, { recursive: true })
     writeFileSync(
@@ -470,6 +487,19 @@ describe('buildInventory', () => {
       HOME: home,
       CODEX_HOME: codexHome,
     })
+    // The same credential, written where the CREDENTIAL HOME says it lives.
+    mkdirSync(join(home, '.codex'), { recursive: true })
+    writeFileSync(
+      join(home, '.codex', 'auth.json'),
+      JSON.stringify({
+        tokens: {
+          access_token: 'a',
+          refresh_token: 'r',
+          account_id: 'acct-home',
+          id_token: jwt({ name: 'Home User', email: 'home@example.com' }),
+        },
+      }),
+    )
     const inv = await buildInventoryWithEnv({
       homeDir: home,
       credentialHome: home,
@@ -478,10 +508,10 @@ describe('buildInventory', () => {
     })
     expect(inv.agents.find((agent) => agent.kind === 'codex')!.login).toMatchObject({
       state: 'in',
-      account: 'Configured User · configured@example.com',
+      account: 'Home User · home@example.com',
       identity: {
-        email: 'configured@example.com',
-        providerAccountId: 'acct-env',
+        email: 'home@example.com',
+        providerAccountId: 'acct-home',
         fingerprint: expect.any(String),
       },
     })
@@ -575,5 +605,98 @@ describe('buildInventory', () => {
     })
     expect(readFreshnessFromAuthContents(contents)).toBe(250)
     expect(JSON.stringify(readIdentityFromAuthContents(contents))).not.toContain('credential-bytes')
+  })
+
+  /**
+   * POD-2692. A named instance points the agent at ITS OWN credentials while the
+   * machine home stays the operator's, and these are the reads that decide how a
+   * session starts. Measured on a real instance before the fix: an agent-home
+   * holding no credential at all was published as `in`, naming the operator's
+   * email, because `claude auth status` ran under the operator's `HOME`. The
+   * reverse pairing published `out` for an instance that was signed in, which is
+   * what silently demotes a session off the headless drivers.
+   *
+   * These pin the MECHANISM — the environment the probe is handed — rather than
+   * the resulting state, because the state is only wrong via that environment.
+   */
+  describe('login reads answer for the credential home (POD-2692)', () => {
+    it('runs the Claude login command probe under the credential home, not the machine home', async () => {
+      const machineHome = mkdtempSync(join(tmpdir(), 'inv-machine-'))
+      try {
+        const env = Object.freeze({ PATH: '/verified/bin', HOME: machineHome })
+        let observed: Readonly<Record<string, string>> | undefined
+        const inv = await buildInventoryWithEnv({
+          credentialHome: home,
+          commandEnvironment: { ...commandEnvironment(env), machineHome },
+          exec: async () => '2.1.50 (Claude Code)',
+          loginExec: async (_argv, _timeoutMs, probeEnv) => {
+            observed = probeEnv
+            return {
+              // The answer the operator's home would have given.
+              stdout: JSON.stringify({ loggedIn: true, email: 'operator@example.com' }),
+              stderr: '',
+              exitCode: 0,
+              timedOut: false,
+            }
+          },
+        })
+        expect(observed?.HOME).toBe(home)
+        expect(observed?.HOME).not.toBe(machineHome)
+        // The verdict still comes from the probe; what changed is which home it
+        // was asked about.
+        expect(inv.agents.find((agent) => agent.kind === 'claude-code')?.login.state).toBe('in')
+      } finally {
+        rmSync(machineHome, { recursive: true, force: true })
+      }
+    })
+
+    it("pins a harness's own home selector to the credential home", async () => {
+      const machineHome = mkdtempSync(join(tmpdir(), 'inv-machine-'))
+      try {
+        // The operator's selector, as an ambient value would arrive.
+        const env = Object.freeze({
+          PATH: '/verified/bin',
+          HOME: machineHome,
+          CODEX_HOME: join(machineHome, '.codex'),
+          GROK_HOME: join(machineHome, '.grok'),
+        })
+        const observed = new Map<string, Readonly<Record<string, string>>>()
+        await buildInventoryWithEnv({
+          credentialHome: home,
+          commandEnvironment: { ...commandEnvironment(env), machineHome },
+          exec: async (argv) => {
+            observed.set((argv[0] as string).split('/').pop() as string, env)
+            return '1.0.0'
+          },
+        })
+        // Read the composition directly: it is what both the file detector and the
+        // command probe are handed, and what a spawned child of this harness gets.
+        expect(harnessLoginReadEnv('codex', home, env).CODEX_HOME).toBe(join(home, '.codex'))
+        expect(harnessLoginReadEnv('grok', home, env).GROK_HOME).toBe(join(home, '.grok'))
+        // Claude declares no selector, so HOME alone moves it — and nothing else does.
+        expect(harnessLoginReadEnv('claude-code', home, env)).not.toHaveProperty(
+          'CLAUDE_CONFIG_DIR',
+        )
+      } finally {
+        rmSync(machineHome, { recursive: true, force: true })
+      }
+    })
+
+    it('drops the credentials a spawned child would drop, so the readout names the account that will run', () => {
+      const env = Object.freeze({
+        PATH: '/verified/bin',
+        HOME: '/machine',
+        ANTHROPIC_API_KEY: 'sk-inherited',
+        CLAUDE_CODE_ENTRYPOINT: 'cli',
+      })
+      const composed = harnessLoginReadEnv('claude-code', home, env)
+      // `foreignCredentialEnv` — an inherited key selects a DIFFERENT account than
+      // the login on disk, and the child strips it. A probe that kept it would
+      // report the key's billing state for a session that will not use the key.
+      expect(composed).not.toHaveProperty('ANTHROPIC_API_KEY')
+      // `environment.removeInherited` — parent-invocation controls, likewise.
+      expect(composed).not.toHaveProperty('CLAUDE_CODE_ENTRYPOINT')
+      expect(composed.PATH).toBe('/verified/bin')
+    })
   })
 })

@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import type { AgentKind, HarnessAgent } from '@podium/model'
 import {
   type BuiltinHarnessKind,
@@ -338,6 +339,71 @@ export function harnessDetectLogin(
   env?: HarnessEnvironment,
 ): HarnessLogin | undefined {
   return manifestFor(kind)?.inventory.detectLogin(homeDir, env)
+}
+
+/**
+ * The harness-specific home selector this CLI must follow into `homeDir`.
+ *
+ * The declaration ({@link AgentManifest.environment}`.instanceHome`) already
+ * existed and already governed the CHILD a spawn creates; this is that same rule
+ * read from one place so a login PROBE can compose the identical environment.
+ * Empty for a harness that derives its state root from `HOME` alone.
+ */
+export function harnessInstanceHomeEnv(
+  kind: AgentKind | string | undefined,
+  homeDir: string | undefined,
+): Record<string, string> {
+  if (!kind || !homeDir) return {}
+  const selector = manifestFor(kind)?.environment.instanceHome
+  return selector ? { [selector.variable]: join(homeDir, selector.relativeDir) } : {}
+}
+
+/**
+ * THE ENVIRONMENT A LOGIN READ MUST RUN UNDER TO ANSWER FOR `credentialHome`
+ * (POD-2692) — and it is the environment the CHILD gets, deliberately, because
+ * that is the whole point.
+ *
+ * Three things decide how a session starts, and each of them used to pick its own
+ * home: the inventory probe that publishes installed/ready/logged-in, the
+ * synchronous admission gate that decides whether a headless driver may be used,
+ * and the `HOME` the spawned child actually lives in. Measured on a named
+ * instance whose agent-home was logged OUT while the operator's home was logged
+ * IN, the inventory answered `in` — as the operator, naming the operator's email
+ * — while the gate and the child answered `out`. So Podium reported a harness
+ * ready and then handed the session a home with no credential in it. Pair them
+ * the other way round and a signed-in instance is demoted onto the interactive
+ * login path instead. Both failures have already happened on this epic
+ * (POD-2631, POD-2772).
+ *
+ * `HOME` ALONE DOES NOT GET THERE. `CODEX_HOME` and `GROK_HOME` override it, and
+ * the manifest already says so: "an ambient selector can redirect the child back
+ * into the daemon operator's real harness state". That warning was applied to the
+ * child spawn and to nothing else, which is exactly how a readout that ignores
+ * the instance home survived — the child followed the selector, the probe did
+ * not. The strip lists are here for the same reason: a `foreignCredentialEnv`
+ * left in the probe's environment makes it report the account an inherited API
+ * key selects, while the child, which strips that key, runs as the login on disk.
+ *
+ * NOT FOR VERSION PROBES. `<binary> --version` answers "what can this MACHINE
+ * run" and reads no per-user auth; `serverChildEnv` in apps/daemon already draws
+ * that line and it stays drawn. This composition is only for reads that name an
+ * account.
+ */
+export function harnessLoginReadEnv<Value extends string | undefined>(
+  kind: AgentKind | string,
+  credentialHome: string,
+  machineEnv: Readonly<Record<string, Value>>,
+): Record<string, Value | string> {
+  const manifest = manifestFor(kind)
+  const stripped = new Set([
+    ...(manifest?.inventory.foreignCredentialEnv ?? []),
+    ...(manifest?.environment.removeInherited ?? []),
+  ])
+  const env: Record<string, Value | string> = {}
+  for (const [key, value] of Object.entries(machineEnv)) {
+    if (!stripped.has(key)) env[key] = value
+  }
+  return { ...env, HOME: credentialHome, ...harnessInstanceHomeEnv(kind, credentialHome) }
 }
 
 /**
