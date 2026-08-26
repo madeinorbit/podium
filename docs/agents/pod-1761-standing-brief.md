@@ -711,3 +711,27 @@ replays its whole output log on every attach — so each re-attach concatenated 
 items on reset; the terminal side never did. One plane accounting correctly and the other
 silently accumulating, *in the same object*, is much harder to see than either being wrong
 alone — the correct half makes the object look maintained.
+
+## An exception expires — check whether it is STILL true, not whether it WAS (2026-08-26 18:23 CEST)
+
+The coordinator granted a drive permission to run at a stale pin, on a measured basis: *the
+drift is confined to two `apps/web` files, every runtime path byte-identical*. That was true
+when granted.
+
+**Two hours later it was false.** `apps/server/src/modules/interactions/service.ts` — the ask
+being raised, enumerated, answered, answered twice — and `relay.ts`, the socket plane every
+probe drives over, had both landed. The exception's entire basis had evaporated while the
+ruling itself still read as current.
+
+**The check is "is the exception still true", not "was it true when granted".** Recompute the
+condition; do not remember the verdict. It was caught only because the diff was recomputed
+rather than the ruling recalled.
+
+**And scope the consequence by the same file-level method.** Cells on paths that moved are
+stale; cells on paths that did not are still good. Here: the permission cells went stale, while
+the daemon runtime, control, `packages/runtime` and `packages/harness` paths had **zero**
+changes, so those readings stand and were correctly not re-run.
+
+**This applies to the coordinator's rulings as much as to anyone's.** A permission granted on a
+measured condition carries that condition with it, and whoever holds the permission is the one
+positioned to notice it lapse.
