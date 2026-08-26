@@ -7,7 +7,12 @@
  * does not mint a second row.
  */
 
-import { type AgentRuntimeState, asSessionId, type SessionId } from '@podium/model'
+import {
+  type AgentRuntimeState,
+  asSessionId,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import type { QuestionPrompt, QuestionSelection } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type InteractionRow, InteractionsRepository } from '../../store/interactions'
@@ -87,6 +92,8 @@ function harness(
     structured?: boolean
     /** Sessions the causal runtime-event stream owns failures for (P2/7). */
     causalSessions?: SessionId[]
+    /** Declaration-resolved driver family for the state-synthesis edge. */
+    driverFamily?: SessionMeta['driverFamily']
     /** Wire the screen-read menu route, and say what the keystroke path
      *  answers. Absent means the build has no such route (POD-2414). */
     nativeMenu?: (input: {
@@ -114,6 +121,9 @@ function harness(
     }),
     policyPrincipal: () => PRINCIPAL,
     causalFailuresOwned: (sessionId) => (options.causalSessions ?? []).includes(sessionId),
+    ...(options.driverFamily !== undefined
+      ? { driverFamilyForSession: () => options.driverFamily }
+      : {}),
     ...(options.structured ? { deliverStructured: async () => ({ ok: true as const }) } : {}),
     ...(options.nativeMenu
       ? {
@@ -206,6 +216,44 @@ describe('InteractionService — synthesis', () => {
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
     await svc.onStateChanged({ sessionId: S, prev: permissionState(), next: permissionState() })
     expect(svc.listForSession(S)).toHaveLength(1)
+  })
+
+  it('does not synthesize a classifier copy for a server-family session', async () => {
+    const { svc } = harness({ driverFamily: 'server' })
+    await svc.ask({
+      interaction: {
+        id: 'ixn_server',
+        sessionId: S,
+        kind: 'permission',
+        payload: { v: 1, toolName: 'bash', canAlwaysAllow: true },
+        source: 'protocol',
+        answerable: 'structured',
+      },
+    })
+    await svc.onStateChanged({
+      sessionId: S,
+      prev: undefined,
+      next: state({
+        phase: 'needs_user',
+        stateSource: 'poll',
+        need: {
+          kind: 'permission',
+          ask: { toolName: 'echo command', detail: 'echo command', canAlwaysAllow: false },
+        },
+      }),
+    })
+    expect(svc.listOpen()).toHaveLength(1)
+    expect(svc.listOpen()[0]).toMatchObject({ source: 'protocol', payload: { toolName: 'bash' } })
+  })
+
+  it('still synthesizes the classifier ask for a terminal-family session', async () => {
+    const { svc } = harness({ driverFamily: 'terminal' })
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
+    expect(svc.listOpen()).toHaveLength(1)
+    expect(svc.listOpen()[0]).toMatchObject({
+      source: 'screen-classifier',
+      answerable: 'keystroke-emulated',
+    })
   })
 
   it('a DIFFERENT ask on the same session expires the stale one', async () => {

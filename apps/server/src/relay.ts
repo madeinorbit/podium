@@ -2392,6 +2392,13 @@ export class SessionRegistry {
       now: () => new Date(this.now()).toISOString(),
       publish: (row) => interactionFeed.publish(row),
       /**
+       * THE FAMILY IS ALREADY A SESSION PROJECTION. It is resolved from the
+       * harness manifest when the session metadata is built; handing that
+       * declaration-backed fact to the interaction aggregate keeps the state
+       * shadow from guessing based on a driver id.
+       */
+      driverFamilyForSession: (sessionId) => sessionsSvc.sessionById(sessionId)?.driverFamily,
+      /**
        * PROVENANCE FOR THE FAILURE PATH (POD-2414 re-verdict P2/7, narrowed by
        * the third pass).
        *

@@ -1,6 +1,8 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": ["//"],
+  "extends": [
+    "//"
+  ],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -20,7 +22,6 @@
     "test:contracts": {
       "dependsOn": [],
       "inputs": [
-        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -254,7 +255,6 @@
     "test:store": {
       "dependsOn": [],
       "inputs": [
-        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -625,7 +625,6 @@
       "dependsOn": [],
       "inputs": [
         "$TURBO_ROOT$/apps/daemon/src/**",
-        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -1134,7 +1133,6 @@
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
         "$TURBO_ROOT$/apps/web/src/**",
-        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
@@ -1671,6 +1669,7 @@
         "src/test-support/client-transport.ts",
         "src/test-support/migrated-database.ts",
         "src/test-support/pre-migrated-store.ts",
+        "src/test-support/readiness-queue.ts",
         "src/title-filter.ts",
         "src/transcript-indexer.test.ts",
         "src/trpc.ts",
@@ -1694,7 +1693,6 @@
     "test:normalized-wire": {
       "dependsOn": [],
       "inputs": [
-        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",

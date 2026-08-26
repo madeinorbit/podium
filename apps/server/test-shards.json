@@ -103,7 +103,6 @@
         "apps/server/src/web-bundle-stamp.test.ts"
       ],
       "inputs": [
-        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -383,7 +382,6 @@
         "apps/server/src/store/user-read-position.test.ts"
       ],
       "inputs": [
-        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -860,7 +858,6 @@
       ],
       "inputs": [
         "$TURBO_ROOT$/apps/daemon/src/**",
-        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -1478,7 +1475,6 @@
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
         "$TURBO_ROOT$/apps/web/src/**",
-        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
@@ -2015,6 +2011,7 @@
         "src/test-support/client-transport.ts",
         "src/test-support/migrated-database.ts",
         "src/test-support/pre-migrated-store.ts",
+        "src/test-support/readiness-queue.ts",
         "src/title-filter.ts",
         "src/transcript-indexer.test.ts",
         "src/trpc.ts",
@@ -2042,7 +2039,6 @@
         "apps/server/src/issues.normalized-wire.test.ts"
       ],
       "inputs": [
-        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",

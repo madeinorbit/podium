@@ -39,7 +39,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
-import type { AgentRuntimeState, SessionId } from '@podium/model'
+import type { AgentRuntimeState, SessionId, SessionMeta } from '@podium/model'
 import type {
   InteractionAnswer,
   InteractionAnswerability,
@@ -172,6 +172,16 @@ export interface InteractionServiceDeps {
    * default for a build that has not wired one.
    */
   causalFailuresOwned?(sessionId: SessionId): boolean
+  /**
+   * THE DECLARATION-RESOLVED DRIVER FAMILY for this session. The relay reads
+   * the session's existing `driverFamily` projection, which comes from the
+   * harness manifest rather than from a driver-name branch.
+   *
+   * `undefined` means the family is unknown, so state synthesis remains the
+   * safe compatibility behavior. Only a proven server family owns its asks
+   * through the protocol path and must skip the terminal classifier shadow.
+   */
+  driverFamilyForSession?(sessionId: SessionId): SessionMeta['driverFamily']
   /** The transcript tail, for reading a live menu's options at synthesis time. */
   readTranscript(input: {
     sessionId: SessionId
@@ -484,6 +494,17 @@ export class InteractionService {
     next: AgentRuntimeState
   }): Promise<void> {
     try {
+      // The protocol driver already owns server-family asks; don't synthesize
+      // a terminal classifier shadow. Unknown families keep legacy behavior.
+      if (this.deps.driverFamilyForSession?.(input.sessionId) === 'server') {
+        this.closeOpen(
+          input.sessionId,
+          'superseded',
+          'server-family interactions are owned by the protocol driver',
+          (row) => STATE_DERIVED_SOURCES.has(row.source),
+        )
+        return
+      }
       const questionOptions =
         input.next.phase === 'needs_user' && input.next.need?.kind === 'question'
           ? await this.readQuestionOptions(input.sessionId)
