@@ -203,7 +203,46 @@ latency ones.
 | opencode **A7a** daemon restart | **PASS** | as predicted |
 | opencode **A9** kill session | **PASS** | as predicted |
 | opencode **A7b** hibernate + wake | **PASS** | as predicted |
-| opencode A2a, A3 | **not driven** | need `drive.ts`, which needs a clean pin |
+| opencode **A2a** status while working | **FAIL** | prediction was PASS — **wrong**; filed POD-2902 |
+| codex **A2a** re-measured | **PASS** | the original PASS used the wrong instrument |
+| opencode A3 | **not driven** | needs `drive.ts` **and** POD-2885's fix, which has not landed |
+
+### A2a — the cell I had scored with the wrong instrument
+
+The row asks for the **status badge**: "`working` within 2s of turn start, `idle`
+after end; no flicker-idle mid-turn". codex A2a was originally PASSed off the
+`stream` probe — 51 preview frames, monotonic, fine watch acquired. All true, and
+none of it is what the row asks. A session can stream perfectly while its badge
+sits at `idle`; this rig has recorded exactly that on the terminal arm (13,250
+characters produced while `phase` read `idle` at all 60 polls). Re-measured
+against the phase itself:
+
+| harness | load | send round-trip | first `working` |
+|---|---|---|---|
+| opencode | 17.25 | 484 ms | **2744 ms** |
+| opencode | 21.04 | 43 ms | **3033 ms** |
+| opencode | 21.44 | 222 ms | **3201 ms** |
+| opencode | 17.84 | 505 ms | **3568 ms** |
+| codex | 20.77 | 156 ms | 398 ms |
+| codex | 19.84 | 144 ms | 365 ms |
+| codex | 18.34 | 337 ms | 205 ms |
+
+**The host does not explain it, and the round-trip column is how that is
+checkable.** The round-trip is a proxy for how responsive the box was at that
+instant; it varies **12×** across these runs while opencode's badge latency stays
+in a tight 2744–3568 ms band and codex's in a tight 205–398 ms band. The run with
+the *fastest* round-trip (43 ms) still took 3033 ms to show `working`. Both
+harnesses ran at load 18–21 on the same machine within minutes of each other.
+
+opencode's other two clauses pass: no flicker-idle mid-turn, and it does return
+to `idle`. Filed as **POD-2902**.
+
+*And the clock started in the wrong place first.* The original probe set `t0`
+before `sessions.sendText`; on a loaded box that call took ~3.2 s to return, so
+the reading was *round-trip + badge latency* scored against a bar covering only
+the second half, and opencode came out at 7927 ms. The clock now starts when the
+send is **accepted**, with the round-trip reported separately — which is also
+what makes the host-independence argument above checkable rather than asserted.
 
 **A7b** turned out not to need `drive.ts` at all — it is self-contained, so it
 was driven standalone like A7a/A8/A9, with the pin verified by hand and the
