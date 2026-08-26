@@ -223,3 +223,41 @@ fine**:
 `toolUseId`, the file extension, the probe scope — rather than on a shape you assumed was
 universal. It is the mirror of the fixture-too-forgiving defect, and it is easier to miss
 because the tool looks rigorous while it is wrong.
+
+## Silent zeros — the family that keeps reappearing
+
+Four members found in one day, by one drive, each reporting SUCCESS while doing nothing:
+
+- **A rig that writes its evidence as `.log` writes it into `.gitignore`.** 27 of 47 reading
+  logs had never been committed; `git add <dir>` reported success and silently skipped them.
+  Everything quoted for hours was local-only and would have died with the worktree.
+- **An unknown probe name was an empty selection, not an error** — a results table printed
+  with two rows and exit 0, and a cell was nearly recorded as driven from a run that never
+  touched it.
+- **A `replace` whose anchor did not match reported success**, so a report kept naming a
+  superseded issue and a rule believed to be written down was not there.
+- **`grep -c` prints `0` and exits `1`**, so `n=$(grep -c … || echo 0)` yields `"0 0"` and
+  every downstream comparison is false forever.
+
+**The shape:** an operation that cannot do its job reports the same thing as one that had
+nothing to do. **Assert the count.** How many files were added, how many probes selected, how
+many replacements applied. A zero you did not check is indistinguishable from a success.
+
+## Do not take a reading on a thrashing host — and know which number tells you
+
+**Load average is not the signal.** A box at load 20 with `si`/`so` near zero is *contended*:
+plenty of runnable work, no memory pressure, and readings are slow but sound. A box at load
+32 with **sustained swap-in of 6-14 MB/s and 6.4GB of swap in use** is *thrashing*, and it is
+reading its own pages back off disk to run.
+
+**Why it matters more for some findings than others:** if the finding is *"no output for 426
+seconds"*, then on a thrashing host a merely slow turn is **indistinguishable from a wedged
+one** — a reading taken there can only confirm you, in exactly the direction that makes it
+worthless. Stop and say so.
+
+**A two-arm comparison is also a control against the host.** Both arms run on the same box
+minutes apart: if contention were manufacturing the wedge, the terminal arm would have wedged
+too, and it completed in 61s. That is a second reason to prefer the within-one-commit
+instrument, beyond it not needing main merged.
+
+**Resume on `vmstat`, not on the clock or on load average.**
