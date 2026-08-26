@@ -2842,3 +2842,34 @@ could not be seen. The blocker landed hours ago; the cell was re-checked only be
 
 **And it needed no lock.** The arm is a **daemon-level** setting — `drive-verify` reads it out
 of the running daemon's environ — so flipping it is a daemon restart, not a bundle rebuild.
+
+
+## TICK 2026-08-26 17:57 CEST — 67 of 80, and the constraint is now coordination rather than capacity
+
+    driven          67 of 80 (84%)
+    defects         8 found, 2 CLOSED AND DRIVEN, 6 open
+    product fixes   22 landed today
+    fixes in hand   4 of the 6 open have a committed fix awaiting its drive
+
+**The box recovered** — swap-in 1,228–2,756 KB/s against the 11,480–27,928 that stopped
+everyone, swap-out zero, 3.6GB free, load falling from 27 to 16.
+
+**And with capacity back, the bottleneck moved to a held lock.** `test:heavy` had been held for
+**2h18m**, renewed, with **zero writes and no gate process of any kind** — verified against the
+process table, not the lease text, which still read *"full package tests"*. Two sessions were
+queued behind it: one for three hours, one from **a different epic** for two.
+
+**That is my omission.** I told that session to stand down and go idle and never said *release
+your locks first*. An idle session holding a shared lease is exactly the failure another
+session warned me about this afternoon — the lease is held from the grab until it acts again,
+and a parked session does not act again. Now in the standing brief, along with: *a lease naming
+a gate is not evidence a gate is running; look for the process.*
+
+**Six sessions were idle at the sweep, and only two of them wrongly.** Two are parked by me
+(claude column, grok until 11:03 tomorrow), one is done, one is legitimately blocked on other
+people's fixes. The two that could work — the cross-session-transcript drive and the
+interval-sampled long-turn drive — have been told the box recovered, with the numbers, and to
+apply their own stricter thresholds rather than take my word for it.
+
+**Claude stays off limits.** 18 stale credential files quarantined out of rig agent homes at
+17:52; the operator's own verified intact.
