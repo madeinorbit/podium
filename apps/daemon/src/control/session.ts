@@ -1633,10 +1633,11 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     let socketPath: string | undefined
     if (ctx.backend !== 'none') {
       reapStaleAbducoBindTemps()
-      socketPath = abducoSocketPath(msg.durableLabel)
+      const abducoEnv = ctx.homeDir ? { ...process.env, HOME: ctx.homeDir } : process.env
+      socketPath = abducoSocketPath(msg.durableLabel, abducoEnv)
       if (socketPath === undefined) {
         try {
-          socketPath = await waitForAbducoSocket(msg.durableLabel, process.env, { timeoutMs: 1500 })
+          socketPath = await waitForAbducoSocket(msg.durableLabel, abducoEnv, { timeoutMs: 1500 })
         } catch {
           // The durable host may be absent; keep the tmux compatibility fallback below.
         }
