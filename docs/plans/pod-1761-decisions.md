@@ -115,3 +115,30 @@ driver, because nothing is observably in flight to interrupt.
 - **Ship with it** — long tasks silently never complete on the driver we are switching to.
 
 **Recommendation: fix. This one is not waivable.**
+
+---
+
+## 7. Half of the logged-out check cannot be driven without touching your real credentials.
+**Raised 2026-08-26. Status: OPEN. Needs an operator answer, not more testing.**
+
+The check has two halves. The first is driven: a logged-out opencode session takes the
+old driver, and the product **does** record it — requested driver beside actual driver,
+a typed `logged-out` condition on the session, `loginRequired` on the account, and
+`login.state: out` on the machine. What is missing is a **login affordance**: nothing on
+the session offers to log you in, and the capability catalogue already declares that gap.
+
+The second half — *after logging in, does the next session land on the new driver* —
+**cannot be driven by an agent.** A real OAuth login would either mint credentials the
+rig must not mint, or rotate your own token in the middle of a release. The epic already
+declined that trade once in writing, for claude, and the drive declined it again rather
+than report an untested half as passing.
+
+- **You drive it yourself, once** — a minute of your time settles the last unmeasured
+  half of this row.
+- **Waive it** — ship with the login path declared but never end-to-end verified.
+- **Build a credential fixture** — real work, and it proves a fake path rather than the
+  real one.
+
+**Recommendation: you drive it once.** It is the only item on the entire matrix that a
+human can settle faster than an agent can, and no amount of further automation changes
+that.

@@ -1,7 +1,10 @@
 # One line per check. A line missing ANY field does not count as a result.
 # control = did a positive control fire (something that must appear whether or not the feature works)
 # alone   = was anything else driving on the same instance/directory at the time
-# A row whose commit is behind the epic tip must be RE-RUN before it counts toward shipping.
+# STALE = CODE changed since that commit, not merely that commits landed. Check with:
+#   git diff --name-only <row commit>..issue/1761-agent-runtime | grep -v '^docs/'
+# Empty output means the row still counts. The first version of this rule said "behind the
+# tip" and would have thrown away 25 valid rows over three docs-only commits.
 what	driver	verdict	commit	control	alone	date	issue
 A1a send while idle	codex-headless	PASS 4.1s	6685c59	yes	yes	2026-08-26	POD-2777
 A1a send while idle	codex-terminal	PASS 6.4s	6685c59	yes	yes	2026-08-26	POD-2777
@@ -29,3 +32,7 @@ A2a status while working	codex-headless	PASS 51 preview frames	6685c59	yes	yes	2
 long turn completes	codex-headless	FAIL wedged 400s no output	6685c59	yes	yes	2026-08-26	POD-2884
 long turn completes	codex-terminal	PASS 61s	6685c59	yes	yes	2026-08-26	POD-2884
 long turn completes	codex-outside-podium	PASS 83s exit 0	6685c59	yes	yes	2026-08-26	POD-2884
+A8 logged-out spawn	opencode-headless	PARTIAL demotion recorded no login path	6685c59	yes	yes	2026-08-26	POD-2777
+long turn completes	opencode-headless	FAIL wedged 422s previews froze at 21	6685c59	yes	yes	2026-08-26	POD-2884
+long turn completes	opencode-terminal	PASS 92s	6685c59	yes	yes	2026-08-26	POD-2884
+long turn completes	opencode-outside-podium	PASS 64s	6685c59	yes	yes	2026-08-26	POD-2884

@@ -2150,3 +2150,190 @@ BETTER** (A1a 4.1s vs 6.4s; provider errors surfaced in 12.2s vs never) — **an
 it is WORSE, both P1** (a delivered message destroyed by a restart; long turns that never
 finish). Both worse-cells are *fixable defects*, not architecture. The only structural
 item remains the three extra processes per view switch.
+
+## THE PROJECTION MODEL CHANGED, AND IT IS BETTER NEWS THAN THE RATE (2026-08-26)
+
+    driven   23 of 80 cells (29%)   reds 5   rate 0.22
+    naive    ~17 reds across the matrix
+
+**But the naive number is now the wrong model.** POD-2777 reports that **every one of the
+16 rows has been attempted at least once, on at least one column.** So new reds can no
+longer come from an untouched *row* — the remaining 57 cells are all **column variation**
+on claude, grok, shell and opencode.
+
+That splits the forecast honestly:
+
+| if column-variation reds run at | added | total |
+| --- | --- | --- |
+| 0.10 / cell (rows mostly behave the same across harnesses) | +6 | **11** |
+| 0.26 / cell (same rate as the codex column) | +15 | **20** |
+
+**The uncertainty is now concentrated in one question: do the harness columns behave like
+each other?** Grok is predicted better — it is the only driver that never hand-wrote its
+phase beside the emitted change. Claude is unmeasured and is the incumbent. That is a
+much more tractable unknown than "how many bugs are left".
+
+## A RETRACTED REGRESSION REPORT, AND THE LESSON IS GENERAL
+
+POD-2777 first scored A8 **FAIL** — *"a logged-out opencode SILENTLY became a generic-pty
+session"* — which would have been filed as a POD-2772 regression. It checked
+`agentState.error`, `spawnFailure` and `status`, found nothing, and concluded the product
+said nothing.
+
+**Dumping the whole session row instead of the three fields it assumed would carry it:**
+
+    condition:         "logged-out"
+    requestedDriverId: "opencode-server"   beside   driverId: "generic-pty"
+    accounts.list:     loginRequired: true
+    machines.list:     login.state: "out"
+
+The demotion is recorded as requested-versus-actual, the session carries a typed
+condition, and the account readout asks for a login. In its own words: ***"the product
+says nothing" is a claim about EVERY surface, and I made it from the two I happened to
+read.***
+
+**That is a general rule and it now goes to every drive session: an absence claim is a
+claim about the whole surface. Dump everything before reporting a silence.** This epic
+has now produced the same shape three times — a guard correct at the surface and absent
+at the seam, an assertion on an identifier rather than content, and now a silence claimed
+from two fields out of a row.
+
+**Corrected to PARTIAL.** What is genuinely missing is a login *affordance* — nothing
+offers to log you in — which the catalogue already declares. The row asks for a working
+login path; there is a declaration, not a path.
+
+**And the second half was declined rather than faked.** *"After login, the next session
+lands on the server driver"* cannot be driven without minting credentials the rig must not
+mint or rotating the operator's own token mid-release. Recorded as decision 7 — **the one
+item on the entire matrix a human settles faster than an agent can.**
+
+**Tally: 23 cells, PASS 12, PARTIAL 4, BLOCKED 2 with stated cause, FIVE REDS** — two P1
+(long turns wedge; a delivered message destroyed), plus POD-2862, POD-2870, and A3
+unmeasurable until POD-2884 lands.
+
+## TICK: 29% DRIVEN, AND I CORRECTED MY OWN NEW RULE ONE TICK AFTER MAKING IT
+
+    driven   23 of 80 (29%)   reds 5
+    if the harness columns behave alike (0.10/cell)   -> 11 total, ~3 rounds
+    if they vary like codex did   (0.26/cell)         -> 20 total, ~5 rounds
+
+**The staleness rule I wrote last tick was wrong and would have destroyed 25 valid
+results.** It said *"a row whose commit is behind the tip must be re-run"*. Three commits
+had landed since `6685c59` — **all three mine, all docs-only**. `git diff --name-only`
+excluding `docs/` returns empty, so nothing those 25 rows measured has changed.
+
+Corrected in the file and in the cron: **stale means CODE changed since that commit, not
+that commits landed.** The check is one command and it is now written at the top of the
+results file. A rule that flags everything is the same as a rule that flags nothing.
+
+**Two sessions looked dead and were not.** POD-2874 and POD-2877 showed zero files
+written in two hours. Both have **live server and daemon processes with their own state
+roots** — a drive writes to its state root, not its worktree, so an empty worktree is
+evidence of nothing. That is now in the cron's session-check step, because I would have
+made the same wrong call next tick.
+
+### The standing brief exists now, and it is the rule I was worst at
+
+`docs/agents/pod-1761-standing-brief.md` — every rule I had been re-typing into
+individual briefs, in one place: base and branch verbs, rig isolation, the pin and
+control standard, absence claims, filing and landing, gates. Eighteen rules, none
+hypothetical, each one having already cost a round.
+
+It also carries the correction I most needed: **my own rules apply to me.** I froze seven
+sessions off the branch and then blocked the merge twice by committing to it myself.
+That is now written where the next coordinator reads it.
+
+## THE FREEZE FAILED STRUCTURALLY, AND THE FIX IS A LOCK RATHER THAN A PROMISE
+
+I froze the branch **by mail** and backed it with a **30-minute lease on a merge that
+takes hours**. The lease expired. Three sessions then checked the lock, correctly found
+it free, and landed:
+
+    5ff13da24  the rig loses its overrides, terminal column with it   POD-2777
+    9ce04fc89  rigs audited against named-instance paths              POD-2856
+    3d7fa89bc  reattach probes sockets under the agent home           POD-2873
+
+**None of them did anything wrong.** A mail-freeze is not a freeze; it is a countdown
+nobody is watching, and it decays silently while a 307-file merge sits resolved against a
+first parent that is quietly going stale.
+
+**Replaced everywhere with one checkable rule:** *land only while
+`merge:issue/1761-agent-runtime` is FREE, and take it for your own landing.* Checkable at
+the moment you act instead of remembered from an hour ago, and it does not decay. Sent to
+all ten sessions and written into the standing brief. Long operations **renew** the lease
+— re-acquiring a lock you hold renews it.
+
+### A three-line fix landed with no evidence, and it went back
+
+POD-2873's reattach fix is **correct** — `ctx.homeDir` overlaid on `process.env` at *both*
+call sites, exactly the shape POD-2761 established, and applying it to `abducoSocketPath`
+as well as `waitForAbducoSocket` is the half a partial fix would have missed.
+
+It landed with **no test, no drive, and an empty commit body.** Sent back — not as a
+nitpick round, but because the defect is *one-sided toward absent*: it fails by reporting
+a live session as gone and leaking its master until reboot, which is exactly the class a
+unit test passes and a real daemon still gets wrong, since what differs is which `HOME`
+the process was actually spawned with rather than what the code says it passes. It owes
+the driven both-arms proof and the both-edges pin its brief asked for.
+
+### I am starving my own critical path
+
+Load **28.9**, 888MB free, 46 codex processes. Ten sessions I dispatched are competing
+with the one operation that blocks the release. Nothing was paused speculatively — three
+are mid-drive with live instances and killing them wastes an hour of bring-up each — but
+POD-2876 has been told it has priority and that the drives get parked on request. **No new
+work started this tick**, including one unstaffed red I would otherwise have taken.
+
+## COLUMN INDEPENDENCE ANSWERED: THEY BEHAVE ALIKE (2026-08-26)
+
+The whole remaining uncertainty was one question. It has its first answer, and it is
+**"no — the columns are not independent"**: good for the forecast, bad for the release.
+
+**Both server drivers wedge. The one driver they share succeeds for both.**
+
+| harness | driver | result |
+| --- | --- | --- |
+| codex | codex-app-server | **WEDGES** — 422s, previews frozen at 82, `transcriptChars=0` |
+| codex | generic-pty | 61s, 12,291 chars |
+| codex | outside Podium | 83s, 31,065 bytes |
+| opencode | opencode-server | **WEDGES** — 422s, previews frozen at 21, `transcriptChars=0` |
+| opencode | generic-pty | 92s, 10,250 chars |
+| opencode | outside Podium | 64s, 19,285 bytes |
+
+**POD-2885's shared-layer hypothesis is now proven rather than suspected.** Two different
+server drivers fail; the driver they share succeeds for both.
+
+**And the drive handed it a real lead rather than just a grid.** The freeze points *differ*
+(82 vs 21 frames), so it is **not a fixed budget**. The durable transcript is zero in every
+wedged case for the full 422s, while on the terminal arm it arrives in **one batch at
+turn-end** — so if the server path also defers the durable write to turn-end, *a turn that
+never reaches turn-end writes nothing and shows nothing*. That predicts the wedge lives in
+**whatever declares a turn complete**, not in the preview plane.
+
+### This changes the unit of the schedule
+
+I had been forecasting **red cells**. The schedule is actually **distinct defects**, because
+each defect is one fix-and-retest cycle no matter how many cells it shows up in.
+
+    driven 26/80    red CELLS 7    distinct DEFECTS 5    (1.4 cells per defect)
+
+If the columns behave alike, a remaining cell either **replicates a known defect (costs zero
+extra fixes)** or reveals a new one:
+
+| if new defects appear at | total fixes | rounds at 4 parallel |
+| --- | --- | --- |
+| 0.04 / cell — most remaining reds are replicas | **7** | ~2 |
+| 0.10 / cell — some genuinely new | **10** | ~3 |
+
+**That is materially better than the 11–20 range I gave last tick, and the reason is that
+alike columns replicate defects rather than multiply them.**
+
+**But it cuts the other way for coverage, and the drive said so first:** *a red found in one
+column should be assumed present in the others until driven, rather than the reverse.* codex
+and opencode are now two-for-two on shape. Evidence strength: one cell, two columns —
+directional, not settled.
+
+**Incidentally confirmed, not chased:** opencode/terminal reported `phase=idle` for its first
+**61 seconds** while screen bytes grew 57,400 → 238,722 — the known "terminal never reports
+working" defect reproducing on the tip. Not filed (terminal path, already known), but it is
+why the interrupt probe keys its control on PTY bytes rather than phase on that arm.
