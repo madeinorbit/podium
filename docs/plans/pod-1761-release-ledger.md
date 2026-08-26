@@ -4002,3 +4002,21 @@ dead for 101. **Wrong in both directions.** Age is no better: two of the orphans
 old, and a legitimate long turn is indistinguishable from them by age alone. Working out what the
 real liveness evidence is, and why it cannot produce a false positive, is more of that issue's
 deliverable than the code is.
+
+### The 80 known-red server tests are now written down (2026-08-27 00:55 CEST)
+
+`docs/evidence/pod-1761/known-red-server-tests.txt` — 45 boundary, 34 services, 1 contracts,
+captured from tonight's 13m32s run on the tip `0d00f6c34` where POD-2878's fix is absent.
+
+**This is the cheap half of Decision 18 and I did it rather than only recommending it.** The
+expensive half — making the gate compare against the list so a new failure is loud — is still the
+operator's call and still a session-day. But the names themselves were sitting in a scratchpad
+that gets cleaned, and they cost thirteen minutes of a contended lock to produce.
+
+**What it buys immediately:** a session that meets this gate diffs its failing names against the
+file instead of re-running the suite. **A name in the file is inherited; a name not in it is
+theirs.** Two sessions spent an hour each on that question tonight — POD-2878, and then me.
+
+The header says what the file is NOT: it is a snapshot, nothing compares against it
+automatically, and `PODIUM_TEST_WORKERS=1` has to match or the comparison is meaningless because
+that variable decides whether the gate is red at all.
