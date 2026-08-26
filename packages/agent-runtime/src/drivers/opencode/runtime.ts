@@ -37,6 +37,7 @@
  * That refusal is a conformance property, not a comment.
  */
 
+import { type AgentStateEvent, reduceAgentState } from '@podium/harness'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
@@ -800,6 +801,33 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
      */
     const cancelled = failure?.reason === 'interrupted'
 
+    /**
+     * THE PROJECTION IS FOLDED FROM THE CHANGE THAT IS EMITTED (POD-2811).
+     *
+     * `openAsk` above records why this matters and fixed it for `needs_user`:
+     * emit does not fold, so a phase written by hand beside an emitted change is
+     * a second reducer, and the two drift. It drifted again here, one arm later
+     * — and this time the field that went missing is the one that says WHAT WENT
+     * WRONG.
+     *
+     * MEASURED, not reasoned: a session on `opencode/laguna-s-2.1-free` (retired
+     * from opencode's gateway) went `phase=errored` in 10.2s and the row read
+     * `errorClass=(none) detail=(none)` for the next three minutes. The daemon's
+     * badge is `handle.state()` — "the driver's own folded projection", says
+     * `apps/daemon/src/runtime/opencode-driver.ts` — so `turn_failed` was emitted
+     * carrying reason, disposition and opencode's own error text, and then thrown
+     * away by the very next statement. Red with nothing to say is barely better
+     * than silence: the operator learns something broke and never what.
+     *
+     * The idle arm lost its verdict the same way — `question` and `approval`
+     * both rendered as a bare `done`.
+     *
+     * So the change is built ONCE, emitted, and reduced into the projection by
+     * the SAME reducer every consumer downstream uses. That is what the grok-acp
+     * driver already does (`foldState`), and a hand-written phase cannot drift
+     * from an event it is derived from.
+     */
+    let change: AgentStateEvent
     if (failure && !cancelled) {
       emit(
         session,
@@ -815,21 +843,13 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         },
         at,
       )
-      emit(
-        session,
-        {
-          t: 'state',
-          change: {
-            kind: 'turn_failed',
-            errorClass: failure.reason,
-            retryable: failure.disposition === 'retryable',
-            ...(failure.text ? { detail: failure.text } : {}),
-            at,
-          },
-        },
+      change = {
+        kind: 'turn_failed',
+        errorClass: failure.reason,
+        retryable: failure.disposition === 'retryable',
+        ...(failure.text ? { detail: failure.text } : {}),
         at,
-      )
-      session.state = { phase: 'errored', since: at, nativeSubagentCount: 0 }
+      }
     } else {
       const verdict =
         interrupted || cancelled
@@ -842,9 +862,10 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         { t: 'turn', ev: { ev: 'completed', turnEpoch: session.turnEpoch, verdict } },
         at,
       )
-      emit(session, { t: 'state', change: idleToStateEvent(verdict, at) }, at)
-      session.state = { phase: 'idle', since: at, nativeSubagentCount: 0 }
+      change = idleToStateEvent(verdict, at)
     }
+    emit(session, { t: 'state', change }, at)
+    session.state = reduceAgentState(session.state, change, at)
 
     for (const wake of [...session.idleWaiters]) wake()
     session.idleWaiters.clear()

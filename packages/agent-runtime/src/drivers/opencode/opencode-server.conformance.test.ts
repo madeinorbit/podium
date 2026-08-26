@@ -533,6 +533,56 @@ describe('opencode provider failure detail', () => {
       world.target.reset()
     }
   })
+
+  /**
+   * ASSERT ON WHAT THE DAEMON ACTUALLY SHIPS (POD-2811).
+   *
+   * The test above passed throughout the bug it was written to catch. It reads
+   * the EVENT, and the badge is not the event: the daemon answers every `state`
+   * frame by calling `handle.state()` and sending THAT
+   * (`apps/daemon/src/runtime/opencode-driver.ts` — "the driver's own folded
+   * projection"). `closeTurn` emitted `turn_failed` carrying the reason and
+   * opencode's own error text, then overwrote the projection with a bare
+   * `{ phase: 'errored' }`.
+   *
+   * MEASURED ON A REAL PROVIDER, not imagined: a session on
+   * `opencode/laguna-s-2.1-free`, retired from opencode's gateway, went red in
+   * 10.2s and read `errorClass=(none) detail=(none)` for the next three minutes.
+   * Red with nothing to say is barely better than silence.
+   */
+  it('leaves the badge errored, with the class and detail an operator can read', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const events: RuntimeEvent[] = []
+      const collect = (async () => {
+        for await (const event of handle.events('bootstrap')) {
+          events.push(event)
+          if (event.t === 'state' && event.change.kind === 'turn_failed') break
+        }
+      })()
+      await handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      world.failTurn(handle.binding.sessionId)
+      await collect
+
+      expect(await handle.state()).toMatchObject({
+        phase: 'errored',
+        error: {
+          class: 'provider-error',
+          retryable: true,
+          detail: expect.stringContaining('fixture provider failure'),
+        },
+      })
+      // The snapshot a rebind reads agrees with the badge.
+      expect((await handle.snapshot()).state).toMatchObject({
+        phase: 'errored',
+        error: { class: 'provider-error' },
+      })
+    } finally {
+      world.target.reset()
+    }
+  })
 })
 /**
  * AN ABORTED TURN IS INTERRUPTED, NOT BROKEN (POD-2792).

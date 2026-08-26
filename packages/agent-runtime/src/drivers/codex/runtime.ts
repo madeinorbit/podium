@@ -53,6 +53,7 @@
  * state the house rules forbid.
  */
 
+import { type AgentStateEvent, reduceAgentState } from '@podium/harness'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
@@ -860,6 +861,29 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     session.openTurnId = undefined
     session.pendingTurnId = undefined
 
+    /**
+     * THE PROJECTION IS FOLDED FROM THE CHANGE THAT IS EMITTED (POD-2811).
+     *
+     * The line below this block used to read
+     * `session.state = { phase: 'idle', ... }`, UNCONDITIONALLY — including for
+     * `turn.status === 'failed'`, immediately after emitting a `turn_failed`
+     * carrying Codex's own reason, disposition and error text. The daemon's badge
+     * is `handle.state()`, "the driver's own folded projection"
+     * (`apps/daemon/src/runtime/codex-driver.ts`), so a turn that DIED rendered
+     * on the home board as one that FINISHED.
+     *
+     * That is not a near miss of the catalogue's §6 row — it is the exact shape
+     * it names: "a turn that died rendering as finished". POD-2811 measured the
+     * sibling of this bug on opencode, where the phase at least went red and only
+     * the error class was dropped; here the phase itself was wrong, so a provider
+     * failure was indistinguishable from a completed answer.
+     *
+     * Same fix as opencode's `closeTurn` and the same one grok-acp's `foldState`
+     * has always had: build the change once, emit it, and reduce it into the
+     * projection with the reducer every consumer downstream uses. A phase written
+     * by hand beside an emitted change is a second reducer, and it drifts.
+     */
+    let change: AgentStateEvent
     if (turn.status === 'failed') {
       const detail = describeTurnError(turn.error)
       emit(
@@ -876,20 +900,13 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         },
         at,
       )
-      emit(
-        session,
-        {
-          t: 'state',
-          change: {
-            kind: 'turn_failed',
-            errorClass: detail.reason,
-            retryable: detail.disposition === 'retryable',
-            ...(detail.text ? { detail: detail.text } : {}),
-            at,
-          },
-        },
+      change = {
+        kind: 'turn_failed',
+        errorClass: detail.reason,
+        retryable: detail.disposition === 'retryable',
+        ...(detail.text ? { detail: detail.text } : {}),
         at,
-      )
+      }
     } else {
       const verdict = turnStatusToVerdict(turn.status, session.asks.size > 0)
       emit(
@@ -897,10 +914,10 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         { t: 'turn', ev: { ev: 'completed', turnEpoch: session.turnEpoch, verdict } },
         at,
       )
-      emit(session, { t: 'state', change: idleToStateEvent(verdict, at) }, at)
+      change = idleToStateEvent(verdict, at)
     }
-
-    session.state = { phase: 'idle', since: at, nativeSubagentCount: 0 }
+    emit(session, { t: 'state', change }, at)
+    session.state = reduceAgentState(session.state, change, at)
     for (const wake of [...session.idleWaiters]) wake()
     session.idleWaiters.clear()
     // A steer that was waiting for this turn to open will never get it now.

@@ -342,6 +342,61 @@ describe('provider failure detail', () => {
       w.dispose()
     }
   })
+
+  /**
+   * ASSERT ON WHAT THE DAEMON ACTUALLY SHIPS (POD-2811).
+   *
+   * The test above passed throughout the bug it was written to catch. It reads
+   * the EVENT, and the badge on the home board is not the event: the daemon
+   * answers every `state` frame by calling `handle.state()` and sending THAT
+   * (`apps/daemon/src/runtime/codex-driver.ts` — "the driver's own folded
+   * projection"). `closeTurn` emitted the failure and then set the projection to
+   * `{ phase: 'idle' }` unconditionally, so a turn that DIED rendered as one that
+   * FINISHED — the catalogue's §6 shape, exactly.
+   *
+   * So this asserts the projection, which is the only reading an operator ever
+   * sees. Deleting the fold and keeping the old hand-written phase turns this
+   * red and leaves the event test above green, which is the whole point of
+   * having both.
+   */
+  it('leaves the badge errored, with the class and detail an operator can read', async () => {
+    const w = await world()
+    try {
+      await w.handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      w.server.completeTurn('failed')
+      await settle()
+
+      expect(await w.handle.state()).toMatchObject({
+        phase: 'errored',
+        error: { class: 'provider-error', retryable: true, detail: 'provider exploded' },
+      })
+      // And the snapshot a rebind reads agrees with the badge — two observers of
+      // one driver disagreeing about a dead turn is the failure the causal
+      // contract exists to prevent.
+      expect((await w.handle.snapshot()).state).toMatchObject({
+        phase: 'errored',
+        error: { class: 'provider-error' },
+      })
+    } finally {
+      w.dispose()
+    }
+  })
+
+  /** A turn that ENDED still ends: the fold must not paint success as failure. */
+  it('leaves the badge idle when the turn actually completed', async () => {
+    const w = await world()
+    try {
+      await w.handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      w.server.completeTurn('completed')
+      await settle()
+
+      const state = await w.handle.state()
+      expect(state.phase).toBe('idle')
+      expect(state.error).toBeUndefined()
+    } finally {
+      w.dispose()
+    }
+  })
 })
 
 describe('native steer — the thing no other driver in the fleet can do', () => {
