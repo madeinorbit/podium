@@ -1136,3 +1136,29 @@ coverage — that is correct, not a loss.
   fixed cell as failing.
 - **Never reference another row by position** ("the row above"). Four sessions append to this file
   and land in different orders, so positions drift. Name the row by its timestamp and issue.
+
+### The cheap checks can only produce a FAIL, never a PASS (2026-08-27 01:45 CEST)
+
+Two checks have each settled an issue in seconds tonight without standing anything up:
+
+- **Is there a consumer?** `grep -rn '<symbol>' --include='*.ts' apps packages`, then the same for
+  the module path. POD-2691's instance UUID appeared in its own definition and one test, and **no
+  file anywhere imported the module** — a feature with no caller passes every test it has, so that
+  was the FAIL, found in thirty seconds.
+- **Is the boundary real?** `git show <fix>^:<file>` and `git show <fix>:<file>`. POD-2622 had
+  `cmd: 'agent'` at the parent and a resolver after it, which settled a question a session had
+  answered wrongly three times from ancestry.
+
+**BUT PASSING THEM PROVES NOTHING.** A session reported *"static audit complete: all three fixes
+have production consumers and each parent boundary is real"* — and that sentence reads like
+progress toward a verdict when it is progress toward the **starting line**. It means only: *none
+of these can be settled from a terminal, so all of them now need a real drive.*
+
+**So state the result that way.** "The cheap checks did not settle it" is the honest phrasing.
+"The audit is complete" invites a reader — including you, later, with less context — to treat a
+screened-in issue as a cleared one.
+
+**This is the general shape of a screening test** and it is worth carrying beyond these two: a
+check tuned to catch a specific failure cheaply tells you a great deal when it fires and almost
+nothing when it does not. Asymmetric evidence is still evidence; it is just evidence in one
+direction, and the direction has to be said out loud every time.
