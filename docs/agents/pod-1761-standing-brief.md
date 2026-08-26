@@ -1011,3 +1011,32 @@ systematic forward skew is the worst-shaped error available — it makes stale r
 
 **The control is mechanical, not attentional:** capture `date` into a shell variable in the same
 command that writes the file, and interpolate it. Do not type a time you have not just read.
+
+### "Only formatting" is a claim, and `-w` tests it in one command (2026-08-27 00:11 CEST)
+
+A session inspected the fix commit it was sent to drive, saw parenthesisation changes, concluded
+**"its effective diff is only formatting"**, and was about to record the issue as UNDRIVEN with an
+invalid pre-fix boundary. The commit was 13 files, 191 insertions, 38 deletions, and it contained
+the actual defect fix.
+
+**THE TEST IS `git show <sha> -w --stat`.** A formatting-only commit collapses to nothing under
+ignore-all-whitespace. That one still read 191/38, which settles it before any reasoning starts.
+
+**How the mistake happens:** a mixed commit puts its cosmetic hunks and its substantive hunks in
+DIFFERENT FILES. Here the biome noise (a `spawnSync(...)` wrapped in parens, a `??` chain
+re-parenthesised) was in one file, and the fix — a bare `cmd: 'opencode'` replaced by
+`resolveOpencodeBin(undefined, opts.env)`, which is exactly "the child ignored the scrubbed
+env" — was two files further down. Reading the first hunks and generalising to the commit is the
+whole failure. **Read the non-test source files specifically, not the stat and not the first
+screenful.**
+
+**And the wider point, which is worth more than the git trick: UNDRIVEN WITH A WRONG REASON IS THE
+SAFEST-LOOKING WRONG ANSWER.** It reads as caution, it survives review because nobody argues with
+someone declining to claim too much, and it retires the question permanently. A false PASS gets
+challenged; a false "cannot be measured" does not. **So when a control looks unavailable, spend
+one more command testing THAT conclusion before you record it.**
+
+**Related, same shape:** "the substantive change is already in the parent ancestry" needs the
+specific CALL SITES checked, not the topic. Three commits over two days can be a sequence — env
+propagation, then the two manifests still bypassing it, then keeping probes package-local — rather
+than a duplicate. Earlier work on the same subject is not the same work.
