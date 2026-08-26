@@ -375,3 +375,41 @@ unmeasured on the terminal arm for every agent. The *server* arm is driven and p
 
 **Recommendation: name it as one residual, and if you are willing, one session on a real home
 closes the whole class.**
+
+
+---
+
+## 17. Did we break interrupt on Claude? — as far as reading can settle it, NO.
+**Answered 2026-08-26 19:31 CEST by a read-only audit. Status: OPEN only because it cannot be proven by driving.**
+
+This was the last defect that could still have blocked the release on the agent people use
+today, and it could not be driven at all: no baseline exists (today's release cannot start the
+kind of instance the tests use) and Claude is quarantined. So it was traced statically instead,
+file by file, against the current release.
+
+**The audit refused the easy answer.** It found two places where *this epic* introduced an
+acknowledge-without-stop mechanism — a server-driven interrupt branch that answers "requested"
+once the request resolves, and a new SDK client whose interrupt is fire-and-forget with a
+15-second kill timeout. Either could produce the reported symptom.
+
+**But neither is on the path the failure actually took.** The observed failure went through the
+terminal driver, returning "keystroke", and the write on that path is **unchanged from today's
+release**. So the two new hazards are real and are *not* what was seen.
+
+**And the acknowledge-without-stop shape is deliberate and documented**, not an oversight: the
+code states plainly that `ok` means *the interrupt was requested*, never *the turn stopped*,
+because nothing synchronous can honestly say the latter.
+
+**Where that leaves it:** the failure is *most likely inherited*, and that cannot be proven
+here. The honest verdict is what the audit gave — **possibly ours for the interrupt surface as
+a whole, with A3-specific causation not demonstrated.**
+
+- **Accept it as unproven-but-unlikely-ours**, and say so in the release note: interrupt on the
+  incumbent driver was observed not stopping a turn within twenty seconds; the code path is
+  unchanged from the current release; no comparison was obtainable.
+- **Settle it with one session on a real Claude home** — the same ask as decisions 12 and 14,
+  and it would close this too.
+
+**Recommendation: accept and document, unless you are giving us a real home anyway.** The two
+new hazards it found are worth their own attention regardless, and they are on the *server*
+path where they CAN be driven.
