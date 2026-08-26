@@ -25,6 +25,18 @@ HTTP_MAX_BODY_BYTES="${PODIUM_UPDATE_E2E_MAX_BODY_BYTES:-4000}"
 # Extra curl arguments for the next call, e.g. (-k) for the run-local self-signed
 # edge origin. Callers set it immediately around the call and clear it after.
 HTTP_EXTRA_ARGS=()
+# ONE SESSION PER INSTANCE, keyed by where the request runs (POD-2832).
+#
+# A password closes the `/trpc` guard, and every container here is a SEPARATE
+# instance with its own credential — a coordinator cookie is meaningless to a
+# fleet machine and vice versa. One global cookie therefore cannot work: it
+# authenticates one instance and silently 401s the rest, which reads to a
+# `wait_for` loop as "not ready yet" and times out with no mention of auth.
+#
+# The key is the container name, or `host` for calls curl makes from the host
+# (which reach the coordinator on its published port). Empty means no login was
+# needed, which is the unauthenticated default.
+declare -A HTTP_SESSION_COOKIE=()
 
 # Sourceable on its own so the reporting can be tested without running the gate.
 if ! declare -F say >/dev/null 2>&1; then
@@ -52,6 +64,10 @@ _http_capture() {
   fi
   if (( ${#HTTP_EXTRA_ARGS[@]} > 0 )); then
     args+=("${HTTP_EXTRA_ARGS[@]}")
+  fi
+  local session="${HTTP_SESSION_COOKIE[${where:-host}]:-}"
+  if [[ -n "$session" ]]; then
+    args+=(-H "cookie: podium_session=$session")
   fi
   if [[ -n "$where" ]]; then
     raw="$(container_exec "$where" curl "${args[@]}" "$url")" || exit_code=$?

@@ -282,7 +282,10 @@ real_release_setup() {
   container_http_request "$REAL_CONSUMER" POST \
     http://127.0.0.1:18787/trpc/setup.complete \
     "{\"publicUrl\":\"http://127.0.0.1:18787\",\"mode\":\"all-in-one\",\"port\":18787,$(setup_auth_clause)}"
-  ! jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"
+  jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY" && return 1
+  # The real 0.1.0 consumer is its own instance too: without its own session
+  # every later `/trpc` read of what it was offered answers 401.
+  e2e_login "$REAL_CONSUMER" || return 1
   real_exec pkill -f 'podium-cli setup' >/dev/null 2>&1 || true
   sleep 1
   real_exec "$REAL_COMMAND" >/dev/null

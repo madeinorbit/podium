@@ -59,7 +59,13 @@ e2e_login() {
     say "login returned no session cookie; headers were: $headers" >&2
     return 1
   }
-  HTTP_EXTRA_ARGS+=(-H "cookie: podium_session=$cookie")
+  HTTP_SESSION_COOKIE["$container"]="$cookie"
+  # Host-side curl reaches the COORDINATOR on its published port, so that one
+  # instance owns the `host` key too. Fleet machines are only ever addressed
+  # from inside themselves.
+  if [[ "$container" == "$SOURCE" ]]; then
+    HTTP_SESSION_COOKIE[host]="$cookie"
+  fi
 }
 # THE COORDINATOR'S OWN SHAPE. Defaults to `server`, which is what the scenario
 # rows assert against: a server-only coordinator is the shape that exposed
@@ -785,7 +791,10 @@ fresh_install() {
   container_http_request "$container" POST \
     http://127.0.0.1:18787/trpc/setup.complete \
     "{\"publicUrl\":\"http://127.0.0.1:18787\",\"mode\":\"all-in-one\",\"port\":18787,$(setup_auth_clause)}"
-  ! jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY"
+  jq -e '.error' >/dev/null 2>&1 <<<"$HTTP_BODY" && return 1
+  # This machine is its own instance with its own credential, so it needs its
+  # own session before the readiness probe below asks it anything over `/trpc`.
+  e2e_login "$container" || return 1
   container_exec "$container" pkill -f 'podium-cli setup' >/dev/null 2>&1 || true
   sleep 1
   container_exec "$container" "$command" >/dev/null
