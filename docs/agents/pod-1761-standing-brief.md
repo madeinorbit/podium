@@ -173,6 +173,15 @@ do not merge to unblock yourself.
 `bun run typecheck` and the integration/e2e lanes are HEAVY: a single `tsgo` can hold
 **1.5GB+**, and two at once on this host takes it to load 39 with under 200MB free.
 
+**HEAVY MEANS MEMORY-HEAVY, NOT A LIST OF COMMAND NAMES.** The lock is named for typecheck
+and the test lanes, but the rationale is RAM: a `vite` build is what pushed this box over
+first, and a rig's web build is as heavy as a gate. If it will hold a gigabyte, take the
+lock. Do not reason from the command's name.
+
+**Do not join the queue with `--wait`.** An interrupted `--wait` acquire keeps its slot and
+can grant the lock to a dead process. **Check the lock at the moment you run**, which is the
+landing rule applied to gates.
+
 **Before any heavy gate:**
 
     podium lock status test:heavy      # held? WAIT. Free? take it.
