@@ -207,7 +207,16 @@ describe('real-release row expectations still match the code they describe', () 
       lane.indexOf('# WHAT AN INSTALL OF THIS ERA REALLY LOOKS LIKE'),
     )
     expect(setup).toContain('real_data_plane_available')
-    expect(setup).toContain('GET "http://127.0.0.1:18787/readiness"')
+    // The URL lives in the helper, not inline here. Assert it THERE, so this
+    // still proves the wait is on the readiness contract rather than /health —
+    // which stays green while the data plane is blocked and would wait on
+    // nothing.
+    const probe = lane.slice(
+      lane.indexOf('real_data_plane_available()'),
+      lane.indexOf('real_version_is()'),
+    )
+    expect(probe).toContain('GET "http://127.0.0.1:18787/readiness"')
+    expect(probe).toContain('dataPlane=="available"')
     expect(setup.indexOf('real_exec "$REAL_COMMAND"')).toBeLessThan(
       setup.indexOf('real_data_plane_available'),
     )
