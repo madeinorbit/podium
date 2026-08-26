@@ -20,18 +20,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * accepted exactly ONCE (mounting the handlers in two places would have
  * attached every file twice, which no screen would have shown).
  *
- * NOTE ON THE EXTRA MOCK, AND WHEN TO DELETE IT. `use-chat-surface` reaches for
+ * NOTE ON THE EXTRA MOCK, AND WHEN TO DELETE IT. `use-chat-surface` takes
  * `useStoreHandle` straight from `@podium/client-core/react` rather than through
- * the `@/app/store` seam every other ChatView test mocks, so the real provider is
- * required and throws — which is why all 59 existing ChatView tests are red
- * (POD-1599). It is stubbed here so this file can run at all.
+ * the `@/app/store` seam this file mocks, so the real provider is required and
+ * throws. The sibling ChatView suites no longer need a stub for it — whatever
+ * repaired them landed on main separately — but this one still does: remove the
+ * mock below and all three tests fail at first render. Checked, not assumed.
  *
- * POD-1614 has repaired that seam on `issue/1599-bug-chat-view-tests-all-red`:
- * `store.tsx` re-exports a Trpc-typed `useStoreHandle` and `use-chat-surface`
- * imports it from `@/app/store`. THE MOMENT THAT LANDS ON MAIN, delete the
- * `vi.mock('@podium/client-core/react', …)` below — mocking `@/app/store` like
- * the other five ChatView suites is then enough, and leaving a stub over a seam
- * that no longer leaks is how a suite starts testing its own scaffolding.
+ * POD-1614 is repairing the seam properly (`store.tsx` re-exports a Trpc-typed
+ * `useStoreHandle`; `use-chat-surface` imports it from `@/app/store`). That has
+ * NOT landed here yet — `use-chat-surface.ts:1` still imports from the package.
+ * The moment it does, delete the mock: a stub held over a seam that no longer
+ * leaks is how a suite starts testing its own scaffolding.
  */
 
 type DeltaCb = (items: TranscriptItem[], meta: { reset: boolean }) => void
