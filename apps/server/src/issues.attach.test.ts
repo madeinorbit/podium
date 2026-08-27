@@ -475,6 +475,32 @@ describe('prime draft/attach variants', () => {
     expect(text).toContain('native subagent must not self-attach')
   })
 
+  it('bound real issue with a prompt-derived title is told to retitle it now', () => {
+    const { svc } = harness()
+    const issue = svc.create({
+      repoPath: '/r',
+      title: 'Please investigate why task naming stopped working correctly',
+      startNow: false,
+    })
+
+    const text = svc.prime({ boundIssueId: issue.id })
+    expect(text).toContain("This issue's title violates the 3–5 word rule")
+    expect(text).toContain(`podium issue update --id ${issue.seq} --title "…"`)
+  })
+
+  it('bound real issue with a compliant title gets no retitle nudge', () => {
+    const { svc } = harness()
+    const issue = svc.create({
+      repoPath: '/r',
+      title: 'Prompt-derived title correction',
+      startNow: false,
+    })
+
+    expect(svc.prime({ boundIssueId: issue.id })).not.toContain(
+      `podium issue update --id ${issue.seq} --title "…"`,
+    )
+  })
+
   /**
    * The agent guide quotes SELF_REF_RULE verbatim so an agent reading docs gets
    * the same words as one reading prime. A hand-copied quote can drift; this is

@@ -3474,8 +3474,9 @@ describe('IssueService.prime (P1a)', () => {
     const { svc } = harness()
     const out = svc.prime({ repoPath: '/r', boundIssueId: null })
     const policy = out.slice(out.lastIndexOf('\n\n') + 2)
-    // Stages, titles, offers, artifacts, and the discovered-from essay already
-    // ride ISSUE_SYSTEM_POINTER on every harness. Prime keeps the unique procedures.
+    // Stages, general title doctrine, offers, artifacts, and the discovered-from
+    // essay already ride ISSUE_SYSTEM_POINTER on every harness. Prime keeps the
+    // unique procedures and may add facts about the bound issue before this tail.
     expect(policy).not.toContain('podium offer')
     expect(policy).not.toContain('Bug: duplicate session rows')
     expect(policy).not.toContain('lands in Proposed automatically')
