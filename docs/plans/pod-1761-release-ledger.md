@@ -5177,3 +5177,43 @@ the daemon that spawned it.
 **Still open and unrelated to that:** A1b PARTIAL on codex and opencode (POD-2920 is fixing the
 queue position), A6b UNMEASURED on both, A8 PARTIAL on opencode, A3 UNDRIVEN on opencode pending a
 quiet box, and the claude column at 1/15 with its window running to 07:43.
+
+### POD-2691 is fully landed by CONTENT, and git cherry said otherwise (2026-08-27 05:05 CEST)
+
+Its five commits show **three `+` marks under `git cherry`** — patch-ids with no match on the
+epic — while the reaper file sits at the tip and its closed-predicate fix landed as `269252ea1`.
+**The auto-resolve during my cherry-pick rewrote the patches, so patch-id equality was destroyed
+even though the content arrived intact.**
+
+The check that settles it is the one POD-2691 used on itself:
+
+    tip:branch blob compare
+      apps/daemon/src/runtime/instance-process-reaper.ts   IDENTICAL
+      packages/runtime/src/instance-guard.ts               IDENTICAL
+    git diff --name-only tip branch -- apps packages       (empty)
+
+**Zero source difference. The branch's code is fully on the epic.**
+
+**So tonight has produced BOTH failure modes of the ancestry-versus-content question, in opposite
+directions.** Earlier, `git rev-list --count` said POD-2801 and POD-2810 were "1 commit ahead"
+when their patch-ids were already on the epic — ancestry over-reporting. Here, `git cherry` says
+three commits are unlanded when their content is present — **patch-id over-reporting, because a
+conflict resolution changes the patch without changing the result.**
+
+**Neither is the authority. The blob is.** `git rev-parse <rev>:<path>` compares what will actually
+be there, and it is immune to how the change got there. **When a landing decision matters, compare
+the artefact, not the history.**
+
+Moved POD-2691 to `review` rather than `done`: **its acceptance test is pending** — POD-2919's
+opencode A9 re-drive against the landed reaper — and its own stated limit means pre-stamp corpses
+persist, so a still-red A9 could mean either "the fix misses the re-parented case" or "these
+processes predate stamping". **That distinction has to be settled by the drive, not assumed.**
+
+### The web attribution, closed properly by its own A/B
+
+It did not just retract; it isolated the variable and flipped it both ways: **with the local
+`@podium/server` link absent, a direct `tsgo` in apps/web exits 1 and resolution falls through to
+the unrelated root checkout; restoring only that link makes the same branch's fresh `bun run
+typecheck` green.** One variable, two states, opposite results. **That is a stronger disproof of my
+claim than my claim ever was**, and it is the shape I should have demanded of myself before naming
+its change as the cause.
