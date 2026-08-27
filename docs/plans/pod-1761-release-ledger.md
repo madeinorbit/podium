@@ -5444,3 +5444,28 @@ family from the manifest rather than by harness name — **so a duplicate ask no
 regression in a landed fix rather than the original defect.**
 
 Base verified at the epic tip.
+
+### Verified every fix from tonight is at the tip — and my verifier was the thing that was wrong (2026-08-27 08:34 CEST)
+
+Ran a presence check over the night's product fixes. Four came back OK; one came back **MISSING**:
+the opencode per-session store consumer.
+
+**The fix was fine. My check was wrong.** I grepped `apps/daemon/src/control/session.ts` for
+`opencodeDbPathForSession` and found nothing — but that file consumes the **result**, not the
+function: `session.ts:565` reads `cmd.env.OPENCODE_DB`, which the manifest sets by calling
+`opencodeDbPathForSession` at `manifests/opencode.ts:135` and `:333`. The real consumer set is five
+sites across `agent-state/opencode.ts` and the manifest.
+
+**I asserted on a NAME IN A FILE rather than on the edge** — the exact failure mode I have a
+standing note about. **A "MISSING" from a check you wrote is not evidence of a missing fix**, and on
+this epic it has been evidence of a bad check about as often as of a real gap.
+
+**All five confirmed present at the tip:**
+
+    orphan reaper                    apps/daemon/src/runtime/instance-process-reaper.ts
+    per-session opencode store       packages/harness/src/opencode/db.ts + 5 consumers
+    hermetic env resolver            resolveCursorBin / resolveOpencodeBin in the manifests
+    parked-send gating               serverDriven in session-wiring.ts
+    opencode badge latency           landed as ffa2fadcd
+
+**State: 242 result rows, 5 evidence directories, 10 recorded decisions.**
