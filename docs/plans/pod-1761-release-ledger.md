@@ -4691,3 +4691,46 @@ Base verified at `5e8c4636d`. POD-2917's worktree freed, branch kept.
 
 **Every column of the matrix now has an owner or a clock**: claude driving (POD-2918, window to
 07:43), opencode driving (POD-2919), codex 14/16 current, shell done 6/6, grok at 11:03.
+
+### POD-2871 CLOSED — the last of the three original open defects (2026-08-27 03:58 CEST)
+
+Landed ff-only, 18 files. **The control that would not fire for six hours now fires**, and the fix
+it enabled is the cleanest mechanism finding of the epic.
+
+**The measurement:**
+
+    [parent] same directory   FAIL  fault content WAS the companion's nonce; native id pointed at
+                                    the companion; session=1/message=1/user=1/assistant=0/part=1
+    [fix]    same directory   PASS  fault content EMPTY, in a separate session-owned store,
+                                    identical row counts
+    [single] different dirs   PASS  each directory kept its own nonce and rows, on BOTH arms
+
+**The control is what took the time and it is what makes this trustworthy.** Its first attempt
+returned NO_MEASUREMENT — the companion produced zero rows and a zero is what a dead rig returns
+too. The fix was to require the companion's nonce **through the transcript API before any SQLite
+read**, plus a product readout from the fault session, plus checks on cwd, terminal driver, native
+OpenCode id and the exact store path. **Once a zero could no longer mean "nothing ran", the zero
+became evidence.**
+
+**THE MECHANISM, and it was candidate #1:** the old read path **did not use Podium session
+identity at all** — it discovered the **cwd-keyed legacy store**, so two sessions in one directory
+read each other's transcripts. The fix hashes the Podium session id into a per-session store path
+and **returns `undefined` when there is no identity — it fails closed.** I read
+`packages/harness/src/opencode/db.ts` rather than taking the report: `opencodeDbPathForSession`
+opens with `if (!input.podiumSessionId) return undefined`. That is the property stated and the
+property implemented.
+
+**A KNOWN LIMIT, documented at the call site rather than discovered later.** A resumed session
+whose isolated store does not yet exist falls back to the legacy shared store and relies on its
+exact native resume id. That is deliberate and it serves the operator's requirement that *"any old
+session needs to keep working"* — old sessions launch without silently losing history. **The drive
+measured NEW sessions; it did not measure whether two PRE-CUTOVER sessions sharing a directory
+still leak.** Bounded by the resume-id scoping, not proven. Written here so nobody has to
+rediscover it.
+
+**Manifest consumers named and checked:** `opencode/db.ts`, `manifests/opencode.ts`,
+`agent-state/opencode.ts`, `transcript-source.ts`, and the daemon's `transcripts.ts` /
+`session.ts`. This is not the POD-2691 shape.
+
+**All three defects that were open when the night started are now closed by measurement:** the
+parked send, the opencode badge, and cross-session transcripts.
