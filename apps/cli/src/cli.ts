@@ -1290,8 +1290,11 @@ async function runInProcess(
   }
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
-  // Topology migration kickoff: a legacy unit that just became the new version
-  // writes+starts podium.service and keeps serving until the parent takeovers.
+  // Topology migration kickoff: a legacy CLI unit that just became the new version
+  // writes+starts podium.service and keeps serving until the parent takes over.
+  // That CLI unit has a run-registry role for the --takeover child to reclaim.
+  // Direct source entrypoints do not; their one-time stop/write/start cutover is
+  // docs/updating-a-dev-instance.md.
   // Handlers are already installed, so a SIGTERM during this cannot orphan
   // children (POD-2505). The parent, not this process, retires leftover units.
   if (plan.claimRole === 'server' || (plan.claimRole === 'daemon' && modePlan.mode === 'daemon')) {

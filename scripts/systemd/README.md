@@ -38,6 +38,6 @@ The dev profile defaults to this host’s `/home/user/src/other/podium` checkout
 `~/.local/bin/podium`, while `PODIUM_DEV_SOURCE_ROOT` names that checkout solely as build input.
 Production units contain no publisher source root. The first source-to-installed cutover is a
 one-time supervised migration. Follow the tested
-[source-to-installed development cutover](../../docs/agents/source-to-installed-cutover.md);
+[development-instance update and cutover guide](../../docs/updating-a-dev-instance.md);
 after that, every accepted dev release uses the ordinary verified swap, handover, health gate, and
 rollback. Pass `--output` and render with a named instance when the host runs a separate instance.
