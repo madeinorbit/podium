@@ -208,3 +208,14 @@ describe('the legacy pairing notice is actually wired into publishing', () => {
     expect(source).not.toContain('--accept-legacy-stranding')
   })
 })
+
+describe('the accepted candidate seal is before every GitHub mutation', () => {
+  const source = readFileSync(join(import.meta.dirname, 'release.ts'), 'utf8')
+
+  it('checks the proof snapshot after preparation and before any gh command', () => {
+    const seal = source.indexOf('verifyCandidateSnapshot(p.dir, acceptedSnapshot)')
+    expect(seal).toBeGreaterThan(source.indexOf('set GH_TOKEN to publish.'))
+    expect(seal).toBeLessThan(source.indexOf("spawnSync('gh'"))
+    expect(seal).toBeLessThan(source.indexOf("execFileSync('gh'"))
+  })
+})

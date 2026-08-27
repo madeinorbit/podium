@@ -516,6 +516,15 @@ PODIUM_UPDATE_E2E_REAL_RELEASE=X.Y.Z  which published release to start from (0.1
 PODIUM_UPDATE_E2E_REAL_RELEASE_CACHE=PATH
                                       a directory already holding that release's
                                       tarball, .sig and install.sh (skips gh)
+PODIUM_UPDATE_E2E_REAL_TARGET_DIR=PATH
+                                      complete prepared candidate directory with
+                                      matching podium-update.json + latest.json;
+                                      uses untouched v0.1.0 production trust
+PODIUM_UPDATE_E2E_REAL_TARGET_VERSION=X.Y.Z
+                                      exact version the prepared pair must name
+PODIUM_UPDATE_E2E_REAL_DESKTOP_VERIFIER=PATH
+                                      minisign verifier binary for every desktop
+                                      artifact in the prepared candidate
 PODIUM_UPDATE_E2E_PROVE_FAILURE=real-release-migration
                                       break the topology migration's one write;
                                       real-release-converged must go red for it
@@ -2322,6 +2331,29 @@ main() {
   [[ -z "$ONLY" || "$ONLY" == legacy || "$ONLY" == positive || "$ONLY" == server ||
     "$ONLY" == real-release ]] ||
     die "focused lane must be legacy, positive, server, or real-release"
+  if (( REAL_PRODUCTION_CANDIDATE == 1 )); then
+    [[ "$ONLY" == real-release ]] ||
+      die "PODIUM_UPDATE_E2E_REAL_TARGET_DIR needs PODIUM_UPDATE_E2E_ONLY=real-release"
+    [[ "$REAL_RELEASE_VERSION" == 0.1.0 ]] ||
+      die "a prepared stable bridge candidate must start from the published v0.1.0 install"
+    [[ -n "${PODIUM_UPDATE_E2E_REAL_TARGET_VERSION:-}" ]] ||
+      die "PODIUM_UPDATE_E2E_REAL_TARGET_VERSION is required with a prepared candidate"
+    [[ -z "$PROVE_FAILURE" ]] ||
+      die "a prepared production candidate cannot be combined with a deliberate mutation"
+    [[ -z "${PODIUM_UPDATE_SIGNING_KEY:-}" ]] ||
+      die "the prepared-candidate proof refuses PODIUM_UPDATE_SIGNING_KEY; pass only signed artifacts"
+    REAL_TARGET_DIR="$(realpath "$REAL_TARGET_DIR")" ||
+      die "the prepared candidate directory cannot be resolved"
+    [[ -d "$REAL_TARGET_DIR" ]] || die "prepared candidate is not a directory: $REAL_TARGET_DIR"
+    [[ -f "$REAL_TARGET_DIR/podium-update.json" && -f "$REAL_TARGET_DIR/latest.json" ]] ||
+      die "prepared candidate needs podium-update.json and latest.json side by side"
+    [[ -n "$REAL_DESKTOP_VERIFIER" ]] ||
+      die "PODIUM_UPDATE_E2E_REAL_DESKTOP_VERIFIER is required with a prepared candidate"
+    REAL_DESKTOP_VERIFIER="$(realpath "$REAL_DESKTOP_VERIFIER")" ||
+      die "the desktop candidate verifier cannot be resolved"
+    [[ -x "$REAL_DESKTOP_VERIFIER" ]] ||
+      die "desktop candidate verifier is not executable: $REAL_DESKTOP_VERIFIER"
+  fi
   # The real-release control only exists inside its own lane; arming it anywhere
   # else would mutate a host no row is watching and report nothing.
   [[ "$PROVE_FAILURE" != real-release-migration || "$ONLY" == real-release ]] ||
@@ -2415,6 +2447,13 @@ main() {
 
   local repo_root candidate
   local -a source_ports=(-p "127.0.0.1::18787")
+  local -a candidate_mount=()
+  if (( REAL_PRODUCTION_CANDIDATE == 1 )); then
+    candidate_mount=(
+      -v "$REAL_TARGET_DIR:$REAL_CANDIDATE_ROOT:ro"
+      -v "$REAL_DESKTOP_VERIFIER:/real-release-minisign-verifier:ro"
+    )
+  fi
   if [[ -n "$NETWORK_GATEWAY" ]]; then
     source_ports+=(-p "$NETWORK_GATEWAY::18787")
   fi
@@ -2442,6 +2481,7 @@ main() {
     -v "$ROOT/node_modules:/node-modules-lower:ro" \
     -v "$WORK/node-modules:/node-modules-cow" \
     -v "$ZIG_ROOT:/opt/host-tools/zig-root:ro" \
+    "${candidate_mount[@]}" \
     -v "$RCODESIGN_BIN:/opt/host-tools/rcodesign:ro" "$IMAGE" >/dev/null
   docker exec "$SOURCE" mount -t overlay overlay \
     -o lowerdir=/bun-cache-lower,upperdir=/bun-cache-cow/upper,workdir=/bun-cache-cow/work \
@@ -2493,7 +2533,8 @@ main() {
      resolved=$(realpath /work/source/node_modules/@podium/runtime)
      case "$resolved" in /work/source/*) ;; *) echo "dependency escaped: $resolved" >&2; exit 1;; esac'
 
-  if [[ "$ONLY" == server || "$ONLY" == real-release ]]; then
+  if [[ "$ONLY" == server ||
+    ( "$ONLY" == real-release && "$REAL_PRODUCTION_CANDIDATE" == 0 ) ]]; then
     prepare_server_trust_root
   fi
 

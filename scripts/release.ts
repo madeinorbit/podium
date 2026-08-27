@@ -46,6 +46,7 @@ import {
 } from './client-build-root-digest'
 import { buildManifest } from './release-manifest'
 import { validateReferencedDesktopManifest } from './desktop-release'
+import { verifyCandidateSnapshot } from './release-candidate-snapshot'
 
 /** Every platform a release publishes a headless bundle for. */
 export const RELEASE_PLATFORMS: readonly HeadlessPlatform[] = HEADLESS_PLATFORMS
@@ -589,6 +590,13 @@ export function publishPreparedHeadless(p: {
     console.log(`[release] built ${version} for ${p.channel}; set GH_TOKEN to publish.`)
     return
   }
+
+  // CI proves the complete stable candidate with a real published v0.1.0
+  // install before this invocation. release.ts deterministically reconstructs
+  // the manifests above; this seal makes that claim exact by refusing if any
+  // byte or file now differs from the directory the old install accepted.
+  const acceptedSnapshot = process.env.PODIUM_RELEASE_CANDIDATE_SNAPSHOT
+  if (acceptedSnapshot) verifyCandidateSnapshot(p.dir, acceptedSnapshot)
 
   // STATED, NOT REFUSED, and after the local-build exit because it is a fact
   // about PUBLISHING rather than about building.

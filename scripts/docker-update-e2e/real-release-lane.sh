@@ -8,28 +8,29 @@
 # UPDATER — never runs in it at all.
 #
 # This lane installs the actual published artifact, from the actual published
-# release, and lets ITS OWN updater take the new one:
+# release, and lets ITS OWN updater take the new one. It has two target modes:
+# the ordinary hermetic fixture keeps the run-local trust substitution described
+# below, while PODIUM_UPDATE_E2E_REAL_TARGET_DIR points it at a complete prepared
+# release candidate and forbids that substitution entirely.
 #
 #   1. download the real v0.1.0 tarball and verify it against the REAL baked
 #      release key, which is what proves these are the published bytes;
-#   2. re-anchor exactly one constant — the trust root — and prove that is the
-#      only thing that moved;
+#   2. for the hermetic fixture only, re-anchor exactly one constant — the trust
+#      root — and prove that is the only thing that moved. A prepared production
+#      candidate keeps the published binary and installer bytes unchanged;
 #   3. install it with the REAL v0.1.0 install.sh, and let the REAL v0.1.0 code
 #      write its own units, its own database, its own config;
 #   4. serve a new release at the URL a `stable` install actually fetches;
 #   5. let the old server resolve it, the old daemon install it, and assert the
 #      machine converges onto the single-unit topology with its data intact.
 #
-# WHAT THE ONE DEVIATION IS, STATED RATHER THAN HIDDEN: the trust root. v0.1.0
-# bakes `PODIUM_UPDATE_PUBKEY` as a module constant with no environment override,
-# so a real published binary installs only artifacts signed by the production
-# release key. No test has that key and none should. The substitution is a single
-# 60-character base64 field inside `podium-cli`, refused unless it appears exactly
-# once, and the row asserts on the measured byte delta — see patch-trust-root.ts.
-# It is the same isolation the packaged-server lane performs by patching
-# `update-delivery.ts` and rebuilding, applied to a real artifact instead of a
-# rebuild, and it says nothing about migration, topology, schema or units, which
-# are the four things this lane actually asserts on.
+# WHAT THE FIXTURE'S ONE DEVIATION IS, STATED RATHER THAN HIDDEN: the trust root.
+# v0.1.0 bakes `PODIUM_UPDATE_PUBKEY` as a module constant with no environment
+# override, so the ordinary local fixture substitutes one 60-character base64
+# field inside `podium-cli`, refused unless it appears exactly once and measured
+# byte-for-byte — see patch-trust-root.ts. Prepared-candidate mode exists to close
+# precisely that gap: CI has already signed the staged bytes with the production
+# key, so this lane keeps v0.1.0 unmodified and refuses the signing-key environment.
 #
 # WHY THIS LANE IS THE ONE THAT USES THE DEFAULT INSTANCE. Every other row runs a
 # NAMED instance, for isolation it genuinely needs. This one must not, for two
@@ -59,10 +60,21 @@ REAL_RELEASE_ASSET="podium-headless-linux-x64.tar.gz"
 # it is committed in install.sh: it is public, and a test that cannot name the key
 # it is replacing cannot prove it replaced only that.
 REAL_RELEASE_PUBKEY='MCowBQYDK2VwAyEAG12/153QJI/SePyYeJQhBSbh1ZsFgkoMkwb823NiYOU='
+# The separate minisign public key embedded by the published v0.1.0 Tauri shell.
+# Tauri stores the base64-encoded two-line minisign public-key document.
+REAL_RELEASE_DESKTOP_PUBKEY='dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI5RkE0OUFBNjMwNENDQjcKUldTM3pBUmpxa242dVd6V3FGbi9NRnhlU0lmR0s1RGhqZys2aXpQV0d5VnBXUHVhZ3lGa1Z1d0QK'
 # 54 MiB per run is a rude thing to ask of a gate that may run many times, so an
 # operator may point this at a directory that already holds the release assets.
 REAL_RELEASE_CACHE="${PODIUM_UPDATE_E2E_REAL_RELEASE_CACHE:-}"
-REAL_TARGET_VERSION="0.2.0"
+# Empty means the lane builds its historical run-local fixture. Set means the
+# caller already prepared the candidate — including both manifests — and the
+# directory is mounted read-only into the source container.
+REAL_TARGET_DIR="${PODIUM_UPDATE_E2E_REAL_TARGET_DIR:-}"
+REAL_DESKTOP_VERIFIER="${PODIUM_UPDATE_E2E_REAL_DESKTOP_VERIFIER:-}"
+REAL_TARGET_VERSION="${PODIUM_UPDATE_E2E_REAL_TARGET_VERSION:-0.2.0}"
+REAL_PRODUCTION_CANDIDATE=0
+[[ -z "$REAL_TARGET_DIR" ]] || REAL_PRODUCTION_CANDIDATE=1
+REAL_CANDIDATE_ROOT=/real-release-candidate
 REAL_TRUST_PATCH=""
 REAL_SEEDED_SESSION=""
 
@@ -227,13 +239,24 @@ fetch_real_release() {
 }
 
 # ---------------------------------------------------------------------------
-# 2. re-anchor exactly one constant
+# 2. mirror published v0.1.0 unchanged, or re-anchor the local fixture
 
-reanchor_real_release() {
+prepare_real_release_bootstrap() {
   local dir="$WORK/real-release" unpack="$WORK/real-release-unpack"
   local mirror="$WORK/bootstrap/real-release"
+  mkdir -p "$mirror"
+  if (( REAL_PRODUCTION_CANDIDATE == 1 )); then
+    # Byte-for-byte mirror of the release that was verified just above. The real
+    # installer uses its own baked public key, and the installed podium-cli keeps
+    # the production trust root v0.1.0 shipped with. No private key enters this
+    # process and no public-key override is supplied to the installer.
+    cp "$dir/$REAL_RELEASE_ASSET" "$dir/$REAL_RELEASE_ASSET.sig" \
+      "$dir/install.sh" "$mirror/"
+    say "kept the published $REAL_RELEASE_TAG installer and binary bytes unchanged"
+    return 0
+  fi
   rm -rf "$unpack"
-  mkdir -p "$unpack" "$mirror"
+  mkdir -p "$unpack"
   tar -xzf "$dir/$REAL_RELEASE_ASSET" -C "$unpack"
   [[ -d "$unpack/headless" ]] || die "the published artifact has no headless/ dir"
   [[ "$(cat "$unpack/headless/VERSION")" == "$REAL_RELEASE_VERSION" ]] ||
@@ -258,14 +281,22 @@ reanchor_real_release() {
 
 install_real_release() {
   # THE REAL v0.1.0 INSTALLER, not this checkout's. It fetches from a mirror of
-  # the published bytes and verifies them itself; PODIUM_INSTALL_PUBKEY is the
-  # installer's own documented override and matches the re-anchored artifact.
-  # No --instance: a real user's install is the default one.
-  real_exec env \
-    PODIUM_INSTALL_BASE=http://source:8080/real-release \
-    PODIUM_INSTALL_PUBKEY="$SERVER_RELEASE_PUBKEY" \
-    PODIUM_NO_MODIFY_PATH=1 \
-    sh /bootstrap/real-release/install.sh --channel stable
+  # the published bytes and verifies them itself. Only the local fixture supplies
+  # the installer's documented PODIUM_INSTALL_PUBKEY override; prepared-candidate
+  # mode exercises the production key already in install.sh. No --instance: a
+  # real user's install is the default one.
+  if (( REAL_PRODUCTION_CANDIDATE == 1 )); then
+    real_exec env \
+      PODIUM_INSTALL_BASE=http://source:8080/real-release \
+      PODIUM_NO_MODIFY_PATH=1 \
+      sh /bootstrap/real-release/install.sh --channel stable
+  else
+    real_exec env \
+      PODIUM_INSTALL_BASE=http://source:8080/real-release \
+      PODIUM_INSTALL_PUBKEY="$SERVER_RELEASE_PUBKEY" \
+      PODIUM_NO_MODIFY_PATH=1 \
+      sh /bootstrap/real-release/install.sh --channel stable
+  fi
   real_exec test -x "$REAL_COMMAND"
   [[ "$(real_exec "$REAL_COMMAND" --version)" == "podium $REAL_RELEASE_VERSION" ]]
   real_exec jq -e '.updateChannel == "stable"' "$REAL_STATE/config.json" >/dev/null
@@ -389,17 +420,31 @@ real_release_data_intact() {
 prepare_real_target_release() {
   local release=/work/source/dist-bun/release
   arm_real_release_pairing_coupling
-  container_exec "$SOURCE" env BUN_INSTALL_CACHE_DIR=/bun-cache-cow/merged \
-    PODIUM_APP_VERSION="$REAL_TARGET_VERSION" \
-    PODIUM_UPDATE_SIGNING_KEY="$SERVER_RELEASE_PRIVATE" \
-    PODIUM_ZIG=/opt/host-tools/zig-root/zig PODIUM_RCODESIGN=/opt/host-tools/rcodesign \
-    bash -lc "cd /work/source &&
-      jq --arg v '$REAL_TARGET_VERSION' '.version=\$v' package.json >package.json.new &&
-      mv package.json.new package.json &&
-      git add package.json && git commit -m 'update-e2e: real-release target' >/dev/null &&
-      bun scripts/release.ts --channel stable --tag 'v$REAL_TARGET_VERSION'" \
-    >"$WORK/logs/real-release-target-build.log" 2>&1
-  require_disk_margin "real-release target build"
+  if (( REAL_PRODUCTION_CANDIDATE == 1 )); then
+    # The workflow prepared this directory before the proof started. Copy it
+    # from the read-only mount into the disposable feed root: later rows mutate
+    # only that copy to prove the old pairing refusal remains armed.
+    container_exec "$SOURCE" bash -lc "
+      set -euo pipefail
+      rm -rf '$release'
+      mkdir -p '$release'
+      cp -a '$REAL_CANDIDATE_ROOT/.' '$release/'
+      test -f '$release/podium-update.json'
+      test -f '$release/latest.json'
+    "
+  else
+    container_exec "$SOURCE" env BUN_INSTALL_CACHE_DIR=/bun-cache-cow/merged \
+      PODIUM_APP_VERSION="$REAL_TARGET_VERSION" \
+      PODIUM_UPDATE_SIGNING_KEY="$SERVER_RELEASE_PRIVATE" \
+      PODIUM_ZIG=/opt/host-tools/zig-root/zig PODIUM_RCODESIGN=/opt/host-tools/rcodesign \
+      bash -lc "cd /work/source &&
+        jq --arg v '$REAL_TARGET_VERSION' '.version=\$v' package.json >package.json.new &&
+        mv package.json.new package.json &&
+        git add package.json && git commit -m 'update-e2e: real-release target' >/dev/null &&
+        bun scripts/release.ts --channel stable --tag 'v$REAL_TARGET_VERSION'" \
+      >"$WORK/logs/real-release-target-build.log" 2>&1
+    require_disk_margin "real-release target build"
+  fi
   # THE FLAG IS NOT THE EVIDENCE. A mis-parsed `--channel` would build an EDGE
   # release whose artifacts live under `releases/download/edge/` — which this
   # lane's feed does not serve, so the old resolver 404s on the artifact HEAD and
@@ -413,6 +458,11 @@ prepare_real_target_release() {
   # in the same place. Check the URLs the manifest actually names.
   container_exec "$SOURCE" bash -lc "cd '$release' &&
     jq -e --arg v '$REAL_TARGET_VERSION' '.version==\$v' podium-update.json >/dev/null"
+  if (( REAL_PRODUCTION_CANDIDATE == 1 )); then
+    container_exec "$SOURCE" bash -lc "cd '$release' &&
+      jq -e --arg v '$REAL_TARGET_VERSION' '.version==\$v' latest.json >/dev/null" ||
+      die "the prepared headless and desktop manifests do not both name $REAL_TARGET_VERSION"
+  fi
   container_exec "$SOURCE" bash -lc "cd '$release' &&
     jq -e --arg base 'https://github.com/madeinorbit/podium/releases/download/v$REAL_TARGET_VERSION/' \
       '[.artifacts.headless.platforms[].url] | length > 0 and all(startswith(\$base))' \
@@ -434,15 +484,47 @@ prepare_real_target_release() {
 # upgrade works. Without this the row could pass while being wired to nothing.
 write_real_desktop_manifest() {
   local version=$1 release=/work/source/dist-bun/release
+  if (( REAL_PRODUCTION_CANDIDATE == 1 )); then
+    if [[ "$version" == "$REAL_TARGET_VERSION" ]]; then
+      # Restore the exact prepared manifest bytes after the deliberate mismatch.
+      container_exec "$SOURCE" cp "$REAL_CANDIDATE_ROOT/latest.json" "$release/latest.json"
+    else
+      # One-field disposable control copy. Candidate bytes remain read-only.
+      container_exec "$SOURCE" env VERSION="$version" bash -lc "
+        jq --arg version \"\$VERSION\" '.version=\$version' \
+          '$REAL_CANDIDATE_ROOT/latest.json' >'$release/latest.json'
+      "
+    fi
+    return 0
+  fi
   container_exec "$SOURCE" env VERSION="$version" TAG="v$REAL_TARGET_VERSION" bash -lc "
     set -euo pipefail
     cd '$release'
-    printf 'desktop fixture\n' >podium-desktop-e2e.bin
-    jq -n --arg version \"\$VERSION\" \
-      --arg url \"https://github.com/madeinorbit/podium/releases/download/\$TAG/podium-desktop-e2e.bin\" \
-      '{version:\$version,bridgeVersion:1,platforms:{\"linux-x86_64\":{url:\$url,signature:\"e2e-companion\"}}}' \
+    url=\$(jq -er '.platforms | to_entries[0].value.url' podium-update.json)
+    signature=\$(jq -er '.platforms | to_entries[0].value.signature' podium-update.json)
+    jq -n --arg version \"\$VERSION\" --arg url \"\$url\" --arg signature \"\$signature\" \
+      '{version:\$version,bridgeVersion:1,platforms:{\"linux-x86_64\":{url:\$url,signature:\$signature}}}' \
       >latest.json
   "
+}
+
+# Assert the exact matching pair before the old resolver sees it. v0.1.0's
+# headless updater has one baked Ed25519 trust root, and every artifact reference
+# in podium-update.json must verify under that key — not merely the linux-x64
+# artifact this particular machine will select. latest.json uses Tauri's separate
+# minisign trust domain, so the lane also invokes the locked verifier with the
+# public updater key baked into the shipped v0.1.0 desktop shell.
+verify_real_target_pair() {
+  local release=/work/source/dist-bun/release
+  (( REAL_PRODUCTION_CANDIDATE == 1 )) || return 0
+  container_exec "$SOURCE" /home/podium/.local/bin/bun \
+    /work/source/scripts/verify-stable-bridge-candidate.ts \
+    --dir "$release" --version "$REAL_TARGET_VERSION" --tag "v$REAL_TARGET_VERSION" \
+    --pubkey "$REAL_RELEASE_PUBKEY" \
+    --desktop-pubkey "$REAL_RELEASE_DESKTOP_PUBKEY" \
+    --desktop-verifier /real-release-minisign-verifier \
+    >"$WORK/logs/real-release-candidate-verification.log" 2>&1 ||
+    die "the prepared $REAL_TARGET_VERSION manifest pair is not a complete production-trusted candidate; see logs/real-release-candidate-verification.log"
 }
 
 start_real_release_feed() {
@@ -514,9 +596,12 @@ MANUAL REAL-RELEASE UPGRADE READY — OBJECTS PERSIST UNTIL TORN DOWN
 
 This machine is a REAL published $REAL_RELEASE_TAG install. It was verified against
 the production release key, installed by its own installer, and its own code wrote
-its own three systemd units. One constant differs from the published bytes: the
-baked trust root, so this run can sign the release it offers.
-  trust-root substitution: $REAL_TRUST_PATCH
+its own three systemd units.
+$([[ "$REAL_PRODUCTION_CANDIDATE" == 1 ]] && printf '%s\n' \
+  'The installed binary is byte-for-byte published v0.1.0; the offered candidate was' \
+  'prepared outside this proof and verified with v0.1.0’s baked production key.' || printf '%s\n' \
+  'One constant differs from the published bytes: the baked trust root, so this' \
+  "run can sign the release it offers. Trust-root substitution: $REAL_TRUST_PATCH")
 
 Installed: $REAL_RELEASE_VERSION (default instance, channel stable)
 Offered:   $REAL_TARGET_VERSION, through the stable feed URL a released install fetches
@@ -629,11 +714,11 @@ real_release_converged() {
 # ---------------------------------------------------------------------------
 
 run_real_release_lane() {
-  local started id operation detail
+  local started id operation detail install_detail
 
   CURRENT_SCENARIO=real-release-install
   fetch_real_release
-  reanchor_real_release
+  prepare_real_release_bootstrap
   start_container "$REAL_CONSUMER" real-release -p "127.0.0.1::18787" \
     -v "$WORK/bootstrap:/bootstrap:ro"
   REAL_PORT="$(docker inspect "$REAL_CONSUMER" |
@@ -652,8 +737,13 @@ run_real_release_lane() {
     return 1
   fi
   record_fixture_drift
+  if (( REAL_PRODUCTION_CANDIDATE == 1 )); then
+    install_detail="the published $REAL_RELEASE_TAG artifact verified against the PRODUCTION release key, installed through its own installer without a trust-root substitution, and $REAL_RELEASE_VERSION's own code wrote its era's three-unit layout"
+  else
+    install_detail="the published $REAL_RELEASE_TAG artifact verified against the PRODUCTION release key, installed through its own installer with one re-anchored trust-root constant ($(jq -r .changedBytes <<<"$REAL_TRUST_PATCH") bytes of $(jq -r .bytes <<<"$REAL_TRUST_PATCH")), and $REAL_RELEASE_VERSION's own code wrote its era's three-unit layout"
+  fi
   pass real-release-install \
-    "the published $REAL_RELEASE_TAG artifact verified against the PRODUCTION release key, installed through its own installer with one re-anchored trust-root constant ($(jq -r .changedBytes <<<"$REAL_TRUST_PATCH") bytes of $(jq -r .bytes <<<"$REAL_TRUST_PATCH")), and $REAL_RELEASE_VERSION's own code wrote its era's three-unit layout"
+    "$install_detail"
 
   CURRENT_SCENARIO=real-release-pairing-refusal
   prepare_real_target_release
@@ -688,6 +778,7 @@ run_real_release_lane() {
 
   CURRENT_SCENARIO=real-release-resolve
   write_real_desktop_manifest "$REAL_TARGET_VERSION"
+  verify_real_target_pair
   if ! wait_for 180 "real $REAL_RELEASE_VERSION target" real_target_is "$REAL_TARGET_VERSION"; then
     # WHY IT DID NOT ARRIVE, recorded before the row goes red. A timeout with no
     # captured reason costs a whole gate run to diagnose — this one already did.
@@ -701,8 +792,13 @@ run_real_release_lane() {
       "the real $REAL_RELEASE_VERSION resolver never offered $REAL_TARGET_VERSION; its own refusal is in logs/real-release-resolve-refusal.txt"
     return 1
   fi
+  if (( REAL_PRODUCTION_CANDIDATE == 1 )); then
+    detail=" after every staged headless and desktop artifact verified with v0.1.0's baked release keys"
+  else
+    detail=""
+  fi
   pass real-release-resolve \
-    "the real $REAL_RELEASE_VERSION resolver read a paired release through the stable feed URL a released install actually fetches, and offered $REAL_TARGET_VERSION"
+    "the real $REAL_RELEASE_VERSION resolver read a paired release through the stable feed URL a released install actually fetches, and offered $REAL_TARGET_VERSION$detail"
 
   if [[ "$HOLD" == real-release ]]; then
     # KEEP THE UI REACHABLE ACROSS THE VERY HOP THIS SANDBOX EXISTS TO WATCH.

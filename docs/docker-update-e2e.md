@@ -464,6 +464,17 @@ touched, so a red can only be the migration.
 | --- | --- |
 | `PODIUM_UPDATE_E2E_REAL_RELEASE=X.Y.Z` | which published release to start from (default `0.1.0`) |
 | `PODIUM_UPDATE_E2E_REAL_RELEASE_CACHE=PATH` | a directory already holding that release's tarball, `.sig` and `install.sh`, so the run does not re-download 54 MiB |
+| `PODIUM_UPDATE_E2E_REAL_TARGET_DIR=PATH` | a complete prepared stable candidate directory containing matching `podium-update.json` and `latest.json` plus every artifact they reference. This switches off the fixture trust-root substitution and mounts the candidate read-only. |
+| `PODIUM_UPDATE_E2E_REAL_TARGET_VERSION=X.Y.Z` | the exact version both prepared manifests must name; required with `REAL_TARGET_DIR` |
+
+The prepared-candidate mode is the stable release gate. It deliberately refuses a
+`PODIUM_UPDATE_SIGNING_KEY` environment: CI signs the artifacts in the build step, then the
+proof receives only those bytes. The published v0.1.0 tarball is verified and installed without
+`PODIUM_INSTALL_PUBKEY`, every headless platform named by the candidate is verified with the
+public Ed25519 key baked into v0.1.0, and the exact accepted directory is sealed so the later
+publisher cannot substitute a different file. Desktop artifacts use Tauri's separate minisign
+trust root; the same gate verifies every `latest.json` artifact with the exact updater public key
+baked into the shipped v0.1.0 shell. Neither production private key enters the proof process.
 
 ## Rows with no result
 
@@ -496,9 +507,9 @@ clean focused lane and a run that died halfway read identically.
 | Agent survival | Real remote shells are created after refusal checks. The harness discovers the packaged bounded socket root, records each abduco listing, captures the exact attached master PID for every full session UUID, and requires the same PIDs after handover. The containers do not install a real coding-agent CLI, so this is abduco session/process survival evidence, not a Codex/Claude harness claim. A setup failure blocks only this row and does not suppress release, refusal, or rollout evidence. |
 | Rollout | Playwright sees the target offer and presses its human action. Polling observes exactly one consumer in-flight while the other is still old and ungranted before widening; both parent PIDs change while the systemd invocation and restart count do not, baseline and post-rollout UI versions match the source and fleet, and both install/fleet versions reach the target. |
 | Legacy migration | Real packaged three-unit files remain live and persistently enabled while an injected packaged parent repeatedly fails, then converge after recovery. |
-| Real-release install | The published `v0.1.0` tarball verifies against the **production** release key before anything touches it; its own `install.sh` installs it with one re-anchored trust-root constant, refused unless that constant appears exactly once and asserted to have changed nothing outside it; `0.1.0`'s own code then writes its era's three-unit layout, and the diff against the rendered fixture is recorded. |
+| Real-release install | The published `v0.1.0` tarball verifies against the **production** release key before anything touches it. The ordinary fixture installs one precisely measured re-anchored trust-root constant; prepared-candidate mode instead installs the published bytes through their own installer with no key override or binary substitution. `0.1.0`'s own code then writes its era's three-unit layout, and the diff against the rendered fixture is recorded. |
 | Real-release pairing refusal | With the desktop manifest at a different version, the real `0.1.0` resolver refuses the whole target and names the desktop pairing — POD-2789 reproduced by the released code rather than argued from source. Also the proof that the feed is reaching the old resolver at all, so a later green cannot be a row wired to nothing. |
-| Real-release resolve | Repairing the desktop manifest to the matching version makes the same install offer the target, read through the `releases/latest/download/` URL a released `stable` install actually fetches. |
+| Real-release resolve | Restoring the exact matching desktop manifest makes the same install offer the target through the `releases/latest/download/` URL a released `stable` install actually fetches. Prepared-candidate mode first verifies every headless artifact referenced by both headless manifest shapes with v0.1.0's baked production public key, and requires every desktop reference to resolve to staged bytes with its manifest signature sidecar. |
 | Real-release converged | A real published install, upgraded **by its own updater**, ends with exactly the parent unit and no legacy units, active and enabled, at the target version, with its pre-upgrade session row and database row intact. |
 | Legacy SIGKILL | Explicitly red: source-backed migration evidence is rejected, and black-box packaged-process SIGKILL coverage does not yet span every transition state. |
 | Rollback | A second signed manifest proves its schema is identical, then contains an intentionally crashing successor; its canary restores a sentinel available only through `.old`, removes the consumed backup, leaves both installs on the prior version, and reports failure/stuck. |
