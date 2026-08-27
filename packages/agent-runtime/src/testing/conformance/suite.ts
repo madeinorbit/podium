@@ -2552,13 +2552,18 @@ export function assertSteerJoinedOpenTurn(observed: {
  * driver id and watch it refuse: an assertion nobody has watched fail is a
  * comment.
  */
-export function assertNoNativeSteerEntitled(family: DriverFamily, driverId: DriverId): void {
+export function assertNoNativeSteerEntitled(
+  family: DriverFamily,
+  driverId: DriverId | (string & {}),
+): void {
   expect(
     permits(family, 'no-native-steer'),
     `family '${family}' is not permitted to decline native steer`,
   ).toBe(true)
   expect(
-    permitsNoNativeSteer(driverId),
+    // The helper deliberately accepts an unlisted string for negative tests;
+    // the runtime membership check remains the closed DriverId list.
+    permitsNoNativeSteer(driverId as DriverId),
     `driver '${driverId}' declined native steer without being on the entitled list (${NO_NATIVE_STEER_DRIVERS.join(', ')}) — steering is a per-harness protocol verb, so add it there WITH the measurement or declare 'steer' native`,
   ).toBe(true)
 }
