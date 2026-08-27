@@ -4313,3 +4313,35 @@ through it — POD-2902 on ENOSPC, POD-2913 on the parent refusal cell, POD-2878
 comparison, POD-2871 twice, and POD-2691 holding its rig. **That standard has propagated further
 than any single correction I have written down**, and it is the one that protects every number in
 this file.
+
+### Staffed the column nobody was ever going to drive (2026-08-27 02:32 CEST)
+
+**`shell` is 0 of 6 and not one row in the results file mentions the word.** Every other column
+has been worked because it has an agent somebody cared about. This one has no agent, so it had no
+advocate — and it is the cheapest column in the matrix: no credentials, no quota, no model, no
+provider, just a PTY.
+
+**I checked it was real before staffing it, because a false gap is worse than an unfilled one.**
+There is no `shell.ts` manifest, which for a moment looked like the column was n/a and my
+denominator wrong. It is not: `AgentKind` in `packages/model/src/entities/agent.ts` is
+`['claude-code','codex','grok','opencode','cursor','shell']`, and a test in that package says in
+as many words that shell *"is a spawnable kind and not a harness"*. **Absent from the harness list
+and present in the spawnable list is a deliberate asymmetry, not an omission** — so the six cells
+are genuinely drivable and genuinely undriven.
+
+**And it is the column most likely to be broken without anyone noticing**, which is the matrix's
+own stated purpose for it: *"Claude and shell columns prove the untouched paths stayed untouched."*
+This epic rewrote the runtime underneath a path nobody has looked at since.
+
+Filed and started **POD-2917**, cut from the tip `40c198eae` and verified. Its six cells are A1a,
+A1c, A2b, A6a, A7a and A9; the other ten are n/a because there is no turn, no model and no
+provider — nothing to be busy, interrupt, permit or identify. Told it explicitly not to invent
+results for those, and that **a red here is worth more than a green**, because a red means the
+epic broke something nobody was watching.
+
+A9 in particular is live rather than hypothetical: its criterion is *"no orphan servers after 5
+min"*, and POD-2691 is a confirmed FAIL on exactly that for agent sessions. If shell sessions leak
+too, that widens a defect already owned.
+
+**Five sessions now, on 18GB.** That is at the ceiling I measured earlier — a worktree with
+`node_modules` costs 2–3GB — so this is the last one until something closes.
