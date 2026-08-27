@@ -5341,3 +5341,40 @@ and a third died mid-turn.
 **Also flagged: it has modified `docs/evidence/pod-2777/rig.ts`, which three other sessions use.**
 Asked what changed and why before it lands — a shared rig changing under someone mid-drive is the
 concurrency hazard I have otherwise managed by lock all night, and this one has no lock on it.
+
+### The nine-unknowns audit is complete but for grok (2026-08-27 06:19 CEST)
+
+**POD-2602 PASS**, with the strongest UI A/B of the night:
+
+    parent 0f0c616a3   stale geometry-timeline rollback reproduced — TWO distinct viewers went
+                       from 104x27/revision 4 to revision 0, marker absent
+    tip    d532460b1   80x24 baseline reset, auto-refit to 104x27/revision 1 with NO manual
+                       browser resize, marker retained across a physical tab away and back
+
+Named harnesses both arms, spawn-time pins both arms, positive markers firing on both, a distinct
+second viewer, `outputSeen=true`. **It reused the 91114b3a4 bundle for both arms with the exact
+reasoning I gave it** — terminal sizing does not read the model-only refusal change — which saved a
+build and a lock queue slot. **And it excluded A6b as POD-2761's rather than claiming a cell it had
+touched.**
+
+**THE NINE, NOW EIGHT RESOLVED:**
+
+    POD-2298  PASS          POD-2408  PASS          POD-2602  PASS
+    POD-2604  PASS          POD-2637  PASS          POD-2761  PASS
+    POD-2622  was FAIL  ->  fixed by POD-2914 and driven
+    POD-2691  was FAIL  ->  fixed, landed, and verified by a tightened A9
+    POD-2773  grok half still blocked until 11:03
+
+**Six were already fine. Two were genuinely broken and both are now fixed and verified.** The 50%
+failure rate I reported at four cells has settled at **two of eight — 25%** — which is still a
+strong argument for the exercise, since neither defect would have been found otherwise and both
+were in issues whose tracker row read finished.
+
+### An honest caveat it declined to spend
+
+It observed that **the hidden spectator API omitted its marker after restart while keeping
+`outputSeen=true` and 104x27 geometry**, and wrote: *"I did not use that separate screen-buffer
+observation against the sizing verdict."* **Correct — that is a different surface from the one A6a
+asks about, and folding it in would have made a clean verdict muddy.** Recorded as INCONCLUSIVE
+against POD-2602 so the observation survives without contaminating the cell. **A thing seen and set
+aside deliberately is worth more in the record than a thing seen and quietly dropped.**
