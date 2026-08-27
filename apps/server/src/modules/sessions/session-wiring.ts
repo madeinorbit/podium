@@ -562,6 +562,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     state: bag.state,
     store: bag.store,
     toMachine: (mid: string, msg: unknown) => bag.toMachine(mid, msg),
+    toPtyInput: (mid: string, input: unknown) => bag.toPtyInput(mid, input),
     view: bag.view,
   })
   // Revival needs sessionStart.spawn, workspace, repository, launchConfig,

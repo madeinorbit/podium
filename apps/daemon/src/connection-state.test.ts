@@ -373,10 +373,18 @@ describe('daemon connection credential state machine', () => {
 class FakeSocket extends EventEmitter {
   readyState = 1
   sent: Array<string | Uint8Array> = []
+  closeImmediately = true
+  closeCalls = 0
   send(data: string | Uint8Array): void {
     this.sent.push(data)
   }
   close(): void {
+    this.closeCalls += 1
+    this.readyState = 2
+    if (this.closeImmediately) this.finishClose()
+  }
+  finishClose(): void {
+    if (this.readyState === 3) return
     this.readyState = 3
     this.emit('close')
   }
@@ -546,6 +554,40 @@ it('closes only the connection for malformed negotiated binary PTY input', async
   h.socket.binary(Uint8Array.of(0, 0, 0))
   expect(h.socket.readyState).toBe(3)
   expect(h.receiveBinaryInput).not.toHaveBeenCalled()
+})
+
+it('ignores every later frame while an invalid binary socket is closing', async () => {
+  const h = remoteHarness()
+  h.socket.closeImmediately = false
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message({
+    ...ok,
+    caps: [CAP_TERMINAL_INPUT_BINARY_V1],
+  })
+  await started
+
+  h.socket.binary(Uint8Array.of(0, 0, 0))
+  expect(h.socket.readyState).toBe(2)
+  expect(h.socket.closeCalls).toBe(1)
+
+  const valid = encodeBinaryEnvelope(
+    { v: 1, type: 'ptyInput', sessionId: asSessionId('late'), inputOrigin: 'human' },
+    Uint8Array.of(0x61),
+  )
+  h.socket.binary(valid)
+  h.socket.emit(
+    'message',
+    Buffer.from(JSON.stringify({ type: 'redraw', sessionId: asSessionId('late') })) as RawData,
+    false,
+  )
+  h.state.send({ type: 'machineDiagnostic', code: 'late', title: 'late', body: 'late' })
+
+  expect(h.socket.closeCalls).toBe(1)
+  expect(h.receiveBinaryInput).not.toHaveBeenCalled()
+  expect(h.receiveApplicationFrame).not.toHaveBeenCalled()
+  expect(h.sendApplicationFrame).not.toHaveBeenCalled()
+  h.socket.finishClose()
 })
 it('clears accepted binary selection before a reconnect handshake', async () => {
   const sockets = [new FakeSocket(), new FakeSocket()]

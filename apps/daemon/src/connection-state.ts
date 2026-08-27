@@ -165,6 +165,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let lastSocketError: string | undefined
   let convergedVersion: string | undefined
   let acceptedCaps = new Set<string>()
+  const invalidSockets = new WeakSet<SocketLike>()
   // Host diagnostics are durable attention, not telemetry. Keep the latest one
   // per code/version until an authenticated machine transport exists; ordinary
   // runtime frames retain the historical drop-while-offline behavior.
@@ -393,12 +394,15 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     error: unknown,
   ): void => {
     const detail = error instanceof Error ? error.message : String(error)
+    acceptedCaps.clear()
     lastSocketError = detail
     log.warn('closing daemon connection for invalid binary PTY input', {
       reason,
       err: error,
     })
     if (active) {
+      invalidSockets.add(active)
+      if (socket === active) state = 'closed'
       active.close()
       return
     }
@@ -552,6 +556,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     socket = active
     let dialer: ReturnType<typeof createHandshakeDialer> | undefined
     active.once('open', () => {
+      if (invalidSockets.has(active)) return
       try {
         dialer = makeDialer()
         state = 'awaiting-ack'
@@ -561,6 +566,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       }
     })
     active.on('message', (raw, isBinary) => {
+      if (invalidSockets.has(active)) return
       if (!dialer && isBinary) {
         closeForInvalidBinary(
           active,
@@ -577,6 +583,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     })
     if (!process.versions.bun) {
       active.on('unexpected-response', (_req, response) => {
+        if (invalidSockets.has(active)) return
         if (response.statusCode === 426) handleProtocolMismatch(active, 'http-426')
       })
     }
@@ -611,6 +618,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return ready
     },
     sendOutput(batch) {
+      if (socket && invalidSockets.has(socket)) return
       if (state !== 'connected') return
       assertOutputBatch(batch)
       if (localAttachment) {
@@ -639,6 +647,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       deps.sendApplicationFrame(socket, message)
     },
     send(msg) {
+      if (socket && invalidSockets.has(socket)) return
       if (state !== 'connected') {
         if (msg.type === 'machineDiagnostic') {
           pendingDiagnostics.set(`${msg.code}\0${msg.observedVersion ?? ''}`, msg)
