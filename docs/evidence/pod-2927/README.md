@@ -16,7 +16,6 @@ Built and runtime code tree: `7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4`. Served 
 | A3 | PARTIAL | Product driver `grok-acp/server`; in-flight control and stop passed; durable transcript interrupt marker absent; refusal path not exercised | `readings/a3.json` |
 
 | A5 | FAIL | Product driver `grok-acp/server`; tool call present without a paired result; reload returned the same incomplete history | `readings/a5.json` |
-
 | A6a | BLOCKED (superseded) | Product driver `grok-acp/server`; native attach emitted no bytes or frames, so echo/resize/second-viewer clauses were unmeasurable | `readings/a6a.json` |
 
 | A6b | PASS | Product driver `grok-acp/server`; four switches preserved original PIDs, marker, 120x40 geometry, chat reply, and CLI echo | `readings/a6b.json` |
@@ -30,3 +29,5 @@ Built and runtime code tree: `7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4`. Served 
 | A4b | BLOCKED | Product driver `grok-acp/server`; no permission turn/ask existed, so a successful first answer and typed second refusal were unmeasurable | `readings/a4b.json` |
 
 | A6a | PASS | Authoritative delayed attach: `grok-acp/server`; echo, 3432B resize repaint, and second-viewer marker all passed | `readings/a6a-authoritative.json` |
+
+| A1c | BLOCKED | Product driver `grok-acp/server`; live send passed, but missing stamp and zero exact child PIDs prevented a safe dead-session control | `readings/a1c.json` |
