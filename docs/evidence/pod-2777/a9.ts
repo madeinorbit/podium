@@ -203,6 +203,11 @@ await wait(READY_MS)
 const bound = await until(sid, (r) => Boolean(r?.driverId), 90_000, 1_000)
 const row0 = bound.row ?? (await sessionRow(sid))
 log(`BOUND DRIVER       ${row0?.driverId ?? '(none)'} (family ${row0?.driverFamily ?? '?'})`)
+if (harness === 'grok' && (row0?.driverId !== 'grok-acp' || row0.driverFamily !== 'server')) {
+  throw new Error(
+    `refusing A9: expected product driver grok-acp/server, received ${row0?.driverId ?? '(none)'}/${row0?.driverFamily ?? '(none)'}`,
+  )
+}
 if (row0?.status === 'exited') {
   log(
     `SESSION EXITED     spawnFailure: ${(row0 as Record<string, unknown>).spawnFailure ?? '(none)'}`,
