@@ -45,6 +45,12 @@ This fires hourly at :13. It is your standing instruction. Reproduced exactly:
 >
 > HYGIENE: no reviewer round for nitpicks — reviews are for true defects and real hygiene. Tell every agent exactly how to typecheck and test so they USE THE CACHE, and do not over-test: flatblock is CPU constrained. Heavy gates and rig web builds take the test:heavy lock — heavy means memory-heavy, not a command name. No agent may use AskUserQuestion, podium offers, or any other way of asking the human — if they need something they address YOU.
 
+**CURRENT MODEL OVERRIDE, operator instruction 2026-08-27 09:32 CEST:** for every worker
+started or restarted from this point onward, use `--agent codex --model gpt-5.6-sol --effort
+high`. This supersedes the historical Luna/max implementer rule inside the verbatim cron prompt
+above. Let workers already in flight finish rather than discard their live rigs or evidence solely
+to change models.
+
 **The cron job is session-only and dies when the coordinator session exits.** You will need to
 recreate it: `CronCreate` with schedule `13 * * * *`, recurring, the prompt above verbatim.
 The previous one was `9140772c`; it will not survive.
@@ -180,7 +186,7 @@ hard-coded, and this epic never merges to main (POD-2910). A worktree with `node
 
     podium issue create --title "3–5 words" --parent-id 1761 --parent-branch issue/1761-agent-runtime \
       --priority 1 --description "plain sentences" --brief "$(cat brieffile)" \
-      --agent codex --model gpt-5.6-luna --effort max --start
+      --agent codex --model gpt-5.6-sol --effort high --start
 
 **Then ALWAYS verify the base** — `--parent-branch` is required or sub-issues get cut from main:
 

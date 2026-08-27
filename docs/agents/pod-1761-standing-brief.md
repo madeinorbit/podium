@@ -19,6 +19,14 @@ everything general lives here so it stops being re-typed one session at a time.
 - Before your first edit: `git merge-base --is-ancestor <epic tip> HEAD` must succeed.
 - **A wrong base does not error. It produces confident wrong work.**
 
+## Worker model policy (2026-08-27 09:32 CEST)
+
+- **For every worker started or restarted from this point onward, use Codex
+  `gpt-5.6-sol` at `high` effort.** This is the operator's current instruction and
+  supersedes the earlier implementer default of `gpt-5.6-luna` at `max` effort.
+- Let workers already in flight finish on the model they started with; do not throw
+  away a live rig or unreported evidence merely to change its model.
+
 ## Rigs
 
 - **Run as a NAMED instance.** Even the default is named `default` now.
