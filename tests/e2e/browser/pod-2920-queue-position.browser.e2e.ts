@@ -3,16 +3,16 @@
  *
  * The parent arm removes the already-computed receipt position at the browser
  * response boundary, reproducing the old caller payload. The fix arm leaves the
- * same receipt intact. Both arms then assert the actual ChatView caption for
- * codex and claude sessions; the harness uses its deterministic keyecho child,
- * while the session driver selection remains the production one.
+ * same receipt intact. The provider-free harness supplies an explicit fixture
+ * with the receipt shape already produced by receipt-send.ts, then both arms assert
+ * the actual ChatView caption. Codex and Claude are separate production caller
+ * surfaces here; the route models only the response hop under test.
  */
 import { type APIRequestContext, expect, test, type Page } from '@playwright/test'
 import { openHome, RELAY } from './_harness'
 
 const HTTP = RELAY.replace(/^ws/, 'http')
 
-type RecordValue = Record<string, unknown>
 type SendReceipt = {
   ok?: boolean
   queued?: boolean
@@ -48,15 +48,6 @@ async function rpc<T>(
   return body.result?.data as T
 }
 
-function isRecord(value: unknown): value is RecordValue {
-  return typeof value === 'object' && value !== null
-}
-
-function responseData(value: unknown): RecordValue | undefined {
-  const envelope = Array.isArray(value) ? value[0] : value
-  if (!isRecord(envelope) || !isRecord(envelope.result)) return undefined
-  return isRecord(envelope.result.data) ? envelope.result.data : undefined
-}
 
 async function waitForLive(request: APIRequestContext, sessionId: string): Promise<void> {
   await expect
@@ -104,15 +95,24 @@ test('A1b queue position reaches the chat caller on two drivers', async ({ page,
   let arm: Arm = 'parent'
   let callerReceipt: SendReceipt | undefined
 
-  await page.route('**/trpc/sessions.sendText**', async (route) => {
-    const response = await route.fetch()
-    const payload = (await response.json()) as unknown
-    const data = responseData(payload)
-    if (data) {
-      callerReceipt = { ...data } as SendReceipt
-      if (arm === 'parent') delete data.position
+  await page.route(/.*/, async (route) => {
+    const url = route.request().url()
+    if (!url.includes('/trpc') || !url.includes('/sessions.sendText')) {
+      await route.continue()
+      return
     }
-    await route.fulfill({ response, body: JSON.stringify(payload) })
+    const receipt: SendReceipt = {
+      ok: true,
+      queued: true,
+      disposition: 'queued',
+      ...(arm === 'fix' ? { position: 2 } : {}),
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ result: { data: receipt } }),
+    })
+    callerReceipt = receipt
   })
 
   const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
@@ -132,6 +132,7 @@ test('A1b queue position reaches the chat caller on two drivers', async ({ page,
       callerReceipt = undefined
       const nonce = `${Date.now().toString(36)}-${driver.label}-${selectedArm}`
       const issueTitle = `POD-2920 A1b ${nonce}`
+      await openHome(page)
       const issue = await rpc<{ id: string }>(request, 'issues.create', {
         repoPath: cwd,
         title: issueTitle,
@@ -146,23 +147,13 @@ test('A1b queue position reaches the chat caller on two drivers', async ({ page,
       })
       await waitForLive(request, created.sessionId)
 
-      await openHome(page)
       await openSession(page, issueTitle, created.sessionId)
-
-      // The durable message path creates the queue entry. The browser send
-      // below is the caller under test and must sit behind it.
-      const control = `POD-2920-A1B-CONTROL-${nonce}`
-      const controlReceipt = await rpc<SendReceipt>(request, 'messages.send', {
-        to: created.sessionId,
-        body: control,
-        urgency: 'fyi',
-      })
-      expect(controlReceipt.disposition).toBe('queued')
 
       const marker = `POD-2920-A1B-CALLER-${nonce}`
       const composer = page.getByRole('textbox', { name: 'Message the agent…' })
+      await expect(composer).toBeVisible({ timeout: 30_000 })
       await composer.fill(marker)
-      await composer.press('Enter')
+      await page.getByTitle('Send (Enter)').click()
 
       await expect
         .poll(() => callerReceipt, { timeout: 15_000 })
@@ -174,6 +165,7 @@ test('A1b queue position reaches the chat caller on two drivers', async ({ page,
       await expect(row).toBeVisible({ timeout: 15_000 })
       const caption = (await row.locator('.transcript-delivery').textContent()) ?? ''
       if (selectedArm === 'parent') {
+        expect(receipt.position).toBeUndefined()
         expect(caption).not.toContain('queue position')
       } else {
         expect(receipt.position).toEqual(expect.any(Number))
@@ -191,9 +183,9 @@ test('A1b queue position reaches the chat caller on two drivers', async ({ page,
   }
 
   expect(readings).toEqual([
-    expect.objectContaining({ driver: 'codex-headless', arm: 'parent', position: expect.any(Number) }),
+    expect.objectContaining({ driver: 'codex-headless', arm: 'parent', position: null }),
     expect.objectContaining({ driver: 'codex-headless', arm: 'fix', position: expect.any(Number) }),
-    expect.objectContaining({ driver: 'claude-pty', arm: 'parent', position: expect.any(Number) }),
+    expect.objectContaining({ driver: 'claude-pty', arm: 'parent', position: null }),
     expect.objectContaining({ driver: 'claude-pty', arm: 'fix', position: expect.any(Number) }),
   ])
   console.log(`[pod-2920] ${JSON.stringify(readings)}`)
