@@ -15,6 +15,7 @@ import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
+import { SessionStore } from '../../store'
 
 const registries: SessionRegistry[] = []
 
@@ -22,8 +23,8 @@ afterEach(() => {
   for (const r of registries.splice(0)) r.dispose()
 })
 
-function makeRegistry(): { reg: SessionRegistry; daemon: ControlMessage[] } {
-  const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+function makeRegistry(store?: SessionStore): { reg: SessionRegistry; daemon: ControlMessage[] } {
+  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -153,8 +154,9 @@ describe('resolved runtime driver projection', () => {
 })
 
 describe('Claude SDK continuity projection', () => {
-  it('carries the selected SDK driver and exact resume ref through reattach and resurrection', async () => {
-    const { reg, daemon } = makeRegistry()
+  it('carries the persisted selected driver and exact resume ref through reload and resurrection', async () => {
+    const store = new SessionStore(':memory:')
+    const { reg, daemon } = makeRegistry(store)
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -172,6 +174,7 @@ describe('Claude SDK continuity projection', () => {
       geometry: { cols: 80, rows: 24 },
       runtimeContract: true,
       driverId: 'claude-sdk',
+      requestedDriverId: 'claude-pty',
     })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
@@ -185,20 +188,29 @@ describe('Claude SDK continuity projection', () => {
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
     })
 
+    expect(
+      store.sessions.loadSessions().find((row) => row.id === sessionId)?.selectedDriverId,
+    ).toBe('claude-sdk')
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    reg.dispose()
+    const reloaded = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    registries.push(reloaded)
     daemon.length = 0
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+    reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
+      daemon.push(message),
+    )
     const reattach = daemon.find(
       (message): message is Extract<ControlMessage, { type: 'reattach' }> =>
         message.type === 'reattach' && message.sessionId === sessionId,
     )
     expect(reattach).toMatchObject({ sessionId, resume, runtimeContract: 'claude-sdk' })
+    expect(reattach).not.toHaveProperty('requestedDriverId')
 
     daemon.length = 0
-    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    expect(reloaded.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
     daemon.length = 0
     await expect(
-      reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
+      reloaded.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
     ).resolves.toEqual({
       ok: true,
     })

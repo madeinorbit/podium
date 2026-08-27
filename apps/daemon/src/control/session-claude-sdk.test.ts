@@ -2,6 +2,7 @@ import type { AgentSessionHandle } from '@podium/agent-runtime'
 import { asSessionId, type ResumeRef, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { emitClaudeBinding } from '../runtime/claude-sdk-driver'
 import type { DaemonContext } from './context'
 import { launchServerDriverSession, sessionHandlers, stopSessionProcess } from './session'
 
@@ -52,10 +53,26 @@ function world(input: {
   existing?: AgentSessionHandle
   adopt: (binding: unknown) => Promise<AgentSessionHandle>
   resume: (ref: ResumeRef, spec: unknown, sessionId?: SessionId) => Promise<AgentSessionHandle>
+  publishResume?: boolean
 }) {
   const sent: DaemonMessage[] = []
   const adopt = vi.fn(input.adopt)
-  const resume = vi.fn(input.resume)
+  const resume = vi.fn(async (ref: ResumeRef, spec: unknown, sessionId?: SessionId) => {
+    const resumed = await input.resume(ref, spec, sessionId)
+    if (input.publishResume) {
+      await emitClaudeBinding(
+        (message) => sent.push(message),
+        {
+          sessionId: resumed.binding.sessionId,
+          cwd: resumed.binding.workdir,
+          agentKind: 'claude-code',
+          geometry: { cols: 80, rows: 24 },
+        },
+        resumed,
+      )
+    }
+    return resumed
+  })
   const ctx = {
     send: (message: DaemonMessage) => sent.push(message),
     machineId: 'claude-test-machine',
@@ -122,6 +139,7 @@ describe('Claude SDK reattach control', () => {
         expect(sessionId).toBe(SESSION_ID)
         return resumed
       },
+      publishResume: true,
     })
 
     sessionHandlers.reattach(w.ctx, reattachMessage(SESSION_ID, RESUME))
@@ -129,6 +147,34 @@ describe('Claude SDK reattach control', () => {
 
     expect(w.adopt).toHaveBeenCalledTimes(1)
     expect(w.resume).toHaveBeenCalledWith(RESUME, expect.any(Object), SESSION_ID)
+    await vi.waitFor(() =>
+      expect(w.sent).toContainEqual({
+        type: 'sessionResumeRef',
+        sessionId: SESSION_ID,
+        resume: RESUME,
+        confidence: 'exact',
+      }),
+    )
+    expect(w.sent).toContainEqual({
+      type: 'bind',
+      sessionId: SESSION_ID,
+      cmd: 'Claude Agent SDK (embedded)',
+      cwd: '/project',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+      runtimeContract: true,
+      driverId: 'claude-sdk',
+    })
+    expect(w.sent).toContainEqual({
+      type: 'agentState',
+      sessionId: SESSION_ID,
+      state: {
+        phase: 'idle',
+        since: '2026-08-27T00:00:00.000Z',
+        nativeSubagentCount: 0,
+      },
+    })
+    expect(w.sent.filter((message) => message.type === 'bind')).toHaveLength(1)
     expect(w.sent.some((message) => message.type === 'reattachFailed')).toBe(false)
   })
 

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { runClaudeSdkChildTurn } from '../claude-sdk-client'
 import type { TerminalRuntimeHost } from './terminal-driver'
 import { createDaemonClaudeSdkRuntime } from './claude-sdk-driver'
+import { createDaemonMachineRuntime } from './machine-runtime'
 
 vi.mock('../claude-sdk-client', () => ({
   runClaudeSdkChildTurn: vi.fn(),
@@ -35,6 +36,23 @@ function host(reads: Array<{ resumeValue: string; limit: number }>): TerminalRun
       return WITNESS.slice(-range.limit)
     },
   } as unknown as TerminalRuntimeHost
+}
+
+function serverRuntime(id: string, harness: string) {
+  return {
+    driver: {
+      id,
+      harness,
+      family: 'server',
+      capabilities: () => ({ placement: 'dedicated' as const }),
+    },
+    handleFor: () => undefined,
+    bindings: () => [],
+    journal: { read: () => undefined, clear: vi.fn() },
+    launch: vi.fn(async () => {}),
+    adoptFromJournal: vi.fn(async () => undefined),
+    dispose: vi.fn(),
+  }
 }
 
 describe('Claude SDK daemon host adapter', () => {
@@ -103,6 +121,75 @@ describe('Claude SDK daemon host adapter', () => {
     runtime.dispose()
   })
 
+  it('routes process-gone resume through the machine root and publishes once', async () => {
+    const sent: DaemonMessage[] = []
+    const claude = createDaemonClaudeSdkRuntime({
+      send: (message) => sent.push(message),
+      host: host([]),
+    })
+    const terminal = {
+      driverFor: vi.fn(),
+      handleFor: () => undefined,
+      bindings: () => [],
+      observe: vi.fn(),
+      onHookPayload: vi.fn(),
+      register: vi.fn(),
+      clear: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const machine = createDaemonMachineRuntime({
+      terminal,
+      claude,
+      opencode: serverRuntime('opencode-server', 'opencode'),
+      codex: serverRuntime('codex-app-server', 'codex'),
+      grok: serverRuntime('grok-acp', 'grok'),
+      inventory: async () => ({ os: 'linux', arch: 'x64', agents: [], tools: [] }),
+    } as unknown as Parameters<typeof createDaemonMachineRuntime>[0])
+
+    const handle = await machine.resume(
+      RESUME,
+      {
+        harness: 'claude-code',
+        selection: {
+          auth: 'unknown',
+          platform: 'linux',
+          available: ['claude-sdk'],
+          preference: 'claude-sdk',
+          role: 'interactive',
+        },
+        workdir: '/project',
+        model: {},
+        instructions: { supported: false, reason: 'fixture' },
+        mcpServers: { supported: false, reason: 'fixture' },
+      },
+      SESSION_ID,
+    )
+
+    expect(handle.binding).toMatchObject({
+      sessionId: SESSION_ID,
+      driver: 'claude-sdk',
+      resume: RESUME,
+    })
+    const binds = sent.filter((message) => message.type === 'bind')
+    const states = sent.filter((message) => message.type === 'agentState')
+    const refs = sent.filter((message) => message.type === 'sessionResumeRef')
+    expect(binds).toHaveLength(1)
+    expect(binds[0]).toMatchObject({
+      sessionId: SESSION_ID,
+      runtimeContract: true,
+      driverId: 'claude-sdk',
+    })
+    expect(states.length).toBeGreaterThanOrEqual(1)
+    expect(refs).toEqual([
+      {
+        type: 'sessionResumeRef',
+        sessionId: SESSION_ID,
+        resume: RESUME,
+        confidence: 'exact',
+      },
+    ])
+    machine.dispose()
+  })
   it('forwards queued teardown loss once through the durable daemon contract', async () => {
     const sent: DaemonMessage[] = []
     vi.mocked(runClaudeSdkChildTurn).mockImplementation(

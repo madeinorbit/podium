@@ -35,6 +35,24 @@ describe('Claude SDK runtime selection', () => {
     ).toEqual({ ok: true, driverId: 'claude-pty' })
   })
 
+  it('only an explicit per-spawn SDK request overrides a machine default', () => {
+    const selectedByMachineDefault = resolveRuntimeDriver({
+      ...base,
+      requested: undefined,
+      machineDefault: 'claude-sdk',
+      available: ['claude-pty', 'generic-pty', 'claude-sdk'],
+    })
+    expect(selectedByMachineDefault).toEqual({ ok: true, driverId: 'claude-pty' })
+
+    const selectedExplicitly = resolveRuntimeDriver({
+      ...base,
+      requested: 'claude-sdk',
+      machineDefault: 'claude-sdk',
+      available: ['claude-pty', 'generic-pty', 'claude-sdk'],
+    })
+    expect(selectedExplicitly).toEqual({ ok: true, driverId: 'claude-sdk' })
+  })
+
   it('requires both the per-spawn driver id and the operator ToS acknowledgement', () => {
     const refused = resolveRuntimeDriver({
       ...base,

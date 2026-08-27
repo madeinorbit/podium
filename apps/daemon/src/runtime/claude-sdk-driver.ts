@@ -9,7 +9,7 @@ import {
   type RuntimeEvent,
 } from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
-import type { AccountId, AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
+import type { AccountId, AgentRuntimeState, Geometry, ResumeRef, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { runClaudeSdkChildTurn } from '../claude-sdk-client'
 import type { HeadlessTurnSpec } from '../headless-drivers'
@@ -27,6 +27,37 @@ export interface ClaudeSdkSessionLaunch {
   env?: Readonly<Record<string, string>>
   initialPrompt?: string
   resume?: ResumeRef
+}
+
+export async function emitClaudeBinding(
+  send: (message: DaemonMessage) => void,
+  input: {
+    sessionId: SessionId
+    cwd: string
+    agentKind: 'claude-code'
+    geometry: Geometry
+  },
+  handle: AgentSessionHandle,
+): Promise<void> {
+  send({
+    type: 'bind',
+    sessionId: input.sessionId,
+    cmd: 'Claude Agent SDK (embedded)',
+    cwd: input.cwd,
+    agentKind: input.agentKind,
+    geometry: input.geometry,
+    runtimeContract: true,
+    driverId: handle.binding.driver,
+  })
+  send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })
+  if (handle.binding.resume) {
+    send({
+      type: 'sessionResumeRef',
+      sessionId: input.sessionId,
+      resume: handle.binding.resume,
+      confidence: 'exact',
+    })
+  }
 }
 
 export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime {
@@ -177,17 +208,6 @@ export function createDaemonClaudeSdkRuntime(deps: {
     })()
   }
 
-  function reportResumeRef(sessionId: SessionId, handle: AgentSessionHandle): void {
-    if (handle.binding.resume) {
-      deps.send({
-        type: 'sessionResumeRef',
-        sessionId,
-        resume: handle.binding.resume,
-        confidence: 'exact',
-      })
-    }
-  }
-
   runtime = {
     ...contractRuntime,
     async launch(input) {
@@ -213,18 +233,16 @@ export function createDaemonClaudeSdkRuntime(deps: {
         ? await contractRuntime.resumeWithId(input.sessionId, input.resume, spec)
         : await contractRuntime.createWithId(input.sessionId, spec)
       pump(input.sessionId)
-      deps.send({
-        type: 'bind',
-        sessionId: input.sessionId,
-        cmd: 'Claude Agent SDK (embedded)',
-        cwd: input.cwd,
-        agentKind: 'claude-code',
-        geometry: { cols: 120, rows: 40 },
-        runtimeContract: true,
-        driverId: handle.binding.driver,
-      })
-      deps.send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })
-      reportResumeRef(input.sessionId, handle)
+      await emitClaudeBinding(
+        deps.send,
+        {
+          sessionId: input.sessionId,
+          cwd: input.cwd,
+          agentKind: 'claude-code',
+          geometry: { cols: 120, rows: 40 },
+        },
+        handle,
+      )
       return handle
     },
   }

@@ -38,6 +38,7 @@ import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
+import { emitClaudeBinding } from '../runtime/claude-sdk-driver'
 import { runtimeContractEnabledFor, runtimeDriverByEnv } from '../runtime/flag'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
 import { handleFor, runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
@@ -1523,25 +1524,16 @@ async function adoptOrResumeEmbeddedClaudeSession(
     } as const)
   try {
     const handle = await runtime.adopt(binding)
-    ctx.send({
-      type: 'bind',
-      sessionId: msg.sessionId,
-      cmd: 'Claude Agent SDK (embedded)',
-      cwd: msg.cwd,
-      agentKind: msg.agentKind,
-      geometry: msg.geometry,
-      runtimeContract: true,
-      driverId: handle.binding.driver,
-    })
-    ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
-    if (handle.binding.resume) {
-      ctx.send({
-        type: 'sessionResumeRef',
+    await emitClaudeBinding(
+      ctx.send,
+      {
         sessionId: msg.sessionId,
-        resume: handle.binding.resume,
-        confidence: 'exact',
-      })
-    }
+        cwd: msg.cwd,
+        agentKind: 'claude-code',
+        geometry: msg.geometry,
+      },
+      handle,
+    )
     log.info('adopted surviving Claude SDK session', {
       sessionId: msg.sessionId,
       mode: 'same-daemon',
@@ -1584,6 +1576,10 @@ async function adoptOrResumeEmbeddedClaudeSession(
       ) {
         throw new Error('Claude SDK resume did not preserve the exact session identity or ref')
       }
+      // The production machine source routes this resume to
+      // embeddedSource.resumeWithId -> claude.launch, whose shared publisher
+      // has emitted bind, agentState and the exact resume ref before this
+      // promise resolves. Publishing here as well would duplicate the bind.
       log.info('resumed Claude SDK session after process loss', {
         sessionId: msg.sessionId,
         mode: 'process-gone',
