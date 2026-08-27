@@ -24,3 +24,5 @@ Built and runtime code tree: `7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4`. Served 
 | A7a | PASS | Product driver `grok-acp/server`; daemon 1954780→1968990 with c26 pin; same conversation ID recalled pre-restart codeword | `readings/a7a.json` |
 
 | A7b | FAIL | Product driver `grok-acp/server`; parked and recalled context, but resurrect did not restore `live` status within 60s | `readings/a7b.json` |
+
+| A4a | BLOCKED | Product driver `grok-acp/server`; terminal attached, but permission probe produced no durable turn, so ask/card/answer clauses were unmeasurable | `readings/a4a.json` |
