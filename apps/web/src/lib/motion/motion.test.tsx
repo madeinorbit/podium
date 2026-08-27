@@ -50,13 +50,15 @@ describe('usePhaseMorph — one-shot transition latch', () => {
 describe('WorkingMark', () => {
   it('renders the eight-dot cell (pure-CSS animation), decorative', () => {
     const { container } = render(<WorkingMark size={12} />)
-    const el = container.querySelector('svg.pod-mark') as SVGElement
+    const el = container.querySelector('.pod-mark') as HTMLElement
+    const shape = el.querySelector('svg') as SVGElement
     expect(el).toBeTruthy()
     expect(el.getAttribute('aria-hidden')).toBe('true')
     expect(el.querySelectorAll('circle')).toHaveLength(8)
+    expect(el.querySelector('.pod-mark-frames')).toBeTruthy()
     // The cell is 66×100, so the box the row reserves follows the height.
-    expect(el.getAttribute('height')).toBe('12')
-    expect(el.getAttribute('width')).toBe('8')
+    expect(shape.getAttribute('height')).toBe('12')
+    expect(shape.getAttribute('width')).toBe('8')
   })
 
   it('fattens the dots in a small cell so the wave has something to cross', () => {

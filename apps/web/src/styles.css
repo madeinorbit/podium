@@ -2019,46 +2019,32 @@ html[data-density="balanced"] .header-quota-pools {
   outline: none;
 }
 /* The braille spinner — the shell's one piece of perpetual motion, reusing the
-   agent-state grammar's frames and cadence. */
+   agent-state grammar's frames and cadence. The glyphs sit in one fixed strip;
+   translating that strip preserves the exact sequence without animating
+   `content`, which made Chromium restyle and lay out the shell every frame. */
+.status-strip-spinner {
+  display: inline-block;
+  height: 1em;
+  overflow: hidden;
+  line-height: 1em;
+  contain: layout paint style;
+}
 .status-strip-spinner::after {
-  content: "⠋";
-  animation: status-strip-braille 800ms steps(1) infinite;
+  display: block;
+  content: "⠋\A⠙\A⠹\A⠸\A⠼\A⠴\A⠦\A⠧\A⠇\A⠏";
+  white-space: pre;
+  will-change: transform;
+  animation: status-strip-braille 800ms steps(10, end) infinite;
 }
 @keyframes status-strip-braille {
-  0% {
-    content: "⠋";
-  }
-  10% {
-    content: "⠙";
-  }
-  20% {
-    content: "⠹";
-  }
-  30% {
-    content: "⠸";
-  }
-  40% {
-    content: "⠼";
-  }
-  50% {
-    content: "⠴";
-  }
-  60% {
-    content: "⠦";
-  }
-  70% {
-    content: "⠧";
-  }
-  80% {
-    content: "⠇";
-  }
-  90% {
-    content: "⠏";
+  to {
+    transform: translate3d(0, -100%, 0);
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .status-strip-spinner::after {
     animation: none;
+    transform: none;
   }
   .status-strip-history-tooltip {
     transition: none;
@@ -10889,4 +10875,3 @@ a.ref-link--session::before {
   outline: none;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 40%, transparent);
 }
-

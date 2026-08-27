@@ -67,7 +67,7 @@ describe('TranscriptTail', () => {
     expect(figure()).toBe('0:42')
     // …and it is the one state licensed to move: the working mark, in the
     // larger cell the end of the feed gets.
-    expect(host.querySelector('svg.pod-mark')).not.toBeNull()
+    expect(host.querySelector('.pod-mark')).not.toBeNull()
   })
 
   it('marks just-sent transport, timerless even with an old session clock', () => {
@@ -86,7 +86,7 @@ describe('TranscriptTail', () => {
     expect(tail()?.dataset.tail).toBe('sending')
     expect(host.textContent).toContain('Sending')
     expect(host.querySelector('.feed-tail-figure')).toBeNull()
-    expect(host.querySelector('svg.pod-mark')).not.toBeNull()
+    expect(host.querySelector('.pod-mark')).not.toBeNull()
   })
 
   it('addresses the reader when the agent is waiting on them, and stays still', () => {
