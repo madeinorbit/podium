@@ -1,0 +1,1236 @@
+{
+  "recordedAt": "2026-08-27T15:38:01.423Z",
+  "commit": "8144307b4f2b106127cee3c8028f6347f13a574f",
+  "commitTime": "2026-08-27 16:29:15 +0200",
+  "instance": "p2987q-8271743",
+  "probeBase": "/tmp/pod-2987-20260827T1743",
+  "stateRoot": "/home/mgw/.local/state/podium/p2987q-8271743",
+  "agentHome": "/home/mgw/.local/state/podium/p2987q-8271743/agent-home",
+  "forbiddenPathOverrides": {
+    "HOME": "/home/mgw",
+    "PODIUM_STATE_DIR": null,
+    "PODIUM_AGENT_HOME": null,
+    "ABDUCO_SOCKET_DIR": null
+  },
+  "credential": {
+    "sourceMtime": "2026-08-27T13:57:22.396Z",
+    "isolatedMtime": "2026-08-27T15:37:36.302Z",
+    "expiresAt": 1787867842100,
+    "accessValidAtStart": true
+  },
+  "processPins": {
+    "server": {
+      "pid": 2760694,
+      "ppid": 1055,
+      "exe": "/home/mgw/.bun/bin/bun",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2987-claude-quota-parity",
+      "cmdline": [
+        "bun",
+        "--conditions=@podium/source",
+        "scripts/server.ts"
+      ],
+      "identityEnv": {
+        "PODIUM_INSTANCE": "p2987q-8271743",
+        "PODIUM_SESSION_ID": null,
+        "PODIUM_SPAWN_SHA": "8144307b4f2b106127cee3c8028f6347f13a574f",
+        "HOME": "/home/mgw",
+        "CLAUDE_CONFIG_DIR": null,
+        "ABDUCO_SOCKET_DIR": null
+      }
+    },
+    "daemon": {
+      "pid": 2761201,
+      "ppid": 1055,
+      "exe": "/home/mgw/.bun/bin/bun",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2987-claude-quota-parity",
+      "cmdline": [
+        "bun",
+        "--conditions=@podium/source",
+        "scripts/daemon.ts"
+      ],
+      "identityEnv": {
+        "PODIUM_INSTANCE": "p2987q-8271743",
+        "PODIUM_SESSION_ID": null,
+        "PODIUM_SPAWN_SHA": "8144307b4f2b106127cee3c8028f6347f13a574f",
+        "HOME": "/home/mgw",
+        "CLAUDE_CONFIG_DIR": null,
+        "ABDUCO_SOCKET_DIR": null
+      }
+    }
+  },
+  "claudePty": {
+    "path": "claude-pty",
+    "startedAt": "2026-08-27T15:38:01.976Z",
+    "sentAt": "2026-08-27T15:38:07.231Z",
+    "endedAt": "2026-08-27T15:40:10.166Z",
+    "marker": "P2987-PTY-MTBOSTHV",
+    "sessionId": "0eea47db-2636-4943-9b43-22ed4a3834b7",
+    "createAck": {
+      "sessionId": "0eea47db-2636-4943-9b43-22ed4a3834b7",
+      "agentId": "0eea47db-2636-4943-9b43-22ed4a3834b7",
+      "harness": "claude-code",
+      "model": null,
+      "effort": null,
+      "machine": "flatblock",
+      "machineId": "0e7bd90c-e1d0-4c06-9930-6d899f40ceec",
+      "accountId": "native:claude-code"
+    },
+    "sendAck": {
+      "ok": true,
+      "queued": true,
+      "position": 1,
+      "disposition": "queued"
+    },
+    "positiveControl": {
+      "fired": true,
+      "actualClaudeProcessObserved": true,
+      "terminalBytes": 6306,
+      "promptPersisted": true,
+      "providerLimitTranscriptPersisted": true,
+      "driverIdPublished": false
+    },
+    "classification": "provider-monthly-spend-limit-exhausted",
+    "quotaReported": true,
+    "loggedOutReported": false,
+    "markerReply": false,
+    "status": {
+      "sessionId": "0eea47db-2636-4943-9b43-22ed4a3834b7",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": null,
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "errored",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": {
+        "class": "unknown",
+        "retryable": true
+      },
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "922f6f6 quota probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    },
+    "processes": [
+      {
+        "pid": 2762855,
+        "ppid": 1055,
+        "exe": "/home/mgw/.local/state/podium/p2987q-8271743/bin/abduco",
+        "cwd": "/",
+        "cmdline": [
+          "/home/mgw/.local/state/podium/p2987q-8271743/bin/abduco",
+          "-n",
+          "podium-p2987q-8271743-0eea47db-2636-4943-9b43-22ed4a3834b7",
+          "/home/mgw/.local/bin/claude",
+          "--append-system-prompt",
+          "<system-prompt-redacted; not evidence>",
+          "--settings",
+          "/home/mgw/.local/state/podium/p2987q-8271743/hooks/0eea47db-2636-4943-9b43-22ed4a3834b7.json"
+        ],
+        "identityEnv": {
+          "PODIUM_INSTANCE": "p2987q-8271743",
+          "PODIUM_SESSION_ID": "0eea47db-2636-4943-9b43-22ed4a3834b7",
+          "PODIUM_SPAWN_SHA": "8144307b4f2b106127cee3c8028f6347f13a574f",
+          "HOME": "/home/mgw/.local/state/podium/p2987q-8271743/agent-home",
+          "CLAUDE_CONFIG_DIR": null,
+          "ABDUCO_SOCKET_DIR": "/run/user/1001/podium"
+        }
+      },
+      {
+        "pid": 2762856,
+        "ppid": 2762855,
+        "exe": "/home/mgw/.local/share/claude/versions/2.1.231",
+        "cwd": "/tmp/pod-2987-20260827T1743/probes/claude-pty",
+        "cmdline": [
+          "/home/mgw/.local/bin/claude",
+          "--append-system-prompt",
+          "<system-prompt-redacted; not evidence>",
+          "--settings",
+          "/home/mgw/.local/state/podium/p2987q-8271743/hooks/0eea47db-2636-4943-9b43-22ed4a3834b7.json"
+        ],
+        "identityEnv": {
+          "PODIUM_INSTANCE": "p2987q-8271743",
+          "PODIUM_SESSION_ID": "0eea47db-2636-4943-9b43-22ed4a3834b7",
+          "PODIUM_SPAWN_SHA": "8144307b4f2b106127cee3c8028f6347f13a574f",
+          "HOME": "/home/mgw/.local/state/podium/p2987q-8271743/agent-home",
+          "CLAUDE_CONFIG_DIR": null,
+          "ABDUCO_SOCKET_DIR": "/run/user/1001/podium"
+        }
+      },
+      {
+        "pid": 2762865,
+        "ppid": 2761201,
+        "exe": "/home/mgw/.local/state/podium/p2987q-8271743/bin/abduco",
+        "cwd": "/home/mgw/src/podium/.worktrees/issue-2987-claude-quota-parity",
+        "cmdline": [
+          "/home/mgw/.local/state/podium/p2987q-8271743/bin/abduco",
+          "-q",
+          "-e",
+          "�",
+          "-a",
+          "/run/user/1001/podium/abduco/mgw/podium-p2987q-8271743-0eea47db-2636-4943-9b43-22ed4a3834b7@flatblock"
+        ],
+        "identityEnv": {
+          "PODIUM_INSTANCE": "p2987q-8271743",
+          "PODIUM_SESSION_ID": "0eea47db-2636-4943-9b43-22ed4a3834b7",
+          "PODIUM_SPAWN_SHA": "8144307b4f2b106127cee3c8028f6347f13a574f",
+          "HOME": "/home/mgw/.local/state/podium/p2987q-8271743/agent-home",
+          "CLAUDE_CONFIG_DIR": null,
+          "ABDUCO_SOCKET_DIR": "/run/user/1001/podium"
+        }
+      }
+    ],
+    "transcript": [
+      {
+        "role": "system",
+        "text": "Auto mode lets Claude handle permission prompts automatically — Claude checks each tool call for risky actions and prompt injection before executing. Actions Claude identifies as safe are executed, while actions Claude identifies as risky are blocked and Claude may try a different approach. Ideal for long-running tasks. Claude can make mistakes that allow harmful commands to run, it's recommended to only use in isolated environments. Shift+Tab to change mode.",
+        "ts": "2026-08-27T15:38:06.437Z"
+      },
+      {
+        "role": "user",
+        "text": "Reply with exactly P2987-PTY-MTBOSTHV and nothing else. Do not use tools.",
+        "ts": "2026-08-27T15:38:08.887Z"
+      },
+      {
+        "role": "assistant",
+        "text": "You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_limit_message",
+        "ts": "2026-08-27T15:38:09.741Z"
+      },
+      {
+        "role": "system",
+        "text": "",
+        "ts": "2026-08-27T15:38:09.766Z"
+      }
+    ],
+    "screen": "78â­âââClaudeCodev2.1.231ââââââââââââââââââââââââââââââââââââââââââââââââââââââ®\r\r\nââTipsforgettingstartedâ\r\r\nâWelcomebackMichael!âRun/inittocreateaCâ¦â\r\r\nâââââââââââââââââââââââââââ\r\r\nâââââââââWhat'snewâ\r\r\nâââââââââââAddedthe`SendFeedbackâ¦â\r\r\nââââââAdded`{id,text,cooldâ¦â\r\r\nââAddedatiponBashperâ¦â\r\r\nâOpus5(1Mcontext)Â·ClaudeMaxâ/release-notesformoreâ\r\r\nâ/tmp/pod-2987-20260827T1743/probes/claude-ptyââ\r\r\nâ°âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ¯\r\r\n\r\r\nâFable5isnowastandardpartofyourMaxplan\r\r\nâYoucanuseupto50%ofyourweeklyusagelimitonFable5.Ifyouhityour\r\r\nâlimit,youcancontinueonFable5withusagecredits.Fable5drawsdown\r\r\nâusagefasterthanOpus5.Run/modelandselectFabletouseit.Learnmore:\r\r\nâhttps://support.claude.com/en/articles/15424964-claude-fable-5-promotional-ac\r\r\nâcess\r\r\n\r\r\nââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ\r\r\nâ¯Â Try\"howdoIloganerror?\"\r\r\nââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ\r\r\nâµâµautomodeon(shift+tabtocycle)Â·âforagentsâhighÂ·/effort\r\r\n\r\r\r\nFastmodeisnowavailableÂ·/fasttoturnon\r\r\n\râ Auto mode lets Claude handle permission prompts automatically â Claude\r  checks eachtool cll for riskyactionsandpromptinjectionbefore\r  executing. Actions Claude identifies as safe are executed, while\ractionsClaude identifies as risky areblocked ad Claudemaytrya\rdifferentapproach.Idealforlong-running tasks. Claude can mke\r\r\nmistakesthatallowharmfulcommandstorun,it'srecommendedtoonly\r\r\nuseinisolatedenvironments.Shift+Tabtochangemode.\r\r\n\r\r\nââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ\r\r\nâ¯Â \r\r\nââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ\r\r\nâµâµautomodeon(shift+tabtocycle)Â·âforagents\r\r\nFastmodeisnowavailableÂ·/fasttoturnon\r\r\n\rReplywithexactlyP2987-PTY-MTBOSTHVandnothingelse.Donotusetools.\r\r\r\n\r\n\râ¯ Reply with exactly P2987-PTY-MTBOSTHV and nothing else. Do not use tools.\r\r* Unravellingâ¦\r\rââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ\r\r\nâ¯Â \r\r\nââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ\r\r\nâµâµautomodeon(shift+tabtocycle)Â·esctointerruptÂ·âforagents\r\r\nFastmodeisnowavailableÂ·/fasttoturnon\r\r\n\râ¶\r\r\n\r\n\r\n\r\n\r\n\r\n\r\n\râ»\r\r\n\r\n\r\n\r\n\r\n\r\n\r\n\râ½\r\r\n\r\n\r\n\r\n\r\n\r\n\r\n\râ»\r\r\n\r\n\r\n\r\n\r\n\r\n\r\n\râ¿Â You'vehityourmonthlyspendlimit.\r    /usage-creditstoadjustyourmonthlyspendlimit.\râ» Worked for 0s\r\râ¯Â \rââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ\r\r\nâµâµautomodeon(shift+tabtocycle)Â·âforagents\r\r\nFastmodeisnowavailableÂ·/fasttoturnon\r\r\n\râhighÂ·/effort\r\r\r\r\n",
+    "samples": [
+      {
+        "at": "2026-08-27T15:38:07.608Z",
+        "phase": "idle",
+        "screenBytes": 4198
+      },
+      {
+        "at": "2026-08-27T15:38:08.464Z",
+        "phase": "idle",
+        "screenBytes": 4198
+      },
+      {
+        "at": "2026-08-27T15:38:09.331Z",
+        "phase": "idle",
+        "screenBytes": 5375
+      },
+      {
+        "at": "2026-08-27T15:38:10.233Z",
+        "phase": "errored",
+        "screenBytes": 6174
+      },
+      {
+        "at": "2026-08-27T15:38:10.887Z",
+        "phase": "errored",
+        "screenBytes": 6174
+      },
+      {
+        "at": "2026-08-27T15:38:11.578Z",
+        "phase": "errored",
+        "screenBytes": 6174
+      },
+      {
+        "at": "2026-08-27T15:38:12.246Z",
+        "phase": "errored",
+        "screenBytes": 6174
+      },
+      {
+        "at": "2026-08-27T15:38:12.907Z",
+        "phase": "errored",
+        "screenBytes": 6174
+      },
+      {
+        "at": "2026-08-27T15:38:13.579Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:14.242Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:14.910Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:15.765Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:17.027Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:18.040Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:18.804Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:19.377Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:19.953Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:20.520Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:21.074Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:21.676Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:22.277Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:22.878Z",
+        "phase": "errored",
+        "screenBytes": 6262
+      },
+      {
+        "at": "2026-08-27T15:38:23.459Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:24.098Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:24.739Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:25.343Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:26.191Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:26.939Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:27.796Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:28.478Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:29.098Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:29.705Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:30.343Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:30.910Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:31.530Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:32.113Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:32.787Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:34.420Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:35.152Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:36.332Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:37.016Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:37.718Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:38.394Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:39.098Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:39.814Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:40.415Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:41.020Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:41.614Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:42.194Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:42.764Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:43.412Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:44.045Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:44.622Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:45.227Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:45.791Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:46.344Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:46.941Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:47.497Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:48.072Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:48.718Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:49.304Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:49.883Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:50.454Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:51.012Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:51.614Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:52.162Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:52.718Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:53.290Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:53.995Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:54.594Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:55.228Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:55.782Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:56.349Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:56.928Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:57.493Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:58.056Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:58.632Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:59.251Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:38:59.883Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:00.452Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:01.097Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:01.703Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:02.481Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:03.244Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:04.241Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:04.819Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:05.767Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:06.371Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:07.291Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:07.953Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:09.162Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:09.726Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:10.290Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:10.884Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:11.473Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:12.085Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:12.717Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:13.359Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:14.118Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:14.753Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:15.484Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:16.266Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:16.984Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:17.594Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:18.193Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:18.809Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:19.577Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:20.188Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:20.765Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:21.476Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:22.168Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:22.752Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:23.333Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:23.884Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:24.600Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:25.345Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:26.023Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:26.711Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:27.423Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:27.987Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:28.577Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:29.207Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:29.812Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:30.383Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:30.963Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:31.528Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:32.117Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:32.673Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:33.248Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:33.809Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:34.440Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:35.133Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:35.715Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:36.524Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:37.104Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:37.746Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:38.304Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:38.846Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:39.443Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:40.040Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:40.637Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:41.211Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:41.756Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:42.304Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:42.870Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:43.448Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:44.014Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:44.588Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:45.204Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:45.811Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:46.366Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:46.997Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:47.552Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:48.203Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:48.793Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:49.372Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:50.081Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:50.634Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:51.220Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:51.786Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:52.336Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:53.026Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:53.662Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:54.337Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:55.038Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:55.622Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:56.547Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:57.128Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:57.675Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:58.220Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:58.919Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:39:59.503Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:40:00.189Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:40:00.914Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:40:01.699Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:40:02.834Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:40:03.577Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:40:04.252Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:40:04.943Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:40:05.607Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:40:06.304Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      },
+      {
+        "at": "2026-08-27T15:40:06.962Z",
+        "phase": "errored",
+        "screenBytes": 6306
+      }
+    ],
+    "reset": {
+      "exposed": false,
+      "value": null
+    }
+  },
+  "claudeSdk": {
+    "path": "claude-sdk via production durable-headless/headless-driver seam",
+    "startedAt": "2026-08-27T15:40:10.640Z",
+    "endedAt": "2026-08-27T15:40:19.603Z",
+    "marker": "P2987-SDK-MTBOSTHW",
+    "sendAck": {
+      "threadId": "global",
+      "podiumSessionId": "59110973-580f-431e-9d64-9d84481c45a3",
+      "queued": false
+    },
+    "positiveControl": {
+      "fired": true,
+      "durableIdentityMatchesAck": true,
+      "exitCodePersisted": "1",
+      "providerOutputPersisted": true,
+      "resultPersisted": true,
+      "runnerProcessObserved": true,
+      "claudeRuntimeEventObserved": true,
+      "claudeCodeVersion": "2.1.231"
+    },
+    "classification": "provider-monthly-spend-limit-exhausted",
+    "quotaReported": true,
+    "loggedOutReported": false,
+    "markerReply": false,
+    "thread": {
+      "id": "global",
+      "ownerUserId": "user:sole",
+      "kind": "global",
+      "watermarkItemId": "377",
+      "watermarkTs": "2026-08-27T15:40:10.784Z",
+      "agentKind": "claude-code",
+      "podiumSessionId": "59110973-580f-431e-9d64-9d84481c45a3",
+      "harnessSessionId": "f29270d8-3d78-4b49-931e-d39b69200373",
+      "createdAt": "2026-08-27T15:37:38.471Z",
+      "updatedAt": "2026-08-27T15:40:19.400Z",
+      "archived": false,
+      "turnRunning": false
+    },
+    "history": [
+      {
+        "id": 1,
+        "ownerUserId": "user:sole",
+        "role": "assistant",
+        "content": "the headless harness turn failed (claude-code): The Claude turn failed: harness exited 1",
+        "createdAt": "2026-08-27T15:40:19.400Z"
+      }
+    ],
+    "journal": {
+      "dir": "/home/mgw/.local/state/podium/p2987q-8271743/headless-turns/80382ca36e98503bc2bbaf20cbfe4e248e5f9920539c4484579e99245346eb33",
+      "stat": {
+        "createdAt": "2026-08-27T15:40:10.903Z",
+        "resultMtime": "2026-08-27T15:40:19.368Z"
+      },
+      "process": {
+        "pid": 2770742,
+        "ppid": 2770741,
+        "exe": "/usr/bin/dash",
+        "cwd": "/home/mgw",
+        "cmdline": [
+          "/bin/sh",
+          "/home/mgw/.local/state/podium/p2987q-8271743/headless-turns/80382ca36e98503bc2bbaf20cbfe4e248e5f9920539c4484579e99245346eb33/run.sh"
+        ],
+        "identityEnv": {
+          "PODIUM_INSTANCE": "p2987q-8271743",
+          "PODIUM_SESSION_ID": "59110973-580f-431e-9d64-9d84481c45a3",
+          "PODIUM_SPAWN_SHA": "8144307b4f2b106127cee3c8028f6347f13a574f",
+          "HOME": "/home/mgw",
+          "CLAUDE_CONFIG_DIR": null,
+          "ABDUCO_SOCKET_DIR": "/run/user/1001/podium"
+        }
+      },
+      "exitCode": "1",
+      "stdout": "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"f29270d8-3d78-4b49-931e-d39b69200373\",\"model\":\"claude-opus-5\",\"permissionMode\":\"auto\",\"claude_code_version\":\"2.1.231\"}\n{\"type\":\"system\",\"subtype\":\"status\",\"status\":\"requesting\",\"session_id\":\"f29270d8-3d78-4b49-931e-d39b69200373\"}\n{\"type\":\"assistant\",\"session_id\":\"f29270d8-3d78-4b49-931e-d39b69200373\",\"error\":\"rate_limit\",\"is_api_error_message\":true,\"timestamp\":\"2026-08-27T15:40:18.515Z\",\"text\":\"You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_limit_message\"}\n{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":true,\"api_error_status\":429,\"terminal_reason\":\"api_error\",\"result\":\"You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_limit_message\",\"session_id\":\"f29270d8-3d78-4b49-931e-d39b69200373\",\"duration_ms\":478,\"num_turns\":1}\n",
+      "stderr": "",
+      "result": "{\"ok\":false,\"error\":\"harness exited 1\",\"harnessSessionId\":\"f29270d8-3d78-4b49-931e-d39b69200373\",\"requestDigest\":\"5ef5cfed3e98e2f4ade6a7a41a51d165a4c800ec532cea58f512d91649d73768\",\"accountId\":\"\"}",
+      "identity": "{\"sessionId\":\"59110973-580f-431e-9d64-9d84481c45a3\",\"turnId\":\"022b7c4b-0026-4fe2-9107-32c191b2d6b7\",\"requestDigest\":\"5ef5cfed3e98e2f4ade6a7a41a51d165a4c800ec532cea58f512d91649d73768\",\"accountId\":\"\"}"
+    },
+    "reset": {
+      "exposed": false,
+      "value": null
+    },
+    "persistedSessionStatus": {
+      "sessionId": "59110973-580f-431e-9d64-9d84481c45a3",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": null,
+      "status": "live",
+      "phase": "idle",
+      "account": null,
+      "error": null
+    },
+    "visibleFailure": "the headless harness turn failed (claude-code): The Claude turn failed: harness exited 1"
+  },
+  "observedCondition": {
+    "weeklyQuotaExhaustionObserved": false,
+    "blockingLimit": "monthly-spend-limit",
+    "providerMessage": "You've hit your monthly spend limit",
+    "resetExposed": false,
+    "resetValue": null,
+    "authClassification": "authenticated-unexpired; not logged out; no refresh observed"
+  }
+}
