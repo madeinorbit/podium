@@ -25,7 +25,6 @@ import {
   REPO,
   login,
   mutate,
-  nonce,
   query,
   sessionRow,
   until,
@@ -42,7 +41,7 @@ const parked = credential ? `${credential}.a8-parked` : ''
 const agentKind = AGENT_KIND.codex
 const readyMs = Number(process.env.P2777_READY_MS ?? 25_000)
 const bindMs = 90_000
-const restartScript = `${repo}/docs/evidence/pod-2777/restart-daemon.sh`
+const restartScript = `${repo}/docs/evidence/pod-2923/restart-daemon.sh`
 
 type RawRow = Record<string, any>
 
