@@ -32,10 +32,15 @@ import {
 
 const HARNESS = process.env.P2871_HARNESS ?? 'opencode'
 const EXPECTED_DRIVER = process.env.P2871_EXPECTED_DRIVER ?? 'generic-pty'
+const EXPECTED_DRIVER_FAMILY = process.env.P2871_EXPECTED_DRIVER_FAMILY ?? 'terminal'
+const ARM = process.env.P2871_ARM ?? 'with-fix'
+if (ARM !== 'pre-fix' && ARM !== 'with-fix') throw new Error(`unknown P2871_ARM: ${ARM}`)
+const EXPECTS_ISOLATION = ARM === 'with-fix'
 const FAULT_MODEL = process.env.P2871_FAULT_MODEL ?? 'opencode/laguna-s-2.1-free'
 const STORE_WAIT_MS = positiveMs('P2871_STORE_WAIT_MS', 30_000)
 const ANSWER_WAIT_MS = positiveMs('P2871_ANSWER_WAIT_MS', 120_000)
 const FAULT_WAIT_MS = positiveMs('P2871_FAULT_WAIT_MS', 190_000)
+const TERMINAL_READY_WAIT_MS = positiveMs('P2871_TERMINAL_READY_WAIT_MS', 60_000)
 const STATE_DIR = process.env.P2777_STATE_ROOT
 if (!STATE_DIR) throw new Error('source docs/evidence/pod-2811/drive-env.sh first')
 
@@ -60,6 +65,8 @@ type StoreCounts = {
 type StoreReading = {
   layout: 'session-owned' | 'legacy-shared'
   path: string
+  querySessionId: string
+  selectionReason: string
   counts?: StoreCounts
   error?: string
 }
@@ -67,15 +74,26 @@ type StoreReading = {
 type Session = {
   sid: string
   cwd: string
+  actualCwd: string
+  driverId: string
+  driverFamily: string
+  requestedDriverId?: string
+  nativeSessionId?: string
   chat: Chat
-  store: StoreReading
+  store?: StoreReading
 }
+type MeasuredSession = Session & { nativeSessionId: string; store: StoreReading }
 
 type CaseResult = {
   name: string
   sessions: Array<{
     sid: string
     cwd: string
+    actualCwd: string
+    driverId: string
+    driverFamily: string
+    requestedDriverId?: string
+    nativeSessionId: string
     assistantText: string
     screenTail?: string
     store: StoreReading
@@ -111,18 +129,27 @@ function rowRole(value: unknown): string | undefined {
   }
 }
 
-function readStore(path: string, layout: StoreReading['layout'], sid: string): StoreReading {
-  const reading: StoreReading = { layout, path }
+function readStore(
+  path: string,
+  layout: StoreReading['layout'],
+  querySessionId: string,
+  selectionReason: string,
+): StoreReading {
+  const reading: StoreReading = { layout, path, querySessionId, selectionReason }
   if (!existsSync(path)) return reading
 
   let db: ReturnType<typeof openDatabase> | undefined
   try {
     db = openDatabase(path, { readOnly: true })
-    const sessionRows = db.prepare('SELECT id FROM session WHERE id = ?').all(sid) as unknown[]
+    const sessionRows = db
+      .prepare('SELECT id FROM session WHERE id = ?')
+      .all(querySessionId) as unknown[]
     const messages = db
       .prepare('SELECT data FROM message WHERE session_id = ?')
-      .all(sid) as unknown[]
-    const parts = db.prepare('SELECT id FROM part WHERE session_id = ?').all(sid) as unknown[]
+      .all(querySessionId) as unknown[]
+    const parts = db
+      .prepare('SELECT id FROM part WHERE session_id = ?')
+      .all(querySessionId) as unknown[]
     reading.counts = {
       sessionRows: sessionRows.length,
       messageRows: messages.length,
@@ -138,18 +165,33 @@ function readStore(path: string, layout: StoreReading['layout'], sid: string): S
   return reading
 }
 
-function storeCandidates(sid: string): Array<{ layout: StoreReading['layout']; path: string }> {
-  return [
-    { layout: 'session-owned', path: opencodeSessionDbPath(AGENT_HOME, sid) },
-    { layout: 'legacy-shared', path: LEGACY_DB },
-  ]
+function selectedStore(sid: string): {
+  layout: StoreReading['layout']
+  path: string
+  selectionReason: string
+} {
+  if (ARM === 'pre-fix') {
+    return {
+      layout: 'legacy-shared',
+      path: LEGACY_DB,
+      selectionReason: 'pre-fix control: OpenCode is expected to use its legacy cwd-keyed store',
+    }
+  }
+  return {
+    layout: 'session-owned',
+    path: opencodeSessionDbPath(AGENT_HOME, sid),
+    selectionReason: 'with-fix arm: launch must select the Podium-session-owned OpenCode store',
+  }
 }
 
-async function waitForStore(sid: string, minimumMessages: number): Promise<StoreReading> {
+async function waitForStore(session: Session, minimumMessages: number): Promise<StoreReading> {
+  const nativeSessionId = session.nativeSessionId
+  assertThat(nativeSessionId, `session ${session.sid} has no native OpenCode session id`)
+  const selected = selectedStore(session.sid)
   const deadline = Date.now() + STORE_WAIT_MS
   let latest: StoreReading[] = []
   while (Date.now() < deadline) {
-    latest = storeCandidates(sid).map(({ layout, path }) => readStore(path, layout, sid))
+    latest = [readStore(selected.path, selected.layout, nativeSessionId, selected.selectionReason)]
     const match = latest.find(
       (reading) =>
         reading.counts !== undefined &&
@@ -160,19 +202,78 @@ async function waitForStore(sid: string, minimumMessages: number): Promise<Store
     await wait(250)
   }
   throw new Error(
-    `NO MEASUREMENT: OpenCode store for ${sid} never became readable with ${minimumMessages} message row(s): ${safeJson(latest)}`,
+    `NO MEASUREMENT: OpenCode store for Podium session ${session.sid} (native ${nativeSessionId}) never became readable with ${minimumMessages} message row(s); queried ${selected.path} because ${selected.selectionReason}: ${safeJson(latest)}`,
   )
 }
 
-async function requireExpectedDriver(sid: string): Promise<void> {
+async function requireExpectedDriver(
+  sid: string,
+  requestedCwd: string,
+): Promise<{
+  actualCwd: string
+  driverId: string
+  driverFamily: string
+  requestedDriverId?: string
+}> {
   const result = await until(sid, (row) => row?.driverId !== undefined, 30_000, 250)
   assertThat(result.ok, `session ${sid} never exposed a driver id`)
+  const row = result.row
+  assertThat(row, `session ${sid} disappeared before its driver identity could be read`)
+  assertThat(row.cwd, `session ${sid} did not expose its actual cwd`)
   assertThat(
-    result.row?.driverId === EXPECTED_DRIVER,
-    `session ${sid} used driver ${result.row?.driverId ?? '(none)'}, expected ${EXPECTED_DRIVER}`,
+    row.cwd === requestedCwd,
+    `session ${sid} was spawned for cwd ${requestedCwd} but the product reports cwd ${row.cwd}`,
   )
+  assertThat(
+    row.driverId === EXPECTED_DRIVER,
+    `session ${sid} used driver ${row.driverId}, expected ${EXPECTED_DRIVER}`,
+  )
+  assertThat(
+    row.driverFamily === EXPECTED_DRIVER_FAMILY,
+    `session ${sid} used driver family ${row.driverFamily ?? '(none)'}, expected ${EXPECTED_DRIVER_FAMILY}`,
+  )
+  return {
+    actualCwd: row.cwd,
+    driverId: row.driverId,
+    driverFamily: row.driverFamily,
+    ...(row.requestedDriverId ? { requestedDriverId: row.requestedDriverId } : {}),
+  }
 }
 
+async function requireNativeSessionId(session: Session): Promise<string> {
+  const result = await until(
+    session.sid,
+    (row) => row?.resume?.kind === 'opencode-session' && typeof row.resume.value === 'string',
+    30_000,
+    250,
+  )
+  assertThat(
+    result.ok && result.row?.resume?.value,
+    `session ${session.sid} never exposed its native OpenCode session identity: ${safeJson(result.row)}`,
+  )
+  const nativeSessionId = result.row.resume.value
+  session.nativeSessionId = nativeSessionId
+  console.log(
+    `  identity  sid=${session.sid} cwd=${session.actualCwd} driver=${session.driverId}/${session.driverFamily} native=${nativeSessionId} store=${selectedStore(session.sid).path}`,
+  )
+  return nativeSessionId
+}
+
+async function waitForTerminalComposer(chat: Chat, sid: string): Promise<void> {
+  const deadline = Date.now() + TERMINAL_READY_WAIT_MS
+  let screen = ''
+  while (Date.now() < deadline) {
+    screen = chat.screenTail(2_000)
+    if (screen.includes('Ask anything')) {
+      console.log(`  ready     sid=${sid} product terminal readout contains Ask anything`)
+      return
+    }
+    await wait(250)
+  }
+  throw new Error(
+    `NO MEASUREMENT: terminal session ${sid} never showed the product composer readout; last screen=${JSON.stringify(screen)}`,
+  )
+}
 async function createSession(input: {
   cwd: string
   prompt: string
@@ -181,7 +282,6 @@ async function createSession(input: {
   const payload = {
     cwd: input.cwd,
     agentKind: AGENT_KIND[HARNESS] ?? HARNESS,
-    initialPrompt: input.prompt,
     ...(input.model ? { model: input.model } : {}),
   }
   const created = await mutate('sessions.create', payload)
@@ -189,15 +289,33 @@ async function createSession(input: {
   assertThat(sid, `sessions.create failed: ${safeJson(created)}`)
 
   const chat = new Chat(sid)
-  await chat.open()
+  await chat.open('native')
   sessions.push(sid)
   chats.push(chat)
-  await requireExpectedDriver(sid)
-  const store = await waitForStore(sid, 1)
-  return { sid, cwd: input.cwd, chat, store }
+  const identity = await requireExpectedDriver(sid, input.cwd)
+  const ready = await until(
+    sid,
+    (row) => row?.status === 'live' && row.driverId !== undefined,
+    60_000,
+    250,
+  )
+  assertThat(ready.ok, `session ${sid} never reached live state before its prompt was sent`)
+  await waitForTerminalComposer(chat, sid)
+  const sent = await mutate('sessions.sendText', { sessionId: sid, text: input.prompt })
+  assertThat(
+    sent.result?.data?.ok === true && sent.error === undefined,
+    `sessions.sendText was not accepted for ${sid}: ${safeJson(sent)}`,
+  )
+  console.log(
+    `  identity  sid=${sid} requestedCwd=${input.cwd} actualCwd=${identity.actualCwd} driver=${identity.driverId}/${identity.driverFamily}${identity.requestedDriverId ? ` requested=${identity.requestedDriverId}` : ''}`,
+  )
+  return { sid, cwd: input.cwd, chat, ...identity }
 }
 
-async function createHealthy(cwd: string, tag: string): Promise<Session & { nonce: string }> {
+async function createHealthy(
+  cwd: string,
+  tag: string,
+): Promise<MeasuredSession & { nonce: string }> {
   const word = nonce(`POD2871-${tag}`)
   const session = await createSession({
     cwd,
@@ -210,12 +328,18 @@ async function createHealthy(cwd: string, tag: string): Promise<Session & { nonc
     answer.ok,
     `healthy ${tag} session ${session.sid} did not return its nonce ${word}; content=${JSON.stringify(session.chat.assistantText())}`,
   )
-  session.store = await waitForStore(session.sid, 2)
-  assertThat(
-    (session.store.counts?.assistantRows ?? 0) > 0,
-    `healthy ${tag} session has no assistant row: ${safeJson(session.store)}`,
+  console.log(
+    `  control   ${tag} API transcript returned its own nonce before any store read: ${word}`,
   )
-  return { ...session, nonce: word }
+  const nativeSessionId = await requireNativeSessionId(session)
+  const store = await waitForStore(session, 2)
+  session.nativeSessionId = nativeSessionId
+  session.store = store
+  assertThat(
+    (store.counts?.assistantRows ?? 0) > 0,
+    `healthy ${tag} session has no assistant row: ${safeJson(store)}`,
+  )
+  return { ...session, nativeSessionId, store, nonce: word }
 }
 
 async function sameDirectoryCase(): Promise<CaseResult> {
@@ -235,13 +359,18 @@ async function sameDirectoryCase(): Promise<CaseResult> {
       row?.agentState?.error !== undefined ||
       row?.agentState?.phase === 'errored' ||
       row?.status === 'exited' ||
-      fault.chat.screenTail(2_000).includes(expectedFaultReadout) ||
-      fault.chat.assistantText().trim().length > 0,
+      fault.chat.screenTail(2_000).includes(expectedFaultReadout),
     FAULT_WAIT_MS,
     1_000,
   )
-  const faultStore = await waitForStore(fault.sid, 1)
-  const companionStore = readStore(companion.store.path, companion.store.layout, companion.sid)
+  const faultNativeSessionId = await requireNativeSessionId(fault)
+  const faultStore = await waitForStore(fault, 1)
+  const companionStore = readStore(
+    companion.store.path,
+    companion.store.layout,
+    companion.nativeSessionId,
+    companion.store.selectionReason,
+  )
   const companionText = companion.chat.assistantText().trim()
   const faultText = fault.chat.assistantText().trim()
   const faultScreen = fault.chat.screenTail(2_000)
@@ -254,16 +383,29 @@ async function sameDirectoryCase(): Promise<CaseResult> {
     companionText.includes(companion.nonce),
     `companion content lost its own nonce: ${JSON.stringify(companionText)}`,
   )
-  check(
-    failures,
-    faultText === '',
-    `fault session returned assistant content: ${JSON.stringify(faultText)}`,
-  )
-  check(
-    failures,
-    !faultText.includes(companion.nonce),
-    `fault session displayed the companion nonce: ${companion.nonce}`,
-  )
+  if (EXPECTS_ISOLATION) {
+    check(
+      failures,
+      faultText === '',
+      `fault session returned assistant content: ${JSON.stringify(faultText)}`,
+    )
+    check(
+      failures,
+      !faultText.includes(companion.nonce),
+      `fault session displayed the companion nonce: ${companion.nonce}`,
+    )
+  } else {
+    check(
+      failures,
+      faultText.includes(companion.nonce),
+      `pre-fix control did not reproduce the companion nonce in fault content: ${JSON.stringify(faultText)}`,
+    )
+    check(
+      failures,
+      faultStore.path === companionStore.path,
+      `pre-fix control did not use the legacy shared store for both sessions: fault=${faultStore.path} companion=${companionStore.path}`,
+    )
+  }
   check(
     failures,
     faultScreen.includes(expectedFaultReadout),
@@ -307,11 +449,13 @@ async function sameDirectoryCase(): Promise<CaseResult> {
     (companionStore.counts?.assistantRows ?? 0) >= 1,
     `companion store has no assistant row: ${safeJson(companionStore)}`,
   )
-  check(
-    failures,
-    companionStore.path !== faultStore.path,
-    `same-directory sessions still share an OpenCode store: ${companionStore.path}`,
-  )
+  if (EXPECTS_ISOLATION) {
+    check(
+      failures,
+      companionStore.path !== faultStore.path,
+      `same-directory sessions still share an OpenCode store: ${companionStore.path}`,
+    )
+  }
 
   const result: CaseResult = {
     name: 'same-directory',
@@ -319,6 +463,11 @@ async function sameDirectoryCase(): Promise<CaseResult> {
       {
         sid: companion.sid,
         cwd: companion.cwd,
+        actualCwd: companion.actualCwd,
+        driverId: companion.driverId,
+        driverFamily: companion.driverFamily,
+        requestedDriverId: companion.requestedDriverId,
+        nativeSessionId: companion.nativeSessionId,
         assistantText: companionText,
         screenTail: companion.chat.screenTail(2_000),
         store: companionStore,
@@ -326,6 +475,11 @@ async function sameDirectoryCase(): Promise<CaseResult> {
       {
         sid: fault.sid,
         cwd: fault.cwd,
+        actualCwd: fault.actualCwd,
+        driverId: fault.driverId,
+        driverFamily: fault.driverFamily,
+        requestedDriverId: fault.requestedDriverId,
+        nativeSessionId: faultNativeSessionId,
         assistantText: faultText,
         screenTail: faultScreen,
         store: faultStore,
@@ -334,10 +488,14 @@ async function sameDirectoryCase(): Promise<CaseResult> {
     failures,
     assertions: [
       'companion content contains its own nonce',
-      'fault content is empty and does not contain the companion nonce',
+      EXPECTS_ISOLATION
+        ? 'fault content is empty and does not contain the companion nonce'
+        : 'pre-fix control fault content contains the companion nonce',
       `fault terminal readout contains ${expectedFaultReadout}`,
       'fault store has exactly one user message, zero assistant messages, and at least one part',
-      'same-directory sessions use different stores',
+      EXPECTS_ISOLATION
+        ? 'same-directory sessions use different stores'
+        : 'pre-fix control sessions share the legacy store',
       `fault outcome reached ${faultOutcome.ok ? 'a signal' : 'the timeout'} with phase=${faultOutcome.row?.agentState?.phase ?? '?'} status=${faultOutcome.row?.status ?? '?'}`,
     ],
   }
@@ -404,6 +562,11 @@ async function differentDirectoryCase(): Promise<CaseResult> {
       {
         sid: left.sid,
         cwd: left.cwd,
+        actualCwd: left.actualCwd,
+        driverId: left.driverId,
+        driverFamily: left.driverFamily,
+        requestedDriverId: left.requestedDriverId,
+        nativeSessionId: left.nativeSessionId,
         assistantText: leftText,
         screenTail: left.chat.screenTail(2_000),
         store: left.store,
@@ -411,6 +574,11 @@ async function differentDirectoryCase(): Promise<CaseResult> {
       {
         sid: right.sid,
         cwd: right.cwd,
+        actualCwd: right.actualCwd,
+        driverId: right.driverId,
+        driverFamily: right.driverFamily,
+        requestedDriverId: right.requestedDriverId,
+        nativeSessionId: right.nativeSessionId,
         assistantText: rightText,
         screenTail: right.chat.screenTail(2_000),
         store: right.store,
@@ -442,7 +610,7 @@ function writeEvidence(results: CaseResult[], extra: Record<string, unknown> = {
   mkdirSync(OUT, { recursive: true })
   writeFileSync(
     join(OUT, 'result.json'),
-    `${JSON.stringify({ recordedAt: new Date().toISOString(), base: BASE, harness: HARNESS, expectedDriver: EXPECTED_DRIVER, faultModel: FAULT_MODEL, ...extra, results }, null, 2)}\n`,
+    `${JSON.stringify({ recordedAt: new Date().toISOString(), arm: ARM, base: BASE, harness: HARNESS, expectedDriver: EXPECTED_DRIVER, expectedDriverFamily: EXPECTED_DRIVER_FAMILY, expectedStoreLayout: EXPECTS_ISOLATION ? 'session-owned' : 'legacy-shared', faultModel: FAULT_MODEL, ...extra, results }, null, 2)}\n`,
   )
 }
 
@@ -450,7 +618,17 @@ async function main(): Promise<void> {
   await login()
   const results: CaseResult[] = []
   try {
-    results.push(await sameDirectoryCase())
+    const sameDirectory = await sameDirectoryCase()
+    results.push(sameDirectory)
+    if (ARM === 'pre-fix' && sameDirectory.failures.length > 0) {
+      const failures = sameDirectory.failures.map((failure) => `same-directory: ${failure}`)
+      writeEvidence(results, { verdict: 'FAIL', failures })
+      console.error(
+        `\nCONTROL FAIL — pre-fix leak was not reproduced; evidence written to ${join(OUT, 'result.json')}`,
+      )
+      process.exitCode = 1
+      return
+    }
     await cleanup()
     results.push(await differentDirectoryCase())
     const failures = results.flatMap((result) =>
@@ -467,7 +645,7 @@ async function main(): Promise<void> {
       process.exitCode = 1
     } else {
       console.log(
-        `\nVERDICT PASS — both directory edges held; evidence written to ${join(OUT, 'result.json')}`,
+        `\nVERDICT PASS — ${ARM === 'pre-fix' ? 'pre-fix leak control reproduced and' : 'with-fix isolation held across'} both directory edges; evidence written to ${join(OUT, 'result.json')}`,
       )
     }
   } catch (error) {

@@ -159,6 +159,12 @@ done
 DAEMON_PIDS="$(pgrep -x bun 2>/dev/null || true)"
 MINE=""
 for pid in $DAEMON_PIDS; do
+  [ "$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)" = "$(readlink -f "$PODIUM_DRIVE_REPO")" ] || continue
+  cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+  case "$cmdline" in
+    *scripts/daemon.ts*) ;;
+    *) continue ;;
+  esac
   env_inst="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^PODIUM_INSTANCE=//p' | tail -1)"
   [ -n "$env_inst" ] && [ "$env_inst" = "$PODIUM_INSTANCE" ] && MINE="$MINE $pid"
 done

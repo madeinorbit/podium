@@ -150,7 +150,9 @@ export async function query(path: string, input: unknown = {}): Promise<any> {
 
 export interface SessionRow {
   sessionId: string
+  cwd?: string
   driverId?: string | null
+  requestedDriverId?: string | null
   driverFamily?: string | null
   status?: string
   model?: string | null
@@ -216,7 +218,15 @@ export interface TranscriptItemLite {
  */
 export class Chat {
   readonly items: TranscriptItemLite[] = []
-  readonly previews: { atMs: number; chars: number; rows: number; seq: number; epoch: number; done: boolean; perItem: Record<string, number> }[] = []
+  readonly previews: {
+    atMs: number
+    chars: number
+    rows: number
+    seq: number
+    epoch: number
+    done: boolean
+    perItem: Record<string, number>
+  }[] = []
   readonly frameTypes = new Map<string, number>()
   /** The TERMINAL's own bytes. On a PTY arm the transcript plane can be empty
    *  while the screen is full — of a modal nobody cleared. Capturing it turns a
@@ -431,8 +441,13 @@ export class Chat {
   /** The tail of the terminal screen, control codes stripped, for evidence. */
   screenTail(n = 300): string {
     // eslint-disable-next-line no-control-regex
-    const plain = this.screen.replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, '').replace(/[^\x20-\x7e\n]/g, '')
-    return plain.replace(/\n{2,}/g, '\n').trim().slice(-n)
+    const plain = this.screen
+      .replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, '')
+      .replace(/[^\x20-\x7e\n]/g, '')
+    return plain
+      .replace(/\n{2,}/g, '\n')
+      .trim()
+      .slice(-n)
   }
 
   frameSummary(): string {
@@ -516,14 +531,18 @@ export async function pumpAsks(sid: string): Promise<PumpReading> {
   for (const a of seen) {
     const r = await approveAsk(a)
     if (r.ok) answered += 1
-    else refused.push({ id: a.id, source: a.source, answerable: a.answerable, reason: r.error ?? '?' })
+    else
+      refused.push({ id: a.id, source: a.source, answerable: a.answerable, reason: r.error ?? '?' })
   }
   // The duplicate shape this drive found: ONE permission surfacing twice, once
   // `source: 'protocol'` / `answerable: 'structured'` and once
   // `source: 'screen-classifier'` / `answerable: 'keystroke-emulated'`.
   const bySource = new Map<string, number>()
   for (const a of seen) bySource.set(a.source ?? '?', (bySource.get(a.source ?? '?') ?? 0) + 1)
-  const duplicatePairs = Math.min(bySource.get('protocol') ?? 0, bySource.get('screen-classifier') ?? 0)
+  const duplicatePairs = Math.min(
+    bySource.get('protocol') ?? 0,
+    bySource.get('screen-classifier') ?? 0,
+  )
   return { answered, refused, seen, duplicatePairs }
 }
 
@@ -651,7 +670,9 @@ export async function settle(sid: string, ms = 180_000) {
  * Read out of the log rather than inferred, and reported beside the frame count
  * rather than left for a human to grep afterwards.
  */
-export async function fineWatch(sid: string): Promise<{ acquired: boolean; released: boolean } | undefined> {
+export async function fineWatch(
+  sid: string,
+): Promise<{ acquired: boolean; released: boolean } | undefined> {
   try {
     const text = await Bun.file(`${DRIVE_BASE}/logs/daemon.log`).text()
     const lines = text.split('\n').filter((l) => l.includes(sid))
