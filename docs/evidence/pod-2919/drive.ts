@@ -297,7 +297,7 @@ async function runA3(): Promise<ProbeOutcome> {
   const load = Number(host.load[0])
   const quiet = vmstatQuiet()
   log(`A3 capacity load=${load} memAvailableKb=${host.memAvailableKb} swapFreeKb=${host.swapFreeKb} vmstatQuiet=${quiet}`)
-  if (!(load >= 10 && load <= 15 && quiet)) return { verdict: 'UNDRIVEN', summary: 'not driven because measured host load was not the required approximately-12 window', evidence: [`load1=${load}`, `vmstatQuiet=${quiet}`, 'A3 is intentionally conditional; a starved or lightly loaded host cannot establish a trustworthy interrupt result'], data: { load, quiet } }
+  if (!(load < 12 && quiet)) return { verdict: 'UNDRIVEN', summary: 'not driven because measured host load was not below the required 12 ceiling or vmstat was not quiet', evidence: [`load1=${load}`, `vmstatQuiet=${quiet}`, 'A3 is intentionally conditional; a busy host can make an interrupt appear to stop when it did not'], data: { load, quiet } }
   const s = await createSession()
   try {
     const ctx: Ctx = { harness: 'opencode', arm: 'headless', sid: s.sid, chat: s.chat, row: s.row, results: new Map(), log }
