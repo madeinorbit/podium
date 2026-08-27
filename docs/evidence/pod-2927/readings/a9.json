@@ -1,0 +1,68 @@
+{
+  "id": "A9",
+  "arm": "headless",
+  "verdict": "BLOCKED",
+  "scorerVerdict": "REFUSED",
+  "summary": "live Grok turn passed, but the exact target process lacked daemon/session stamps, so kill and 15s/300s cleanup checks were not safe to score",
+  "control": {
+    "fired": false,
+    "what": "an answered turn plus at least one exact target PID carrying the current daemon UUID and target session stamp",
+    "detail": "reply=true; daemonUuid missing; targetStamped=0; unstampedInScope=1"
+  },
+  "evidence": [
+    "==============================================================================",
+    "A9  kill session — is the process tree really gone?   harness=grok  verb=sessions.kill",
+    "==============================================================================",
+    "rig infrastructure (excluded, and checked alive at the end): server 2036499, daemon 2036549",
+    "target stamp       uuid=(missing) source=(missing)",
+    "baseline           0 current-daemon stamped process(es) before this session exists",
+    "session 4f2bb784-a422-42f8-b907-5bab4319c637 created",
+    "BOUND DRIVER       grok-acp (family server)",
+    "turn before kill   replied with ALIVE-LIVM1P",
+    "CONTROL            reply=true targetStamped=0 totalStamped=0",
+    "STAMP PROOF        false baseline=0 unstampedInScope=1",
+    "UNSTAMPED           pid=2083580 cwd=/tmp/pod-2927-grok/cells/headless-a9-authoritative cmd=/home/mgw/.local/bin/grok agent stdio",
+    "REFUSED — the positive control or target stamp proof did not fire.",
+    "  control watched: an answered turn plus at least one exact target PID",
+    "                   carrying this daemon UUID and target session stamp.",
+    "  control saw:     reply=true; daemonUuid=(missing)",
+    "                   targetStamped=0; baseline=0; unstamped=1",
+    "                   session status live; spawnFailure (none)"
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "liveReply": true,
+    "daemonStampUuid": null,
+    "baselineStampedProcesses": 0,
+    "targetStampedProcesses": 0,
+    "unstampedTargetPid": 2083580,
+    "unstampedTargetCwd": "/tmp/pod-2927-grok/cells/headless-a9-authoritative",
+    "killScored": false
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a9-authoritative",
+  "pin": {
+    "codeCommit": "c26c267be1c4b2f8cc6ccc2e66ea675e84024587",
+    "codeTree": "7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4",
+    "serverPid": 2036499,
+    "daemonPid": 2036549,
+    "webSourceSha": "c26c267",
+    "nonDocDiff": 0
+  },
+  "criterionClauses": {
+    "liveTargetControl": "PASS — exact ALIVE-LIVM1P reply arrived",
+    "stampProof": "BLOCKED — daemon UUID was missing; real in-scope PID 2083580 was unstamped",
+    "originalPidsGoneAt15s": "UNMEASURED — no stamped target could be killed safely",
+    "originalPidsGoneAt300s": "UNMEASURED — no valid kill arm began",
+    "noStampedRebound": "UNMEASURED — no stamped process set existed",
+    "infrastructureAlive": "UNMEASURED by scorer after refusal; preflight server/daemon were alive and excluded"
+  },
+  "admission": {
+    "diskFreeKb": 12351300,
+    "memAvailableKb": 4055256,
+    "load1": 9.35,
+    "testHeavyLease": "free",
+    "health": "ok"
+  },
+  "localTimestamp": "2026-08-27 12:39:09 CEST"
+}
