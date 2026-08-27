@@ -395,13 +395,21 @@ async function runA9(): Promise<ProbeOutcome> {
     row.cwd === requestedCwd || Object.values(row.env).some((value) => value.includes(s.sid))
 =======
   const daemonInstanceUuid = environ(daemonPid).PODIUM_INSTANCE_UUID ?? ''
+<<<<<<< HEAD
   const exactSession = (row: Proc) =>
     row.env.PODIUM_INSTANCE_UUID === daemonInstanceUuid && row.env.PODIUM_SESSION_ID === s.sid
 >>>>>>> fb67ef227 (pod-2919 harden A9 reaper scorer)
+=======
+  const eligible = (row: Proc) =>
+    row.env.PODIUM_INSTANCE_UUID === daemonInstanceUuid && Boolean(row.env.PODIUM_SESSION_ID)
+  const touchesSession = (row: Proc) =>
+    row.cwd === requestedCwd || Object.values(row.env).some((value) => value.includes(s.sid))
+>>>>>>> c8c4ef2d5 (pod-2919 scope A9 to stamped processes)
   try {
     const marker = nonce('A9')
     const control = await answer(s.chat, s.sid, `Reply with exactly this word and nothing else: ${marker}. Do not use tools.`, 90_000)
     const attributable = processRows(s.sid).filter((row) => row.pid !== serverPid && row.pid !== daemonPid)
+<<<<<<< HEAD
 <<<<<<< HEAD
     const unstamped = attributable.filter((row) => touchesSession(row) && !eligible(row))
     const foreign = attributable.filter((row) => !touchesSession(row) && !eligible(row))
@@ -417,15 +425,28 @@ async function runA9(): Promise<ProbeOutcome> {
     log(`STAMP daemonUuid=${daemonInstanceUuid || '(missing)'} attributable=${attributable.length} stamped=${before.length} unstamped=${unstamped.length}`)
     for (const row of before) log(`PRE pid=${row.pid} ppid=${row.ppid} cwd=${row.cwd} location=${row.location} cmd=${row.cmd}`)
 >>>>>>> fb67ef227 (pod-2919 harden A9 reaper scorer)
+=======
+    const unstamped = attributable.filter((row) => touchesSession(row) && !eligible(row))
+    const foreign = attributable.filter((row) => !touchesSession(row) && !eligible(row))
+    const before = attributable.filter(eligible)
+    log(`CONTROL pre-kill session processes=${before.length}`)
+    log(`STAMP daemonUuid=${daemonInstanceUuid || '(missing)'} attributable=${attributable.length} eligible=${before.length} unstampedInScope=${unstamped.length} foreignExcluded=${foreign.length}`)
+    for (const row of before) log(`PRE pid=${row.pid} ppid=${row.ppid} cwd=${row.cwd} location=${row.location} session=${row.env.PODIUM_SESSION_ID} cmd=${row.cmd}`)
+    for (const row of foreign) log(`FOREIGN_EXCLUDED pid=${row.pid} ppid=${row.ppid} cwd=${row.cwd} location=${row.location} instanceUuid=${row.env.PODIUM_INSTANCE_UUID || '(missing)'} session=${row.env.PODIUM_SESSION_ID || '(missing)'} cmd=${row.cmd}`)
+>>>>>>> c8c4ef2d5 (pod-2919 scope A9 to stamped processes)
     if (!daemonInstanceUuid || unstamped.length > 0 || before.length === 0) {
       const reason = !daemonInstanceUuid
         ? 'daemon had no instance stamp to establish eligibility'
         : unstamped.length > 0
 <<<<<<< HEAD
+<<<<<<< HEAD
           ? 'an in-scope process was not stamped for this daemon and session'
 =======
           ? 'an attributable process was not stamped for this daemon and session'
 >>>>>>> fb67ef227 (pod-2919 harden A9 reaper scorer)
+=======
+          ? 'an in-scope process was not stamped for this daemon and session'
+>>>>>>> c8c4ef2d5 (pod-2919 scope A9 to stamped processes)
           : 'no stamped session-owned process appeared before kill'
       return {
         verdict: 'REFUSED',
@@ -444,27 +465,37 @@ async function runA9(): Promise<ProbeOutcome> {
         data: { control: false, daemonInstanceUuid, uuidSource, attributable: attributable.length, eligible: before.length, unstampedInScope: unstamped.length, foreignExcluded: foreign.length },
 =======
           `attributable=${attributable.length}`,
-          `stamped=${before.length}`,
-          `unstamped=${unstamped.length}`,
-          'only exact PODIUM_INSTANCE_UUID + PODIUM_SESSION_ID rows are eligible',
+          `eligible=${before.length}`,
+          `unstampedInScope=${unstamped.length}`,
+          `foreignExcluded=${foreign.length}`,
+          'only current-daemon PODIUM_INSTANCE_UUID + any PODIUM_SESSION_ID rows are eligible',
         ],
+<<<<<<< HEAD
         data: { control: false, daemonInstanceUuid, attributable: attributable.length, stamped: before.length, unstamped: unstamped.length },
 >>>>>>> fb67ef227 (pod-2919 harden A9 reaper scorer)
+=======
+        data: { control: false, daemonInstanceUuid, attributable: attributable.length, eligible: before.length, unstampedInScope: unstamped.length, foreignExcluded: foreign.length },
+>>>>>>> c8c4ef2d5 (pod-2919 scope A9 to stamped processes)
       }
     }
     await mutate('sessions.kill', { sessionId: s.sid })
     await s.chat.close().catch(() => {})
     await wait(15_000)
 <<<<<<< HEAD
+<<<<<<< HEAD
     const immediate = processRows(s.sid).filter(eligible).filter((row) => before.some((old) => old.pid === row.pid))
 =======
     const immediate = processRows(s.sid).filter(exactSession).filter((row) => before.some((old) => old.pid === row.pid))
 >>>>>>> fb67ef227 (pod-2919 harden A9 reaper scorer)
+=======
+    const immediate = processRows(s.sid).filter(eligible).filter((row) => before.some((old) => old.pid === row.pid))
+>>>>>>> c8c4ef2d5 (pod-2919 scope A9 to stamped processes)
     log(`after15s survivors=${immediate.length}`)
     const deadline = now() + 300_000
     let last = immediate.length
     while (now() < deadline) {
       await wait(Math.min(30_000, deadline - now()))
+<<<<<<< HEAD
 <<<<<<< HEAD
       const current = processRows(s.sid).filter(eligible).filter((row) => before.some((old) => old.pid === row.pid))
       if (current.length !== last) { log(`orphanWatch t+${Math.round((300_000 - (deadline - now())) / 1000)}s survivors=${current.length}`); last = current.length }
@@ -483,21 +514,28 @@ async function runA9(): Promise<ProbeOutcome> {
       summary: pass ? 'kill removed all current-daemon stamped session processes and left infrastructure intact' : 'kill left a current-daemon stamped session orphan, rebound process, or damaged infrastructure',
 =======
       const current = processRows(s.sid).filter(exactSession).filter((row) => before.some((old) => old.pid === row.pid))
+=======
+      const current = processRows(s.sid).filter(eligible).filter((row) => before.some((old) => old.pid === row.pid))
+>>>>>>> c8c4ef2d5 (pod-2919 scope A9 to stamped processes)
       if (current.length !== last) { log(`orphanWatch t+${Math.round((300_000 - (deadline - now())) / 1000)}s survivors=${current.length}`); last = current.length }
     }
     const beforePids = new Set(before.map((row) => row.pid))
-    const after = processRows(s.sid).filter(exactSession)
+    const after = processRows(s.sid).filter(eligible)
     const orphans = after.filter((row) => beforePids.has(row.pid))
     const rebound = after.filter((row) => !beforePids.has(row.pid))
     const infraAlive = [serverPid, daemonPid].filter((pid) => { try { process.kill(pid, 0); return true } catch { return false } }).length
-    log(`after300s orphans=${orphans.length} rebound=${rebound.length} stampedSessionRows=${after.length} infrastructure=${infraAlive}/2`)
-    for (const row of orphans) log(`ORPHAN pid=${row.pid} ppid=${row.ppid} cwd=${row.cwd} location=${row.location} cmd=${row.cmd}`)
-    for (const row of rebound) log(`REBOUND pid=${row.pid} ppid=${row.ppid} cwd=${row.cwd} location=${row.location} cmd=${row.cmd}`)
+    log(`after300s orphans=${orphans.length} rebound=${rebound.length} eligibleRowsAfter=${after.length} infrastructure=${infraAlive}/2`)
+    for (const row of orphans) log(`ORPHAN pid=${row.pid} ppid=${row.ppid} cwd=${row.cwd} location=${row.location} session=${row.env.PODIUM_SESSION_ID} cmd=${row.cmd}`)
+    for (const row of rebound) log(`REBOUND pid=${row.pid} ppid=${row.ppid} cwd=${row.cwd} location=${row.location} session=${row.env.PODIUM_SESSION_ID} cmd=${row.cmd}`)
     const pass = orphans.length === 0 && rebound.length === 0 && infraAlive === 2
     return {
       verdict: pass ? 'PASS' : 'FAIL',
+<<<<<<< HEAD
       summary: pass ? 'kill removed the stamped session process tree and left infrastructure intact' : 'kill left a stamped session orphan, rebound process, or damaged infrastructure',
 >>>>>>> fb67ef227 (pod-2919 harden A9 reaper scorer)
+=======
+      summary: pass ? 'kill removed all current-daemon stamped session processes and left infrastructure intact' : 'kill left a current-daemon stamped session orphan, rebound process, or damaged infrastructure',
+>>>>>>> c8c4ef2d5 (pod-2919 scope A9 to stamped processes)
       evidence: [
         `marker=${marker}`,
         `replyControl=${control.got.ok}`,
@@ -515,14 +553,19 @@ async function runA9(): Promise<ProbeOutcome> {
         'attribution=exact current-daemon PODIUM_INSTANCE_UUID + nonempty PODIUM_SESSION_ID, cwd map includes tmp and worktree',
 =======
         `sessionId=${s.sid}`,
-        `before=${before.length}`,
+        `beforeEligible=${before.length}`,
         `after15s=${immediate.length}`,
-        `after300s=${orphans.length}`,
+        `after300sOrphans=${orphans.length}`,
         `rebound=${rebound.length}`,
-        `stampedSessionRowsAfter=${after.length}`,
+        `eligibleRowsAfter=${after.length}`,
+        `foreignExcluded=${foreign.length}`,
         `infraAlive=${infraAlive}/2`,
+<<<<<<< HEAD
         'attribution=exact environment/PODIUM_INSTANCE_UUID+PODIUM_SESSION_ID, cwd map includes tmp and worktree',
 >>>>>>> fb67ef227 (pod-2919 harden A9 reaper scorer)
+=======
+        'attribution=exact current-daemon PODIUM_INSTANCE_UUID + nonempty PODIUM_SESSION_ID, cwd map includes tmp and worktree',
+>>>>>>> c8c4ef2d5 (pod-2919 scope A9 to stamped processes)
       ],
       data: {
         before: before.map((row) => ({ pid: row.pid, ppid: row.ppid, cwd: row.cwd, location: row.location, instanceUuid: row.env.PODIUM_INSTANCE_UUID, sessionId: row.env.PODIUM_SESSION_ID })),
@@ -530,10 +573,15 @@ async function runA9(): Promise<ProbeOutcome> {
         orphans: orphans.length,
         rebound: rebound.length,
 <<<<<<< HEAD
+<<<<<<< HEAD
         eligibleRowsAfter: after.length,
         foreignExcluded: foreign.length,
 =======
 >>>>>>> fb67ef227 (pod-2919 harden A9 reaper scorer)
+=======
+        eligibleRowsAfter: after.length,
+        foreignExcluded: foreign.length,
+>>>>>>> c8c4ef2d5 (pod-2919 scope A9 to stamped processes)
         infraAlive,
       },
     }
