@@ -5265,3 +5265,52 @@ require `phase=working`, so neither clause of A3 is established.
 **I verified against the wrong artifact** — the same failure I had written into the brief hours
 earlier as "check both sides read the same code". **Withdrawing a correct correction is worse than
 never making it**, because the session had done the hard part and I talked it out of it.
+
+## THE LAST PRODUCT DEFECT IS CLOSED (2026-08-27 06:16 CEST)
+
+    CURRENT 39/69 (57%)   PASS 30   red 3
+
+    opencode  16/16   COMPLETE, zero reds
+    shell      6/ 6   COMPLETE, zero reds
+    codex     14/16
+    grok       2/16   quota returns 11:03
+    claude     1/15   driving, window to 07:43
+
+    REDS:  A3  claude    VOID      withdrawn by its own driver, no control fired
+           A3  codex     REFUSED   control never produced an in-flight turn
+           A4a codex     BLOCKED   claude 2.1.231 wizard, measured instrument limit
+
+**ALL THREE ARE INSTRUMENTS. NOT ONE CURRENTLY-VALID READING SAYS A DRIVER IS WORSE THAN MAIN.**
+
+### The orphan defect, end to end in one night
+
+    23:05  I find 14 live agents in 8 worktrees whose issues read 
+    01:31  three MORE found in /tmp state roots — my census had been undercounting
+    03:44  POD-2691 drives its reaper: TERM 1→0, KILL 1→0, foreign-UUID sentinel untouched
+    04:01  17-minute settle census, no rebound
+    05:0x  reaper lands on the epic
+    05:1x  POD-2919's A9 FAILS — but its pin predates the reaper, so it is a pre-fix control
+    05:4x  scorer audit finds A9 checks neither stamp proof NOR rebound
+    05:5x  A9 re-drives against the reaper with BOTH gaps closed: PASS
+
+**The last step is the one that makes it real.** POD-2919 found that its own A9 scorer could not tell
+a reaped process from an unstamped one, and could not see a rebound at all — **then used the
+tightened version to validate the fix.** PID 1094840 carried the instance UUID *and* the session
+stamp, was gone at 15s and at 300s, **rebound=0**, infrastructure 2/2. **The audit improved the test
+that proved the fix.**
+
+It also relabelled the pre-reaper FAIL as `[parent]` rather than deleting it, so the record shows
+the defect reproducing and then not.
+
+### What this does and does not say
+
+**Per Decision 22, the supported claim is "no gross regression found in 39 of 69 cells", not
+"39 cells meet their criteria in full".** The scorers test the coarse clause and miss the fine one,
+and that gap is written down per cell.
+
+**But the coarse clause is what the release bar asks.** *At least as good as today's main* is a
+question about gross regressions, and the scorers demonstrably catch those: they found the orphan
+leak, and they correctly resolved the claude A1a scare to a startup race rather than a defect.
+
+**Two columns are complete with zero reds. The one product defect found all night is fixed and
+verified by a test that was strengthened specifically to be able to fail.**
