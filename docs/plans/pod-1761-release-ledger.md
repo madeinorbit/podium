@@ -5032,3 +5032,48 @@ guessing at the diagnosis a third time.**
 
 Everything else about the reaper is landable: drive accepted on byte-identical blobs, delayed
 census clean, `test:multi-instance` green, branch clean.
+
+### OPENCODE COLUMN COMPLETE — ten cells, one red (2026-08-27 04:52 CEST)
+
+    A1a  PASS      A1b  PARTIAL (queue position absent)   A1c  PASS
+    A2b  PASS      A3   UNDRIVEN (my instruction, see below)
+    A5   PASS      A6a  PASS     A7a  PASS
+    A9   FAIL      A10  PASS on BOTH opencode-server and generic-pty
+    red count = 1
+
+Pinned at `1f531c6cc`, bundle sourceSha `1f531c6`, final named-instance process count zero.
+
+**A9 IS THE FIRST GENUINE PRODUCT FAIL AMONG CURRENT READINGS TONIGHT, and its detail is better
+than the verdict:** *"PID 847955, the prior A7a opencode child, in
+`/tmp/pod-2919/probes/headless-a7a`, still alive after 300s."*
+
+**The survivor was the child from the DAEMON RESTART cell.** So the sequence that produces an
+orphan is: a session survives a daemon restart, and the child that carried it through then outlives
+the session's own kill. **That is a re-parenting story rather than a signalling one** — a child that
+survives a daemon restart has been detached from the daemon that spawned it, so whatever adopted it
+is what a reaper must attribute. Sent to POD-2691 with the specific risk: **if its UUID stamp is
+applied at spawn and not re-applied or re-read across a daemon restart, this exact case is
+unattributable and would slip through a reaper that otherwise works.** It also gives that issue a
+reproducible acceptance recipe — drive A7a, then A9, then wait 300s — instead of waiting for an
+orphan to appear.
+
+**Three sessions now converge on the bound:** shell tears down completely (POD-2917, clean at 300s),
+opencode leaks (here), and claude and codex agents were found surviving in worktrees and `/tmp`
+state roots (POD-2691's own census). **The session machinery is not at fault; something the agent
+leaves behind is.**
+
+### A3 was skipped at load 9.75 because of my wording, not its judgement
+
+It recorded *"UNDRIVEN, load 9.75, required ~12 window not met"*. **I wrote "drive A3 only under
+load ~12" meaning a ceiling; it read a target.** 9.75 was near the quietest the box had been all
+night — the cell was skipped in its best window, and that is my cost, not its error. Corrected to an
+inequality with a direction and a reason, in both the message and the standing brief. **A tilde
+invites a band.**
+
+### The literal-tab bug recurred and my repairs are not durable
+
+Repaired nine rows this time — including four written AFTER I flagged it: A7a, A10, A9, A3. **The
+A9 FAIL, the most important reading in the column, was invisible to the coverage query until I fixed
+it by hand.** And the cherry-pick replay re-applied the original commits over my earlier repair,
+**so fixing it downstream does not hold** — it has to stop at the source. Told it again with the
+one-line verification.
