@@ -21,6 +21,7 @@ The POD-2691 process/tracker cell has no product runtime to start; its measured 
 
 ### POD-2298 — defect gone
 
+<<<<<<< HEAD
 The parent arm was retaken after the earlier disk-full-window reading was
 discarded. It used fresh named instance 'p2913-2298p2' with server and daemon
 both pinned to 'c203cec50aab6e32e1629463b9e33042210cf505'; the spawn-time pin
@@ -35,6 +36,18 @@ marker 'P2298_LATE_REFUSAL_PARENT_DRIVEN_T5L9TK'. 'messages.send' returned
 optimistic 'delivered'; the persisted transitions then showed
 'message.receipt' with 'outcome=refused, refusedFor=not_running', while the
 ledger row remained 'status=delivered'. This is the pre-fix symptom.
+=======
+The parent arm used named instance 'p2913-2298b' with server and daemon pinned
+to 'c203cec50aab6e32e1629463b9e33042210cf505'; the daemon pin was recorded at
+spawn with 'PODIUM_RUNTIME_CONTRACT=1'. No web bundle was used because this is a
+server/daemon-only receipt-ledger behavior. At '2026-08-27 01:47:03 CEST',
+session '26f88d3b-b52e-4046-bbcb-b456e226b1c9' was bound to 'claude-pty' and
+the chat control 'Welcome to Claude Code' fired. Sending marker
+'P2298_LATE_REFUSAL_PARENT_TDV1FG' returned optimistic 'delivered'; the
+persisted transitions then showed 'message.receipt' with
+'outcome=refused, refusedFor=not_running', while the ledger row remained
+'status=delivered'. This is the pre-fix symptom.
+>>>>>>> 314ea0caa (docs: record POD-2298 drive result)
 
 The fix arm used fresh named instance 'p2913-2298tip' with server and daemon
 both pinned to 'b5c53918c5d6af54d28bafcd5ae607a30940bc6e'; both spawn-time pin
@@ -49,6 +62,7 @@ The parent reproduces the optimistic-delivery lie and the tip retracts it on
 the same refused receipt. Verdict: **PASS — defect gone**.
 
 
+<<<<<<< HEAD
 ### POD-2408 — defect gone
 
 The consumer check is positive: daemon 'stageRuntimeAttachment' is wired through
@@ -120,6 +134,8 @@ reproduce the pre-fix symptom. Verdict: **UNDRIVEN — invalid listed boundary**
 No live yes/no result was inferred.
 >>>>>>> ca522e00e (docs: record review queue drive gates)
 =======
+=======
+>>>>>>> 314ea0caa (docs: record POD-2298 drive result)
 ### POD-2691 — still broken
 
 The same process/tracker probe was run against parent '7ef0f5c979b067a8be6286f8e27a868186ed3cbe' and epic tip 'b08e7d65c503c5a85e8a7d2c46d002eae5229fce' at '2026-08-27 00:39 CEST'. Parent had no UUID/guard code. Tip had the UUID definition, but the non-test consumer search was empty.
@@ -157,6 +173,7 @@ window. Starting a Vite build under that lease would invalidate the reading.
 Complete rows are appended to 'docs/plans/pod-1761-results.tsv'. The remaining
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 children (POD-2602, POD-2604, and POD-2637) were not touched in this interval
 and have no result claimed here. POD-2622 is handed to POD-2914;
 this report does not claim a drive for it.
@@ -175,3 +192,10 @@ this report does not claim a drive for it.
 
 Last evidence update: '2026-08-27 00:40 CEST'.
 >>>>>>> 9a1562b9e (docs: record dead agent process finding)
+=======
+children (POD-2408, POD-2602, POD-2604, and POD-2637) were not touched in this
+interval and have no result claimed here. POD-2622 is handed to POD-2914;
+this report does not claim a drive for it.
+
+Last evidence update: '2026-08-27 01:54:27 CEST'.
+>>>>>>> 314ea0caa (docs: record POD-2298 drive result)
