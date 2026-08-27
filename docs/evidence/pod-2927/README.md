@@ -1,0 +1,13 @@
+# Grok acceptance drive
+
+| Pin | Commit time | Driven |
+| --- | --- | --- |
+| `c26c267be1c4b2f8cc6ccc2e66ea675e84024587` | `2026-08-27 10:54:36 +0200` | Fourteen missing Grok server-driver cells on named instance `grok2927` |
+
+Built and runtime code tree: `7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4`. Served web source: `c26c267`; server and daemon spawn pins are recorded in every reading. Each cell uses a unique directory under `/tmp/pod-2927-grok/cells/` and requires the product to report `grok-acp` / `server`.
+
+## Results
+
+| Cell | Verdict | Control and clauses | Reading |
+| --- | --- | --- | --- |
+| A1a | PASS | Product driver `grok-acp/server`; durable user turn; delivered receipt; exact reply in 2069ms | `readings/a1a.json` |
