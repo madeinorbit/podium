@@ -492,3 +492,42 @@ is a choice rather than a floor. **I have not started it, because the epic's ope
 recreates its worktree) means reclamation is not durable, so any space recovered under option 2
 can quietly come back. That one should be fixed before a large reclamation, or the reclamation
 gets done twice.
+
+## Decision 20 — a possible claude A1a regression, not yet confirmed (2026-08-27 05:07 CEST)
+
+**This is the first finding tonight shaped like "a driver is worse than it was", which is the epic's
+entire bar. It is not confirmed and I am recording it before it is, because it outranks everything
+else on the board if it holds.**
+
+**What POD-2918 measured**, read from its worktree at 02:54:
+
+    cell      A1a  (send while idle — reply arrives; bubble goes sent, never silent-settles)
+    harness   claude
+    verdict   FAIL      "one of the three idle sends did not land or reply"
+    control   FIRED     "a prompt appearing as a durable user turn"
+              detail    "1/2 user turns landed; last=fa..."
+
+**The control fired**, so the rig was alive and a send still went missing. **And POD-2874 drove the
+same cell to PASS** at pin `6c10b6643` — *"three idle sends landed and replied; the last send was
+required to pass."*
+
+**WHY I AM NOT CALLING IT A REGRESSION YET.** The same session recorded five BLOCKED attempts on
+A1b with four distinct rig causes: `startup-race`, `source-drift`, `rig-refused` twice, and
+`web-missing`. **A probe fighting startup timing is exactly the shape that manufactures a
+real-looking lost send**, and *"1/2 user turns landed"* is consistent with both a product defect and
+a send issued before the session was ready.
+
+**The question that separates them, which I have put to it:** wait on the same readiness signal it
+uses elsewhere before the first send, then re-run. **Send still missing with the session provably
+ready → product. Send lands → the probe was racing and A1a is not a regression.**
+
+**THE DECISION FOR THE OPERATOR, if it confirms:** claude A1a failing is a release blocker under the
+stated bar — every driver at least as good as today's main — and it would be the only one. **If it
+does not confirm, nothing changes.** Either way this should not be settled by argument: it is one
+re-run with a readiness gate.
+
+**A process note that is part of the finding.** That reading sat in an **untracked** directory for
+two hours along with six others, the pins, and the drive script. **I only saw it because I read the
+session's worktree directly instead of waiting for a report** — and this is the third time tonight
+that has been how a result reached me. Told it to commit before anything else, and told it plainly
+that a committed FAIL with an open question beats a fuller column I cannot trust.
