@@ -2,6 +2,8 @@ import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   BINARY_ENVELOPE_MAX_METADATA_BYTES,
+  ClientPtyInputMetadata,
+  DaemonPtyInputMetadata,
   DaemonPtyOutputMetadata,
   decodeBinaryEnvelope as decodeEnvelope,
   encodeBinaryEnvelope,
@@ -43,6 +45,35 @@ describe('binary envelope v1', () => {
     expect(decodeBinaryEnvelope(encodeBinaryEnvelope(metadata, new Uint8Array())).payload).toEqual(
       new Uint8Array(),
     )
+  })
+  it('round-trips client and daemon PTY input as exact arbitrary bytes', () => {
+    const clientMetadata: ClientPtyInputMetadata = {
+      v: 1,
+      type: 'ptyInput',
+      sessionId: asSessionId('session-1'),
+    }
+    const payload = Uint8Array.of(0x00, 0xff, 0x1b, 0xe2, 0x82, 0xac)
+    const client = decodeEnvelope(
+      encodeBinaryEnvelope(clientMetadata, payload),
+      ClientPtyInputMetadata,
+    )
+    expect(client.payload).toEqual(payload)
+    expect(() =>
+      decodeEnvelope(encodeBinaryEnvelope(clientMetadata, payload), PtyOutputBinaryMetadata),
+    ).toThrow()
+    const daemonMetadata: DaemonPtyInputMetadata = {
+      ...clientMetadata,
+      inputOrigin: 'human',
+    }
+    const daemon = decodeEnvelope(
+      encodeBinaryEnvelope(daemonMetadata, payload),
+      DaemonPtyInputMetadata,
+    )
+    expect(daemon.metadata).toMatchObject(daemonMetadata)
+    expect(daemon.payload).toEqual(payload)
+    expect(() =>
+      decodeEnvelope(encodeBinaryEnvelope(clientMetadata, payload), DaemonPtyInputMetadata),
+    ).toThrow()
   })
   it('rejects a truncated header', () => {
     expect(() => decodeBinaryEnvelope(Uint8Array.of(0, 0, 1))).toThrow(/header is truncated/)

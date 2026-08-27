@@ -6,8 +6,9 @@
  * payload remains uninterpreted bytes. Bounds are checked before metadata is
  * sliced, decoded, or parsed, so an untrusted length cannot allocate freely.
  */
-import { SessionIdField } from '@podium/model'
+import { Attribution, SessionIdField } from '@podium/model'
 import { z } from 'zod'
+import { ObservationInputOrigin } from './messages/runtime-state'
 
 export const BINARY_ENVELOPE_HEADER_BYTES = 4
 export const BINARY_ENVELOPE_MAX_METADATA_BYTES = 16 * 1024
@@ -37,10 +38,31 @@ export const DaemonPtyOutputMetadata = z
   })
   .passthrough()
 export type DaemonPtyOutputMetadata = z.infer<typeof DaemonPtyOutputMetadata>
+/** V1 browser-client-to-server PTY input metadata. Identity is transport-derived. */
+export const ClientPtyInputMetadata = z
+  .object({
+    v: z.literal(1),
+    type: z.literal('ptyInput'),
+    sessionId: SessionIdField,
+  })
+  .passthrough()
+export type ClientPtyInputMetadata = z.infer<typeof ClientPtyInputMetadata>
+
+/** V1 server-to-daemon PTY input metadata. The server stamps authority fields. */
+export const DaemonPtyInputMetadata = z
+  .object({
+    v: z.literal(1),
+    type: z.literal('ptyInput'),
+    sessionId: SessionIdField,
+    inputOrigin: ObservationInputOrigin,
+    attribution: Attribution.optional(),
+  })
+  .passthrough()
+export type DaemonPtyInputMetadata = z.infer<typeof DaemonPtyInputMetadata>
 
 /** Supported framing header. Plane schemas validate fields beyond this header. */
 export const BinaryEnvelopeHeader = z
-  .object({ v: z.literal(1), type: z.literal('ptyOutput') })
+  .object({ v: z.literal(1), type: z.enum(['ptyOutput', 'ptyInput']) })
   .passthrough()
 export type BinaryEnvelopeHeader = z.infer<typeof BinaryEnvelopeHeader>
 
