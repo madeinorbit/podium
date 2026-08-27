@@ -179,6 +179,7 @@ async function runHeadlessTurnRequest(
             ctx.agentRelayEndpointFor(msg.sessionId),
             ctx.instanceId,
             msg.agent,
+            ctx.instanceUuid,
           ),
           ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
           ...(msg.toolPolicy === 'none' && ctx.accountHome

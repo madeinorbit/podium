@@ -358,6 +358,8 @@ export interface CodexHostDeps {
    * writes the operator's REAL `~/.codex` auth and session state.
    */
   homeDir?: string
+  /** Immutable daemon ownership stamp for orphan attribution. */
+  instanceUuid?: string
   journal?: CodexJournal
   now?(): number
 }
@@ -553,6 +555,8 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       const [command, ...args] = scoped ? ['systemd-run', ...systemdScopeArgv(unit, argv)] : argv
 
       const env: NodeJS.ProcessEnv = serverChildEnv({
+        instanceUuid: deps.instanceUuid,
+        sessionId: input.sessionId,
         agentKind: 'codex',
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),

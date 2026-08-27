@@ -55,7 +55,7 @@ const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
 /** Tokens the LAUNCH path (mode subcommands / bare invocation) understands. Anything
  *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
  *  silently fall through and boot the stack (issue #18). */
-const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup']
+const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup', 'instance']
 const LAUNCH_VALUE_FLAGS = ['--server', '--pair', '--name']
 const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
 
@@ -143,6 +143,8 @@ export type LaunchPlan =
   | { kind: 'quota'; args: string[] }
   /** `podium machine [list|show]`: read the fleet an agent may place work on. */
   | { kind: 'machine'; args: string[] }
+  /** `podium instance rekey`: mint a new owner UUID for a copied state root. */
+  | { kind: 'instance'; args: string[] }
   | { kind: 'join-config'; token: string }
   | { kind: 'set-server'; target: string }
   | { kind: 'server-transfer-promote'; transferId: string }
@@ -438,6 +440,7 @@ export function resolvePlan(
     'telemetry',
     'quota',
     'machine',
+    'instance',
     // `logs` grew verbs of its own (POD-1947 — `clients`, `level`), so its help
     // now has something to say that the top-level list cannot fit.
     'logs',
@@ -516,6 +519,7 @@ export function resolvePlan(
   // `podium machine [list|show]`: which machines exist, which are usable, and what
   // is registered on them — the read a coordinator needs before placing work.
   if (argv[0] === 'machine') return { kind: 'machine', args: argv.slice(1) }
+  if (argv[0] === 'instance') return { kind: 'instance', args: argv.slice(1) }
   // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
   // (used by `install.sh --join`). Writes config; the daemon is started separately.
   if (argv[0] === 'join-config') {
@@ -796,6 +800,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '',
     'Work tools (each has its own help, e.g. `podium issue --help`):',
     '  issue <command>       Drive the native issue tracker',
+    '  instance rekey         Mint a fresh owner UUID for a copied state root',
     ...(enabledFeatures.has('specs')
       ? ['  spec <command>        Read/maintain the living project spec (<repo>/pspec/)']
       : []),
@@ -1313,6 +1318,12 @@ export async function main(
         console.error(`invalid join token: ${(e as Error).message}`)
         process.exit(2)
       }
+      return
+    }
+    case 'instance': {
+      const { instanceCliMain } = await import('./instance-cli')
+      const code = instanceCliMain(plan.args)
+      if (code !== 0) process.exitCode = code
       return
     }
     case 'set-server': {

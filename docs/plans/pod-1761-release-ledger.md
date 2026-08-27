@@ -5077,3 +5077,22 @@ A9 FAIL, the most important reading in the column, was invisible to the coverage
 it by hand.** And the cherry-pick replay re-applied the original commits over my earlier repair,
 **so fixing it downstream does not hold** — it has to stop at the source. Told it again with the
 one-line verification.
+### POD-2691 consumer decision (2026-08-27 03:36:37 CEST)
+
+The server is the reaper authority. A durable `issue.closed` transition starts the canonical no-force
+`stopIssue` path immediately; a server-start pass and a 15-minute closed-issue sweep retry the same path when
+the close frame or daemon was unavailable. Closed-issue cleanup also reaps sessions already parked by an earlier
+stop, and issue-addressed queued deliveries become terminal before they can wake a session. The daemon performs
+the process-table action after each stop command; there is no age- or phase-based daemon-start kill.
+
+The action target is an exact process identity, not a name pattern: the child must carry this instance's immutable
+`PODIUM_INSTANCE_UUID` and the exact `PODIUM_SESSION_ID`. On Linux the daemon builds a numeric `/proc` census,
+reads `readlink /proc/<pid>/cwd`, boot id, `/proc/<pid>/stat` start time, and the environment, then re-reads the
+complete identity immediately before `SIGTERM` and again before `SIGKILL`. Foreign UUIDs, incomplete reads, PID
+recycling, and the daemon's own PID are skipped; `pgrep -f` is not used. Legacy pre-stamp processes remain
+unattributed facts rather than becoming a wrongful-kill guess.
+
+Worktree handling deliberately reuses `podium issue stop`: a clean worktree is freed while the branch, transcript,
+and session row remain; a dirty or uninspectable worktree refuses the no-force cleanup and preserves its
+uncommitted work. `podium instance rekey` is the explicit copied-state-root recovery and preserves the same
+product records while minting a new owner UUID.

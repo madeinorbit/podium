@@ -42,6 +42,7 @@ import { runtimeContractEnabledFor, runtimeDriverByEnv } from '../runtime/flag'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
 import { handleFor, runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
 import { opencodeVersionProbe } from '../runtime/opencode-server'
+import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
 import {
   availableDriverIds,
   droppedDriverPreference,
@@ -350,12 +351,14 @@ export function sessionRelayEnv(
   endpoint: string,
   instanceId: string,
   agentKind: AgentKind,
+  instanceUuid?: string,
 ): Record<string, string> {
-  // PODIUM_SESSION_ID is a deliberate informational/identity var: the `podium`
-  // CLI reads the session id from the relay URL's path, so this isn't consumed
-  // by the relay path today — it's exposed for the session itself and future consumers.
+  // PODIUM_SESSION_ID is an explicit process-ownership stamp. The daemon's
+  // process census consumes it; the podium CLI still reads its session id
+  // from the relay URL's path.
   return {
     PODIUM_INSTANCE: instanceId,
+    ...(instanceUuid ? { PODIUM_INSTANCE_UUID: instanceUuid } : {}),
     PODIUM_SESSION_INSTANCE: instanceId,
     PODIUM_SESSION_ID: sessionId,
     PODIUM_SESSION_RELAY: endpoint,
@@ -599,6 +602,7 @@ export async function launchSpawn(
             ctx.agentRelayEndpointFor(msg.sessionId),
             ctx.instanceId,
             msg.agentKind,
+            ctx.instanceUuid,
           ),
           ...browserOpenEnv(ctx.settingsDir),
           ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
@@ -1763,6 +1767,20 @@ export function stopSessionProcess(
       sessionId: msg.sessionId,
     })
   })
+  void reapInstanceSessionProcesses({
+    instanceUuid: ctx.instanceUuid,
+    sessionId: msg.sessionId,
+  })
+    .then((result) => {
+      if (result.examined > 0 && result.remaining > 0)
+        log.warn('instance-owned session processes survived escalation', {
+          sessionId: msg.sessionId,
+          ...result,
+        })
+    })
+    .catch((err) => {
+      log.warn('could not reap instance-owned session processes', { err, sessionId: msg.sessionId })
+    })
   // Reap the durable host unconditionally — NOT only when a bridge exists.
   // Generic kill is process policy (hibernate, stop, handoff); retirement is a
   // separate server-authored binding transition.

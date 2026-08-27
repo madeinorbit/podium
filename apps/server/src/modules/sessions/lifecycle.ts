@@ -612,6 +612,7 @@ export class SessionLifecycle {
       sessionId: SessionId
       force?: boolean
       selfStop?: boolean
+      reapParked?: boolean
       stopReason?: 'self' | 'parent' | 'forced'
       principal?: CommandPrincipal
     },
@@ -632,6 +633,7 @@ export class SessionLifecycle {
       issueId: IssueId
       force?: boolean
       callerSessionId?: SessionId
+      reapParked?: boolean
       principal?: CommandPrincipal
     },
     issues: SessionIssueWorkflowPort,

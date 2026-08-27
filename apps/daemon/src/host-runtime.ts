@@ -639,6 +639,7 @@ export async function createDaemonHostRuntime(args: {
     // start a headless server before a logout or Codex grace state reaches the
     // server cache.
     ...daemonHarnessLoginContext(homeDir, credentialHome),
+    instanceUuid: instance.instanceUuid,
     bridges,
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     nativeClientRequests: new Set<SessionId>(),
@@ -703,6 +704,7 @@ export async function createDaemonHostRuntime(args: {
         ? harnessRuntime.current().then((snapshot) => snapshot.commandEnvironment.env)
         : Promise.resolve(process.env),
     ...(homeDir ? { homeDir } : {}),
+    instanceUuid: instance.instanceUuid,
   })
   ctx.clientTerminals = clientTerminals
 
@@ -775,6 +777,7 @@ export async function createDaemonHostRuntime(args: {
       // The instance agent home: a server-driver child's HOME must be the
       // instance's, exactly as the PTY path's children get it (POD-2247).
       ...(homeDir ? { homeDir } : {}),
+      instanceUuid: instance.instanceUuid,
     }),
   })
   /**
@@ -809,6 +812,7 @@ export async function createDaemonHostRuntime(args: {
       detachClient: ({ sessionId }) => clientTerminals.close(sessionId, 'codex'),
       // Same instance-home rule as the opencode host above (POD-2247).
       ...(homeDir ? { homeDir } : {}),
+      instanceUuid: instance.instanceUuid,
     }),
   })
   grokRuntime = createDaemonGrokRuntime({
@@ -830,6 +834,7 @@ export async function createDaemonHostRuntime(args: {
       },
       // Same instance-home rule as the opencode host above (POD-2247).
       ...(homeDir ? { homeDir } : {}),
+      instanceUuid: instance.instanceUuid,
     }),
   })
   agentRuntime = createDaemonMachineRuntime({

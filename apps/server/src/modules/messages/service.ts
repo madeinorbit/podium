@@ -1071,6 +1071,11 @@ export class MessageDeliveryService {
       // (or done-but-live) issue with no session is HELD, below.
       if (issue.archived)
         return this.deadLetter(message, `issue #${issue.seq} is archived`, { notifySender })
+      // A closed issue is terminal even when it has not reached the archive
+      // lifecycle yet. In particular, a queued wake must not resurrect a
+      // session after the close reaper has stopped it.
+      if (issue.closed)
+        return this.deadLetter(message, `issue #${issue.seq} is closed`, { notifySender })
       // The narrow read applies `isIssueMember` BEFORE the reader-scoped
       // projection is built (POD-1639); `sessionsForIssue` applies the SAME
       // predicate after it. Filtering the narrow result again is therefore a

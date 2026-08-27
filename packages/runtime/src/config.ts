@@ -38,6 +38,7 @@
  * | PODIUM_NO_RELAY               | — (env-only flag)       | both resolvers (shed inherited relay; escape hatch)    |
  * | PODIUM_ISSUE_RELAY            | — (env-only, LEGACY)    | `resolveAgentRelay()` read-only alias (dual-read, 1 rel)|
  * | PODIUM_SESSION_ID             | — (env-only)            | daemon-injected agent identity (control/session.ts)    |
+ * | PODIUM_INSTANCE_UUID          | — (env-only)            | daemon-owned process identity (instance reaper)       |
  * | PODIUM_BOOT_TIMEOUT_MS        | — → 45000               | boot.ts boot watchdog                                  |
  * | PODIUM_LOOP_PROFILE           | — (env-only flag)       | server + daemon event-loop profiling                   |
  * | ?switchTrace=1 / podium.switchTrace | — (browser runtime toggle; off by default) | optional long-task marks + console output          |

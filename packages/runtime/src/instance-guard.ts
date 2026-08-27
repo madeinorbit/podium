@@ -1,5 +1,5 @@
 /**
- * WHO IS LIVE ON THIS IDENTITY RIGHT NOW (POD-2691, phase 1).
+ * WHO IS LIVE ON THIS IDENTITY RIGHT NOW (POD-2691).
  *
  * The state-root marker in `instance.ts` says which instance a directory
  * BELONGS to. That is a durable fact and it survives everything — including
@@ -40,9 +40,10 @@
  * phase 7 measures the darwin equivalents; a caller that must not act on a
  * guess can read `identityVerified` and decline.
  *
- * NOTHING CONSUMES THIS YET. Phase 1 ships identity alone — the acquire calls
- * belong in daemon startup, which is a behaviour change and lands with the
- * phase that needs it.
+ * The daemon consumes these guards at startup and the session teardown path
+ * consumes the resulting UUID to attribute process-table cleanup. The guard
+ * remains a small primitive so those lifecycle decisions stay explicit at
+ * their call sites.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'

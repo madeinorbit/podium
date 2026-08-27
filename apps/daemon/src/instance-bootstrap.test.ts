@@ -9,7 +9,14 @@ const roots: string[] = []
 const savedEnv = { ...process.env }
 
 afterEach(() => {
-  for (const key of ['PODIUM_INSTANCE', 'PODIUM_STATE_DIR', 'ABDUCO_SOCKET_DIR', 'TMUX_TMPDIR']) {
+  for (const key of [
+    'PODIUM_INSTANCE',
+    'PODIUM_INSTANCE_UUID',
+    'PODIUM_SESSION_ID',
+    'PODIUM_STATE_DIR',
+    'ABDUCO_SOCKET_DIR',
+    'TMUX_TMPDIR',
+  ]) {
     if (savedEnv[key] === undefined) delete process.env[key]
     else process.env[key] = savedEnv[key]
   }
@@ -39,6 +46,9 @@ describe('bootstrapDaemonInstance', () => {
     // this case is about, and it is unchanged. What v2 adds beside it is a
     // MINTED `instanceUuid`, the ownership token a process census needs to ask
     // "is this stray job mine?" without attributing by name prefix.
+    expect(boot.instanceUuid).toBe(process.env.PODIUM_INSTANCE_UUID)
+    expect(process.env.PODIUM_SESSION_ID).toBeUndefined()
+    boot.releaseGuards()
     //
     // Asserted as an exact key set, not a `toMatchObject`: a marker that grew a
     // third field would be a third identity nobody decided on, and this is the
@@ -58,5 +68,31 @@ describe('bootstrapDaemonInstance', () => {
     process.env.PODIUM_INSTANCE = 'default'
     process.env.PODIUM_STATE_DIR = root
     expect(bootstrapDaemonInstance({ platform: 'win32' }).hookSocketPath).toBeUndefined()
+  })
+
+  it('acquires one root/UUID owner and refuses a second daemon', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-daemon-guards-'))
+    roots.push(root)
+    process.env.PODIUM_INSTANCE = 'blue'
+    process.env.PODIUM_STATE_DIR = root
+    let pid = 101
+    const io = {
+      pidAlive: () => true,
+      bootId: () => 'boot-1',
+      startTime: (candidate: number) => (candidate === 101 ? '100' : '200'),
+      now: () => 1,
+      selfPid: () => pid,
+    }
+    const guardDir = join(root, 'guards')
+    const first = bootstrapDaemonInstance({ acquireGuards: true, guardDir, guardIo: io })
+    pid = 202
+    expect(() => bootstrapDaemonInstance({ acquireGuards: true, guardDir, guardIo: io })).toThrow(
+      /already holds the state root|already live on instance uuid/,
+    )
+
+    first.releaseGuards()
+    const second = bootstrapDaemonInstance({ acquireGuards: true, guardDir, guardIo: io })
+    expect(second.instanceUuid).toBe(first.instanceUuid)
+    second.releaseGuards()
   })
 })

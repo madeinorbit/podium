@@ -372,6 +372,8 @@ export interface OpencodeHostDeps {
    * writes the operator's REAL `~/.local/share/opencode` state.
    */
   homeDir?: string
+  /** Immutable daemon ownership stamp for orphan attribution. */
+  instanceUuid?: string
   journal?: OpencodeJournal
   now?(): number
 }
@@ -511,6 +513,8 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         : serveArgv
 
       const env: NodeJS.ProcessEnv = serverChildEnv({
+        instanceUuid: deps.instanceUuid,
+        sessionId: input.sessionId,
         agentKind: 'opencode',
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),

@@ -288,6 +288,8 @@ export interface IssueDeps {
   /** Send-time mail delivery hook (issue #103): the registry nudges the target
    *  issue's live agent session. Best-effort — sendMail swallows its failures. */
   onMailSent?(row: IssueRow, message: IssueMessageRow): void
+  /** Fired after a durable closed-predicate flip so session teardown can begin. */
+  onIssueClosed?(input: { issueId: IssueId }): void
   /** Permanent artifact snapshot store ([spec:SP-0fc9] #441) — the server-pull
    *  snapshotter panelArtifactAdd/Remove ride. Optional so existing test deps
    *  literals stay valid; absent ⇒ legacy path-only artifact entries. */

@@ -158,6 +158,8 @@ export interface GrokAcpHostDeps {
    */
   homeDir?: string
   now?: () => number
+  /** Immutable daemon ownership stamp for orphan attribution. */
+  instanceUuid?: string
 }
 
 /**
@@ -255,6 +257,8 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
       const argv = ['grok', 'agent', 'stdio']
       const [command, ...args] = scoped ? ['systemd-run', ...systemdScopeArgv(unit, argv)] : argv
       const env: NodeJS.ProcessEnv = serverChildEnv({
+        instanceUuid: deps.instanceUuid,
+        sessionId: input.sessionId,
         agentKind: 'grok',
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),

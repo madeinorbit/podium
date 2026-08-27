@@ -283,6 +283,8 @@ export interface OpencodeClientTerminalPorts {
    * opencode state while the server it attaches to runs against the instance's.
    */
   homeDir?: string
+  /** Immutable daemon ownership stamp for orphan attribution. */
+  instanceUuid?: string
   /** Current machine command environment used to resolve the client executable. */
   commandEnvironment?: () => Promise<HarnessEnvironment>
   /** Injection seams. The defaults are the real abduco. */
@@ -465,6 +467,8 @@ export function createOpencodeClientTerminals(
       // the per-session server credentials, which stay in the ENV and out of
       // argv exactly as its server half requires.
       ...(launch.env ?? {}),
+      ...(ports.instanceUuid ? { PODIUM_INSTANCE_UUID: ports.instanceUuid } : {}),
+      PODIUM_SESSION_ID: record.streamId,
       ...harnessCompatEnv(kind),
       ...(ports.homeDir ? { HOME: ports.homeDir } : {}),
       ...harnessInstanceEnv(kind, ports.homeDir),

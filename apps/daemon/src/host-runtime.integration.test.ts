@@ -52,10 +52,12 @@ async function createCloseHost(
   const root = mkdtempSync(join(tmpdir(), 'podium-host-close-'))
   const instance = {
     instanceId: 'default',
+    instanceUuid: '11111111-1111-4111-8111-111111111111',
     runtimeDir: join(root, 'runtime'),
     settingsDir: join(root, 'settings'),
     hookSocketPath: join(root, 'runtime', 'codex-hooks.sock'),
     codexReceiptDir: join(root, 'receipts'),
+    releaseGuards: () => {},
   }
   const previousStateDir = process.env.PODIUM_STATE_DIR
   process.env.PODIUM_STATE_DIR = join(root, 'state')

@@ -156,15 +156,23 @@ export function serverChildEnv(input: {
    *  loses to the instance HOME — the same precedence the PTY path gives its
    *  three layers. */
   harnessEnv?: Readonly<Record<string, string>>
+  /** Immutable daemon ownership stamp for orphan attribution. */
+  instanceUuid?: string
+  /** Exact Podium session this child serves. */
+  sessionId?: string
 }, processEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...processEnv,
     ...spawnEnv({
       ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
       ...(input.harnessEnv ? { harnessEnv: input.harnessEnv } : {}),
-      podiumEnv: input.homeDir
-        ? { HOME: input.homeDir, ...harnessInstanceEnv(input.agentKind, input.homeDir) }
-        : {},
+      podiumEnv: {
+        ...(input.instanceUuid ? { PODIUM_INSTANCE_UUID: input.instanceUuid } : {}),
+        ...(input.sessionId ? { PODIUM_SESSION_ID: input.sessionId } : {}),
+        ...(input.homeDir
+          ? { HOME: input.homeDir, ...harnessInstanceEnv(input.agentKind, input.homeDir) }
+          : {}),
+      },
     }, processEnv),
   }
   for (const key of harnessChildStripEnv(input.agentKind, input.sessionEnv)) delete env[key]

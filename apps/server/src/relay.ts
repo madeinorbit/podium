@@ -1156,6 +1156,8 @@ export class SessionRegistry {
       },
       portableStateFence,
     )
+    let stopClosedIssue: ((input: { issueId: IssueId }) => void) | undefined
+
     const issues = new IssueService({
       store: this.store,
       artifacts: issueArtifacts,
@@ -1233,6 +1235,7 @@ export class SessionRegistry {
           seq: row.seq,
           ...(row.worktreePath ? { worktreePath: row.worktreePath } : {}),
         }),
+      onIssueClosed: (input) => stopClosedIssue?.(input),
     })
     const applySessionDerived = (event: EventMap['issue.sessionDerived']): void => {
       switch (event.kind) {
@@ -1301,6 +1304,9 @@ export class SessionRegistry {
       sessions: sessionsSvc,
       ledger: issueArbitration.ledger,
     })
+    stopClosedIssue = (input) =>
+      issueSessionLifecycle.stopClosedIssue({ ...input, reason: 'close' })
+
     this.bus.on('session.wakeRequested', ({ sessionId, principal }) => {
       const authorized = sessionsSvc.authorizeQueuedInputAtApply({
         sessionId,
@@ -2625,6 +2631,7 @@ export class SessionRegistry {
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping) and the issue ledger boot reconcile.
     issues.boot(systemPrincipal('boot-reconcile'))
+    issueSessionLifecycle.startClosedIssueSweep()
     shipping.start()
     void shipping
       .reconcile()
@@ -2869,6 +2876,7 @@ export class SessionRegistry {
     clearInterval(this.messageSweep)
     clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
+    this.modules.issueSessionLifecycle.dispose()
     this.issueAutoArchive.dispose()
     this.issueGitWatch.dispose()
     this.automationScheduler.dispose()

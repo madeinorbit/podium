@@ -48,7 +48,8 @@ export interface DaemonContext {
   machineId: MachineId
   /** Selected Podium instance that owns every runtime/session in this daemon. */
   instanceId: string
-  /** Exact labels retained for reattached legacy/adopted sessions. */
+  /** Immutable UUID stamped into every process owned by this daemon. */
+  instanceUuid: string
   durableLabels: Map<SessionId, string>
   durableLabelFor(sessionId: SessionId): string
   backend: DurableBackend

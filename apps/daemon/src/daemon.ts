@@ -102,6 +102,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     settingsDir: opts.hooks?.settingsDir,
     socketPath: opts.hooks?.socketPath,
     receiptDir: opts.hooks?.receiptDir,
+    acquireGuards: true,
   })
   let connection: DaemonConnection | undefined
   const queueDrainOutbox = createQueueDrainOutbox(instance.runtimeDir)
@@ -135,6 +136,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       if (connection) connection.acknowledgeRuntimeEvent(deliveryId)
       else runtimeEventOutbox.acknowledge(deliveryId)
     },
+  }).catch((error) => {
+    instance.releaseGuards()
+    throw error
   })
   connection = createDaemonConnection({
     options,
@@ -150,7 +154,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     onTerminal: host.close,
     restartAfterUpdate: options.restartAfterUpdate,
   })
-  await connection.start()
+  try {
+    await connection.start()
+  } catch (error) {
+    await host.close({ reapSessions: true }).catch(() => {})
+    instance.releaseGuards()
+    throw error
+  }
 
   return {
     hookPort: host.hookPort,
@@ -163,8 +173,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       return connection?.state === 'connected'
     },
     async close(closeOpts) {
-      await host.close(closeOpts)
-      await connection?.close()
+      try {
+        await host.close(closeOpts)
+        await connection?.close()
+      } finally {
+        instance.releaseGuards()
+      }
     },
   }
 }

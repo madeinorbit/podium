@@ -170,6 +170,7 @@ export class IssueCrudModule {
     private readonly hierarchy: () => IssueCrudHierarchyPort,
     private readonly attention: () => IssueCrudAttentionPort,
     private readonly gitWorkflow: () => IssueCrudGitWorkflowPort,
+    private readonly onIssueClosed?: IssueDeps['onIssueClosed'],
   ) {}
 
   shippingCommit<T>(
@@ -1115,6 +1116,10 @@ export class IssueCrudModule {
       // delegate's "Merge / Send back" cannot demand a decision forever after
       // the coordinator finished through another session (POD-290).
       this.attention().retireIssueOffers(row)
+      this.onIssueClosed?.({
+        issueId: row.id,
+      })
+
       this.emitReadyAfterClose(row, opts?.actorSessionId)
       this.archiveClosedSubtree(row.id)
     }
