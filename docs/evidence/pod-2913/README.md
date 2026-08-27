@@ -317,9 +317,58 @@ lease was held by POD-1761. At '2026-08-27 00:26 CEST', the host reported
 16 GiB free disk; the host had active swap pressure earlier in the same gate
 window. Starting a Vite build under that lease would invalidate the reading.
 
+### POD-2602 — terminal geometry survives restart and tab return
+
+The exact fix boundary is parent `0f0c616a35479411033b673262159df947e2cc21` ->
+fix `ede96a9923078beeb58a098343452e721aa6bf48`. The parent still permits the
+geometry timeline to roll back when the server restarts; the fix separates that
+timeline reset from terminal replay. This is matrix cell A6a only. A6b is the
+Chat -> CLI -> Chat -> CLI switch owned by POD-2761 and was not driven here.
+
+The parent arm ran as named harness `p2602pa` in `/tmp/pod2913-2602-parent`.
+Its server and daemon spawn-time pins both contained
+`0f0c616a35479411033b673262159df947e2cc21`; the served bundle was the reusable
+`apps/web/dist` bundle pinned to base/source `91114b3a4`, since the terminal
+geometry cell does not read the later model refusal-reason change. The
+`2026-08-27 04:28:12 CEST` resource check had 16 GiB free disk, 4.4 GiB
+available memory, and load 9.19/10.60/13.93. The two-view reading captured at
+`2026-08-27 05:30:18 CEST` used marker
+`P2602-A6A-PARENT-RESTART-2V-4J8M`; the positive control fired and the viewers
+were distinct. Before restart the controller was 104x27 at geometry revision 4
+and epoch 2. After harness restart serial 0 -> 1 and tab return, both viewers
+reported geometry revision 0 and the marker was absent. This reproduces the
+pre-fix stale geometry timeline on re-entry.
+
+The tip arm ran as named harness `p2602ti` from `/tmp/pod2913-2602-tip`, with
+server and daemon source pins written at spawn time `2026-08-27 05:36:24 CEST`
+and both containing `d532460b14a2c11feaba9466e5361273fb91e1fd`. It served
+`/home/mgw/src/podium/.worktrees/issue-2915-three-unchecked-fixes-behind-the-ui/apps/web/dist`,
+whose bundle base/source is `91114b3a4`; this is byte-identical for terminal
+sizing and the model-only refusal string is out of scope. Immediately before
+the final reading at `2026-08-27 06:06:11 CEST`, the host had 14 GiB free
+disk, 6.0 GiB available memory, and load 6.19/7.91/8.39. Session
+`edc60cd8-b622-4bbc-af65-fc7c66ba455a` used marker
+`P2602-A6A-FINAL-TIP-MARKER-2M7R`; the marker was observed, a second viewer
+was distinct (`c3` controller and `c2` spectator), and both viewers had
+`outputSeen=true` before the restart. Restart serial was 0 -> 1. Tip
+diagnostics showed the restarted server's 80x24 baseline followed by the
+automatic fit action to 104x27 with `forceRedrawIfSame=true`; the attached
+state was geometry revision 1. After physical tab away/back, the visible
+returned viewer remained 104x27 at revision 1 with the marker present; its DOM
+host was 978x603 and the xterm screen was 936x567. The hidden spectator's API
+snapshot did not retain the marker after restart, but it stayed connected with
+`outputSeen=true` and the same 104x27 geometry, so that separate screen-buffer
+observation is not used to claim a sizing failure.
+
+The parent reproduces the stale geometry-timeline rollback, while the epic tip
+automatically refits the returned terminal without a manual browser resize and
+keeps the corrected geometry revision. Positive controls fired in both arms.
+Verdict: **PASS — terminal sizing defect gone**. No product repair was made.
+
 ## Ledger
 
 Complete rows are appended to 'docs/plans/pod-1761-results.tsv'. The remaining
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -402,3 +451,10 @@ Last evidence update: '2026-08-27 03:04:17 CEST'.
 =======
 Last evidence update: '2026-08-27 03:29:11 CEST'.
 >>>>>>> 210ad18a5 (docs: record POD-2408 controlled drive)
+=======
+children (POD-2604 and POD-2637) were not touched in this interval
+and have no result claimed here. POD-2622 is handed to POD-2914;
+this report does not claim a drive for it.
+
+Last evidence update: '2026-08-27 06:06:17 CEST'.
+>>>>>>> 117eca856 (docs(evidence): drive POD-2602 terminal geometry)
