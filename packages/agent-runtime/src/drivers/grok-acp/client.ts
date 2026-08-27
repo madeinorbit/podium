@@ -27,6 +27,9 @@ export interface GrokAcpClientConfig {
   /** Every parsed inbound frame, before dispatching it to a request/update
    * consumer. Kept optional so ordinary hosts pay no diagnostic cost. */
   onFrame?(frame: GrokAcpFrame): void
+  /** A response matched to this client's pending request, synchronously before
+   *  its Promise is resolved or rejected. */
+  onResponse?(method: string, frame: GrokAcpFrame): void
   onNotification(frame: GrokAcpFrame): void
   onServerRequest(request: GrokAcpServerRequest): void
   onClose?(): void
@@ -102,6 +105,7 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
       if (!entry) return
       pending.delete(key)
       clearTimer(entry.timer)
+      config.onResponse?.(entry.method, frame)
       if (frame.error) {
         entry.reject(
           new GrokAcpRpcError(

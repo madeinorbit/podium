@@ -381,6 +381,72 @@ describe('grok-acp interrupt transcript marker', () => {
       world.target.reset()
     }
   })
+
+  it('does not attribute a cancellation confirmed before a late interrupt request', async () => {
+    const world = makeWorld({ deferCancellation: true })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send(
+        { text: 'provider cancellation wins this race' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+
+      // The fake dispatches the response synchronously, resolving the client
+      // Promise, while `finishPrompt` remains a later microtask. The interrupt
+      // body then runs while the session still looks busy: exactly the window
+      // that sampling a boolean inside `finishPrompt` misattributed.
+      world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
+      await handle.interrupt()
+
+      await expect.poll(async () => (await handle.state()).phase).toBe('idle')
+      expect(await handle.transcript.history({ limit: 20 })).not.toContainEqual(
+        expect.objectContaining({ event: 'interrupt' }),
+      )
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('keeps one confirmed user marker when teardown wins the continuation race', async () => {
+    const world = makeWorld({ deferCancellation: true })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send(
+        { text: 'stop after confirmation' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      await handle.interrupt()
+
+      // Confirmation synchronously crosses the durable item boundary. Stop
+      // disposes the session before `finishPrompt`'s microtask can run, so a
+      // marker materialized by that continuation would be lost.
+      world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
+      await handle.stop()
+
+      const history = await handle.transcript.history({ limit: 20 })
+      expect(history.filter((item) => item.event === 'interrupt')).toEqual([
+        expect.objectContaining({
+          id: 'grok-interrupt-1',
+          role: 'user',
+          text: '[Request interrupted by user]',
+        }),
+      ])
+      const emitted: RuntimeEvent[] = []
+      for await (const event of handle.events('bootstrap')) emitted.push(event)
+      expect(
+        emitted.filter(
+          (event) =>
+            event.t === 'item' &&
+            event.item.kind === 'complete' &&
+            event.item.item.event === 'interrupt',
+        ),
+      ).toHaveLength(1)
+    } finally {
+      world.target.reset()
+    }
+  })
 })
 
 const { target } = makeWorld()

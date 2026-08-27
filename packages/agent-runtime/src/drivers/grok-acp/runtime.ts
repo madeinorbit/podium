@@ -158,7 +158,8 @@ interface DriverSession {
   lastEventId: string | undefined
   seq: number
   busy: boolean
-  interruptPending: boolean
+  /** The exact open prompt epoch for which Podium sent `session/cancel`. */
+  interruptRequestedEpoch: number | undefined
   loading: boolean
   interactions: Map<string, GrokPermissionAsk>
   answered: Set<string>
@@ -213,6 +214,7 @@ export interface GrokAcpRuntime {
 interface BufferedConnection {
   client: GrokAcpClient
   bind(handlers: {
+    promptResult(result: GrokAcpPromptResult): void
     notification(frame: GrokAcpFrame): void
     request(request: GrokAcpServerRequest): void
     closed(): void
@@ -322,6 +324,23 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       session.transcriptItems.push(item)
     }
     emit(session, { t: 'item', item: { kind: 'complete', item } }, at, provenance, native)
+  }
+
+  function addInterruptMarker(session: DriverSession, epoch: number, at: string): void {
+    const id = `grok-interrupt-${epoch}`
+    if (session.transcriptIds.has(id)) return
+    addItem(
+      session,
+      {
+        id,
+        role: 'user',
+        text: '[Request interrupted by user]',
+        ts: at,
+        event: 'interrupt',
+      },
+      at,
+      'live',
+    )
   }
 
   function flushUser(
@@ -598,11 +617,13 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
   }
 
   function connect(endpoint: GrokAcpEndpoint, sessionId: SessionId): BufferedConnection {
+    const promptResults: GrokAcpPromptResult[] = []
     const notifications: GrokAcpFrame[] = []
     const requests: GrokAcpServerRequest[] = []
     let sawClose = false
     let handlers:
       | {
+          promptResult(result: GrokAcpPromptResult): void
           notification(frame: GrokAcpFrame): void
           request(request: GrokAcpServerRequest): void
           closed(): void
@@ -613,6 +634,13 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       transport: endpoint.transport,
       onFrame(frame) {
         host.onRawFrame?.(sessionId, frame)
+      },
+      onResponse(method, frame) {
+        if (method !== GROK_ACP_METHODS.sessionPrompt) return
+        const result = GrokAcpPromptResultSchema.safeParse(frame.result)
+        if (!result.success) return
+        if (handlers) handlers.promptResult(result.data)
+        else promptResults.push(result.data)
       },
       onNotification(frame) {
         if (handlers) handlers.notification(frame)
@@ -631,6 +659,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       client,
       bind(next) {
         handlers = next
+        for (const result of promptResults.splice(0)) next.promptResult(result)
         for (const frame of notifications.splice(0)) next.notification(frame)
         for (const request of requests.splice(0)) next.request(request)
         if (sawClose) next.closed()
@@ -675,7 +704,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       lastEventId: undefined,
       seq: input.seq ?? 0,
       busy: false,
-      interruptPending: false,
+      interruptRequestedEpoch: undefined,
       loading: false,
       interactions: new Map(),
       answered: new Set(),
@@ -700,6 +729,36 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     const handle = buildHandle(session)
     handles.set(input.sessionId, handle)
     input.connection.bind({
+      promptResult(result) {
+        const epoch = session.openTurnEpoch
+        if (
+          session.disposed ||
+          epoch === undefined ||
+          result.stopReason !== 'cancelled' ||
+          session.interruptRequestedEpoch !== epoch
+        ) {
+          return
+        }
+        /**
+         * THE CONFIRMATION BOUNDARY, NOT THE PROMISE CONTINUATION (POD-2940).
+         *
+         * `onFrame` calls this synchronously before the JSON-RPC client resolves
+         * `session/prompt`. A `.then` continuation runs in a later microtask,
+         * and two real actions can land in that gap: a late interrupt request,
+         * which must not claim an already-received provider cancellation, or a
+         * stop/kill, which must not erase a cancellation already confirmed for
+         * the user's request. Bind the marker to this prompt's epoch and persist
+         * it now. The id guard makes a duplicated response observation inert.
+         *
+         * Transcript chunks are dispatched synchronously before the response
+         * too. Flush them first so the marker remains the final user action
+         * instead of appearing before the assistant text it interrupted.
+         */
+        const at = iso()
+        flushUser(session, 'live')
+        flushAssistant(session, 'live')
+        addInterruptMarker(session, epoch, at)
+      },
       notification(frame) {
         ingestNotification(session, frame, session.loading ? 'replay' : 'live')
       },
@@ -891,14 +950,9 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     const at = iso()
     flushUser(session, 'live')
     flushAssistant(session, 'live')
-    // `session/cancel` only REQUESTS an interrupt. Keep the request fact long
-    // enough to join it to ACP's provider fence below; clearing it before the
-    // result is classified loses the only fact that distinguishes the user's
-    // stop from a provider-side cancellation.
-    const interruptRequested = session.interruptPending
     session.busy = false
     session.openTurnEpoch = undefined
-    session.interruptPending = false
+    if (session.interruptRequestedEpoch === epoch) session.interruptRequestedEpoch = undefined
     if (result) updateUsage(session, result)
     // A retry_state failure may describe an attempt that Grok recovered before
     // the prompt response. Do not carry that attempt into a successful turn.
@@ -918,33 +972,6 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
               disposition: 'retryable' as const,
               errorClass: 'provider_error',
             })
-    /**
-     * A USER INTERRUPT IS TRANSCRIPT CONTENT, AFTER THE PROVIDER CONFIRMS IT.
-     *
-     * The terminal families get this durable item from their harness history,
-     * and the other server drivers read histories owned by their providers.
-     * ACP's `session/cancel` response is only `{}` and its later
-     * `stopReason: cancelled` carries no message chunk, so a zero-output Grok
-     * turn otherwise closes with nothing between the user's partial prompt and
-     * the next turn. Materialize the shared transcript event here, where BOTH
-     * halves are known: Podium requested the stop and Grok confirmed that this
-     * prompt ended as cancelled. A request alone must never mint it, and an
-     * unrequested provider cancellation must never be attributed to the user.
-     */
-    if (interruptRequested && result?.stopReason === 'cancelled') {
-      addItem(
-        session,
-        {
-          id: `grok-interrupt-${epoch}`,
-          role: 'user',
-          text: '[Request interrupted by user]',
-          ts: at,
-          event: 'interrupt',
-        },
-        at,
-        'live',
-      )
-    }
     if (!failure) {
       emit(session, { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' } }, at)
       foldState(session, { kind: 'turn_completed' }, at, 'live')
@@ -1003,6 +1030,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     session.turnEpoch += 1
     const epoch = session.turnEpoch
     session.openTurnEpoch = epoch
+    session.interruptRequestedEpoch = undefined
     session.lastTurnFailure = undefined
     session.busy = true
     session.ignoreUserEcho = input.text
@@ -1348,7 +1376,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
 
       async interrupt() {
         if (!session.busy || session.disposed) return
-        session.interruptPending = true
+        session.interruptRequestedEpoch = session.openTurnEpoch
         for (const [id, ask] of [...session.interactions]) {
           session.client.respond(ask.requestId, { outcome: { outcome: 'cancelled' } })
           expireAsk(session, id, iso())
