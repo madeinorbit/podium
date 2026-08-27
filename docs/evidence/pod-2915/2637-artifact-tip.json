@@ -1,0 +1,16 @@
+{
+  "issue": "POD-2637",
+  "issueId": "iss_3d2b4f45-433e-40f2-ad43-89814522efe2",
+  "arm": "tip",
+  "commit": "server/web 91114b3; daemon 91114b3",
+  "instance": "p2915",
+  "sessionId": "7634c27d-7cec-46f9-828f-c143d4de3121",
+  "title": "POD-2637 browser audit 1787795638597-mnh2qn",
+  "control": {
+    "fired": true,
+    "screenTail": "\n╭───────────────────────────────────────────────────────────────╮\n│ ✨ Update available! 0.149.1 -> 0.150.0                       │\n│ See https://github.com/openai/codex for installation options. │\n│                                                               │\n│ See full release notes:                                       │\n│ https://github.com/openai/codex/releases/latest               │\n╰───────────────────────────────────────────────────────────────╯\n\n╭─────────────────────────────────────────────────╮\n│ >_ OpenAI Codex (v0.149.1)                      │\n│                                                 │\n│ model:     gpt-5.6-sol xhigh   /model to change │\n│ directory: /tmp/pod-2915/repo                   │\n╰─────────────────────────────────────────────────╯\n\n  Tip: Visit the Codex community forum:\n  https://community.openai.com/c/codex/37\n\n• You have 1 usage limit reset available. Run /usage to use one.\n\n⚠ `[features].use_legacy_landlock` is deprecated and will be removed\nsoon.\nRemove this setting to stop opting into the legacy Linux sandbox\nbehavior.\n\n⚠ The cloudflare-api MCP server is not logged in. Run `codex mcp login\n  cloudflare-api`.\n\n⚠ MCP startup incomplete (failed: cloudflare-api)\n \n \n› Ask Codex to do anything\n \n  gpt-5.6-sol xhigh · /tmp/pod-2915/repo\n\n"
+  },
+  "screenshot": "/tmp/pod-2915/artifact-terminal-1787795638597-mnh2qn.png",
+  "displayRef": "POD-25",
+  "verdict": "CAPTURED_FOR_TERMINAL_EVIDENCE"
+}

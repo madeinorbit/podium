@@ -1,0 +1,46 @@
+{
+  "issue": "POD-2761",
+  "arm": "tip",
+  "commit": "server/web 91114b3; daemon 91114b3",
+  "instance": "p2915",
+  "sessionId": "73da0072-4117-401b-9cae-b012a5ff4d4d",
+  "title": "POD-2761 browser audit tip 1787795555487-s1jzo1",
+  "scenario": "ALPHA, BRAVO and CHARLIE conversation, then Chat/CLI/Chat/CLI view switches",
+  "control": {
+    "fired": true,
+    "driverId": "codex-app-server",
+    "trustActions": [],
+    "clientTerminalFired": true
+  },
+  "marker": "CHARLIE-1787795555487-s1jzo1",
+  "markerSurvivedChat": true,
+  "duplicateInterface": false,
+  "headerCounts": {
+    "firstCli": 1,
+    "secondCli": 1,
+    "thirdCli": 1
+  },
+  "clientPids": {
+    "firstCli": [
+      "726232",
+      "726234"
+    ],
+    "chat": [],
+    "secondCli": [
+      "726850",
+      "726856"
+    ],
+    "thirdCli": [
+      "727407",
+      "727412"
+    ]
+  },
+  "screens": {
+    "firstCli": "╭───────────────────────────────────────╮\n│ >_ OpenAI Codex (v0.149.1)            │\n│                                       │\n│ model:     loading   /model to change │\n│ directory: /tmp/pod-2915/repo         │\n╰───────────────────────────────────────╯\n  Resuming session…\n \n› Ask Codex to do anything\n \n  ? for shortcuts\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+    "secondCli": "╭───────────────────────────────────────╮\n│ >_ OpenAI Codex (v0.149.1)            │\n│                                       │\n│ model:     loading   /model to change │\n│ directory: loading                    │\n╰───────────────────────────────────────╯\n  Resuming session…\n \n› Ask Codex to do anything\n \n  ? for shortcuts\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+    "thirdCli": "╭───────────────────────────────────────╮\n│ >_ OpenAI Codex (v0.149.1)            │\n│                                       │\n│ model:     loading   /model to change │\n│ directory: /tmp/pod-2915/repo         │\n╰───────────────────────────────────────╯\n  Resuming session…\n \n› Ask Codex to do anything\n \n  ? for shortcuts\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+    "chatTail": []
+  },
+  "verdict": "GONE",
+  "screenshot": "/tmp/pod-2915/switch-tip.png"
+}
