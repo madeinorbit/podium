@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type { IssueId, IssueWire } from '@podium/model'
+import { isIssueClosed, type IssueId, type IssueWire } from '@podium/model'
 import type { Ledger } from '@podium/sync'
 import type { IssueService } from './issues/service'
 import { IssueNotFound } from './issues/service/not-found'
@@ -93,7 +93,7 @@ export class IssueSessionLifecycle {
 
     const task = (async (): Promise<void> => {
       const current = this.deps.issues.get(issueId)
-      if (!current || current.deletedAt || !current.closed) return
+      if (!current || current.deletedAt || !isIssueClosed(current)) return
       const result = await this.stopIssue({
         issueId,
         // This is a persisted server close intent, not an agent's interactive

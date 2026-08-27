@@ -44,6 +44,7 @@ import {
   asSessionId,
   FIRST_ADMIN_USER_ID,
   isAgentComputing,
+  isIssueClosed,
   type IssueScope,
   type SessionId,
   type SessionMeta,
@@ -1074,7 +1075,7 @@ export class MessageDeliveryService {
       // A closed issue is terminal even when it has not reached the archive
       // lifecycle yet. In particular, a queued wake must not resurrect a
       // session after the close reaper has stopped it.
-      if (issue.closed)
+      if (isIssueClosed(issue))
         return this.deadLetter(message, `issue #${issue.seq} is closed`, { notifySender })
       // The narrow read applies `isIssueMember` BEFORE the reader-scoped
       // projection is built (POD-1639); `sessionsForIssue` applies the SAME

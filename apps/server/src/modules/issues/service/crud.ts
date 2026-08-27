@@ -29,7 +29,7 @@ import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import { findSessionById } from '../../sessions/session-by-id'
 import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
-import type { CreateIssueInput, IssuePanelOp, IssuePatch } from './types'
+import type { CreateIssueInput, IssueDeps, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
 
 /**
