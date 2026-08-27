@@ -103,6 +103,7 @@ the same refused receipt. Verdict: **PASS — defect gone**.
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 ### POD-2408 — defect gone
 
 The consumer check is positive: daemon 'stageRuntimeAttachment' is wired through
@@ -203,6 +204,27 @@ The parent reproduces the raw throw, the exact fix returns the typed refusal,
 and the landed tip successfully stages the attachment. Verdict: **PASS —
 typed-refusal defect gone; later staging support also verified**. No product
 repair was made.
+
+>>>>>>> 05f708469 (docs: record POD-2408 boundary finding)
+=======
+### POD-2408 — invalid listed boundary
+
+The consumer check is positive on checkout '562620c41c620542db2abc6dab449dfc817c4c6a':
+'stageRuntimeAttachment' is the default stager passed through
+'apps/daemon/src/runtime/host.ts', the server command plane calls
+'ctx.deps.stageAttachment' in 'apps/server/src/modules/sessions/command-plane.ts',
+and 'apps/web/src/features/chat/use-attachments.ts' consumes the returned
+'refusal'. The current epic branch pin is
+'140f0fbd03c5e03d5e05bf8eb22da0d8271ea80c'.
+
+The audit-listed fix 'b247c2dbf' has parent '10d5af58aa9be901105eeb2291504720e86d931b'.
+At that parent, terminal, opencode, Codex, and Grok already return typed
+'reason: unsupported' results from 'stageAttachment()'. The actual
+throw-to-typed-refusal change is '10d5af58a' (parent
+'5979159e30e8c0f2ff9f242ab64919fec6793245'), where the drivers throw before
+that commit and return typed refusals after it. Therefore 'b247c2dbf^' does
+not reproduce the original crash, so it cannot serve as the required pre-fix
+control. Verdict: **FAIL — invalid listed boundary; no runtime drive**.
 
 >>>>>>> 05f708469 (docs: record POD-2408 boundary finding)
 
@@ -416,6 +438,7 @@ Complete rows are appended to 'docs/plans/pod-1761-results.tsv'. The remaining
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 children (POD-2602, POD-2604, and POD-2637) were not touched in this interval
 and have no result claimed here. POD-2622 is handed to POD-2914;
 this report does not claim a drive for it.
@@ -523,3 +546,11 @@ Last evidence update: '2026-08-27 01:54:27 CEST'.
 =======
 Last evidence update: '2026-08-27 02:39:16 CEST'.
 >>>>>>> 562620c41 (docs: refresh POD-2298 parent drive evidence)
+=======
+children (POD-2602, POD-2604, and POD-2637) were not touched in this interval
+and have no result claimed here. POD-2408 has the static boundary finding above
+and no runtime drive was run. POD-2622 is handed to POD-2914;
+this report does not claim a drive for it.
+
+Last evidence update: '2026-08-27 03:04:17 CEST'.
+>>>>>>> 05f708469 (docs: record POD-2408 boundary finding)
