@@ -26,6 +26,143 @@ The live service executes an installed, orderable build. `PODIUM_DEV_SOURCE_ROOT
 checkout only as publisher/build input. Move that checkout forward, approve the dev release, then
 accept the ordinary update offer. The installed parent owns swap, handover, health gate, and rollback.
 
+## Repair an installed machine stranded before channel-keyed trust
+
+Before POD-2932 there was **no supported out-of-band repair** for this case. `podium update
+--repair` is not one: it asks the server for an ordinary grant, so a pre-channel-trust daemon still
+downloads the feed and verifies it with the baked release key instead of its pinned instance key.
+It fails by construction even when the artifact, signature, metadata fingerprint, and pin are all
+correct.
+
+The supported recovery is `scripts/repair-stranded-update.sh`. It is for an already-installed Linux
+fleet machine that reports the retired `update.delivery.bundle` capability and is being offered a
+development target with `trust: instance`. It does not contact Podium, invoke the installed updater,
+or restart a service. It verifies an artifact trio copied onto the host, swaps the installed bundle
+on the same filesystem, and retains `<install>.old` for rollback.
+
+Do not use this path for an ordinary bad signature. A metadata fingerprint that differs from
+`daemon.json` is a genuinely wrong key and the script refuses it as such. The legacy-build case is
+different: the fingerprints match, but that build cannot consult the pin for a feed delivery.
+
+Run the whole target-host part from one host-local SSH or console shell, never a Podium terminal.
+Nothing about recovery may depend on the control plane being available after the restart.
+
+### 1. Select and copy the published artifact out of band
+
+On the development publisher host, select the retained artifact for the stranded machine's exact
+platform. It must be the artifact from an approved, orderable development publish such as
+`0.1.1-dev.3+2595a90`, not a source package stamped `dev+2595a90`.
+
+    PODIUM_REPAIR_ARTIFACT=/absolute/path/to/dist-bun/podium-headless-0.1.1-dev.3+2595a90-linux-x86_64-20260827T000000Z.tar.gz
+    test -r "$PODIUM_REPAIR_ARTIFACT"
+    test -r "$PODIUM_REPAIR_ARTIFACT.sig"
+    test -r "$PODIUM_REPAIR_ARTIFACT.meta.json"
+    scp scripts/repair-stranded-update.sh \
+      "$PODIUM_REPAIR_ARTIFACT" \
+      "$PODIUM_REPAIR_ARTIFACT.sig" \
+      "$PODIUM_REPAIR_ARTIFACT.meta.json" \
+      flatblock:/tmp/podium-stranded-repair/
+
+This is an out-of-band file copy from the publisher to the machine. Do not begin with `podium
+update`, the feed URL, or `podium update --repair`: those all return to the broken verifier.
+
+### 2. Capture rollback truth while the old process is healthy
+
+On the stranded machine, set explicit paths. These are the defaults for the default instance; for a
+named instance use its actual state root and install root.
+
+    set -eu
+    PODIUM_REPAIR_INSTANCE=default
+    PODIUM_REPAIR_ACCOUNT_HOME=$(getent passwd "$(id -u)" | cut -d: -f6)
+    PODIUM_REPAIR_STATE=$PODIUM_REPAIR_ACCOUNT_HOME/.podium
+    PODIUM_REPAIR_INSTALL=$PODIUM_REPAIR_ACCOUNT_HOME/.local/share/podium
+    PODIUM_REPAIR_UNIT_DIR=$PODIUM_REPAIR_ACCOUNT_HOME/.config/systemd/user
+    PODIUM_REPAIR_INPUT=/tmp/podium-stranded-repair
+    PODIUM_REPAIR_ARTIFACT=$PODIUM_REPAIR_INPUT/podium-headless-0.1.1-dev.3+2595a90-linux-x86_64-20260827T000000Z.tar.gz
+    PODIUM_REPAIR_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PODIUM_REPAIR_ARTIFACT.meta.json")
+    PODIUM_REPAIR_RECOVERY=$PODIUM_REPAIR_STATE/recovery/stranded-update-$(date -u +%Y%m%dT%H%M%SZ)
+    mkdir -m 700 -p "$PODIUM_REPAIR_RECOVERY/units"
+
+Capture the identity, config if present, every Podium unit definition, and the exact enabled and
+active sets. The script does not change units, but this record keeps recovery independent of memory
+and of whichever historical unit topology the machine runs.
+
+    for file in "$PODIUM_REPAIR_STATE/daemon.json" "$PODIUM_REPAIR_STATE/config.json"; do
+      test ! -e "$file" || cp -a "$file" "$PODIUM_REPAIR_RECOVERY/"
+    done
+    : > "$PODIUM_REPAIR_RECOVERY/enabled-units"
+    : > "$PODIUM_REPAIR_RECOVERY/active-units"
+    for unit_file in "$PODIUM_REPAIR_UNIT_DIR"/podium*.service; do
+      test -e "$unit_file" || test -L "$unit_file" || continue
+      unit=$(basename "$unit_file")
+      cp -a "$unit_file" "$PODIUM_REPAIR_RECOVERY/units/$unit"
+      systemctl --user is-enabled --quiet "$unit" 2>/dev/null &&
+        printf '%s\n' "$unit" >> "$PODIUM_REPAIR_RECOVERY/enabled-units" || true
+      systemctl --user is-active --quiet "$unit" 2>/dev/null &&
+        printf '%s\n' "$unit" >> "$PODIUM_REPAIR_RECOVERY/active-units" || true
+    done
+    test -s "$PODIUM_REPAIR_RECOVERY/active-units"
+    test -x "$PODIUM_REPAIR_INSTALL/podium"
+    test -r "$PODIUM_REPAIR_STATE/daemon.json"
+
+If `<install>.old` already exists, preserve it with the rest of the evidence before continuing; the
+repair script refuses to overwrite a rollback bundle.
+
+    if test -e "$PODIUM_REPAIR_INSTALL.old" || test -L "$PODIUM_REPAIR_INSTALL.old"; then
+      mv "$PODIUM_REPAIR_INSTALL.old" "$PODIUM_REPAIR_RECOVERY/pre-existing-install.old"
+    fi
+
+### 3. Verify, stage, and swap without stopping the process
+
+The current process remains healthy while the script verifies the metadata digest and size,
+compares the metadata fingerprint with the pinned `updatePubkey`, verifies Ed25519 directly against
+that pin, checks platform and the orderable version, and extracts into a sibling staging directory.
+Only then does it rename the current install to `.old` and promote the staged bundle.
+
+    sh "$PODIUM_REPAIR_INPUT/repair-stranded-update.sh" \
+      --artifact "$PODIUM_REPAIR_ARTIFACT" \
+      --instance "$PODIUM_REPAIR_INSTANCE" \
+      --state-dir "$PODIUM_REPAIR_STATE" \
+      --install-dir "$PODIUM_REPAIR_INSTALL"
+    test "$(tr -d '\n\r' < "$PODIUM_REPAIR_INSTALL/VERSION")" = "$PODIUM_REPAIR_VERSION"
+    test -x "$PODIUM_REPAIR_INSTALL/podium"
+    test -d "$PODIUM_REPAIR_INSTALL.old"
+    while IFS= read -r unit; do systemctl --user is-active --quiet "$unit"; done < "$PODIUM_REPAIR_RECOVERY/active-units"
+
+The last line proves no service was touched: the old process is still running from its already-open
+executable while the new bundle waits at the stable install path.
+
+### 4. Restart only the target's exact prior active set
+
+Restart the recorded active units from the same host-local shell. Do not restart or modify the
+publisher/server host.
+
+    while IFS= read -r unit; do systemctl --user restart "$unit"; done < "$PODIUM_REPAIR_RECOVERY/active-units"
+    while IFS= read -r unit; do systemctl --user is-active --quiet "$unit"; done < "$PODIUM_REPAIR_RECOVERY/active-units"
+    test "$(tr -d '\n\r' < "$PODIUM_REPAIR_INSTALL/VERSION")" = "$PODIUM_REPAIR_VERSION"
+
+From the coordinator, require a fresh handshake that reports the installed target version and no
+longer advertises `update.delivery.bundle`. A current build also reports `update.probe.artifact`.
+Only after that observation may the operator remove `$PODIUM_REPAIR_INSTALL.old` and the copied
+artifact trio. Keep `$PODIUM_REPAIR_RECOVERY` as the audit and rollback record until the machine has
+accepted a later ordinary development update.
+
+### Roll back without Podium
+
+If the machine does not reconnect healthy, remain in the same host-local shell and restore the old
+bundle before asking the control plane for anything:
+
+    while IFS= read -r unit; do systemctl --user stop "$unit"; done < "$PODIUM_REPAIR_RECOVERY/active-units"
+    PODIUM_REPAIR_FAILED=$PODIUM_REPAIR_INSTALL.failed-$(date -u +%Y%m%dT%H%M%SZ)
+    mv "$PODIUM_REPAIR_INSTALL" "$PODIUM_REPAIR_FAILED"
+    mv "$PODIUM_REPAIR_INSTALL.old" "$PODIUM_REPAIR_INSTALL"
+    while IFS= read -r unit; do systemctl --user start "$unit"; done < "$PODIUM_REPAIR_RECOVERY/active-units"
+    while IFS= read -r unit; do systemctl --user is-active --quiet "$unit"; done < "$PODIUM_REPAIR_RECOVERY/active-units"
+
+The failed candidate stays beside the install for inspection. The captured config, identity, unit
+definitions, and exact enabled/active sets are sufficient to reconstruct the prior target-host state
+without touching the publisher.
+
 ## One-time source-to-installed cutover
 
 Run this from one host-local shell, never a Podium terminal. The data plane is deliberately down for

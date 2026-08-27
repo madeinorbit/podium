@@ -51,6 +51,51 @@ describe('describeUpdate', () => {
     expect(v).toEqual({ state: 'local-stale', version: '0.4.2' })
   })
 
+  it('projects a pre-channel-trust machine as a visible host-local repair blocker', () => {
+    const v = describeUpdate({
+      ...base,
+      localVersion: '0.4.2',
+      server: { appVersion: '0.4.2', target: base.server.target },
+      fleet: {
+        total: 0,
+        behind: 0,
+        converging: 0,
+        failed: 0,
+        blocked: 1,
+        blockers: [{ id: 'machine-flatblock', name: 'flatblock', reason: 'legacy-instance-trust' }],
+        startability: {
+          startable: false,
+          reason: 'This development update requires host-local repair.',
+        },
+      },
+      touched: { app: false, server: false, machines: false },
+    } as never)
+
+    expect(v).toEqual({
+      state: 'blocked',
+      version: '0.4.2',
+      blockedNote:
+        'flatblock needs host-local repair before it can verify instance-signed development updates. ' +
+        'The older updater uses the baked release key for feed delivery instead of the pinned instance key.',
+    })
+  })
+
+  it('keeps a legacy blocker visible beside a grantable fleet offer', () => {
+    const v = describeUpdate({
+      ...base,
+      fleet: {
+        ...base.fleet,
+        blocked: 1,
+        blockers: [{ id: 'machine-flatblock', name: 'flatblock', reason: 'legacy-instance-trust' }],
+      },
+    } as never)
+
+    expect(v.state).toBe('available')
+    expect((v as { blockedNote?: string }).blockedNote).toMatch(
+      /flatblock needs host-local repair/i,
+    )
+  })
+
   it('offers no control when every affected machine is offline', () => {
     const v = describeUpdate({
       ...base,

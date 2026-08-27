@@ -104,6 +104,12 @@ export interface UpdateFleetState {
   behind: number
   converging: number
   failed: number
+  blocked?: number
+  blockers?: readonly {
+    id: string
+    name?: string
+    reason: 'legacy-instance-trust'
+  }[]
   preparation?: {
     webReady: boolean
     bundleReady: boolean

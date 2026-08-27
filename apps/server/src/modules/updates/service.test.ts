@@ -1750,3 +1750,61 @@ describe('a release that predates a machine', () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('a machine that predates channel-keyed trust', () => {
+  const instanceTarget = {
+    version: '0.4.2',
+    critical: false,
+    trust: 'instance',
+    artifacts: {
+      headless: {
+        delivery: 'feed',
+        platforms: {
+          'linux-x86_64': { url: 'https://x.test/a.tgz', digest: 'd', signature: 's' },
+        },
+      },
+    },
+  } as never
+
+  const flatblock = () =>
+    m('flatblock', {
+      platform: 'linux-x86_64',
+      deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+    })
+
+  it('is never granted the instance-trusted feed by the standing wave', () => {
+    const { svc, send } = make([flatblock()])
+    svc.setTarget(instanceTarget)
+    svc.tick()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('answers direct Apply with the verifier-generation fact', () => {
+    const { svc, send } = make([flatblock()])
+    svc.setTarget(instanceTarget)
+    expect(svc.authorizeMachine(asMachineId('flatblock'))).toEqual({
+      result: 'legacy-instance-trust',
+      version: '0.4.2',
+    })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('does not pretend an in-band Repair can bypass the same verifier', () => {
+    const { svc, send } = make([flatblock()])
+    svc.setTarget(instanceTarget)
+    expect(svc.repairMachine(asMachineId('flatblock'))).toEqual({
+      result: 'legacy-instance-trust',
+      version: '0.4.2',
+    })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('continues to grant a current feed-only daemon', () => {
+    const { svc, send } = make([
+      m('current', { platform: 'linux-x86_64', deliveryCaps: ['update.delivery.feed'] }),
+    ])
+    svc.setTarget(instanceTarget)
+    expect(svc.authorizeMachine(asMachineId('current'))).toMatchObject({ result: 'granted' })
+    expect(send).toHaveBeenCalledOnce()
+  })
+})

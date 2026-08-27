@@ -8,6 +8,7 @@ import type {
   OperationStep,
   StepPlace,
   UpdateTarget,
+  UpdateTrustRoot,
 } from '@podium/protocol'
 import {
   buildsDiffer,
@@ -33,6 +34,7 @@ import {
   isPackagedRolloutTarget,
   machineCanTakeDelivery,
   machineCanTakeTargetPlatform,
+  machineCanUseTargetTrust,
   offeredDeliveries,
   TERMINAL_STATES,
   type WaveMachine,
@@ -788,6 +790,7 @@ const PACKED_DELIVERY = 'feed'
 
 type DeliverableTarget = {
   version: string
+  trust?: UpdateTrustRoot
   artifacts: {
     headless?: { delivery: string }
     headlessAlternatives?: readonly { delivery: string }[]
@@ -809,6 +812,7 @@ export function machineCanTakeTargetNow(
   machine: Pick<WaveMachine, 'deliveryCaps'>,
   target: DeliverableTarget,
 ): boolean {
+  if (!machineCanUseTargetTrust(machine, target.trust)) return false
   const deliveries = offeredDeliveries(target)
   // Nothing offered and nothing packed is nothing to hand anyone. Granting it
   // anyway is how the fleet used to learn by failing.
@@ -858,6 +862,7 @@ function packWouldCoverPlatform(machine: Pick<WaveMachine, 'platform'>): boolean
  * reports `done` without building.
  */
 function machineNeedsPack(machine: WaveMachine, target: DeliverableTarget): boolean {
+  if (!machineCanUseTargetTrust(machine, target.trust)) return false
   if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) return true
   return !machineCanTakeTargetNow(machine, target)
 }
@@ -928,6 +933,7 @@ function deferralReason(
   packable: boolean,
 ): string {
   if (!machine.online) return 'offline'
+  if (!machineCanUseTargetTrust(machine, target.trust)) return 'legacy-instance-trust'
   // A machine that has never said what it is cannot be given a platform reason.
   if (machine.platform === undefined) return 'cannot-take-delivery'
   // …and this one is about the MACHINE alone, so no target can excuse it.
@@ -1012,14 +1018,15 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
    * needs is a planned step of this very operation, not a state of the world.
    */
   const canTakeEventually = (machine: WaveMachine): boolean =>
-    (machineCanTakeTargetNow(machine, target) && machineCarriedBy(machine, target)) ||
-    (packable &&
-      machineCanTakeDelivery(machine, [PACKED_DELIVERY]) &&
-      packWouldCoverPlatform(machine))
+    machineCanUseTargetTrust(machine, target.trust) &&
+    ((machineCanTakeTargetNow(machine, target) && machineCarriedBy(machine, target)) ||
+      (packable &&
+        machineCanTakeDelivery(machine, [PACKED_DELIVERY]) &&
+        packWouldCoverPlatform(machine)))
   const core = behind.filter((machine) => machine.online && canTakeEventually(machine))
-  // §3.6: a machine that is asleep must not hold the outcome open. It goes to
-  // `deferred` with an honest note and the standing reconciliation converges it
-  // when it reconnects.
+  // §3.6: a machine outside the live wave must not hold the outcome open. Deferred
+  // records distinguish transient offline delivery from permanent verifier incompatibility;
+  // only the former can converge merely by reconnecting.
   for (const machine of behind) {
     if (core.includes(machine)) continue
     deferred.push({
@@ -2418,12 +2425,10 @@ const isArrived = (place: StepPlace): boolean => place.state === 'current'
 /**
  * WHICH DEFERRED PLACES MAY JOIN THE WAVE NOW (§3.6).
  *
- * A place is deferred because it was asleep (or could not take the artifact) at
- * plan time. The question here is the same one the plan asked, asked again
- * against the live fleet: is it online, is it still behind, is it ours to
- * update, and can it take what is being handed out? Anything else stays
- * deferred and converges through the standing reconciler after the operation
- * ends — which is the honest outcome, not a fallback.
+ * A transient place may join after reconnecting when the live fleet proves it can take the
+ * target. A legacy-instance-trust place cannot pass that proof: it stays deferred until a
+ * supported host-local repair replaces its updater and a new capability report removes the
+ * permanent blocker.
  */
 export function admissibleDeferredPlaces(
   operation: Operation,
@@ -2442,6 +2447,7 @@ export function admissibleDeferredPlaces(
     if (!isPackagedRolloutTarget(machine)) continue
     if (machine.version === details.target.version) continue
     if (updates.channelOf(machine) !== details.channel) continue
+    if (!machineCanUseTargetTrust(machine, published.trust)) continue
     if (deliveries.length > 0 && !machineCanTakeDelivery(machine, deliveries)) continue
     admitted.push({
       id: machine.id,

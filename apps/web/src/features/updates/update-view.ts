@@ -58,6 +58,7 @@ export type UpdateView =
   | { state: 'checking' }
   | { state: 'current'; version: string }
   | { state: 'local-stale'; version: string }
+  | { state: 'blocked'; version: string; blockedNote: string }
   | {
       state: 'available' | 'required'
       version: string
@@ -65,6 +66,7 @@ export type UpdateView =
       notes?: { summary?: string; url?: string }
       restartNote: string
       reason?: string
+      blockedNote?: string
     }
 
 export interface DesktopUpdateInfo {
@@ -83,6 +85,12 @@ export interface UpdateInput {
     behind: number
     converging: number
     failed: number
+    blocked?: number
+    blockers?: readonly {
+      id: string
+      name?: string
+      reason: 'legacy-instance-trust'
+    }[]
     preparation?: {
       webReady: boolean
       bundleReady: boolean
@@ -105,7 +113,31 @@ export interface UpdateInput {
 }
 
 function machineLabel(count: number): string {
-  return `${count} machine${count === 1 ? '' : 's'}`
+  return count + ' machine' + (count === 1 ? '' : 's')
+}
+
+function legacyTrustBlockedNote(input: UpdateInput): string | undefined {
+  const blockers =
+    input.fleet.blockers?.filter((blocker) => blocker.reason === 'legacy-instance-trust') ?? []
+  const count = input.fleet.blocked ?? blockers.length
+  if (count === 0) return undefined
+  const labels = blockers.slice(0, 3).map((blocker) => blocker.name ?? blocker.id)
+  const remaining = Math.max(0, count - labels.length)
+  const subject =
+    labels.length === 0
+      ? machineLabel(count)
+      : remaining > 0
+        ? labels.join(', ') + ', and ' + remaining + ' more'
+        : labels.join(', ')
+  return (
+    subject +
+    ' ' +
+    (count === 1 ? 'needs' : 'need') +
+    ' host-local repair before ' +
+    (count === 1 ? 'it' : 'they') +
+    ' can verify instance-signed development updates. The older updater uses the baked ' +
+    'release key for feed delivery instead of the pinned instance key.'
+  )
 }
 
 function affectedMachineLabel(input: UpdateInput): string {
@@ -597,6 +629,7 @@ export function describeUpdate(input: UpdateInput): UpdateView {
   const required =
     input.skew !== 'ok' || target?.critical === true || input.desktopUpdate?.critical === true
   const places = placesFor(input)
+  const blockedNote = legacyTrustBlockedNote(input)
   /**
    * THE PAGE'S OWN STALENESS, WHEN NOTHING ELSE IS OWED (POD-2721).
    *
@@ -615,6 +648,9 @@ export function describeUpdate(input: UpdateInput): UpdateView {
       state: 'local-stale',
       version: input.server.web?.appVersion ?? input.server.appVersion ?? version,
     }
+  }
+  if (places.length === 0 && blockedNote !== undefined) {
+    return { state: 'blocked', version, blockedNote }
   }
   if (!required && places.length === 0) return { state: 'none' }
   if (input.fleet.startability?.startable === false && input.desktopUpdate === undefined) {
@@ -637,6 +673,7 @@ export function describeUpdate(input: UpdateInput): UpdateView {
 
   const reason = skewReason(input.skew)
   if (reason !== undefined) result.reason = reason
+  if (blockedNote !== undefined) result.blockedNote = blockedNote
 
   return result
 }

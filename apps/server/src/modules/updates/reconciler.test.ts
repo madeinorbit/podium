@@ -209,6 +209,17 @@ describe('decideReconciliation', () => {
       because: 'cannot-take-delivery',
     },
     {
+      name: 'a pre-channel-trust machine is not handed an instance-trusted feed',
+      over: {
+        target: { ...packedTarget(), trust: 'instance' },
+        machine: machine({
+          id: 'flatblock',
+          deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+        }),
+      },
+      because: 'legacy-instance-trust',
+    },
+    {
       name: 'a machine already converging is not granted a second time',
       over: { machine: machine({ id: 'laptop', state: 'downloading' }) },
       because: 'in-flight',

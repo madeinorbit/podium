@@ -13,6 +13,7 @@ import {
   IN_FLIGHT_STATES,
   isPackagedRolloutTarget,
   machineCanTakeTargetPlatform,
+  machineCanUseTargetTrust,
   offeredDeliveries,
   planWave,
   TERMINAL_STATES,
@@ -176,6 +177,7 @@ export type MachineApplyOutcome =
   | { result: 'unknown-machine' }
   | { result: 'no-target'; reason: string }
   | { result: 'in-flight'; state: ConvergenceState }
+  | { result: 'legacy-instance-trust'; version: string }
   /**
    * THE TWO ANSWERS THAT ARE NOT ABOUT TODAY (POD-2783).
    *
@@ -188,6 +190,15 @@ export type MachineApplyOutcome =
    */
   | { result: 'platform-not-in-release'; platform: string }
   | { result: 'platform-not-published'; platform: string }
+
+export function legacyInstanceTrustMessage(machineName: string): string {
+  return (
+    `${machineName} predates channel-keyed update trust. It can receive this development feed, ` +
+    'but its updater will verify it with the baked release key instead of the pinned instance ' +
+    'key. Changing or rotating that key cannot make this build use its pin; use the supported ' +
+    'host-local stranded-machine repair.'
+  )
+}
 
 interface ChannelRolloutState {
   authorized: boolean
@@ -900,6 +911,16 @@ export class UpdatesService {
       : { result: 'platform-not-published', platform }
   }
 
+  /** A permanent verifier mismatch, distinct from whether bytes are deliverable. */
+  private trustRefusal(
+    machine: WaveMachine,
+    target: UpdateTarget,
+  ): MachineApplyOutcome | undefined {
+    return machineCanUseTargetTrust(machine, target.trust)
+      ? undefined
+      : { result: 'legacy-instance-trust', version: target.version }
+  }
+
   authorizeMachine(machineId: MachineId): MachineApplyOutcome {
     // `project()`, because this issues a grant (POD-2180): a wave continued from
     // inside the lookup would move machines this row is not about, and then this
@@ -921,6 +942,8 @@ export class UpdatesService {
     // Before in-flight and before offline: this one does not clear when the
     // machine settles or reconnects, so answering it first is the difference
     // between "come back later" and the truth.
+    const trustRefusal = this.trustRefusal(machine, target)
+    if (trustRefusal) return trustRefusal
     const platformRefusal = this.platformRefusal(machine, target)
     if (platformRefusal) return platformRefusal
     if (IN_FLIGHT_STATES.has(machine.state)) {
@@ -971,6 +994,8 @@ export class UpdatesService {
         reason: this.targetUnavailableReasonFor(machineId) ?? 'No target is available.',
       }
     }
+    const trustRefusal = this.trustRefusal(machine, target)
+    if (trustRefusal) return trustRefusal
     const repairRefusal = this.platformRefusal(machine, target)
     if (repairRefusal) return repairRefusal
     if (IN_FLIGHT_STATES.has(machine.state)) {
@@ -1003,6 +1028,7 @@ export class UpdatesService {
       concurrency: this.deps.concurrency,
       canaryHealthy: rollout.canaryHealthy,
       deliveries: offeredDeliveries(target),
+      trust: target.trust,
       // …and never a machine this release contains no bytes for (POD-2783).
       platforms: targetPlatforms(target),
     })

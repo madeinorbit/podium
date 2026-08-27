@@ -8,6 +8,7 @@ import {
   isPackagedRolloutTarget,
   machineCanTakeDelivery,
   machineCanTakeTargetPlatform,
+  machineCanUseTargetTrust,
   offeredDeliveries,
   TERMINAL_STATES,
   type WaveMachine,
@@ -74,6 +75,7 @@ export type ReconcileRefusal =
   | 'at-target'
   | 'offline'
   | 'cannot-take-delivery'
+  | 'legacy-instance-trust'
   /**
    * The release carries no bytes for this machine's platform, because it was
    * minted before the machine joined the fleet (POD-2783). Named apart from
@@ -166,6 +168,9 @@ export function decideReconciliation(facts: ReconcileFacts): ReconcileDecision {
   if (!machine.online) return { converge: false, because: 'offline' }
   if (!machineCanTakeDelivery(machine, offeredDeliveries(facts.target))) {
     return { converge: false, because: 'cannot-take-delivery' }
+  }
+  if (!machineCanUseTargetTrust(machine, facts.target.trust)) {
+    return { converge: false, because: 'legacy-instance-trust' }
   }
   if (!machineCanTakeTargetPlatform(machine, targetPlatforms(facts.target))) {
     return { converge: false, because: 'platform-not-in-release' }

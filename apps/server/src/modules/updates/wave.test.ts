@@ -3,6 +3,7 @@ import {
   decideWave,
   machineCanTakeDelivery,
   machineCanTakeTargetPlatform,
+  machineCanUseTargetTrust,
   offeredDeliveries,
   planWave,
   type WaveMachine,
@@ -263,6 +264,43 @@ describe('a desktop-supervised daemon', () => {
     // An empty offer is not "do not filter": it is a target with nothing to
     // hand anyone.
     expect(machineCanTakeDelivery({ deliveryCaps: ['update.delivery.feed'] }, [])).toBe(false)
+  })
+})
+
+describe('channel-keyed trust compatibility', () => {
+  const legacy = {
+    deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+  }
+
+  it('recognizes the retired bundle capability as a pre-channel-trust build', () => {
+    expect(machineCanUseTargetTrust(legacy, 'instance')).toBe(false)
+  })
+
+  it('keeps current, unknown, and release-trusted machines eligible', () => {
+    expect(machineCanUseTargetTrust({ deliveryCaps: ['update.delivery.feed'] }, 'instance')).toBe(
+      true,
+    )
+    expect(machineCanUseTargetTrust({}, 'instance')).toBe(true)
+    expect(machineCanUseTargetTrust(legacy, 'release')).toBe(true)
+    expect(machineCanUseTargetTrust(legacy)).toBe(true)
+  })
+
+  it('holds a legacy verifier before it can download an instance-trusted feed', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: true,
+      deliveries: ['feed'],
+      trust: 'instance',
+      machines: [
+        m({ id: 'flatblock', deliveryCaps: legacy.deliveryCaps }),
+        m({ id: 'current', deliveryCaps: ['update.delivery.feed'] }),
+      ],
+    })
+    expect(decision.selected).toEqual(['current'])
+    expect(decision.held).toContainEqual({
+      id: 'flatblock',
+      reason: 'legacy-instance-trust',
+    })
   })
 })
 
