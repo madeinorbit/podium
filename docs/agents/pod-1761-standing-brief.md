@@ -1241,3 +1241,30 @@ immediately visible as contamination rather than being silently counted.
 100%-disk window; the control had fired, so the reading was probably fine — and it re-ran anyway on
 18GB free and 5.3GB memory, and got the same answer. **A result you re-took under clean conditions
 costs one run and ends the argument.**
+
+### A wrong fix label is not a failed fix — follow the code (2026-08-27 03:07 CEST)
+
+Twice tonight a session checked whether an issue's recorded fix commit was a real pre-fix boundary,
+found it was not, and **stopped there** — once recording *"UNDRIVEN, invalid boundary"* and once
+*"FAIL, invalid boundary"*. Both times the code told a different story than the label, and both
+times the session had already done the hard part.
+
+**"FAIL, invalid boundary" conflates two unrelated things:** *the fix does not work* (a product
+defect) and *the paperwork named the wrong commit* (a bookkeeping error costing one `rev-parse`).
+**Recording the second as a red puts a FAIL against a fix that may be perfectly good.** Give them
+different verdicts, always.
+
+**THE RULE: finding the listed boundary wrong means you have LOCATED the real one.** An issue's
+recorded fix commit is a label written by a human in a hurry; the code is the truth. When they
+disagree, follow the code, name in your row which commit you actually drove and why, and drive.
+
+**How to find the real one:** grep the defective construction across history rather than trusting
+the label. POD-2408's issue named `b247c2dbf` (`feat(runtime): stage harness attachments`); the
+throw-to-typed change was actually `10d5af58a` (`fix(runtime): type attachment staging refusals`),
+and its parent `5979159e3` carries the raw `throw new Error(...)` at codex/runtime.ts:1329, gone
+after. Valid boundary, wrong label.
+
+**AND USE THE GRAPH, NOT THE DATES.** `5979159e3` is dated 2026-08-21 and is the parent of a
+commit dated 2026-08-20. That is rebase-normal and it looks like a contradiction. `git rev-parse
+<sha>^` is authoritative; `git log --date` is not, and a session that reasons from timestamps
+about ancestry will talk itself out of a correct finding.
