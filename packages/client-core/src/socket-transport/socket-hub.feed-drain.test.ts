@@ -28,15 +28,18 @@ class FakeSocket implements WebSocketLike {
 
 const viewport = { cols: 80, rows: 24, dpr: 1 }
 
-const rawBootstrap = (last: boolean): string =>
+const rawBootstrap = (
+  last: boolean,
+  changes: ReadonlyArray<Record<string, unknown>> = [],
+): string =>
   JSON.stringify({
     type: 'feedBootstrap',
     feedId: 'feed-1',
     epoch: 'e1',
     fromSeq: 0,
-    seq: 0,
+    seq: changes.length === 0 ? 0 : 2,
     minAvailableSeq: 0,
-    changes: [],
+    changes,
     last,
   })
 
@@ -50,6 +53,14 @@ const rawDelta = (seq: number): string =>
     minAvailableSeq: 0,
     changes: [],
   })
+
+const bootstrapRow = (entityId: string): Record<string, unknown> => ({
+  seq: entityId === 'first' ? 1 : 2,
+  entity: 'userReadPosition',
+  entityId,
+  op: 'upsert',
+  value: { userId: 'user:sole' },
+})
 
 /**
  * A real macrotask turn taken through the test's own channel, so it still turns
@@ -94,14 +105,55 @@ describe('SocketHub feed ingress drain', () => {
     hub.connect()
     sock.open()
 
-    sock.deliver(rawBootstrap(false))
-    sock.deliver(rawBootstrap(true))
+    sock.deliver(rawBootstrap(false, [bootstrapRow('first')]))
+    sock.deliver(rawBootstrap(true, [bootstrapRow('last')]))
     expect(frames).toHaveLength(0)
 
     await macrotaskTurns(2)
 
-    expect(frames).toHaveLength(2)
+    expect(frames).toMatchObject([
+      { type: 'feedBootstrap', changes: [{ entityId: 'first' }], last: false },
+      { type: 'feedBootstrap', changes: [{ entityId: 'last' }], last: true },
+    ])
     expect(hub.feedBudget()).toMatchObject({ tasks: 2, yieldedTasks: 2 })
+    hub.dispose()
+  })
+
+  it('re-arms its owned feed scheduler after a StrictMode dispose and remount', async () => {
+    vi.useFakeTimers()
+    const sockets: FakeSocket[] = []
+    const frames: unknown[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport,
+      makeSocket: () => {
+        const socket = new FakeSocket()
+        sockets.push(socket)
+        return socket
+      },
+      feed: {
+        helloFields: () => null,
+        connected: () => {},
+        disconnected: () => {},
+        frame: (frame) => frames.push(frame),
+      },
+    })
+
+    hub.connect()
+    sockets[0]?.open()
+    sockets[0]?.deliver(rawBootstrap(true))
+    hub.dispose()
+    await macrotaskTurns(1)
+    expect(frames).toEqual([])
+
+    hub.connect()
+    sockets[1]?.open()
+    sockets[1]?.deliver(JSON.stringify({ type: 'welcome', clientId: 'replacement' }))
+    sockets[1]?.deliver(rawBootstrap(true))
+    await macrotaskTurns(1)
+
+    expect(hub.clientId).toBe('replacement')
+    expect(frames).toMatchObject([{ type: 'feedBootstrap', changes: [], last: true }])
     hub.dispose()
   })
 

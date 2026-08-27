@@ -536,7 +536,7 @@ export class SocketHub {
   private readonly scheduleFeedTask: (task: () => void) => void
   /** Only set when this hub built its own scheduler — an injected one belongs to
    *  the caller and is not this class's to tear down. */
-  private readonly ownFeedScheduler: FeedTaskScheduler | undefined
+  private ownFeedScheduler: FeedTaskScheduler | undefined
   private readonly subscriptionRegistry: ClientSubscriptionRegistry
   private readonly feedIngressQueue: Array<{
     raw: string
@@ -708,9 +708,15 @@ export class SocketHub {
       this.ownFeedScheduler = undefined
       this.scheduleFeedTask = opts.scheduleFeedTask
     } else {
-      const scheduler = createFeedTaskScheduler()
-      this.ownFeedScheduler = scheduler
-      this.scheduleFeedTask = (task) => scheduler.schedule(task)
+      // Runtime dispose is reversible: React StrictMode starts the SAME runtime
+      // again after its probe cleanup. Resolve the owned scheduler at every
+      // enqueue so dispose can release its MessageChannel and the replacement
+      // socket can lazily receive a fresh one. Capturing this first scheduler
+      // forever stranded every feed frame delivered after that remount.
+      this.scheduleFeedTask = (task) => {
+        this.ownFeedScheduler ??= createFeedTaskScheduler()
+        this.ownFeedScheduler.schedule(task)
+      }
     }
     this.legacyFeed?.bind({
       apply: (changes) => this.applyChanges(changes),
@@ -1663,6 +1669,7 @@ export class SocketHub {
     // scheduler disposed there would leave the next frame with nothing to wake
     // it.
     this.ownFeedScheduler?.dispose()
+    this.ownFeedScheduler = undefined
     this.connectedFlag = false
     this.inputQueue.length = 0
     this.preOpenQueue.length = 0
