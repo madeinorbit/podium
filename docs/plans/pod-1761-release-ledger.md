@@ -4371,3 +4371,53 @@ must act.
 **I am at the five-session ceiling now** (18GB, and a worktree with `node_modules` costs 2–3GB),
 so this cannot be staffed in advance — it has to wait for something to close. That is a scheduling
 constraint, not a decision to defer.
+
+## COVERAGE CORRECTED — 62% EVER DRIVEN, 32% CURRENT, AND I HAD BOTH WRONG (2026-08-27 02:43 CEST)
+
+POD-2917 refused to start its shell drive and told me why: **POD-2874 already drove those cells**,
+at pin `6c10b6643`, and the readings are stale. **It was right and my grid was wrong.**
+
+    EVER DRIVEN : 43 of 69 (62%)
+    NOT STALE   : 22 of 69 (32%)
+
+    column      ever      current
+    claude      15/15      0/15
+    codex       14/16     14/16
+    grok         2/16      2/16
+    opencode     6/16      6/16
+    shell        6/ 6      0/ 6
+
+**WHAT I GOT WRONG, precisely.** I reported *"claude 3/15, and all three are BLOCKED rather than
+measured"* and *"shell 0/6 — not one row in the entire results file so much as mentions it."* The
+second sentence was TRUE and the inference I drew from it was not. **POD-2874 drove claude 15/15
+and shell 6/6 on 2026-08-26 — 21 cells, each with a named positive control — and not one of those
+readings was ever written into `results.tsv`.** They live in
+`docs/evidence/pod-2874/README.md` as a markdown table and in a `readings/` directory of JSON.
+
+I went from *"no rows in the file"* to *"nobody has driven it"*, which is a different claim, and I
+staffed a session on the strength of it. **The file is not the world.** That is the same error I
+have corrected in three sessions tonight, made by me at the top of the reporting chain, where it
+propagates furthest.
+
+**BACKFILLED all 21 rows** with their real pin so the coverage computation can see them and the
+staleness rule can apply to them. Claude's true state at that pin: **10 PASS, 2 FAIL (A1b busy-send,
+A3 interrupt), 3 BLOCKED (A4a/A4b on the claude 2.1.231 wizard, A8 logged-out)**.
+
+**AND THE STALENESS IS REAL, so POD-2917's re-drive stands.** Applying the epic's own rule to
+`6c10b6643`: **336 non-docs files changed since, 34 of them in terminal / session / socket / pty
+paths** — including `terminal-driver.ts`, `control/session.ts` and `command-ctx.ts`. Those are
+exactly the paths the shell column exercises. It was right to refuse the stale evidence and right
+to build one bundle and reuse it across six serial cells.
+
+**THE NEW PICTURE IS BETTER AND WORSE THAN WHAT I REPORTED.** Better: nearly two thirds of the
+matrix has been driven at least once, not a third. Worse: **the two columns that prove "the
+untouched paths stayed untouched" are BOTH entirely stale**, and one of them — claude — cannot be
+re-driven without the operator's credential window. That is now the single largest scheduling
+constraint on the epic, ahead of grok's 11:03 quota.
+
+**Root cause, and it is the third instance tonight of one thing:** work that is done but not
+recorded where the reader looks is indistinguishable from work never done. POD-2801 sat finished
+in `review`; POD-2902's rows carried no cell id so a fixed cell read FAIL; and now an entire
+21-cell drive was invisible because it lived in an evidence README instead of the results file.
+**The rule the brief already carries — put the cell id in the row — is necessary but not
+sufficient. The row has to exist.**
