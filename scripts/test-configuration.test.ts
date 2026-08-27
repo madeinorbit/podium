@@ -227,8 +227,8 @@ describe('test lane configuration', () => {
   it('keeps every server shard on the shared hermetic setup and worker cap [POD-520]', () => {
     // The split turned one server lane into five. Each is a separate Vitest invocation, so
     // each can lose the hardening on its own: the env scrubber that keeps a suite off the
-    // live instance, POD-523's store fixture, and the two-worker cap that keeps the shared
-    // six-core host survivable when Turbo runs the shards back to back.
+    // live instance, POD-523's store fixture, and the shared worker cap that keeps the host
+    // survivable when Turbo runs the shards back to back.
     //
     // POD-527 gave one shard PROJECTS, so the same properties are now asserted twice: once
     // on the shard config and once on each project inside it. A project is where a Vitest
@@ -265,7 +265,7 @@ describe('test lane configuration', () => {
         expect(test?.passWithNoTests, `${lane} would pass empty`).toBe(false)
         // normalized-wire is the deliberately serialized one; the rest keep the shared cap.
         expect(test?.maxWorkers, `${lane} changed the worker cap`).toBe(
-          name === 'normalized-wire' ? 1 : 2,
+          name === 'normalized-wire' ? 1 : sharedVitestConfig.test.maxWorkers,
         )
       }
     }
@@ -296,19 +296,21 @@ describe('test lane configuration', () => {
     expect(config(integrationConfig).test?.retry).toBe(1)
   })
   it('caps forked lanes for the shared host', () => {
+    const activeWorkerLimit = resolveTestWorkerLimit(process.env.PODIUM_TEST_WORKERS)
+    expect(sharedVitestConfig.test.maxWorkers).toBe(activeWorkerLimit)
     const rootNode = nodeProject(rootConfig).test
     expect(rootNode?.fileParallelism).toBe(true)
     expect(rootNode?.minWorkers).toBe(1)
-    expect(rootNode?.maxWorkers).toBe(2)
+    expect(rootNode?.maxWorkers).toBe(activeWorkerLimit)
     expect(config(integrationConfig).test?.minWorkers).toBe(1)
-    expect(config(integrationConfig).test?.maxWorkers).toBe(2)
+    expect(config(integrationConfig).test?.maxWorkers).toBe(activeWorkerLimit)
     for (const appConfig of [webConfig, mobileConfig]) {
       expect(config(appConfig).test?.maxWorkers).toBe(sharedVitestConfig.test.maxWorkers)
     }
   })
 
   it('defaults worker limits safely and accepts explicit host overrides', () => {
-    expect(resolveTestWorkerLimit(undefined)).toBe(2)
+    expect(resolveTestWorkerLimit('')).toBe(2)
     expect(resolveTestWorkerLimit('6')).toBe(6)
     expect(resolveTestWorkerLimit(' auto ')).toBeUndefined()
     expect(() => resolveTestWorkerLimit('0')).toThrow(
