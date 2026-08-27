@@ -623,6 +623,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     // The stand-down is checked per TICK rather than taken as a dependency, so
     // paging a page in and out does not tear the interval down and rebuild it.
     const beat = setInterval(() => {
+      if (document.visibilityState === 'hidden') return
       if (pagedBackRef.current) return
       void probeNewest().catch(() => {})
     }, LIVE_HEARTBEAT_MS)
