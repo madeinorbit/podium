@@ -132,6 +132,7 @@ vi.mock('../features/chat/ChatView', async () => {
       compact: false,
       initialTurnRunning: false,
       initialPendingText: undefined,
+      deferInitialTranscript: false,
     })
     return null
   }

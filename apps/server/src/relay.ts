@@ -1159,6 +1159,7 @@ export class SessionRegistry {
       getSettings: () => this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
       spawnSession: (o) =>
         sessionsSvc.createSession({
+          ...(o.sessionId ? { sessionId: o.sessionId } : {}),
           cwd: o.cwd,
           agentKind: o.agentKind as AgentKind,
           ...(o.issueId ? { issueId: o.issueId } : {}),

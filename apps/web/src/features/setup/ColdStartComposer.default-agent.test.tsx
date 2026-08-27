@@ -14,7 +14,7 @@
  * a default that cannot start on the chosen machine steps aside for one that
  * can.
  */
-import { asMachineId } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ColdStartComposer } from './ColdStartComposer'
@@ -114,7 +114,12 @@ const store = {
     },
   },
   focusIssueSession: vi.fn(async () => null),
-  spawnDraftAgent: vi.fn(),
+  spawnDraftAgent: vi.fn(() => ({
+    sessionId: asSessionId('session-new'),
+    issueId: asIssueId('issue-new'),
+    settled: Promise.resolve(true),
+  })),
+  spawnIssueAgent: vi.fn(),
   setSelectedIssueId: vi.fn(),
   setSelectedWorktree: vi.fn(),
   setPane: vi.fn(),

@@ -68,6 +68,28 @@ afterEach(() => {
 })
 
 describe('useChatSend optimistic window', () => {
+  it('seeds a fresh task with its first prompt and the moving send marker', () => {
+    const seeded: UseChatSendOptions = {
+      ...opts(undefined),
+      session: {},
+      initialPendingText: 'Plan the release',
+    }
+    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: seeded,
+    })
+
+    expect(result.current.pending).toEqual([
+      expect.objectContaining({ text: 'Plan the release', state: 'sent' }),
+    ])
+    expect(result.current.justSent).toBe(true)
+
+    // The engine drops its seed once the server session row lands. The mounted
+    // chat owns reconciliation from here and must not flash empty in between.
+    rerender({ ...seeded, initialPendingText: undefined })
+    expect(result.current.pending).toHaveLength(1)
+    expect(result.current.justSent).toBe(true)
+  })
+
   it('opens on send', async () => {
     const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
       initialProps: opts(IDLE_SINCE),

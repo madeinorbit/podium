@@ -96,6 +96,13 @@ const store = {
   // mission, so the harness has to carry the four store writes that path makes
   // — otherwise the shot of the closed box is of a button that would throw.
   spawnDraftAgent: () => ({ sessionId: 'session-harness', issueId: 'issue-harness' }),
+  spawnIssueAgent: () => ({
+    sessionId: 'session-task-harness',
+    issueId: 'issue-task-harness',
+    mutationId: 'mutation-task-harness',
+    settled: Promise.resolve(true),
+    outcome: Promise.resolve('started' as const),
+  }),
   setSelectedIssueId: () => {},
   setSelectedWorktree: () => {},
   setPane: () => {},

@@ -150,6 +150,7 @@ export function ChatView({
   compact = false,
   initialTurnRunning = false,
   initialPendingText,
+  deferInitialTranscript = false,
   onLeave,
 }: {
   sessionId: SessionId
@@ -167,6 +168,9 @@ export function ChatView({
   /** The first prompt shown optimistically while the freshly-created headless
    * transcript catches up to the thread/session swap. */
   initialPendingText?: string
+  /** Wait to read/subscribe until a client-minted session id exists on the
+   * authority. The optimistic prompt remains visible during this boundary. */
+  deferInitialTranscript?: boolean
   /** Called once when the session leaves the principal's view (evicted or
    *  deleted) so the host can navigate away. Optional: a host that does not
    *  provide it simply renders the blank surface, which is still not a
@@ -179,6 +183,7 @@ export function ChatView({
     superThread,
     compact,
     initialTurnRunning,
+    deferInitialTranscript,
     ...(initialPendingText !== undefined
       ? { initialPendingText }
       : { initialPendingText: undefined }),

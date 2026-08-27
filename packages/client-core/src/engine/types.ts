@@ -36,7 +36,7 @@ import type { OutboxDeadLetterEntry } from '../outbox'
 import type { ReadPositionPort } from '../read-position'
 import type { Replica } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
-import type { SpawnTarget } from '../spawn-agent'
+import type { SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
 import type { MainView, RoutedUiState } from '../ui-state'
 import type {
   DockTab,
@@ -156,6 +156,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  AgentPanel gates its terminal attach on this — attaching to a not-yet-created
    *  session is dropped and never retried, so it must wait for reconciliation. */
   pendingSpawnIds: ReadonlySet<string>
+  /** First prompts for optimistic sessions whose server row has not landed yet.
+   * Chat surfaces seed their pending bubble from this and keep it through the
+   * later transcript reconciliation. */
+  pendingSpawnPrompts: ReadonlyMap<string, string>
   /** Latest health sample per daemon host; empty until a daemon reports (or after it drops). */
   hostMetrics: HostMetricsWire[]
   /** Connected machines registered with this Podium server; refreshed via machinesChanged. */
@@ -396,6 +400,27 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   }) => {
     sessionId: SessionId
     issueId: IssueId
+    settled: Promise<boolean>
+  }
+  /** Start a named task optimistically, including its first chat turn. */
+  spawnIssueAgent: (args: {
+    issueId?: IssueId
+    sessionId?: SessionId
+    mutationId?: MutationId
+    target: SpawnTarget
+    title: string
+    description: string
+    brief?: string
+    parentBranch?: string
+    agentKind: AgentKind
+    model?: string
+    effort?: string
+  }) => {
+    sessionId: SessionId
+    issueId: IssueId
+    mutationId: MutationId
+    settled: Promise<boolean>
+    outcome: Promise<TaskSpawnOutcome>
   }
   killSession: (sessionId: SessionId) => Promise<void>
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */

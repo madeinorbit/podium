@@ -146,9 +146,22 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   const initialPending = useCallback(
     (): PendingItem[] =>
       initialPendingText
-        ? [{ id: 'pending-first-turn', text: initialPendingText, at: Date.now(), state: 'sent' }]
+        ? [
+            {
+              id: 'pending-first-turn',
+              text: initialPendingText,
+              at: Date.now(),
+              state: 'sent',
+              acceptsAppendedBrief: true,
+            },
+          ]
         : [],
     [initialPendingText],
+  )
+  const initialOpenSend = useCallback(
+    () =>
+      initialPendingText && !headless ? { seq: 0, since: null, queuedBehindTurn: false } : null,
+    [headless, initialPendingText],
   )
   const [pending, setPending] = useState<PendingItem[]>(initialPending)
   const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
@@ -167,7 +180,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     since: string | null
     /** True when the send went into a turn that was ALREADY running. */
     queuedBehindTurn: boolean
-  } | null>(null)
+  } | null>(initialOpenSend)
   const justSent = openSend !== null
   const [ctxSeq, setCtxSeq] = useState<number | null>(null)
   const [dismissedOfferAt, setDismissedOfferAt] = useState<string | null>(null)
@@ -240,7 +253,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   useEffect(() => {
     setPending(initialPending())
     setQueuedMessages([])
-    setOpenSend(null)
+    setOpenSend(initialOpenSend())
     seenUserIds.current = new Set()
     seenUserTailId.current = null
     userBaselineReady.current = false

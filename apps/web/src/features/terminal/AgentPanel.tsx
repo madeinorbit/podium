@@ -211,6 +211,7 @@ export function AgentPanel({
   )
   const session = useSession(sessionId)
   const spawnConfirmed = useStoreSelector((s) => !s.pendingSpawnIds.has(sessionId))
+  const optimisticFirstPrompt = useStoreSelector((s) => s.pendingSpawnPrompts.get(sessionId))
   // Agent chrome needs durable issue fields (colour, branch, git state), not
   // session-derived rollups. `useReplicaIssues` intentionally invalidates on
   // every session row change to refresh those rollups, which would wake all
@@ -1001,7 +1002,12 @@ export function AgentPanel({
               waking={sessionWaking(session)}
               queuedCount={session?.queuedMessageCount ?? 0}
             />
-            <ChatView sessionId={sessionId} active={active} />
+            <ChatView
+              sessionId={sessionId}
+              active={active}
+              initialPendingText={optimisticFirstPrompt}
+              deferInitialTranscript={!spawnConfirmed}
+            />
           </>
         ) : (
           <HibernatedPane sessionId={sessionId} />
@@ -1021,7 +1027,12 @@ export function AgentPanel({
               {...(session.neverBound ? { neverBound: true as const } : {})}
               waking={sessionWaking(session)}
             />
-            <ChatView sessionId={sessionId} active={active} />
+            <ChatView
+              sessionId={sessionId}
+              active={active}
+              initialPendingText={optimisticFirstPrompt}
+              deferInitialTranscript={!spawnConfirmed}
+            />
           </>
         ) : (
           <ExitedPane
@@ -1039,7 +1050,14 @@ export function AgentPanel({
         // switching modes never disposes and re-attaches the PTY. ChatView is
         // rendered as a sibling overlay on top when in chat mode.
         <>
-          {effectiveMode === 'chat' && <ChatView sessionId={sessionId} active={active} />}
+          {effectiveMode === 'chat' && (
+            <ChatView
+              sessionId={sessionId}
+              active={active}
+              initialPendingText={optimisticFirstPrompt}
+              deferInitialTranscript={!spawnConfirmed}
+            />
+          )}
           {/* The container is pinned to the TERMINAL's background — the pane's
               issue tint (§2.5), or the user's custom color from the appearance
               settings — regardless of the app theme: otherwise a light theme

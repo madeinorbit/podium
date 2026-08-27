@@ -245,6 +245,8 @@ export class IssueGitWorkflowModule {
     agentKind?: string,
     opts?: {
       spawnedBy?: string
+      /** Client-minted identity for an optimistic first-session insert. */
+      sessionId?: SessionId
       forceUnknownModel?: boolean
       /** Explicit per-launch model/effort (POD-1545). Beats the issue's stored value
        *  and PERSISTS onto the issue, so every later spawn on it agrees. */
@@ -471,6 +473,7 @@ export class IssueGitWorkflowModule {
     // The human summary leads; the technical brief follows verbatim. [spec:SP-6144]
     const initialPrompt = [row.description.trim(), row.brief ?? ''].filter(Boolean).join('\n\n')
     const spawned = this.store.d.spawnSession({
+      ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
       cwd: path,
       issueId: row.id,
       agentKind: row.defaultAgent,
@@ -507,7 +510,12 @@ export class IssueGitWorkflowModule {
     opts?: { spawnedBy?: string },
   ): Promise<IssueWire> {
     const created = this.crud().create(input)
-    return input.startNow ? this.start(created.id, undefined, opts) : created
+    return input.startNow
+      ? this.start(created.id, undefined, {
+          ...opts,
+          ...(input.startSessionId ? { sessionId: input.startSessionId } : {}),
+        })
+      : created
   }
 
   async action(

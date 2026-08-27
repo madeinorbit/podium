@@ -24,6 +24,7 @@ import type {
   GitRepositoryWire,
   HarnessAgent,
   IssueId,
+  IssueWire,
   LayoutSnapshot,
   MachineId,
   MachineQuotaWire,
@@ -172,6 +173,25 @@ export interface PodiumClientApi {
     clear: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
   }
   issues: {
+    /** Insert-shaped optimistic create: both ids are minted by the client and
+     * reused by the authority so task/session rows reconcile without a swap. */
+    create: ApiMutation<
+      WithMutationId<{
+        id?: IssueId
+        startSessionId?: SessionId
+        repoPath: string
+        machineId?: MachineId
+        title: string
+        description?: string
+        brief?: string
+        parentBranch?: string
+        defaultAgent?: string
+        defaultModel?: string
+        defaultEffort?: string
+        startNow: boolean
+      }>,
+      IssueWire
+    >
     markRead: ApiMutation<WithMutationId<{ id: string }>>
     markUnread: ApiMutation<WithMutationId<{ id: string }>>
     /** Tuck-away dismissal (POD-333) — server-side, global, outboxed. */

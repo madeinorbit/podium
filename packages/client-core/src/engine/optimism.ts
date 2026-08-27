@@ -35,6 +35,7 @@ import type {
   IssueId,
   IssueProjection,
   IssueWire,
+  MutationId,
   SessionId,
   SessionMeta,
 } from '@podium/model'
@@ -42,10 +43,17 @@ import { asIssueId, asMutationId, asSessionId, dedupeSessionsByResume } from '@p
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { OutboxEntry } from '../outbox'
-import { assertSpawnPlacement, createDraftAgent, type SpawnTarget } from '../spawn-agent'
+import {
+  assertSpawnPlacement,
+  createDraftAgent,
+  createIssueAgent,
+  type SpawnTarget,
+  type TaskSpawnOutcome,
+} from '../spawn-agent'
 import {
   optimisticDraftIssue,
   optimisticDraftSortKey,
+  optimisticStartedIssue,
   optimisticStartingSession,
 } from '../viewmodels'
 import {
@@ -126,6 +134,9 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   private readonly ports: OptimismPorts<TApi>
   private readonly spawnConfirmGraceMs: number
   private spawnOverlays: PendingOverlay[] = []
+  /** First turns keyed by optimistic session id. ChatView seeds its own pending
+   * reconciliation state from this map before the transcript exists. */
+  private spawnPrompts: ReadonlyMap<string, string> = new Map()
   private awaitingTruth: AwaitingTruth[] = []
   /** Overlays minted at the press (POD-1053), by the mutationId their entry
    *  carries. The paint runs ahead of the durable commit, so these exist before
@@ -182,6 +193,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     // A pressed-but-undurable overlay belongs to the runtime being replaced; its
     // successor reads the queue from storage and paints whatever committed.
     this.localOverlays.clear()
+    this.spawnPrompts = new Map()
     if (this.awaitingSweepTimer !== null) {
       clearTimeout(this.awaitingSweepTimer)
       this.awaitingSweepTimer = null
@@ -364,7 +376,14 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const keyOf = (s: SessionMeta): string => s.sessionId
     this.retireCovered('sessions', base, keyOf)
     const { rows, pendingInsertIds } = foldOverlays(base, this.overlaysFor('sessions'), keyOf)
-    this.ports.publish({ sessions: rows, pendingSpawnIds: pendingInsertIds })
+    if ([...this.spawnPrompts.keys()].some((id) => !pendingInsertIds.has(id))) {
+      this.spawnPrompts = new Map([...this.spawnPrompts].filter(([id]) => pendingInsertIds.has(id)))
+    }
+    this.ports.publish({
+      sessions: rows,
+      pendingSpawnIds: pendingInsertIds,
+      pendingSpawnPrompts: this.spawnPrompts,
+    })
     this.notifySpawnConfirmWaiters(pendingInsertIds)
   }
 
@@ -565,6 +584,96 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     this.recomputeFor(this.overlayFor(entry)?.entity)
   }
 
+  private paintSpawn(args: {
+    sessionId: SessionId
+    issueId: IssueId
+    session: SessionMeta
+    issue: IssueWire
+    prompt?: string
+    create: () => Promise<void>
+    failureSubject: 'agent' | 'task'
+    recognizePartialIssue?: boolean
+  }): {
+    sessionId: SessionId
+    issueId: IssueId
+    settled: Promise<boolean>
+    outcome: Promise<TaskSpawnOutcome>
+  } {
+    const { sessionId, issueId } = args
+    this.spawnOverlays = [
+      ...this.spawnOverlays,
+      insertOverlay('sessions', sessionId, args.session),
+      insertOverlay('issues', issueId, args.issue),
+    ]
+    if (args.prompt) this.spawnPrompts = new Map(this.spawnPrompts).set(sessionId, args.prompt)
+    this.batched(() => {
+      this.recomputeSessions()
+      this.recomputeIssues()
+    })
+    let settle: (outcome: TaskSpawnOutcome) => void = () => {}
+    const outcome = new Promise<TaskSpawnOutcome>((resolve) => {
+      settle = resolve
+    })
+    const settled = outcome.then((value) => value === 'started')
+    void args.create().then(
+      () => settle('started'),
+      (error) => {
+        const arrived = (): boolean =>
+          this.ports.base().sessions.some((row) => row.sessionId === sessionId)
+        const issueArrived = (): boolean =>
+          this.ports.base().issues.some((row) => row.id === issueId)
+        const settleFailure = (): void => {
+          if (arrived()) {
+            log.debug(
+              'spawn transport failed after the session was created — treating as success',
+              {
+                sessionId,
+                err: error,
+              },
+            )
+            settle('started')
+            return
+          }
+          if (args.recognizePartialIssue === true && issueArrived()) {
+            this.spawnOverlays = this.spawnOverlays.filter(
+              (overlay) => overlay.id !== sessionId && overlay.id !== issueId,
+            )
+            this.batched(() => {
+              this.recomputeSessions()
+              this.recomputeIssues()
+            })
+            this.ports.notices.error(
+              `The task was saved, but its agent couldn't start — ${error instanceof Error ? error.message : 'unknown error'}`,
+            )
+            settle('issue-only')
+            return
+          }
+          this.spawnOverlays = this.spawnOverlays.filter(
+            (overlay) => overlay.id !== sessionId && overlay.id !== issueId,
+          )
+          this.batched(() => {
+            this.recomputeSessions()
+            this.recomputeIssues()
+          })
+          this.ports.notices.error(
+            `Couldn't start the ${args.failureSubject} — ${error instanceof Error ? error.message : 'unknown error'}`,
+          )
+          settle('failed')
+        }
+        if (arrived()) {
+          settleFailure()
+        } else {
+          const timer = setTimeout(() => {
+            this.spawnConfirmTimers.delete(timer)
+            settleFailure()
+          }, this.spawnConfirmGraceMs)
+          this.spawnConfirmTimers.add(timer)
+        }
+      },
+    )
+    return { sessionId, issueId, settled, outcome }
+  }
+
   /** The #119 placeholder pair: paint a starting session and its draft issue
    *  before the create round-trips, and settle them when it answers. */
   spawnDraftAgent(args: {
@@ -573,13 +682,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     firstPrompt?: string
     model?: string
     effort?: string
-  }): {
-    sessionId: SessionId
-    issueId: IssueId
-  } {
-    // Machine USE is a code-execution boundary. Refuse before minting ids or
-    // painting optimistic rows: a forbidden target must never appear as a
-    // temporarily-created session/issue while the async network seam rejects.
+  }): { sessionId: SessionId; issueId: IssueId; settled: Promise<boolean> } {
     assertSpawnPlacement(args.target)
     const sessionId = asSessionId(randomUUID())
     const issueId = asIssueId(`iss_${randomUUID()}`)
@@ -589,78 +692,118 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       args.target.repoPath,
       args.target.repoId,
     )
-    this.spawnOverlays = [
-      ...this.spawnOverlays,
-      insertOverlay(
-        'sessions',
-        sessionId,
-        optimisticStartingSession({
-          sessionId,
-          issueId,
-          agentKind: args.agentKind,
-          cwd: args.target.path,
-          nowIso,
-        }),
-      ),
-      insertOverlay(
-        'issues',
-        issueId,
-        optimisticDraftIssue({
-          issueId,
-          repoPath: args.target.repoPath,
-          repoId: args.target.repoId,
-          sortKey,
-          agentKind: args.agentKind,
-          nowIso,
-        }),
-      ),
-    ]
-    this.batched(() => {
-      this.recomputeSessions()
-      this.recomputeIssues()
-    })
-    void createDraftAgent({
-      trpc: this.ports.api,
+    return this.paintSpawn({
       sessionId,
       issueId,
-      target: args.target,
-      agentKind: args.agentKind,
-      firstPrompt: args.firstPrompt,
-      ...(args.model ? { model: args.model } : {}),
-      ...(args.effort ? { effort: args.effort } : {}),
-    }).catch((error) => {
-      const arrived = (): boolean =>
-        this.ports.base().sessions.some((row) => row.sessionId === sessionId)
-      const settleFailure = (): void => {
-        if (arrived()) {
-          log.debug('spawn transport failed after the session was created — treating as success', {
-            sessionId,
-            err: error,
-          })
-          return
-        }
-        this.spawnOverlays = this.spawnOverlays.filter(
-          (overlay) => overlay.id !== sessionId && overlay.id !== issueId,
-        )
-        this.batched(() => {
-          this.recomputeSessions()
-          this.recomputeIssues()
-        })
-        this.ports.notices.error(
-          `Couldn't start the agent — ${error instanceof Error ? error.message : 'unknown error'}`,
-        )
-      }
-      if (arrived()) {
-        settleFailure()
-      } else {
-        const timer = setTimeout(() => {
-          this.spawnConfirmTimers.delete(timer)
-          settleFailure()
-        }, this.spawnConfirmGraceMs)
-        this.spawnConfirmTimers.add(timer)
-      }
+      session: optimisticStartingSession({
+        sessionId,
+        issueId,
+        agentKind: args.agentKind,
+        cwd: args.target.path,
+        ...(args.target.machineId !== undefined ? { machineId: args.target.machineId } : {}),
+        nowIso,
+      }),
+      issue: optimisticDraftIssue({
+        issueId,
+        repoPath: args.target.repoPath,
+        repoId: args.target.repoId,
+        sortKey,
+        agentKind: args.agentKind,
+        nowIso,
+      }),
+      ...(args.firstPrompt ? { prompt: args.firstPrompt } : {}),
+      failureSubject: 'agent',
+      create: () =>
+        createDraftAgent({
+          trpc: this.ports.api,
+          sessionId,
+          issueId,
+          target: args.target,
+          agentKind: args.agentKind,
+          firstPrompt: args.firstPrompt,
+          ...(args.model ? { model: args.model } : {}),
+          ...(args.effort ? { effort: args.effort } : {}),
+        }),
     })
-    return { sessionId, issueId }
+  }
+
+  /** Paint a real named task, its first session and its first chat turn before
+   * the create-and-start mutation leaves this client. */
+  spawnIssueAgent(args: {
+    issueId?: IssueId
+    sessionId?: SessionId
+    mutationId?: MutationId
+    target: SpawnTarget
+    title: string
+    description: string
+    brief?: string
+    parentBranch?: string
+    agentKind: AgentKind
+    model?: string
+    effort?: string
+  }): {
+    sessionId: SessionId
+    issueId: IssueId
+    mutationId: MutationId
+    settled: Promise<boolean>
+    outcome: Promise<TaskSpawnOutcome>
+  } {
+    assertSpawnPlacement(args.target)
+    const sessionId = args.sessionId ?? asSessionId(randomUUID())
+    const issueId = args.issueId ?? asIssueId(`iss_${randomUUID()}`)
+    const mutationId = args.mutationId ?? asMutationId(randomUUID())
+    const nowIso = new Date().toISOString()
+    const sortKey = optimisticDraftSortKey(
+      this.ports.paintedIssues(),
+      args.target.repoPath,
+      args.target.repoId,
+    )
+    const painted = this.paintSpawn({
+      sessionId,
+      issueId,
+      session: optimisticStartingSession({
+        sessionId,
+        issueId,
+        agentKind: args.agentKind,
+        cwd: args.target.path,
+        ...(args.target.machineId !== undefined ? { machineId: args.target.machineId } : {}),
+        nowIso,
+      }),
+      issue: optimisticStartedIssue({
+        issueId,
+        repoPath: args.target.repoPath,
+        repoId: args.target.repoId,
+        sortKey,
+        title: args.title,
+        description: args.description,
+        ...(args.target.machineId !== undefined ? { machineId: args.target.machineId } : {}),
+        ...(args.brief !== undefined ? { brief: args.brief } : {}),
+        ...(args.parentBranch !== undefined ? { parentBranch: args.parentBranch } : {}),
+        agentKind: args.agentKind,
+        ...(args.model !== undefined ? { model: args.model } : {}),
+        ...(args.effort !== undefined ? { effort: args.effort } : {}),
+        nowIso,
+      }),
+      prompt: args.description,
+      failureSubject: 'task',
+      recognizePartialIssue: true,
+      create: () =>
+        createIssueAgent({
+          trpc: this.ports.api,
+          sessionId,
+          issueId,
+          mutationId,
+          target: args.target,
+          title: args.title,
+          description: args.description,
+          ...(args.brief !== undefined ? { brief: args.brief } : {}),
+          ...(args.parentBranch !== undefined ? { parentBranch: args.parentBranch } : {}),
+          agentKind: args.agentKind,
+          ...(args.model !== undefined ? { model: args.model } : {}),
+          ...(args.effort !== undefined ? { effort: args.effort } : {}),
+        }),
+    })
+    return { ...painted, mutationId }
   }
 }
 

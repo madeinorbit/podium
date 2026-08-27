@@ -21,7 +21,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
-import { asIssueId, asMachineId } from '@podium/model'
+import { asIssueId, asMachineId, asMutationId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ColdStartComposer } from './ColdStartComposer'
@@ -29,7 +29,18 @@ import { ColdStartComposer } from './ColdStartComposer'
 const styles = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'utf8')
 
 const machineId = asMachineId('machine-a')
-const spawnDraftAgent = vi.fn(() => ({ sessionId: 'session-new', issueId: asIssueId('issue-new') }))
+const spawnDraftAgent = vi.fn(() => ({
+  sessionId: asSessionId('session-new'),
+  issueId: asIssueId('issue-new'),
+  settled: Promise.resolve(true),
+}))
+const spawnIssueAgent = vi.fn(() => ({
+  sessionId: asSessionId('session-task'),
+  issueId: asIssueId('issue-task'),
+  mutationId: asMutationId('mutation-task'),
+  settled: Promise.resolve(true),
+  outcome: Promise.resolve('started' as const),
+}))
 const setSelectedIssueId = vi.fn()
 const setSelectedWorktree = vi.fn()
 const setPane = vi.fn()
@@ -82,6 +93,7 @@ const store = {
   },
   focusIssueSession,
   spawnDraftAgent,
+  spawnIssueAgent,
   setSelectedIssueId,
   setSelectedWorktree,
   setPane,
@@ -109,6 +121,7 @@ afterEach(() => {
   cleanup()
   uiValues.clear()
   spawnDraftAgent.mockClear()
+  spawnIssueAgent.mockClear()
   setSelectedIssueId.mockClear()
   setSelectedWorktree.mockClear()
   setPane.mockClear()
@@ -181,14 +194,14 @@ describe('the launch box unfolds', () => {
     expect(launch().disabled).toBe(false)
   })
 
-  it('creates the mission rather than a bare session once there is a prompt', async () => {
-    create.mockResolvedValue({ id: asIssueId('issue-first') })
-    start.mockResolvedValue({ id: asIssueId('issue-first') })
+  it('creates the mission rather than a bare session once there is a prompt', () => {
     render(<ColdStartComposer first={false} />)
     fireEvent.change(field(), { target: { value: 'Fix the flaky test' } })
     fireEvent.click(launch())
 
-    await waitFor(() => expect(create).toHaveBeenCalled())
+    expect(spawnIssueAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'Fix the flaky test' }),
+    )
     expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 
@@ -326,31 +339,24 @@ describe('the launch chooses the panel surface', () => {
     )
   })
 
-  it('opens the chat on the session a written prompt started', async () => {
-    const issueId = asIssueId('issue-first')
-    create.mockResolvedValue({ id: issueId })
-    start.mockResolvedValue({ id: issueId })
-    focusIssueSession.mockResolvedValue('session-live')
+  it('opens the chat on the optimistic session a written prompt started', () => {
     render(<ColdStartComposer first={false} />)
     fireEvent.change(field(), { target: { value: 'Fix the flaky test' } })
     fireEvent.click(launch())
 
-    await waitFor(() => expect(setPanelMode).toHaveBeenCalledWith('session-live', 'chat'))
+    expect(setPanelMode).toHaveBeenCalledWith('session-task', 'chat')
+    expect(setPanelMode.mock.invocationCallOrder[0]).toBeLessThan(
+      setPane.mock.invocationCallOrder[0] as number,
+    )
   })
 
-  it('says nothing about a surface when no session showed up in time', async () => {
-    const issueId = asIssueId('issue-first')
-    create.mockResolvedValue({ id: issueId })
-    start.mockResolvedValue({ id: issueId })
-    // `focusIssueSession` resolves null when the wait times out or the operator
-    // selected something else meanwhile — there is no panel to have an opinion
-    // about, and guessing an id would write the mode onto a stranger.
+  it('does not wait for a replicated session before choosing chat', () => {
     render(<ColdStartComposer first={false} />)
     fireEvent.change(field(), { target: { value: 'Fix the flaky test' } })
     fireEvent.click(launch())
 
-    await waitFor(() => expect(focusIssueSession).toHaveBeenCalled())
-    expect(setPanelMode).not.toHaveBeenCalled()
+    expect(focusIssueSession).not.toHaveBeenCalled()
+    expect(setPanelMode).toHaveBeenCalledWith('session-task', 'chat')
   })
 })
 

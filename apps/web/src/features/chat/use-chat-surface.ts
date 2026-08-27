@@ -85,6 +85,7 @@ export interface UseChatSurfaceOptions {
   compact: boolean
   initialTurnRunning: boolean
   initialPendingText: string | undefined
+  deferInitialTranscript: boolean
 }
 
 export interface ChatSurface {
@@ -192,7 +193,15 @@ export interface ChatSurface {
 }
 
 export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
-  const { sessionId, active, superThread, compact, initialTurnRunning, initialPendingText } = opts
+  const {
+    sessionId,
+    active,
+    superThread,
+    compact,
+    initialTurnRunning,
+    initialPendingText,
+    deferInitialTranscript,
+  } = opts
 
   const {
     hub,
@@ -303,6 +312,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     replica,
     active,
     session,
+    deferInitialRead: deferInitialTranscript,
     verbosity,
     query,
     cursor: matchCursor,

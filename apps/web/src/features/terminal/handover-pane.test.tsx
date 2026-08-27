@@ -70,6 +70,7 @@ vi.mock('@/app/store', () => {
     sessions: storeSessions,
     machines: [],
     pendingSpawnIds: new Set<string>(),
+    pendingSpawnPrompts: new Map<string, string>(),
     repos: [],
     trpc: fakeTrpc,
     drafts: {},

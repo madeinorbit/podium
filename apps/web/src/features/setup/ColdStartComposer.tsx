@@ -10,7 +10,7 @@ import {
   sidebarSessions,
   usableMachines,
 } from '@podium/client-core/viewmodels'
-import { asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
+import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
 import { asMachineId } from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
@@ -39,6 +39,7 @@ import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { activationAgentIsReady, activationAgentReadiness } from './agent-readiness'
 import {
   clearFirstTaskDraft,
+  type FirstTaskDraft,
   readFirstTaskDraft,
   serializeFirstTaskDraft,
 } from './first-task-draft'
@@ -129,6 +130,17 @@ function attachmentBrief(paths: readonly string[]): string {
   ].join('\n')
 }
 
+function withoutCreateReservation(draft: FirstTaskDraft): FirstTaskDraft {
+  return {
+    ...draft,
+    createIssueId: '',
+    createSessionId: '',
+    createMutationId: '',
+    attachmentPaths: [],
+    launchError: '',
+  }
+}
+
 export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   const {
     trpc,
@@ -140,6 +152,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     uiState,
     focusIssueSession,
     spawnDraftAgent,
+    spawnIssueAgent,
     setSelectedIssueId,
     setSelectedWorktree,
     setPane,
@@ -154,6 +167,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       uiState: store.uiState,
       focusIssueSession: store.focusIssueSession,
       spawnDraftAgent: store.spawnDraftAgent,
+      spawnIssueAgent: store.spawnIssueAgent,
       setSelectedIssueId: store.setSelectedIssueId,
       setSelectedWorktree: store.setSelectedWorktree,
       setPane: store.setPane,
@@ -225,7 +239,12 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    */
   const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Durable launch failures belong to the draft, not component lifetime. The
+  // recovery composer can mount one microtask before the outcome writes its
+  // error; reading the subscribed draft lets that late value appear. Local
+  // state is reserved for synchronous faults that never reached persistence.
+  const [transientError, setError] = useState<string | null>(null)
+  const error = draft.launchError || transientError
 
   useEffect(() => {
     let cancelled = false
@@ -495,7 +514,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     // it, so the control is not offered and this is a no-op if it is reached.
     if (draft.pendingIssueId) return
     setUnfolded(false)
-    setDraft({ ...draft, title: '' })
+    setDraft(withoutCreateReservation({ ...draft, title: '' }))
     attachments.clear()
     // Blur, or the field's own focus would re-open the box it just closed.
     inputRef.current?.blur()
@@ -568,14 +587,18 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       model: AUTO,
       effort: AUTO,
       pendingIssueId: '',
+      createIssueId: '',
+      createSessionId: '',
       createMutationId: '',
       startMutationId: '',
+      attachmentPaths: [],
+      launchError: '',
     })
   }
 
   const selectMachine = (machineId: string): void => {
     setError(null)
-    setDraft({ ...draft, machineId })
+    setDraft(withoutCreateReservation({ ...draft, machineId }))
   }
 
   /**
@@ -634,7 +657,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     setView('workspace')
   }
 
-  const start = async (): Promise<void> => {
+  const start = (): void => {
     const prompt = draft.title.trim()
     if (
       busy ||
@@ -650,52 +673,106 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     setBusy(true)
     setError(null)
     try {
-      const brief = attachmentBrief(attachments.ready().paths)
-      const createMutationId = draft.createMutationId || asMutationId(randomUUID())
-      const created = draft.pendingIssueId
-        ? { id: draft.pendingIssueId }
-        : await trpc.issues.create.mutate({
-            repoPath: selectedCheckout.path,
-            machineId: selectedMachine.id,
-            title: promptTitle(prompt),
-            description: prompt,
-            ...(brief ? { brief } : {}),
-            parentBranch: selectedCheckout.branch?.trim() || undefined,
-            defaultAgent: agent,
-            defaultModel: draft.model !== AUTO ? draft.model : undefined,
-            defaultEffort: draft.effort !== AUTO ? draft.effort : undefined,
-            startNow: false,
-            mutationId: createMutationId,
+      const attachmentPaths =
+        draft.attachmentPaths.length > 0 ? draft.attachmentPaths : attachments.ready().paths
+      const brief = attachmentBrief(attachmentPaths)
+      // Drafts left by the old two-mutation path may already have a durable issue.
+      // Finish those in place; every new launch uses the single optimistic path.
+      if (draft.pendingIssueId) {
+        const pendingIssueId = draft.pendingIssueId
+        const startMutationId = draft.startMutationId || asMutationId(randomUUID())
+        setDraft({ ...draft, startMutationId, launchError: '' })
+        void trpc.issues.start
+          .mutate({ id: pendingIssueId, mutationId: startMutationId })
+          .then(async () => {
+            clearFirstTaskDraft(uiState)
+            attachments.clear()
+            const opened = await focusIssueSession(pendingIssueId)
+            if (opened) setPanelMode(opened, 'chat')
           })
-      const startMutationId = draft.startMutationId || asMutationId(randomUUID())
-      setDraft({
+          .catch((cause) => {
+            const launchError = cause instanceof Error ? cause.message : String(cause)
+            setDraft({ ...draft, startMutationId, launchError })
+            setBusy(false)
+          })
+        return
+      }
+
+      const retryCreate =
+        draft.createIssueId && draft.createSessionId && draft.createMutationId
+          ? {
+              issueId: draft.createIssueId,
+              sessionId: draft.createSessionId,
+              mutationId: draft.createMutationId,
+            }
+          : {
+              issueId: asIssueId(`iss_${randomUUID()}`),
+              sessionId: asSessionId(randomUUID()),
+              mutationId: asMutationId(randomUUID()),
+            }
+      const launchDraft: FirstTaskDraft = {
         ...draft,
-        createMutationId,
-        pendingIssueId: created.id,
-        startMutationId,
+        title: prompt,
+        pendingIssueId: '',
+        createIssueId: retryCreate.issueId,
+        createSessionId: retryCreate.sessionId,
+        createMutationId: retryCreate.mutationId,
+        startMutationId: '',
+        attachmentPaths: [...attachmentPaths],
+        launchError: '',
+      }
+      // Persist BEFORE dispatch. If this tab dies after the authority accepts
+      // the mutation, the next Launch reuses these exact identities instead of
+      // minting a second task around a response it never saw.
+      setDraft(launchDraft)
+      const started = spawnIssueAgent({
+        ...retryCreate,
+        target: {
+          path: selectedCheckout.path,
+          repoPath: selectedCheckout.path,
+          machineId: asMachineId(selectedMachine.id),
+          ...(selectedRepo.repoId !== undefined ? { repoId: selectedRepo.repoId } : {}),
+        },
+        title: promptTitle(prompt),
+        description: prompt,
+        ...(brief ? { brief } : {}),
+        ...(selectedCheckout.branch?.trim()
+          ? { parentBranch: selectedCheckout.branch.trim() }
+          : {}),
+        agentKind: agent,
+        ...(draft.model !== AUTO ? { model: draft.model } : {}),
+        ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
       })
-      await trpc.issues.start.mutate({ id: created.id, mutationId: startMutationId })
-      clearFirstTaskDraft(uiState)
       attachments.clear()
-      // SENDING A PROMPT LANDS ON THE TRANSCRIPT IT STARTED (POD-1202).
-      //
-      // Selecting the issue was all this used to do, and at that moment the
-      // issue has no session: the mission came on screen with an empty tab area
-      // and the launch read as having done nothing. `focusIssueSession` holds
-      // for the session row and opens its tab, so the operator arrives on the
-      // agent that is already working. The overlay above stays up for that wait
-      // — this composer unmounts the moment the workspace has the tab.
-      //
-      // AND A PROMPT ASKS FOR THE CHAT (POD-1669). The operator wrote a
-      // paragraph into a box; the answer to it is a conversation, not a terminal
-      // replaying the same paragraph as keystrokes. The session id only exists
-      // once the wait lands, so this is the earliest it can be said — and it is
-      // still early enough: the panel's own materialization defers to a mode
-      // that is already set, and overrules nothing when it got there first.
-      // `effectivePanelMode` still forces native on a harness that cannot chat,
-      // so this asks rather than insists.
-      const opened = await focusIssueSession(created.id)
-      if (opened) setPanelMode(opened, 'chat')
+      // Keep prompt, attachments and ids until the authority has accepted the
+      // whole create+start. The same ids make an ambiguous retry duplicate-safe;
+      // an issue-only result moves onto the older, explicit start retry path.
+      void started.outcome.then((outcome) => {
+        if (outcome === 'started') {
+          clearFirstTaskDraft(uiState)
+          return
+        }
+        if (outcome === 'issue-only') {
+          const launchError = "The task was saved, but its agent couldn't start."
+          setDraft({
+            ...launchDraft,
+            pendingIssueId: started.issueId,
+            createIssueId: '',
+            createSessionId: '',
+            createMutationId: '',
+            launchError,
+          })
+        } else {
+          const launchError = "Couldn't start the task."
+          setDraft({ ...launchDraft, launchError })
+        }
+        setBusy(false)
+      })
+      setSelectedIssueId(started.issueId)
+      setSelectedWorktree(selectedCheckout.path)
+      setPanelMode(started.sessionId, 'chat')
+      setPane('A', started.sessionId)
+      setView('workspace')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
       setBusy(false)
@@ -750,7 +827,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * the operator off the page mid-launch, so the default is cancelled either way
    * — the same reason the paperclip is disabled rather than absent.
    */
-  const attaching = !busy && !draft.pendingIssueId
+  const attaching = !busy && !draft.pendingIssueId && !draft.createIssueId
   const dragging = attaching && attachments.dragOver
   const paneDrop = {
     onDragOver: (event: React.DragEvent): void => {
@@ -849,7 +926,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               rows={1}
               value={draft.title}
               disabled={busy || Boolean(draft.pendingIssueId)}
-              onChange={(event) => setDraft({ ...draft, title: event.currentTarget.value })}
+              onChange={(event) =>
+                setDraft(withoutCreateReservation({ ...draft, title: event.currentTarget.value }))
+              }
               onFocus={() => {
                 setFocused(true)
                 setUnfolded(true)
@@ -960,7 +1039,14 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   selectedValue={agent}
                   onSelect={(nextAgent) => {
                     const kind = issueAgentKind(nextAgent) ?? agent
-                    setDraft({ ...draft, agent: kind, model: AUTO, effort: AUTO })
+                    setDraft(
+                      withoutCreateReservation({
+                        ...draft,
+                        agent: kind,
+                        model: AUTO,
+                        effort: AUTO,
+                      }),
+                    )
                   }}
                 />
                 <span className="w-px bg-hairline-bar" aria-hidden="true" />
@@ -969,7 +1055,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   agentKind={agent}
                   machineId={selectedMachine?.id}
                   value={draft.model}
-                  onChange={(model) => setDraft({ ...draft, model, effort: AUTO })}
+                  onChange={(model) =>
+                    setDraft(withoutCreateReservation({ ...draft, model, effort: AUTO }))
+                  }
                 />
                 <span className="w-px bg-hairline-bar" aria-hidden="true" />
                 <EffortPicker
@@ -978,7 +1066,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   machineId={selectedMachine?.id}
                   model={draft.model}
                   value={draft.effort}
-                  onChange={(effort) => setDraft({ ...draft, effort })}
+                  onChange={(effort) => setDraft(withoutCreateReservation({ ...draft, effort }))}
                 />
               </div>
               <PropertyMenu
@@ -1015,7 +1103,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 data-pressable
                 aria-label="Attach a file"
                 title="Attach a file"
-                disabled={busy || Boolean(draft.pendingIssueId)}
+                disabled={busy || Boolean(draft.pendingIssueId) || Boolean(draft.createIssueId)}
                 onClick={attachments.openFilePicker}
                 className="inline-flex size-7 flex-none items-center justify-center rounded-lg text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -1124,7 +1212,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
           )}
           {error && (
             <div className="mt-3">
-              <SetupError>{error} Your prompt and selections are still saved.</SetupError>
+              <SetupError>{error} Your request and selections are still saved.</SetupError>
             </div>
           )}
         </div>

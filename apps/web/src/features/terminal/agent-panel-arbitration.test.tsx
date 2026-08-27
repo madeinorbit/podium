@@ -97,6 +97,7 @@ vi.mock('@/app/store', () => {
     sessions: storeSessions,
     machines: [],
     pendingSpawnIds: storePendingSpawnIds,
+    pendingSpawnPrompts: new Map<string, string>(),
     repos: [],
     trpc: fakeTrpc,
     drafts: {},

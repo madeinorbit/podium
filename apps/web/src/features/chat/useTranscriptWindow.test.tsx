@@ -108,11 +108,13 @@ let captured: UseTranscriptWindowResult | null = null
 function Probe({
   active,
   session = meta({}),
+  deferInitialRead = false,
 }: {
   active: boolean
   /** Overridable so the liveness tests below can move the session row's
    *  activity fingerprint (POD-701) between renders. */
   session?: SessionMeta
+  deferInitialRead?: boolean
 }): JSX.Element | null {
   const scrollerRef = { current: null }
   captured = useTranscriptWindow({
@@ -122,6 +124,7 @@ function Probe({
     replica: fakeReplica,
     active,
     session,
+    deferInitialRead,
     scrollerRef,
   } as unknown as UseTranscriptWindowOptions)
   return null
@@ -178,6 +181,23 @@ function lastTraceMarks(): string[] {
   const t = getRecentSwitchTraces().at(-1)
   return t ? t.marks.map((m) => m.name) : []
 }
+
+describe('useTranscriptWindow optimistic session boundary', () => {
+  it('waits for server truth before spending the initial read and subscription', async () => {
+    act(() => root.render(<Probe active deferInitialRead />))
+    expect(reads).toHaveLength(0)
+    expect(fakeHub.subscribes).toHaveLength(0)
+
+    act(() => root.render(<Probe active deferInitialRead={false} />))
+    expect(reads).toHaveLength(1)
+    await act(async () => {
+      reads[0]?.resolve({ items: [], hasMore: false })
+    })
+    await flush()
+
+    expect(fakeHub.subscribes).toHaveLength(1)
+  })
+})
 
 describe('useTranscriptWindow warm-switch reuse (POD-725)', () => {
   it('(a) a warm activation with a healthy window skips the re-read and marks a cache hit', async () => {

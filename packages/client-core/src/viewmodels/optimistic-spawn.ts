@@ -1,5 +1,15 @@
 import { DRAFT_ISSUE_TITLE, spawnedByTag } from '@podium/model'
-import { isSortKey, sortKeyBetween, type AgentKind, type IssueId, type IssueWire, type RepoId, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  isSortKey,
+  sortKeyBetween,
+  type AgentKind,
+  type IssueId,
+  type IssueWire,
+  type MachineId,
+  type RepoId,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 
 /**
  * Optimistic-UI builders for the "New <Agent> in <Repo>" spawn (issue #119).
@@ -41,6 +51,7 @@ export interface OptimisticSpawnArgs {
   issueId: IssueId
   agentKind: AgentKind
   cwd: string
+  machineId?: MachineId
   /** ISO timestamp; injected so the builders stay pure/testable. */
   nowIso: string
 }
@@ -52,6 +63,7 @@ export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionMet
     agentKind: args.agentKind,
     title: basename(args.cwd) || args.cwd,
     cwd: args.cwd,
+    ...(args.machineId !== undefined ? { machineId: args.machineId } : {}),
     status: 'starting',
     controllerId: null,
     geometry: { cols: 80, rows: 24 },
@@ -90,6 +102,7 @@ export function optimisticDraftIssue(args: {
   issueId: IssueId
   repoPath: string
   repoId?: RepoId
+  machineId?: MachineId
   sortKey: string
   agentKind: AgentKind
   nowIso: string
@@ -140,5 +153,44 @@ export function optimisticDraftIssue(args: {
     // No `sessions` / `sessionSummary`: the embed left the wire (POD-797). The
     // sidebar already read membership from the global session list by issueId,
     // which is why nothing here needs a replacement.
+  }
+}
+
+/** A named task whose first session is starting. The server will replace the
+ * provisional sequence, sort key, worktree and timestamps with the same-id row;
+ * everything the operator is reading is already final. */
+export function optimisticStartedIssue(args: {
+  issueId: IssueId
+  repoPath: string
+  repoId?: RepoId
+  machineId?: MachineId
+  sortKey: string
+  title: string
+  description: string
+  brief?: string
+  parentBranch?: string
+  agentKind: AgentKind
+  model?: string
+  effort?: string
+  nowIso: string
+}): IssueWire {
+  return {
+    ...optimisticDraftIssue({
+      issueId: args.issueId,
+      repoPath: args.repoPath,
+      repoId: args.repoId,
+      sortKey: args.sortKey,
+      agentKind: args.agentKind,
+      nowIso: args.nowIso,
+    }),
+    ...(args.machineId !== undefined ? { machineId: args.machineId } : {}),
+    title: args.title,
+    description: args.description,
+    ...(args.brief ? { brief: args.brief } : {}),
+    parentBranch: args.parentBranch ?? 'main',
+    defaultModel: args.model ?? 'auto',
+    defaultEffort: args.effort ?? 'auto',
+    stage: 'in_progress',
+    draft: false,
   }
 }
