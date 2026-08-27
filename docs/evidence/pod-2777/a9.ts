@@ -24,13 +24,15 @@
  * zero before anyone kills anything. A run that cannot name the processes it
  * expects to see die reports REFUSED.
  *
- * Processes are attributed by /proc/<pid>/environ, matching the rig's INSTANCE
- * and the session id — never by pattern-matching a command line. Other
+ * Processes are attributed by /proc/<pid>/environ: the target must carry this
+ * daemon's instance UUID and exact session stamp, while rebound censuses include
+ * every PID carrying the current daemon UUID plus any session stamp. Other
  * instances on this box run identically-named binaries, and a `pkill -f codex`
  * would take the operator's own sessions down while reporting a clean sweep.
  */
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, readlinkSync } from 'node:fs'
 import { AGENT_KIND, Chat, REPO, login, mutate, nonce, now, sessionRow, until, wait } from './rig'
+import { scoreA9, type ProcessIdentity } from './scorer-contracts'
 
 const harness = (process.argv[2] ?? 'codex') as string
 /**
@@ -59,7 +61,10 @@ const log = (s: string) => console.log(s)
 
 interface Proc {
   pid: number
+  startTimeTicks: string
   cmd: string
+  cwd: string
+  env: Record<string, string>
   rssKb: number
   why: string
 }
@@ -75,6 +80,44 @@ function environOf(pid: number): Record<string, string> {
     // gone, or not ours to read
   }
   return out
+}
+
+function startTimeTicksOf(pid: number): string {
+  const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+  const close = stat.lastIndexOf(')')
+  if (close < 0) throw new Error(`cannot parse /proc/${pid}/stat`)
+  const fieldsAfterCommand = stat
+    .slice(close + 2)
+    .trim()
+    .split(/\s+/)
+  const startTimeTicks = fieldsAfterCommand[19]
+  if (!startTimeTicks) throw new Error(`no start time in /proc/${pid}/stat`)
+  return startTimeTicks
+}
+
+const identityOf = (row: Proc): ProcessIdentity => ({
+  pid: row.pid,
+  startTimeTicks: row.startTimeTicks,
+})
+const identityKey = (identity: ProcessIdentity) => `${identity.pid}:${identity.startTimeTicks}`
+
+function daemonStamp(daemonPid: number): { uuid: string; source: string } {
+  const fromEnvironment = environOf(daemonPid).PODIUM_INSTANCE_UUID ?? ''
+  if (fromEnvironment) {
+    return { uuid: fromEnvironment, source: `daemon /proc/${daemonPid}/environ` }
+  }
+  const stateRoot = process.env.PODIUM_RIG_STATE_ROOT ?? ''
+  if (stateRoot) {
+    try {
+      const marker = JSON.parse(readFileSync(`${stateRoot}/instance.json`, 'utf8')) as {
+        instanceUuid?: unknown
+      }
+      if (typeof marker.instanceUuid === 'string' && marker.instanceUuid) {
+        return { uuid: marker.instanceUuid, source: `${stateRoot}/instance.json` }
+      }
+    } catch {}
+  }
+  return { uuid: '', source: '(missing)' }
 }
 
 /**
@@ -98,22 +141,37 @@ function rigProcesses(sid?: string, excludePids: number[] = []): Proc[] {
     if (sid && Object.values(env).some((v) => v.includes(sid))) reasons.push('session id in env')
     if (reasons.length === 0) continue
     let cmd = ''
+    let cwd = ''
     let rssKb = 0
+    let startTimeTicks = ''
     try {
+      startTimeTicks = startTimeTicksOf(pid)
       cmd = readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ').trim()
+      cwd = readlinkSync(`/proc/${pid}/cwd`)
       const st = readFileSync(`/proc/${pid}/status`, 'utf8')
       rssKb = Number(/VmRSS:\s+(\d+)/.exec(st)?.[1] ?? 0)
     } catch {
       // exited between readdir and read
     }
-    found.push({ pid, cmd: cmd.slice(0, 90), rssKb, why: reasons.join('+') })
+    if (!startTimeTicks) continue
+    found.push({
+      pid,
+      startTimeTicks,
+      cmd: cmd.slice(0, 140),
+      cwd,
+      env,
+      rssKb,
+      why: reasons.join('+'),
+    })
   }
   return found
 }
 
 await login()
 log('='.repeat(78))
-log(`A9  kill session — is the process tree really gone?   harness=${harness}  verb=sessions.${verb}`)
+log(
+  `A9  kill session — is the process tree really gone?   harness=${harness}  verb=sessions.${verb}`,
+)
 log('='.repeat(78))
 
 const daemonPid = Number(
@@ -123,10 +181,20 @@ const serverPid = Number(
   readFileSync(`${process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-2777'}/server.pid`, 'utf8').trim(),
 )
 const infra = [daemonPid, serverPid]
-log(`rig infrastructure (excluded, and checked alive at the end): server ${serverPid}, daemon ${daemonPid}`)
+const stamp = daemonStamp(daemonPid)
+const isStamped = (row: Proc) =>
+  row.env.PODIUM_INSTANCE_UUID === stamp.uuid && Boolean(row.env.PODIUM_SESSION_ID)
+const inTargetScope = (row: Proc, sid: string) =>
+  row.cwd === REPO || row.env.PODIUM_SESSION_ID === sid
+log(
+  `rig infrastructure (excluded, and checked alive at the end): server ${serverPid}, daemon ${daemonPid}`,
+)
+log(`target stamp       uuid=${stamp.uuid || '(missing)'} source=${stamp.source}`)
 
-const baseline = rigProcesses(undefined, infra)
-log(`baseline           ${baseline.length} rig process(es) before this session exists`)
+const baseline = rigProcesses(undefined, infra).filter(isStamped)
+log(
+  `baseline           ${baseline.length} current-daemon stamped process(es) before this session exists`,
+)
 
 const created = await mutate('sessions.create', { cwd: REPO, agentKind })
 const sid = created.result?.data?.sessionId as string | undefined
@@ -141,7 +209,9 @@ const bound = await until(sid, (r) => Boolean(r?.driverId), 90_000, 1_000)
 const row0 = bound.row ?? (await sessionRow(sid))
 log(`BOUND DRIVER       ${row0?.driverId ?? '(none)'} (family ${row0?.driverFamily ?? '?'})`)
 if (row0?.status === 'exited') {
-  log(`SESSION EXITED     spawnFailure: ${(row0 as Record<string, unknown>).spawnFailure ?? '(none)'}`)
+  log(
+    `SESSION EXITED     spawnFailure: ${(row0 as Record<string, unknown>).spawnFailure ?? '(none)'}`,
+  )
 }
 
 // Give it a real turn, so the tree includes whatever a working session spawns
@@ -163,22 +233,46 @@ const replied = await (async () => {
 })()
 log(`turn before kill   ${replied ? `replied with ${word}` : 'NO REPLY'}`)
 
-// --- the control: what is there to kill? -----------------------------------
-const baselinePids = new Set(baseline.map((p) => p.pid))
-const before = rigProcesses(sid, infra)
-const newForThisSession = before.filter((p) => !baselinePids.has(p.pid))
+// --- the control: what is there to kill, and is it exactly stamped? --------
+const attributable = rigProcesses(sid, infra)
+const inScope = attributable.filter((row) => inTargetScope(row, sid))
+const unstampedInScope = inScope.filter((row) => !isStamped(row))
+const before = attributable.filter(isStamped)
+const exactTarget = before.filter((row) => row.env.PODIUM_SESSION_ID === sid)
+const stampProven =
+  stamp.uuid.length > 0 &&
+  baseline.length === 0 &&
+  exactTarget.length > 0 &&
+  unstampedInScope.length === 0
+const controlFired = replied && stampProven
 log('')
-log(`CONTROL            ${newForThisSession.length} process(es) appeared for this session:`)
-for (const p of newForThisSession) log(`                     pid=${p.pid} rss=${p.rssKb}kB [${p.why}] ${p.cmd}`)
+log(
+  `CONTROL            reply=${replied} targetStamped=${exactTarget.length} totalStamped=${before.length}`,
+)
+log(
+  `STAMP PROOF        ${stampProven} baseline=${baseline.length} unstampedInScope=${unstampedInScope.length}`,
+)
+for (const row of before) {
+  log(
+    `PRE                 pid=${row.pid} start=${row.startTimeTicks} rss=${row.rssKb}kB session=${row.env.PODIUM_SESSION_ID} cwd=${row.cwd} cmd=${row.cmd}`,
+  )
+}
+for (const row of unstampedInScope) {
+  log(`UNSTAMPED           pid=${row.pid} cwd=${row.cwd} cmd=${row.cmd}`)
+}
 
-if (newForThisSession.length === 0) {
+if (!controlFired) {
   log('')
-  log('REFUSED — the positive control did not fire.')
-  log('  control watched: at least one process appearing that this session owns,')
-  log('                   so that "the tree is gone" is a statement about something')
-  log(`  control saw:     0 new process(es); session status ${row0?.status ?? '?'}`)
-  log(`                   spawnFailure: ${(row0 as Record<string, unknown> | undefined)?.spawnFailure ?? '(none)'}`)
-  log('  A session that started no processes cannot demonstrate a clean kill.')
+  log('REFUSED — the positive control or target stamp proof did not fire.')
+  log('  control watched: an answered turn plus at least one exact target PID')
+  log('                   carrying this daemon UUID and target session stamp.')
+  log(`  control saw:     reply=${replied}; daemonUuid=${stamp.uuid || '(missing)'}`)
+  log(
+    `                   targetStamped=${exactTarget.length}; baseline=${baseline.length}; unstamped=${unstampedInScope.length}`,
+  )
+  log(
+    `                   session status ${row0?.status ?? '?'}; spawnFailure ${(row0 as Record<string, unknown> | undefined)?.spawnFailure ?? '(none)'}`,
+  )
   await chat.close()
   process.exit(3)
 }
@@ -187,43 +281,88 @@ if (newForThisSession.length === 0) {
 log('')
 log(`KILLING via sessions.${verb} …`)
 const killed = await mutate(`sessions.${verb}`, { sessionId: sid })
-log(`  returned         ${JSON.stringify(killed.result?.data ?? killed.error ?? null).slice(0, 240)}`)
+const killedAt = now()
+log(
+  `  returned         ${JSON.stringify(killed.result?.data ?? killed.error ?? null).slice(0, 240)}`,
+)
 
-// Give the teardown a fair chance before counting.
-await wait(15_000)
+const originalProcesses = before.map(identityOf)
+const originalKeys = new Set(originalProcesses.map(identityKey))
+const originalRows = new Map(before.map((row) => [identityKey(identityOf(row)), row]))
+const originalProcessesAlive = () =>
+  originalProcesses.filter((identity) => {
+    try {
+      return startTimeTicksOf(identity.pid) === identity.startTimeTicks
+    } catch {
+      return false
+    }
+  })
+const targetSample = () => rigProcesses(sid, infra).filter(isStamped)
+const reboundRows = (rows: Proc[]) =>
+  rows.filter((row) => !originalKeys.has(identityKey(identityOf(row))))
+
+// First independent checkpoint: both old PIDs and brand-new stamped PIDs.
+await wait(Math.max(0, killedAt + 15_000 - now()))
 const rowAfter = await sessionRow(sid)
-log(`  row says         status=${rowAfter?.status ?? '(row gone)'} stopReason=${(rowAfter as Record<string, unknown> | undefined)?.stopReason ?? '?'}`)
-
-const survivors = rigProcesses(sid, infra).filter((p) =>
-  newForThisSession.some((n) => n.pid === p.pid),
+const after15 = targetSample()
+const originalProcessesAliveAt15s = originalProcessesAlive()
+const reboundsAt15s = reboundRows(after15)
+log(
+  `  row says         status=${rowAfter?.status ?? '(row gone)'} stopReason=${(rowAfter as Record<string, unknown> | undefined)?.stopReason ?? '?'}`,
 )
-log(`  process table    ${survivors.length} of ${newForThisSession.length} still alive after 15s`)
-for (const p of survivors) log(`                     pid=${p.pid} rss=${p.rssKb}kB ${p.cmd}`)
-
-// --- the five-minute orphan check ------------------------------------------
-log('')
-log(`ORPHAN WATCH       waiting ${Math.round(ORPHAN_WAIT_MS / 1000)}s (the row says 300s)`)
-const deadline = now() + ORPHAN_WAIT_MS
-let lastCount = survivors.length
-while (now() < deadline) {
-  await wait(30_000)
-  const still = rigProcesses(sid, infra).filter((p) =>
-    newForThisSession.some((n) => n.pid === p.pid),
+log(
+  `  after 15s        directOriginalAlive=${originalProcessesAliveAt15s.length} rebounds=${reboundsAt15s.length} stamped=${after15.length}`,
+)
+for (const identity of originalProcessesAliveAt15s) {
+  const row = originalRows.get(identityKey(identity))
+  log(
+    `SURVIVOR_15         pid=${identity.pid} start=${identity.startTimeTicks} stampNow=${after15.some((current) => identityKey(identityOf(current)) === identityKey(identity))} cwd=${row?.cwd ?? '?'} cmd=${row?.cmd ?? '?'}`,
   )
-  if (still.length !== lastCount) {
-    log(`  t+${Math.round((ORPHAN_WAIT_MS - (deadline - now())) / 1000)}s: ${still.length} still alive`)
-    lastCount = still.length
-  }
-  if (still.length === 0 && now() > deadline - ORPHAN_WAIT_MS + 60_000) break
 }
-const orphans = rigProcesses(sid, infra).filter((p) =>
-  newForThisSession.some((n) => n.pid === p.pid),
-)
-log(`  after the wait   ${orphans.length} orphan(s)`)
-for (const p of orphans) log(`                     pid=${p.pid} rss=${p.rssKb}kB ${p.cmd}`)
+for (const row of reboundsAt15s) {
+  log(
+    `REBOUND_15          pid=${row.pid} start=${row.startTimeTicks} session=${row.env.PODIUM_SESSION_ID} cwd=${row.cwd} cmd=${row.cmd}`,
+  )
+}
 
-// The rig's own processes must be untouched: a "clean kill" that took the daemon
-// with it is not a pass.
+// Second independent checkpoint: wait to t+300s even when t+15s is clean.
+log('')
+log(
+  `ORPHAN WATCH       waiting through t+${Math.round(ORPHAN_WAIT_MS / 1000)}s (the row says 300s)`,
+)
+const deadline = killedAt + ORPHAN_WAIT_MS
+let lastShape = `${originalProcessesAliveAt15s.length}/${reboundsAt15s.length}`
+while (now() < deadline) {
+  await wait(Math.min(30_000, deadline - now()))
+  const currentStamped = targetSample()
+  const currentAlive = originalProcessesAlive()
+  const currentRebounds = reboundRows(currentStamped)
+  const shape = `${currentAlive.length}/${currentRebounds.length}`
+  if (shape !== lastShape) {
+    log(
+      `  t+${Math.round((now() - killedAt) / 1000)}s: directOriginalAlive=${currentAlive.length} rebounds=${currentRebounds.length}`,
+    )
+    lastShape = shape
+  }
+}
+const after300 = targetSample()
+const originalProcessesAliveAt300s = originalProcessesAlive()
+const reboundsAt300s = reboundRows(after300)
+log(
+  `  after 300s       directOriginalAlive=${originalProcessesAliveAt300s.length} rebounds=${reboundsAt300s.length} stamped=${after300.length}`,
+)
+for (const identity of originalProcessesAliveAt300s) {
+  const row = originalRows.get(identityKey(identity))
+  log(
+    `SURVIVOR_300        pid=${identity.pid} start=${identity.startTimeTicks} stampNow=${after300.some((current) => identityKey(identityOf(current)) === identityKey(identity))} cwd=${row?.cwd ?? '?'} cmd=${row?.cmd ?? '?'}`,
+  )
+}
+for (const row of reboundsAt300s) {
+  log(
+    `REBOUND_300         pid=${row.pid} start=${row.startTimeTicks} session=${row.env.PODIUM_SESSION_ID} cwd=${row.cwd} cmd=${row.cmd}`,
+  )
+}
+
 const infraAlive = infra.filter((pid) => {
   try {
     process.kill(pid, 0)
@@ -232,18 +371,40 @@ const infraAlive = infra.filter((pid) => {
     return false
   }
 })
+const fullWindow = ORPHAN_WAIT_MS === 300_000
+const score = scoreA9({
+  controlFired,
+  stampProven: stampProven && fullWindow,
+  originalProcesses,
+  originalProcessesAliveAt15s,
+  originalProcessesAliveAt300s,
+  stampedProcessesAt15s: after15.map(identityOf),
+  stampedProcessesAt300s: after300.map(identityOf),
+  infrastructureAlive: infraAlive.length,
+})
 log(`  rig intact       ${infraAlive.length}/2 infrastructure process(es) still alive`)
 
-const pass = orphans.length === 0 && infraAlive.length === 2
 log('')
 log('='.repeat(78))
-log(`A9  ${pass ? 'PASS' : 'FAIL'}`)
-log(`    ${newForThisSession.length} process(es) belonged to the session; ${orphans.length} survived ${Math.round(ORPHAN_WAIT_MS / 1000)}s after the kill`)
-log(`    measured in /proc, attributed by environment, never by command-line pattern`)
-log(`    verb driven: sessions.${verb}`)
-log(`    the row's own opinion was status=${rowAfter?.status ?? '(gone)'} — recorded, not used as the verdict`)
-log(`    control FIRED — the tree existed before the kill`)
+log(`A9  ${score.verdict}`)
+log(
+  `    stamp proof=${stampProven}; exact target identities before kill=${originalProcesses
+    .map(identityKey)
+    .join(',')}`,
+)
+log(`    15s survivors=${score.survivorsAt15s.length} rebounds=${score.reboundsAt15s.length}`)
+log(`    300s survivors=${score.survivorsAt300s.length} rebounds=${score.reboundsAt300s.length}`)
+log(
+  `    measured in /proc; original liveness uses PID+start-time identity independently of stamped rebound censuses`,
+)
+log(`    verb driven: sessions.${verb}; full 300s window=${fullWindow}`)
+log(
+  `    the row's own opinion was status=${rowAfter?.status ?? '(gone)'} — recorded, not used as the verdict`,
+)
+log(
+  `    control ${controlFired ? 'FIRED' : 'DID NOT FIRE'} — answered turn and exact target stamp proof`,
+)
 log('='.repeat(78))
 
 await chat.close()
-process.exit(pass ? 0 : 1)
+process.exit(score.verdict === 'PASS' ? 0 : score.verdict === 'REFUSED' ? 3 : 1)
