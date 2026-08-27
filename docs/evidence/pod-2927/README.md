@@ -12,3 +12,4 @@ Built and runtime code tree: `7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4`. Served 
 | --- | --- | --- | --- |
 | A1a | PASS | Product driver `grok-acp/server`; durable user turn; delivered receipt; exact reply in 2069ms | `readings/a1a.json` |
 | A2a | PASS | Product driver `grok-acp/server`; working at 199ms; zero mid-turn idle/blank samples; final idle after reply | `readings/a2a.json` |
+| A2b | PASS | Product driver grok-acp/server; 19/19 fresh-boot samples idle; no working/blank sample | readings/a2b.json |
