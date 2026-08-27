@@ -1297,3 +1297,31 @@ were caught: I recognised one cell whose true state I happened to remember.
 PREFIX of a longer comment line left a fragment uncommented — a stray line a parser would have read
 as a malformed data row. The check is one line:
 `awk -F'\t' '!/^#/ && NF>0 && NF<8 {print NR": "$0}' docs/plans/pod-1761-results.tsv`
+
+### Six hours on the control and twenty minutes on the measurement is the RIGHT ratio (2026-08-27 04:05 CEST)
+
+POD-2871 spent most of a night on a probe that would not produce a usable reading, and it produced
+the epic's cleanest mechanism finding. The sequence is worth copying exactly:
+
+1. **First attempt: NO_MEASUREMENT.** The companion produced zero rows. It **stopped** rather than
+   reading the store anyway — because a zero is also what a dead rig returns, and it could not tell
+   the two apart.
+2. **It hardened until a zero could only mean one thing:** require the companion's nonce **through
+   the transcript API BEFORE any SQLite read**, plus a product readout from the fault session, plus
+   pins on cwd, terminal driver, native id and the exact store path.
+3. **Then the measurement took twenty minutes** and both arms were unambiguous.
+
+**Three sessions tonight produced numbers I could not use. This one produced a number I could.**
+The difference was entirely in step 2.
+
+**THE GENERALISABLE MOVE: make the control independent of the thing you are testing.** Reading the
+store to check the store had run is circular. Reading the API to check the session had run, and
+*then* reading the store, is not — it survives store-layout bugs, cwd-keying, driver fallback and a
+dead rig all at once, because none of those can fake an API reply.
+
+**Two more from the same drive:**
+- **Test the edge that should NOT change, on BOTH arms.** Its different-directory controls passed
+  before and after. Without them a same-directory-only test cannot distinguish "isolation works"
+  from "nothing is being written anywhere".
+- **When a probe cannot distinguish two explanations, that is a finding about the PROBE**, and
+  fixing the probe is the work. It is not a delay before the work.
