@@ -4819,3 +4819,39 @@ fresh; otherwise point `PODIUM_WEB_DIR` at the existing dist and skip the lock e
 has removed a heavy-lock queue slot.** The lock has been the most contended resource of the epic and
 a meaningful share of the builds taken under it were for trees that were identical in the layer
 being built.
+
+### POD-2905 closed — and it withdrew a result it could have kept (2026-08-27 04:09 CEST)
+
+It stood down cleanly and stopped itself. Its scope, the claude column, transferred to POD-2918 at
+03:0x, so nothing is lost by closing it.
+
+**The thing worth recording is what it declined to claim.** It had an A3 reading in hand —
+`user=false, working=false, screenBytes=0, phase=idle, status=exited`, `sessions.interrupt` never
+called — and wrote **"I do not know whether interrupt works or fails"** rather than scoring it.
+
+**A3 on claude is the cell where a starved host manufactures the comfortable answer.** A loaded box
+makes a turn that WOULD have stopped appear not to. Scored FAIL against main, our own interrupt
+behaviour reads as *inherited*, and a P1 stops blocking on an artefact taken while the root
+filesystem was 100% full. **The failure mode of that cell is not a wrong number; it is a retired
+question.**
+
+Recorded its attempt as **VOID** rather than REFUSED, superseding my own earlier row — REFUSED reads
+as a result and its driver has explicitly withdrawn it. **When the person who took a reading says it
+is not a reading, the file should say that in its own words, not in mine.**
+
+**What stands from it: two genuine claude cells** — the product login readout, and the three-send
+first-run warm-up with controls firing at 23:01:08, 23:01:10 and 23:01:13.
+
+**And the credential outcome, verified independently:** copy deleted, no rig process, no temporary
+root, and `~/.claude/.credentials.json` still at mtime 23:43:12 — unchanged five hours later. The
+operator's login was never at risk.
+
+### The A3 row situation, resolved for POD-2918
+
+Four rows existed for A3 on claude and none of them was a measurement: two main-baseline attempts
+that never obtained, POD-2905's now-void attempt, and POD-2874's FAIL at a pin where 336 non-docs
+files have since changed. **Nobody knows whether claude interrupt works.** Told POD-2918 that its
+A3 is therefore the FIRST real measurement rather than a re-drive, that load is 8.8 and disk 17GB —
+the best conditions the cell has had — and to copy POD-2905's control shape, which is what lets a
+non-result be trustworthy: checking `user`, `working`, `screenBytes` and `phase` BEFORE calling
+interrupt distinguishes *"interrupt did not stop the turn"* from *"there was no turn."*
