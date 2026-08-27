@@ -95,7 +95,7 @@ export const PORT = process.env.PODIUM_PORT ?? '19847'
 export const BASE = `http://${HOST}:${PORT}`
 export const PASSWORD = process.env.PODIUM_PASSWORD ?? 'p2777'
 export const DRIVE_BASE = process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-2777'
-export const REPO = `${DRIVE_BASE}/repo`
+export const REPO = process.env.PODIUM_PROBE_REPO ?? `${DRIVE_BASE}/repo`
 
 if (PORT === '19797') throw new Error('refusing to drive the operator instance')
 
