@@ -124,8 +124,11 @@ vi.mock('@podium/terminal-client/session-mount', () => ({
 
 // The mobile keyboard accessory reaches for real DOM measurement the pane's
 // mount would own; nothing here tests it and it renders on every pane.
-vi.mock('@podium/terminal-client-react', async (orig) => {
-  const real = (await orig()) as Record<string, unknown>
+type TerminalClientReactModule = typeof import('@podium/terminal-client-react')
+type ImportOriginal = <T extends TerminalClientReactModule = TerminalClientReactModule>() => Promise<T>
+
+vi.mock('@podium/terminal-client-react', async (orig: ImportOriginal) => {
+  const real = await orig()
   return { ...real, MobileTerminalKeyboard: () => null }
 })
 

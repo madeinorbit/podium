@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import PodiumSpeech, {
   type PodiumSpeechAvailability,
+  type PodiumSpeechAvailabilityEvent,
   type PodiumSpeechErrorEvent,
   type PodiumSpeechPhaseEvent,
   type PodiumSpeechResultEvent,
@@ -112,7 +113,7 @@ export function useVoiceInput(): VoiceInput {
 
     const availabilitySubscription = speech.addListener(
       'onAvailabilityChanged',
-      (availability) => {
+      (availability: PodiumSpeechAvailabilityEvent) => {
         if (!matchesActiveGeneration(availability.generation)) return
         setState((current) => stateFromAvailability(current, availability))
       },
@@ -185,7 +186,7 @@ export function useVoiceInput(): VoiceInput {
     )
 
     void speech.getAvailability().then(
-      (availability) => {
+      (availability: PodiumSpeechAvailability) => {
         if (!mounted) return
         setState((current) =>
           activeRef.current
@@ -239,11 +240,11 @@ export function useVoiceInput(): VoiceInput {
     }))
 
     void PodiumSpeech.start(undefined, generation).then(
-      (availability) => {
+      (availability: PodiumSpeechAvailability) => {
         if (actionRevision.current !== revision || activeRef.current !== session) return
         setState((current) => stateFromAvailability(current, availability))
       },
-      (error) => {
+      (error: unknown) => {
         if (actionRevision.current !== revision || activeRef.current !== session) return
         activeRef.current = null
         const failure = voiceError(error, {
@@ -284,7 +285,7 @@ export function useVoiceInput(): VoiceInput {
       () => {
         if (teardownRef.current === teardown) teardownRef.current = null
       },
-      (error) => {
+      (error: unknown) => {
         if (teardownRef.current === teardown) teardownRef.current = null
         if (actionRevision.current !== revision) return
         const failure = voiceError(error, {
