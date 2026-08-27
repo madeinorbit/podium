@@ -376,6 +376,9 @@ async function runA9(): Promise<ProbeOutcome> {
   const serverPid = Number(readFileSync(`${base}/server.pid`, 'utf8').trim())
   const daemonPid = Number(readFileSync(`${base}/daemon.pid`, 'utf8').trim())
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> d7b61ccfe (pod-2919 read daemon identity from state marker)
   const daemonEnvUuid = environ(daemonPid).PODIUM_INSTANCE_UUID ?? ''
   const stateRoot = process.env.P2919_STATE_ROOT ?? process.env.PODIUM_RIG_STATE_ROOT ?? ''
   let daemonInstanceUuid = daemonEnvUuid
@@ -392,6 +395,7 @@ async function runA9(): Promise<ProbeOutcome> {
   const eligible = (row: Proc) =>
     row.env.PODIUM_INSTANCE_UUID === daemonInstanceUuid && Boolean(row.env.PODIUM_SESSION_ID)
   const touchesSession = (row: Proc) =>
+<<<<<<< HEAD
     row.cwd === requestedCwd || Object.values(row.env).some((value) => value.includes(s.sid))
 =======
   const daemonInstanceUuid = environ(daemonPid).PODIUM_INSTANCE_UUID ?? ''
@@ -405,6 +409,9 @@ async function runA9(): Promise<ProbeOutcome> {
   const touchesSession = (row: Proc) =>
     row.cwd === requestedCwd || Object.values(row.env).some((value) => value.includes(s.sid))
 >>>>>>> c8c4ef2d5 (pod-2919 scope A9 to stamped processes)
+=======
+    log(`STAMP daemonUuid=${daemonInstanceUuid || '(missing)'} uuidSource=${uuidSource} attributable=${attributable.length} eligible=${before.length} unstampedInScope=${unstamped.length} foreignExcluded=${foreign.length}`)
+>>>>>>> d7b61ccfe (pod-2919 read daemon identity from state marker)
   try {
     const marker = nonce('A9')
     const control = await answer(s.chat, s.sid, `Reply with exactly this word and nothing else: ${marker}. Do not use tools.`, 90_000)
@@ -433,8 +440,13 @@ async function runA9(): Promise<ProbeOutcome> {
     log(`STAMP daemonUuid=${daemonInstanceUuid || '(missing)'} attributable=${attributable.length} eligible=${before.length} unstampedInScope=${unstamped.length} foreignExcluded=${foreign.length}`)
     for (const row of before) log(`PRE pid=${row.pid} ppid=${row.ppid} cwd=${row.cwd} location=${row.location} session=${row.env.PODIUM_SESSION_ID} cmd=${row.cmd}`)
     for (const row of foreign) log(`FOREIGN_EXCLUDED pid=${row.pid} ppid=${row.ppid} cwd=${row.cwd} location=${row.location} instanceUuid=${row.env.PODIUM_INSTANCE_UUID || '(missing)'} session=${row.env.PODIUM_SESSION_ID || '(missing)'} cmd=${row.cmd}`)
+<<<<<<< HEAD
 >>>>>>> c8c4ef2d5 (pod-2919 scope A9 to stamped processes)
     if (!daemonInstanceUuid || unstamped.length > 0 || before.length === 0) {
+=======
+          `daemonInstanceUuid=${daemonInstanceUuid || '(missing)'}`,
+          `uuidSource=${uuidSource}`,
+>>>>>>> d7b61ccfe (pod-2919 read daemon identity from state marker)
       const reason = !daemonInstanceUuid
         ? 'daemon had no instance stamp to establish eligibility'
         : unstamped.length > 0
@@ -512,6 +524,7 @@ async function runA9(): Promise<ProbeOutcome> {
     return {
       verdict: pass ? 'PASS' : 'FAIL',
       summary: pass ? 'kill removed all current-daemon stamped session processes and left infrastructure intact' : 'kill left a current-daemon stamped session orphan, rebound process, or damaged infrastructure',
+<<<<<<< HEAD
 =======
       const current = processRows(s.sid).filter(exactSession).filter((row) => before.some((old) => old.pid === row.pid))
 =======
@@ -537,6 +550,10 @@ async function runA9(): Promise<ProbeOutcome> {
       summary: pass ? 'kill removed all current-daemon stamped session processes and left infrastructure intact' : 'kill left a current-daemon stamped session orphan, rebound process, or damaged infrastructure',
 >>>>>>> c8c4ef2d5 (pod-2919 scope A9 to stamped processes)
       evidence: [
+=======
+        `daemonInstanceUuid=${daemonInstanceUuid}`,
+        `uuidSource=${uuidSource}`,
+>>>>>>> d7b61ccfe (pod-2919 read daemon identity from state marker)
         `marker=${marker}`,
         `replyControl=${control.got.ok}`,
         `daemonInstanceUuid=${daemonInstanceUuid}`,
