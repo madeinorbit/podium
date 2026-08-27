@@ -2,21 +2,9 @@
 # Restart only the daemon. The server and client socket remain up for A7a.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-<<<<<<< HEAD
-<<<<<<< HEAD
 REPO="$(cd "$HERE/../../.." && pwd)"
 source "$HERE/drive-env.sh"
 : "${P2919_CODE_PIN:?P2919_CODE_PIN must name the immutable rig pin}"
-<<<<<<< HEAD
-=======
-REPO="$(cd "$HERE/../.." && pwd)"
-=======
-REPO="$(cd "$HERE/../../.." && pwd)"
->>>>>>> 1f531c6cc (docs(evidence): fix opencode rig root path)
-source "$HERE/drive-env.sh"
->>>>>>> fd5cc091a (docs(evidence): add opencode ten-cell drive)
-=======
->>>>>>> 4d57aa8b6 (docs(evidence): preserve opencode restart pin)
 
 pidfile="$PODIUM_DRIVE_BASE/daemon.pid"
 old="$(cat "$pidfile")"
@@ -32,15 +20,7 @@ nohup bun --conditions=@podium/source "$REPO/scripts/daemon.ts" \
   >"$PODIUM_DRIVE_BASE/logs/daemon.log" 2>&1 &
 new="$!"
 echo "$new" >"$pidfile"
-<<<<<<< HEAD
-<<<<<<< HEAD
 printf "%s\n" "$P2919_CODE_PIN" >"$PODIUM_DRIVE_BASE/daemon.sha"
-=======
-git -C "$REPO" rev-parse HEAD >"$PODIUM_DRIVE_BASE/daemon.sha"
->>>>>>> fd5cc091a (docs(evidence): add opencode ten-cell drive)
-=======
-printf "%s\n" "$P2919_CODE_PIN" >"$PODIUM_DRIVE_BASE/daemon.sha"
->>>>>>> 4d57aa8b6 (docs(evidence): preserve opencode restart pin)
 
 reconnected=0
 for _ in $(seq 1 120); do
