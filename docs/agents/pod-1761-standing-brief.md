@@ -1384,3 +1384,29 @@ day. **A reader has to be able to tell whose evidence is whose from the path alo
 never done.** It has cost this epic an issue parked in `review` with nothing left to land, a fixed
 cell that read FAIL for hours because its row carried no cell id, and a whole column reported as
 never driven. **Recording is not paperwork after the work; it is the last step of the work.**
+
+### A cached green is evidence, but say that it was cached (2026-08-27 04:27 CEST)
+
+I ran `bun run typecheck --filter @podium/web` on the epic tip to give a session the baseline it
+had correctly refused to assume. Result: **16 of 16 successful — and `>>> FULL TURBO` in 836ms.**
+
+**Every task was a cache hit. Nothing compiled.**
+
+That is not worthless: turbo hashes its inputs, so a hit means *these exact inputs previously
+compiled clean*. **But it is not the same as a fresh run**, and the difference matters when a
+landing decision rests on it — a cache can be shared, stale in ways the hash does not model, or
+populated from a tree you did not verify.
+
+**So report the cache state alongside the result, every time.** *"16/16 green, FULL TURBO, all
+cached"* is a complete statement. *"typecheck green"* is not, and invites the reader to assume a
+compile happened.
+
+**When the decision is a landing and the green is cached, get an uncached one.** `scripts/typecheck.ts`
+refuses `--force`/`TURBO_FORCE` without a stated reason, which is correct — the reason here is
+*"a cached green cannot distinguish green-now from green-when-cached, and a landing rests on it"*,
+and that is sufficient. Do not use it to get past a refusal you have not read.
+
+**The general shape, which this epic keeps meeting:** an instrument that answers instantly should
+be asked what it actually did. A gate that prints is not a gate that ran; a completion
+notification reports that a process ended, not that work happened; and a green in 836ms across
+sixteen packages did not typecheck sixteen packages.
