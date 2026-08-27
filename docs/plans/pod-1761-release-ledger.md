@@ -4345,3 +4345,29 @@ too, that widens a defect already owned.
 
 **Five sessions now, on 18GB.** That is at the ceiling I measured earlier — a worktree with
 `node_modules` costs 2–3GB — so this is the last one until something closes.
+
+### SCHEDULED: grok unblocks at 11:03 CEST and nobody is staffed for it (2026-08-27 02:34 CEST)
+
+**Grok's quota returns 2026-08-27 11:03 CEST and 16 cells unblock in one moment** — the largest
+single coverage jump available anywhere in the matrix. Today it is 2 of 16 and the other 14 read
+`BLOCKED (H/T)` for a reason that expires.
+
+**Writing it down because I will not remember it.** This session has been running since yesterday
+morning and its context is summarised repeatedly; a fact that lives only in my head is a fact that
+is gone. The hourly cron will fire at 11:13, so the tick after the quota returns is the one that
+must act.
+
+**What that session needs, so nobody re-derives it:**
+- Grok is the only driver in the epic with **protocol-level turn receipts** — `session/prompt`
+  returns a closed `stopReason` set, so it never needs the heuristics the others use. It is
+  predicted to score BETTER than the drivers already measured, not worse.
+- The blocker was a **402 before any token**, not a defect. POD-2773's opencode arm is driven and
+  its grok arm is not; **do not infer grok from opencode** — that was the audit's finding against
+  it and it still stands.
+- POD-2877 drove every grok row once at 14:42–14:50 on the 26th, but the normal-home credential
+  was absent, so the headless cells bound `generic-pty` instead of `grok-acp`. **Those readings
+  measure the wrong driver and must not be reused.**
+
+**I am at the five-session ceiling now** (18GB, and a worktree with `node_modules` costs 2–3GB),
+so this cannot be staffed in advance — it has to wait for something to close. That is a scheduling
+constraint, not a decision to defer.
