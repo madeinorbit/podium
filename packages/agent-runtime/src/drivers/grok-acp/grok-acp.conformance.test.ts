@@ -72,6 +72,10 @@ function makeWorld(options: WorldOptions = {}): {
     sessionId: SessionId,
     stopReason?: 'end_turn' | 'cancelled' | 'refusal',
   ): void
+  completeToolCall(
+    sessionId: SessionId,
+    input: Parameters<FakeGrokAcpServer['completeToolCall']>[0],
+  ): void
   failNextPrompt(sessionId: SessionId, detail?: string): void
   rawFrames: unknown[]
 } {
@@ -261,6 +265,7 @@ function makeWorld(options: WorldOptions = {}): {
     failProviderAttempt: (sessionId, detail) => serverFor(sessionId).failProviderAttempt(detail),
     completeProviderTurn: (sessionId, stopReason) =>
       serverFor(sessionId).completeTurn(stopReason),
+    completeToolCall: (sessionId, input) => serverFor(sessionId).completeToolCall(input),
     failNextPrompt: (sessionId, detail) => serverFor(sessionId).failNextPrompt(detail),
     rawFrames,
     target: {
@@ -298,6 +303,56 @@ function makeWorld(options: WorldOptions = {}): {
     },
   }
 }
+
+describe('grok-acp tool result transcript', () => {
+  it('pairs a completed tool result live and after Grok replays the session', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const spec = world.target.spec()
+      const handle = await driver.create(spec)
+      await handle.send(
+        { text: 'write the nonce with a real tool' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      world.completeToolCall(handle.binding.sessionId, {
+        toolCallId: 'call-tool-result-1',
+        title: 'run_terminal_command',
+        rawInput: { command: 'printf TRANSCRIPT-NONCE' },
+        output: 'exit: 0\nTRANSCRIPT-NONCE',
+      })
+      world.completeProviderTurn(handle.binding.sessionId)
+      await Promise.resolve()
+
+      const expectedPair = [
+        expect.objectContaining({
+          role: 'tool',
+          toolUseId: 'call-tool-result-1',
+          toolName: 'tool',
+        }),
+        expect.objectContaining({
+          role: 'tool',
+          toolUseId: 'call-tool-result-1',
+          toolResult: 'exit: 0\nTRANSCRIPT-NONCE',
+        }),
+      ]
+      expect(await handle.transcript.history({ limit: 20 })).toEqual(
+        expect.arrayContaining(expectedPair),
+      )
+
+      const ref = handle.binding.resume
+      expect(ref).not.toBeNull()
+      if (!ref) return
+      await handle.kill()
+      const resumed = await driver.resume(ref, spec)
+      expect(await resumed.transcript.history({ limit: 20 })).toEqual(
+        expect.arrayContaining(expectedPair),
+      )
+    } finally {
+      world.target.reset()
+    }
+  })
+})
 
 describe('grok-acp interrupt transcript marker', () => {
   it('materializes one durable user event only after Grok confirms cancellation', async () => {

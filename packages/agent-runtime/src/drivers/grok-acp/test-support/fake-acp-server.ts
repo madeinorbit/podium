@@ -47,6 +47,12 @@ export interface FakeGrokAcpServer {
    *  itself is not pushed — this family flushes its buffer at the fence, which
    *  is the behaviour the corpus is there to hold. */
   streamAgentText(chunks: readonly string[]): void
+  completeToolCall(input: {
+    toolCallId: string
+    title: string
+    rawInput: Record<string, unknown>
+    output: string
+  }): void
   completeTurn(stopReason?: 'end_turn' | 'cancelled' | 'refusal'): void
   failProviderTurn(detail: string): void
   failProviderAttempt(detail: string): void
@@ -273,6 +279,21 @@ export function startFakeGrokAcpServer(
           content: { type: 'text', text: chunk },
         })
       }
+    },
+    completeToolCall(input) {
+      notifyUpdate({
+        sessionUpdate: 'tool_call',
+        toolCallId: input.toolCallId,
+        title: input.title,
+        rawInput: input.rawInput,
+      })
+      notifyUpdate({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: input.toolCallId,
+        status: 'completed',
+        content: [{ type: 'content', content: { type: 'text', text: input.output } }],
+        rawOutput: { output_for_prompt: input.output },
+      })
     },
     completeTurn(stopReason = 'end_turn') {
       const replayed = pendingPrompt === undefined

@@ -510,6 +510,37 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         )
         return
       }
+      case 'tool_call_update': {
+        const status =
+          typeof update.status === 'string' ? update.status.trim().toLowerCase() : ''
+        if (status !== 'completed' && status !== 'failed') return
+        const toolUseId =
+          (typeof update.toolCallId === 'string' && update.toolCallId) ||
+          (typeof update.tool_call_id === 'string' && update.tool_call_id)
+        if (!toolUseId) return
+        const rawOutput = record(update.rawOutput ?? update.raw_output)
+        const promptOutput = rawOutput?.output_for_prompt
+        const resultText =
+          typeof promptOutput === 'string' ? promptOutput : updateText(update)
+        addItem(
+          session,
+          {
+            id: `${toolUseId}:result`,
+            role: 'tool',
+            text: '',
+            ts: at,
+            // An empty terminal result still resolves the call. Omitting this
+            // field would leave a successful no-output tool looking pending.
+            toolResult:
+              resultText.length > 2000 ? `${resultText.slice(0, 2000)}...` : resultText,
+            toolUseId,
+          },
+          at,
+          provenance,
+          native,
+        )
+        return
+      }
       case 'response_completed':
       case 'turn_completed':
         flushUser(session, provenance, native)
