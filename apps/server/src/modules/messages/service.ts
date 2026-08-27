@@ -1827,13 +1827,14 @@ export class MessageDeliveryService {
    */
   private queuePositionForMessage(message: MessageRow): number | undefined {
     if (message.status !== 'queued') return undefined
-    if (message.injectedAt != null) return undefined
     const sessionId =
       message.deliveredTo ??
       (message.toKind === 'session' && message.toId ? asSessionId(message.toId) : undefined)
     if (!sessionId) return undefined
     const physical = this.deps.sessions.queuedMessagePosition?.(sessionId, message.id)
-    return physical ?? this.deps.messages.queuedPositionForSession(sessionId, message.id)
+    if (physical !== undefined) return physical
+    if (message.injectedAt != null) return undefined
+    return this.deps.messages.queuedPositionForSession(sessionId, message.id)
   }
 
   /** Bounded wait for a message's ack [spec:SP-34d7 read-toolkit tier 4]. */

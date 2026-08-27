@@ -160,7 +160,7 @@ function issueRow(over: Partial<IssueRow>): IssueRow {
 
 interface HarnessOpts {
   /** Override the fake queueText outcome per call (e.g. 'no resume ref'). */
-  queueText?: (i: { sessionId: SessionId; text: string }) => {
+  queueText?: (i: { sessionId: SessionId; text: string; sourceMessageId: string }) => {
     ok: boolean
     queued?: boolean
     reason?: string
@@ -185,6 +185,8 @@ interface HarnessOpts {
   prefix?: string
   /** Source ids still physically waiting in SessionInbox's durable PTY queue. */
   queuedSourceIds?: Set<string>
+  /** Current physical FIFO ordinal for an injected message-ledger row. */
+  queuedMessagePosition?: (sessionId: SessionId, sourceMessageId: string) => number | undefined
   /** Whether a draft is typed into the agent's prompt line here [POD-1204].
    *  Unset = unwired, which the guard reads as "assume it is". */
   draftInjectionActive?: () => boolean
@@ -245,6 +247,9 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
         queued.push(i)
         return opts?.queueText?.(i) ?? { ok: true, queued: true }
       },
+      ...(opts?.queuedMessagePosition
+        ? { queuedMessagePosition: opts.queuedMessagePosition }
+        : {}),
       hasQueuedMessage: (_sessionId, sourceMessageId) =>
         opts?.queuedSourceIds?.has(sourceMessageId) ?? false,
       interruptText: (i) => {
@@ -434,9 +439,13 @@ describe('MessageDeliveryService.send', () => {
   })
 
   it('returns and reloads a current queue position for a busy session', () => {
-    const { svc, store } = harness([
-      session({ sessionId: asSessionId('s1'), agentState: WORKING }),
-    ])
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const { svc, store } = harness(
+      [session({ sessionId: asSessionId('s1'), agentState: WORKING })],
+      {
+        now: () => new Date(clock++).toISOString(),
+      },
+    )
     const first = svc.send({ kind: 'operator' }, {
       to: { kind: 'session', id: asSessionId('s1') },
       body: 'first queued turn',
@@ -454,6 +463,44 @@ describe('MessageDeliveryService.send', () => {
     expect(
       svc.ledger({ sessionId: asSessionId('s1') }).find((row) => row.id === second.message.id),
     ).toMatchObject({ queuePosition: 1 })
+  })
+
+  it('reloads the physical FIFO position after queue delivery stamps injectedAt', () => {
+    const physicalQueue: string[] = []
+    const { svc, store } = harness(
+      [
+        session({
+          sessionId: asSessionId('s1'),
+          status: 'starting',
+          agentState: WORKING,
+        }),
+      ],
+      {
+        queueText: (input) => {
+          physicalQueue.push(input.sourceMessageId)
+          return { ok: true, queued: true }
+        },
+        queuedMessagePosition: (_sessionId, sourceMessageId) => {
+          const index = physicalQueue.indexOf(sourceMessageId)
+          return index < 0 ? undefined : index + 1
+        },
+      },
+    )
+
+    const sent = svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'queued during startup',
+        urgency: 'next-turn',
+      },
+    )
+    expect(sent).toMatchObject({ queued: true, position: 1, disposition: 'queued' })
+    expect(store.messages.getMessage(sent.message.id)?.injectedAt).not.toBeNull()
+    expect(svc.message(sent.message.id)).toMatchObject({ queuePosition: 1 })
+    expect(svc.ledger({ sessionId: asSessionId('s1') })).toContainEqual(
+      expect.objectContaining({ id: sent.message.id, queuePosition: 1 }),
+    )
   })
 
   it('senderFromCapability: subtree → agent principal, all → operator', () => {
