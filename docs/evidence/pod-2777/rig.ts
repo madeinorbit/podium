@@ -120,6 +120,11 @@ export const nonce = (tag: string) =>
 
 let cookie = ''
 export async function login(): Promise<void> {
+  const hostSession = process.env.PODIUM_SESSION_TOKEN?.trim()
+  if (hostSession) {
+    cookie = `podium_session=${hostSession}`
+    return
+  }
   const res = await fetch(`${BASE}/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
