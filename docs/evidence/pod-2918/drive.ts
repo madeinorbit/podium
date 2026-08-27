@@ -419,8 +419,28 @@ async function runA1c() {
     const text = JSON.stringify(payload)
     const typed = Boolean(sent.error) || /refus|not found|dead|retir|exited|unknown session|cannot/i.test(text)
     const delivered = /disposition[^}]*delivered|queued[^}]*true|"ok"\s*:\s*true/i.test(text) && !typed
-    const pass = killed && gone && typed && !delivered
-    return result(!control.fired ? 'BLOCKED' : !killed || !gone ? 'BLOCKED' : pass ? 'PASS' : 'FAIL', !control.fired ? 'exact-child control did not fire' : !killed || !gone ? 'the exact Claude child was not confirmed dead, so the dead-session condition was not exercised' : pass ? 'exact Claude child was killed after a live baseline; dead-session send returned a typed refusal' : 'dead-session send was accepted without a typed refusal', control, ['BASELINE          ' + short(base), 'BEFORE MAP        ' + short(before, 1800), 'CHILD PID         ' + agent!.pid, 'CHILD CMD         ' + agent!.cmd, 'KILL              SIGKILL sent=' + killed + (killError ? ' error=' + killError : ''), 'CHILD GONE        ' + gone, 'DEAD SEND         ' + short(payload), 'TYPED REFUSAL     ' + typed, 'SILENT ACCEPT     ' + delivered], { sid, dead, payload, typed, delivered, childPid: agent!.pid, childCmd: agent!.cmd, killed, gone, killError })
+    const afterSend = await status(sid)
+    // A queued user item alone is not proof of survival: sendText can record it
+    // before a dead PTY ever comes back. Require the assistant needle after the
+    // queue-triggered resurrection so this follow-up cannot pass on the already
+    // observed durable user row.
+    const revivedReply = delivered
+      ? await waitForNeedle(sid, chat, dead, 'assistant', REPLY_MS)
+      : { ok: false, ms: 0, items: [] as Item[] }
+    const afterReply = await status(sid)
+    const pass = killed && gone && (typed ? !delivered : delivered && revivedReply.ok)
+    const summary = !control.fired
+      ? 'exact-child control did not fire'
+      : !killed || !gone
+        ? 'the exact Claude child was not confirmed dead, so the dead-session condition was not exercised'
+        : pass && typed
+          ? 'exact Claude child was killed after a live baseline; dead-session send returned a typed refusal'
+          : pass
+            ? 'dead-session send was queued and its assistant needle arrived after queue-triggered resurrection; the refusal clause is obsolete'
+            : delivered
+              ? 'dead-session send was accepted as queued, but its assistant needle did not arrive after queue-triggered resurrection'
+              : 'dead-session send was accepted without a typed refusal'
+    return result(!control.fired ? 'BLOCKED' : !killed || !gone ? 'BLOCKED' : pass ? 'PASS' : 'FAIL', summary, control, ['BASELINE          ' + short(base), 'BEFORE MAP        ' + short(before, 1800), 'CHILD PID         ' + agent!.pid, 'CHILD CMD         ' + agent!.cmd, 'KILL              SIGKILL sent=' + killed + (killError ? ' error=' + killError : ''), 'CHILD GONE        ' + gone, 'DEAD SEND         ' + short(payload), 'AFTER SEND STATUS ' + short(afterSend), 'TYPED REFUSAL     ' + typed, 'SILENT ACCEPT     ' + delivered, 'RESURRECTED REPLY ' + revivedReply.ok + ' in ' + revivedReply.ms + 'ms', 'AFTER REPLY STATUS ' + short(afterReply)], { sid, dead, payload, typed, delivered, revivedReply: revivedReply.ok, revivedReplyMs: revivedReply.ms, afterSend, afterReply, childPid: agent!.pid, childCmd: agent!.cmd, killed, gone, killError })
   } finally { await cleanup(sid, chat) }
 }
 
