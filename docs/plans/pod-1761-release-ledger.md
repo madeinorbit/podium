@@ -4626,3 +4626,38 @@ into `docs/evidence/pod-2874/` rather than its own. Defensible for co-location w
 it supersedes, and not worth redoing — but `pod-2874/` is precisely the directory I had to mine
 tonight to discover that 21 driven cells existed at all, and mixed ownership makes that worse. **I
 held it until I had something substantive to send with it**, per the no-round-for-a-nitpick rule.
+
+### SHELL COLUMN COMPLETE — 6 of 6 PASS, 0 reds (2026-08-27 03:41 CEST)
+
+Landed as `4313f0811`. All three pins matched `40c198eae` — server, daemon **and** the served web
+bundle. Root was 17–18GB at every cell start. No path overrides. It left POD-2918's services
+untouched while working beside them.
+
+    A1a  PASS  3/3 unique markers echoed while idle
+    A1c  PASS  baseline marker echoed, dead send returned a typed dead_letter
+    A2b  PASS  unique marker echoed, boot phase idle
+    A6a  PASS  marker echoed, resize 80x24 -> 100x30, second viewer replayed
+    A7a  PASS  marker survived daemon PID 490995 -> 558640
+    A9   PASS  before=1, immediate=0, after 300000ms=0, independent /proc target_count=0
+
+**A9 IS THE VALUABLE ONE AND IT BOUNDS POD-2691.** It measured the full five-minute settle and then
+checked `/proc` independently rather than trusting one reading. **Shell sessions do not leak. So
+the orphan defect is specific to AGENT sessions, not a universal teardown failure** — the session
+machinery stops a session completely when there is no agent in it. Told POD-2691, because it
+changes where its reaper should look (the agent child and its descendants, not the session
+teardown) and gives it **a positive control**: when its fix works, an agent session should look
+like this shell session does. That is a better criterion than "the count reached zero", which is an
+absence.
+
+**Caveat sent with it:** POD-2917's session ran from a worktree, so this says nothing about the
+three orphans in `/tmp` state roots. Both places still need checking.
+
+**This is the first column to go fully green at a current pin**, and it is the one nobody was
+going to drive. It cost one session and one bundle.
+
+**Coverage after landing: 28 of 69 current (41%), up from 22 (32%).** claude's 13 are the next
+block to move and POD-2918 is inside its window.
+
+**POD-2917 IS DONE, WHICH FREES THE SLOT I SAID WOULD GO TO OPENCODE** — 10 cells, no owner and no
+blocker, ahead of grok in priority because grok's 14 arrive on a clock at 11:03 regardless while
+opencode's will not arrive at all.
