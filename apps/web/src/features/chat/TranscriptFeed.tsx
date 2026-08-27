@@ -157,7 +157,9 @@ export function queueIsBlocked(session: SessionMeta | undefined): boolean {
   return session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
 }
 export function queuePositionSuffix(position: number | undefined): string {
-  return Number.isInteger(position) && position > 0 ? ` · queue position ${position}` : ''
+  return typeof position === 'number' && Number.isInteger(position) && position > 0
+    ? ` · queue position ${position}`
+    : ''
 }
 
 export function queuedDeliveryLabel(

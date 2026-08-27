@@ -93,7 +93,9 @@ export function deliveryLine(m: LedgerMessage): string {
   }
   if (m.status === 'queued') {
     const position =
-      Number.isInteger(m.queuePosition) && m.queuePosition > 0
+      typeof m.queuePosition === 'number' &&
+      Number.isInteger(m.queuePosition) &&
+      m.queuePosition > 0
         ? ` · queue position ${m.queuePosition}`
         : ''
     return `${m.expiresAt ? `queued · expires ${m.expiresAt}` : 'queued'}${position}`
