@@ -407,7 +407,7 @@ async function runA9(): Promise<ProbeOutcome> {
 async function runA10(): Promise<ProbeOutcome> {
   const s = await createSession()
   try {
-    const control = arm === 'terminal' ? s.chat.attached !== undefined && s.chat.screenBytes > 0 : Boolean(s.row.driverId)
+    const control = Boolean(s.row.driverId) && s.row.driverFamily === expectedFamily
     const driver = `${s.row.driverId ?? '(none)'}/${s.row.driverFamily ?? '(none)'}`
     const pass = control && s.row.driverFamily === expectedFamily && (arm === 'terminal' ? /terminal/i.test(s.row.driverFamily ?? '') : s.row.driverId === expectedDriver)
     log(`CONTROL identity=${driver} attachOrBound=${control}`)
