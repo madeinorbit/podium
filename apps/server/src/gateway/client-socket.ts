@@ -26,6 +26,9 @@ import type { UserId, UserRole } from '@podium/model'
 import { parseClientMessage } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionRegistry } from '../relay'
+import { feedPrincipalOf } from './client-principal'
+import { perfPrincipal } from '../modules/perf/principal'
+import { perf } from '../modules/perf/registry'
 import { CLIENT_PLANE_LIVENESS } from './plane-liveness'
 import { type GatewaySocket, warnDroppedFrame } from './ws-send'
 
@@ -68,11 +71,28 @@ export function wireClientSocket(
   const id = registry.clientGateway.attachClient({
     send: sink.send,
     sendStream: sink.sendLossy,
+    sendBinary: sink.sendBinary,
+    sendBinaryStream: sink.sendBinaryLossy,
     userId: auth.userId,
     userRole: auth.userRole,
   })
   ws.on('message', (raw) => {
     try {
+      if (typeof raw !== 'string') {
+        const principal = registry.clientGateway.principalOf(id)
+        if (principal) {
+          perf.record(
+            'phase',
+            'terminal.output.protocol.unnegotiatedBinary',
+            0,
+            perfPrincipal(feedPrincipalOf(principal)),
+            raw.byteLength,
+          )
+        }
+        warnDroppedFrame('client', new Error('unnegotiated binary client frame'))
+        ws.terminate()
+        return
+      }
       // The frame is parsed here and CLASSIFIED in the mux. The connection id
       // passed is this socket's own — a `clientId` in the payload (`hello` has
       // one, for the reconnect reclaim) can never become the routing identity.
@@ -82,7 +102,7 @@ export function wireClientSocket(
       // cost, not a frequency problem, so the useful next number is which frame
       // costs it. Parse is timed apart from routing because the two fail
       // differently: a slow parse is frame SIZE, a slow route is the handler.
-      const parsed = measureTask('ws.client.parse', () => parseClientMessage(raw.toString()))
+      const parsed = measureTask('ws.client.parse', () => parseClientMessage(raw))
       measureTask(`ws.client.${parsed.type}`, () =>
         registry.clientGateway.routeClientFrame(id, parsed),
       )

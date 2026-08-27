@@ -25,7 +25,9 @@ import {
   CAP_ISSUES_NORMALIZED,
   CAP_METADATA_DELTA,
   CAP_SYNC_FEED_IDENTITY,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
   createDispatcher,
+  decodeBinaryEnvelope,
   encode,
   type HeadlessActivityEvent,
   isKnownMetadataChange,
@@ -33,6 +35,7 @@ import {
   type MetadataChangeLenient,
   type PresenceIdentity,
   type PresencePayload,
+  PtyOutputBinaryMetadata,
   type PresenceRoomClientMessage,
   type PresenceRoomServerMessage as PresenceRoomServerFrame,
   parseServerMessageLenient,
@@ -86,6 +89,8 @@ const interactionNow = (): number =>
     : Date.now()
 
 export interface WebSocketLike {
+  /** Browser sockets expose this; native bridges may omit it and stay on base64. */
+  binaryType?: 'blob' | 'arraybuffer'
   send(data: string): void
   close(): void
   readonly bufferedAmount?: number
@@ -722,6 +727,11 @@ export class SocketHub {
       return
     }
 
+    // Browser WebSockets expose binaryType. Native bridges that omit it retain
+    // the JSON/base64 fallback and do not advertise binary output.
+    const acceptsBinaryOutput = 'binaryType' in socket
+    if (acceptsBinaryOutput) socket.binaryType = 'arraybuffer'
+
     let opened = false
     let reportedError = false
     this.intentionalClose = false
@@ -755,12 +765,17 @@ export class SocketHub {
         // promises the server this client no longer needs IssueWire, which is
         // what licenses the server to skip the O(issues x sessions) rebuild on
         // session churn [POD-796].
-        ...(this.legacyFeed
+        ...(this.legacyFeed || acceptsBinaryOutput
           ? {
               caps: [
-                CAP_METADATA_DELTA,
-                CAP_SYNC_FEED_IDENTITY,
-                ...(this.opts.issuesNormalized ? [CAP_ISSUES_NORMALIZED] : []),
+                ...(this.legacyFeed
+                  ? [
+                      CAP_METADATA_DELTA,
+                      CAP_SYNC_FEED_IDENTITY,
+                      ...(this.opts.issuesNormalized ? [CAP_ISSUES_NORMALIZED] : []),
+                    ]
+                  : []),
+                ...(acceptsBinaryOutput ? [CAP_TERMINAL_OUTPUT_BINARY_V1] : []),
               ],
             }
           : {}),
@@ -832,7 +847,21 @@ export class SocketHub {
     }
     socket.onmessage = (ev) => {
       this.markAlive()
-      const raw = String(ev.data)
+      if (typeof ev.data !== 'string') {
+        try {
+          if (!acceptsBinaryOutput || !(ev.data instanceof ArrayBuffer)) {
+            throw new Error('unnegotiated or non-ArrayBuffer binary server frame')
+          }
+          const { metadata, payload } = decodeBinaryEnvelope(ev.data, PtyOutputBinaryMetadata)
+          this.forwardBinaryOutput(metadata, payload)
+        } catch (err) {
+          log.warn('closing a socket after a binary protocol violation', { err })
+          this.recordSkew({ refusedFrames: 1, error: err })
+          socket.close()
+        }
+        return
+      }
+      const raw = ev.data
       const kind = feedFrameTypeHint(raw)
       if (kind !== null) {
         this.enqueueFeedFrame(raw, socket, kind)
@@ -2008,6 +2037,11 @@ export class SocketHub {
     this.connections.get(msg.sessionId)?._ingest(msg)
   }
 
+  private forwardBinaryOutput(metadata: PtyOutputBinaryMetadata, payload: Uint8Array): void {
+    // A missing/detached session is session-level state, not a framing error.
+    this.connections.get(metadata.sessionId)?._ingestBinaryOutput(metadata, payload)
+  }
+
   private metadataProjection(): LegacyMetadataProjection {
     return {
       sessions: this.sessionList,
@@ -2323,6 +2357,11 @@ export class SessionConnection {
     this.dispatchSessionMessage(msg, undefined)
   }
 
+  /** @internal Hub-internal: apply validated binary PTY output metadata + bytes. */
+  _ingestBinaryOutput(metadata: PtyOutputBinaryMetadata, payload: Uint8Array): void {
+    this.ingestOutput(metadata.seq, metadata.epoch, payload)
+  }
+
   /** Total dispatch over the session-scoped subunion [spec:SP-3fe2] — the same
    *  compile-checked exhaustiveness as the hub's table, replacing the switch. */
   private readonly dispatchSessionMessage = createDispatcher<SessionScopedServerMessage>({
@@ -2343,16 +2382,7 @@ export class SessionConnection {
       this.cb.onAttached?.()
     },
     outputFrame: (msg) => {
-      this.lastSeq = msg.seq
-      this.epoch = msg.epoch
-      if (this.echo.enabled()) this.echo.onOutput(interactionNow())
-      const bytes = fromBase64Bytes(msg.data)
-      // Latch before emit so the state this frame publishes already says the
-      // PTY has spoken — a subscriber that clears a waiting affordance on the
-      // state must not see one more "silent" snapshot after real output.
-      if (bytes.length > 0) this.frameSeen = true
-      this.emit()
-      this.cb.onFrame?.(bytes)
+      this.ingestOutput(msg.seq, msg.epoch, fromBase64Bytes(msg.data))
     },
     controllerChanged: (msg) => {
       this.controllerId = msg.controllerId
@@ -2373,6 +2403,16 @@ export class SessionConnection {
       this.emit()
     },
   })
+
+  private ingestOutput(seq: number, epoch: number, bytes: Uint8Array): void {
+    this.lastSeq = seq
+    this.epoch = epoch
+    if (this.echo.enabled()) this.echo.onOutput(interactionNow())
+    // Latch before emit so the state accompanying the first real bytes is current.
+    if (bytes.length > 0) this.frameSeen = true
+    this.emit()
+    this.cb.onFrame?.(bytes)
+  }
 
   /** @internal Transport outcome for this session. */
   _outcome(outcome: TerminalOutcome): void {

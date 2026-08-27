@@ -1,6 +1,11 @@
 import { addSink } from '@podium/logger'
 import { asMachineId, asSessionId } from '@podium/model'
-import { encode, type ServerMessage } from '@podium/protocol'
+import {
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  encode,
+  encodeBinaryEnvelope,
+  type ServerMessage,
+} from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FEED_DELTA_RESYNC_QUEUE_DEPTH, SocketHub, type WebSocketLike } from './socket-hub'
 
@@ -30,6 +35,28 @@ class FakeSocket implements WebSocketLike {
   }
 }
 
+class BrowserSocket extends FakeSocket {
+  binaryType: 'blob' | 'arraybuffer' = 'blob'
+  closeCalls = 0
+  override close(): void {
+    this.closeCalls += 1
+  }
+  recvBinary(bytes: Uint8Array): void {
+    const data = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer
+    this.onmessage?.({ data })
+  }
+}
+
+class NonBinarySocket extends FakeSocket {
+  closeCalls = 0
+  override close(): void {
+    this.closeCalls += 1
+  }
+}
+
 function setup() {
   const sock = new FakeSocket()
   const hub = new SocketHub({
@@ -53,6 +80,77 @@ describe('SocketHub', () => {
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
+  })
+
+  it('selects ArrayBuffer mode, advertises binary output, and routes exact bytes', () => {
+    const sock = new BrowserSocket()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => sock,
+    })
+    const frames: Uint8Array[] = []
+    hub.attach(asSessionId('s1'), { onFrame: (bytes) => frames.push(bytes) })
+    hub.connect()
+    expect(sock.binaryType).toBe('arraybuffer')
+    sock.open()
+    expect(sock.parsed().find((message) => message.type === 'hello')).toMatchObject({
+      caps: [CAP_TERMINAL_OUTPUT_BINARY_V1],
+    })
+
+    const payload = Uint8Array.of(0x00, 0xff, 0xe2, 0x82)
+    sock.recvBinary(
+      encodeBinaryEnvelope(
+        { v: 1, type: 'ptyOutput', sessionId: asSessionId('s1'), seq: 4, epoch: 2 },
+        payload,
+      ),
+    )
+    expect(frames).toEqual([payload])
+    expect(hub.attach(asSessionId('s1')).state()).toMatchObject({ lastSeq: 4, epoch: 2 })
+    expect(sock.closeCalls).toBe(0)
+  })
+
+  it('drops a valid binary frame for a detached session without closing', () => {
+    const sock = new BrowserSocket()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => sock,
+    })
+    hub.connect()
+    sock.open()
+    sock.recvBinary(
+      encodeBinaryEnvelope(
+        { v: 1, type: 'ptyOutput', sessionId: asSessionId('ghost'), seq: 0, epoch: 0 },
+        Uint8Array.of(1),
+      ),
+    )
+    expect(sock.closeCalls).toBe(0)
+  })
+
+  it('closes only the receiving connection for malformed or unnegotiated binary', () => {
+    const malformed = new BrowserSocket()
+    const malformedHub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => malformed,
+    })
+    malformedHub.connect()
+    malformed.open()
+    malformed.recvBinary(Uint8Array.of(0, 1))
+    expect(malformed.closeCalls).toBe(1)
+    expect(malformedHub.wireSkew()?.refusedFrames).toBe(1)
+
+    const unnegotiated = new NonBinarySocket()
+    const legacyHub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => unnegotiated,
+    })
+    legacyHub.connect()
+    unnegotiated.open()
+    unnegotiated.onmessage?.({ data: new ArrayBuffer(4) })
+    expect(unnegotiated.closeCalls).toBe(1)
   })
 
   it('captures the server-assigned clientId from welcome', () => {

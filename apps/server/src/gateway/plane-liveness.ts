@@ -66,7 +66,13 @@
  */
 
 import type { encodeDaemonMessage as encodeFn } from '@podium/protocol/daemon'
-import { type SendSocket, safeSend, safeSendLossy } from './ws-send'
+import {
+  type SendSocket,
+  safeSend,
+  safeSendBinary,
+  safeSendBinaryLossy,
+  safeSendLossy,
+} from './ws-send'
 
 /** Minimal slice of a `ws` socket the heartbeat sweep needs (kept tiny for tests). */
 export interface HeartbeatSocket {
@@ -86,6 +92,10 @@ export interface PlaneSink {
   send(msg: Parameters<typeof encodeFn>[0]): void
   /** Lower-budget stream send: false means dropped; it never terminates. */
   sendLossy(msg: Parameters<typeof encodeFn>[0]): boolean
+  /** Send one already-framed binary message through the control budget. */
+  sendBinary(bytes: Uint8Array): void
+  /** Send one already-framed binary message through the lossy stream budget. */
+  sendBinaryLossy(bytes: Uint8Array): boolean
 }
 
 /**
@@ -165,6 +175,9 @@ export function definePlaneLiveness(spec: {
       return {
         send: (msg) => safeSend(ws, msg, policy.sendBufferLimitBytes),
         sendLossy: (msg) => safeSendLossy(ws, msg, policy.lossySendBufferLimitBytes),
+        sendBinary: (bytes) => safeSendBinary(ws, bytes, policy.sendBufferLimitBytes),
+        sendBinaryLossy: (bytes) =>
+          safeSendBinaryLossy(ws, bytes, policy.lossySendBufferLimitBytes),
       }
     },
     startHeartbeat(sockets, alive, timers = REAL_TIMERS) {

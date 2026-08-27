@@ -80,6 +80,9 @@ export const CAP_SYNC_FEED_IDENTITY = 'syncFeedIdentity'
  *  two unconditionally emitted collections the client consumes.
  */
 export const CAP_ISSUES_NORMALIZED = 'issuesNormalized'
+/** Client capability: this connection accepts v1 binary PTY output envelopes.
+ * Missing capability data is the legacy JSON/base64 output contract. */
+export const CAP_TERMINAL_OUTPUT_BINARY_V1 = 'terminal.output.binary.v1'
 export const HelloMessage = z.object({
   type: z.literal('hello'),
   clientId: z.string(),

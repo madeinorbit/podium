@@ -1,5 +1,5 @@
 import { asUserId, type SessionId, type UserId } from '@podium/model'
-import type { DraftEditMessage } from '@podium/protocol'
+import { CAP_TERMINAL_OUTPUT_BINARY_V1, type DraftEditMessage } from '@podium/protocol'
 import { userCommandPrincipal } from '../../command-principal'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
@@ -109,6 +109,14 @@ export class SessionClientControl {
     switch (message.type) {
       case 'hello':
         if (message.caps) client.caps = new Set(message.caps)
+        perf.record(
+          'phase',
+          client.caps.has(CAP_TERMINAL_OUTPUT_BINARY_V1)
+            ? 'terminal.output.capability.binary'
+            : 'terminal.output.capability.base64',
+          0,
+          perfPrincipal(feedPrincipalOf(client.principal)),
+        )
         // The client's self-description, kept so an operator can address this
         // connection by the same role/machine it files its log records under
         // (POD-1920). Stored, never consulted for authorization.

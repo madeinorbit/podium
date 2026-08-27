@@ -26,6 +26,7 @@ function fakeSendSocket(over: { readyState?: number; bufferedAmount?: number } =
     readyState: over.readyState ?? 1,
     bufferedAmount: over.bufferedAmount ?? 0,
     send: vi.fn<(data: string, compress?: boolean) => void>(),
+    sendBinary: vi.fn<(data: Uint8Array, compress?: boolean) => void>(),
     terminate: vi.fn<() => void>(),
   }
 }
@@ -34,6 +35,12 @@ describe('websocket compression eligibility', () => {
   it('skips tiny frames and compresses large JSON', () => {
     expect(shouldCompressWebSocketFrame('x'.repeat(WS_COMPRESSION_MIN_BYTES - 1))).toBe(false)
     expect(shouldCompressWebSocketFrame('x'.repeat(WS_COMPRESSION_MIN_BYTES))).toBe(true)
+  })
+
+  it('uses binary byte length for the existing compression thresholds', () => {
+    expect(shouldCompressWebSocketFrame(new Uint8Array(WS_COMPRESSION_MIN_BYTES - 1))).toBe(false)
+    expect(shouldCompressWebSocketFrame(new Uint8Array(WS_COMPRESSION_MIN_BYTES))).toBe(true)
+    expect(shouldCompressWebSocketFrame(new Uint8Array(WS_COMPRESSION_MAX_BYTES + 1))).toBe(false)
   })
 
   it('skips base64 envelopes carrying already-compressed assets', () => {
@@ -297,6 +304,20 @@ describe('plane liveness policy', () => {
       sink.send({ type: 'pong' })
       expect(ws.send).toHaveBeenCalledOnce()
       expect(ws.terminate).not.toHaveBeenCalled()
+    })
+
+    it('applies the same control and lossy budgets to binary frames', () => {
+      const atStreamBudget = fakeSendSocket({ bufferedAmount: 10 })
+      const streamSink = tiny.sink(atStreamBudget)
+      expect(streamSink.sendBinaryLossy(Uint8Array.of(1, 2, 3))).toBe(true)
+      expect(atStreamBudget.sendBinary).toHaveBeenCalledWith(Uint8Array.of(1, 2, 3), false)
+
+      const overStreamBudget = fakeSendSocket({ bufferedAmount: 11 })
+      const overSink = tiny.sink(overStreamBudget)
+      expect(overSink.sendBinaryLossy(Uint8Array.of(4))).toBe(false)
+      expect(overStreamBudget.terminate).not.toHaveBeenCalled()
+      overSink.sendBinary(Uint8Array.of(5))
+      expect(overStreamBudget.sendBinary).toHaveBeenCalledOnce()
     })
 
     it('sends stream frames at the lower budget boundary', () => {

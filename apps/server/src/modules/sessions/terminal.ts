@@ -1,5 +1,6 @@
 import type { AgentKind, Attribution, Geometry, SessionId, TranscriptItem } from '@podium/model'
 import type { ObservationInputOrigin, PresenceIdentity, ServerMessage } from '@podium/protocol'
+import { CAP_TERMINAL_OUTPUT_BINARY_V1, encodeBinaryEnvelope } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../gateway/client-registry'
 import { feedPrincipalOf } from '../../gateway/client-principal'
@@ -26,6 +27,11 @@ export interface SessionTerminalState {
   counts: readonly [inputCount: number, outputCount: number, activityCount: number]
   dirty: boolean
   shell: readonly [busy: boolean, commandRunning: boolean]
+}
+
+interface OutputFanout {
+  binary?: Uint8Array
+  legacy?: ServerMessage
 }
 
 export interface SessionTerminalInit {
@@ -80,7 +86,8 @@ export class SessionTerminal {
   private shellCommandRunning = false
   private nextSeq = 0
   private readonly clients = new Map<string, ClientConn>()
-  private readonly outputLog: { seq: number; data: string }[] = []
+  private readonly clientAttributions = new WeakMap<ClientConn, ReturnType<typeof perfPrincipal>>()
+  private readonly outputLog: { seq: number; bytes: Buffer }[] = []
   private outputLogBytes = 0
   private transcript: TranscriptItem[] = []
   private transcriptAvailable = false
@@ -195,20 +202,14 @@ export class SessionTerminal {
     const startedAt = performance.now()
     let replayBytes = 0
     for (const frame of frames) {
-      replayBytes += frame.data.length
-      client.send({
-        type: 'outputFrame',
-        sessionId: this.init.sessionId,
-        seq: frame.seq,
-        epoch: this.epoch,
-        data: frame.data,
-      })
+      replayBytes += frame.bytes.byteLength
+      this.sendOutput(client, frame.seq, frame.bytes, false)
     }
     perf.record(
       'phase',
       'attach.replay',
       performance.now() - startedAt,
-      perfPrincipal(feedPrincipalOf(client.principal)),
+      this.clientAttribution(client),
       replayBytes,
     )
     // The replay log is a byte stream, not a screen — replaying it only rebuilds the
@@ -490,7 +491,7 @@ export class SessionTerminal {
   }
 
   onFrame(data: string): void {
-    this.acceptFrames(data, 1)
+    this.acceptFrames(Buffer.from(data, 'base64'), 1)
   }
 
   /** Preserve the daemon's scheduling batch through the client websocket.
@@ -504,19 +505,14 @@ export class SessionTerminal {
       return
     }
     const bytes = Buffer.concat(frames.map((data) => Buffer.from(data, 'base64')))
-    this.acceptFrames(bytes.toString('base64'), frames.length, bytes)
+    this.acceptFrames(bytes, frames.length)
   }
 
-  private acceptFrames(data: string, count: number, bytes?: Buffer): void {
+  private acceptFrames(bytes: Buffer, count: number): void {
     const seq = this.nextSeq++
-    this.bufferFrame(seq, data, bytes)
-    this.broadcast({
-      type: 'outputFrame',
-      sessionId: this.init.sessionId,
-      seq,
-      epoch: this.epoch,
-      data,
-    })
+    this.bufferFrame(seq, bytes)
+    const fanout: OutputFanout = {}
+    for (const client of this.clients.values()) this.sendOutput(client, seq, bytes, true, fanout)
     this.outputAtMs_ = Date.now()
     this.outputCount_ += count
     this.activityDirty_ = true
@@ -617,17 +613,76 @@ export class SessionTerminal {
     this.shellBusyTimer.unref?.()
   }
 
-  private bufferFrame(seq: number, data: string, bytes?: Buffer): void {
-    if (SCREEN_RESET.test((bytes ?? Buffer.from(data, 'base64')).toString('latin1'))) {
+  private bufferFrame(seq: number, bytes: Buffer): void {
+    if (SCREEN_RESET.test(bytes.toString('latin1'))) {
       this.outputLog.length = 0
       this.outputLogBytes = 0
     }
-    this.outputLog.push({ seq, data })
-    this.outputLogBytes += data.length
+    this.outputLog.push({ seq, bytes })
+    this.outputLogBytes += bytes.byteLength
     while (this.outputLogBytes > MAX_REPLAY_BYTES && this.outputLog.length > 1) {
       const dropped = this.outputLog.shift()
-      if (dropped) this.outputLogBytes -= dropped.data.length
+      if (dropped) this.outputLogBytes -= dropped.bytes.byteLength
     }
+  }
+
+  /** Convert the canonical bytes only at one recipient's negotiated edge. */
+
+  private sendOutput(
+    client: ClientConn,
+    seq: number,
+    bytes: Buffer,
+    lossy: boolean,
+    shared?: OutputFanout,
+  ): boolean {
+    const attribution = this.clientAttribution(client)
+    const fanout = shared ?? {}
+    if (client.caps.has(CAP_TERMINAL_OUTPUT_BINARY_V1) && client.sendBinary) {
+      let frame = fanout.binary
+      if (!frame) {
+        frame = encodeBinaryEnvelope(
+          {
+            v: 1,
+            type: 'ptyOutput',
+            sessionId: this.init.sessionId,
+            seq,
+            epoch: this.epoch,
+          },
+          bytes,
+        )
+        fanout.binary = frame
+      }
+      let sent = true
+      if (lossy && client.sendBinaryStream) sent = client.sendBinaryStream(frame)
+      else client.sendBinary(frame)
+      if (sent) perf.record('phase', 'terminal.output.binary', 0, attribution, bytes.byteLength)
+      return sent
+    }
+
+    let message = fanout.legacy
+    if (!message) {
+      message = {
+        type: 'outputFrame',
+        sessionId: this.init.sessionId,
+        seq,
+        epoch: this.epoch,
+        data: bytes.toString('base64'),
+      }
+      fanout.legacy = message
+    }
+    let sent = true
+    if (lossy && client.sendStream) sent = client.sendStream(message)
+    else client.send(message)
+    if (sent) perf.record('phase', 'terminal.output.base64', 0, attribution, bytes.byteLength)
+    return sent
+  }
+
+  private clientAttribution(client: ClientConn): ReturnType<typeof perfPrincipal> {
+    const cached = this.clientAttributions.get(client)
+    if (cached) return cached
+    const attribution = perfPrincipal(feedPrincipalOf(client.principal))
+    this.clientAttributions.set(client, attribution)
+    return attribution
   }
 
   private seedMs(value: string | null | undefined): number {

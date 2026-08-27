@@ -119,6 +119,10 @@ export interface ClientTransport {
   send: ClientConn['send']
   /** Lower-budget lossy sink for stream.live room fan-out. */
   sendStream?: ClientConn['sendStream']
+  /** Explicit binary sink for negotiated terminal output. */
+  sendBinary?: ClientConn['sendBinary']
+  /** Lower-budget binary sink for live terminal output. */
+  sendBinaryStream?: ClientConn['sendBinaryStream']
 }
 
 /**
@@ -188,6 +192,8 @@ export class ClientMux {
       // only input; nothing a client can send participates.
       principal,
       send: transport.send,
+      ...(transport.sendBinary ? { sendBinary: transport.sendBinary } : {}),
+      ...(transport.sendBinaryStream ? { sendBinaryStream: transport.sendBinaryStream } : {}),
       sendStream:
         transport.sendStream ??
         ((message) => {

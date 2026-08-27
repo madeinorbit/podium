@@ -54,6 +54,10 @@ export interface ClientConn {
   send: Send<ServerMessage>
   /** Lossy stream sink. False means the frame was dropped under pressure. */
   sendStream?: (message: ServerMessage) => boolean
+  /** Explicit binary transport sink; absent on legacy/in-process peers. */
+  sendBinary?: (bytes: Uint8Array) => void
+  /** Lossy binary stream sink. False means the frame was dropped under pressure. */
+  sendBinaryStream?: (bytes: Uint8Array) => boolean
   /** Last grid this client measured for each terminal it mounted. Geometry is
    * session-specific: split panes can have different widths, and the 80x24
    * viewport in `hello` is only a transport bootstrap default. Sharing one

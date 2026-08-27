@@ -23,6 +23,7 @@ interface NativeServerWebSocket<T> {
   readonly readyState: number
   getBufferedAmount(): number
   sendText(data: string, compress?: boolean): number
+  sendBinary(data: Uint8Array, compress?: boolean): number
   ping(): number
   terminate(): void
 }
@@ -153,6 +154,10 @@ class NativeGatewaySocket implements GatewaySocket {
 
   send(data: string, compress = shouldCompressWebSocketFrame(data)): number {
     return this.native.sendText(data, compress)
+  }
+
+  sendBinary(data: Uint8Array, compress = shouldCompressWebSocketFrame(data)): number {
+    return this.native.sendBinary(data, compress)
   }
 
   ping(): void {
