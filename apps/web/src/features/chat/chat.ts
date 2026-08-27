@@ -331,6 +331,8 @@ export interface PendingItem {
   text: string
   at: number
   state: 'sending' | 'queued' | 'sent' | 'failed'
+  /** 1-based position returned by the authority when this send enters its FIFO. */
+  queuePosition?: number
   /** The server/provider reason for a failed optimistic send. */
   failure?: string
   tags?: TranscriptTag[]

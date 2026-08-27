@@ -44,7 +44,13 @@ const fakeTrpc = {
     },
     sendText: {
       mutate: vi.fn(
-        async (): Promise<{ ok?: boolean; disposition: string; reason?: string }> => ({
+        async (): Promise<{
+          ok?: boolean
+          disposition: string
+          reason?: string
+          queued?: boolean
+          position?: number
+        }> => ({
           disposition: 'delivered',
         }),
       ),
@@ -509,6 +515,38 @@ This is agent mail, not the operator's latest prompt.
 })
 
 describe('ChatView composer', () => {
+  it('shows the queue position returned by a busy live session', async () => {
+    fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
+      ok: true,
+      queued: true,
+      position: 2,
+      disposition: 'queued',
+    })
+    storeDrafts = { s1: 'second thought' }
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+    })
+    await flush()
+
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: asSessionId('s1'), text: 'second thought' }),
+    )
+    expect(container.querySelector('.transcript-delivery')?.textContent).toBe(
+      'pending · queue position 2',
+    )
+  })
+
   it('restores a queued chat message from the durable ledger after refresh', async () => {
     fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
       {

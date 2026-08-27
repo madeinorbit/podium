@@ -156,15 +156,23 @@ export function turnPosition(row: ChatRow): TurnPosition | undefined {
 export function queueIsBlocked(session: SessionMeta | undefined): boolean {
   return session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
 }
-export function queuedDeliveryLabel(session: SessionMeta | undefined): string {
+export function queuePositionSuffix(position: number | undefined): string {
+  return Number.isInteger(position) && position > 0 ? ` · queue position ${position}` : ''
+}
+
+export function queuedDeliveryLabel(
+  session: SessionMeta | undefined,
+  position?: number,
+): string {
   const error = queueIsBlocked(session) ? session?.agentState?.error : undefined
   if (error) {
     const instruction = agentErrorRecoveryInstruction(error).replace(/\.$/, '')
-    return `blocked · ${formatAgentError(error)} — ${instruction} to send`
+    return `blocked · ${formatAgentError(error)} — ${instruction} to send${queuePositionSuffix(position)}`
   }
-  return sessionWaking(session)
+  const label = sessionWaking(session)
     ? 'pending · sends once the agent is up'
     : 'pending · sends after this turn'
+  return `${label}${queuePositionSuffix(position)}`
 }
 
 /**
@@ -536,7 +544,9 @@ export function TranscriptFeed({
                 here than one word. */}
             {durable && !handedOver ? (
               <div className="msg-foot" data-side="right">
-                <span className="transcript-delivery">{queuedDeliveryLabel(session)}</span>
+                <span className="transcript-delivery">
+                  {queuedDeliveryLabel(session, p.queuePosition)}
+                </span>
                 <button
                   data-pressable
                   type="button"
@@ -552,7 +562,9 @@ export function TranscriptFeed({
               <div className="msg-foot" data-side="right">
                 {p.state === 'queued' && (
                   <span className="transcript-delivery">
-                    {queueIsBlocked(session) ? queuedDeliveryLabel(session) : 'pending'}
+                    {queueIsBlocked(session)
+                      ? queuedDeliveryLabel(session, p.queuePosition)
+                      : `pending${queuePositionSuffix(p.queuePosition)}`}
                   </span>
                 )}
                 {p.state === 'failed' && (

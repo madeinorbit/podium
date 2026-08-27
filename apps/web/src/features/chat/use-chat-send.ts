@@ -300,7 +300,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     async (
       text: string,
       deliveryId: string,
-      onQueued: () => void,
+      onQueued: (position?: number) => void,
       attachments?: readonly RuntimeAttachmentRef[],
       onDelivered?: () => void,
     ) => {
@@ -364,7 +364,8 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           })
           assertSendAccepted(result)
           if (result.disposition === 'delivered') onDelivered?.()
-          else if (result.disposition === 'queued' || result.disposition === 'accepted') onQueued()
+          else if (result.disposition === 'queued' || result.disposition === 'accepted')
+            onQueued(result.position)
           refreshQueuedMessages()
           return
         }
@@ -429,7 +430,10 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         await deliver(
           fullText,
           deliveryId,
-          () => setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
+          (position) =>
+            setPending((p) =>
+              p.map((x) => (x.id === id ? { ...x, state: 'queued', queuePosition: position } : x)),
+            ),
           attachments,
           () => setPending((p) => markPendingSendingDelivered(p, id)),
         )
@@ -458,7 +462,10 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         await deliver(
           prompt,
           deliveryId,
-          () => setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
+          (position) =>
+            setPending((p) =>
+              p.map((x) => (x.id === id ? { ...x, state: 'queued', queuePosition: position } : x)),
+            ),
           undefined,
           () => setPending((p) => markPendingSendingDelivered(p, id)),
         )

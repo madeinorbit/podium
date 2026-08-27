@@ -77,4 +77,10 @@ describe('queuedDeliveryLabel', () => {
       'blocked · Provider authentication failed: token expired — Re-authenticate with the provider, then choose “I signed in — retry” to send',
     )
   })
+
+  it('keeps the returned FIFO position in the delivery label', () => {
+    expect(queuedDeliveryLabel(undefined, 2)).toBe(
+      'pending · sends after this turn · queue position 2',
+    )
+  })
 })
