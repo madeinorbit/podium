@@ -4421,3 +4421,51 @@ in `review`; POD-2902's rows carried no cell id so a fixed cell read FAIL; and n
 21-cell drive was invisible because it lived in an evidence README instead of the results file.
 **The rule the brief already carries — put the cell id in the row — is necessary but not
 sufficient. The row has to exist.**
+
+### The claude window was open and I nearly filed it as a question (2026-08-27 02:56 CEST)
+
+I was about to write the claude column up as blocked on the operator — 15 stale cells behind a
+credential only they could provide — and put it to them as the epic's largest scheduling
+constraint. **Then I checked, and the token is valid until 07:43.** It refreshed itself at 23:43
+when the previous one expired.
+
+**Third time tonight I have asserted a blocker without testing it**, after "nobody has driven the
+shell column" and "the mail hook must be noisy". The shape is identical each time: a plausible
+constraint, stated with confidence, that costs one command to check. **On an epic where I am the
+only one who can unblock anything, an unchecked blocker is more expensive than a wrong measurement
+— a wrong number gets corrected by the next drive, an imagined wall just stops work.**
+
+**Staffed POD-2918 on it**, cut from the tip `0f5925fea` and verified, with ~4 hours of window
+and a hard stop at 07:00 leaving 43 minutes of margin.
+
+**The credential reasoning is written into its brief as a MECHANISM rather than as caution**,
+because "be careful with the token" is unactionable: claude refreshes a token **only when it is
+already expired**, and a refresh rotates it. So using the current unexpired token is safe, and the
+danger is a STALE COPY left in a rig home — which is what rotates the operator out. That makes the
+rule derivable rather than memorised: delete every copy in teardown, never start what you cannot
+finish before expiry, and verify the real file's mtime is unchanged at the end.
+
+**Two of its thirteen cells are the valuable ones**, and both were RED at the old pin:
+- **A1b (send while busy) failed.** `b1c725716` has since landed — parked sends persist and report
+  `queued` with a position. It may now pass, which would be a defect closed by a fix that was
+  never aimed at it.
+- **A3 (interrupt mid-turn) failed**, and it is the one cell a loaded box scores in the flattering
+  direction: a starved host makes a turn that would have stopped appear not to, scoring FAIL on
+  main and letting a real defect read as "inherited". Told it to drive A3 only under load 12 and
+  otherwise record UNDRIVEN.
+
+**A4a/A4b stay BLOCKED and I told it not to retry them.** The claude 2.1.231 wizard rewrites
+`permissions.defaultMode` regardless of seeding; that is a measured instrument limit, not a
+question, and re-confirming it would spend the window on a known answer.
+
+### POD-2913 declined coverage it could have claimed (2026-08-27 02:56 CEST)
+
+I asked whether its POD-2298 drive satisfied **A1c** for claude — the scarcest column we have,
+where an extra entry would have been welcome. Its answer: **no.** The probe exercised the
+server/daemon receipt-correction half; it never drove the user-visible typed-refusal or
+resume-and-send path, so no row was added.
+
+**That is the behaviour the whole results file depends on.** A1c is a cell about what a user sees;
+a receipt corrected in the database is a different claim wearing a similar shape, and stretching
+one to fill the other would have put a green in a column that needed a real one. Worth recording
+precisely because nothing would have caught it — I would have accepted the row.
