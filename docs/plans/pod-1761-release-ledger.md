@@ -4782,3 +4782,40 @@ reads and reap-on-stop are independent concerns), then **`range-diff` and read i
 reaper is untouched by the resolution its 03:44 drive stands, and if anything in the identity
 checks moved, that arm is invalid. A session tonight reported "I rebased, the drives remain exact"
 when the patch had been amended mid-rebase, and it cost an arm.
+
+### The reaper answered the two things I asked, with evidence (2026-08-27 04:07 CEST)
+
+**1. The rebound check.** I told POD-2691 that "the count went to zero" was not enough — that it had
+to re-measure minutes later and treat a rebound as a FAIL rather than noise, because a stopped
+session came back eleven minutes after I stopped it tonight. **It re-measured at 17 minutes**, past
+its own 5-minute bar, with a delayed read-only numeric `/proc` census: no live process under any
+controlled path, sentinels 696306, 696335 and 696353 all exited, **no rebound.** It did that
+unprompted after the drive rather than being asked twice.
+
+**2. The `/tmp` gap.** I flagged that "exact /proc attribution with cwd" would miss the three
+orphans living in `/tmp` state roots rather than worktrees. Its answer: **UUID-first attribution
+explicitly covers worktrees AND `/tmp` state roots; cwd is corroboration and kill-time
+revalidation, not the key.** That is the right shape and it is what makes the identity worth
+consuming at all.
+
+**Still 39 commits behind and unlandable** until it rebases past POD-2871 — the collision I caused
+by briefing two implementers onto the same daemon files.
+
+### Bundle reuse across sessions, decided by measurement (2026-08-27 04:07 CEST)
+
+POD-2913 needs a web bundle for POD-2602 (terminal sizing). Rather than have it take `test:heavy`
+behind two other sessions, I checked whether POD-2915's 02:42 bundle is still valid:
+
+    apps/web files changed since its base ......... 0
+    non-docs files changed since its base ......... 13
+    of those, packages apps/web consumes .......... packages/model/src/entities/session.ts
+
+**The web code is byte-identical to the tip.** The only thing a rebuild would pick up is one added
+refusal-reason string from POD-2871's fix — **irrelevant to a sizing cell, and I told POD-2913 to
+judge that itself rather than take my word**: if any part of its probe reads a refusal reason, build
+fresh; otherwise point `PODIUM_WEB_DIR` at the existing dist and skip the lock entirely.
+
+**That is the third time tonight the "do the arms actually differ in what you would build?" question
+has removed a heavy-lock queue slot.** The lock has been the most contended resource of the epic and
+a meaningful share of the builds taken under it were for trees that were identical in the layer
+being built.
