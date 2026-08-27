@@ -1,0 +1,74 @@
+{
+  "id": "A3",
+  "armLabel": "fix",
+  "runtimeArm": "headless",
+  "verdict": "PASS",
+  "summary": "accepted interrupt stopped the proven in-flight turn in 90ms and persisted a transcript interrupt marker",
+  "control": {
+    "fired": true,
+    "what": "the turn is demonstrably producing before interrupt",
+    "detail": "phase=working with 3 preview frames before the call"
+  },
+  "evidence": [
+    "==============================================================================",
+    "A3  interrupt a running turn   harness=grok",
+    "==============================================================================",
+    "  pin  server pid=2139364 spawned at 961a69924",
+    "  pin  daemon pid=2139454 spawned at 961a69924",
+    "  host load 5.66",
+    "session 15942c03-48e1-4363-95ac-997ae512954d",
+    "BOUND DRIVER       grok-acp (family server)",
+    "── interrupt — interrupt a running turn",
+    "   PASS  turn stopped 90ms after interrupt, transcript marks it",
+    "   control: FIRED — 3 preview frame(s) and 0 new transcript chars — tokens are being produced; phase=working, 3 preview frame(s), 0 new transcript chars, 0 new terminal bytes",
+    "   WAS RUNNING       3 preview frame(s) and 0 new transcript chars — tokens are being produced; phase=working, 3 preview frame(s), 0 new transcript chars, 0 new terminal bytes",
+    "   INTERRUPT SENT    {\"ok\":true,\"requested\":\"protocol\"}",
+    "   SETTLED           phase left 'working' after 90ms",
+    "   TRANSCRIPT MARK   an item carries event:'interrupt' — the product recorded a user action",
+    "   TEXT              0 chars at the call -> 120 chars at settle",
+    "   FRAMES AFTER      2 preview frame(s) arrived AFTER the call",
+    "   TERMINAL BYTES    0 at the call -> +0 after 6s -> +0 after 12s",
+    "   AFTER THE CALL    phase=idle status=live error=none",
+    "   SCORED ON         phase leaving 'working'",
+    "   ELAPSED 16931ms"
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "previewFramesAtControl": 3,
+    "callOk": true,
+    "requested": "protocol",
+    "settledMs": 90,
+    "finalPhase": "idle",
+    "finalStatus": "live",
+    "transcriptMarker": true,
+    "errorClass": null,
+    "framesAfterInterrupt": 2
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a3-fix-961a",
+  "pin": {
+    "codeCommit": "961a6992480ad279776af4354fcd2935f6bed0e8",
+    "codeTree": "34eda83b25464e236425ecb479fa4879ebed6eab",
+    "serverPid": 2139364,
+    "daemonPid": 2139454,
+    "webSourceSha": "961a699",
+    "webBundle": "bundle+k9dcbf_p",
+    "wireSchemaDigest": "986ebf5e8e57820c",
+    "nonDocDiff": 0
+  },
+  "criterionClauses": {
+    "inFlightControl": "PASS — phase=working and three preview frames proved active generation",
+    "turnStops": "PASS — protocol interrupt returned ok and phase left working after 90ms",
+    "transcriptShowsInterrupt": "PASS — durable transcript item carried event=interrupt",
+    "refusedInterruptSaysWhy": "NOT EXERCISED — the product accepted and honored the interrupt"
+  },
+  "admission": {
+    "diskFreeKb": 12058736,
+    "memAvailableKb": 5198176,
+    "load1": 5.45,
+    "testHeavyLease": "free",
+    "health": "ok"
+  },
+  "localTimestamp": "2026-08-27 13:44:31 CEST",
+  "narrowStaleness": "Current epic tip 0bfec93e7 differs only by web queue-position type guards; no server or Grok interrupt path changed after this runtime pin. Unlanded A5/A7b review branches are not product tips."
+}
