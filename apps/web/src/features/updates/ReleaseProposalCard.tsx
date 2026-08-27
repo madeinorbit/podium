@@ -25,9 +25,9 @@ export function ReleaseProposalCard({
       role="dialog"
       aria-modal="false"
       aria-label="Development release proposal"
-      className="fixed right-4 bottom-9 z-50 w-[min(28rem,calc(100vw-2rem))] max-h-[min(42rem,calc(100vh-4rem))] overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)]"
+      className="fixed right-4 bottom-9 z-50 flex max-h-[min(42rem,calc(100vh-4rem))] w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)]"
     >
-      <div className="border-b border-border px-4 pt-4 pb-3">
+      <div className="shrink-0 border-b border-border px-4 pt-4 pb-3">
         <h2 className="text-[14px] font-semibold tracking-[-0.01em]">
           Build {targetVersion} for the fleet?
         </h2>
@@ -45,9 +45,13 @@ export function ReleaseProposalCard({
           </span>
         </p>
       </div>
-      <div className="flex flex-col gap-3 px-4 py-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-4 py-4">
         {proposal.commits.length > 0 ? (
-          <ul className="flex flex-col gap-1.5" aria-label="Commits in this release">
+          <ul
+            data-testid="release-proposal-commits"
+            className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1"
+            aria-label="Commits in this release"
+          >
             {proposal.commits.map((commit) => (
               <li key={commit.sha} className="text-[11px] leading-[1.5] text-muted-foreground">
                 <code className="mr-2 text-foreground">{commit.sha}</code>
@@ -104,7 +108,7 @@ export function ReleaseProposalCard({
           offer, and will not install until someone accepts that second prompt.
         </p>
       </div>
-      <div className="flex items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
         <Button type="button" variant="ghost" size="sm" onClick={onHide}>
           Hide
         </Button>

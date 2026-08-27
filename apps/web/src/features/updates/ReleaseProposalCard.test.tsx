@@ -77,6 +77,33 @@ describe('ReleaseProposalCard', () => {
     ).toBeTruthy()
   })
 
+  it('scrolls a long changelog without moving the proposal context or build action', () => {
+    render(
+      <ReleaseProposalCard
+        proposal={{
+          ...PROPOSAL,
+          commits: Array.from({ length: 30 }, (_, index) => ({
+            sha: 'abcdef' + index,
+            summary: 'Release change ' + index,
+          })),
+        }}
+        pending={false}
+        onApprove={vi.fn()}
+        onHide={vi.fn()}
+      />,
+    )
+
+    const dialog = screen.getByTestId('release-proposal-card')
+    const changelog = screen.getByTestId('release-proposal-commits')
+    const buildAction = screen.getByTestId('approve-release-proposal')
+
+    expect(dialog.className).toContain('overflow-hidden')
+    expect(changelog.className).toContain('overflow-y-auto')
+    expect(changelog.className).toContain('min-h-0')
+    expect(changelog.className).toContain('flex-1')
+    expect(changelog.contains(buildAction)).toBe(false)
+  })
+
   it('states an empty server-to-build range instead of rendering a blank changelog', () => {
     render(
       <ReleaseProposalCard
