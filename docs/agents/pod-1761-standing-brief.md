@@ -1448,3 +1448,35 @@ LESS THAN 12. Lower is better. There is no lower bound."* **A tilde invites a ba
 because a loaded box makes a turn that WOULD have stopped appear not to — so a busy host scores
 interrupt in the flattering direction and a real defect reads as inherited. **A quiet box cannot
 produce that error; only a busy one can.** A session that knows this does not need the number.
+
+### "Same method both sides" is not enough — check both sides read the same CODE (2026-08-27 04:55 CEST)
+
+I told a session its change had broken `apps/web`, and I had what looked like a decisive
+measurement: **same command, same filter, 0 of 16 cached, 1m54s of real compilation, tip green,
+branch red.** I had deliberately controlled for the command, the scope and the cache after two
+weaker readings.
+
+**The conclusion was wrong. Its worktree was missing the `@podium/server` symlink, so TypeScript
+resolved `/home/mgw/src/podium/apps/server` from the unrelated ROOT CHECKOUT — a different
+repository state entirely.** The two runs were never comparable. **I controlled for everything
+except whether both sides were reading the same code.**
+
+**So add the environment to the list of things an A/B must hold constant.** Before attributing a
+gate difference to a diff, check:
+
+    ls -l node_modules/@podium/          # are the workspace links present and local?
+    readlink node_modules/@podium/<pkg>  # does it point INSIDE this worktree?
+
+**A worktree with an incomplete `node_modules` does not fail loudly — it silently resolves to
+whatever else is on disk**, which on this box is a checkout sitting on a different branch. See
+[[podium-review-node-modules-hybrid]]: per-entry symlinks with `@podium` repointed locally are the
+supported shape, and a missing entry is the failure mode.
+
+**The wider rule this belongs to: when two trees disagree, the difference is not necessarily the
+diff.** It can be the toolchain, the cache, the build artifacts, or — as here — the module
+resolution. **Rule it out before naming a culprit**, especially when naming one means telling
+somebody their work is broken.
+
+**And the recovery matters as much as the error.** The session neither accepted my verdict nor
+argued with it; it went and found why the two trees disagreed. **That is the response that turns a
+wrong confident conclusion into a solved problem in one round.**
