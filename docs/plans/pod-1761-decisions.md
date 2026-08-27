@@ -531,3 +531,46 @@ two hours along with six others, the pins, and the drive script. **I only saw it
 session's worktree directly instead of waiting for a report** — and this is the third time tonight
 that has been how a result reached me. Told it to commit before anything else, and told it plainly
 that a committed FAIL with an open question beats a fuller column I cannot trust.
+
+## Decision 20 CLOSED — the claude A1a "regression" was a startup race (2026-08-27 05:33 CEST)
+
+POD-2918 re-drove A1a with a readiness gate and it **PASSES with its control firing**. The earlier
+FAIL — *"1/2 user turns landed"* — was its probe sending before the session was ready, exactly the
+alternative I asked it to separate. **No regression. Nothing for the operator to decide.**
+
+**The separation cost one re-run and would have cost a release decision if argued instead.** The
+question that did it was concrete: *"can you distinguish 'the send was lost' from 'the send was made
+before the session was ready'? Wait on the readiness signal and re-run."* **Neither of us had to be
+right about which it was.**
+
+## Decision 21 — claude A1c may be the new design rather than a regression (2026-08-27 05:33 CEST)
+
+**POD-2918's A1c FAIL is the best-controlled reading in that column** — baseline prompt landed,
+reply returned, exact child PID 1023334 identified and killed, then the send. Verdict:
+**"dead-session send was accepted without a typed refusal."** POD-2874 had A1c **PASS** at the old
+pin, so the shape is again a regression.
+
+**BUT THE CRITERION PREDATES TONIGHT'S FIX.** A1c reads *"typed refusal or resume-and-send offered;
+**never a lost message**"*. **`b1c725716` landed a few hours ago and deliberately changed exactly
+this behaviour**: a send to a session that is not running now PERSISTS in a durable queue and
+reports `queued` rather than being refused. POD-2878 drove it — parked nonce absent before, arriving
+once after a real daemon restart.
+
+**So "accepted without a typed refusal" may be the new design working.** A refusal loses nothing and
+delivers nothing; an accepted-and-persisted send delivers when the session returns. **Against the
+bar we are held to — every driver at least as good as main — the second is strictly better, and the
+criterion's own final clause is satisfied by it.**
+
+**THE ONE OBSERVATION THAT DECIDES IT, which I have asked for:** after the accepted send, resume the
+session and look for the needle.
+- **Needle arrives** → the product is better than the cell describes. Score PASS, and **the
+  criterion needs changing** — that is the operator's call and I will bring it with evidence.
+- **Needle never arrives** → it is a lost message, A1c is a genuine regression, and it is the
+  release blocker I mistakenly thought A1a was.
+
+**They are indistinguishable at the moment of the send and completely different a minute later.**
+
+**THE STANDING QUESTION THIS RAISES, worth the operator's attention either way:** the acceptance
+matrix was written before several of tonight's fixes. **A cell can now fail because the product
+improved past its criterion.** A1c is the first clear instance; there may be others. **When a cell
+and the product disagree, one of them is out of date, and it is not automatically the product.**
