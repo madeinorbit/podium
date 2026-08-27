@@ -144,6 +144,14 @@ interface QueuedTurn {
   options: SendOptions
 }
 
+interface BufferedToolResult {
+  item: TranscriptItem
+  at: string
+  provenance: ObservationProvenance
+  native: { eventId?: string; ordinal?: number }
+  emitted: boolean
+}
+
 interface DriverSession {
   sessionId: SessionId
   spec: SessionSpec
@@ -173,6 +181,8 @@ interface DriverSession {
   state: AgentRuntimeState
   transcriptItems: TranscriptItem[]
   transcriptIds: Set<string>
+  toolCallIds: Set<string>
+  toolResults: Map<string, BufferedToolResult>
   userBuffer: { id: string; text: string; at: string } | undefined
   assistantBuffer: { id: string; text: string; at: string } | undefined
   ignoreUserEcho: string | undefined
@@ -326,6 +336,13 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     emit(session, { t: 'item', item: { kind: 'complete', item } }, at, provenance, native)
   }
 
+  function flushToolResult(session: DriverSession, toolUseId: string): void {
+    const result = session.toolResults.get(toolUseId)
+    if (!result || result.emitted || !session.toolCallIds.has(toolUseId)) return
+    result.emitted = true
+    addItem(session, result.item, result.at, result.provenance, result.native)
+  }
+
   function addInterruptMarker(session: DriverSession, epoch: number, at: string): void {
     const id = `grok-interrupt-${epoch}`
     if (session.transcriptIds.has(id)) return
@@ -390,6 +407,9 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       ? (value as Record<string, unknown>)
       : undefined
 
+  const hasOwn = (value: Record<string, unknown>, key: string): boolean =>
+    Object.prototype.hasOwnProperty.call(value, key)
+
   function contentText(value: unknown): string {
     if (typeof value === 'string') return value
     if (Array.isArray(value)) return value.map(contentText).filter(Boolean).join('')
@@ -408,6 +428,38 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       if (text) return text
     }
     return ''
+  }
+
+  function explicitContentText(value: unknown): string | undefined {
+    if (typeof value === 'string') return value
+    if (Array.isArray(value)) {
+      const pieces = value
+        .map(explicitContentText)
+        .filter((piece): piece is string => piece !== undefined)
+      return pieces.length > 0 ? pieces.join('') : undefined
+    }
+    const object = record(value)
+    if (!object) return undefined
+    for (const key of ['text', 'content', 'delta', 'chunk']) {
+      if (!hasOwn(object, key)) continue
+      const text = explicitContentText(object[key])
+      if (text !== undefined) return text
+    }
+    return undefined
+  }
+
+  function terminalToolResultText(update: Record<string, unknown>): string | undefined {
+    const rawOutput = record(update.rawOutput ?? update.raw_output)
+    const promptOutput = rawOutput?.output_for_prompt
+    // Grok's model-facing output is the canonical result even when it is the
+    // explicit empty string. Display content is only a fallback.
+    if (typeof promptOutput === 'string') return promptOutput
+    for (const key of ['content', 'text', 'delta', 'chunk']) {
+      if (!hasOwn(update, key)) continue
+      const text = explicitContentText(update[key])
+      if (text !== undefined) return text
+    }
+    return undefined
   }
 
   function ingestTranscriptUpdate(
@@ -492,22 +544,30 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         } catch {
           toolInput = title
         }
-        addItem(
-          session,
-          {
-            id,
-            role: 'tool',
-            text: '',
-            ts: at,
-            toolName: kindName,
-            ...(toolInput ? { toolInput } : {}),
-            ...(title ? { toolTitle: title } : {}),
-            toolUseId: id,
-          },
-          at,
-          provenance,
-          native,
-        )
+        if (!session.toolCallIds.has(id)) {
+          session.toolCallIds.add(id)
+          addItem(
+            session,
+            {
+              id,
+              role: 'tool',
+              text: '',
+              ts: at,
+              toolName: kindName,
+              ...(toolInput ? { toolInput } : {}),
+              ...(title ? { toolTitle: title } : {}),
+              toolUseId: id,
+            },
+            at,
+            provenance,
+            native,
+          )
+        }
+        // ACP is ordered in ordinary live traffic, but replay adapters and
+        // reconnects may deliver the terminal update first. Hold that result
+        // until its call exists so the shared one-pass renderer never sees an
+        // orphan result followed by an unresolved call.
+        flushToolResult(session, id)
         return
       }
       case 'tool_call_update': {
@@ -518,19 +578,21 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
           (typeof update.toolCallId === 'string' && update.toolCallId) ||
           (typeof update.tool_call_id === 'string' && update.tool_call_id)
         if (!toolUseId) return
-        const rawOutput = record(update.rawOutput ?? update.raw_output)
-        const promptOutput = rawOutput?.output_for_prompt
-        const resultText =
-          typeof promptOutput === 'string' ? promptOutput : updateText(update)
-        addItem(
-          session,
-          {
+        // A second terminal update is replay/duplication, not another
+        // completion. First explicit terminal output wins, so neither the
+        // durable transcript nor the runtime event stream inflates.
+        if (session.toolResults.has(toolUseId)) return
+        const resultText = terminalToolResultText(update)
+        // Terminal status alone does not prove a result exists. In particular,
+        // do not turn a missing payload into the empty string: only an
+        // explicitly supplied empty output resolves the call as empty.
+        if (resultText === undefined) return
+        session.toolResults.set(toolUseId, {
+          item: {
             id: `${toolUseId}:result`,
             role: 'tool',
             text: '',
             ts: at,
-            // An empty terminal result still resolves the call. Omitting this
-            // field would leave a successful no-output tool looking pending.
             toolResult:
               resultText.length > 2000 ? `${resultText.slice(0, 2000)}...` : resultText,
             toolUseId,
@@ -538,7 +600,9 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
           at,
           provenance,
           native,
-        )
+          emitted: false,
+        })
+        flushToolResult(session, toolUseId)
         return
       }
       case 'response_completed':
@@ -749,6 +813,8 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       state,
       transcriptItems: [],
       transcriptIds: new Set(),
+      toolCallIds: new Set(),
+      toolResults: new Map(),
       userBuffer: undefined,
       assistantBuffer: undefined,
       ignoreUserEcho: undefined,

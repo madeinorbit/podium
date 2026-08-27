@@ -47,11 +47,17 @@ export interface FakeGrokAcpServer {
    *  itself is not pushed — this family flushes its buffer at the fence, which
    *  is the behaviour the corpus is there to hold. */
   streamAgentText(chunks: readonly string[]): void
-  completeToolCall(input: {
+  toolCall(input: {
     toolCallId: string
-    title: string
-    rawInput: Record<string, unknown>
-    output: string
+    title?: string
+    rawInput?: Record<string, unknown>
+    kind?: string
+  }): void
+  toolCallUpdate(input: {
+    toolCallId: string
+    status: 'in_progress' | 'completed' | 'failed'
+    content?: unknown
+    rawOutput?: unknown
   }): void
   completeTurn(stopReason?: 'end_turn' | 'cancelled' | 'refusal'): void
   failProviderTurn(detail: string): void
@@ -280,19 +286,26 @@ export function startFakeGrokAcpServer(
         })
       }
     },
-    completeToolCall(input) {
+    toolCall(input) {
       notifyUpdate({
         sessionUpdate: 'tool_call',
         toolCallId: input.toolCallId,
-        title: input.title,
-        rawInput: input.rawInput,
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.rawInput !== undefined ? { rawInput: input.rawInput } : {}),
+        ...(input.kind !== undefined ? { kind: input.kind } : {}),
       })
+    },
+    toolCallUpdate(input) {
       notifyUpdate({
         sessionUpdate: 'tool_call_update',
         toolCallId: input.toolCallId,
-        status: 'completed',
-        content: [{ type: 'content', content: { type: 'text', text: input.output } }],
-        rawOutput: { output_for_prompt: input.output },
+        status: input.status,
+        ...(Object.prototype.hasOwnProperty.call(input, 'content')
+          ? { content: input.content }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, 'rawOutput')
+          ? { rawOutput: input.rawOutput }
+          : {}),
       })
     },
     completeTurn(stopReason = 'end_turn') {
