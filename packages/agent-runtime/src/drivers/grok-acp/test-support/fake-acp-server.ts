@@ -29,6 +29,10 @@ export interface FakeGrokAcpServerOptions {
    * exactly one and never load.
    */
   store?: Map<string, Record<string, unknown>[]>
+  /** Hold `session/cancel` open until the test supplies the prompt result. The
+   *  production protocol separates the cancellation request from its fence;
+   *  this option lets a test prove the driver does too. */
+  deferCancellation?: boolean
 }
 
 export interface FakeGrokAcpServer {
@@ -220,7 +224,7 @@ export function startFakeGrokAcpServer(
           }
         }
         if (frame.method === 'session/cancel') {
-          server.completeTurn('cancelled')
+          if (!options.deferCancellation) server.completeTurn('cancelled')
           return
         }
         if (frame.id !== undefined && !frame.method) {

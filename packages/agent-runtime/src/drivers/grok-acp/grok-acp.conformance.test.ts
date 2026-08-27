@@ -43,6 +43,9 @@ import { type FakeGrokAcpServer, startFakeGrokAcpServer } from './test-support/f
  */
 interface WorldOptions {
   hostsClientTerminals?: boolean | 'spectators-only'
+  /** Keep ACP's cancellation fence separate from the request so interrupt
+   *  transcript materialization can be tested at the exact boundary. */
+  deferCancellation?: boolean
   /**
    * WHETHER THIS MACHINE CAN READ GROK'S SESSION FILES, AND WHETHER THEY EXIST
    * YET (POD-2703, review 2). Also a fact about the machine, not the driver —
@@ -65,7 +68,10 @@ function makeWorld(options: WorldOptions = {}): {
   target: ConformanceTarget
   failProviderTurn(sessionId: SessionId, detail: string): void
   failProviderAttempt(sessionId: SessionId, detail: string): void
-  completeProviderTurn(sessionId: SessionId): void
+  completeProviderTurn(
+    sessionId: SessionId,
+    stopReason?: 'end_turn' | 'cancelled' | 'refusal',
+  ): void
   failNextPrompt(sessionId: SessionId, detail?: string): void
   rawFrames: unknown[]
 } {
@@ -131,6 +137,9 @@ function makeWorld(options: WorldOptions = {}): {
         // `session/load`. See the option's own doc for what a private map per
         // server made unfalsifiable.
         store: conversations,
+        ...(options.deferCancellation !== undefined
+          ? { deferCancellation: options.deferCancellation }
+          : {}),
       })
       servers.get(input.sessionId)?.crash()
       servers.set(input.sessionId, server)
@@ -250,7 +259,8 @@ function makeWorld(options: WorldOptions = {}): {
   return {
     failProviderTurn: (sessionId, detail) => serverFor(sessionId).failProviderTurn(detail),
     failProviderAttempt: (sessionId, detail) => serverFor(sessionId).failProviderAttempt(detail),
-    completeProviderTurn: (sessionId) => serverFor(sessionId).completeTurn(),
+    completeProviderTurn: (sessionId, stopReason) =>
+      serverFor(sessionId).completeTurn(stopReason),
     failNextPrompt: (sessionId, detail) => serverFor(sessionId).failNextPrompt(detail),
     rawFrames,
     target: {
@@ -288,6 +298,90 @@ function makeWorld(options: WorldOptions = {}): {
     },
   }
 }
+
+describe('grok-acp interrupt transcript marker', () => {
+  it('materializes one durable user event only after Grok confirms cancellation', async () => {
+    const world = makeWorld({ deferCancellation: true })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send(
+        { text: 'keep working until stopped' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+
+      await handle.interrupt()
+
+      // The notification was only a request. Until the pending prompt answers,
+      // the turn is still open and its history must not claim it was stopped.
+      expect(await handle.transcript.history({ limit: 20 })).not.toContainEqual(
+        expect.objectContaining({ event: 'interrupt' }),
+      )
+      await expect(handle.state()).resolves.toMatchObject({ phase: 'working' })
+
+      world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
+
+      await expect
+        .poll(async () => await handle.transcript.history({ limit: 20 }))
+        .toContainEqual({
+          id: 'grok-interrupt-1',
+          role: 'user',
+          text: '[Request interrupted by user]',
+          ts: expect.any(String),
+          event: 'interrupt',
+        })
+      const history = await handle.transcript.history({ limit: 20 })
+      expect(history.filter((item) => item.event === 'interrupt')).toHaveLength(1)
+      const emitted: RuntimeEvent[] = []
+      for await (const event of handle.events('bootstrap')) {
+        emitted.push(event)
+        if (
+          event.t === 'item' &&
+          event.item.kind === 'complete' &&
+          event.item.item.event === 'interrupt'
+        ) {
+          break
+        }
+      }
+      expect(emitted).toContainEqual(
+        expect.objectContaining({
+          t: 'item',
+          item: {
+            kind: 'complete',
+            item: expect.objectContaining({ role: 'user', event: 'interrupt' }),
+          },
+        }),
+      )
+      await expect(handle.state()).resolves.toMatchObject({
+        phase: 'idle',
+        idle: { kind: 'interrupted' },
+      })
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('does not attribute an unrequested provider cancellation to the user', async () => {
+    const world = makeWorld({ deferCancellation: true })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send(
+        { text: 'provider may cancel this' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+
+      world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
+
+      await expect.poll(async () => (await handle.state()).phase).toBe('idle')
+      expect(await handle.transcript.history({ limit: 20 })).not.toContainEqual(
+        expect.objectContaining({ event: 'interrupt' }),
+      )
+    } finally {
+      world.target.reset()
+    }
+  })
+})
 
 const { target } = makeWorld()
 

@@ -891,6 +891,11 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     const at = iso()
     flushUser(session, 'live')
     flushAssistant(session, 'live')
+    // `session/cancel` only REQUESTS an interrupt. Keep the request fact long
+    // enough to join it to ACP's provider fence below; clearing it before the
+    // result is classified loses the only fact that distinguishes the user's
+    // stop from a provider-side cancellation.
+    const interruptRequested = session.interruptPending
     session.busy = false
     session.openTurnEpoch = undefined
     session.interruptPending = false
@@ -913,6 +918,33 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
               disposition: 'retryable' as const,
               errorClass: 'provider_error',
             })
+    /**
+     * A USER INTERRUPT IS TRANSCRIPT CONTENT, AFTER THE PROVIDER CONFIRMS IT.
+     *
+     * The terminal families get this durable item from their harness history,
+     * and the other server drivers read histories owned by their providers.
+     * ACP's `session/cancel` response is only `{}` and its later
+     * `stopReason: cancelled` carries no message chunk, so a zero-output Grok
+     * turn otherwise closes with nothing between the user's partial prompt and
+     * the next turn. Materialize the shared transcript event here, where BOTH
+     * halves are known: Podium requested the stop and Grok confirmed that this
+     * prompt ended as cancelled. A request alone must never mint it, and an
+     * unrequested provider cancellation must never be attributed to the user.
+     */
+    if (interruptRequested && result?.stopReason === 'cancelled') {
+      addItem(
+        session,
+        {
+          id: `grok-interrupt-${epoch}`,
+          role: 'user',
+          text: '[Request interrupted by user]',
+          ts: at,
+          event: 'interrupt',
+        },
+        at,
+        'live',
+      )
+    }
     if (!failure) {
       emit(session, { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' } }, at)
       foldState(session, { kind: 'turn_completed' }, at, 'live')
