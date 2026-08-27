@@ -5478,6 +5478,7 @@ should read them.**
     142ad9f3-57b5-4071-814b-f1e2c0d7d927   "Reviewer: row existence split"    POD-2682   VERDICT: PASS
     48ada344-1c92-42ec-92be-9a08c28a2cd3   "Agent process ownership spec"     unread
     c6757cbd-3341-4327-9b18-72b2f8b74a14   "Runtime spec conformance map"     unread
+    50c7926a-f13b-4953-ac08-ed7c6638042a   "Resume and export corpus"         unread
 
 Read them with `podium session read <FULL-uuid> --turns 1`. **Mail cannot deliver them** — each
 says it "durably mailed" its verdict to POD-1761, and POD-1761's inbox shows only messages from
@@ -5503,3 +5504,11 @@ with no findings, and its evidence is the shape this epic should want everywhere
 **POD-2682 is already `done`, so this confirms a closed issue rather than opening anything.** But it
 is the best worked example on the epic of what "driven" is supposed to mean, and a successor
 briefing a reviewer could do worse than point at it.
+
+**A fourth finished at 2026-08-27 11:32 CEST: `50c7926a-f13b-4953-ac08-ed7c6638042a` — "Resume and export
+corpus".** Added above. **Its subject is likely POD-2703 ("Prove resume and export per driver"),
+which is already `done`** — so expect confirmation rather than a new finding, but read it: resume
+and export are the migration path the operator cares most about ("any old session needs to keep
+working"), and POD-2871's landed fix deliberately leaves pre-cutover sessions on the legacy store.
+**If that corpus says anything about resuming sessions created before this epic, it bears on
+migration and nothing else on the board covers it.**
