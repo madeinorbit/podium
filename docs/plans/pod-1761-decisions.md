@@ -624,3 +624,56 @@ higher standard the epic set for itself.
 **My recommendation is 3, then 1.** The two clauses I named are the ones where the coarse test
 passes and a user still loses something. Everything else on the list is a fidelity improvement
 rather than a safety one, and can be recorded as a known gap without blocking.
+
+## Decision 23 — THE release question: three claude FAILs with no main baseline (2026-08-27 06:32 CEST)
+
+**Coverage is now 53/69 (77%) with three columns complete — claude 15/15, opencode 16/16, shell 6/6.
+Eight cells are red. Five are instruments. Three are real, and all three are claude:**
+
+    A1b  claude  FAIL   send while busy
+    A1c  claude  FAIL   send to a dead session
+    A3   claude  FAIL   interrupt mid-turn
+
+**WHETHER THESE BLOCK THE RELEASE IS COMPLETELY UNDETERMINED, and one measurement would settle all
+three.**
+
+The bar is *every driver at least as good as it is on today's main*. **So a FAIL on the epic only
+matters if the same cell PASSES on main.** And:
+
+- **A1b on main: never attempted.**
+- **A1c on main: never attempted.**
+- **A3 on main: attempted three times, obtained zero times** — BLOCKED (bytes=0, no turn observed),
+  UNOBTAINABLE (*"main cannot start a named instance"*), and REFUSED (control never produced an
+  in-flight turn).
+
+**POD-2874's readings are NOT a main baseline.** Its pin `6c10b6643` is on the epic branch, so its
+matching A1b/A3 failures say these cells have failed consistently *on the epic*, not that they
+failed before it.
+
+### The baseline is obtainable and my own rule is why nobody has taken it
+
+That `UNOBTAINABLE — main cannot start a named instance` is now fully explained: **main predates
+`ab9d698ab`, so it cannot start a NAMED instance at all** — ~113 bytes of `sun_path` against a
+108-byte limit. **The DEFAULT instance fits at 71 and works.**
+
+**I told every session to run as a named instance, and that rule is what made a main baseline look
+impossible.** It exists to stop sessions colliding, not for correctness, and it inverts on
+pre-socket-fix commits. I believed the opposite for six hours and reported the claude column as
+needing the operator on the strength of it.
+
+### What this costs and what it decides
+
+**Cost:** a main checkout, the default instance (exclusive, one at a time), a live claude
+credential, and three cells. Perhaps ninety minutes.
+
+**Decides:** whether the epic ships. If all three PASS on main, they are regressions and the epic
+is blocked on three defects. If they FAIL on main too, they are inherited, the epic is *at least as
+good as main* on every measured cell, and the release bar is met.
+
+**There is no cheaper way to know**, and no amount of further driving on the epic branch answers it.
+
+**MY RECOMMENDATION: this is the single highest-value work remaining and it should be next.** The
+credential runs to 07:43 and the default instance is free. I am not starting it in the current
+window — POD-2918's hard stop is 07:00 and a rushed baseline is worse than none — but it is first
+in the queue after, ahead of grok's 11:03 cells, because grok adds coverage while this decides
+whether the coverage means the epic can ship.
