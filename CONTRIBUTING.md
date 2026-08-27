@@ -28,9 +28,9 @@ bun run setup:worktree
 ```
 
 This runs `bun install --frozen-lockfile` and follows the linker setting tracked in `bunfig.toml`,
-currently `linker = "hoisted"`. The supported path gives each checkout its own `node_modules` tree
-without overriding that setting. Never share, copy, symlink, or bind-mount a complete
-`node_modules` tree between checkouts.
+currently strict isolated linking backed by Bun's global store. Each checkout keeps its own
+`node_modules` link graph while immutable package payloads are reused across worktrees. Never
+share, copy, symlink, or bind-mount a complete `node_modules` tree between checkouts.
 
 ## Run locally
 
@@ -135,9 +135,10 @@ only as an explicit exception while the gap is fixed.
 ### Checkout-local dependency workflow
 
 Every git checkout or worktree owns its dependency tree. Never share, copy, symlink, or bind-mount a
-complete `node_modules` tree between checkouts. The supported path keeps the tracked
-`linker = "hoisted"` default inside each checkout; “isolated” here means isolated checkout state,
-not a shared dependency tree.
+complete `node_modules` tree between checkouts. The supported path uses strict isolated linking:
+the link graph belongs to the checkout while Bun's global store shares immutable package payloads.
+The tracked `hoist = false` keeps undeclared dependencies unavailable instead of masking them
+through a fallback hoist.
 
 For a fresh checkout, run:
 

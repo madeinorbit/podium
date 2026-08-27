@@ -37,10 +37,11 @@ bun run setup:worktree
 ```
 
 This is the supported topology-following frozen install: it uses the linker setting tracked in
-`bunfig.toml` (currently `linker = "hoisted"`) and creates a dependency tree inside the current
-checkout. The command does not override that setting, so it follows future tracked linker changes.
-Never share, copy, symlink, or bind-mount a complete `node_modules` tree between checkouts; isolated
-checkout state is the boundary.
+`bunfig.toml` (currently strict isolated linking with Bun's global store) and creates a checkout-local
+dependency link graph. Package payloads may be shared through Bun's store, but the complete
+`node_modules` tree never is. The command does not override the tracked topology, so it follows
+future configuration changes. Never share, copy, symlink, or bind-mount a complete `node_modules`
+tree between checkouts; checkout-local links are the boundary.
 
 If the checkout has a damaged or mixed-linker install, stop processes using it and run:
 

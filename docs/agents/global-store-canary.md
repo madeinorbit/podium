@@ -1,8 +1,8 @@
 # Bun global-store canary
 
-This lane evaluates Bun 1.3.14's isolated global store without changing the repository
-default. It installs only into detached worktrees that it creates under an explicit scratch
-parent. The tracked bunfig.toml remains hoisted.
+This lane compares Bun 1.3.14's tracked strict isolated global-store topology with an explicit
+hoisted control. It installs only into detached worktrees that it creates under an explicit
+scratch parent and never changes the source checkout's tracked `bunfig.toml`.
 
 Run the lane separately on each target Linux host:
 
@@ -29,6 +29,8 @@ untracked generated config to candidate installs:
     linker = "isolated"
     globalStore = true
     linkWorkspacePackages = true
+    auto = "disable"
+    hoist = false
 
 All installs use --frozen-lockfile and an explicit cache under
 <cache-root>/runs/<run-id>/. The hoisted control, candidate store, and initially empty

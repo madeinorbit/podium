@@ -1,5 +1,5 @@
 /**
- * Opt-in Bun global-store canary.
+ * Bun global-store qualification canary.
  *
  * The runner never installs into its source checkout. It creates detached,
  * disposable worktrees, uses run-scoped durable caches, and removes only the
