@@ -5217,3 +5217,51 @@ the unrelated root checkout; restoring only that link makes the same branch's fr
 typecheck` green.** One variable, two states, opposite results. **That is a stronger disproof of my
 claim than my claim ever was**, and it is the shape I should have demanded of myself before naming
 its change as the cause.
+
+## SCORER AUDIT — what each cell's scorer does NOT check (2026-08-27 05:37 CEST)
+
+**POD-2919 produced this after I demanded it on bad reasoning and then withdrew the demand on worse
+reasoning. It did it anyway, and it is the most useful artifact of the night** — because a green is
+only worth what its scorer looked at.
+
+    A1a  checks durable user marker, assistant marker, disposition not queued/enqueued
+         DOES NOT check the visible sent receipt, or explicit non-silent settle
+    A1b  checks busy control, queued disposition, position, delivery, weak reload-survived
+         DOES NOT check visible queued state/position AFTER reload, or explicit idle delivery
+    A1c  checks alive control, typed refusal / not silently accepted after kill
+         DOES NOT wait for a later lost-message outcome
+    A2b  checks bound non-exited driver, final idle, observed working/blank phases
+         DOES NOT require status=live
+    A3   checks token motion control, call not ok:false, phase/output stopping
+         RECORDS BUT IGNORES transcript event:'interrupt'; headless motion predicate does not
+         require phase=working  ->  THE CELL IS PARTIAL
+    A5   checks toolUseId call/result booleans, no missing IDs, live IDs after reload, assistant marker
+         DOES NOT compare exact transcript order/content or duplicate counts
+    A6a  checks attach bytes, echo, post-resize bytes, loose common-line second-viewer
+         DOES NOT verify geometry/refit dimensions or exact screen equality
+    A7a  checks changed/reconnected daemon, pointer/history, codeword recall
+         DOES NOT assert stronger process/session identity invariants
+    A9   checks original PIDs at 15s and 300s, infrastructure liveness
+         DOES NOT require stamp proof or detect a new-PID rebound (allInstance logged, unused)
+    A10  checks exact opencode-server on headless, only terminal FAMILY on the terminal arm
+
+**THREE ENTRIES MATTER BEYOND THAT COLUMN:**
+- **A1c does not wait for a later lost-message outcome** — which is *exactly* the open question on
+  claude A1c (Decision 21). **No scorer anywhere answers it**, so it has to be asked by hand.
+- **A9 does not require stamp proof or detect a rebound** — without the first you measure the
+  pre-stamp backlog and record a false FAIL against the reaper; without the second you miss the
+  count going to zero and climbing back. **It is tightening both before the reaper-pinned run.**
+- **A1a does not check "never silent-settles"**, which is a clause of its own criterion. **Applies
+  to every A1a PASS in the matrix, not just opencode's.**
+
+### A3 is PARTIAL, and my withdrawal was wrong because I read the wrong file
+
+I told POD-2919 its A3 was PARTIAL — correct. I then "verified" against
+`docs/evidence/pod-2874/drive.ts`, found `pass = after.ok && (hasMarker || typedRefusal)`,
+decided the scorer was defensible, and withdrew. **POD-2919 uses `docs/evidence/pod-2919/drive.ts`
+— a different file.** Its own audit confirms the marker is ignored AND the motion predicate does not
+require `phase=working`, so neither clause of A3 is established.
+
+**I verified against the wrong artifact** — the same failure I had written into the brief hours
+earlier as "check both sides read the same code". **Withdrawing a correct correction is worse than
+never making it**, because the session had done the hard part and I talked it out of it.
