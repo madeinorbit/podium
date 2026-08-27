@@ -5,6 +5,9 @@ import { parseByteRange, type ResolvedByteRange, resolveByteRange } from './http
 import { rawFileHeaders } from './raw-file-headers'
 
 export interface AssetReader {
+  /** Worktree asset URLs carry their root over HTTP, so the route must verify
+   *  that the root belongs to the addressed machine before forwarding it. */
+  allowsRoot(root: string, machineId?: MachineId): boolean
   readAsset(
     a:
       | { sessionId: SessionId; path: string; offset?: number; length?: number }
@@ -33,13 +36,17 @@ export function registerAssetRoute(app: Hono, registry: AssetReader): void {
     const machineId = c.req.query('machineId')
     const path = c.req.query('path')
     if ((!sessionId && !root) || !path) return c.text('bad request', 400)
+    const parsedMachineId = machineId ? asMachineId(machineId) : undefined
+    if (!sessionId && root && !registry.allowsRoot(root, parsedMachineId)) {
+      return c.text('forbidden', 403)
+    }
     const requestedRange = parseByteRange(c.req.header('range'))
     if (requestedRange === 'invalid') return c.body(null, 416)
     const target = sessionId
       ? { sessionId: asSessionId(sessionId), path }
       : {
           root: root as string,
-          ...(machineId ? { machineId: asMachineId(machineId) } : {}),
+          ...(parsedMachineId ? { machineId: parsedMachineId } : {}),
           path,
         }
     let range: ResolvedByteRange | null = null

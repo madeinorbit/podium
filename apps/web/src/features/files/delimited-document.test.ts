@@ -10,6 +10,7 @@ describe('parseDelimitedDocument', () => {
         ['beta', ''],
       ],
       columnCount: 2,
+      truncated: false,
     })
   })
 
@@ -23,6 +24,7 @@ describe('parseDelimitedDocument', () => {
         ['C', 'say "hi"'],
       ],
       columnCount: 2,
+      truncated: false,
     })
   })
 
@@ -31,10 +33,28 @@ describe('parseDelimitedDocument', () => {
       headers: ['Column 1', 'value'],
       rows: [['first', '1']],
       columnCount: 2,
+      truncated: false,
     })
   })
 
   it('does not leak a UTF-8 byte-order mark into the first header', () => {
     expect(parseDelimitedDocument('\ufeffname,count\na,1', ',').headers).toEqual(['name', 'count'])
+  })
+
+  it('caps newline-heavy documents before they allocate an array per source row', () => {
+    const result = parseDelimitedDocument(`name\n${'\n'.repeat(20_000)}`, ',')
+
+    expect(result.truncated).toBe(true)
+    expect(result.rows).toHaveLength(5_000)
+  })
+
+  it('caps very wide documents before materializing unbounded cells', () => {
+    const result = parseDelimitedDocument(
+      Array.from({ length: 500 }, (_, i) => `c${i}`).join(','),
+      ',',
+    )
+
+    expect(result.truncated).toBe(true)
+    expect(result.columnCount).toBe(200)
   })
 })

@@ -162,7 +162,8 @@ function TablePreview({ path, content }: { path: string; content: string }): JSX
     })
   }, [table.headers, window.columns])
   const visibleRows = filtered.slice(0, window.rows)
-  const limited = window.rows < filtered.length || window.columns < table.columnCount
+  const limited =
+    table.truncated || window.rows < filtered.length || window.columns < table.columnCount
 
   const toggleSort = (column: number): void => {
     setSort((current) => {
@@ -208,6 +209,7 @@ function TablePreview({ path, content }: { path: string; content: string }): JSX
             ? `${table.rows.length} rows · ${table.columnCount} columns`
             : `${filtered.length} of ${table.rows.length} rows`}
           {limited && ` · showing ${window.rows} rows × ${window.columns} columns`}
+          {table.truncated && ' · preview capped for performance'}
         </span>
       </div>
       {table.headers.length === 0 ? (

@@ -1014,7 +1014,12 @@ export async function startServer(
   })
   app.use('/files/*', boundary)
   app.use('/files/*', guard)
-  registerAssetRoute(app, { readAsset: (a) => registry.modules.rpc.readAsset(a) })
+  registerAssetRoute(app, {
+    readAsset: (a) => registry.modules.rpc.readAsset(a),
+    allowsRoot: (root, machineId) =>
+      repos.inferFromPath(root, machineId ?? registry.modules.machines.defaultMachine()) !==
+      undefined,
+  })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
   registerArtifactRoute(app, registry.modules.issueArtifacts)
   // In-process MCP server exposing the superagent's orchestrator tools to a

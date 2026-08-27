@@ -110,7 +110,7 @@ function EntryRow({
       ) : (
         <FileTypeIcon name={entry.name} />
       )}
-      <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]">
+      <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs">
         {entry.name}
       </span>
     </Button>
@@ -164,7 +164,7 @@ function SearchResultRow({
     >
       <FileTypeIcon name={name} size={15} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] leading-4">{name}</span>
+        <span className="block truncate text-xs leading-4">{name}</span>
         {dir && (
           <span className="block truncate font-mono text-[10px] leading-3 text-muted-foreground/70">
             {dir}
@@ -361,7 +361,7 @@ export function WorktreeFileTree({
     >
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <div className="min-w-0 flex-1" title={root}>
-          <div className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium">
+          <div className="overflow-hidden text-ellipsis whitespace-nowrap text-xs font-medium">
             {basename(root)}
           </div>
           {/* Full directory path; leading side truncates so the tail stays readable. */}

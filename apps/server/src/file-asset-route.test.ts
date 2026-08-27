@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { type AssetReader, registerAssetRoute } from './file-asset-route'
 
 const stub = (r: Awaited<ReturnType<AssetReader['readAsset']>>): AssetReader => ({
+  allowsRoot: () => true,
   readAsset: async () => r,
 })
 
@@ -32,7 +33,7 @@ describe('GET /files/asset', () => {
       size: 10,
     }))
     const app = new Hono()
-    registerAssetRoute(app, { readAsset })
+    registerAssetRoute(app, { allowsRoot: () => true, readAsset })
     const res = await app.request('/files/asset?sessionId=s&path=/w/demo.mp4', {
       headers: { range: 'bytes=4-6' },
     })
@@ -63,7 +64,7 @@ describe('GET /files/asset', () => {
       size: source.length,
     }))
     const app = new Hono()
-    registerAssetRoute(app, { readAsset } as AssetReader)
+    registerAssetRoute(app, { allowsRoot: () => true, readAsset } as AssetReader)
     const res = await app.request('/files/asset?sessionId=s&path=/w/demo.mp4', {
       headers: { range: header },
     })
@@ -129,6 +130,21 @@ describe('GET /files/asset', () => {
       headers: { 'sec-fetch-dest': 'image' },
     })
     expect(res.headers.get('content-security-policy')).toBeNull()
+  })
+  it('rejects an unregistered worktree root before reading from the daemon', async () => {
+    const readAsset = vi.fn(async () => ({ ok: true }))
+    const allowsRoot = vi.fn(() => false)
+    const app = new Hono()
+    registerAssetRoute(app, { allowsRoot, readAsset })
+
+    const res = await app.request(
+      '/files/asset?root=%2F&machineId=machine-2&path=%2Fetc%2Fpasswd',
+      { headers: { range: 'bytes=0-9' } },
+    )
+
+    expect(res.status).toBe(403)
+    expect(allowsRoot).toHaveBeenCalledWith('/', 'machine-2')
+    expect(readAsset).not.toHaveBeenCalled()
   })
   it('404s when the read is not ok (e.g. outside sandbox)', async () => {
     const app = new Hono()
