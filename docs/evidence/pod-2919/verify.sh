@@ -2,7 +2,7 @@
 # Verify the three pins and the arm actually bound by the running pair.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../.." && pwd)"
+REPO="$(cd "$HERE/../../.." && pwd)"
 source "$HERE/drive-env.sh"
 
 : "${P2919_CODE_PIN:?P2919_CODE_PIN must name the committed rig code}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../.." && pwd)"
+REPO="$(cd "$HERE/../../.." && pwd)"
 cell="${1:?cell id, e.g. A1a}"
 arm="${2:-headless}"
 case "$cell" in A1a|A1b|A1c|A2b|A3|A5|A6a|A7a|A9|A10) ;; *) echo "unknown cell $cell" >&2; exit 2;; esac

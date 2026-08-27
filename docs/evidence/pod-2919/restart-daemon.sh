@@ -2,7 +2,7 @@
 # Restart only the daemon. The server and client socket remain up for A7a.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../.." && pwd)"
+REPO="$(cd "$HERE/../../.." && pwd)"
 source "$HERE/drive-env.sh"
 
 pidfile="$PODIUM_DRIVE_BASE/daemon.pid"

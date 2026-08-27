@@ -4,7 +4,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../.." && pwd)"
+REPO="$(cd "$HERE/../../.." && pwd)"
 export P2777_INSTANCE="${P2919_INSTANCE:-oc2919}"
 export P2777_BASE="${P2919_BASE:-/tmp/pod-2919}"
 export P2777_PORT="${P2919_PORT:-19857}"

@@ -2,7 +2,7 @@
 # Restart the server and daemon for the explicit A10 arm switch.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../.." && pwd)"
+REPO="$(cd "$HERE/../../.." && pwd)"
 source "$HERE/drive-env.sh"
 
 stop_one() {
