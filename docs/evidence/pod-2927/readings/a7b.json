@@ -1,0 +1,49 @@
+{
+  "id": "A7b",
+  "arm": "headless",
+  "verdict": "FAIL",
+  "summary": "hibernate parked the session and context was recalled, but resurrect did not return the row to live within 60 seconds",
+  "control": {
+    "fired": true,
+    "what": "the same socket receiving the probe prompt as a durable user transcript item",
+    "detail": "user=true answer=true transcriptDelta=2 assistantChars=20"
+  },
+  "evidence": [
+    "PRODUCT DRIVER    driverId=grok-acp family=server",
+    "BASELINE          true codeword=HIBERNATEBASE-6QTT9G",
+    "HIBERNATE         {\"ok\":true} parked=true",
+    "RESURRECT         {\"ok\":true} live=false",
+    "RESUMEANDSEND     {\"ok\":true,\"queued\":true,\"position\":1,\"disposition\":\"queued\"}",
+    "RECALL            true",
+    "CONVERSATION       before=null after=null same=false"
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "hibernatedOk": true,
+    "wakeOk": false,
+    "recalled": true,
+    "sameConversation": false
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a7b",
+  "memoryMb": 4437,
+  "pin": "PIN OK row=A7b arm=headless instance=grok2927 serverPid=1954661 daemonPid=1968990 serverSha=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 webSourceSha=c26c267 driver=policy state=/home/mgw/.local/state/podium/grok2927 home=/home/mgw\nPIN TREES codeCommit=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 codeTree=7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4 runtimeHead=67b2b25fd0395bda824b0a21863091b077a91dda runtimeTree=dbaa4cb9b7c3591252f4ca4117a4a71cabba713d nonDocDiff=0\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+  "sessionIds": [
+    "02563616-8b95-41fc-8cec-71ddd1a5a1c2"
+  ],
+  "at": "2026-08-27T10:07:21.334Z",
+  "criterionClauses": {
+    "contextExistedBeforeHibernate": "PASS — baseline durable turn answered with HIBERNATEBASE-6QTT9G",
+    "actuallyHibernated": "PASS — hibernate returned ok and the row left live/running",
+    "wakesWithoutWedge": "FAIL — resurrect returned ok but the row did not reach status=live within 60 seconds",
+    "contextIntact": "PASS — subsequent resume-and-send elicited the exact pre-hibernate codeword",
+    "sameConversationIdentity": "UNVERIFIED — neither pre nor post row reported a conversationId; this aggregate probe did not separately capture reload-history identity"
+  },
+  "admission": {
+    "diskFreeKb": 12904720,
+    "memAvailableKb": 4562096,
+    "load1": 5.10,
+    "testHeavyLease": "free"
+  },
+  "localTimestamp": "2026-08-27 12:07:21 CEST"
+}
