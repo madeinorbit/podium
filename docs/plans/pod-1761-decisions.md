@@ -775,3 +775,46 @@ will make one of them better than main rather than equal to it.
 
 **TEARDOWN VERIFIED.** All rig processes, worktrees and credential copies removed; `instance:default`
 free; the operator's credential mtime unchanged at 23:43:12 through the entire run.
+
+## Decision 24 — A3 IS A CONFIRMED REGRESSION AND IT BLOCKS THE RELEASE (2026-08-27 08:54 CEST)
+
+**This reverses the position I recorded an hour ago. There IS a confirmed regression, and it is the
+one cell that was still open.**
+
+    A3 interrupt mid-turn    MAIN 0bd90092c   PASS — stopped, and the transcript marked it
+    A3 interrupt mid-turn    EPIC             FAIL — interrupt returned without a stopping record
+
+**Main works. The epic does not. That is worse-than-main on a Tier-A cell, which is exactly the bar
+this epic is held to.**
+
+**THE MAIN READING IS AIRTIGHT AND THAT MATTERS, because A3 is the cell where a bad rig flatters
+the answer.** POD-2921 established the turn was genuinely in flight before interrupting:
+
+    load 5.92 — under the ceiling, so no starved-host artefact
+    durable user control fired
+    independent PTY growth 7,836 -> 16,023 bytes, with a VISIBLE count progressing 1 / 2 / 3
+    sessions.interrupt returned ok:true
+    one residual second of 2,903 bytes, then 19 CONSECUTIVE ZERO-GROWTH SAMPLES
+    transcript contains "[Request interrupted by user]"
+    typedRefusal false — so it was scored on the acted-on path: stop PLUS transcript marker
+
+**It did not use the phase observer**, which reported `idle` through a live turn on main earlier
+tonight. **Both clauses of the criterion were met independently.** This is not a marginal PASS.
+
+**WHY THIS TOOK ALL NIGHT TO GET, and why the earlier attempts are not evidence against it:** three
+prior attempts at this baseline recorded BLOCKED (`bytes=0`), UNOBTAINABLE (*"main cannot start a
+named instance"*), and REFUSED (control never fired). **Every one of those was a rig failure, not a
+reading** — and the UNOBTAINABLE was caused by my own standing rule, since main predates the socket
+fix and cannot start a NAMED instance while the DEFAULT instance fits.
+
+**WHAT IT MEANS.** A1b and A1c remain INHERITED — they fail identically on main. **A3 is the sole
+blocker.** The epic cannot ship as *"every driver at least as good as today's main"* until interrupt
+on claude stops the turn and records it, because on main it does both.
+
+**IT IS FIXABLE, NOT A DESIGN CONSEQUENCE.** The epic-side reading is *"interrupt returned without a
+stopping record"* — the call succeeds and the turn continues. That is a defect in the interrupt path
+for the claude driver, not a property of the new runtime. **It needs an owner: one issue, a pre-fix
+control that already exists on both sides, and a drive.**
+
+**THE NEXT COORDINATOR SHOULD MAKE THIS THE FIRST THING THEY STAFF**, ahead of grok's fourteen
+cells. Grok adds coverage; this decides whether the epic ships.
