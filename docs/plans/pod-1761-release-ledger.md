@@ -5096,3 +5096,16 @@ Worktree handling deliberately reuses `podium issue stop`: a clean worktree is f
 and session row remain; a dirty or uninspectable worktree refuses the no-force cleanup and preserves its
 uncommitted work. `podium instance rekey` is the explicit copied-state-root recovery and preserves the same
 product records while minting a new owner UUID.
+
+### POD-2691 consumer driven (2026-08-27 03:45:27 CEST)
+
+The post-fix numeric `/proc` PID→cwd census at 03:38:21 CEST still saw the old untagged agent population,
+including the known two-process POD-2908 residue. That is expected and safe: processes created before the UUID
+consumer cannot be attributed by this fix, so they remain foreign facts rather than becoming a pattern-match kill.
+
+At 03:44:35Z (03:44 CEST), a fresh isolated state root bootstrapped the production instance identity and ran the
+production process reaper against real children. The cooperative sentinel fired and returned
+`examined=1, term=1, kill=0, remaining=0`; the TERM-resistant sentinel fired and returned
+`examined=1, term=1, kill=1, remaining=0`. A same-session child carrying a foreign UUID returned
+`examined=0, term=0, kill=0, remaining=0` and remained alive until explicit harness cleanup. The evidence rows are
+in `docs/plans/pod-1761-results.tsv`, against implementation commit `ee0c7bc75`.
