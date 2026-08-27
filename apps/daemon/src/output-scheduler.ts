@@ -3,7 +3,7 @@ export type Tier = 0 | 1 | 2 | 3
 
 export interface OutputSchedulerDeps {
   /** Send one coalesced batch for a session (caller wraps it as agentFrameBatch). */
-  flush: (sessionId: SessionId, frames: string[]) => void
+  flush: (sessionId: SessionId, frames: readonly Uint8Array[]) => void
   setTimer?: (fn: () => void, ms: number) => unknown
   clearTimer?: (h: unknown) => void
   scheduleImmediate?: (fn: () => void) => void
@@ -11,7 +11,7 @@ export interface OutputSchedulerDeps {
   coalesceMaxBytes?: number
 }
 
-interface Pending { frames: string[]; bytes: number; tier: Tier; timer: unknown; immediate: boolean }
+interface Pending { frames: Uint8Array[]; bytes: number; tier: Tier; timer: unknown; immediate: boolean }
 
 /**
  * Per-session PTY-frame relay scheduler. Collapses many per-frame sends into one
@@ -45,10 +45,10 @@ export class OutputScheduler {
     return p
   }
 
-  enqueue(sessionId: SessionId, data: string): void {
+  enqueue(sessionId: SessionId, data: Uint8Array): void {
     const p = this.state(sessionId)
     p.frames.push(data)
-    p.bytes += data.length
+    p.bytes += data.byteLength
     if (p.tier <= 1) {
       if (!p.immediate) {
         p.immediate = true

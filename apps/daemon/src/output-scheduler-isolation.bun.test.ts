@@ -13,8 +13,8 @@ test('a P3 flood does not delay a P0 session and stays batched', async () => {
   s.setPriority('bg', 3)
   s.setPriority('fg', 0)
   // background floods 500 frames; foreground sends 1
-  for (let i = 0; i < 500; i++) s.enqueue('bg', 'x')
-  s.enqueue('fg', 'k')
+  for (let i = 0; i < 500; i++) s.enqueue('bg', Buffer.from('x'))
+  s.enqueue('fg', Buffer.from('k'))
   await new Promise((r) => setTimeout(r, 0)) // foreground per-tick flush
   const fgImmediate = sent.filter((x) => x.sid === 'fg')
   expect(fgImmediate).toEqual([{ sid: 'fg', n: 1 }]) // fg flushed on the tick, batched once

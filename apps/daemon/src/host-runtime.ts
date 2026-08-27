@@ -352,7 +352,13 @@ export async function createDaemonHostRuntime(args: {
   }
 
   const outputScheduler = new OutputScheduler({
-    flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
+    flush: (sessionId, frames) =>
+      send({
+        type: 'agentFrameBatch',
+        sessionId,
+        // Compatibility checkpoint: keep the remote/local wire unchanged.
+        frames: frames.map((frame) => Buffer.from(frame).toString('base64')),
+      }),
   })
 
   const parentHasServer =

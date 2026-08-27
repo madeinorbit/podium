@@ -320,7 +320,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     let out = ''
     let title = ''
     session.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     session.onTitle((t) => {
       title = t
@@ -345,7 +345,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     const re = attachAbducoAgent({ label, cols: 80, rows: 24 })
     let out2 = ''
     re.onFrame((f) => {
-      out2 += Buffer.from(f.data, 'base64').toString('utf8')
+      out2 += Buffer.from(f.data).toString('utf8')
     })
     await wait(500)
     re.write(Buffer.from('yo\r', 'utf8').toString('base64'))
@@ -381,7 +381,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     const re = attachAbducoAgent({ label, cols: 80, rows: 24 }) // same geometry
     let out = ''
     re.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     await wait(1200)
     expect(out).toContain('PODIUM-FIXTURE') // repainted despite unchanged size
@@ -503,7 +503,7 @@ describe.skipIf(!hasAbduco)('abduco input-fidelity parity', () => {
       session = spawnAgent({ cmd: bunBin, args: [HEX_FIXTURE], cols: 80, rows: 24 }, bunPty)
     }
     session.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     // Probe with a non-control byte first so setRawMode is live before Ctrl-C (0x03).
     session.write(Buffer.from([0x61]).toString('base64')) // 'a'

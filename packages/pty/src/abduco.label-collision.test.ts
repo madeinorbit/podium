@@ -65,7 +65,7 @@ describe.skipIf(!hasAbduco)('spawning onto a squatted durable label', () => {
     try {
       let out = ''
       session.onFrame((f) => {
-        out += Buffer.from(f.data, 'base64').toString('utf8')
+        out += Buffer.from(f.data).toString('utf8')
       })
       const startedAt = Date.now()
       while (!out.includes('READY') && Date.now() - startedAt < 8000) await wait(25)
@@ -89,7 +89,7 @@ describe.skipIf(!hasAbduco)('spawning onto a squatted durable label', () => {
     })
     let out = ''
     first.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     const startedAt = Date.now()
     while (!out.includes('READY') && Date.now() - startedAt < 8000) await wait(25)
@@ -113,7 +113,7 @@ describe.skipIf(!hasAbduco)('spawning onto a squatted durable label', () => {
       expect(resumed.adopted).toBe(true)
       let out2 = ''
       resumed.onFrame((f) => {
-        out2 += Buffer.from(f.data, 'base64').toString('utf8')
+        out2 += Buffer.from(f.data).toString('utf8')
       })
       await wait(500)
       // Round-trip input to prove this is the SAME, still-live agent (abduco

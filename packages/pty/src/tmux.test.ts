@@ -85,7 +85,7 @@ describe.skipIf(!hasTmux)('tmux integration', () => {
     let out = ''
     let title = ''
     session.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     session.onTitle((t) => {
       title = t
@@ -107,7 +107,7 @@ describe.skipIf(!hasTmux)('tmux integration', () => {
     const re = attachTmuxAgent({ label, cols: 80, rows: 24, backend: bunPty })
     let out2 = ''
     re.onFrame((f) => {
-      out2 += Buffer.from(f.data, 'base64').toString('utf8')
+      out2 += Buffer.from(f.data).toString('utf8')
     })
     await wait(500)
     expect(out2.length).toBeGreaterThan(0)
@@ -159,7 +159,7 @@ describe.skipIf(!hasTmux)('tmux input-fidelity parity', () => {
       session = spawnAgent({ cmd: bunBin, args: [HEX_FIXTURE], cols: 80, rows: 24 }, bunPty)
     }
     session.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     // Probe first with a non-control byte so we know the fixture is in raw mode before
     // we send Ctrl-C (0x03) — a premature 0x03 can SIGINT the agent before setRawMode.

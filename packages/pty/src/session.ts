@@ -17,8 +17,8 @@ export interface SpawnOptions {
 
 export interface AgentFrame {
   seq: number
-  /** base64 of raw PTY output bytes */
-  data: string
+  /** Raw PTY output bytes, copied from the backend-owned read buffer. */
+  data: Uint8Array
 }
 
 export interface AgentSession {
@@ -100,7 +100,7 @@ export function wrapPty(proc: PtyProcess, init: { cols: number; rows: number }):
 
   proc.onData((bytes: Uint8Array) => {
     const buf = Buffer.from(bytes)
-    const frame: AgentFrame = { seq, data: buf.toString('base64') }
+    const frame: AgentFrame = { seq, data: buf }
     seq += 1
     for (const cb of [...frameCbs]) cb(frame)
     for (const raw of titleScanner.push(decoder.write(buf))) {

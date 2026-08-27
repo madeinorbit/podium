@@ -192,13 +192,12 @@ export function wireBridge(
   ctx.pendingResizes.delete(sessionId)
   if (pending) session.resize(pending.cols, pending.rows)
   session.onFrame((frame) => {
-    countFrame(frame.data.length)
+    countFrame(frame.data.byteLength)
     ctx.outputScheduler.enqueue(sessionId, frame.data)
     // Draft Sync v2 (POD-859): feed the composer engine the raw PTY bytes when it's
-    // running for this (flagged) session. Guarded so unflagged sessions skip the
-    // base64 decode entirely.
+    // running for this (flagged) session.
     if (ctx.composerEngine.has(sessionId)) {
-      ctx.composerEngine.onData(sessionId, Buffer.from(frame.data, 'base64'))
+      ctx.composerEngine.onData(sessionId, frame.data)
     }
   })
   // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at

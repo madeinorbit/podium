@@ -9,7 +9,7 @@
  *    agent's CPU/IO weight off the daemon's. A durable host is what makes a
  *    session survive the daemon.
  *  - **framing / redraw / OSC scan** — {@link wrapPty} turns raw PTY output into
- *    sequenced base64 frames, forces genuine repaints (the shrink-and-restore
+ *    sequenced raw-byte frames, forces genuine repaints (the shrink-and-restore
  *    nudge, Ctrl-L for idle shells), and lifts the OSC 0/1/2 title the child sets.
  *
  * This package is deliberately **harness-agnostic**: it does not know that Claude

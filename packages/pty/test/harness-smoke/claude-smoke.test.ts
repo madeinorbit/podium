@@ -44,7 +44,7 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !ready)(
       )
       let buf = ''
       s.onFrame((f) => {
-        buf += Buffer.from(f.data, 'base64').toString('utf8')
+        buf += Buffer.from(f.data).toString('utf8')
       })
       try {
         for (let i = 0; i < 300 && buf.length < 500; i++) await wait(50)
