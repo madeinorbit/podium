@@ -305,6 +305,22 @@ function proxyHopsFromEnv(env: Record<string, string | undefined>): number {
   return /^\d+$/.test(raw) ? Number(raw) : Number.NaN
 }
 
+/** A loopback-bound Podium can only receive network traffic through a local
+ *  proxy, so trust that one hop by default. This makes a newly saved Tailscale
+ *  Serve or Funnel setup work without a restart or a second environment setting.
+ *  Explicit options and env configuration always win, including zero. */
+export function resolveTrustedProxyHops(
+  explicit: number | undefined,
+  env: Record<string, string | undefined>,
+  bindHost: string,
+): number {
+  if (explicit !== undefined) return explicit
+  if (env.PODIUM_TRUSTED_PROXY_HOPS !== undefined && env.PODIUM_TRUSTED_PROXY_HOPS !== '') {
+    return proxyHopsFromEnv(env)
+  }
+  return isLoopbackHost(bindHost) ? 1 : 0
+}
+
 function tlsFromEnv(
   env: Record<string, string | undefined>,
 ): { key: string; cert: string } | undefined {
@@ -341,7 +357,9 @@ export async function startServer(
     localSetupDefault?: boolean
   } = {},
 ): Promise<ServerHandle> {
-  const configuredProxyHops = opts.trustedProxyHops ?? proxyHopsFromEnv(process.env)
+  const config = loadConfig()
+  const host = resolveBindHost(opts)
+  const configuredProxyHops = resolveTrustedProxyHops(opts.trustedProxyHops, process.env, host)
   if (
     !Number.isSafeInteger(configuredProxyHops) ||
     configuredProxyHops < 0 ||
@@ -356,9 +374,7 @@ export async function startServer(
   ensureInstanceStateIdentity({ instanceId })
   // Role composition (roles.ts): which optional module groups this process
   // activates. Explicit opts win; else the H1 shape, core + hub.
-  const config = loadConfig()
   const desktopSupervised = process.env.PODIUM_DESKTOP_SUPERVISED === '1'
-  const host = resolveBindHost(opts)
   const role = resolveServerRole(opts.role)
   // WHO THIS HOST IS, read (or minted) once, before anything can write a row. Every
   // other consumer in the process takes it from here — the store carries it to the
@@ -780,7 +796,11 @@ export async function startServer(
     resolveUserId: (headers) =>
       requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader),
     trustedProxyHops,
-    requestPeerAddress: (request) => requestPeerAddresses.get(request),
+    localControlRequest: isHostLocalRequest,
+    // `app.fetch` receives the observed Request carrying the native peer header,
+    // not the original Request used as the WeakMap key above.
+    requestPeerAddress: (request) =>
+      request.headers.get('x-podium-peer-address') ?? requestPeerAddresses.get(request),
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
   })
   app.use('/files/*', boundary)

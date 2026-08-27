@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { serverConfig, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -50,6 +50,16 @@ type NetOptionInfo = Awaited<ReturnType<Trpc['setup']['options']['query']>>[numb
 /** The whole-wizard commit payload, derived from the router so it can't drift. */
 export type SetupCompleteInput = Parameters<Trpc['setup']['complete']['mutate']>[0]
 
+/** Save-bar state exposed by the embedded Network settings form. */
+export interface NetworkSaveController {
+  dirty: boolean
+  saving: boolean
+  error: string | null
+  savedAt: number
+  save: () => Promise<void>
+  discard: () => void
+}
+
 /** What the form starts from: the state this instance is ALREADY in, resolved before a
  *  single field is rendered. See `networkStepInitialState`. */
 export interface NetworkStepInitialState {
@@ -96,6 +106,9 @@ interface NetworkStepProps {
    *  later sub-step (telemetry) can commit the whole wizard in one call
    *  [spec:SP-f933]. Absent = commit immediately (the embedded Settings use). */
   onCollected?: (payload: SetupCompleteInput) => void
+  /** Settings owns the shared save bar. When supplied, the embedded form reports
+   *  its draft here and omits its private save controls. */
+  onSaveStateChange?: (state: NetworkSaveController | null) => void
 }
 
 /** Reachability step: pick how to expose the relay, run the printed command, paste the resulting
@@ -154,6 +167,7 @@ function NetworkStepForm({
   embedded = false,
   mode,
   onCollected,
+  onSaveStateChange,
   initial,
 }: NetworkStepProps & { initial: NetworkStepInitialState }): ReactNode {
   const httpOrigin = serverConfig(window.location).httpOrigin
@@ -173,7 +187,22 @@ function NetworkStepForm({
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [savedAt, setSavedAt] = useState(0)
   const hasPassword = initial.hasPassword
+  const initialAuthMode = initial.hasPassword ? 'keep' : 'password'
+  const [baseline, setBaseline] = useState(() => ({
+    option: initial.option,
+    url: initial.url,
+    authMode: initialAuthMode as 'password' | 'open' | 'keep',
+    password: '',
+    ackNoPassword: false,
+  }))
+  const dirty =
+    option !== baseline.option ||
+    url !== baseline.url ||
+    authMode !== baseline.authMode ||
+    password !== baseline.password ||
+    ackNoPassword !== baseline.ackNoPassword
   // Ephemeral quick-tunnel flag for the pasted URL (mirrors the CLI's warning).
   const urlWarning = quickTunnelWarning(url)
 
@@ -202,7 +231,7 @@ function NetworkStepForm({
     })
   }
 
-  const finish = async (): Promise<void> => {
+  const finish = useCallback(async (): Promise<void> => {
     setErr('')
     // NOT `password.trim()` (POD-1148). The login route verifies the raw string and
     // `auth.setPassword` hashes the raw string, so trimming here stored a credential the user
@@ -253,13 +282,44 @@ function NetworkStepForm({
         }).catch(() => {})
       }
       setSaved(true)
+      setSavedAt(Date.now())
+      setBaseline({ option, url, authMode, password, ackNoPassword })
       onSaved()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }
-  }
+  }, [ackNoPassword, authMode, httpOrigin, mode, onCollected, onSaved, option, password, trpc, url])
+
+  const discard = useCallback((): void => {
+    setOption(baseline.option)
+    setUrl(baseline.url)
+    setAuthMode(baseline.authMode)
+    setPassword(baseline.password)
+    setAckNoPassword(baseline.ackNoPassword)
+    setErr('')
+    setSaved(false)
+    setSavedAt(0)
+  }, [baseline])
+
+  useEffect(() => {
+    onSaveStateChange?.({
+      dirty,
+      saving: busy,
+      error: err || null,
+      savedAt,
+      save: finish,
+      discard,
+    })
+  }, [busy, dirty, discard, err, finish, onSaveStateChange, savedAt])
+
+  useEffect(
+    () => () => {
+      onSaveStateChange?.(null)
+    },
+    [onSaveStateChange],
+  )
 
   return (
     <div
@@ -462,41 +522,45 @@ function NetworkStepForm({
           </Label>
         )}
       </fieldset>
-      {err && (
+      {err && !onSaveStateChange && (
         <p role="alert" className="text-[12px] text-destructive">
           {err}
         </p>
       )}
-      <p role="status" className="min-h-4 text-[12px] text-success">
-        {saved ? 'Network settings saved.' : ''}
-      </p>
-      <div className="flex items-center justify-between gap-2">
-        {onBack ? (
-          <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-            Back
-          </Button>
-        ) : (
-          <span />
-        )}
-        <div className="flex items-center gap-2">
-          {onSkip && (
-            <Button type="button" variant="outline" size="sm" onClick={onSkip}>
-              Skip for now
+      {!onSaveStateChange && (
+        <p role="status" className="min-h-4 text-[12px] text-success">
+          {saved ? 'Network settings saved.' : ''}
+        </p>
+      )}
+      {!onSaveStateChange && (
+        <div className="flex items-center justify-between gap-2">
+          {onBack ? (
+            <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+              Back
             </Button>
+          ) : (
+            <span />
           )}
-          <Button
-            type="button"
-            disabled={
-              busy ||
-              !url.trim() ||
-              (authMode === 'password' ? !password : authMode === 'open' ? !ackNoPassword : false)
-            }
-            onClick={() => void finish()}
-          >
-            {busy ? 'Saving…' : embedded ? 'Save network settings' : 'Finish'}
-          </Button>
+          <div className="flex items-center gap-2">
+            {onSkip && (
+              <Button type="button" variant="outline" size="sm" onClick={onSkip}>
+                Skip for now
+              </Button>
+            )}
+            <Button
+              type="button"
+              disabled={
+                busy ||
+                !url.trim() ||
+                (authMode === 'password' ? !password : authMode === 'open' ? !ackNoPassword : false)
+              }
+              onClick={() => void finish()}
+            >
+              {busy ? 'Saving…' : embedded ? 'Save network settings' : 'Finish'}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

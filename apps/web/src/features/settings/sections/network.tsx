@@ -1,8 +1,8 @@
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { NetworkStep } from '@/features/setup/network-step'
+import { NetworkStep, type NetworkSaveController } from '@/features/setup/network-step'
 import { Row, Section } from './shared'
 
 interface NetworkInfo {
@@ -18,21 +18,27 @@ interface NetworkInfo {
  * (`daemon`) / viewer (`client`) boxes show which server they connect to instead (change = re-run
  * setup). Fills the gap where the CLI's `podium setup → change URL` had no web equivalent.
  */
-export function NetworkSection(): JSX.Element {
+export function NetworkSection({
+  onSaveStateChange,
+}: {
+  onSaveStateChange?: (state: NetworkSaveController | null) => void
+} = {}): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   // undefined = loading, null = failed. Do not guess that this is a host until mode is known:
   // the host form can change topology, so briefly showing it on a worker is unsafe.
   const [info, setInfo] = useState<NetworkInfo | null | undefined>(undefined)
 
-  const load = (showLoading = false): void => {
-    if (showLoading) setInfo(undefined)
-    trpc.setup.info
-      .query()
-      .then(setInfo)
-      .catch(() => setInfo(null))
-  }
-  // biome-ignore lint/correctness/useExhaustiveDependencies: load is stable enough; trpc is the dep.
-  useEffect(() => load(true), [trpc])
+  const load = useCallback(
+    (showLoading = false): void => {
+      if (showLoading) setInfo(undefined)
+      trpc.setup.info
+        .query()
+        .then(setInfo)
+        .catch(() => setInfo(null))
+    },
+    [trpc],
+  )
+  useEffect(() => load(true), [load])
 
   if (info === undefined) {
     return (
@@ -85,7 +91,7 @@ export function NetworkSection(): JSX.Element {
       title="Network"
       hint="Choose how phones, browsers, and other machines reach this Podium server."
     >
-      <NetworkStep embedded trpc={trpc} onSaved={load} />
+      <NetworkStep embedded trpc={trpc} onSaved={load} onSaveStateChange={onSaveStateChange} />
     </Section>
   )
 }

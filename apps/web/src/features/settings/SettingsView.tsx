@@ -8,6 +8,7 @@ import { AppSheet } from '@/app/AppSheet'
 import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
+import type { NetworkSaveController } from '@/features/setup/network-step'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { refusalMessage, saveSettingsAsCommands } from './save-settings'
@@ -130,8 +131,8 @@ export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = SETTINGS_GRO
   (g) => g.tabs,
 )
 
-/** Tabs that edit the shared blob and ride the dirty-bar Save; the rest
- *  self-persist and apply instantly, so the bar never shows there. */
+/** Tabs that edit the shared blob and ride the dirty-bar Save. Network has a
+ *  separate config store and supplies its own controller to that same bar. */
 const BLOB_TABS: ReadonlySet<SettingsTab> = new Set([
   'sessions',
   'superagent',
@@ -166,12 +167,12 @@ interface SectionContext {
   secretError: string | null
   setSecret: (key: ServerSecretKey, value: string) => void
   clearSecret: (key: ServerSecretKey) => void
+  setNetworkSaveState: (state: NetworkSaveController | null) => void
 }
 
 /** The tab -> section lookup (P5d, issue #264 — replaces the JSX ladder). Most
- *  sections edit the shared blob via `patch`; the self-persisting ones
- *  (appearance, accounts, network, machines, security, updates) pull what they
- *  need from the store hook themselves. */
+ *  sections edit the shared blob via `patch`; instant-save sections pull what
+ *  they need from the store hook. Network owns a separate staged config draft. */
 const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> = {
   appearance: () => <AppearanceSection />,
   accounts: () => <AccountsSection />,
@@ -198,7 +199,7 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
     />
   ),
   workflow: ({ settings, patch }) => <WorkflowSection settings={settings} patch={patch} />,
-  network: () => <NetworkSection />,
+  network: ({ setNetworkSaveState }) => <NetworkSection onSaveStateChange={setNetworkSaveState} />,
   devices: ({ trpc, openNetworkSettings }) => (
     <ConnectedDevicesSection trpc={trpc} onOpenNetwork={openNetworkSettings} />
   ),
@@ -259,6 +260,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
    *  request that failed, and the two read differently to a user. */
   const [refusals, setRefusals] = useState<readonly SettingsWriteRefusal[]>([])
   const [savedAt, setSavedAt] = useState(0)
+  const [networkSave, setNetworkSave] = useState<NetworkSaveController | null>(null)
   const [filter, setFilter] = useState('')
   /**
    * THE SECRET SURFACE, AND WHY IT HAS ONLY THREE STATES (POD-421).
@@ -549,8 +551,27 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
     return () => window.clearTimeout(id)
   }, [savedFlash])
   const refusalText = refusalMessage(refusals)
+  const blobSaveActive = BLOB_TABS.has(tab)
+  const networkSaveActive = tab === 'network' ? networkSave : null
+  const activeDirty = blobSaveActive ? dirty : (networkSaveActive?.dirty ?? false)
+  const activeSaving = blobSaveActive ? saving : (networkSaveActive?.saving ?? false)
+  const activeError = blobSaveActive ? error : (networkSaveActive?.error ?? null)
+  const activeSavedFlash = blobSaveActive
+    ? savedFlash
+    : Boolean(networkSaveActive?.savedAt && Date.now() - networkSaveActive.savedAt < 1500)
+  useEffect(() => {
+    if (!networkSaveActive?.savedAt || !activeSavedFlash) return
+    const id = window.setTimeout(() => forceTick((n) => n + 1), 1600)
+    return () => window.clearTimeout(id)
+  }, [activeSavedFlash, networkSaveActive?.savedAt])
+  const activeRefusalText = blobSaveActive ? refusalText : null
   const showBar =
-    BLOB_TABS.has(tab) && (dirty || saving || savedFlash || Boolean(error) || Boolean(refusalText))
+    (blobSaveActive || Boolean(networkSaveActive)) &&
+    (activeDirty ||
+      activeSaving ||
+      activeSavedFlash ||
+      Boolean(activeError) ||
+      Boolean(activeRefusalText))
   /**
    * CLOSING WITH UNSAVED EDITS. Escape and a backdrop click are both one
    * keystroke or one stray click away at all times, and both used to drop a
@@ -569,9 +590,12 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
   const [closeBlockedAt, setCloseBlockedAt] = useState(0)
   const closeBlocked = closeBlockedAt > 0 && Date.now() - closeBlockedAt < 2600
   const discard = () => {
-    setSettings(lastSaved)
-    setError(null)
-    setRefusals([])
+    if (networkSaveActive) networkSaveActive.discard()
+    else {
+      setSettings(lastSaved)
+      setError(null)
+      setRefusals([])
+    }
     setCloseBlockedAt(0)
   }
   useEffect(() => {
@@ -581,7 +605,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
   }, [closeBlocked])
   // Gated on the same condition as the bar itself: a refusal the user has no
   // visible reason for is indistinguishable from a broken Escape key.
-  const blocksClose = BLOB_TABS.has(tab) && (dirty || saving)
+  const blocksClose = activeDirty || activeSaving
   const requestClose = (): void => {
     if (blocksClose) {
       setCloseBlockedAt(Date.now())
@@ -613,7 +637,10 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
         filterRef.current?.focus()
       } else if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
-        if (dirty && !saving && BLOB_TABS.has(tab)) void save()
+        if (activeDirty && !activeSaving) {
+          if (networkSaveActive) void networkSaveActive.save()
+          else if (blobSaveActive) void save()
+        }
       }
       // Escape belongs to the sheet (AppSheet), which owns closing for every
       // utility overlay — one handler, one behaviour.
@@ -747,6 +774,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                     clearSecret: (key) => {
                       void writeSecret(() => trpc.settings.clearSecret.mutate({ key }))
                     },
+                    setNetworkSaveState: setNetworkSave,
                   })}
                 </Suspense>
               ) : (
@@ -793,38 +821,41 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
             <span
               className={cn(
                 'min-w-0 flex-1 truncate text-[13px]',
-                error || refusalText ? 'text-destructive' : 'text-foreground',
+                activeError || activeRefusalText ? 'text-destructive' : 'text-foreground',
               )}
               // A refusal — of a write, or of the close that would have thrown
               // the edit away — is the message a user acts on, so it is
               // announced rather than left to be noticed in a bar they were not
               // reading.
-              role={refusalText || closeBlocked ? 'alert' : undefined}
-              data-settings-refusal={refusalText ? 'true' : undefined}
+              role={activeRefusalText || closeBlocked ? 'alert' : undefined}
+              data-settings-refusal={activeRefusalText ? 'true' : undefined}
               data-settings-close-blocked={closeBlocked ? 'true' : undefined}
-              title={refusalText ?? undefined}
+              title={activeRefusalText ?? undefined}
             >
-              {error
-                ? error
-                : (refusalText ??
+              {activeError
+                ? activeError
+                : (activeRefusalText ??
                   (closeBlocked
                     ? 'Unsaved changes — save or discard first'
-                    : dirty || saving
+                    : activeDirty || activeSaving
                       ? 'Unsaved changes'
                       : 'Saved ✓'))}
             </span>
-            {(dirty || error) && (
+            {(activeDirty || activeError) && (
               <Button type="button" variant="ghost" size="sm" onClick={discard}>
                 Discard
               </Button>
             )}
-            {(dirty || saving || error) && (
+            {(activeDirty || activeSaving || activeError) && (
               <Button
                 type="button"
                 size="sm"
-                pending={saving}
+                pending={activeSaving}
                 pendingLabel="Saving…"
-                onClick={() => void save()}
+                onClick={() => {
+                  if (networkSaveActive) void networkSaveActive.save()
+                  else void save()
+                }}
               >
                 Save changes
               </Button>
