@@ -1184,3 +1184,31 @@ everything and survives arriving out of order.
 
 **And the corollary for the sender: never assume your correction landed before the thing it
 corrects.** If a message matters, put the fact in it rather than a pointer to a fact.
+
+### "The branch moved" is not "my rig is stale" (2026-08-27 02:45 CEST)
+
+The coordinator commits ledger, brief and results updates every few minutes. **A session that
+treats every advance of the branch as invalidating its rig will rebuild forever on this epic.**
+
+**The check is one line and it is in the cron:**
+
+    git diff --name-only <your pin>..issue/1761-agent-runtime | grep -v '^docs/'
+
+**Empty means your rig is current, however many commits landed.** Non-empty means look at WHICH
+files — a change in an area your cell does not touch does not invalidate your reading either.
+
+Two live cases tonight, and the same line separates them:
+
+- A session's base was **3 commits behind the tip, all docs-only** → its bundle was byte-identical
+  in code to one built at the tip, valid for its whole six-cell column, no rebuild needed.
+- POD-2874's shell and claude evidence sits at `6c10b6643` with **336 non-docs files changed
+  since, 34 of them in terminal / session / socket / pty paths** → genuinely stale, and refusing to
+  claim from it was correct.
+
+**So the number of commits is never the answer.** "Your base is 259 commits behind" mattered
+because those commits carried code; "your base is 3 commits behind" did not, because they carried
+prose. Run the line.
+
+**And say which case you are in when you report.** "My pin is N commits behind but the non-docs
+diff is empty" is a complete statement; "the branch has moved since my pin" is not, and invites
+the reader to guess.
