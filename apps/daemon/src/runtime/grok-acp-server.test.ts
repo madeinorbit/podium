@@ -4,17 +4,19 @@ import type {
   GrokAcpTransport,
 } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { grokAcpProcessKey, grokAcpVersionProbe, resetGrokAcpVersionProbe } from './grok-acp-server'
 import { createDaemonGrokRuntime } from './grok-driver'
 import { availableDriverIds } from './registry'
 
 afterEach(() => resetGrokAcpVersionProbe())
 
-function adoptionWorld(options: { deferStop?: boolean } = {}) {
+function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {}) {
   const entries = new Map<SessionId, GrokAcpJournalEntry>()
   const requests: Array<{ method?: string; params?: Record<string, unknown> }> = []
   const stopWaiters: Array<() => void> = []
+  const loadReplies: Array<{ respond(payload: Record<string, unknown>): void }> = []
+  let deferLoad = options.deferLoad ?? false
   let launches = 0
 
   const host: GrokAcpRuntimeHost = {
@@ -37,13 +39,19 @@ function adoptionWorld(options: { deferStop?: boolean } = {}) {
           }
           requests.push(frame)
           if (frame.id === undefined || !frame.method) return
+          const respond = (payload: Record<string, unknown>) =>
+            handler?.line(JSON.stringify({ jsonrpc: '2.0', id: frame.id, ...payload }))
+          if (frame.method === 'session/load' && deferLoad) {
+            loadReplies.push({ respond })
+            return
+          }
           const result =
             frame.method === 'initialize'
               ? { protocolVersion: 1, agentCapabilities: { loadSession: true } }
               : frame.method === 'session/load'
                 ? { sessionId: frame.params?.sessionId }
                 : {}
-          handler?.line(JSON.stringify({ jsonrpc: '2.0', id: frame.id, result }))
+          respond({ result })
         },
         onLine(next) {
           handler = next
@@ -69,6 +77,17 @@ function adoptionWorld(options: { deferStop?: boolean } = {}) {
     runtime,
     launches: () => launches,
     releaseStops: () => stopWaiters.splice(0).forEach((resolve) => resolve()),
+    setLoadDeferred: (deferred: boolean) => {
+      deferLoad = deferred
+    },
+    resolveLoads: () =>
+      loadReplies
+        .splice(0)
+        .forEach(({ respond }) => respond({ result: { sessionId: 'native-grok-resurrecting' } })),
+    rejectLoads: () =>
+      loadReplies.splice(0).forEach(({ respond }) =>
+        respond({ error: { code: -32_000, message: 'session/load timed out' } }),
+      ),
   }
 }
 
@@ -145,7 +164,7 @@ describe('Grok ACP daemon restart adoption', () => {
     world.runtime.dispose()
   })
 
-  it('a resurrection can load the journal while the hibernated child is still stopping', async () => {
+  it('a resurrection binds only after its journalled conversation is ready while the parked child stops', async () => {
     const world = adoptionWorld({ deferStop: true })
     const sessionId = 'grok-resurrecting' as SessionId
     world.entries.set(sessionId, journalEntry(sessionId))
@@ -159,7 +178,24 @@ describe('Grok ACP daemon restart adoption', () => {
     const stopping = parked?.stop()
     expect(world.runtime.has(sessionId)).toBe(false)
 
-    const resurrected = await world.runtime.adoptFromJournal(sessionId)
+    // `session/load` is the provider readiness boundary. Until it answers the
+    // daemon's adoption promise remains pending, so its caller cannot emit the
+    // `bind` frame that durably promotes the server row to live.
+    world.setLoadDeferred(true)
+    let ready = false
+    const resurrection = world.runtime.adoptFromJournal(sessionId).then((handle) => {
+      ready = true
+      return handle
+    })
+    await vi.waitFor(() =>
+      expect(
+        world.requests.filter((request) => request.method === 'session/load'),
+      ).toHaveLength(2),
+    )
+    expect(ready).toBe(false)
+
+    world.resolveLoads()
+    const resurrected = await resurrection
     expect(resurrected).toBeDefined()
     expect(resurrected?.binding).toMatchObject({
       sessionId,
@@ -179,6 +215,34 @@ describe('Grok ACP daemon restart adoption', () => {
           request.method === 'session/load' && request.params?.sessionId === `native-${sessionId}`,
       ),
     ).toHaveLength(2)
+    world.runtime.dispose()
+  })
+
+  it('a failed or timed-out journal load releases its provisional handle and remains retryable', async () => {
+    const world = adoptionWorld({ deferLoad: true })
+    const sessionId = 'grok-load-failure' as SessionId
+    world.entries.set(sessionId, journalEntry(sessionId))
+
+    const failed = world.runtime.adoptFromJournal(sessionId)
+    await vi.waitFor(() =>
+      expect(world.requests.some((request) => request.method === 'session/load')).toBe(true),
+    )
+    world.rejectLoads()
+
+    await expect(failed).resolves.toBeUndefined()
+    expect(world.runtime.has(sessionId)).toBe(false)
+    expect(world.runtime.handleFor(sessionId)).toBeUndefined()
+    expect(world.entries.get(sessionId)?.grokSessionId).toBe(`native-${sessionId}`)
+
+    world.setLoadDeferred(false)
+    const retried = await world.runtime.adoptFromJournal(sessionId)
+    expect(retried?.binding).toMatchObject({
+      sessionId,
+      resume: { kind: 'grok-session', value: `native-${sessionId}` },
+      // The failed attempt consumed version 2 before provider readiness. A
+      // retry must advance past that stale generation rather than reuse it.
+      bindingVersion: 3,
+    })
     world.runtime.dispose()
   })
 })

@@ -1702,11 +1702,30 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         mcpServers: [],
       })
       await session.ingestChain
+      await setInteractivePermissionMode(session)
+      return handle
+    } catch (error) {
+      /**
+       * A LOAD THAT NEVER BECAME READY NEVER OWNED A LIVE SESSION (POD-2942).
+       *
+       * `attachSession` registers the provisional handle before `session/load`
+       * so notifications emitted during the RPC can be ingested. If the RPC
+       * rejects or reaches the client's timeout, leaving that provisional
+       * handle indexed makes the next resurrection look like a duplicate live
+       * spawn. It also lets an old teardown delete a later replacement by id.
+       *
+       * Cross the lifecycle boundary synchronously, before waiting for the
+       * provider child to stop. The daemon cannot emit `bind` until this
+       * function resolves, so a failed or timed-out load remains non-live and
+       * the journal stays available for a retry.
+       */
+      endSession(session)
+      session.client.close()
+      await Promise.allSettled([session.endpoint.stop()])
+      throw error
     } finally {
       session.loading = false
     }
-    await setInteractivePermissionMode(session)
-    return handle
   }
 
   const adoptedSpec = (workdir: string): SessionSpec => ({

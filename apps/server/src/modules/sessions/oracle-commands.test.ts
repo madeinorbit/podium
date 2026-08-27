@@ -254,6 +254,110 @@ describe('oracle: resurrect', () => {
     expect(o.daemon).toHaveLength(daemonFrames)
   })
 
+  it(`${MUST_NOT_CHANGE}: Grok resurrection stays non-live until a ready bind and persists failure, retry, and pointer truth [POD-2942]`, async () => {
+    const o = makeOracle()
+    const machineId = o.reg.sessionStore.hostMachineId
+    const resume = { kind: 'grok-session', value: 'native-grok-pod-2942' } as const
+    const { sessionId } = await o.call.sessions.create({
+      agentKind: 'grok',
+      cwd: '/p',
+      sessionId: '29420000-0000-4000-8000-000000000001',
+    })
+    o.reg.gateway.routeDaemonFrame(machineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'grok agent stdio (grok-acp)',
+      cwd: '/p',
+      agentKind: 'grok',
+      geometry: { cols: 80, rows: 24 },
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+    o.reg.gateway.routeDaemonFrame(machineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume,
+      confidence: 'exact',
+    })
+    o.reg.gateway.routeDaemonFrame(machineId, {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
+    })
+
+    await expect(o.call.sessions.hibernate({ sessionId })).resolves.toEqual({ ok: true })
+    expect(o.meta(sessionId)).toMatchObject({ status: 'hibernated', resume })
+    expect(o.store.sessions.loadSessions().find((row) => row.id === sessionId)?.status).toBe(
+      'hibernated',
+    )
+
+    o.daemon.length = 0
+    await expect(o.call.sessions.resurrect({ sessionId })).resolves.toEqual({ ok: true })
+    const firstSpawn = o.daemon.find(
+      (frame): frame is Extract<ControlMessage, { type: 'spawn' }> =>
+        frame.type === 'spawn' && frame.sessionId === sessionId,
+    )
+    expect(firstSpawn).toMatchObject({ sessionId, resume })
+    expect(firstSpawn?.observationGeneration).toEqual(expect.any(Number))
+
+    // No provider/session readiness confirmation means no bind. Across the
+    // observation window from A7b, both the public projection and SQLite stay
+    // `starting`; neither is painted live because resurrect accepted the wake.
+    await Promise.resolve()
+    expect(o.meta(sessionId).status).toBe('starting')
+    expect(o.store.sessions.loadSessions().find((row) => row.id === sessionId)?.status).toBe(
+      'starting',
+    )
+
+    o.reg.gateway.routeDaemonFrame(machineId, {
+      type: 'spawnError',
+      sessionId,
+      message: 'session/load timed out',
+    })
+    expect(o.meta(sessionId).status).toBe('exited')
+    expect(o.store.sessions.loadSessions().find((row) => row.id === sessionId)?.status).toBe(
+      'exited',
+    )
+
+    // A retry preserves the same Podium row and provider pointer, while its
+    // observation fence advances so a previous attempt cannot become current.
+    o.daemon.length = 0
+    await expect(o.call.sessions.resurrect({ sessionId })).resolves.toEqual({ ok: true })
+    const secondSpawn = o.daemon.find(
+      (frame): frame is Extract<ControlMessage, { type: 'spawn' }> =>
+        frame.type === 'spawn' && frame.sessionId === sessionId,
+    )
+    expect(secondSpawn).toMatchObject({ sessionId, resume })
+    expect(secondSpawn?.observationGeneration).toBeGreaterThan(
+      firstSpawn?.observationGeneration as number,
+    )
+    expect(o.store.observationCheckpoints.get(sessionId)?.observationGeneration).toBe(
+      secondSpawn?.observationGeneration,
+    )
+    expect(o.store.sessions.loadSessions().map((row) => row.id)).toEqual([sessionId])
+    expect(o.meta(sessionId)).toMatchObject({ status: 'starting', resume })
+
+    o.reg.gateway.routeDaemonFrame(machineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'grok agent stdio (grok-acp)',
+      cwd: '/p',
+      agentKind: 'grok',
+      geometry: { cols: 80, rows: 24 },
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+    expect(o.meta(sessionId)).toMatchObject({
+      status: 'live',
+      resume,
+      driverId: 'grok-acp',
+    })
+    expect(o.store.sessions.loadSessions().find((row) => row.id === sessionId)).toMatchObject({
+      status: 'live',
+      selectedDriverId: 'grok-acp',
+    })
+  })
+
   it(`${MUST_NOT_CHANGE}: an exited AGENT with no resume ref cannot be resurrected; a shell can (a fresh spawn IS its recovery)`, async () => {
     const o = makeOracle()
     const agent = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
