@@ -407,6 +407,9 @@ lease was held by POD-1761. At '2026-08-27 00:26 CEST', the host reported
 window. Starting a Vite build under that lease would invalidate the reading.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 117eca856 (docs(evidence): drive POD-2602 terminal geometry)
 ### POD-2602 — terminal geometry survives restart and tab return
 
 The exact fix boundary is parent `0f0c616a35479411033b673262159df947e2cc21` ->
@@ -458,6 +461,7 @@ Verdict: **PASS — terminal sizing defect gone**. No product repair was made.
 ## Ledger
 
 Complete rows are appended to 'docs/plans/pod-1761-results.tsv'. The remaining
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -588,3 +592,10 @@ Last evidence update: '2026-08-27 03:04:17 CEST'.
 =======
 Last evidence update: '2026-08-27 03:29:11 CEST'.
 >>>>>>> 210ad18a5 (docs: record POD-2408 controlled drive)
+=======
+children (POD-2604 and POD-2637) were not touched in this interval
+and have no result claimed here. POD-2622 is handed to POD-2914;
+this report does not claim a drive for it.
+
+Last evidence update: '2026-08-27 06:06:17 CEST'.
+>>>>>>> 117eca856 (docs(evidence): drive POD-2602 terminal geometry)
