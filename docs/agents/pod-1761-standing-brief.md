@@ -1357,3 +1357,30 @@ produces a number nobody can attribute.
 **The general shape: when a baseline will not start, ask whether the OLD CODE can support your rig
 at all before blaming the rig.** A pre-fix commit is pre-fix in every respect, including the parts
 your harness depends on.
+
+### Commit evidence as you produce it, not when you report (2026-08-27 04:22 CEST)
+
+**Two sessions tonight reported results that existed only in a working tree.** One had five driven
+cells across fifteen uncommitted files; another had ten result rows and a byte-identical PNG
+round-trip with its SHA-256, on a branch with zero commits. Both said *"results are appended to
+results.tsv"* — true of the file on disk, and nowhere else.
+
+**"Appended" is not "committed", and on this box the difference is real.** In one night: a session
+died mid-turn with its tracker still reading `working`; another was resurrected by mail queued
+hours earlier and had its worktree recreated under it; the root filesystem hit 100% twice and a
+full disk voided a live measurement. **A working tree is not storage.**
+
+**So: commit after each cell, not at the end of the column.** A drive that takes an hour and
+produces six cells should produce commits, not one. If you are mid-column when something goes
+wrong, the cells you finished should survive.
+
+**And put your evidence under YOUR OWN issue directory** — `docs/evidence/pod-<your issue>/`.
+Writing into another issue's directory muddles provenance, and there is a live example of the cost:
+POD-2874's directory held twenty-one driven acceptance cells that were never written into the
+results file, so the coverage query could not see them and an entire column read as undriven for a
+day. **A reader has to be able to tell whose evidence is whose from the path alone.**
+
+**The general rule this sits under: work that is done and unrecorded is indistinguishable from work
+never done.** It has cost this epic an issue parked in `review` with nothing left to land, a fixed
+cell that read FAIL for hours because its row carried no cell id, and a whole column reported as
+never driven. **Recording is not paperwork after the work; it is the last step of the work.**
