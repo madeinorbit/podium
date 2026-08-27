@@ -4469,3 +4469,36 @@ resume-and-send path, so no row was added.
 a receipt corrected in the database is a different claim wearing a similar shape, and stretching
 one to fill the other would have put a green in a column that needed a real one. Worth recording
 precisely because nothing would have caught it — I would have accepted the row.
+
+### Six sessions, every column owned — the state at 2026-08-27 03:09 CEST
+
+| issue | what it is doing | status |
+| --- | --- | --- |
+| POD-2871 | cross-session transcript isolation, probe hardened after a NO_MEASUREMENT | driving |
+| POD-2913 | the nine unknowns: 2298 PASS, 2691 FAIL, 2408 now at its real boundary | driving |
+| POD-2915 | POD-2637 (no build needed), then 2604 and 2761 behind one bundle | driving |
+| POD-2691 | the orphan reaper — design approved, implementing | building |
+| POD-2917 | the shell column, 6 cells; bundle built 02:46, lock released immediately | driving |
+| POD-2918 | the claude column, 13 of 15 cells, window to 07:43, hard stop 07:00 | driving |
+
+Box: 18GB disk, load 15, credential mtime unchanged at 23:43.
+
+**POD-2917 did the lock exactly right** — took `test:heavy`, built one bundle, released before
+driving. `test:heavy` is free again and four of its six cells have pins written. That is the
+pattern I asked for and the first time tonight the heavy lock has been held for minutes rather than
+half an hour.
+
+**One hygiene note, deliberately NOT sent as a correction:** it is writing its pins and readings
+into `docs/evidence/pod-2874/` rather than `docs/evidence/pod-2917/`. Co-locating with the
+readings it is superseding is defensible and may be deliberate; the cost is that the directory ends
+up mixed-ownership and a later reader cannot tell whose evidence is whose from the path. **Not
+worth interrupting a working session for** — the hygiene rule says no reviewer round for a nitpick,
+and this is one. I will raise it with something substantive when its results land.
+
+**What is NOT owned, so it is visible if I lose context:**
+- **grok, 14 stale/undriven cells** — quota returns 2026-08-27 11:03 CEST. Nobody staffed; the box
+  is at six sessions and something must close first.
+- **POD-2910, POD-2911, POD-2916** — filed, unowned, all three are podium tooling rather than epic
+  drivers. POD-2911 (mail unreadable) is the one costing me real time every tick.
+- **A4a/A4b on claude** — genuinely blocked by the 2.1.231 wizard rewriting
+  `permissions.defaultMode`. An instrument limit, measured twice, not a question.
