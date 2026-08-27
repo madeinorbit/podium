@@ -1212,3 +1212,32 @@ prose. Run the line.
 **And say which case you are in when you report.** "My pin is N commits behind but the non-docs
 diff is empty" is a complete statement; "the branch has moved since my pin" is not, and invites
 the reader to guess.
+
+### To test a dead session, kill the exact child PID — do not wait for one to die (2026-08-27 02:51 CEST)
+
+POD-2913's second run of the POD-2298 parent cell is the model for any **A1c / send-to-a-dead-
+session** measurement, in any column. Instead of finding a session that happened to be dead, it:
+
+1. spawned a named instance with server and daemon **spawn-pinned to the arm's commit**,
+2. fired a positive control that proves the session was alive and working (the Claude Code startup
+   readout),
+3. **killed the exact agent child PID — 436109, named in the report — immediately before the
+   send**,
+4. sent a unique marker (`P2298_LATE_REFUSAL_PARENT_DRIVEN_T5L9TK`) and read the persisted
+   receipt.
+
+**Why this beats waiting for a dead session.** A session that died on its own died for a reason you
+did not choose and cannot describe — it may have crashed, been OOM-killed, or never started. Each
+of those exercises a different path, and none of them is the one the cell is about. **Killing a
+child you just proved alive makes the dead-session condition deterministic and the control
+airtight**: the marker cannot be lost to a rig that was never working, because step 2 showed it
+working.
+
+**Use a distinct marker per arm.** Its parent and fix markers differ
+(`..._PARENT_DRIVEN_T5L9TK` vs `..._FIX_GFO43L`), so a marker found in the wrong arm's store is
+immediately visible as contamination rather than being silently counted.
+
+**And it re-took the cell rather than defending the first reading.** Its first run was inside the
+100%-disk window; the control had fired, so the reading was probably fine — and it re-ran anyway on
+18GB free and 5.3GB memory, and got the same answer. **A result you re-took under clean conditions
+costs one run and ends the argument.**
