@@ -4661,3 +4661,33 @@ block to move and POD-2918 is inside its window.
 **POD-2917 IS DONE, WHICH FREES THE SLOT I SAID WOULD GO TO OPENCODE** — 10 cells, no owner and no
 blocker, ahead of grok in priority because grok's 14 arrive on a clock at 11:03 regardless while
 opencode's will not arrive at all.
+
+### The last unowned column is staffed — opencode, ten cells (2026-08-27 03:43 CEST)
+
+POD-2917 closed, so the slot went where I said it would: **opencode, ahead of grok.** grok's 14
+arrive on a clock at 11:03 whatever anyone does; opencode's 10 arrive only if someone drives them.
+
+**The ten were derived from the results file, not assumed:** A1a A1b A1c A2b A3 A5 A6a A7a A9 A10.
+The other six already have results and POD-2919 is told explicitly not to redrive them — A2a, A4a,
+A4b and A7b are PASS, A6b is UNMEASURED and A8 PARTIAL, and those two belong to work in flight.
+
+**Its brief is built out of POD-2917's method rather than from first principles**, because that
+session finished six cells in under an hour with zero reds: one named instance, one bundle, six
+serial cells, the heavy lock held only for the build, a unique marker per cell, all three pins
+verified per cell, disk reported at every start, and teardown by exact PID followed by a `/proc`
+check showing zero. **That is now the template, and it came from the column nobody wanted.**
+
+**Three opencode-specific traps are called out because each has cost a round here:** the store is
+keyed by CWD, so a session run from a different directory than the one you query looks empty and
+that is indistinguishable from a feature working; a silent fallback to `generic-pty` writes
+nowhere near the opencode store and reads exactly like a clean pass; and A3 is the cell a loaded
+box scores in the flattering direction, so it drives only under load ~12 or records UNDRIVEN.
+
+**A9 is genuinely open for this column.** POD-2691 is a confirmed FAIL for agent sessions and shell
+A9 passed clean, which bounds the defect to agent sessions — **opencode is an agent session**, so
+its A9 is a real question rather than a formality.
+
+Base verified at `5e8c4636d`. POD-2917's worktree freed, branch kept.
+
+**Every column of the matrix now has an owner or a clock**: claude driving (POD-2918, window to
+07:43), opencode driving (POD-2919), codex 14/16 current, shell done 6/6, grok at 11:03.
