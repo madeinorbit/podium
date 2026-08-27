@@ -41,7 +41,7 @@ export const assertOneReact = (harness: string, components: string): void => {
       `  @testing-library/react resolves: ${harness}\n` +
       `  react-native-web resolves:       ${components}\n` +
       'Fix the checkout, not this config or the component: run `bun install` at the\n' +
-      'workspace root. bunfig.toml pins strict isolated links and declares React peers;\n' +
+      'workspace root. bunfig.toml controls the workspace link topology and React peers;\n' +
       'a drifted install must be repaired before the lane can render.\n' +
       'See apps/mobile/test/one-react.ts.',
   )
