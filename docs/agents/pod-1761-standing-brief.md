@@ -1535,3 +1535,33 @@ the probe, and it is the finding — not the clause count I invented.
 **THE TRANSFERABLE RULE: when you think a scorer is wrong, read the scorer.** Disagreeing with a
 verdict from the criterion alone is a hypothesis; reading the twelve lines that produce it is an
 answer, and it takes about a minute.
+
+### Never put a timestamp in an UNQUOTED heredoc — quote it and substitute after
+
+Writing a ledger entry, I used `cat >> file <<LED` — unquoted, so `$NOW` would interpolate. The
+entry contained the word `done` in backticks. **Bash treated the backticks as command substitution,
+hit the reserved word `done`, and aborted with a syntax error — truncating the line and everything
+after it on that line.**
+
+The commit still succeeded. **The damage was silent and I only found it because I went looking.**
+
+**THE RULE: always `<<'MARKER'` with the marker QUOTED.** That disables every expansion — `$`,
+backticks, `\` — and is what you want for prose containing shell syntax, which technical prose
+always does.
+
+**To get a timestamp in anyway, write the placeholder and substitute afterwards:**
+
+    NOW=$(date '+%Y-%m-%d %H:%M %Z')
+    cat >> file <<'MARKER'
+    ## Section (TIMESTAMP)
+    MARKER
+    sed -i "s/(TIMESTAMP)/($NOW)/" file
+
+**And verify what landed**, because a corrupted heredoc does not fail the command:
+
+    tail -20 file        # read back the section you just wrote
+
+**This is the third form of the same trap this epic has paid for**, after a backticked identifier
+eaten from a mail body and an escape written as literal `\t` instead of a tab. **Every one produced
+silent loss rather than an error**, and every one was found by reading back rather than by the tool
+complaining. **Shell prose is not data until you have read it back.**

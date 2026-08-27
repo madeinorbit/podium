@@ -5284,7 +5284,7 @@ never making it**, because the session had done the hard part and I talked it ou
 
 ### The orphan defect, end to end in one night
 
-    23:05  I find 14 live agents in 8 worktrees whose issues read 
+    23:05  I find 14 live agents in 8 worktrees whose issues read 'done'
     01:31  three MORE found in /tmp state roots — my census had been undercounting
     03:44  POD-2691 drives its reaper: TERM 1→0, KILL 1→0, foreign-UUID sentinel untouched
     04:01  17-minute settle census, no rebound
