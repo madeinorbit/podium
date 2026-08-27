@@ -20,7 +20,11 @@ deliberate `generic-pty/terminal` demotion.
 | A2b | headless | PASS | Bound `opencode-server/server`; boot timeline settled idle |
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 | A3 | headless | PARTIAL | Under load1=7.47 with vmstat quiet, interrupt stopped the turn in 632ms; transcript had no `event:interrupt` marker |
+=======
+| A3 | headless | PARTIAL | Under load1=7.47 with vmstat quiet, the turn ended in 632ms; the probe did not prove pre-interrupt `phase=working`, and the transcript had no `event:interrupt` marker |
+>>>>>>> 771e684c7 (pod-2919 clarify A3 scorer gaps)
 | A5 | headless | PASS | Tool calls/results paired by `toolUseId`; reload had no missing history items |
 =======
 | A3 | headless | PASS | Load1=7.47 with vmstat quiet; interrupt settled in 632ms; no transcript interrupt marker |
@@ -64,7 +68,7 @@ The scorer audit found that a PASS is not proof that every prose clause was chec
 - A1b checks a busy control, queued disposition, position in the send response/frames, delivery, durable user text, and a weak reload signal; it does not inspect the visible queued state/position after reload or explicitly require idle delivery.
 - A1c checks an alive control and a typed refusal after kill; it does not wait for a later resume-and-send path or independently prove no lost message after the refusal, though the criterion allows refusal OR resume-and-send.
 - A2b checks the bound driver, final idle phase, absence of a working/blank bound boot phase, and spawn CWD; it does not require final status to equal `live` beyond excluding `exited`.
-- A3 checks the quiet-load gate, the interrupt control, turn stop/settling, and a non-refused control call; it does not enforce the transcript interrupt marker. That missing clause is why this reading is PARTIAL, despite the turn stopping.
+- A3 checks the quiet-load gate, interrupt control, and eventual idle/output stop; it does not require pre-interrupt `phase=working` or enforce the transcript interrupt marker. Those two gaps mean this reading is PARTIAL even though the turn ended quickly.
 - A5 checks tool-call/result pairing by `toolUseId`, missing/orphan IDs, reload item IDs, and the assistant marker; it does not compare exact transcript order/content or duplicate counts.
 - A6a checks attach bytes, keystroke echo, bytes after resize, and a loose common line between viewers; it does not verify exact terminal geometry/refit dimensions or exact screen equality.
 - A7a checks a changed daemon PID and reconnect, conversation pointer/history, and codeword recall; it does not assert stronger process/session identity invariants.
