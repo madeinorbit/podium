@@ -278,7 +278,14 @@ if (requestedRow !== 'a1b') {
   } else {
     log(`  session ${sid2}`)
     await wait(READY_MS)
-    await until(sid2, (r) => Boolean(r?.driverId), 90_000, 1_000)
+    const bound = await until(sid2, (r) => Boolean(r?.driverId), 90_000, 1_000)
+    const boundRow = bound.row ?? (await sessionRow(sid2))
+    log(`  product driver   ${boundRow?.driverId ?? '(none)'} family=${boundRow?.driverFamily ?? '(none)'}`)
+    if (harness === 'grok' && (boundRow?.driverId !== 'grok-acp' || boundRow.driverFamily !== 'server')) {
+      throw new Error(
+        `refusing A1c: expected product driver grok-acp/server, received ${boundRow?.driverId ?? '(none)'}/${boundRow?.driverFamily ?? '(none)'}`,
+      )
+    }
     const chat2 = new Chat(sid2)
     await chat2.open('chat')
     await settle(sid2)
