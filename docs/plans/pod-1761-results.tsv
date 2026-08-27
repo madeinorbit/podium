@@ -260,3 +260,4 @@ A6a terminal geometry after server restart and tab return	current-tip browser A6
 what	driver	verdict	commit	control	alone	date	issue
 A1b send while busy (main baseline)	claude-pty-on-main	FAIL no queue position	0bd90092c3a926b9305da34547fcc51b1e19b0a7	yes	yes	2026-08-27 07:23 CEST	POD-2921
 A1c send to a dead session (main baseline)	claude-pty-on-main	FAIL accepted after child death	0bd90092c3a926b9305da34547fcc51b1e19b0a7	yes	yes	2026-08-27 07:27 CEST	POD-2921
+A3 interrupt mid-turn (main baseline)	claude-pty-on-main	UNDRIVEN cutoff before control	0bd90092c3a926b9305da34547fcc51b1e19b0a7	no (cutoff before control)	yes	2026-08-27 07:35 CEST	POD-2921
