@@ -4,11 +4,11 @@
 | --- | --- | --- |
 | `c26c267be1c4b2f8cc6ccc2e66ea675e84024587` | `2026-08-27 10:54:36 +0200` | Original Grok server-driver column on named instance `grok2927` |
 | `961a6992480ad279776af4354fcd2935f6bed0e8` | `2026-08-27 12:32:58 +0200` | A3 fix arm and the now-rejected first A1b fix reading |
-| `5a01098aae2cea4bbc4d7a7e893c1b70a15b137a` | `2026-08-27 13:55:45 +0200` | Superseding A1b proof and landed POD-2942 A7b fix arm |
+| `5a01098aae2cea4bbc4d7a7e893c1b70a15b137a` | `2026-08-27 13:55:45 +0200` | Superseding A1b proof and fresh POD-2942 A7b fix proof |
 
 The original runtime used code tree `7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4`, served web source `c26c267`, and bundle `bundle+CFj5AUJr`. The 961 fix-arm runtime used code tree `34eda83b25464e236425ecb479fa4879ebed6eab`, served web source `961a699`, bundle `bundle+k9dcbf_p`, and schema `986ebf5e8e57820c`. The current fix-arm runtime uses code tree `a55459ebebced6da2c55771fd358c6f68e14a0e2`, served web source `5a01098`, bundle `bundle+D0-MLqzq`, and the same schema. Server/full and daemon spawn pins are captured in every reading. Each cell used a unique directory under `/tmp/pod-2927-grok/cells/` and required the product to report `grok-acp` / `server`; no generic-pty reading was accepted.
 
-The fourteen-cell column remains complete. The later A6a PASS supersedes its initial instrumentation BLOCKED row; the A3 fix PASS supersedes its parent PARTIAL row. The 961 A1b reading is rejected because it observed no durable position after reload; the 5a reading supersedes it with the same ledger message ID, body, and numeric queue position before and after re-login. A7b remains a parent FAIL until its landed fix arm is freshly driven on 5a.
+The fourteen-cell column remains complete. The later A6a PASS supersedes its initial instrumentation BLOCKED row; the A3 fix PASS supersedes its parent PARTIAL row. The 961 A1b reading is rejected because it observed no durable position after reload; the 5a reading supersedes it with the same ledger message ID, body, and numeric queue position before and after re-login. The A7b fix PASS supersedes its parent FAIL after a fresh exact-5a hibernate/resurrect drive.
 
 ## Results
 
@@ -22,7 +22,8 @@ The fourteen-cell column remains complete. The later A6a PASS supersedes its ini
 | A6a | BLOCKED (superseded) | Product driver `grok-acp/server`; native attach emitted no bytes or frames, so echo/resize/second-viewer clauses were unmeasurable | `readings/a6a.json` |
 | A6b | PASS | Product driver `grok-acp/server`; four switches preserved original PIDs, marker, 120x40 geometry, chat reply, and CLI echo | `readings/a6b.json` |
 | A7a | PASS | Product driver `grok-acp/server`; daemon 1954780→1968990 with c26 pin; same conversation ID recalled pre-restart codeword | `readings/a7a.json` |
-| A7b | FAIL | Product driver `grok-acp/server`; parked and recalled context, but resurrect did not restore `live` status within 60s | `readings/a7b.json` |
+| A7b `[parent]` | FAIL | Product driver `grok-acp/server`; parked and recalled context, but resurrect did not restore `live` status within 60s | `readings/a7b.json` |
+| A7b `[fix]` | PASS | `grok-acp/server`; parked in 79ms, live in 2155ms, same conversation and transcript retained, planted word recalled on a fresh turn | `readings/a7b-fix-5a.json` |
 | A4a | BLOCKED | Product driver `grok-acp/server`; terminal attached, but permission probe produced no durable turn, so ask/card/answer clauses were unmeasurable | `readings/a4a.json` |
 | A4b | BLOCKED | Product driver `grok-acp/server`; no permission turn/ask existed, so a successful first answer and typed second refusal were unmeasurable | `readings/a4b.json` |
 | A6a | PASS | Authoritative delayed attach: `grok-acp/server`; echo, 3432B resize repaint, and second-viewer marker all passed | `readings/a6a-authoritative.json` |
