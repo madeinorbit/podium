@@ -143,17 +143,19 @@ describe('SocketHub feed ingress drain', () => {
     sockets[0]?.open()
     sockets[0]?.deliver(rawBootstrap(true))
     hub.dispose()
-    await macrotaskTurns(1)
     expect(frames).toEqual([])
 
     hub.connect()
     sockets[1]?.open()
     sockets[1]?.deliver(JSON.stringify({ type: 'welcome', clientId: 'replacement' }))
     sockets[1]?.deliver(rawBootstrap(true))
-    await macrotaskTurns(1)
+    await macrotaskTurns(2)
 
     expect(hub.clientId).toBe('replacement')
-    expect(frames).toMatchObject([{ type: 'feedBootstrap', changes: [], last: true }])
+    expect(frames).toEqual([
+      expect.objectContaining({ type: 'feedBootstrap', changes: [], last: true }),
+    ])
+    expect(hub.feedBudget()).toMatchObject({ tasks: 1, yieldedTasks: 1 })
     hub.dispose()
   })
 
