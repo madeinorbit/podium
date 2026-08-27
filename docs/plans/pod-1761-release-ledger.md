@@ -5134,3 +5134,46 @@ nullable inventory `installed`/probe errors, missing `harness-probe-timed-out` a
 `HandoffRejection` members plus `agentProbeTimeoutDescription`, daemon-wire transcript message fields, and
 `SessionStatusResult` driver fields. No reaper or identity-check error appeared. The failure is recorded as the
 rebased-tree result here without claiming a baseline verdict from the pre-rebase tree.
+
+## FOREST — 2026-08-27 04:58 CEST — one product failure left, and its fix just landed
+
+    CURRENT 38/69 (55%)    PASS 28    red 4    partial/undriven 6
+
+    claude     1/15   POD-2918 driving, window to 07:43
+    codex     14/16
+    grok       2/16   11:03
+    opencode  15/16   column complete
+    shell      6/ 6   column complete
+
+**Coverage has gone 22 -> 38 of 69 tonight, and the red list is now short enough to read:**
+
+    A3   claude    VOID      withdrawn by its own driver; no control fired
+    A3   codex     REFUSED   control never produced an in-flight turn
+    A4a  codex     BLOCKED   claude 2.1.231 wizard, a measured instrument limit
+    A9   opencode  FAIL      <- THE ONLY GENUINE PRODUCT FAILURE
+
+**Three of the four are instruments. One is a defect. And POD-2691's reaper — the fix for exactly
+that defect — landed twenty minutes ago.**
+
+**So the single highest-value drive available anywhere on this epic right now is re-running one
+cell.** Tasked POD-2919 with it, because its own reading is the acceptance test and it has the
+recipe that produced the orphan: drive A7a (daemon restart, session survives), then A9 (kill), then
+wait 300s.
+
+**Three conditions I gave it, each of which would otherwise produce a meaningless result:**
+- **Re-pin and respawn the daemon.** The reaper is new daemon code; a daemon started before it
+  loads a driver without it, so repointing the checkout is not enough.
+- **Spawn sessions fresh under the new daemon.** Only STAMPED processes are eligible —
+  POD-2691 was explicit that pre-stamp corpses are deliberately untouched, so measuring the
+  existing backlog would produce a **false FAIL**.
+- **Wait the full 300s, then check `/proc` independently**, and treat a rebound as a FAIL rather
+  than noise.
+
+**Either outcome is worth having.** Green means the matrix has **zero product failures in its
+currently-valid set**. Red means the reaper does not cover the re-parented case — which is exactly
+the risk I flagged, since the survivor was the prior A7a child and had therefore been detached from
+the daemon that spawned it.
+
+**Still open and unrelated to that:** A1b PARTIAL on codex and opencode (POD-2920 is fixing the
+queue position), A6b UNMEASURED on both, A8 PARTIAL on opencode, A3 UNDRIVEN on opencode pending a
+quiet box, and the claude column at 1/15 with its window running to 07:43.
