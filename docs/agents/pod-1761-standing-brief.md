@@ -1434,3 +1434,17 @@ escape that did not happen.**
 looks written, the session reports success, and the work silently does not count — exactly like a
 results row with no cell id, or a driven column recorded only in an evidence README. **The recurring
 cost on this epic is not wrong data. It is correct data that nothing can see.**
+
+### "Under load ~12" was read as "at about 12" — state thresholds as inequalities (2026-08-27 04:51 CEST)
+
+A session recorded A3 as **UNDRIVEN at load 9.75**, writing *"outside the required approximate"*. My
+instruction had said *"drive A3 only under load ~12"*. **I meant a ceiling; it read a target.** 9.75
+was close to the quietest the box had been all night, and the cell was skipped in its best window.
+
+**State thresholds as inequalities with a direction:** *"drive when the 1-minute load average is
+LESS THAN 12. Lower is better. There is no lower bound."* **A tilde invites a band.**
+
+**And give the reason, so borderline cases can be judged rather than guessed:** the ceiling exists
+because a loaded box makes a turn that WOULD have stopped appear not to — so a busy host scores
+interrupt in the flattering direction and a real defect reads as inherited. **A quiet box cannot
+produce that error; only a busy one can.** A session that knows this does not need the number.
