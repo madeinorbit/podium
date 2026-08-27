@@ -1,0 +1,42 @@
+{
+  "id": "A6a",
+  "arm": "headless",
+  "verdict": "BLOCKED",
+  "summary": "native attach emitted no positive-control bytes",
+  "control": {
+    "fired": false,
+    "what": "native attach emits terminal bytes before any keystroke",
+    "detail": "0 byte(s), frames="
+  },
+  "evidence": [
+    "PRODUCT DRIVER    driverId=grok-acp family=server",
+    "SCREEN BYTES      0",
+    "FRAMES            {}",
+    "ATTACHED          null"
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server"
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a6a",
+  "memoryMb": 4867,
+  "pin": "PIN OK row=A6a arm=headless instance=grok2927 serverPid=1954661 daemonPid=1954780 serverSha=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 webSourceSha=c26c267 driver=policy state=/home/mgw/.local/state/podium/grok2927 home=/home/mgw\nPIN TREES codeCommit=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 codeTree=7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4 runtimeHead=21cd307a90f31b05025af6cfdf08da1389773baf runtimeTree=2bcc06f6ded5ca83ce8ce14f1c2a8eba457d77af nonDocDiff=0\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+  "sessionIds": [
+    "97b28ffc-4186-4a19-9fb0-7545e459513d"
+  ],
+  "at": "2026-08-27T10:00:35.278Z",
+  "criterionClauses": {
+    "attachPositiveControl": "BLOCKED — native attach emitted zero bytes, no frames, and no attached payload",
+    "keystrokesEcho": "UNMEASURED — no terminal attach surface existed for input",
+    "resizeRefits": "UNMEASURED — no terminal attach surface existed for resize",
+    "secondViewerSameScreen": "UNMEASURED — there was no first-viewer screen to compare"
+  },
+  "admission": {
+    "diskFreeKb": 12686436,
+    "memAvailableKb": 5085472,
+    "load1": 8.98,
+    "testHeavyLease": "free"
+  },
+  "localTimestamp": "2026-08-27 12:00:35 CEST",
+  "recovery": "The first A6a attempt produced no startup output because the named server stopped answering health after a separate diagnostic scorer wedged; it was interrupted before control, the same named instance was restarted at c26c267be with a verified c26c267 bundle, and this is the only scored A6a reading."
+}
