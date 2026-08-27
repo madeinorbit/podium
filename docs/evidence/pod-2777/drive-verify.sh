@@ -215,9 +215,21 @@ STAMP_JSON="$(curl -fsS "http://$PODIUM_HOST:$PODIUM_PORT/podium-build.json" 2>/
 WEB_SHA="$(printf '%s' "$STAMP_JSON" | sed -n 's/.*"sourceSha": *"\([^"]*\)".*/\1/p')"
 [ -n "$WEB_SHA" ] \
   || fail "/podium-build.json carries no sourceSha, so the served bundle cannot name its commit: $STAMP_JSON"
-[ "$WEB_SHA" = "$WANT_SHORT" ] \
-  || fail "the SERVED web bundle was built from $WEB_SHA, you named $WANT_SHORT ($WANT) — rebuild with drive-up.sh"
-echo "  ok  web bundle served from :$PODIUM_PORT was built at $WEB_SHA"
+if [ -n "${P2777_REUSE_WEB_FROM:-}" ]; then
+  WEB_REUSE_FROM="$(readlink -f "$P2777_REUSE_WEB_FROM")"
+  WEB_BASE_SHA="$(git -C "$WEB_REUSE_FROM" rev-parse HEAD)"
+  WEB_BASE_SHORT="$(git -C "$WEB_REUSE_FROM" rev-parse --short=7 HEAD)"
+  [ "$WEB_SHA" = "$WEB_BASE_SHORT" ] \
+    || fail "the SERVED web bundle was built from $WEB_SHA, but the declared reuse source is $WEB_BASE_SHORT ($WEB_REUSE_FROM)"
+  if ! git -C "$PODIUM_DRIVE_REPO" diff --quiet "$WEB_BASE_SHA" "$WANT_SHA" -- apps/web; then
+    fail "the declared reused web source differs from apps/web at $WANT ($WANT_SHA)"
+  fi
+  echo "  ok  web bundle served from :$PODIUM_PORT is $WEB_SHA, unchanged through $WANT_SHORT"
+else
+  [ "$WEB_SHA" = "$WANT_SHORT" ] \
+    || fail "the SERVED web bundle was built from $WEB_SHA, you named $WANT_SHORT ($WANT) — rebuild with drive-up.sh"
+  echo "  ok  web bundle served from :$PODIUM_PORT was built at $WEB_SHA"
+fi
 
 # 5. THE ARM, read out of the RUNNING processes.
 #

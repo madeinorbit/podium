@@ -49,6 +49,23 @@ bash "$HERE/link-node-modules.sh" >/dev/null
 #
 # Rebuilt only when the stamp does not already name HEAD: a vite build is
 # minutes on a loaded box, and this rig is meant to be re-run per arm.
+if [ -n "${P2777_REUSE_WEB_FROM:-}" ]; then
+  # When the product change does not touch apps/web, reusing the already-built
+  # parent bundle is the exact byte-level comparison: prove the source trees
+  # are identical before pointing the server at the prior dist. The verifier
+  # repeats this proof and records the bundle's real source commit.
+  WEB_REUSE_FROM="$(readlink -f "$P2777_REUSE_WEB_FROM")"
+  WEB_BASE_SHA="$(git -C "$WEB_REUSE_FROM" rev-parse HEAD)"
+  if ! git -C "$PODIUM_DRIVE_REPO" diff --quiet "$WEB_BASE_SHA" HEAD -- apps/web; then
+    echo "cannot reuse web bundle: apps/web differs between $WEB_BASE_SHA and HEAD" >&2
+    exit 1
+  fi
+  WEB_REUSE_STAMP="$WEB_REUSE_FROM/apps/web/dist/podium-build.json"
+  HAVE_SHORT="$(sed -n 's/.*"sourceSha": *"\([^"]*\)".*/\1/p' "$WEB_REUSE_STAMP" 2>/dev/null || true)"
+  [ -n "$HAVE_SHORT" ] || { echo "reused web bundle has no sourceSha" >&2; exit 1; }
+  echo "reusing unchanged web bundle from $HAVE_SHORT (apps/web identical through HEAD)"
+  export PODIUM_WEB_DIR="$WEB_REUSE_FROM/apps/web/dist"
+else
 WANT_SHORT="$(git -C "$PODIUM_DRIVE_REPO" rev-parse --short=7 HEAD)"
 STAMP="$PODIUM_DRIVE_REPO/apps/web/dist/podium-build.json"
 HAVE_SHORT="$(sed -n 's/.*"sourceSha": *"\([^"]*\)".*/\1/p' "$STAMP" 2>/dev/null || true)"
@@ -79,6 +96,7 @@ else
   fi
 fi
 export PODIUM_WEB_DIR="$PODIUM_DRIVE_REPO/apps/web/dist"
+fi
 
 # --- first-run configuration ----------------------------------------------
 # A fresh state root reports readiness `unconfigured` and BLOCKS the data plane,
