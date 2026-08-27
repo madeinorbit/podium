@@ -70,6 +70,7 @@ the same refused receipt. Verdict: **PASS — defect gone**.
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 ### POD-2408 — defect gone
 
 The consumer check is positive: daemon 'stageRuntimeAttachment' is wired through
@@ -146,23 +147,53 @@ No live yes/no result was inferred.
 ### POD-2691 — still broken
 =======
 ### POD-2408 — invalid listed boundary
+=======
+### POD-2408 — defect gone
+>>>>>>> 210ad18a5 (docs: record POD-2408 controlled drive)
 
-The consumer check is positive on checkout '562620c41c620542db2abc6dab449dfc817c4c6a':
-'stageRuntimeAttachment' is the default stager passed through
+The consumer check is positive: daemon 'stageRuntimeAttachment' is wired through
 'apps/daemon/src/runtime/host.ts', the server command plane calls
 'ctx.deps.stageAttachment' in 'apps/server/src/modules/sessions/command-plane.ts',
-and 'apps/web/src/features/chat/use-attachments.ts' consumes the returned
-'refusal'. The current epic branch pin is
-'140f0fbd03c5e03d5e05bf8eb22da0d8271ea80c'.
+and 'apps/web/src/features/chat/use-attachments.ts' consumes a returned
+'refusal'. The review audit's marker 'b247c2dbf' was mislabeled: it is the
+staging feature commit, whose parent already contains typed refusals. The
+actual throw-to-typed-refusal boundary is '5979159e30e8c0f2ff9f242ab64919fec6793245'
+-> '10d5af58aa9be901105eeb2291504720e86d931b'.
 
-The audit-listed fix 'b247c2dbf' has parent '10d5af58aa9be901105eeb2291504720e86d931b'.
-At that parent, terminal, opencode, Codex, and Grok already return typed
-'reason: unsupported' results from 'stageAttachment()'. The actual
-throw-to-typed-refusal change is '10d5af58a' (parent
-'5979159e30e8c0f2ff9f242ab64919fec6793245'), where the drivers throw before
-that commit and return typed refusals after it. Therefore 'b247c2dbf^' does
-not reproduce the original crash, so it cannot serve as the required pre-fix
-control. Verdict: **FAIL — invalid listed boundary; no runtime drive**.
+The exact parent arm used named instance 'p2913-2408-parent' and probe directory
+'/tmp/pod-2913-2408-parent.xv1Gk7'. Its daemon and fake-server spawn-time pin
+files both contained '5979159e30e8c0f2ff9f242ab64919fec6793245'; the web bundle
+was explicitly 'n/a' because this is the server/driver contract cell and neither
+boundary commit changes 'apps/web'. At the '2026-08-27 03:21:30 CEST' resource
+check there were 17 GiB free disk, 4.3 GiB available memory, and load
+5.30/8.37/11.02. The fake app-server positive control fired: one launch, a live
+server, and thread 'thr-p2913-2408-parent' bound session
+'p2913-2408-parent-session'. 'stageAttachment' reproduced the raw
+'Error: codex-app-server does not stage attachments: no upload channel is exposed'.
+
+The exact fix arm used named instance 'p2913-2408-fix' and probe directory
+'/tmp/pod-2913-2408-fix.gYh1Rt'. Its daemon and fake-server spawn-time pin
+files both contained '10d5af58aa9be901105eeb2291504720e86d931b'; the same positive
+control fired with thread 'thr-p2913-2408-fix' and session
+'p2913-2408-fix-session'. At the '2026-08-27 03:24:28 CEST' resource check
+there were 17 GiB free disk, 4.0 GiB available memory, and load
+5.55/7.12/10.05. 'stageAttachment' returned the typed refusal
+'{ reason: unsupported, detail: Codex attachment staging is not wired to its local-image input }'.
+
+The current epic tip was also driven with named instance 'p2913-2408-tip' and
+probe directory '/tmp/pod-2913-2408-tip.zwtqG7'. Its daemon and fake-server
+spawn-time pin files both contained 'a3d702adcccb133f8fc09f44ccc5cb8b5404abb1';
+the web bundle was explicitly 'n/a' for the same reason. At the
+'2026-08-27 03:28:15 CEST' resource check there were 17 GiB free disk,
+2.9 GiB available memory, and load 21.27/11.23/10.83. The positive control
+fired again with thread 'thr-p2913-2408-tip' and session
+'p2913-2408-tip-session'. The later staging feature returned a file ref and the
+probe read the exact 'probe' bytes back from its isolated uploads directory.
+
+The parent reproduces the raw throw, the exact fix returns the typed refusal,
+and the landed tip successfully stages the attachment. Verdict: **PASS —
+typed-refusal defect gone; later staging support also verified**. No product
+repair was made.
 
 >>>>>>> 05f708469 (docs: record POD-2408 boundary finding)
 
@@ -234,9 +265,12 @@ Last evidence update: '2026-08-27 02:39:16 CEST'.
 >>>>>>> 562620c41 (docs: refresh POD-2298 parent drive evidence)
 =======
 children (POD-2602, POD-2604, and POD-2637) were not touched in this interval
-and have no result claimed here. POD-2408 has the static boundary finding above
-and no runtime drive was run. POD-2622 is handed to POD-2914;
+and have no result claimed here. POD-2622 is handed to POD-2914;
 this report does not claim a drive for it.
 
+<<<<<<< HEAD
 Last evidence update: '2026-08-27 03:04:17 CEST'.
 >>>>>>> 05f708469 (docs: record POD-2408 boundary finding)
+=======
+Last evidence update: '2026-08-27 03:29:11 CEST'.
+>>>>>>> 210ad18a5 (docs: record POD-2408 controlled drive)
