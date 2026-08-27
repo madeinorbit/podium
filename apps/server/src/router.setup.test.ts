@@ -7,7 +7,7 @@ import { loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from './command-principal'
-import { InstanceService } from './modules/instance/service'
+import { desktopUpdaterEndpoint, InstanceService } from './modules/instance/service'
 
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
@@ -210,6 +210,21 @@ describe('setup tRPC', () => {
   })
   it('reports the update channel (default stable)', async () => {
     expect(await caller().setup.channel()).toMatchObject({ channel: 'stable', envForced: false })
+  })
+  it('reports the dev shell endpoint from the deployment public URL', async () => {
+    saveConfig({
+      ...loadConfig(),
+      updateChannel: 'dev',
+      publicUrl: 'https://podium.test/',
+    })
+    expect(await caller().setup.channel()).toMatchObject({
+      channel: 'dev',
+      desktopUpdateEndpoint: 'https://podium.test/updates/feed/dev/latest.json',
+    })
+    expect(
+      desktopUpdaterEndpoint('dev', 'http://127.0.0.1:18787'),
+      'an all-in-one page origin must never become a native updater endpoint',
+    ).toBeUndefined()
   })
   it('sets the update channel and persists it', async () => {
     // POD-1882: the mutation answers with the EFFECTIVE fleet default, not a bare

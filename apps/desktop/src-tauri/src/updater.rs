@@ -913,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    fn release_channels_use_distinct_static_manifests() {
+    fn every_configured_channel_has_a_usable_secure_manifest() {
         assert_eq!(
             endpoint_for_channel(UpdateChannel::Stable, None),
             Ok(STABLE_ENDPOINT.to_string())
@@ -926,6 +926,14 @@ mod tests {
             endpoint_for_channel(UpdateChannel::Dev, Some("https://podium.test/updates/feed/dev/latest.json")),
             Ok("https://podium.test/updates/feed/dev/latest.json".to_string())
         );
+        for endpoint in [
+            STABLE_ENDPOINT,
+            EDGE_ENDPOINT,
+            "https://podium.test/updates/feed/dev/latest.json",
+        ] {
+            let parsed = tauri::Url::parse(endpoint).expect("configured endpoint must be a URL");
+            assert_eq!(parsed.scheme(), "https");
+        }
         assert_eq!(
             endpoint_for_channel(UpdateChannel::Dev, None),
             Err(UpdateError::updater_unavailable())

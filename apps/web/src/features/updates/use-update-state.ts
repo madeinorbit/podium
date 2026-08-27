@@ -229,22 +229,30 @@ const UNKNOWN_DESKTOP_CHANNEL = 'The desktop update channel could not be determi
  * replays this idempotent read. A failure or an unfamiliar payload stays
  * unread; neither is permission to choose a feed.
  */
-async function readDesktopChannel(
-  queryChannel: () => Promise<unknown>,
-): Promise<NativeDesktopUpdateChannel> {
-  const channel = desktopChannelOf(await queryChannel())
+async function readDesktopChannel(queryChannel: () => Promise<unknown>): Promise<{
+  channel: NativeDesktopUpdateChannel
+  endpoint: string | undefined
+}> {
+  const raw = await queryChannel()
+  const channel = desktopChannelOf(raw)
   if (channel === undefined) throw new Error(UNKNOWN_DESKTOP_CHANNEL)
-  return channel
+  const endpoint =
+    raw &&
+    typeof raw === 'object' &&
+    typeof (raw as { desktopUpdateEndpoint?: unknown }).desktopUpdateEndpoint === 'string'
+      ? (raw as { desktopUpdateEndpoint: string }).desktopUpdateEndpoint
+      : undefined
+  return { channel, endpoint }
 }
 
-async function readDesktopUpdate(
-  channel: NativeDesktopUpdateChannel,
-  httpOrigin: string,
-): Promise<DesktopUpdateInfo | undefined> {
-  await persistNativeDesktopUpdateChannel(channel, httpOrigin)
+async function readDesktopUpdate(selection: {
+  channel: NativeDesktopUpdateChannel
+  endpoint: string | undefined
+}): Promise<DesktopUpdateInfo | undefined> {
+  await persistNativeDesktopUpdateChannel(selection.channel, selection.endpoint)
   const check = nativeDesktopBridge()?.checkUpdate
   if (!check) return undefined
-  const next = await check(channel)
+  const next = await check(selection.channel)
   return next ? { version: next.version, critical: next.critical, notes: next.notes } : undefined
 }
 
@@ -459,10 +467,10 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
 
     let cancelled = false
     void readDesktopChannel(queryChannel)
-      .then(async (channel) => {
+      .then(async (selection) => {
         if (cancelled) return
-        setDesktopChannel(channel)
-        const info = await readDesktopUpdate(channel, options.httpOrigin)
+        setDesktopChannel(selection.channel)
+        const info = await readDesktopUpdate(selection)
         if (!cancelled) setDesktopUpdate(info)
       })
       .catch(() => {})
@@ -470,7 +478,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     return () => {
       cancelled = true
     }
-  }, [queryChannel, options.httpOrigin])
+  }, [queryChannel])
 
   // The shell's own installer, which used to report nothing at all (spec §5).
   useEffect(() => onNativeDesktopUpdateProgress(setDesktopProgress), [])
@@ -866,9 +874,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     setDesktopChannel(undefined)
     try {
       await trpc.updates.checkNow.mutate().catch(() => {})
-      const channel = await readDesktopChannel(queryChannel)
-      setDesktopChannel(channel)
-      const info = await readDesktopUpdate(channel, options.httpOrigin)
+      const selection = await readDesktopChannel(queryChannel)
+      setDesktopChannel(selection.channel)
+      const info = await readDesktopUpdate(selection)
       setDesktopUpdate(info)
       setCheckedAt(clock())
       refresh()

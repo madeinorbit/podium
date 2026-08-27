@@ -54,11 +54,11 @@ describe('nativeDesktopBridge', () => {
       setUpdateChannel: persist,
     }
 
-    expect(desktopUpdateEndpoint('dev', 'https://podium.test/')).toBe(
-      'https://podium.test/updates/feed/dev/latest.json',
-    )
-    await persistNativeDesktopUpdateChannel('dev', 'https://podium.test/')
-    await persistNativeDesktopUpdateChannel('edge', 'https://podium.test/')
+    const endpoint = 'https://podium.test/updates/feed/dev/latest.json'
+    expect(desktopUpdateEndpoint('dev', endpoint)).toBe(endpoint)
+    expect(desktopUpdateEndpoint('edge', endpoint)).toBeUndefined()
+    await persistNativeDesktopUpdateChannel('dev', endpoint)
+    await persistNativeDesktopUpdateChannel('edge', endpoint)
     expect(persist).toHaveBeenNthCalledWith(
       1,
       'dev',

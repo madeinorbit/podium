@@ -549,13 +549,18 @@ fn write_channel(
         if let Some(endpoint) = endpoint {
             let url =
                 Url::parse(endpoint).map_err(|e| format!("invalid dev update endpoint: {e}"))?;
-            if !matches!(url.scheme(), "http" | "https") {
-                return Err("the dev update endpoint must use http or https".to_string());
+            if url.scheme() != "https" {
+                return Err("the dev update endpoint must use https".to_string());
             }
             obj.insert(
                 "updateFeedEndpoint".to_string(),
                 serde_json::Value::String(endpoint.to_string()),
             );
+        } else {
+            // A build-channel seed is not entitled to retain an endpoint whose producer is
+            // unknown. In particular, older dev shells accepted loopback HTTP here; pairing a
+            // fresh `dev` channel with that stale value arms a release build that Tauri refuses.
+            obj.remove("updateFeedEndpoint");
         }
     } else {
         obj.remove("updateFeedEndpoint");
@@ -1967,7 +1972,7 @@ mod tests {
     /// next version — which is the exact thing a dev channel exists to prevent.
     #[test]
     fn dev_build_seeds_and_keeps_the_dev_channel() {
-        with_state_dir("channel-seed-dev", Some(r#"{"mode":"all-in-one"}"#), || {
+        with_state_dir("channel-seed-dev", Some(r#"{"mode":"all-in-one","updateFeedEndpoint":"http://127.0.0.1:18787/updates/feed/dev/latest.json"}"#), || {
             // First launch of a dev-promoted shell: no channel chosen, and no feed endpoint,
             // because the source server that supplies one has not been attached yet. This
             // must SUCCEED — `main.rs` turns a failure here into a shell that cannot start.
@@ -1979,6 +1984,8 @@ mod tests {
             )
             .unwrap();
             assert_eq!(raw["updateChannel"], "dev");
+            // The seed has no producer for an endpoint yet, so it must not couple the new
+            // channel to a stale value that a release updater cannot use.
             assert!(raw.get("updateFeedEndpoint").is_none());
             // And it round-trips: the next launch reads dev back rather than falling
             // through to the build default.
@@ -1995,7 +2002,7 @@ mod tests {
     /// front of them, so a selection with nowhere to fetch from stays a refusal — the
     /// leniency above must not have widened into the path where an endpoint is knowable.
     #[test]
-    fn choosing_dev_still_requires_a_feed_endpoint() {
+    fn choosing_dev_requires_a_secure_feed_endpoint() {
         with_state_dir("channel-choose-dev", Some(r#"{"mode":"all-in-one"}"#), || {
             assert_eq!(
                 write_update_channel(UpdateChannel::Dev, None),
@@ -2003,7 +2010,19 @@ mod tests {
             );
             assert_eq!(
                 write_update_channel(UpdateChannel::Dev, Some("ftp://nope.test/feed")),
-                Err("the dev update endpoint must use http or https".to_string())
+                Err("the dev update endpoint must use https".to_string())
+            );
+            assert_eq!(
+                write_update_channel(
+                    UpdateChannel::Dev,
+                    Some("http://127.0.0.1:18787/updates/feed/dev/latest.json"),
+                ),
+                Err("the dev update endpoint must use https".to_string())
+            );
+            assert_eq!(
+                std::fs::read_to_string(state_dir().join("config.json")).unwrap(),
+                r#"{"mode":"all-in-one"}"#,
+                "a refused endpoint must not write the channel or endpoint"
             );
         });
     }

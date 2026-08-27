@@ -101,6 +101,27 @@ export interface InstanceAccountStore {
   setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void
 }
 
+/** The native updater must use the deployment's advertised HTTPS edge, not the page origin.
+ *
+ * An all-in-one desktop deliberately loads its page over loopback HTTP. Deriving the manifest
+ * from that origin writes an endpoint Tauri release builds refuse, even when the deployment has
+ * a usable public URL. This server-owned answer is the endpoint producer for the native writer.
+ */
+export function desktopUpdaterEndpoint(
+  channel: FleetUpdateChannel,
+  publicUrl: string | undefined,
+): string | undefined {
+  if (channel !== 'dev' || !publicUrl) return undefined
+  let parsed: URL
+  try {
+    parsed = new URL(publicUrl)
+  } catch {
+    return undefined
+  }
+  if (parsed.protocol !== 'https:') return undefined
+  return `${publicUrl.replace(/\/+$/, '')}/updates/feed/dev/latest.json`
+}
+
 export class InstanceService {
   constructor(private readonly deps: InstanceDeps) {}
 
@@ -140,8 +161,15 @@ export class InstanceService {
    * instead of offering a mutation that cannot take effect.
    */
   channel() {
+    const config = loadConfig()
+    const channel = resolveUpdateChannel()
     const envForced = Boolean(process.env.PODIUM_UPDATE_CHANNEL)
-    return { channel: resolveUpdateChannel(), envForced, configured: getUpdateChannel() }
+    return {
+      channel,
+      envForced,
+      configured: getUpdateChannel(),
+      desktopUpdateEndpoint: desktopUpdaterEndpoint(channel, config.publicUrl),
+    }
   }
 
   /**

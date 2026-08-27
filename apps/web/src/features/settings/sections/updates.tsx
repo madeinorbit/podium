@@ -234,7 +234,7 @@ export function UpdatesSection(): JSX.Element {
       // Keep the shell's native fallback on this server's channel. Dev points at
       // this server's public shell manifest; the signed artifact itself remains on GitHub.
       try {
-        await persistNativeDesktopUpdateChannel(result.channel, window.location.origin)
+        await persistNativeDesktopUpdateChannel(result.channel, result.desktopUpdateEndpoint)
       } catch (e) {
         setChannelError(e instanceof Error ? e.message : String(e))
       }

@@ -197,19 +197,19 @@ export function onNativeDesktopUpdateProgress(
 
 export function desktopUpdateEndpoint(
   channel: NativeDesktopUpdateChannel,
-  httpOrigin: string,
+  serverEndpoint: string | undefined,
 ): string | undefined {
   if (channel !== 'dev') return undefined
-  return httpOrigin.replace(/\/+$/, '') + '/updates/feed/dev/latest.json'
+  return serverEndpoint
 }
 
 export async function persistNativeDesktopUpdateChannel(
   channel: NativeDesktopUpdateChannel,
-  httpOrigin: string,
+  serverEndpoint: string | undefined,
 ): Promise<void> {
   await nativeDesktopBridge()?.setUpdateChannel?.(
     channel,
-    desktopUpdateEndpoint(channel, httpOrigin),
+    desktopUpdateEndpoint(channel, serverEndpoint),
   )
 }
 
