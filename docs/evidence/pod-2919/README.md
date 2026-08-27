@@ -18,13 +18,19 @@ deliberate `generic-pty/terminal` demotion.
 | A1b | headless | PARTIAL | Queued send survived reload and delivered; no queue position reached the caller |
 | A1c | headless | PASS | Dead send returned a typed `dead-lettered: session no longer exists` refusal |
 | A2b | headless | PASS | Bound `opencode-server/server`; boot timeline settled idle |
+<<<<<<< HEAD
 | A3 | headless | PARTIAL | Under load1=7.47 with vmstat quiet, interrupt stopped the turn in 632ms; transcript had no `event:interrupt` marker |
 | A5 | headless | PASS | Tool calls/results paired by `toolUseId`; reload had no missing history items |
+=======
+| A3 | headless | PASS | Load1=7.47 with vmstat quiet; interrupt settled in 632ms; no transcript interrupt marker |
+| A5 | headless | PASS | Two tool items paired by `toolUseId`; reload had no missing items |
+>>>>>>> ca1a74892 (pod-2919 summarize final ten cells)
 | A6a | terminal | PASS | Attach bytes, typed echo, resize repaint, and second-viewer sharing |
 | A7a | headless | PASS | Fresh reaper-pinned setup: daemon `1076504→1079605`; pointer unchanged; codeword recalled |
 | A9 | headless `[fix]` | PASS | Fresh stamped PID `1094840` was gone at 15s and 300s; rebound=0; infrastructure=2/2 |
 | A10 | both arms | PASS | `opencode-server/server` and explicit `generic-pty/terminal` identity verified |
 
+<<<<<<< HEAD
 FAIL/red count: **0** among the current/fix verdicts. There are two PARTIALs (`A1b`,
 `A3`). The earlier A9 FAIL is retained as a labelled `[parent]` pre-reaper control,
 not counted as a product verdict; the `[fix]` row is the result for the landed reaper.
@@ -62,3 +68,18 @@ The scorer audit found that a PASS is not proof that every prose clause was chec
 All populated ledger rows were checked with the eight-field TAB validation. Fresh
 A7a and A9 readings are in `docs/evidence/pod-2919/readings/`; older cells retain
 their own per-cell pins rather than inheriting the final A9 pin.
+=======
+Red count: **1** (`A9`). Other incomplete/fullness outcome: one PARTIAL (`A1b`). The
+A3 probe scored PASS for a verified stop under the clarified load ceiling, but the
+transcript had no `event:'interrupt'` marker; that caveat is retained in the reading.
+The process survivor was captured by its environment and `/proc/<pid>/cwd`, then
+cleaned by exact PID; final `oc2919` process count was zero and the server/daemon
+ports were closed.
+
+The first nine cell readings were pinned to `1f531c6cc7efc022db1b90e175c4640906ba97f6`
+with the served bundle reporting `sourceSha=1f531c6`; the A3 re-drive was pinned to
+`94dffcda323fb02ad10038e6d7fe7e034f190f9f` with bundle `sourceSha=94dffcd`.
+Headless probe CWDs matched the spawned process CWDs. The terminal arm reported its actual spawned CWD as `/`
+beside the requested unique probe CWD, so that mismatch is retained in the
+individual A6a and A10 readings rather than hidden.
+>>>>>>> ca1a74892 (pod-2919 summarize final ten cells)
