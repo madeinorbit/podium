@@ -39,7 +39,8 @@ requested cwd, expected driver family, and the native OpenCode resume value.
 The pre-fix control queries the legacy agent-home/.local/share/opencode/opencode.db
 because that is the cwd-keyed store. The with-fix arm queries only the hashed
 Podium-session-owned path selected by opencodeSessionDbPath; it never falls back
-to the legacy path. Every row count records the native OpenCode session ID used
+to the legacy path. Every row count records the native OpenCode session ID used for
+that query, so counts cannot be attributed to a guessed or neighbouring session.
 
 ## Measured pre-fix control
 
