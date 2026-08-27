@@ -706,3 +706,34 @@ out of date. **The criterion was right and the product is wrong.**
 **What this changes for POD-2921: A1c is now the most important of its three cells.** A1b and A3
 failed for POD-2874 too, so they have at least a consistency story. **A1c is a confirmed
 user-visible loss, and only main tells us whether it is new.**
+
+## Decision 23, first answer — A1b is INHERITED, not a regression (2026-08-27 07:32 CEST)
+
+**claude A1b on MAIN: FAIL. The epic: FAIL. Same behaviour, so the epic is not worse than main on
+this cell.** One of the three release questions is closed.
+
+    main 0bd90092c   second send returned {ok:true, disposition:"delivered"}
+                     no `queued` flag, no numeric position; terminal said only "queued messages"
+    epic             same shape — PARTIAL/FAIL for the missing position, on codex and opencode too
+
+**So the queue-position gap is not something this epic introduced.** POD-2920 is fixing it anyway
+and that remains worth doing — but **it is an improvement over main, not a regression from it, and
+it does not block the release.**
+
+**THE MEASUREMENT IS TRUSTWORTHY FOR A REASON WORTH RECORDING.** The shared phase observer reported
+`idle` throughout a long turn on main — the same unreliable field that has misled this epic all
+night. POD-2921 did not use it. It built an **independent busy-proof**: terminal output growing
+2,375 bytes in the one-second interval immediately before the second send, while the first turn was
+visibly at numbers 156–159 of a count-to-160. **It then retained the observer's contradicting
+reading as a blocked attempt rather than deleting it.**
+
+**It also refused to touch the operator's live default state.** I told it to take the default
+instance; it built an ISOLATED default-ID rig at `/tmp/pod-2921` with its own state, home and
+loopback ports, because systemd has real operator sessions on the installed default daemon. **The
+short socket path was what it needed, not the operator's daemon** — a distinction I did not draw and
+should have.
+
+**REMAINING: A1c and A3.** A1c is next and is the one that matters — the epic side is a confirmed
+lost message, so if main loses it too, all three claude reds are inherited and the bar is met. A3
+stays undriven for now: the credential expires at 07:43 and a rushed reading on the cell where haste
+flatters the answer is worse than none.
