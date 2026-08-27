@@ -5109,3 +5109,11 @@ production process reaper against real children. The cooperative sentinel fired 
 `examined=1, term=1, kill=1, remaining=0`. A same-session child carrying a foreign UUID returned
 `examined=0, term=0, kill=0, remaining=0` and remained alive until explicit harness cleanup. The evidence rows are
 in `docs/plans/pod-1761-results.tsv`, against implementation commit `ee0c7bc75`.
+
+### POD-2691 consumer settle measurement (2026-08-27 04:01:19 CEST)
+
+Seventeen minutes after the real-instance positive-control drive, a delayed read-only numeric `/proc` census found
+no live process with a cwd under any controlled `pod-2691-real-root-*` path; the TERM, KILL, and foreign sentinel PIDs
+had all exited. No controlled-process rebound was observed, so the immediate zero did not refill during the settle
+window. The host still had 17 GB available (92% used), and the result is recorded in
+`docs/plans/pod-1761-results.tsv` rather than being inferred from an absence of test output.
