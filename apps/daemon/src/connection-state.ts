@@ -3,6 +3,7 @@ import { hostname } from 'node:os'
 import type { MachineId } from '@podium/model'
 import {
   createHandshakeDialer,
+  type DaemonPtyOutputBatch,
   type LocalDaemonAttachment,
   type PeerBuild,
   type PeerCredential,
@@ -90,8 +91,25 @@ export interface DaemonConnectionDeps {
 export interface DaemonConnection {
   readonly state: DaemonConnectionState
   start(): Promise<void>
+  sendOutput(batch: DaemonPtyOutputBatch): void
   send(msg: DaemonMessage): void
   close(): Promise<void>
+}
+
+const legacyOutputMessage = (
+  batch: DaemonPtyOutputBatch,
+): Extract<DaemonMessage, { type: 'agentFrameBatch' }> => {
+  if (!Number.isInteger(batch.sourceFrames) || batch.sourceFrames < 1) {
+    throw new RangeError('daemon PTY output batches require a positive sourceFrames count')
+  }
+  return {
+    type: 'agentFrameBatch',
+    sessionId: batch.sessionId,
+    frames: [
+      Buffer.from(batch.bytes).toString('base64'),
+      ...Array.from({ length: batch.sourceFrames - 1 }, () => ''),
+    ],
+  }
 }
 
 /**
@@ -483,6 +501,15 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         }
       }
       return ready
+    },
+    sendOutput(batch) {
+      if (state !== 'connected') return
+      const message = legacyOutputMessage(batch)
+      if (localAttachment) {
+        localAttachment.deliver(message)
+        return
+      }
+      deps.sendApplicationFrame(socket, message)
     },
     send(msg) {
       if (state !== 'connected') {

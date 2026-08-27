@@ -1,5 +1,6 @@
 import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
+import type { DaemonPtyOutputBatch } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { PARENT_HAS_SERVER_ENV } from '@podium/runtime/parent-process'
 import { captureDaemonBootBuild } from './build-report'
@@ -109,6 +110,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     build,
     installDir,
     send: (message) => connection?.send(message),
+    sendOutput: (batch: DaemonPtyOutputBatch) => connection?.sendOutput(batch),
   })
   connection = createDaemonConnection({
     options,

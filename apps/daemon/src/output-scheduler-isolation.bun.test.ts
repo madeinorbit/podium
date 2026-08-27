@@ -6,7 +6,8 @@ import { OutputScheduler } from './output-scheduler'
 test('a P3 flood does not delay a P0 session and stays batched', async () => {
   const sent: Array<{ sid: string; n: number }> = []
   const s = new OutputScheduler({
-    flush: (sid, frames) => sent.push({ sid, n: frames.length }),
+    flush: (batch) =>
+      sent.push({ sid: batch.sessionId, n: batch.sourceFrames }),
     coalesceMs: 50,
     coalesceMaxBytes: 1_000_000, // disable size-cap so we test the timer path
   })

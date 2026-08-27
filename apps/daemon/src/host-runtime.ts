@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { agentLaunchCommand, declaredValue } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
-import type { PeerBuild } from '@podium/protocol'
+import type { DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
 import {
@@ -106,8 +106,9 @@ export async function createDaemonHostRuntime(args: {
   build: PeerBuild
   installDir: string | undefined
   send: (message: DaemonMessage) => void
+  sendOutput: (batch: DaemonPtyOutputBatch) => void
 }): Promise<DaemonHostRuntime> {
-  const { options: opts, instance, build, installDir, send } = args
+  const { options: opts, instance, build, installDir, send, sendOutput } = args
   const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
   const backend = selectDurableBackend(opts)
@@ -351,15 +352,7 @@ export async function createDaemonHostRuntime(args: {
     log.error(diagnostic.title, { code: diagnostic.code, detail: diagnostic.body })
   }
 
-  const outputScheduler = new OutputScheduler({
-    flush: (sessionId, frames) =>
-      send({
-        type: 'agentFrameBatch',
-        sessionId,
-        // Compatibility checkpoint: keep the remote/local wire unchanged.
-        frames: frames.map((frame) => Buffer.from(frame).toString('base64')),
-      }),
-  })
+  const outputScheduler = new OutputScheduler({ flush: sendOutput })
 
   const parentHasServer =
     process.env.PODIUM_UNDER_PARENT === '1' && process.env[PARENT_HAS_SERVER_ENV] === '1'

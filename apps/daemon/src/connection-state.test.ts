@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
 import { type PeerHello, type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import { readConnectivity } from '@podium/runtime/connectivity'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
@@ -365,6 +365,109 @@ class FakeSocket extends EventEmitter {
     this.emit('message', Buffer.from(JSON.stringify(value)) as RawData)
   }
 }
+
+function remoteHarness() {
+  const socket = new FakeSocket()
+  const sendApplicationFrame = vi.fn()
+  const state = createDaemonConnection({
+    options: { serverUrl: 'ws://server', identityDir: temp() },
+    build: buildReport(process.env, undefined),
+    machineId: MACHINE_ID,
+    identity: { token: 'token' },
+    receiveApplicationFrame: vi.fn(),
+    sendApplicationFrame,
+    onConnected: vi.fn(),
+    onTerminal: vi.fn(),
+    openSocket: () => socket,
+  })
+  return { socket, sendApplicationFrame, state }
+}
+
+it('drops typed output while the daemon connection is disconnected', async () => {
+  const h = remoteHarness()
+  h.state.sendOutput({
+    sessionId: asSessionId('session-a'),
+    sourceFrames: 1,
+    bytes: Uint8Array.from([0xff]),
+  })
+  expect(h.sendApplicationFrame).not.toHaveBeenCalled()
+  await h.state.close()
+})
+
+it('converts remote typed output to one legacy payload without changing JSON sends', async () => {
+  const h = remoteHarness()
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message(ok)
+  await started
+
+  const outputBytes = Uint8Array.from([0x00, 0xff, 0x80])
+  h.state.sendOutput({
+    sessionId: asSessionId('session-a'),
+    sourceFrames: 3,
+    bytes: outputBytes,
+  })
+  expect(h.sendApplicationFrame).toHaveBeenNthCalledWith(
+    1,
+    h.socket,
+    {
+      type: 'agentFrameBatch',
+      sessionId: 'session-a',
+      frames: ['AP+A', '', ''],
+    },
+  )
+
+  const diagnostic = {
+    type: 'machineDiagnostic',
+    code: 'still-json',
+    title: 'Still JSON',
+    body: 'The ordinary sender stays unchanged.',
+  } as const
+  h.state.send(diagnostic)
+  expect(h.sendApplicationFrame).toHaveBeenNthCalledWith(
+    2,
+    h.socket,
+    diagnostic,
+  )
+  expect(h.sendApplicationFrame.mock.calls[1]![1]).toBe(diagnostic)
+
+  expect(() =>
+    h.state.sendOutput({
+      sessionId: asSessionId('session-a'),
+      sourceFrames: 0,
+      bytes: new Uint8Array(),
+    }),
+  ).toThrow(/positive sourceFrames/)
+  await h.state.close()
+})
+
+it('converts local typed output to the same legacy payload and source-frame count', async () => {
+  const deliver = vi.fn()
+  const options = localOptions(() => {}, { bootstrapToken: 'local-secret' })
+  options.localLink = {
+    attach: () => ({
+      established: true,
+      reply: ok,
+      machineId: MACHINE_ID,
+      deliver,
+      close: vi.fn(),
+    }),
+  }
+  const state = connection(options)
+  await state.start()
+
+  state.sendOutput({
+    sessionId: asSessionId('session-local'),
+    sourceFrames: 2,
+    bytes: Uint8Array.from([0x00, 0xff, 0x80]),
+  })
+  expect(deliver).toHaveBeenCalledWith({
+    type: 'agentFrameBatch',
+    sessionId: 'session-local',
+    frames: ['AP+A', ''],
+  })
+  await state.close()
+})
 
 it('reports transport loss as backoff and schedules a retry', async () => {
   const socket = new FakeSocket()
