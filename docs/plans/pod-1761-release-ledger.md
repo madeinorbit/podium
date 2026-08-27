@@ -5378,3 +5378,36 @@ observation against the sizing verdict."* **Correct — that is a different surf
 asks about, and folding it in would have made a clean verdict muddy.** Recorded as INCONCLUSIVE
 against POD-2602 so the observation survives without contaminating the cell. **A thing seen and set
 aside deliberately is worth more in the record than a thing seen and quietly dropped.**
+
+### The credential mechanism fired, and it fired cleanly (2026-08-27 07:51 CEST)
+
+    07:43:12  the operator's token expired
+    07:49:09  it refreshed — mtime moved, new expiry 15:49, 478 minutes
+    rotation: none. The operator was not logged out.
+
+**This is the mechanism I have been reasoning from all night, actually happening.** claude refreshes
+only an ALREADY-EXPIRED token, and the refresh rotates it. The refresh at 07:49 came from the real
+credential and rotated nothing.
+
+**It would not have been guaranteed an hour earlier.** At 07:35 there were **thirteen copies of that
+credential on disk** in rig state roots — twelve already expired, one of them with three live claude
+processes sleeping under it. **Any of those being read after 07:43 would have refreshed from a stale
+copy and logged the operator out of their own sessions.** I removed the twelve; POD-2921's live copy
+went with its own teardown. Filed as **POD-2922**.
+
+**So the cleanup was not hygiene — it was the difference between a clean refresh and a rotation**,
+and the refresh happened six minutes after the window I cleared it in. **That timing is luck; the
+removal was not.**
+
+### A3 on main is the last open cell in the matrix
+
+The window reopened by itself, so the cell POD-2921 declined to rush now has eight hours available.
+**It was right to leave it UNDRIVEN** — A3 is the cell where haste and a loaded box flatter the
+answer in the same direction, and on a MAIN baseline that error is the expensive one: it would make
+main look broken and let a real epic regression pass as inherited.
+
+Told it to score **all three clauses explicitly** — the epic-side scorer was found to record the
+transcript marker and then ignore it, and its motion predicate did not require `phase=working` — and
+to reuse its own **independent in-flight control**, the PTY-growth-plus-visible-countdown proof it
+built for A1b after correctly distrusting the phase observer. **Without that, an interrupt that
+"worked" cannot be told from a turn that had already finished.**
