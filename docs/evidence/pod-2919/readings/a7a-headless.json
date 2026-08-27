@@ -5,14 +5,14 @@
   "verdict": "PASS",
   "summary": "daemon restart preserved the same opencode conversation",
   "evidence": [
-    "codeword=CODEWORD-VHEKU6",
-    "oldDaemonPid=824666",
-    "newDaemonPid=848853",
+    "codeword=CODEWORD-A6P6IE",
+    "oldDaemonPid=1076504",
+    "newDaemonPid=1079605",
     "history=true",
     "recalled=true",
-    "reply=CODEWORD-VHEKU6",
-    "pointerBefore=conv_4375b3af-e41c-48f9-a7d2-242106f67cf0",
-    "pointerAfter=conv_4375b3af-e41c-48f9-a7d2-242106f67cf0",
+    "reply=CODEWORD-A6P6IE",
+    "pointerBefore=conv_1445d0a1-86ca-4d81-932b-203622a0d2cb",
+    "pointerAfter=conv_1445d0a1-86ca-4d81-932b-203622a0d2cb",
     "sameConversation=true"
   ],
   "data": {
@@ -25,21 +25,21 @@
   "requestedCwd": "/tmp/pod-2919/probes/headless-a7a",
   "cwdFromSpawn": null,
   "instance": "oc2919",
-  "codePin": "1f531c6cc7efc022db1b90e175c4640906ba97f6",
+  "codePin": "fb67ef2278f083bf1bc7036186dea1e183dfcec6",
   "pin": {
-    "codeSha": "1f531c6cc7efc022db1b90e175c4640906ba97f6",
-    "codeShort": "1f531c6",
+    "codeSha": "fb67ef2278f083bf1bc7036186dea1e183dfcec6",
+    "codeShort": "fb67ef2",
     "server": {
-      "pid": 824576,
+      "pid": 1076330,
       "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
-      "sha": "1f531c6cc7efc022db1b90e175c4640906ba97f6"
+      "sha": "fb67ef2278f083bf1bc7036186dea1e183dfcec6"
     },
     "daemon": {
-      "pid": 824666,
+      "pid": 1076504,
       "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
-      "sha": "1f531c6cc7efc022db1b90e175c4640906ba97f6"
+      "sha": "fb67ef2278f083bf1bc7036186dea1e183dfcec6"
     },
-    "bundleSourceSha": "1f531c6",
+    "bundleSourceSha": "fb67ef2",
     "expectedDriver": "opencode-server",
     "expectedFamily": "server",
     "actualRuntimeDriver": "",
@@ -48,29 +48,29 @@
   },
   "host": {
     "load": [
-      "11.31",
-      "10.05",
-      "12.94"
+      "12.73",
+      "10.89",
+      "8.98"
     ],
-    "memAvailableKb": 4495756,
-    "swapFreeKb": 36878352,
-    "diskFreeKb": 15874948
+    "memAvailableKb": 5070668,
+    "swapFreeKb": 36802824,
+    "diskFreeKb": 14351564
   },
-  "at": "2026-08-27T02:31:53.490Z",
+  "at": "2026-08-27T03:55:45.925Z",
   "error": "",
   "log": [
-    "PIN PINJSON {\"codeSha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\",\"codeShort\":\"1f531c6\",\"server\":{\"pid\":824576,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\"},\"daemon\":{\"pid\":824666,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\"},\"bundleSourceSha\":\"1f531c6\",\"expectedDriver\":\"opencode-server\",\"expectedFamily\":\"server\",\"actualRuntimeDriver\":\"\",\"contract\":\"1\",\"streaming\":\"1\"}",
-    "PIN server pid=824576 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=1f531c6cc7ef",
-    "PIN daemon pid=824666 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=1f531c6cc7ef",
-    "PIN bundle sourceSha=1f531c6 expected=1f531c6",
+    "PIN PINJSON {\"codeSha\":\"fb67ef2278f083bf1bc7036186dea1e183dfcec6\",\"codeShort\":\"fb67ef2\",\"server\":{\"pid\":1076330,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"fb67ef2278f083bf1bc7036186dea1e183dfcec6\"},\"daemon\":{\"pid\":1076504,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"fb67ef2278f083bf1bc7036186dea1e183dfcec6\"},\"bundleSourceSha\":\"fb67ef2\",\"expectedDriver\":\"opencode-server\",\"expectedFamily\":\"server\",\"actualRuntimeDriver\":\"\",\"contract\":\"1\",\"streaming\":\"1\"}",
+    "PIN server pid=1076330 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=fb67ef2278f0",
+    "PIN daemon pid=1076504 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=fb67ef2278f0",
+    "PIN bundle sourceSha=fb67ef2 expected=fb67ef2",
     "PIN daemon runtime driver=unset expected=opencode-server family=server",
-    "HOST {\"load\":[\"7.70\",\"9.32\",\"12.84\"],\"memAvailableKb\":4944444,\"swapFreeKb\":36889380,\"diskFreeKb\":15953592}",
-    "SESSION sid=08bb71dd-9678-4396-88a2-509eada019d2",
+    "HOST {\"load\":[\"11.94\",\"10.48\",\"8.77\"],\"memAvailableKb\":5720680,\"swapFreeKb\":36799420,\"diskFreeKb\":14423744}",
+    "SESSION sid=33349a47-2ec1-4a4d-b22e-935fe74ed98a",
     "CWD requested=/tmp/pod-2919/probes/headless-a7a",
     "CWD spawn-observed=/tmp/pod-2919/probes/headless-a7a",
     "CWD query=/tmp/pod-2919/probes/headless-a7a match=true",
     "DRIVER bound=opencode-server family=server status=live",
-    "OLD_DAEMON_PID=824666\nNEW_DAEMON_PID=848853\nDAEMON_RECONNECTED=1",
-    "CONTROL daemonRestarted=true history=true recallReply=true pointerBefore=conv_4375b3af-e41c-48f9-a7d2-242106f67cf0 pointerAfter=conv_4375b3af-e41c-48f9-a7d2-242106f67cf0 sameConversation=true"
+    "OLD_DAEMON_PID=1076504\nNEW_DAEMON_PID=1079605\nDAEMON_RECONNECTED=1",
+    "CONTROL daemonRestarted=true history=true recallReply=true pointerBefore=conv_1445d0a1-86ca-4d81-932b-203622a0d2cb pointerAfter=conv_1445d0a1-86ca-4d81-932b-203622a0d2cb sameConversation=true"
   ]
 }
