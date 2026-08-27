@@ -1,14 +1,27 @@
-import { frame, globalProjectionState, microtask, type VisualElement } from 'motion-dom'
+import {
+  frame,
+  globalProjectionState,
+  type IProjectionNode,
+  microtask,
+  type NodeGroup,
+  type VisualElement,
+} from 'motion-dom'
 import {
   LayoutGroupContext,
   type MotionProps,
   SwitchLayoutGroupContext,
   usePresence,
 } from 'motion/react'
-import { Component, useContext, type ContextType, type JSX } from 'react'
+import { Component, type Context, useContext, type JSX } from 'react'
 
-type LayoutGroup = ContextType<typeof LayoutGroupContext>
-type SwitchLayoutGroup = ContextType<typeof SwitchLayoutGroupContext>
+type LayoutGroup = {
+  group?: NodeGroup
+  forceRender?: VoidFunction
+}
+type SwitchLayoutGroup = {
+  register?: (member: IProjectionNode) => void
+  deregister?: (member: IProjectionNode) => void
+}
 
 type MeasureLayoutProps = MotionProps & {
   visualElement: VisualElement
@@ -112,8 +125,8 @@ export function WorklistMeasureLayout(
   props: MotionProps & { visualElement: VisualElement },
 ): JSX.Element {
   const [isPresent, safeToRemove] = usePresence()
-  const layoutGroup = useContext(LayoutGroupContext)
-  const switchLayoutGroup = useContext(SwitchLayoutGroupContext)
+  const layoutGroup = useContext(LayoutGroupContext as Context<LayoutGroup>)
+  const switchLayoutGroup = useContext(SwitchLayoutGroupContext as Context<SwitchLayoutGroup>)
   return (
     <WorklistMeasureLayoutWithContext
       {...props}

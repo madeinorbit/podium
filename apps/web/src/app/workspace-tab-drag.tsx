@@ -2,8 +2,10 @@ import {
   closestCenter,
   type CollisionDetection,
   DndContext,
+  type DragEndEvent,
   type DraggableAttributes,
   type DraggableSyntheticListeners,
+  type DragStartEvent,
   DragOverlay,
   KeyboardSensor,
   PointerSensor,
@@ -246,8 +248,8 @@ export function WorkspaceTabDragRuntime({
     <DndContext
       sensors={sensors}
       collisionDetection={paneCollision}
-      onDragStart={(event) => onDragStart(String(event.active.id))}
-      onDragEnd={(event) =>
+      onDragStart={(event: DragStartEvent) => onDragStart(String(event.active.id))}
+      onDragEnd={(event: DragEndEvent) =>
         onDragEnd(String(event.active.id), event.over ? String(event.over.id) : null)
       }
       onDragCancel={onDragCancel}
