@@ -28,7 +28,6 @@ import {
   harnessNeedsSubmitVerification,
   harnessUsesRawFirstTurn,
 } from '../../harness-manifest'
-import { selectMailNudgeSession } from '../../issue-util'
 import { HeadlessService } from '../superagent/headless'
 import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
@@ -41,6 +40,7 @@ import {
   SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
 } from './inbox'
+import { type IssueMailNudgeEvent, nudgeIssueMail } from './issue-mail-nudge'
 import { SessionLaunchConfig } from './launch-config'
 import type { SessionLifecycle, SessionLifecycleDeps } from './lifecycle'
 import type { Session } from './session'
@@ -607,21 +607,18 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       : []
     bag.autoContinue.onSettingsChanged(nowEnabled, ids)
   })
-  // Agent mail send-time nudge (issue #103): poke the target issue's live agent
-  // session so mail is noticed without polling. The nudge carries NO message
-  // body — an idempotent "check your inbox" poke. Selection: a single idle
-  // live agent gets an immediate sendText; otherwise the most recently active
-  // live agent gets a durable queued send; no live agents → nothing (the mail
-  // surfaces via prime / the stop-hook).
-  bag.bus.on(
-    'issue.mailSent',
-    ({ seq, worktreePath }: { seq: number; worktreePath?: string | null }) => {
-      const members = bag.view.listForIssue(worktreePath ?? null, undefined)
-      const target = selectMailNudgeSession(members)
-      if (!target) return
-      const text = `You have mail on issue #${seq}: run 'podium issue mail inbox' (claim with 'podium issue mail claim <id>' only if you will act on it).`
-      if (target.mode === 'send') bag.sendText({ sessionId: target.sessionId, text })
-      else void bag.queueText({ sessionId: target.sessionId, text })
-    },
+  // Agent mail send-time nudge (issue #103): resolve membership and the
+  // coordinator from the canonical issue id at delivery time. The nudge carries
+  // no body; prime/inbox remain the durable pull path when nobody is live.
+  bag.bus.on('issue.mailSent', (event: IssueMailNudgeEvent) =>
+    nudgeIssueMail(
+      {
+        issueMeta: (issueId) => bag.deps.issueAccess.getMeta(issueId) ?? undefined,
+        sessionsForIssue: (worktreePath, issueId) => bag.view.listForIssue(worktreePath, issueId),
+        sendText: (input) => bag.sendText(input),
+        queueText: (input) => bag.queueText(input),
+      },
+      event,
+    ),
   )
 }

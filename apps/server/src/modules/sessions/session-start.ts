@@ -147,7 +147,11 @@ export interface SessionStartPorts {
   }): { instructions: AgentInstruction[]; commit(): void }
   sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined
   setSessionDraft(input: { sessionId: SessionId; text: string }, fromClientId?: string): void
-  emitSessionCreated(payload: { sessionId: SessionId; agentKind: AgentKind }): void
+  emitSessionCreated(payload: {
+    sessionId: SessionId
+    agentKind: AgentKind
+    issueId?: IssueId
+  }): void
 }
 
 export class SessionStart {
@@ -287,10 +291,14 @@ export class SessionStart {
       this.ports.setSessionDraft({ sessionId: spawned.sessionId, text: taskPrompt })
     }
     // Fire-and-forget notification (post-spawn, so subscribers observe the new
-    // world). Its one consumer today is the opt-in telemetry usage counter
-    // [spec:SP-f933], which is why the payload carries the harness kind and
-    // nothing else — no cwd, no prompt, no issue id.
-    this.ports.emitSessionCreated({ sessionId: spawned.sessionId, agentKind })
+    // world). Its telemetry consumer reads the harness kind [spec:SP-f933]. The
+    // issue id is also the lifecycle fact used to establish the first eligible
+    // issue agent as its default coordinator; no cwd or prompt crosses this seam.
+    this.ports.emitSessionCreated({
+      sessionId: spawned.sessionId,
+      agentKind,
+      ...(issueId ? { issueId } : {}),
+    })
     // Forcing an unlisted model is a deliberate override — make it durable and
     // observable across every spawn path [spec:SP-cc60].
     if (forced) {

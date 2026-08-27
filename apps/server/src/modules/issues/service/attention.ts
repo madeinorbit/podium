@@ -47,6 +47,7 @@ export class IssueAttentionModule {
       | 'markIssueRead'
       | 'markIssueUnread'
       | 'setIssueTucked'
+      | 'ensureCoordinator'
     >,
     private readonly hierarchy: () => {
       addDep(fromRef: string, toRef: string, type?: string): IssueWire
@@ -207,6 +208,7 @@ export class IssueAttentionModule {
     }
     if (prevId === target.id) return this.store.toWire(target) // self-attach: no-op
     setSessionIssueId(opts.sessionId, target.id)
+    this.crud().ensureCoordinator(target.id, opts.sessionId, { onlyMember: true })
     this.store.emitEvent('issue.session_attached', target.id, {
       seq: target.seq,
       sessionId: opts.sessionId,

@@ -92,16 +92,32 @@ export function summarizeSessions(sessions: SessionMeta[]): IssueSessionSummary 
  *  Shells never get nudged. */
 export function selectMailNudgeSession(
   sessions: SessionMeta[],
+  coordinatorSessionId?: SessionId | null,
 ): { sessionId: SessionId; mode: 'send' | 'queue' } | null {
   const live = sessions.filter((s) => s.agentKind !== 'shell' && s.status === 'live')
   if (live.length === 0) return null
-  if (live.length === 1 && live[0]!.agentState?.phase === 'idle') {
-    return { sessionId: live[0]!.sessionId, mode: 'send' }
+  const preferred = preferIssueCoordinator(live, coordinatorSessionId)
+  if (preferred.length === 1 && preferred[0]!.agentState?.phase === 'idle') {
+    return { sessionId: preferred[0]!.sessionId, mode: 'send' }
   }
-  const target = [...live].sort((a, b) =>
+  const target = [...preferred].sort((a, b) =>
     (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
   )[0]!
   return { sessionId: target.sessionId, mode: 'queue' }
+}
+
+/** Prefer an issue's designated coordinator within an already-eligible target
+ * set. Eligibility is deliberately the caller's decision: mail accepts live
+ * sessions, while steward issue nudges also accept starting sessions and apply
+ * self/causer exclusions first. A missing, dangling, or excluded coordinator
+ * leaves the caller's existing fallback set unchanged. */
+export function preferIssueCoordinator(
+  sessions: SessionMeta[],
+  coordinatorSessionId?: SessionId | null,
+): SessionMeta[] {
+  if (!coordinatorSessionId) return sessions
+  const coordinator = sessions.find((session) => session.sessionId === coordinatorSessionId)
+  return coordinator ? [coordinator] : sessions
 }
 
 export function stageIndex(stage: IssueStage): number {

@@ -1,6 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId, asUserId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  FIRST_ADMIN_USER_ID,
+  asIssueId,
+  asSessionId,
+  asUserId,
+  type IssueId,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import { SELF_REF_RULE } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
@@ -33,7 +41,7 @@ function harness(sessions: SessionMeta[] = []) {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     resolveMachine: vi.fn(() => store.hostMachineId),
     broadcast,
@@ -119,6 +127,7 @@ describe('attachSession', () => {
     expect(w.id).toBe(target.id)
     expect(issueBySession.get(asSessionId('s1'))).toBe(target.id)
     expect(svc.get(draft.id)).toBeNull() // empty draft deleted
+    expect(w.coordinatorSessionId).toBe('s1')
   })
 
   it('self-attach is a no-op', () => {
@@ -218,7 +227,10 @@ describe('attachSession', () => {
   it('newSubissue with no current issue requires targetId as parent', () => {
     const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
     expect(() =>
-      svc.attachSession({ sessionId: asSessionId('s1'), newSubissue: { title: 'x', origin: 'human' } }),
+      svc.attachSession({
+        sessionId: asSessionId('s1'),
+        newSubissue: { title: 'x', origin: 'human' },
+      }),
     ).toThrow(/no parent/)
     const parent = svc.create({ repoPath: '/r', title: 'P', startNow: false })
     const w = svc.attachSession({
@@ -314,7 +326,10 @@ describe('attachSession', () => {
     const origin = svc.create({ repoPath: '/r', title: 'Origin', startNow: false })
     issueBySession.set(asSessionId('s1'), origin.id)
     expect(() =>
-      svc.attachSession({ sessionId: asSessionId('s1'), newSpinoff: { title: 'x', origin: 'agent' } }),
+      svc.attachSession({
+        sessionId: asSessionId('s1'),
+        newSpinoff: { title: 'x', origin: 'agent' },
+      }),
     ).toThrow(/--confirm-rehome/)
     expect(() =>
       svc.attachSession({
@@ -327,7 +342,10 @@ describe('attachSession', () => {
     // Unattached session with no --id: nothing to spin off from.
     issueBySession.delete(asSessionId('s1'))
     expect(() =>
-      svc.attachSession({ sessionId: asSessionId('s1'), newSpinoff: { title: 'x', origin: 'human' } }),
+      svc.attachSession({
+        sessionId: asSessionId('s1'),
+        newSpinoff: { title: 'x', origin: 'human' },
+      }),
     ).toThrow(/no origin/)
   })
 
@@ -409,7 +427,9 @@ describe('attachSession', () => {
   it('throws without --id/--subissue and on unknown target', () => {
     const { svc } = harness([sess(asSessionId('s1'))])
     expect(() => svc.attachSession({ sessionId: asSessionId('s1') })).toThrow(/attach needs/)
-    expect(() => svc.attachSession({ sessionId: asSessionId('s1'), targetId: 'iss_nope' })).toThrow()
+    expect(() =>
+      svc.attachSession({ sessionId: asSessionId('s1'), targetId: 'iss_nope' }),
+    ).toThrow()
   })
 })
 

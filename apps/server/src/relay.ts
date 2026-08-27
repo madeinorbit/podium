@@ -1280,9 +1280,15 @@ export class SessionRegistry {
       // and picks the live member session to poke — see modules/sessions.
       onMailSent: (row) =>
         this.bus.emit('issue.mailSent', {
+          issueId: row.id,
           seq: row.seq,
-          ...(row.worktreePath ? { worktreePath: row.worktreePath } : {}),
         }),
+    })
+    // Coordinator defaults are lifecycle-derived, not caller discipline. The
+    // first eligible agent born on an issue takes an empty coordinator seat;
+    // later sessions and every explicit set/clear remain untouched.
+    this.bus.on('session.created', ({ sessionId, issueId }) => {
+      if (issueId) issues.ensureCoordinator(issueId, sessionId, { onlyMember: true })
     })
     this.bus.on('issue.sessionDerived', (event) => {
       switch (event.kind) {
