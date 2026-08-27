@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { ReleaseBuildTimingRecord } from '@podium/runtime/release-build-timing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { withDevBuildSnapshot } from './dev-build-snapshot'
 
@@ -59,5 +60,79 @@ describe('approved development build snapshot', () => {
         },
       ),
     ).rejects.toThrow(/snapshot .* changed while building; refusing to publish/i)
+  })
+})
+describe('approved development build timing evidence', () => {
+  it('measures the real checkout, validation, and install commands', async () => {
+    const { root, sha } = repository()
+    const records: ReleaseBuildTimingRecord[] = []
+    let tick = 0
+
+    await withDevBuildSnapshot(
+      {
+        sourceRoot: root,
+        approvedSha: sha,
+        releaseVersion: `0.1.0-dev.1+${sha}`,
+        install: async () => {},
+        timing: {
+          enabled: true,
+          now: () => ++tick,
+          emit: (record) => records.push(record),
+        },
+      },
+      async () => 'built',
+    )
+
+    expect(
+      records
+        .filter((record) => record.granularity === 'task')
+        .map((record) => [record.phase, record.task, record.outcome]),
+    ).toEqual([
+      ['checkout', 'detached-worktree', 'success'],
+      ['validation', 'initial-source-identity', 'success'],
+      ['dependency-preparation', 'bun-install', 'success'],
+      ['validation', 'final-source-identity', 'success'],
+      ['checkout', 'remove-detached-worktree', 'success'],
+    ])
+  })
+
+  it('records failed preparation and still records checkout cleanup', async () => {
+    const { root, sha } = repository()
+    const records: ReleaseBuildTimingRecord[] = []
+    let tick = 0
+
+    await expect(
+      withDevBuildSnapshot(
+        {
+          sourceRoot: root,
+          approvedSha: sha,
+          install: async () => {
+            throw new Error('offline install failed')
+          },
+          timing: {
+            enabled: true,
+            now: () => ++tick,
+            emit: (record) => records.push(record),
+          },
+        },
+        async () => 'must not build',
+      ),
+    ).rejects.toThrow('offline install failed')
+
+    const tasks = records.filter((record) => record.granularity === 'task')
+    expect(tasks).toContainEqual(
+      expect.objectContaining({
+        phase: 'dependency-preparation',
+        task: 'bun-install',
+        outcome: 'failure',
+      }),
+    )
+    expect(tasks.at(-1)).toEqual(
+      expect.objectContaining({
+        phase: 'checkout',
+        task: 'remove-detached-worktree',
+        outcome: 'success',
+      }),
+    )
   })
 })

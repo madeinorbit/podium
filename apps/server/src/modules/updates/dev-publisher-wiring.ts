@@ -18,9 +18,14 @@
  * separate capabilities in either profile.
  */
 
+import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import { ARTIFACT_PROBE_CAPABILITY } from '@podium/protocol/daemon'
+import {
+  timeReleaseBuildTask,
+  type ReleaseBuildTimingDeps,
+} from '@podium/runtime/release-build-timing'
 import type { Hono } from 'hono'
 import { registerDevFeedRoutes } from './artifact-route'
 import {
@@ -242,6 +247,11 @@ export function wireDevBundlePublisher(deps: {
   readonly instanceId?: string
   /** Seam for tests; defaults to `git rev-parse --short=7 HEAD` in `sourceRoot`. */
   readonly readHeadSha?: (root: string) => Promise<string>
+  /**
+   * Explicit test/embedding seam. Source development publishers enable durable timing by default;
+   * installed and production release paths never enter this wiring.
+   */
+  readonly releaseTiming?: ReleaseBuildTimingDeps | false
   /** Constructor seam for publication-boundary tests; production never supplies it. */
   readonly createPublisher?: (
     input: Parameters<typeof createDevBundlePublisher>[0],
@@ -250,6 +260,13 @@ export function wireDevBundlePublisher(deps: {
   const sourceRoot = deps.sourceRoot
   const artifactOrigin = deps.artifactOrigin
   const instanceId = deps.instanceId ?? 'default'
+  const releaseTiming =
+    sourceRoot && deps.releaseTiming !== false
+      ? (deps.releaseTiming ?? {
+          enabled: true,
+          outputDirectory: join(sourceRoot, 'dist-bun', 'release-timing'),
+        })
+      : undefined
   /**
    * ONE HEAD READER for everything below, and the reason it is here.
    *
@@ -283,6 +300,7 @@ export function wireDevBundlePublisher(deps: {
         instanceId,
         headSha: () => headSha?.read() ?? readHeadSha(sourceRoot),
         signingKey: deps.signingKey,
+        ...(releaseTiming ? { timing: releaseTiming } : {}),
         lock: createServerDevBundleLock(sourceRoot, deps.locks),
         // The instant a build is admitted, the read model must say `preparing`
         // rather than keep offering the previous commit's target for the length
@@ -546,28 +564,39 @@ export function wireDevBundlePublisher(deps: {
 
   const approval = createReleaseApprovalFlow({
     proposal: async () => publisher?.proposal(),
-    release: async (approved) => {
-      if (!publisher) throw new Error('This server does not publish development releases.')
-      const blocked = artifactOriginFailure()
-      if (blocked) throw blocked
-      publishFailureDetail = undefined
-      headSha?.invalidate()
-      try {
-        await publisher.requestBuild(true, approved)
-      } catch (error) {
-        if (error instanceof DevBundleProposalMovedError) {
-          throw new ReleaseApprovalRefusal(error.publicReason)
-        }
-        throw error
-      }
-      await observeBundleReadiness()
-      publishedVersion = publisher.current()?.version
-      if (!(await publishToFeed())) {
-        throw new Error('the development feed manifest was not published')
-      }
-      unavailableDiagnostic = undefined
-      publishFailureDetail = undefined
-    },
+    release: async (approved) =>
+      timeReleaseBuildTask(
+        {
+          phase: 'approval-to-publish',
+          task: 'approved-development-release',
+          channel: 'dev',
+          version: approved.version,
+          sourceSha: approved.headSha,
+        },
+        async () => {
+          if (!publisher) throw new Error('This server does not publish development releases.')
+          const blocked = artifactOriginFailure()
+          if (blocked) throw blocked
+          publishFailureDetail = undefined
+          headSha?.invalidate()
+          try {
+            await publisher.requestBuild(true, approved)
+          } catch (error) {
+            if (error instanceof DevBundleProposalMovedError) {
+              throw new ReleaseApprovalRefusal(error.publicReason)
+            }
+            throw error
+          }
+          await observeBundleReadiness()
+          publishedVersion = publisher.current()?.version
+          if (!(await publishToFeed())) {
+            throw new Error('the development feed manifest was not published')
+          }
+          unavailableDiagnostic = undefined
+          publishFailureDetail = undefined
+        },
+        releaseTiming,
+      ),
     failureLogs: (error) =>
       publisher?.unavailable() ?? (error instanceof Error ? error.message : String(error)),
   })

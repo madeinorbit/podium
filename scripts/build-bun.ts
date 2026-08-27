@@ -66,6 +66,10 @@ import {
   assertNoCallerSuppliedClientRootDigest,
   clientBuildRootDigestFromSites,
 } from './client-build-root-digest'
+import {
+  releaseBuildTimingEnabled,
+  timeReleaseBuildSync,
+} from '@podium/runtime/release-build-timing'
 
 /**
  * The POSIX-sh launcher shim written to `headless/podium`. It exports PODIUM_HOME (so
@@ -249,7 +253,8 @@ export function beginFreshClientPackagingSession(
   }
   const version = packageVersion(root)
   const buildInvocation = randomBytes(32).toString('hex')
-  execFileSync(process.execPath, ['run', 'package:clients'], {
+  const packageClients = releaseBuildTimingEnabled() ? 'package:clients:timed' : 'package:clients'
+  execFileSync(process.execPath, ['run', packageClients], {
     cwd: root,
     stdio: 'inherit',
     env: {
@@ -539,30 +544,46 @@ export function packageHeadlessForFreshClients(
         `(captured=${session.clientRootDigest}, current=${currentClientRootDigest})`,
     )
   }
-  if (spec) {
-    // Cross build: the helper cannot be compiled by the host cc (wrong architecture,
-    // wrong object format), so it comes from the zig-cc cache — built from the SAME
-    // vendored abduco.c, keyed on that source's hash. Copied to the fixed path the
-    // compiled binary's `with { type: 'file' }` import reads.
-    const helper = crossBuildAbduco(spec.platform, { root })
-    cpSync(helper, `${out}/abduco.bin`)
-    console.log(`[build-bun] embedded abduco (${spec.platform}) <- ${helper}`)
-  } else if (!abducoSupported()) {
-    // No abduco on Windows (POSIX forkpty) — sessions run on the ConPTY PTY backend
-    // without a durable host [spec:SP-7f2c]. The compiled CLI still embeds
-    // dist-bun/abduco.bin (a static `with {type:'file'}` import), so write an empty
-    // placeholder for the bundler; materializeEmbeddedAbduco skips it at runtime.
-    console.log('[build-bun] windows: skipping abduco prebuild (ConPTY backend, no durable host)')
-    writeFileSync(`${out}/abduco.bin`, '')
-  } else {
-    console.log('[build-bun] prebuilding abduco…')
-    const abduco = buildVendoredAbduco(`${out}/abduco.bin`)
-    if (!abduco)
-      throw new Error(
-        'build-bun: failed to prebuild abduco (missing C compiler, or a compile error — see the [podium] abduco build output above)',
-      )
-    console.log(`[build-bun] abduco -> ${abduco}`)
-  }
+  timeReleaseBuildSync(
+    { granularity: 'phase', phase: 'dependency-preparation', target: spec?.platform ?? 'local' },
+    () =>
+      timeReleaseBuildSync(
+        {
+          granularity: 'task',
+          phase: 'dependency-preparation',
+          task: 'abduco-helper',
+          target: spec?.platform ?? 'local',
+        },
+        () => {
+          if (spec) {
+            // Cross build: the helper cannot be compiled by the host cc (wrong architecture,
+            // wrong object format), so it comes from the zig-cc cache — built from the SAME
+            // vendored abduco.c, keyed on that source's hash. Copied to the fixed path the
+            // compiled binary's `with { type: 'file' }` import reads.
+            const helper = crossBuildAbduco(spec.platform, { root })
+            cpSync(helper, `${out}/abduco.bin`)
+            console.log(`[build-bun] embedded abduco (${spec.platform}) <- ${helper}`)
+          } else if (!abducoSupported()) {
+            // No abduco on Windows (POSIX forkpty) — sessions run on the ConPTY PTY backend
+            // without a durable host [spec:SP-7f2c]. The compiled CLI still embeds
+            // dist-bun/abduco.bin (a static `with {type:'file'}` import), so write an empty
+            // placeholder for the bundler; materializeEmbeddedAbduco skips it at runtime.
+            console.log(
+              '[build-bun] windows: skipping abduco prebuild (ConPTY backend, no durable host)',
+            )
+            writeFileSync(`${out}/abduco.bin`, '')
+          } else {
+            console.log('[build-bun] prebuilding abduco…')
+            const abduco = buildVendoredAbduco(`${out}/abduco.bin`)
+            if (!abduco)
+              throw new Error(
+                'build-bun: failed to prebuild abduco (missing C compiler, or a compile error — see the [podium] abduco build output above)',
+              )
+            console.log(`[build-bun] abduco -> ${abduco}`)
+          }
+        },
+      ),
+  )
 
   const compile = (
     entry: string,
@@ -584,27 +605,40 @@ export function packageHeadlessForFreshClients(
       ...opts.defines,
     }
     const defineArgs = Object.entries(defines).flatMap(([k, v]) => ['--define', `${k}=${v}`])
-    execFileSync(
-      'bun',
-      [
-        'build',
-        '--compile',
-        ...compiledSourceMapArgs(version),
-        // Absent, Bun compiles for the host. Present, it downloads (and caches) the
-        // target's own Bun runtime and links the bundle against that instead.
-        ...(target ? [`--target=${target}`] : []),
-        '--conditions=@podium/source',
-        ...defineArgs,
-        entry,
-        // Extra entrypoints are bundled + embedded alongside the main one (their whole dep
-        // graph included). `bun build --compile` embeds each additional entrypoint at its path
-        // relative to the common ancestor of ALL entrypoints, under /$bunfs/root. The main
-        // entry, by contrast, always lands at /$bunfs/root/<outfile-basename>.
-        ...(opts.extraEntrypoints ?? []),
-        '--outfile',
-        `${bundleRoot}/${name}`,
-      ],
-      { cwd: root, stdio: 'inherit' },
+    timeReleaseBuildSync(
+      { granularity: 'phase', phase: 'headless-platform-build', target: spec?.platform ?? 'local' },
+      () =>
+        timeReleaseBuildSync(
+          {
+            granularity: 'task',
+            phase: 'headless-platform-build',
+            task: 'compile-cli',
+            target: spec?.platform ?? 'local',
+          },
+          () =>
+            execFileSync(
+              'bun',
+              [
+                'build',
+                '--compile',
+                ...compiledSourceMapArgs(version),
+                // Absent, Bun compiles for the host. Present, it downloads (and caches) the
+                // target's own Bun runtime and links the bundle against that instead.
+                ...(target ? [`--target=${target}`] : []),
+                '--conditions=@podium/source',
+                ...defineArgs,
+                entry,
+                // Extra entrypoints are bundled + embedded alongside the main one (their whole dep
+                // graph included). `bun build --compile` embeds each additional entrypoint at its path
+                // relative to the common ancestor of ALL entrypoints, under /$bunfs/root. The main
+                // entry, by contrast, always lands at /$bunfs/root/<outfile-basename>.
+                ...(opts.extraEntrypoints ?? []),
+                '--outfile',
+                `${bundleRoot}/${name}`,
+              ],
+              { cwd: root, stdio: 'inherit' },
+            ),
+        ),
     )
   }
 
@@ -627,10 +661,30 @@ export function packageHeadlessForFreshClients(
     if (!existsSync(entitlements))
       throw new Error(`build-bun: missing Darwin entitlements at ${entitlements}`)
     console.log('[build-bun] rcodesign ad-hoc sign (Bun JIT entitlements)…')
-    execFileSync(
-      resolveRcodesign(),
-      ['sign', '--binary-identifier', 'podium', '--entitlements-xml-file', entitlements, binary],
-      { stdio: 'inherit' },
+    timeReleaseBuildSync(
+      { granularity: 'phase', phase: 'signing', target: spec?.platform ?? 'local' },
+      () =>
+        timeReleaseBuildSync(
+          {
+            granularity: 'task',
+            phase: 'signing',
+            task: 'darwin-cli',
+            target: spec?.platform ?? 'local',
+          },
+          () =>
+            execFileSync(
+              resolveRcodesign(),
+              [
+                'sign',
+                '--binary-identifier',
+                'podium',
+                '--entitlements-xml-file',
+                entitlements,
+                binary,
+              ],
+              { stdio: 'inherit' },
+            ),
+        ),
     )
     chmodSync(binary, 0o755)
   }
@@ -718,36 +772,63 @@ export function packageHeadlessForFreshClients(
   // Self-update artifact: a tarball of the headless/ dir the feed can serve. `tar` from the
   // bundle's parent so the archive root is `headless/` (matching runUpdate's extract path).
   const tarball = updateArtifactPath(bundleRoot, version, env)
-  execFileSync('tar', ['-czf', tarball, '-C', bundleRoot, 'headless'], {
-    cwd: root,
-    stdio: 'inherit',
-  })
+  timeReleaseBuildSync(
+    { granularity: 'phase', phase: 'headless-platform-build', target: spec?.platform ?? 'local' },
+    () =>
+      timeReleaseBuildSync(
+        {
+          granularity: 'task',
+          phase: 'headless-platform-build',
+          task: 'archive',
+          target: spec?.platform ?? 'local',
+        },
+        () =>
+          execFileSync('tar', ['-czf', tarball, '-C', bundleRoot, 'headless'], {
+            cwd: root,
+            stdio: 'inherit',
+          }),
+      ),
+  )
 
   // Sign the tarball bytes (Ed25519) so the feed can serve `signature` and `podium update`
   // can verify before swapping. Key source: env PODIUM_UPDATE_SIGNING_KEY (base64 pkcs8/DER,
   // the operator's production key at release) else the gitignored dev key. The matching public
   // key is committed in packages/runtime/src/update-delivery.ts — keep the two in lockstep on release.
-  const signingKeyB64 = (() => {
-    if (env.PODIUM_UPDATE_SIGNING_KEY) return env.PODIUM_UPDATE_SIGNING_KEY.trim()
-    const devKey = `${root}scripts/.podium-update-dev.key`
-    if (existsSync(devKey)) return readFileSync(devKey, 'utf8').trim()
-    return undefined
-  })()
-  if (!signingKeyB64) {
-    console.warn(
-      '[build-bun] no signing key (PODIUM_UPDATE_SIGNING_KEY unset + dev key missing) — ' +
-        'skipping .sig; `podium update` will REJECT this tarball. Generate scripts/.podium-update-dev.key.',
-    )
-  } else {
-    const key = {
-      key: Buffer.from(signingKeyB64, 'base64'),
-      format: 'der' as const,
-      type: 'pkcs8' as const,
-    }
-    const sig = cryptoSign(null, readFileSync(tarball), key).toString('base64')
-    writeFileSync(`${tarball}.sig`, `${sig}\n`)
-    console.log(`[build-bun] headless update signature -> ${tarball}.sig`)
-  }
+  timeReleaseBuildSync(
+    { granularity: 'phase', phase: 'signing', target: spec?.platform ?? 'local' },
+    () =>
+      timeReleaseBuildSync(
+        {
+          granularity: 'task',
+          phase: 'signing',
+          task: 'headless-artifact',
+          target: spec?.platform ?? 'local',
+        },
+        () => {
+          const signingKeyB64 = (() => {
+            if (env.PODIUM_UPDATE_SIGNING_KEY) return env.PODIUM_UPDATE_SIGNING_KEY.trim()
+            const devKey = `${root}scripts/.podium-update-dev.key`
+            if (existsSync(devKey)) return readFileSync(devKey, 'utf8').trim()
+            return undefined
+          })()
+          if (!signingKeyB64) {
+            console.warn(
+              '[build-bun] no signing key (PODIUM_UPDATE_SIGNING_KEY unset + dev key missing) — ' +
+                'skipping .sig; `podium update` will REJECT this tarball. Generate scripts/.podium-update-dev.key.',
+            )
+          } else {
+            const key = {
+              key: Buffer.from(signingKeyB64, 'base64'),
+              format: 'der' as const,
+              type: 'pkcs8' as const,
+            }
+            const sig = cryptoSign(null, readFileSync(tarball), key).toString('base64')
+            writeFileSync(`${tarball}.sig`, `${sig}\n`)
+            console.log(`[build-bun] headless update signature -> ${tarball}.sig`)
+          }
+        },
+      ),
+  )
 
   // Re-open the archive and compare it with the module-branded fresh build. This is
   // continuity, not correctness: it catches stale/wrong paths, partial copies,

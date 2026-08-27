@@ -128,6 +128,7 @@
     "release:cut": "bun scripts/release-cut.ts",
     "//package:clients": "Build both client sites once so every cross-compiled headless bundle packs the same bytes (scripts/release.ts prepareHeadlessCross). Packaged systemd units are rendered into each bundle by scripts/build-bun.ts; dev-host units are an explicit systemd:render maintenance output and never part of packaging.",
     "package:clients": "bun run --filter @podium/web build && bun run --filter @podium/mobile build:web",
+    "package:clients:timed": "bun scripts/release-build-timing.ts run --phase web-packaging --task desktop-web -- bun run --filter @podium/web build && bun scripts/release-build-timing.ts run --phase web-packaging --task mobile-web -- bun run --filter @podium/mobile build:web",
     "package:headless": "bun scripts/package-headless.ts",
     "package:headless:cross": "bun scripts/release.ts --prepare-cross",
     "desktop:build": "bun run --cwd apps/desktop build",

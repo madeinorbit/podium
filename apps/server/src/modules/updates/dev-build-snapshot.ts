@@ -3,6 +3,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import {
+  timeReleaseBuildTask,
+  type ReleaseBuildTimingDeps,
+} from '@podium/runtime/release-build-timing'
 import { devBuildCommand } from './build-scope'
 
 const execFileAsync = promisify(execFile)
@@ -54,6 +58,8 @@ export async function withDevBuildSnapshot<T>(
     sourceRoot: string
     approvedSha: string
     install?: (snapshotRoot: string) => Promise<void>
+    releaseVersion?: string
+    timing?: ReleaseBuildTimingDeps
   },
   build: (snapshotRoot: string) => Promise<T>,
 ): Promise<T> {
@@ -61,28 +67,48 @@ export async function withDevBuildSnapshot<T>(
   const snapshotRoot = join(parent, 'checkout')
   let attached = false
   let failed = false
+  const timed = <T>(phase: string, task: string, run: () => Promise<T> | T): Promise<T> =>
+    timeReleaseBuildTask(
+      {
+        phase,
+        task,
+        channel: 'dev',
+        ...(input.releaseVersion ? { version: input.releaseVersion } : {}),
+        sourceSha: input.approvedSha,
+      },
+      run,
+      input.timing,
+    )
   try {
-    await git(input.sourceRoot, [
-      'worktree',
-      'add',
-      '--detach',
-      '--force',
-      snapshotRoot,
-      input.approvedSha,
-    ])
+    await timed('checkout', 'detached-worktree', () =>
+      git(input.sourceRoot, [
+        'worktree',
+        'add',
+        '--detach',
+        '--force',
+        snapshotRoot,
+        input.approvedSha,
+      ]),
+    )
     attached = true
-    await assertSnapshotIdentity(snapshotRoot, input.approvedSha)
-    if (input.install) {
-      await input.install(snapshotRoot)
-    } else {
-      await execFileAsync(
-        devBuildCommand(process.env),
-        ['install', '--frozen-lockfile', '--offline', '--ignore-scripts'],
-        { cwd: snapshotRoot, env: { ...process.env } },
-      )
-    }
+    await timed('validation', 'initial-source-identity', () =>
+      assertSnapshotIdentity(snapshotRoot, input.approvedSha),
+    )
+    await timed('dependency-preparation', 'bun-install', async () => {
+      if (input.install) {
+        await input.install(snapshotRoot)
+      } else {
+        await execFileAsync(
+          devBuildCommand(process.env),
+          ['install', '--frozen-lockfile', '--offline', '--ignore-scripts'],
+          { cwd: snapshotRoot, env: { ...process.env } },
+        )
+      }
+    })
     const result = await build(snapshotRoot)
-    await assertSnapshotIdentity(snapshotRoot, input.approvedSha)
+    await timed('validation', 'final-source-identity', () =>
+      assertSnapshotIdentity(snapshotRoot, input.approvedSha),
+    )
     return result
   } catch (error) {
     failed = true
@@ -90,7 +116,9 @@ export async function withDevBuildSnapshot<T>(
   } finally {
     if (attached) {
       try {
-        await git(input.sourceRoot, ['worktree', 'remove', '--force', snapshotRoot])
+        await timed('checkout', 'remove-detached-worktree', () =>
+          git(input.sourceRoot, ['worktree', 'remove', '--force', snapshotRoot]),
+        )
       } catch (error) {
         await rm(snapshotRoot, { recursive: true, force: true })
         await git(input.sourceRoot, ['worktree', 'prune']).catch(() => {})

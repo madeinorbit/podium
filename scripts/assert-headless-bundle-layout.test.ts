@@ -529,7 +529,8 @@ describe('the gate and the signing step name the same JIT keys', () => {
     expect(release).toContain('const session = beginFreshClientPackagingSession([])')
     expect(release).toContain('packageHeadlessForFreshClients(')
     expect(buildBun).toContain('freshClientPackagingSessions.has(session)')
-    expect(buildBun).toContain("execFileSync(process.execPath, ['run', 'package:clients']")
+    expect(buildBun).toContain("execFileSync(process.execPath, ['run', packageClients]")
+    expect(buildBun).toContain('const packageClients = releaseBuildTimingEnabled()')
     expect(buildBun).toContain('PODIUM_CLIENT_BUILD_INVOCATION: buildInvocation')
     expect(buildBun).toContain('assertClientBuildInvocation(web, buildInvocation)')
     expect(buildBun).toContain('assertClientBuildInvocation(mobile, buildInvocation)')
@@ -539,6 +540,10 @@ describe('the gate and the signing step name the same JIT keys', () => {
     expect(packageHeadless).toContain('packageHeadlessForFreshClients(session, argv)')
     expect(packageJson).toContain('"package:headless": "bun scripts/package-headless.ts"')
     expect(windowsSmoke).toContain('run: bun run package:headless')
+    expect(packageJson).toContain(
+      '"package:clients": "bun run --filter @podium/web build && bun run --filter @podium/mobile build:web"',
+    )
+    expect(packageJson).toContain('"package:clients:timed"')
     expect(windowsSmoke).not.toContain('bun scripts/build-bun.ts')
   })
 })

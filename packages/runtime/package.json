@@ -45,7 +45,8 @@
     "./update-participant": "./src/update-participant.ts",
     "./source-version": "./src/source-version.ts",
     "./command-environment": "./src/command-environment.ts",
-    "./client-build-provenance": "./src/client-build-provenance.ts"
+    "./client-build-provenance": "./src/client-build-provenance.ts",
+    "./release-build-timing": "./src/release-build-timing.ts"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",

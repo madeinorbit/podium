@@ -5,6 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { matchUpdateFailureToken, UpdateTarget } from '@podium/protocol'
 import { fetchArtifact } from '@podium/runtime/update-delivery'
+import type {
+  ReleaseBuildTimingDeps,
+  ReleaseBuildTimingRecord,
+} from '@podium/runtime/release-build-timing'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
 import { registerDevFeedRoutes } from './artifact-route'
@@ -2107,6 +2111,7 @@ describe('the dev feed manifest the publisher writes', () => {
       dev: devShellManifest,
       edge: edgeShellManifest,
     },
+    timing?: ReleaseBuildTimingDeps,
   ) {
     const { bytes, signature, signingKey } = fixture
     return createDevBundlePublisher({
@@ -2123,6 +2128,7 @@ describe('the dev feed manifest the publisher writes', () => {
       ...(prepareWebDist ? { prepareWebDist } : {}),
       platform: 'linux-x86_64',
       signingKey,
+      ...(timing ? { timing } : {}),
       fs: store.fs,
       lock: lockFixture([]),
       artifactUrl: (version) =>
@@ -2140,6 +2146,86 @@ describe('the dev feed manifest the publisher writes', () => {
       },
     })
   }
+
+  it('records artifact publication, desktop work, and feed activation at distinct boundaries', async () => {
+    const store = memoryFs()
+    const records: ReleaseBuildTimingRecord[] = []
+    let tick = 0
+    const timing: ReleaseBuildTimingDeps = {
+      enabled: true,
+      now: () => ++tick,
+      emit: (record) => records.push(record),
+    }
+    const publisher = publisherFor(
+      store,
+      () => 'aaaaaaa',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      timing,
+    )
+
+    await publisher.requestBuild(true)
+    expect(await publisher.publishFeed()).toBe(true)
+
+    expect(
+      records
+        .filter((record) => record.granularity === 'task')
+        .filter((record) =>
+          ['artifact-publication', 'desktop-work', 'feed-activation'].includes(record.phase),
+        )
+        .map((record) => [record.phase, record.task, record.outcome]),
+    ).toEqual([
+      ['artifact-publication', 'describe-artifact', 'success'],
+      ['artifact-publication', 'retention', 'success'],
+      ['desktop-work', 'resolve-standing-shell', 'success'],
+      ['feed-activation', 'write-feed-manifests', 'success'],
+    ])
+  })
+
+  it('records feed activation failure without relabeling desktop resolution', async () => {
+    const store = memoryFs()
+    const records: ReleaseBuildTimingRecord[] = []
+    let tick = 0
+    const timing: ReleaseBuildTimingDeps = {
+      enabled: true,
+      now: () => ++tick,
+      emit: (record) => records.push(record),
+    }
+    const publisher = publisherFor(
+      store,
+      () => 'aaaaaaa',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      timing,
+    )
+    await publisher.requestBuild(true)
+    const writeText = store.fs.writeText
+    store.fs.writeText = async (path, contents) => {
+      if (path === publisher.feedManifestPath()) throw new Error('feed write failed')
+      return writeText(path, contents)
+    }
+
+    expect(await publisher.publishFeed()).toBe(false)
+    const tasks = records.filter((record) => record.granularity === 'task')
+    expect(tasks).toContainEqual(
+      expect.objectContaining({
+        phase: 'desktop-work',
+        task: 'resolve-standing-shell',
+        outcome: 'success',
+      }),
+    )
+    expect(tasks).toContainEqual(
+      expect.objectContaining({
+        phase: 'feed-activation',
+        task: 'write-feed-manifests',
+        outcome: 'failure',
+      }),
+    )
+  })
 
   it('writes nothing until a release for this commit has actually been built', async () => {
     const store = memoryFs()

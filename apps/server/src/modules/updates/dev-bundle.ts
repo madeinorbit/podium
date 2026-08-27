@@ -18,6 +18,11 @@ import {
   UpdateTarget,
 } from '@podium/protocol'
 import { resolveInstanceId, stateDir } from '@podium/runtime/config'
+import {
+  releaseBuildTimingEnvironment,
+  timeReleaseBuildTask,
+  type ReleaseBuildTimingDeps,
+} from '@podium/runtime/release-build-timing'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
 import { type DevBuildSnapshot, withDevBuildSnapshot } from './dev-build-snapshot'
 import {
@@ -777,6 +782,8 @@ export interface DevBuildSpawnContext {
    * path nothing tests until release day.
    */
   bunTarget: string
+  /** Opt-in evidence context inherited by the detached build command. */
+  timingEnv?: NodeJS.ProcessEnv
 }
 
 export type DevBuildSpawnResult =
@@ -801,6 +808,8 @@ export interface DevBundleBuildDeps {
   renewIntervalMs?: number
   retain?: number
   now?: () => number
+  /** Enabled only by the source development-publisher wiring. */
+  timing?: ReleaseBuildTimingDeps
   /** Names the transient build unit; passed through to `spawnBuild`. */
   instanceId?: string
   /**
@@ -1074,6 +1083,7 @@ async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
     cwd: ctx.root,
     env: {
       ...process.env,
+      ...ctx.timingEnv,
       PODIUM_APP_VERSION: ctx.version,
       // The caller names the artifact, because the caller owns its lifecycle:
       // the stamp in the name is what retention later sorts on.
@@ -1319,6 +1329,11 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
           checkoutBase,
           sha,
         }).version
+    const timingEnv = releaseBuildTimingEnvironment(deps.timing ?? {}, {
+      channel: 'dev',
+      version,
+      sourceSha: sha,
+    })
 
     // Host first, then whatever else the fleet needs. Host first matters: if a later
     // platform's compile fails, the host has already produced the bundle this machine
@@ -1344,53 +1359,74 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
         version,
         artifactPath: requestedPath,
         bunTarget: bunTargetForPlatform(platform),
+        ...(Object.keys(timingEnv).length > 0 ? { timingEnv } : {}),
         ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
         ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
       })
       await renewal
       if (renewalError) throw renewalError
 
-      const resultObject = typeof result === 'object' && result !== null ? result : undefined
-      const artifactPath =
-        (typeof result === 'string' ? result : resultObject?.path) ?? requestedPath
-      const signature =
-        resultObject?.signature ??
-        (await readOptionalText(fs, artifactPath + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
-      // Unsigned is not "publish it anyway with a warning": a daemon verifies before it
-      // swaps, so an unsigned bundle is one every machine would refuse after
-      // downloading it. Refuse here, where the reason is still legible.
-      if (!signature) {
-        throw new Error(`development bundle for ${platform} is unsigned; refusing to publish it`)
-      }
+      await timeReleaseBuildTask(
+        {
+          phase: 'artifact-publication',
+          task: 'describe-artifact',
+          channel: 'dev',
+          version,
+          sourceSha: sha,
+          target: platform,
+        },
+        async () => {
+          const resultObject = typeof result === 'object' && result !== null ? result : undefined
+          const artifactPath =
+            (typeof result === 'string' ? result : resultObject?.path) ?? requestedPath
+          const signature =
+            resultObject?.signature ??
+            (await readOptionalText(fs, artifactPath + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
+          // Unsigned is not "publish it anyway with a warning": a daemon verifies before it
+          // swaps, so an unsigned bundle is one every machine would refuse after
+          // downloading it. Refuse here, where the reason is still legible.
+          if (!signature) {
+            throw new Error(
+              `development bundle for ${platform} is unsigned; refusing to publish it`,
+            )
+          }
 
-      const { digest, size } = await fs.digest(artifactPath)
-      const metadata: DevBundleMetadata = {
-        version,
-        platform,
-        digest,
-        size,
-        keyFingerprint: devBundleKeyFingerprint(deps.signingKey),
-      }
-      await fs.writeText(
-        artifactPath + DEV_BUNDLE_METADATA_SUFFIX,
-        `${JSON.stringify(metadata, null, 2)}\n`,
+          const { digest, size } = await fs.digest(artifactPath)
+          const metadata: DevBundleMetadata = {
+            version,
+            platform,
+            digest,
+            size,
+            keyFingerprint: devBundleKeyFingerprint(deps.signingKey),
+          }
+          await fs.writeText(
+            artifactPath + DEV_BUNDLE_METADATA_SUFFIX,
+            `${JSON.stringify(metadata, null, 2)}\n`,
+          )
+          artifacts.push({
+            platform,
+            path: artifactPath,
+            size,
+            digest,
+            signature,
+            version,
+          })
+        },
+        deps.timing,
       )
-      artifacts.push({
-        platform,
-        path: artifactPath,
-        size,
-        digest,
-        signature,
-        version,
-      })
     }
 
     // ONE sweep, after every platform is on disk and with all of them protected.
     const host = artifacts[0] as DevBundleArtifact
-    await sweepDevBundles(fs, dirname(host.path), {
-      referenced,
-      protect: artifacts.map((artifact) => basename(artifact.path)),
-    })
+    await timeReleaseBuildTask(
+      { phase: 'artifact-publication', task: 'retention', channel: 'dev', version, sourceSha: sha },
+      () =>
+        sweepDevBundles(fs, dirname(host.path), {
+          referenced,
+          protect: artifacts.map((artifact) => basename(artifact.path)),
+        }),
+      deps.timing,
+    )
     return {
       version,
       path: host.path,
@@ -2013,8 +2049,19 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         // The website is built INSIDE the same immutable snapshot the platform
         // compiles read. Nothing in an approved release reads the live checkout
         // after admission.
-        await (deps.prepareWebDist?.(headSha, explicit, buildRoot, approved?.version) ??
-          Promise.resolve())
+        await timeReleaseBuildTask(
+          {
+            phase: 'web-packaging',
+            task: 'prepare-web-dist',
+            channel: 'dev',
+            ...(approved?.version ? { version: approved.version } : {}),
+            sourceSha: headSha,
+          },
+          () =>
+            deps.prepareWebDist?.(headSha, explicit, buildRoot, approved?.version) ??
+            Promise.resolve(),
+          deps.timing,
+        )
         const build = () =>
           buildDevBundle({
             ...deps,
@@ -2061,14 +2108,32 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       const snapshotBuild =
         deps.snapshotBuild ??
         (<T>(approvedSha: string, build: (snapshotRoot: string) => Promise<T>) =>
-          withDevBuildSnapshot({ sourceRoot: liveRoot, approvedSha }, async (snapshotRoot) => {
-            const result = await build(snapshotRoot)
-            // Re-arm BOTH original identity guards after every platform has
-            // compiled: tracked drift and ignored importable source are equally
-            // capable of producing bytes the approved commit does not contain.
-            await assertSourceMatchesHead(snapshotRoot, approvedSha)
-            return result
-          }))
+          withDevBuildSnapshot(
+            {
+              sourceRoot: liveRoot,
+              approvedSha,
+              ...(approved?.version ? { releaseVersion: approved.version } : {}),
+              timing: deps.timing,
+            },
+            async (snapshotRoot) => {
+              const result = await build(snapshotRoot)
+              // Re-arm BOTH original identity guards after every platform has
+              // compiled: tracked drift and ignored importable source are equally
+              // capable of producing bytes the approved commit does not contain.
+              await timeReleaseBuildTask(
+                {
+                  phase: 'validation',
+                  task: 'final-source-inputs',
+                  channel: 'dev',
+                  ...(approved?.version ? { version: approved.version } : {}),
+                  sourceSha: approvedSha,
+                },
+                () => assertSourceMatchesHead(snapshotRoot, approvedSha),
+                deps.timing,
+              )
+              return result
+            },
+          ))
       let approvedBuilt: BuiltDevBundle | null | undefined
       const buildApproved = () =>
         snapshotBuild(headSha, async (snapshotRoot) => {
@@ -2209,13 +2274,10 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         sha: headSha,
       })
       const root = deps.root ?? SOURCE_ROOT
-      const runningVersion =
-        deps.proposalRunningVersion ?? resolveCheckoutReleaseBase(deps, root)
+      const runningVersion = deps.proposalRunningVersion ?? resolveCheckoutReleaseBase(deps, root)
       const proposalInput = {
         headSha,
-        ...(deps.proposalRunningSha
-          ? { runningSha: deps.proposalRunningSha }
-          : { runningVersion }),
+        ...(deps.proposalRunningSha ? { runningSha: deps.proposalRunningSha } : { runningVersion }),
         ...(before?.lastPublishedSha ? { sinceSha: before.lastPublishedSha } : {}),
       }
       const facts = deps.proposalFacts
@@ -2431,35 +2493,59 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       if (!manifest) return false
       try {
         if (!builtSha) throw new Error('cannot publish a development release without its commit')
+        const publishedSha = builtSha
         const root = deps.root ?? SOURCE_ROOT
-        const { source, raw: desktopRaw } = await resolveStandingDesktopManifest(
-          deps.desktopShellManifest ?? fetchStandingDesktopManifest,
+        const { source, raw: desktopRaw } = await timeReleaseBuildTask(
+          {
+            phase: 'desktop-work',
+            task: 'resolve-standing-shell',
+            channel: 'dev',
+            version: manifest.version,
+            sourceSha: publishedSha,
+          },
+          async () => {
+            const resolved = await resolveStandingDesktopManifest(
+              deps.desktopShellManifest ?? fetchStandingDesktopManifest,
+            )
+            validateDesktopFeedManifest(resolved.source.channel, resolved.raw)
+            return resolved
+          },
+          deps.timing,
         )
-        // Validate against the release it CAME FROM before changing either served document.
-        // A failed shell reference leaves the previous complete pair visible.
-        validateDesktopFeedManifest(source.channel, desktopRaw)
-        const desktopPath = await writeDevDesktopManifest(fs, root, source.channel, desktopRaw)
-        const path = await writeDevFeedManifest(fs, root, manifest)
-        const statePath = deps.publisherStateDir ?? stateDir()
-        const publisherState = readDevPublisherState(statePath)
-        if (!publisherState) {
-          throw new Error(
-            'cannot record a published development release before a version is minted',
-          )
-        }
-        writeDevPublisherState({ ...publisherState, lastPublishedSha: builtSha }, statePath)
-        desktopManifestSource = source
-        log.info('published development feed manifests', {
-          version: manifest.version,
-          path,
-          desktopPath,
-          // Which shell this instance is now handing out. On a fallback the reason travels
-          // with it, so the log says "edge, because dev had none" rather than just "edge"
-          // — or, worse, nothing at all while the feed answers to the name dev.
-          desktopChannel: source.channel,
-          ...(source.fellBackBecause ? { desktopFallback: source.fellBackBecause } : {}),
-        })
-        return true
+        return await timeReleaseBuildTask(
+          {
+            phase: 'feed-activation',
+            task: 'write-feed-manifests',
+            channel: 'dev',
+            version: manifest.version,
+            sourceSha: publishedSha,
+          },
+          async () => {
+            const desktopPath = await writeDevDesktopManifest(fs, root, source.channel, desktopRaw)
+            const path = await writeDevFeedManifest(fs, root, manifest)
+            const statePath = deps.publisherStateDir ?? stateDir()
+            const publisherState = readDevPublisherState(statePath)
+            if (!publisherState) {
+              throw new Error(
+                'cannot record a published development release before a version is minted',
+              )
+            }
+            writeDevPublisherState({ ...publisherState, lastPublishedSha: publishedSha }, statePath)
+            desktopManifestSource = source
+            log.info('published development feed manifests', {
+              version: manifest.version,
+              path,
+              desktopPath,
+              // Which shell this instance is now handing out. On a fallback the reason travels
+              // with it, so the log says "edge, because dev had none" rather than just "edge"
+              // — or, worse, nothing at all while the feed answers to the name dev.
+              desktopChannel: source.channel,
+              ...(source.fellBackBecause ? { desktopFallback: source.fellBackBecause } : {}),
+            })
+            return true
+          },
+          deps.timing,
+        )
       } catch (error) {
         // A manifest that could not be written is a release nobody can pull, so
         // it is recorded as this HEAD's failure rather than swallowed — the
