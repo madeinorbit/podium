@@ -1268,3 +1268,32 @@ after. Valid boundary, wrong label.
 commit dated 2026-08-20. That is rebase-normal and it looks like a contradiction. `git rev-parse
 <sha>^` is authoritative; `git log --date` is not, and a session that reasons from timestamps
 about ancestry will talk itself out of a correct finding.
+
+### Label the ARM, because a parent-arm FAIL is evidence, not a result (2026-08-27 03:28 CEST)
+
+**A two-arm A/B writes TWO rows into `results.tsv`, and the parent arm is SUPPOSED to fail.**
+That failure is the proof your probe measures the defect. It is not a verdict about the fix.
+
+**Any query that takes "the latest row per cell" therefore reads a driven, PASSING cell as
+failing** — which happened to me twice on this file in one night, once reporting a fixed cell as
+broken and once inflating the failure rate of a nine-issue audit.
+
+**So start the `what` column with the arm:**
+
+    [parent]  the pre-fix control arm. A FAIL here is EXPECTED and is the evidence.
+    [fix]     the with-fix arm. THIS ROW IS THE VERDICT.
+    [single]  a one-armed reading with no pre-fix control — say why in the text.
+
+The column set stays exactly as the cron specifies; this is a convention inside `what`, not a
+new field.
+
+**The general point is bigger than the file.** A results file is read by queries, and **a query is
+an instrument** — it needs the same scepticism as a probe. Both of my bad reads looked right,
+produced a plausible number, and were wrong in the direction that mattered. **Before trusting an
+aggregate over this file, check it against a case whose answer you already know.** That is how both
+were caught: I recognised one cell whose true state I happened to remember.
+
+**And when you edit the header, re-verify the file parses.** Inserting text on an anchor that was a
+PREFIX of a longer comment line left a fragment uncommented — a stray line a parser would have read
+as a malformed data row. The check is one line:
+`awk -F'\t' '!/^#/ && NF>0 && NF<8 {print NR": "$0}' docs/plans/pod-1761-results.tsv`

@@ -1,7 +1,18 @@
 # One line per check. A line missing ANY field does not count as a result.
 # control = did a positive control fire (something that must appear whether or not the feature works)
 # alone   = was anything else driving on the same instance/directory at the time
-# TIMESTAMP every row: YYYY-MM-DD HH:MM, not just the date. Rows written before
+# TIMESTAMP every row: YYYY-MM-DD HH:MM, not just the date.
+#
+# ARM LABEL (added 2026-08-27 03:27 CEST). A two-arm A/B writes TWO rows and the parent arm is
+#   SUPPOSED to FAIL — that failure is the proof the probe measures the defect, not a
+#   result. Any query that takes "the latest row per cell" therefore reads a driven,
+#   passing cell as failing; that happened to me twice on this file. So start the
+#   'what' column with one of:
+#     [parent]  the pre-fix control arm. A FAIL here is EXPECTED and is evidence.
+#     [fix]     the with-fix arm. THIS ROW IS THE VERDICT.
+#     [single]  a one-armed reading with no pre-fix control (rarer; say why in the text).
+#   Rows written before this note use prose forms such as "(PARENT arm)" / "(FIX arm)".
+# Rows written before
 # 2026-08-26 16:05 CEST carry a date only; everything after carries the time.
 # STALE = CODE changed since that commit, not merely that commits landed. Check with:
 #   git diff --name-only <row commit>..issue/1761-agent-runtime | grep -v '^docs/'
