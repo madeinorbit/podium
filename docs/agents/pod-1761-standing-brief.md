@@ -1480,3 +1480,30 @@ somebody their work is broken.
 **And the recovery matters as much as the error.** The session neither accepted my verdict nor
 argued with it; it went and found why the two trees disagreed. **That is the response that turns a
 wrong confident conclusion into a solved problem in one round.**
+
+### Score against every clause of the criterion, not the first one (2026-08-27 05:18 CEST)
+
+A session reported **A3 PASS** and, to its great credit, added: *"the shared scorer reports PASS,
+but the reading explicitly says no `event:'interrupt'` transcript marker."*
+
+**The criterion has three clauses:** *turn stops; transcript shows interrupt; refused interrupt says
+why.* Its turn stopped in 632ms with the control firing. **The transcript did not show the
+interrupt. Clause two is unmet, so the cell is PARTIAL** — the interrupt worked and its record did
+not appear, which is a real user-visible gap.
+
+**THE SCORER REPORTED PASS ON AN UNMET CLAUSE, AND THAT DOUBT IS CONTAGIOUS.** If it under-checks
+one criterion it may under-check others, and **every PASS it produced inherits the question** —
+eight of that column's ten cells, plus anything else sharing it.
+
+**So: read the criterion out of the matrix and check it clause by clause yourself, and say which
+clauses you evaluated.** *"PASS"* alone is not a result; *"PASS — turn stopped 632ms, transcript
+marker present, no refusal path exercised"* is.
+
+**A scorer that cannot fail is not a scorer.** That is the same shape as the lean gate that ran four
+files and reported the suite's shape, the check that asserted `typeof x === 'string'` while
+claiming to verify a capability, and the wait condition that matched a mid-run log line. **This
+epic's most expensive defects have all been instruments that answer confidently without looking.**
+
+**And when your own reading contradicts your scorer, the reading wins.** That session's caveat is
+the only reason a wrong PASS did not enter the matrix. **Say the contradiction out loud even when
+the tool is the one you were told to use.**
