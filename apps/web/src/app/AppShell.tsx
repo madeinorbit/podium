@@ -68,8 +68,12 @@ import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
-import { Workspace } from './Workspace'
 
+// The app lands on the work list. Loading Workspace here used to pull the chat,
+// terminal and editor stack into first paint before a workspace was selected.
+const Workspace = lazy(() =>
+  import('./Workspace').then((module) => ({ default: module.Workspace })),
+)
 const SettingsView = lazy(() =>
   import('@/features/settings/SettingsView').then((module) => ({ default: module.SettingsView })),
 )
@@ -772,7 +776,14 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
                 )}
               </div>
             )}
-            <MainViewOutlet workspace={<Workspace />} view={baseView} />
+            <MainViewOutlet
+              workspace={
+                <Suspense fallback={<RouteFallback />}>
+                  <Workspace />
+                </Suspense>
+              }
+              view={baseView}
+            />
             {workspaceActive && (
               <ResizableColumn
                 storageKey="podium:rightdock:width"

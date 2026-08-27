@@ -96,6 +96,7 @@ const INTERACTION_ONLY_MODULES = [
 
 /** Heavy leaf renderers whose callers deliberately load them after the shell. */
 const DEFERRED_FIRST_PAINT_MODULES = [
+  'src/app/Workspace.tsx',
   'src/features/mobile-handoff/MobileHandoffQr.tsx',
   'src/features/chat/TranscriptFeed.tsx',
 ] as const
@@ -470,14 +471,13 @@ if (checkBudget) {
   // 2,260,000, gzip 657,105 of 680,000, Brotli 548,241 of 566,000 — so nothing
   // the browser downloads got worse; this metric counts commented source text.
   //
-  // THE REAL LEVER IS NAMED AND FILED, not left for the next person to rediscover
-  // (POD-2560): `AppShell.tsx` imports `Workspace` EAGERLY while SettingsView,
-  // UsageView, FlightDeck, OnboardingWizard and the dialogs are all `lazy()`.
+  // THE REAL LEVER IS NOW ENFORCED, not left for the next person to rediscover:
+  // `AppShell.tsx` used to import `Workspace` eagerly while SettingsView,
+  // UsageView, FlightDeck, OnboardingWizard and the dialogs were all `lazy()`.
   // Workspace pulls AgentPanel -> ChatView -> the whole chat and terminal stack,
-  // and the app lands on the work list, not a workspace. `TranscriptFeed.tsx` is
-  // already in DEFERRED_FIRST_PAINT_MODULES above while its own scroll hooks are
-  // eager, which is the tell. That paydown is worth several hundred k and should
-  // bring this ceiling DOWN, not sideways.
+  // even though the app lands on the work list. It now sits beside
+  // `TranscriptFeed.tsx` in DEFERRED_FIRST_PAINT_MODULES above, so the build
+  // fails by name if either edge returns instead of waiting for a workspace.
   atMost('eager parsed source bytes', report.eager.sourceBytes, 7_780_000)
   atMost('settings raw bytes', report.settings.raw, 105_000)
   atMost('settings gzip bytes', report.settings.gzip, 30_000)
