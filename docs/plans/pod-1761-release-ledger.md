@@ -4956,3 +4956,43 @@ defect and both sit at `proposed`. **I cannot reparent a proposed issue — oper
 POD-2920 does the work and its brief says plainly that 2870 and 2879 should be closed as duplicates
 at the next triage. **Two sessions independently filed the same defect and neither could act on it**,
 which is worth knowing on its own: the proposal queue is where cross-driver findings go to wait.
+
+### Two hypotheses about the apps/web failure, one refuted and one vacuous (2026-08-27 04:45 CEST)
+
+POD-2691's branch fails `@podium/web#typecheck`; the tip passes a direct `tsgo`. It withdrew its
+"inherited errors" claim once it had a baseline, which was right. **I then spent two experiments
+being wrong about why, and both are worth recording because the second is the more instructive.**
+
+**HYPOTHESIS 1 — the stale-dist story. REFUTED.** `packages/model/dist` was four days old
+(2026-08-23) and `apps/web/tsconfig.json` has **no project references** — only a `@/*` alias — so
+web resolves `@podium/model` through that built artifact. Plausible: my "tip is green" readings
+were typechecks against an August 23 build, while POD-2691's turbo run rebuilds dependencies first
+and would be the only one seeing current types. **Tested it: rebuilt model on the tip (dist mtime
+04:43:38), re-ran the web typecheck — exit 0, zero errors.** A fresh model does not break web. Dead.
+
+**HYPOTHESIS 2 — the same story for `packages/runtime`. VACUOUS, AND I NEARLY REPORTED IT AS A
+REFUTATION.** `bun run --filter @podium/runtime build` returned `error: No packages matched the
+filter` — **that is not a workspace package name.** The build never ran. The web typecheck that
+followed was green, and that green means nothing at all.
+
+**I caught it only because I read the build log instead of the exit codes.** The wrapper printed
+`BUILD_EXIT=1` and `WEB_TSGO_EXIT=0`, which reads exactly like "the build failed but web is fine"
+— a coherent, wrong story I was one step from writing down. **That is the third time tonight a
+command that did not run produced output I could have mistaken for a result**, after `bun` not
+being on PATH and a wait condition matching a mid-run log line.
+
+**The pattern is specific enough to name: an experiment that fails to START looks like an
+experiment with a null result.** Both print. Both exit. The difference is only visible in the log
+body, which is exactly the part a summary drops.
+
+**Handed the question back with one concrete ask** — the first ten RAW error lines with file:line,
+and which command produced them. I gave it categories-only feedback earlier and those categories
+are what sent me chasing model shapes for an hour. **The file:line is the thing I cannot derive
+from here, because its branch is not in my worktree and the tip does not reproduce.** Also asked
+whether its run was cached, since `bun run typecheck` through turbo rebuilds dependencies and a
+direct `tsgo` does not — **my tip readings have all been the direct kind, so the two may simply not
+be measuring the same thing.**
+
+**Nothing about the reaper is in question.** Drive accepted on byte-identical blobs, delayed census
+clean, `test:multi-instance` green, branch clean at `549fd8d98`. **Ten lines of raw output and it
+lands.**
