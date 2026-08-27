@@ -5314,3 +5314,30 @@ leak, and they correctly resolved the claude A1a scare to a startup race rather 
 
 **Two columns are complete with zero reds. The one product defect found all night is fixed and
 verified by a test that was strengthened specifically to be able to fail.**
+
+### The claude column is driven — fifteen cells, first complete pass since the rewrite (2026-08-27 06:19 CEST)
+
+Read from POD-2918's worktree, every cell carrying its control state:
+
+    PASS      a1a  a2a  a2b  a5  a6a  a6b  a7a  a7b  a9        (9, all control=True)
+    FAIL      a1b  a1c  a3                                     (3, all control=True)
+    BLOCKED   a4a  a4b (control=False, the wizard)  a8 (control=True)
+
+**Two of the three FAILs are NOT regressions.** POD-2874 recorded a1b FAIL and a3 FAIL at the old
+pin as well, so those are consistent across four days and a runtime rewrite. **a1b is already owned
+by POD-2920** — the queue position never reaching the caller, the same symptom measured on codex and
+opencode. **a3 failing on claude matches every other column's difficulty with that cell.**
+
+**Only a1c differs from POD-2874, and it is the Decision 21 question:** *"dead-session send was
+accepted without a typed refusal"*, where POD-2874 had PASS. **`b1c725716` landed tonight and
+deliberately made sends to a non-running session persist and report queued rather than refuse**, so
+this may be the product outgrowing its criterion. One observation settles it — resume and see
+whether the needle arrives — and that is the only thing I asked it to spend the remaining window on.
+
+**All fifteen readings are uncommitted.** Told it to commit before anything else. It is 06:20 and
+its hard stop is 07:00; two sessions tonight reported results that existed only in a working tree
+and a third died mid-turn.
+
+**Also flagged: it has modified `docs/evidence/pod-2777/rig.ts`, which three other sessions use.**
+Asked what changed and why before it lands — a shared rig changing under someone mid-drive is the
+concurrency hazard I have otherwise managed by lock all night, and this one has no lock on it.
