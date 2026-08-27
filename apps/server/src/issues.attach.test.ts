@@ -4,6 +4,7 @@ import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId, asUserId, type IssueId, ty
 import { SELF_REF_RULE } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
+import { createPrimeInjector } from '../../daemon/src/prime-injector'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
@@ -499,6 +500,25 @@ describe('prime draft/attach variants', () => {
     expect(svc.prime({ boundIssueId: issue.id })).not.toContain(
       `podium issue update --id ${issue.seq} --title "…"`,
     )
+  })
+
+  it('SessionStart injects the real-issue retitle nudge as additional context', async () => {
+    const { svc } = harness()
+    const issue = svc.create({
+      repoPath: '/r',
+      title: 'Please investigate why task naming stopped working correctly',
+      startNow: false,
+    })
+    const injector = createPrimeInjector(async () => ({
+      ok: true,
+      result: svc.prime({ boundIssueId: issue.id }),
+    }))
+
+    const response = await injector.respondTo(asSessionId('session-start'), {
+      hook_event_name: 'SessionStart',
+    })
+    const context = JSON.parse(response!).hookSpecificOutput.additionalContext as string
+    expect(context).toContain(`podium issue update --id ${issue.seq} --title "…"`)
   })
 
   /**
