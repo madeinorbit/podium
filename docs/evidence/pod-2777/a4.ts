@@ -9,23 +9,21 @@
  *   A4b  "second answer is a typed error, not a double action"
  *
  * ---------------------------------------------------------------------------
- * A4a IS SPLIT, AND THE SPLIT IS REPORTED RATHER THAN AVERAGED.
+ * A4a's ORDER IS PART OF ITS CONTROL.
  * ---------------------------------------------------------------------------
- * The row has two halves — the chat card and the same ask in the terminal —
- * joined by "answering resolves both". On this rig the terminal half cannot be
- * driven at all: POD-2853's socket-path overflow means the native client
- * terminal is never hosted (measured in a6a.ts: attach answered, outputSeen
- * false, zero bytes, cause only in the daemon log). So this probe drives the
- * chat half and reports the terminal half as BLOCKED, naming the issue. It does
- * NOT report a chat-only pass as an A4a pass — half a row driven is half a row.
+ * First send the chat turn and enumerate its structured ask. Only then attach
+ * the native view and prove that exact ask is visible there before answering.
+ * A native attach takes a driver lease; attaching first can park the chat turn
+ * and turn the probe's own ordering into a zero-item result.
  *
  * ---------------------------------------------------------------------------
  * A4b's CONTROL IS THE FIRST ANSWER SUCCEEDING.
  * ---------------------------------------------------------------------------
  * "The second answer is a typed error" is trivially satisfiable by a product
  * that errors on EVERY answer, including the first. So the first answer must be
- * observed to succeed AND to resolve the ask before the second is sent; if it
- * did not, there is no second-answer case to test and the probe refuses.
+ * observed to succeed, resolve the ask, AND run the command exactly once before
+ * the second is sent; if it did not, there is no second-answer case to test and
+ * the probe refuses.
  *
  * And "not a double action" is checked, not assumed: a typed error whose side
  * effect happened anyway is the failure this row exists to catch, so the probe
@@ -71,6 +69,14 @@ async function openAsks(sid: string): Promise<any[]> {
   const listed = await query('interactions.list', { sessionId: sid })
   return (listed.result?.data ?? []) as any[]
 }
+
+const ESC2 = String.fromCharCode(27)
+const stripTerm = (x: string) =>
+  x
+    .replace(new RegExp(`${ESC2}\\][^\u0007]*(?:\u0007|${ESC2}\\\\)`, 'g'), '')
+    .replace(new RegExp(`${ESC2}\\[[0-9;?]*[a-zA-Z]`, 'g'), '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[^\x20-\x7e\n]/g, '')
 
 /**
  * THE ASKING POSTURE BELONGS TO THIS ROW, NOT TO THE RIG.
@@ -138,39 +144,22 @@ if (row0?.status === 'exited') {
 
 const chat = new Chat(sid)
 await chat.open('chat')
-
-/**
- * A SECOND VIEWER ON THE NATIVE VIEW — because the row has two halves and this
- * one used to be unreachable.
- *
- * A4a asks for the card in chat AND THE SAME ASK IN THE TERMINAL, with answering
- * resolving both. When this probe was first written the terminal half could not
- * be driven at all: POD-2853's socket-path overflow meant no client terminal was
- * ever hosted, so the cell was scored PARTIAL with the terminal half recorded as
- * BLOCKED.
- *
- * THAT BLOCKER LANDED A FIX HOURS AGO and A6a/A6b now pass on both arms. A cell
- * left PARTIAL for a reason that has since expired is the same trap as a PASS
- * nobody revisits — it costs nothing to leave alone and it quietly stops being
- * true. So the terminal half is driven now.
- *
- * Two viewers is also what the row describes: a person with the chat open and
- * the CLI open, which is exactly the configuration POD-2875 showed behaves
- * differently from either alone.
- */
-const term = new Chat(sid)
-await term.open('native')
 await settle(sid)
-await wait(8_000)
-log(`terminal viewer    ${term.screenBytes} byte(s) on attach (outputSeen=${term.attached?.outputSeen})`)
 
 const marker = nonce('TOOLRAN')
+const actionFile = `${EXTERNAL}/${marker}.txt`
+const actionCount = () => {
+  if (!existsSync(actionFile)) return 0
+  return readFileSync(actionFile, 'utf8')
+    .split('\n')
+    .filter((line) => line === marker).length
+}
 const before = chat.items.length
 const t0 = now()
 await mutate('sessions.sendText', {
   sessionId: sid,
   text:
-    `Use your shell/bash tool to run exactly this command: echo ${marker} > ${EXTERNAL}/${marker}.txt` +
+    `Use your shell/bash tool to run exactly this command: printf '%s\\n' ${marker} >> ${actionFile}` +
     ' and then tell me whether it succeeded. You must actually run the command with a tool.',
 })
 
@@ -178,7 +167,7 @@ let asks: any[] = []
 const deadline = now() + 90_000
 while (now() < deadline) {
   asks = await openAsks(sid)
-  if (asks.length > 0) break
+  if (asks.some((a) => a.answerable === 'structured')) break
   const r = await sessionRow(sid)
   if (r?.agentState?.phase !== 'working' && now() - t0 > 20_000) break
   await wait(2_000)
@@ -186,6 +175,7 @@ while (now() < deadline) {
 
 const newItems = chat.items.slice(before)
 const controlFired = chat.deltaFrames > 0 && newItems.length > 0
+const structured = asks.find((a) => a.answerable === 'structured')
 log('')
 log(
   `CONTROL            the turn produced ${newItems.length} transcript item(s), ${chat.deltaFrames} delta frame(s) — ${controlFired ? 'FIRED' : 'DID NOT FIRE'}`,
@@ -201,10 +191,10 @@ if (!controlFired) {
   process.exit(3)
 }
 
-if (asks.length === 0) {
+if (!structured) {
   const toolRan = newItems.some((i) => i.role === 'tool' || i.toolName)
   log('')
-  log(`A4a  ${toolRan ? 'BLOCKED' : 'FAIL'} — no ask appeared in ${Math.round((now() - t0) / 1000)}s`)
+  log(`A4a  ${toolRan ? 'BLOCKED' : 'FAIL'} — no enumerable structured ask appeared in ${Math.round((now() - t0) / 1000)}s`)
   log(`     tool calls seen: ${newItems.filter((i) => i.role === 'tool' || i.toolName).map((i) => i.toolName ?? 'tool').join(', ') || '(none)'}`)
   if (toolRan) {
     log('     BLOCKED, not FAILED: this harness approved its own tool call, so the')
@@ -222,7 +212,6 @@ if (asks.length === 0) {
 // ---------------------------------------------------------------------------
 // A4a — the chat half
 // ---------------------------------------------------------------------------
-const structured = asks.find((a) => a.answerable === 'structured') ?? asks[0]
 const payload = (structured.payload ?? {}) as Record<string, unknown>
 log('')
 log('A4a  the ask, as chat sees it')
@@ -239,8 +228,55 @@ for (const a of asks) {
   )
 }
 
+/**
+ * Attach the native viewer only after the chat turn and its structured ask are
+ * durable. A native attach takes the driver lease; taking it before sendText
+ * parks Grok's chat turn behind the viewer and makes the positive control
+ * measure the probe's ordering instead of the permission path.
+ *
+ * The ordering is explicit for every driver. Codex and opencode do not need the
+ * workaround, but attaching after enumeration preserves their established chat
+ * arm while exercising the same two-viewer state the criterion requires.
+ */
+const term = new Chat(sid)
+await term.open('native')
+
+let termScreenAtAsk = ''
+const termDeadline = now() + 30_000
+while (now() < termDeadline) {
+  termScreenAtAsk = stripTerm(term.screen)
+  const tail = termScreenAtAsk.slice(-2_500)
+  if (/permission|approve|allow|grant|\[y\/n\]|yes\/no/i.test(tail) && tail.includes(marker)) {
+    break
+  }
+  await wait(1_000)
+}
+
+const termTailAtAsk = termScreenAtAsk.slice(-2_500)
+const askWordOnScreen = /permission|approve|allow|grant|\[y\/n\]|yes\/no/i.test(termTailAtAsk)
+const markerOnScreen = termTailAtAsk.includes(marker)
+const termShowsAsk = askWordOnScreen && markerOnScreen
+const toolOnScreen = String(payload.toolName ?? '')
+const toolNameOnScreen =
+  toolOnScreen.length > 0 && termTailAtAsk.toLowerCase().includes(toolOnScreen.toLowerCase())
+
+log('')
+log('A4a  the TERMINAL half — attached after the structured ask was enumerable')
+log(`     terminal bytes   ${term.screenBytes} (outputSeen=${term.attached?.outputSeen})`)
+log(`     same ask visible before answering: ${termShowsAsk}`)
+log(`       permission wording present: ${askWordOnScreen}`)
+log(`       unique command marker '${marker}' present: ${markerOnScreen}`)
+log(`       tool name '${toolOnScreen}' present (supporting only): ${toolNameOnScreen}`)
+if (!termShowsAsk) {
+  log('     terminal tail (control codes stripped):')
+  for (const line of termTailAtAsk.trim().split('\n').filter((x) => x.trim()).slice(-6)) {
+    log(`       | ${line.slice(0, 96)}`)
+  }
+}
+
 // allow-once, never a synthesized allow-always.
 const answer = { kind: 'permission', decision: 'allow-once' as const }
+const termBytesAtAnswer = term.screenBytes
 const first = await mutate('interactions.answer', { id: structured.id, answer })
 const firstOk = first.error === undefined
 log('')
@@ -258,50 +294,24 @@ const cleared = await (async () => {
 })()
 log(`     resolved         ${cleared ? 'the ask left the open set' : 'THE ASK STAYED OPEN'}`)
 
-// Let the tool actually run before counting its side effect.
-await wait(8_000)
+// Let the tool actually run before counting its non-idempotent side effect.
+const firstActionDeadline = now() + 30_000
+while (actionCount() < 1 && now() < firstActionDeadline) await wait(1_000)
+const actionsAfterFirst = actionCount()
 const filesAfterFirst = existsSync(EXTERNAL) ? readdirSync(EXTERNAL) : []
-log(`     side effect      ${filesAfterFirst.length} file(s) in ${EXTERNAL}: ${filesAfterFirst.join(', ') || '(none)'}`)
+log(`     side effect      ${actionsAfterFirst} execution(s); ${filesAfterFirst.join(', ') || '(no file)'}`)
 
 // "answering resolves BOTH" — the chat side is `cleared` above; this is the
 // terminal side. Measured as the screen CHANGING after the answer: a terminal
 // still showing the same ask has not been resolved.
-const termBytesAtAnswer = term.screenBytes
 await wait(8_000)
 const termMoved = term.screenBytes > termBytesAtAnswer
-const termStillAsks = /permission|approve|\[y\/n\]/i.test(stripTerm(term.screen).slice(-1500))
-log(`     terminal after answering: +${term.screenBytes - termBytesAtAnswer} byte(s), still prompting: ${termStillAsks}`)
-const resolvedBoth = cleared && termMoved && !termStillAsks
-
-log('')
-log('A4a  the TERMINAL half — DRIVEN (POD-2853 landed; this was BLOCKED before)')
-
-const ESC2 = String.fromCharCode(27)
-const stripTerm = (x: string) =>
-  x
-    .replace(new RegExp(`${ESC2}\\][^\u0007]*(?:\u0007|${ESC2}\\\\)`, 'g'), '')
-    .replace(new RegExp(`${ESC2}\\[[0-9;?]*[a-zA-Z]`, 'g'), '')
-    // eslint-disable-next-line no-control-regex
-    .replace(/[^\x20-\x7e\n]/g, '')
-
-// Does the SAME ask appear on the terminal screen? Matched on the tool name and
-// on permission wording, not on an exact string: the two surfaces render it
-// differently and requiring identical text would test the renderer, not the ask.
-const termScreen = stripTerm(term.screen)
-const toolOnScreen = String(payload.toolName ?? '')
-const askWordOnScreen = /permission|approve|allow|grant|\[y\/n\]|yes\/no/i.test(termScreen)
-const toolNameOnScreen = toolOnScreen.length > 0 && termScreen.toLowerCase().includes(toolOnScreen.toLowerCase())
-const termShowsAsk = askWordOnScreen || toolNameOnScreen
-log(`     terminal bytes   ${term.screenBytes}`)
-log(`     ask visible on the terminal screen: ${termShowsAsk}`)
-log(`       permission wording present: ${askWordOnScreen}`)
-log(`       tool name '${toolOnScreen}' present: ${toolNameOnScreen}`)
-if (!termShowsAsk) {
-  log('     terminal tail (control codes stripped):')
-  for (const l of termScreen.trim().split('\n').filter((x) => x.trim()).slice(-6)) {
-    log(`       | ${l.slice(0, 96)}`)
-  }
-}
+const termTailAfterAnswer = stripTerm(term.screen).slice(-2_500)
+const termStillAsks =
+  /permission|approve|allow|grant|\[y\/n\]|yes\/no/i.test(termTailAfterAnswer) &&
+  termTailAfterAnswer.includes(marker)
+log(`     terminal after answering: +${term.screenBytes - termBytesAtAnswer} byte(s), same ask still prompting: ${termStillAsks}`)
+const resolvedBoth = cleared && termShowsAsk && termMoved && !termStillAsks
 
 // ---------------------------------------------------------------------------
 // A4b — answer the same ask a second time
@@ -309,14 +319,16 @@ if (!termShowsAsk) {
 log('')
 log('A4b  answering the SAME ask a second time')
 
-if (!firstOk || !cleared) {
+if (!firstOk || !cleared || actionsAfterFirst !== 1) {
   log('     REFUSED — the control for this row did not fire.')
-  log('     control watched: the FIRST answer succeeding and resolving the ask, so')
-  log('                      that a second answer is genuinely a second answer')
-  log(`     control saw:     first answer ok=${firstOk}, ask resolved=${cleared}`)
+  log('     control watched: the FIRST answer succeeding, resolving the ask, and')
+  log('                      running the command exactly once, so a second answer')
+  log('                      is genuinely a second answer')
+  log(`     control saw:     first answer ok=${firstOk}, ask resolved=${cleared}, actions=${actionsAfterFirst}`)
   log('     A product that errors on every answer would pass this row for the wrong')
   log('     reason; without a good first answer there is no second-answer case.')
   await chat.close()
+  await term.close()
   await mutate('sessions.stop', { sessionId: sid }).catch(() => {})
   process.exit(3)
 }
@@ -372,6 +384,7 @@ if (firstClass.refusal) {
   log('  A classifier that calls everything a refusal would pass this row for a')
   log('  product that silently double-answers. The verdict is withheld.')
   await chat.close()
+  await term.close()
   await mutate('sessions.stop', { sessionId: sid }).catch(() => {})
   process.exit(3)
 }
@@ -380,13 +393,13 @@ const typedRefusal = secondClass.refusal
 const silentSuccess = !secondClass.refusal && secondData !== undefined
 
 await wait(8_000)
-const filesAfterSecond = existsSync(EXTERNAL) ? readdirSync(EXTERNAL) : []
-const doubleAction = filesAfterSecond.length > filesAfterFirst.length
+const actionsAfterSecond = actionCount()
+const doubleAction = actionsAfterSecond > actionsAfterFirst
 
 log(`     typed refusal    ${typedRefusal}${typedRefusal ? ` — via ${secondClass.how}, reason=${JSON.stringify(secondClass.reason)}` : ` — ${secondClass.how}`}`)
 log(`     silent success   ${silentSuccess}`)
 log(
-  `     double action    ${doubleAction} — ${filesAfterFirst.length} file(s) before, ${filesAfterSecond.length} after`,
+  `     double action    ${doubleAction} — ${actionsAfterFirst} execution(s) before, ${actionsAfterSecond} after`,
 )
 
 const a4bPass = typedRefusal && !doubleAction
@@ -395,7 +408,7 @@ log('='.repeat(78))
 const a4aPass = cleared && termShowsAsk && resolvedBoth
 log(`A4a  ${a4aPass ? 'PASS' : cleared ? 'PARTIAL' : 'FAIL'} — chat half ${cleared ? 'PASS' : 'FAIL'}, terminal half ${termShowsAsk ? (resolvedBoth ? 'PASS' : 'shows the ask but did not resolve') : 'did NOT show the ask'}`)
 log(`A4b  ${a4bPass ? 'PASS' : 'FAIL'} — second answer ${typedRefusal ? 'was a typed error' : 'was NOT a typed error'}, double action: ${doubleAction}`)
-log(`     controls: turn produced transcript items FIRED; first answer succeeded and resolved FIRED`)
+log(`     controls: turn + structured ask FIRED; first answer succeeded, resolved, and acted once FIRED`)
 log('='.repeat(78))
 
 await chat.close()
