@@ -209,11 +209,30 @@ describe('SocketHub', () => {
       viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => malformed,
     })
+    const frames: Uint8Array[] = []
+    malformedHub.attach(asSessionId('s1'), { onFrame: (bytes) => frames.push(bytes) })
     malformedHub.connect()
     malformed.open()
     malformed.recvBinary(Uint8Array.of(0, 1))
     expect(malformed.closeCalls).toBe(1)
     expect(malformedHub.wireSkew()?.refusedFrames).toBe(1)
+    // Browser close is asynchronous. Once the connection violates the wire,
+    // racing binary and legacy frames must remain inert until onclose arrives.
+    malformed.recvBinary(
+      encodeBinaryEnvelope(
+        { v: 1, type: 'ptyOutput', sessionId: asSessionId('s1'), seq: 0, epoch: 0 },
+        Uint8Array.of(7),
+      ),
+    )
+    malformed.recv({
+      type: 'outputFrame',
+      sessionId: asSessionId('s1'),
+      seq: 0,
+      epoch: 0,
+      data: b64Bytes(8),
+    })
+    expect(frames).toEqual([])
+    expect(malformed.closeCalls).toBe(1)
 
     const unnegotiated = new NonBinarySocket()
     const legacyHub = new SocketHub({

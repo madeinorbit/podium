@@ -554,6 +554,10 @@ export class SocketHub {
     backlogResyncs: 0,
   }
   private socket: WebSocketLike | undefined
+  /** Sockets that violated the binary wire contract stay inert while their
+   * asynchronous close handshake finishes. A WeakSet scopes the latch to the
+   * offending connection, so a replacement socket starts clean. */
+  private readonly invalidSockets = new WeakSet<WebSocketLike>()
   private connectedFlag = false
   private clientIdValue = ''
   private sessionList: SessionMeta[] = []
@@ -762,6 +766,7 @@ export class SocketHub {
     this.disposed = false
     this.socket = socket
     socket.onopen = () => {
+      if (this.invalidSockets.has(socket)) return
       opened = true
       // BEFORE `everConnected` moves, so the record says whether this was the
       // first connection or a recovery — which is the difference between "the
@@ -870,6 +875,7 @@ export class SocketHub {
       this.evaluateHealth()
     }
     socket.onmessage = (ev) => {
+      if (this.invalidSockets.has(socket)) return
       this.markAlive()
       if (typeof ev.data !== 'string') {
         try {
@@ -881,6 +887,10 @@ export class SocketHub {
         } catch (err) {
           log.warn('closing a socket after a binary protocol violation', { err })
           this.recordSkew({ refusedFrames: 1, error: err })
+          this.invalidSockets.add(socket)
+          this.connectedFlag = false
+          this.inputBinaryAcknowledged = false
+          this.stopHeartbeat()
           socket.close()
         }
         return
@@ -2243,7 +2253,7 @@ export class SocketHub {
 
   private sendPresenceFrame(frame: PresenceRoomClientMessage): boolean {
     const socket = this.socket
-    if (!this.connectedFlag || socket === undefined) return false
+    if (!this.connectedFlag || socket === undefined || this.invalidSockets.has(socket)) return false
     if ((socket.bufferedAmount ?? 0) >= PRESENCE_OUTBOUND_BUDGET_BYTES) return false
     socket.send(JSON.stringify(frame))
     return true
@@ -2254,8 +2264,10 @@ export class SocketHub {
   }
 
   private sendRaw(msg: Parameters<typeof encode>[0] | Uint8Array): void {
+    const currentSocket = this.socket
+    if (currentSocket !== undefined && this.invalidSockets.has(currentSocket)) return
     if (msg instanceof Uint8Array) {
-      const socket = this.socket
+      const socket = currentSocket
       if (!this.connectedFlag || socket === undefined) return
       if (typeof socket.sendBinary === 'function') {
         socket.sendBinary(msg)
