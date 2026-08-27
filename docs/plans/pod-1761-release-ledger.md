@@ -4544,3 +4544,51 @@ them, and the rows do not currently say which arm they are in except in prose.
 flattered or distorted the answer** — the first took the first verdict per cell instead of the
 latest and reported a fixed cell as failing. **A file this load-bearing needs its queries checked
 as carefully as its rows.**
+
+## FOREST — arm-aware coverage, 2026-08-27 03:32 CEST
+
+The query now discards **[parent] arm rows before aggregating**, because a parent-arm FAIL is the
+proof the probe works, not a verdict. That is the fix for the bug that made my last two tallies
+wrong.
+
+    EVER DRIVEN : 43/69 (62%)   PASS 32  red 7  other 4
+    NOT STALE   : 22/69 (32%)   PASS 16  red 2  other 4
+
+    column      ever      current
+    claude      15/15      0/15     <- being retaken now (POD-2918)
+    codex       14/16     14/16
+    grok         2/16      2/16     <- unblocks 11:03
+    opencode     6/16      6/16     <- 10 cells, NO OWNER
+    shell        6/ 6      0/ 6     <- being retaken now (POD-2917)
+
+**AMONG READINGS THAT STILL DESCRIBE THE CURRENT CODE THERE ARE ZERO PRODUCT FAILURES.** The two
+reds are both codex and both instruments rather than defects: **A3 REFUSED** (the control never
+produced an in-flight turn, so interrupt was never exercised) and **A4a BLOCKED**. Nothing
+currently valid says a driver is worse than main.
+
+**That is a real result and it is heavily qualified: only a third of the matrix is currently
+valid.** The 7 reds in the *ever* column are mostly claude's stale ones — A1b FAIL, A3 FAIL, and
+three BLOCKED — and POD-2918 is retaking exactly those now. **A1b is the one to watch: it failed at
+the old pin, and `b1c725716` has since landed, which is precisely the fix for a send that arrives
+while the session is busy. If it now passes, a defect was closed by a fix that was never aimed at
+it.**
+
+### The gap nobody is on: opencode, 10 cells
+
+claude, shell and grok all have a plan. **opencode is 6 of 16 with no owner and no blocker** — it
+is not waiting on a quota, a credential or a build. It is simply the column that never got a
+session, because attention went to the drivers that were failing.
+
+**I am not staffing it: the box is at six sessions and 17GB**, and a seventh costs 2–3GB plus its
+rig. It is the first thing to start when one closes, ahead of grok — grok's 14 arrive on a clock
+regardless, and opencode's 10 will not arrive at all.
+
+### Rounds
+
+**Unanswerable honestly until claude and shell land**, and saying otherwise would be inventing a
+number. Zero product reds among current readings predicts zero rounds; but the two columns whose
+entire purpose is *"prove the untouched paths stayed untouched"* are the two with no current
+readings at all, and they are precisely where an unnoticed regression would live. **Both report
+within hours.** After that the estimate means something.
+
+**Product fixes landed: 28.**
