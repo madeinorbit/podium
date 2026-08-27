@@ -25,6 +25,7 @@ function makeWorld(): {
   target: ConformanceTarget
   children: PendingTurn[]
   starts: boolean[]
+  abandonments: { sessionId: SessionId; turnIds: (string | undefined)[]; reason: string }[]
   cleanup(): void
 } {
   let runtime: ClaudeSdkRuntime | undefined
@@ -34,12 +35,21 @@ function makeWorld(): {
   const conversations = new Map<string, TranscriptItem[]>()
   const children: PendingTurn[] = []
   const starts: boolean[] = []
+  const abandonments: { sessionId: SessionId; turnIds: (string | undefined)[]; reason: string }[] =
+    []
   const stamp = () => new Date(Date.UTC(2026, 7, 27) + ++seq * 1000).toISOString()
 
   const host: ClaudeSdkRuntimeHost = {
     mintSessionId: () => `claude-sdk-session-${++seq}` as SessionId,
     mintResumeValue: () => `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`,
     now: stamp,
+    onQueueAbandoned({ sessionId, turns, reason }) {
+      abandonments.push({
+        sessionId,
+        turnIds: turns.map((turn) => turn.input.id),
+        reason,
+      })
+    },
     startTurn(input): ClaudeSdkTurnHandle {
       starts.push(input.newConversation)
       if (failNextStart) {
@@ -178,6 +188,7 @@ function makeWorld(): {
       conversations.clear()
       children.length = 0
       starts.length = 0
+      abandonments.length = 0
       failNextStart = false
       seq = 0
     },
@@ -195,7 +206,7 @@ function makeWorld(): {
       mcpServers: { supported: false, reason: 'fixture' },
     }),
   }
-  return { target, children, starts, cleanup: target.reset }
+  return { target, children, starts, abandonments, cleanup: target.reset }
 }
 
 const world = makeWorld()
@@ -212,18 +223,81 @@ describe('claude-sdk conversation persistence', () => {
     const local = makeWorld()
     const { driver, control } = local.target.createDriver()
     const session = await driver.create(local.target.spec())
-    await session.send({ text: 'first' }, { origin: 'human', delivery: 'when-ready' })
+    await session.send(
+      { id: 'turn-first', text: 'first' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     await control.completeTurn(session.binding.sessionId)
-    await session.send({ text: 'second' }, { origin: 'human', delivery: 'when-ready' })
+    await session.send(
+      { id: 'turn-second', text: 'second' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     await control.completeTurn(session.binding.sessionId)
     expect(local.starts).toEqual([true, false])
 
     const resume = session.binding.resume
     if (!resume) throw new Error('fixture did not mint a Claude resume ref')
     await session.kill()
-    const resumed = await driver.resume(resume, local.target.spec())
-    await resumed.send({ text: 'third' }, { origin: 'human', delivery: 'when-ready' })
+    const resumed = await driver.resumeWithId(
+      session.binding.sessionId,
+      resume,
+      local.target.spec(),
+    )
+    expect(resumed.binding.sessionId).toBe(session.binding.sessionId)
+    expect(resumed.binding.resume).toEqual(resume)
+    const before = await resumed.transcript.history({ limit: 10 })
+    expect(before.map((item) => item.text)).toEqual([
+      'first',
+      'fixture reply',
+      'second',
+      'fixture reply',
+    ])
+    await resumed.send(
+      { id: 'turn-third', text: 'third' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await control.completeTurn(resumed.binding.sessionId)
     expect(local.starts.at(-1)).toBe(false)
+    const after = await resumed.transcript.history({ limit: 10 })
+    expect(after.map((item) => item.text)).toEqual([
+      'first',
+      'fixture reply',
+      'second',
+      'fixture reply',
+      'third',
+      'fixture reply',
+    ])
+    local.cleanup()
+  })
+})
+describe('claude-sdk queue teardown', () => {
+  it('reports every accepted queued turn exactly once when teardown wins', async () => {
+    const local = makeWorld()
+    const { driver } = local.target.createDriver()
+    const session = await driver.create(local.target.spec())
+    await session.send(
+      { id: 'active', text: 'active' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    const first = await session.send(
+      { id: 'queued-one', text: 'queued one' },
+      { origin: 'human', delivery: 'queue' },
+    )
+    const second = await session.send(
+      { id: 'queued-two', text: 'queued two' },
+      { origin: 'human', delivery: 'queue' },
+    )
+    expect(first.outcome).toBe('queued')
+    expect(second.outcome).toBe('queued')
+    await expect(session.hibernate()).resolves.toEqual({ ok: true })
+    await session.stop()
+    expect(local.abandonments).toEqual([
+      {
+        sessionId: session.binding.sessionId,
+        turnIds: ['queued-one', 'queued-two'],
+        reason: 'teardown',
+      },
+    ])
     local.cleanup()
   })
 })

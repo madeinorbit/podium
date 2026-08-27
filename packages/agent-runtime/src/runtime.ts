@@ -52,7 +52,12 @@ export interface AgentRuntime {
    */
   create(spec: SessionSpec, sessionId?: SessionId): Promise<AgentSessionHandle>
   /** Continue a conversation the harness already has on disk. */
-  resume(ref: ResumeRef, spec: SessionSpec): Promise<AgentSessionHandle>
+  resume(
+    ref: ResumeRef,
+    spec: SessionSpec,
+    /** Optional host-owned identity to preserve across a daemon restart. */
+    sessionId?: SessionId,
+  ): Promise<AgentSessionHandle>
   /**
    * Land an archive's harness-native files on THIS machine, then resume from
    * them. The other half of `handle.export()`, and the verb the archive
@@ -121,6 +126,12 @@ export interface AgentRuntimeDriverSource {
   bindings(): readonly SessionBinding[]
   /** Host adapter for a server-authenticated, already-minted session identity. */
   createWithId?(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle>
+  /** Host adapter for resuming a conversation under its existing session id. */
+  resumeWithId?(
+    sessionId: SessionId,
+    ref: ResumeRef,
+    spec: SessionSpec,
+  ): Promise<AgentSessionHandle>
   /** Host adapter for adoption bookkeeping around the driver's core verb. */
   adopt?(binding: SessionBinding): Promise<AgentSessionHandle>
 }
@@ -270,8 +281,21 @@ export function createAgentRuntime(composition: AgentRuntimeComposition): Machin
       }
       return remember(handle)
     },
-    async resume(ref, spec) {
-      return remember(await selectedDriver(spec).driver.resume(ref, spec))
+    async resume(ref, spec, sessionId) {
+      const selected = selectedDriver(spec)
+      if (sessionId === undefined) return remember(await selected.driver.resume(ref, spec))
+      if (!selected.source.resumeWithId) {
+        throw new Error(
+          "runtime driver '" + selected.driver.id + "' cannot resume a host-minted session id",
+        )
+      }
+      const handle = await selected.source.resumeWithId(sessionId, ref, spec)
+      if (handle.binding.sessionId !== sessionId) {
+        throw new Error(
+          "runtime driver '" + selected.driver.id + "' indexed the wrong session identity",
+        )
+      }
+      return remember(handle)
     },
     async import(archive, spec) {
       if (archive.harness !== spec.harness) {

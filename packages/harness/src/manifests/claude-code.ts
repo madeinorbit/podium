@@ -231,13 +231,15 @@ export const claudeCodeManifest: AgentManifest = {
       // fallback, and `unverified` is the honest answer when even that times out.
       sendProof: ['hook', 'transcript-echo'],
     },
-    // BEHAVIOR-NEUTRAL IN W1: terminal everywhere, because no other driver
-    // EXISTS yet and a policy that names one would be a promise this build
-    // cannot keep. The auth axis it will turn on is already written down above —
-    // subscription stays terminal (the compliant path) and api-key/bedrock/
-    // vertex move to `claude-sdk` — and the embedded driver item flips the
-    // order here when there is something to select.
-    select: (ctx) => selectRuntimeDriver(ctx, ['claude-pty']),
+    // The SDK is an explicit per-spawn experiment, never a default. The daemon
+    // registry resolves that request before constructing this spec; honoring
+    // the preference here lets the root runtime route the host-minted session
+    // to the embedded source without making a machine-wide preference opt in
+    // every Claude session.
+    select: (ctx) =>
+      ctx.preference === 'claude-sdk' && ctx.available.includes('claude-sdk')
+        ? 'claude-sdk'
+        : selectRuntimeDriver(ctx, ['claude-pty']),
   },
   headless: supported({
     // One turn through the Claude Agent SDK; the first turn mints the session id

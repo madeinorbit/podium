@@ -399,6 +399,9 @@ export class SessionRevival {
           }
         : {}),
       ...(session.resume ? { resume: session.resume } : {}),
+      ...(session.selectedDriverId === 'claude-sdk'
+        ? { runtimeContract: 'claude-sdk' as const }
+        : {}),
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
         : {}),

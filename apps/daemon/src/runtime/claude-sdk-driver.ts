@@ -9,10 +9,11 @@ import {
   type RuntimeEvent,
 } from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
-import type { AccountId, AgentRuntimeState, SessionId } from '@podium/model'
+import type { AccountId, AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { runClaudeSdkChildTurn } from '../claude-sdk-client'
 import type { HeadlessTurnSpec } from '../headless-drivers'
+import { reportQueueAbandonment } from './queue-abandonment'
 import type { TerminalRuntimeHost } from './terminal-driver'
 
 const log = createLogger('daemon:claude-sdk-runtime')
@@ -25,10 +26,11 @@ export interface ClaudeSdkSessionLaunch {
   effort?: string
   env?: Readonly<Record<string, string>>
   initialPrompt?: string
+  resume?: ResumeRef
 }
 
 export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime {
-  launch(input: ClaudeSdkSessionLaunch): Promise<void>
+  launch(input: ClaudeSdkSessionLaunch): Promise<AgentSessionHandle>
 }
 
 export function createDaemonClaudeSdkRuntime(deps: {
@@ -116,6 +118,7 @@ export function createDaemonClaudeSdkRuntime(deps: {
         return undefined
       }
     },
+    onQueueAbandoned: reportQueueAbandonment('claude-sdk', deps.send),
   }
 
   const contractRuntime = createClaudeSdkRuntime(host)
@@ -188,7 +191,7 @@ export function createDaemonClaudeSdkRuntime(deps: {
   runtime = {
     ...contractRuntime,
     async launch(input) {
-      const handle = await contractRuntime.createWithId(input.sessionId, {
+      const spec = {
         harness: 'claude-code',
         selection: {
           auth: 'unknown',
@@ -205,7 +208,10 @@ export function createDaemonClaudeSdkRuntime(deps: {
         mcpServers: { supported: false, reason: 'spawn supplied no inline MCP configuration' },
         ...(input.env ? { env: input.env } : {}),
         ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
-      })
+      } satisfies Parameters<ClaudeSdkRuntime['createWithId']>[1]
+      const handle = input.resume
+        ? await contractRuntime.resumeWithId(input.sessionId, input.resume, spec)
+        : await contractRuntime.createWithId(input.sessionId, spec)
       pump(input.sessionId)
       deps.send({
         type: 'bind',
@@ -219,6 +225,7 @@ export function createDaemonClaudeSdkRuntime(deps: {
       })
       deps.send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })
       reportResumeRef(input.sessionId, handle)
+      return handle
     },
   }
   return runtime

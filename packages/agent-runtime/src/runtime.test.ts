@@ -1,5 +1,5 @@
 import { unsupported } from '@podium/harness'
-import type { Inventory } from '@podium/model'
+import type { Inventory, ResumeRef, SessionId } from '@podium/model'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionHandle, RuntimeDriver } from './driver.js'
 import { createAgentRuntime, type AgentRuntimeDriverSource } from './runtime.js'
@@ -140,5 +140,65 @@ describe('createAgentRuntime', () => {
     expect(() => conflicted.registeredBindings()).toThrow(
       "session '" + binding.sessionId + "' is indexed by more than one runtime driver",
     )
+  })
+  it('routes an explicit Claude SDK resume through the source with the exact id', async () => {
+    const sessionId = 'claude-root-session' as SessionId
+    const resume: ResumeRef = { kind: 'claude-session', value: 'claude-root-ref' }
+    const handle = {
+      binding: {
+        sessionId,
+        driver: 'claude-sdk',
+        family: 'embedded',
+        harness: 'claude-code',
+        workdir: '/tmp/claude-root',
+        resume,
+        process: { key: `claude-sdk:${sessionId}` },
+        bindingVersion: 1,
+      },
+    } as unknown as AgentSessionHandle
+    let indexed: AgentSessionHandle | undefined
+    const driver = {
+      id: 'claude-sdk',
+      harness: 'claude-code',
+      family: 'embedded',
+      capabilities: () => ({}),
+    } as unknown as RuntimeDriver
+    const resumeWithId = vi.fn(async (id: SessionId, ref: ResumeRef, sessionSpec: SessionSpec) => {
+      expect(id).toBe(sessionId)
+      expect(ref).toEqual(resume)
+      expect(sessionSpec.selection.preference).toBe('claude-sdk')
+      indexed = handle
+      return handle
+    })
+    const driverSource: AgentRuntimeDriverSource = {
+      driverFor: (harness, driverId) =>
+        harness === 'claude-code' && driverId === 'claude-sdk' ? driver : undefined,
+      handleFor: (id) => (id === sessionId ? indexed : undefined),
+      bindings: () => (indexed ? [indexed.binding] : []),
+      resumeWithId,
+    }
+    const claudeSpec: SessionSpec = {
+      harness: 'claude-code',
+      selection: {
+        auth: 'api-key',
+        platform: 'linux',
+        available: ['claude-sdk'],
+        preference: 'claude-sdk',
+      },
+      workdir: '/tmp/claude-root',
+      model: {},
+      instructions: unsupported('fixture'),
+      mcpServers: unsupported('fixture'),
+    }
+    const runtime = createAgentRuntime({
+      sources: () => [driverSource],
+      primitiveSupport: PRIMITIVE_SUPPORT,
+      landArchive: async (archive) => archive.resume,
+      list: async () => [],
+      inventory: async () => INVENTORY,
+    })
+
+    await expect(runtime.resume(resume, claudeSpec, sessionId)).resolves.toBe(handle)
+    expect(resumeWithId).toHaveBeenCalledOnce()
   })
 })

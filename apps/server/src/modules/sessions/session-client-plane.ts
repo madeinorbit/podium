@@ -6,7 +6,12 @@
 
 import { createLogger } from '@podium/logger'
 import type { SessionId, MachineId } from '@podium/model'
-import type { LiveServerMessage, MachinePrincipal, RoomRef, SessionOpenUrlMessage } from '@podium/protocol'
+import type {
+  LiveServerMessage,
+  MachinePrincipal,
+  RoomRef,
+  SessionOpenUrlMessage,
+} from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { systemPrincipal } from '../../command-principal'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
@@ -97,6 +102,9 @@ export class SessionClientPlane {
           }
         : {}),
       ...(session.resume ? { resume: session.resume } : {}),
+      ...(session.selectedDriverId === 'claude-sdk'
+        ? { runtimeContract: 'claude-sdk' as const }
+        : {}),
       ...(this.ports.rpc.transcriptPathHint(
         { kind: 'system', id: 'session-attach' },
         {

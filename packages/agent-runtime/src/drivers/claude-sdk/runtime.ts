@@ -1,8 +1,10 @@
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import { PermissionAnswer } from '@podium/protocol'
 import type { ProviderCursor } from '@podium/protocol'
+import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { DriverRefusalError } from '../../errors.js'
 import { createRuntimeEventStream } from '../../events.js'
+import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import type {
   AgentSessionHandle,
   AttachmentStageResult,
@@ -79,6 +81,8 @@ export interface ClaudeSdkRuntimeHost {
     workdir: string
     resumeValue: string
   }): Promise<{ path: string; bytes: Uint8Array } | undefined>
+  /** Report accepted turns that cannot be delivered after teardown or failure. */
+  onQueueAbandoned?: OnQueueAbandoned
 }
 
 interface QueuedTurn {
@@ -121,6 +125,7 @@ export interface ClaudeSdkRuntime extends RuntimeDriver {
   /** The RuntimeDriver view used by daemon registries that accept several concrete runtimes. */
   readonly driver: RuntimeDriver
   createWithId(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle>
+  resumeWithId(sessionId: SessionId, ref: ResumeRef, spec: SessionSpec): Promise<AgentSessionHandle>
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
   bindings(): readonly SessionBinding[]
   dispose(): void
@@ -367,16 +372,45 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
   async function drain(core: SessionCore): Promise<void> {
     if (!core.alive || core.turnOpen || core.interactions.size > 0) return
     const next = core.queue.shift()
-    if (next) deliver(core, next.input, { ...next.options, delivery: 'when-ready' })
+    if (!next) return
+    const receipt = deliver(core, next.input, { ...next.options, delivery: 'when-ready' })
+    if (receipt.outcome === 'refused') abandonTurn(core, next, 'delivery-failed')
   }
 
-  function end(core: SessionCore): void {
+  function reportAbandoned(
+    core: SessionCore,
+    turns: readonly QueuedTurn[],
+    reason: QueueDrainAbandonedReason,
+  ): void {
+    if (turns.length === 0) return
+    try {
+      host.onQueueAbandoned?.({ sessionId: core.sessionId, turns, reason })
+    } catch {
+      // Queue reporting is diagnostic/durable correction; it must not strand the
+      // child or prevent the rest of teardown when the host report itself fails.
+    }
+  }
+  function abandonQueue(core: SessionCore, reason: QueueDrainAbandonedReason): void {
+    if (core.queue.length === 0) return
+    const turns = core.queue.splice(0, core.queue.length)
+    reportAbandoned(core, turns, reason)
+  }
+  function abandonTurn(
+    core: SessionCore,
+    turn: QueuedTurn,
+    reason: QueueDrainAbandonedReason,
+  ): void {
+    reportAbandoned(core, [turn], reason)
+  }
+  function end(core: SessionCore, exit?: RuntimeEventBody): void {
+    if (core.disposed) return
     core.alive = false
-    core.disposed = true
     core.turnOpen = false
     core.fenced.add(core.turnEpoch)
     core.active = undefined
-    core.queue.length = 0
+    abandonQueue(core, 'teardown')
+    if (exit) push(core, exit)
+    core.disposed = true
     core.interactions.clear()
     core.interactionResponders.clear()
     handles.delete(core.sessionId)
@@ -398,31 +432,32 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
       },
       async stop() {
         assertCurrent()
-        await core.active?.interrupt()
-        await core.active?.dispose?.()
-        push(core, {
+        const active = core.active
+        end(core, {
           t: 'process',
           ev: { ev: 'exited', code: 0, signal: null, classification: 'clean' },
         })
-        end(core)
+        await active?.interrupt()
+        await active?.dispose?.()
       },
       async hibernate() {
         assertCurrent()
         if (!core.binding.resume) return refuse('no_resume_ref')
-        await core.active?.interrupt()
-        await core.active?.dispose?.()
+        const active = core.active
         end(core)
+        await active?.interrupt()
+        await active?.dispose?.()
         return { ok: true as const }
       },
       async kill() {
         assertCurrent()
-        await core.active?.interrupt()
-        await core.active?.dispose?.()
-        push(core, {
+        const active = core.active
+        end(core, {
           t: 'process',
           ev: { ev: 'exited', code: null, signal: 'SIGKILL', classification: 'killed' },
         })
-        end(core)
+        await active?.interrupt()
+        await active?.dispose?.()
       },
       async health(): Promise<SessionHealth> {
         return { alive: core.alive, oomEvents: core.oomEvents }
@@ -722,6 +757,15 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
     return handle
   }
 
+  async function resumeWithId(
+    sessionId: SessionId,
+    ref: ResumeRef,
+    spec: SessionSpec,
+  ): Promise<AgentSessionHandle> {
+    if (spec.harness !== 'claude-code') throw new Error(`claude-sdk cannot drive ${spec.harness}`)
+    if (cores.has(sessionId)) throw new Error(`claude-sdk session '${sessionId}' already exists`)
+    return makeHandle(newCore(sessionId, spec, ref, false))
+  }
   const runtime: ClaudeSdkRuntime = {
     get driver() {
       return runtime
@@ -734,7 +778,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
       return createWithId(host.mintSessionId(), spec)
     },
     async resume(ref, spec) {
-      return makeHandle(newCore(host.mintSessionId(), spec, ref, false))
+      return resumeWithId(host.mintSessionId(), ref, spec)
     },
     async adopt(binding) {
       const core = processCores.get(binding.process.key)
@@ -750,6 +794,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
       return makeHandle(core)
     },
     createWithId,
+    resumeWithId,
     handleFor(sessionId) {
       return handles.get(sessionId)
     },
@@ -788,9 +833,10 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
     },
     dispose() {
       for (const core of [...cores.values()]) {
-        void core.active?.interrupt()
-        void core.active?.dispose?.()
+        const active = core.active
         end(core)
+        void active?.interrupt()
+        void active?.dispose?.()
       }
     },
   }

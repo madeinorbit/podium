@@ -152,6 +152,63 @@ describe('resolved runtime driver projection', () => {
   })
 })
 
+describe('Claude SDK continuity projection', () => {
+  it('carries the selected SDK driver and exact resume ref through reattach and resurrection', async () => {
+    const { reg, daemon } = makeRegistry()
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+      runtimeContract: 'claude-sdk',
+    })
+    expect(spawns(daemon).at(-1)).toMatchObject({ sessionId, runtimeContract: 'claude-sdk' })
+
+    const resume = { kind: 'claude-session', value: 'claude-sdk-resume' } as const
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'Claude Agent SDK (embedded)',
+      cwd: '/proj',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+      runtimeContract: true,
+      driverId: 'claude-sdk',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume,
+      confidence: 'exact',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
+    })
+
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    daemon.length = 0
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+    const reattach = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'reattach' }> =>
+        message.type === 'reattach' && message.sessionId === sessionId,
+    )
+    expect(reattach).toMatchObject({ sessionId, resume, runtimeContract: 'claude-sdk' })
+
+    daemon.length = 0
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    daemon.length = 0
+    await expect(
+      reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
+    ).resolves.toEqual({
+      ok: true,
+    })
+    expect(spawns(daemon).at(-1)).toMatchObject({
+      sessionId,
+      resume,
+      runtimeContract: 'claude-sdk',
+    })
+  })
+})
 describe('SessionStart: live session-id collision guard', () => {
   // Property is survival of the first live session, not merely that an error is thrown.
   it('refusing a live sessionId leaves the first session live and bound (not only throws)', () => {

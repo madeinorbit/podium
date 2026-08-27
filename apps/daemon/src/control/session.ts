@@ -1442,7 +1442,11 @@ export async function launchServerDriverSession(
       ...(msg.env ? { env: msg.env } : {}),
       ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
     }
-    await runtime.create(spec, msg.sessionId)
+    if (isEmbeddedDriver(msg.agentKind, resolution.driverId) && msg.resume) {
+      await runtime.resume(msg.resume, spec, msg.sessionId)
+    } else {
+      await runtime.create(spec, msg.sessionId)
+    }
     reconcileNativeClientTerminal(ctx, msg.sessionId)
   } catch (err) {
     // A server that would not start is a SPAWN ERROR, reported on the frame the
@@ -1457,6 +1461,139 @@ export async function launchServerDriverSession(
   return { handled: true }
 }
 
+/**
+ * Rebind a surviving embedded Claude handle, or resume it under the durable
+ * Podium id when the original daemon process is gone.
+ *
+ * ADOPT IS SAME-DAEMON; RESUME IS PROCESS-GONE. Trying adoption first is the
+ * exact identity check that prevents a second SDK core for a live session.
+ */
+async function adoptOrResumeEmbeddedClaudeSession(
+  ctx: DaemonContext,
+  msg: ReattachControl,
+): Promise<boolean> {
+  const runtime = ctx.agentRuntime
+  if (!runtime || !isEmbeddedDriver(msg.agentKind, 'claude-sdk')) return false
+  const existing = runtime.handleFor(msg.sessionId)
+  const existingClaude =
+    existing &&
+    existing.binding.driver === 'claude-sdk' &&
+    existing.binding.family === 'embedded' &&
+    existing.binding.harness === 'claude-code'
+      ? existing
+      : undefined
+  const requested = msg.runtimeContract === 'claude-sdk'
+  if (!requested && !existingClaude) return false
+  const fail = (reason: string): true => {
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason,
+    })
+    return true
+  }
+  if (requested && existing && !existingClaude) {
+    return fail(`session '${msg.sessionId}' is already bound to '${existing.binding.driver}'`)
+  }
+  if (!claudeSdkTosAcceptedByEnv()) {
+    return fail(
+      "runtime driver 'claude-sdk' requires explicit PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1 operator acknowledgement",
+    )
+  }
+  if (
+    existingClaude &&
+    msg.resume &&
+    (!existingClaude.binding.resume ||
+      existingClaude.binding.resume.kind !== msg.resume.kind ||
+      existingClaude.binding.resume.value !== msg.resume.value)
+  ) {
+    return fail('Claude SDK reattach resume ref does not match the surviving binding')
+  }
+  const binding =
+    existingClaude?.binding ??
+    ({
+      sessionId: msg.sessionId,
+      driver: 'claude-sdk' as const,
+      family: 'embedded' as const,
+      harness: 'claude-code' as const,
+      workdir: msg.cwd,
+      resume: msg.resume ?? null,
+      process: { key: `claude-sdk:${msg.sessionId}` },
+      bindingVersion: 1,
+    } as const)
+  try {
+    const handle = await runtime.adopt(binding)
+    ctx.send({
+      type: 'bind',
+      sessionId: msg.sessionId,
+      cmd: 'Claude Agent SDK (embedded)',
+      cwd: msg.cwd,
+      agentKind: msg.agentKind,
+      geometry: msg.geometry,
+      runtimeContract: true,
+      driverId: handle.binding.driver,
+    })
+    ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
+    if (handle.binding.resume) {
+      ctx.send({
+        type: 'sessionResumeRef',
+        sessionId: msg.sessionId,
+        resume: handle.binding.resume,
+        confidence: 'exact',
+      })
+    }
+    log.info('adopted surviving Claude SDK session', {
+      sessionId: msg.sessionId,
+      mode: 'same-daemon',
+    })
+    return true
+  } catch (adoptionError) {
+    if (!requested) {
+      return fail(adoptionError instanceof Error ? adoptionError.message : String(adoptionError))
+    }
+    if (!msg.resume) return fail('Claude SDK session has no resume ref')
+    try {
+      const handle = await runtime.resume(
+        msg.resume,
+        {
+          harness: 'claude-code',
+          selection: {
+            auth: 'unknown',
+            platform: process.platform,
+            available: ['claude-sdk'],
+            preference: 'claude-sdk',
+            role: 'interactive',
+          },
+          workdir: msg.cwd,
+          model: {},
+          instructions: {
+            supported: false,
+            reason: 'reattach supplied no hidden instruction channel',
+          },
+          mcpServers: {
+            supported: false,
+            reason: 'reattach supplied no inline MCP configuration',
+          },
+        },
+        msg.sessionId,
+      )
+      if (
+        handle.binding.sessionId !== msg.sessionId ||
+        handle.binding.resume?.kind !== msg.resume.kind ||
+        handle.binding.resume?.value !== msg.resume.value
+      ) {
+        throw new Error('Claude SDK resume did not preserve the exact session identity or ref')
+      }
+      log.info('resumed Claude SDK session after process loss', {
+        sessionId: msg.sessionId,
+        mode: 'process-gone',
+      })
+      return true
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error))
+    }
+  }
+}
 // Reattach is the hot path on (re)connect: a burst of ~30 arrives at once. Each is
 // independent, so handle them off the synchronous message dispatch — async existence
 // checks (never a blocking fork+exec on the loop), idempotent (a reconnect re-sends
@@ -1542,6 +1679,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
    * discrimination "adopting the wrong process is worse than not adopting"
    * demands.
    */
+  if (await adoptOrResumeEmbeddedClaudeSession(ctx, msg)) return
   if (await adoptServerDriverSession(ctx, msg)) return
 
   const existing = ctx.bridges.get(msg.sessionId)
@@ -1747,6 +1885,7 @@ export function stopSessionProcess(
   opts: { retire?: boolean } = {},
 ): void {
   const session = ctx.bridges.get(msg.sessionId)
+  const runtimeHandle = ctx.agentRuntime?.handleFor(msg.sessionId)
   ctx.observers.clearSession(msg.sessionId)
   ctx.agentRuntime?.clearTerminal(msg.sessionId)
   ctx.pendingResizes.delete(msg.sessionId)
@@ -1759,6 +1898,19 @@ export function stopSessionProcess(
     session.dispose()
     ctx.bridges.delete(msg.sessionId)
     ctx.outputScheduler.remove(msg.sessionId)
+  }
+  // Embedded runtimes have no PTY bridge or durable-host identity for the
+  // generic kill path to reap. End the live handle explicitly so a Claude SDK
+  // child is stopped and any queued receipts are reported before its in-memory
+  // registry is discarded. Server-family handles stay with beginServerDriverReap,
+  // which owns their bounded transport teardown and process proof.
+  if (runtimeHandle?.binding.family === 'embedded') {
+    void runtimeHandle.kill().catch((error) => {
+      log.warn('could not stop the embedded runtime session', {
+        error,
+        sessionId: msg.sessionId,
+      })
+    })
   }
   // A server-family session has no bridge and no durable host — its process is
   // behind a runtime handle (or, post-restart, a binding-journal entry), and

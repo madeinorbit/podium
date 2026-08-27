@@ -207,11 +207,17 @@ export function resolveRuntimeDriver(input: {
     }
     return { ok: true, driverId: 'claude-sdk' }
   }
+  // A machine-wide SDK preference is deliberately ignored for Claude. The
+  // embedded driver is an explicit per-spawn experiment; the manifest still
+  // honors a `claude-sdk` preference on the concrete spawn spec, while this
+  // resolver keeps the machine default on the PTY path.
+  const policyPreference =
+    preference === 'claude-sdk' && input.requested !== 'claude-sdk' ? undefined : preference
   const ctx: SelectionContext = {
     auth: input.auth ?? 'unknown',
     platform: input.platform,
     available: input.available,
-    ...(preference ? { preference: preference as DriverId } : {}),
+    ...(policyPreference ? { preference: policyPreference as DriverId } : {}),
   }
   return { ok: true, driverId: manifest.runtime.select(ctx) }
 }

@@ -190,10 +190,10 @@ export function createDaemonMachineRuntime(input: {
     handleFor: (sessionId) => input.claude.handleFor(sessionId),
     bindings: () => input.claude.bindings(),
     async createWithId(sessionId, spec) {
-      await input.claude.launch(serverLaunchFor(sessionId, spec))
-      const handle = input.claude.handleFor(sessionId)
-      if (!handle) throw new Error(`embedded runtime did not index session '${sessionId}'`)
-      return handle
+      return input.claude.launch(serverLaunchFor(sessionId, spec))
+    },
+    async resumeWithId(sessionId, ref, spec) {
+      return input.claude.launch({ ...serverLaunchFor(sessionId, spec), resume: ref })
     },
     adopt(binding) {
       return input.claude.driver.adopt(binding)

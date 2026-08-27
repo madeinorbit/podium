@@ -12,7 +12,7 @@
  *      copy the moment this callback returns, so anything less durable would
  *      just move the loss one layer down (POD-2202).
  *
- * ONE HELPER FOR ALL THREE SERVER DRIVERS. codex, opencode and grok keep their
+ * ONE HELPER FOR ALL RUNTIME ADAPTERS. codex, opencode, grok and Claude keep their
  * protocols apart and their daemon translation identical on purpose; a queue
  * abandonment is a fact about the CONTRACT, not about any of their protocols,
  * so there is nothing here for a family to differ on but its name in the log.
@@ -43,7 +43,7 @@ const log = createLogger('daemon:queue-abandonment')
  * says so rather than leaving the gap to be inferred.
  */
 export function reportQueueAbandonment(
-  family: 'codex' | 'opencode' | 'grok',
+  family: 'codex' | 'opencode' | 'grok' | 'claude-sdk',
   send: (msg: DaemonMessage) => void,
 ): OnQueueAbandoned {
   return ({ sessionId, turns, reason }) => {
