@@ -16,10 +16,11 @@ import { fleetSnapshot } from './trpc'
  * here — otherwise the offer and the operation describe different fleets, which
  * is the disagreement POD-2222 closed one axis over.
  */
-const feedTarget = (platforms: readonly string[]) =>
+const feedTarget = (platforms: readonly string[], trust?: 'instance' | 'release') =>
   ({
     version: '0.4.2',
     critical: false,
+    ...(trust ? { trust } : {}),
     artifacts: {
       headless: {
         delivery: 'feed',
@@ -91,5 +92,47 @@ describe('the update offer', () => {
   it('counts a machine that has reported no platform', () => {
     const svc = serviceFor([machine('mute')], ['linux-x86_64'])
     expect(fleetSnapshot(svc).behind).toBe(1)
+  })
+
+  it('does not offer an instance-trusted feed to a pre-channel-trust build', () => {
+    const legacy = machine('flatblock', {
+      platform: 'linux-x86_64',
+      deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+    })
+    const svc = new UpdatesService({
+      machines: () => [legacy] as never,
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+      fleetChannel: () => 'dev',
+    })
+    svc.setTarget('dev', feedTarget(['linux-x86_64'], 'instance'))
+
+    const snapshot = fleetSnapshot(svc)
+    expect(snapshot.behind).toBe(0)
+    expect(snapshot.machines).toEqual([])
+    expect(snapshot.blocked).toBe(1)
+    expect(snapshot.blockers).toEqual([
+      { id: 'flatblock', name: 'flatblock', reason: 'legacy-instance-trust' },
+    ])
+    expect(snapshot.allMachines.map((row) => row.id)).toEqual(['flatblock'])
+  })
+
+  it('still offers release-trusted bytes to that build', () => {
+    const svc = serviceFor(
+      [
+        machine('old', {
+          platform: 'linux-x86_64',
+          deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+        }),
+      ],
+      ['linux-x86_64'],
+    )
+    svc.setTarget('dev', feedTarget(['linux-x86_64'], 'release'))
+    const snapshot = fleetSnapshot(svc)
+    expect(snapshot.behind).toBe(1)
+    expect(snapshot.blocked).toBe(0)
+    expect(snapshot.blockers).toEqual([])
   })
 })

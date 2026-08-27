@@ -30,7 +30,7 @@ function grantFor(trust: 'instance' | 'release' | undefined): UpdateGrantMessage
     type: 'updateGrant',
     grantId: `g-${trust ?? 'none'}`,
     target: {
-      version: '0.1.2-dev.4+abc1234',
+      version: '0.1.1-dev.4+abc1234',
       critical: false,
       ...(trust ? { trust } : {}),
       artifacts: {
@@ -53,7 +53,7 @@ function grantFor(trust: 'instance' | 'release' | undefined): UpdateGrantMessage
 function depsFor(): GrantApplyDeps & { swap: ReturnType<typeof vi.fn> } {
   const swap = vi.fn()
   return {
-    currentVersion: () => '0.1.2-dev.3+aaaaaaa',
+    currentVersion: () => '0.1.0',
     caps: ['update.delivery.feed'],
     platform: 'linux-x86_64',
     fetchArtifact: (asset, trust, signal, onProgress) =>
@@ -80,8 +80,9 @@ function reportedDetails(deps: GrantApplyDeps): string[] {
 }
 
 describe('a grant carries the key its artifact must be signed by', () => {
-  it('installs an instance-signed artifact on an instance-trusted target', async () => {
+  it('installs a dev-channel artifact against the INSTANCE key, not the release key', async () => {
     const deps = depsFor()
+    expect(instancePubkey).not.toBe(PODIUM_UPDATE_PUBKEY)
     await applyGrant(grantFor('instance'), deps)
     expect(deps.swap).toHaveBeenCalledOnce()
     expect(deps.restart).toHaveBeenCalledOnce()

@@ -23,8 +23,13 @@ import {
   updateOperationDetails,
 } from './operation'
 import { ReleaseApprovalRefusal } from './release-approval'
-import type { ChannelCheckRecord, UpdatesService } from './service'
-import { isPackagedRolloutTarget, machineCanTakeTargetPlatform, type WaveMachine } from './wave'
+import { legacyInstanceTrustMessage, type ChannelCheckRecord, type UpdatesService } from './service'
+import {
+  isPackagedRolloutTarget,
+  machineCanTakeTargetPlatform,
+  machineCanUseTargetTrust,
+  type WaveMachine,
+} from './wave'
 
 const log = createLogger('server:updates')
 
@@ -98,6 +103,12 @@ export interface UpdateFleetMachine {
   convergedBy?: 'reconciler'
 }
 
+export interface UpdateFleetBlocker {
+  id: MachineId
+  name?: string
+  reason: 'legacy-instance-trust'
+}
+
 export interface UpdateFleetSnapshot {
   /** Running coordinator version; additive so an older web bundle can ignore it. */
   appVersion?: string
@@ -112,6 +123,10 @@ export interface UpdateFleetSnapshot {
   behind: number
   converging: number
   failed: number
+  /** Machines that are behind but cannot safely join this wave without host-local repair. */
+  blocked?: number
+  /** Kept separate from the grantable machine set: visible, but never authorized. */
+  blockers?: UpdateFleetBlocker[]
   preparation?: {
     webReady: boolean
     bundleReady: boolean
@@ -206,9 +221,27 @@ export function fleetSnapshot(
     (machine) =>
       isOnChannel(updates, machine, channel) &&
       isPackagedRolloutTarget(machine) &&
-      (target === undefined || machineCanTakeTargetPlatform(machine, targetPlatforms(target))),
+      (target === undefined ||
+        (machineCanUseTargetTrust(machine, target.trust) &&
+          machineCanTakeTargetPlatform(machine, targetPlatforms(target)))),
   )
   const targetVersion = target?.version
+  const blockers: UpdateFleetBlocker[] =
+    target?.trust === 'instance' && targetVersion !== undefined
+      ? allMachines
+          .filter(
+            (machine) =>
+              isOnChannel(updates, machine, channel) &&
+              isPackagedRolloutTarget(machine) &&
+              machine.version !== targetVersion &&
+              !machineCanUseTargetTrust(machine, target.trust),
+          )
+          .map((machine) => ({
+            id: machine.id,
+            ...(machine.name ? { name: machine.name } : {}),
+            reason: 'legacy-instance-trust' as const,
+          }))
+      : []
   // PER MACHINE, not per target (POD-2195): a fleet that can take git delivery
   // is converging on a bare `dev+<sha>` identity right now, and zeroing its live
   // counts for the want of a tarball nobody is waiting for made Settings say
@@ -224,6 +257,8 @@ export function fleetSnapshot(
     behind,
     converging: grantable ? machines.filter((machine) => IN_FLIGHT.has(machine.state)).length : 0,
     failed: grantable ? machines.filter((machine) => FAILED.has(machine.state)).length : 0,
+    blocked: blockers.length,
+    blockers,
     machines,
     allMachines,
     channelChecks: updates.channelChecks(),
@@ -366,9 +401,16 @@ export function updateStartability(input: UpdatePlanInput): UpdateStartability {
   const plan = planUpdateOperation(input)
   if (plan.steps.length === 0 && (plan.awaiting ?? []).length === 0) {
     if ((plan.deferred ?? []).length > 0) {
+      const onlyLegacyTrust = plan.deferred?.every(
+        (place) => place.reason === 'legacy-instance-trust',
+      )
       return {
         startable: false,
-        reason: 'No online machine can apply this update right now.',
+        reason: onlyLegacyTrust
+          ? 'This development update is not offered because every affected machine predates ' +
+            'channel-keyed update trust. Those updaters receive the feed but verify it with the ' +
+            'baked release key instead of their pinned instance key; use the supported host-local repair.'
+          : 'No online machine can apply this update right now.',
       }
     }
     return {
@@ -681,13 +723,18 @@ export function updateProcedures() {
         const state = familyState(ctx)
         const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
         const outcome = state.modules.updates.repairMachine(machineId)
+        const machineName =
+          state.modules.updates.fleet().find((machine) => machine.id === machineId)?.name ??
+          machineId
         if (outcome.result !== 'granted' && outcome.result !== 'in-flight') {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
             message:
               outcome.result === 'no-target'
                 ? outcome.reason
-                : `Payload repair is ${outcome.result}.`,
+                : outcome.result === 'legacy-instance-trust'
+                  ? legacyInstanceTrustMessage(machineName)
+                  : `Payload repair is ${outcome.result}.`,
           })
         }
         return { outcome, fleet: updateFleet(ctx) }

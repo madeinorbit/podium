@@ -1,5 +1,5 @@
 import type { UpdateChannel } from '@podium/model'
-import type { ConvergenceState } from '@podium/protocol'
+import type { ConvergenceState, UpdateTrustRoot } from '@podium/protocol'
 
 export interface WaveMachine {
   id: string
@@ -126,6 +126,30 @@ export function machineCanTakeDelivery(
 }
 
 /**
+ * WHETHER THIS DAEMON CAN HONOUR THE TARGET'S TRUST ROOT (POD-2932).
+ *
+ * `update.delivery.bundle` and delivery-keyed trust were retired together. A
+ * daemon that still advertises that retired capability chooses its verifier by
+ * delivery kind, so a feed artifact on the development channel is inevitably
+ * checked against the baked release key instead of its pinned instance key.
+ * Downloading it can only waste bytes and end in a false tampering alarm.
+ *
+ * This is deliberately a separate predicate from {@link machineCanTakeDelivery}:
+ * the affected daemon really can receive a feed; it cannot honour `trust:
+ * instance` for one. Unknown capabilities remain eligible, and release-trusted
+ * targets remain compatible with every build. A new positive capability would
+ * be cleaner for future builds but cannot be advertised retroactively by the
+ * already-deployed, trust-capable builds between this retirement and today.
+ */
+export function machineCanUseTargetTrust(
+  machine: Pick<WaveMachine, 'deliveryCaps'>,
+  trust?: UpdateTrustRoot,
+): boolean {
+  if (trust !== 'instance') return true
+  return !machine.deliveryCaps?.includes('update.delivery.bundle')
+}
+
+/**
  * WHETHER THIS RELEASE CONTAINS ANYTHING THIS MACHINE COULD RUN (POD-2783).
  *
  * The sibling of {@link machineCanTakeDelivery}, asked for the same reason and
@@ -188,6 +212,8 @@ export type WaveExclusion =
   | 'in-flight'
   | 'terminal-verdict'
   | 'unsupported-delivery'
+  /** The daemon chooses trust by delivery kind and cannot use its instance pin for a feed. */
+  | 'legacy-instance-trust'
   /** The release carries no bytes for this machine's platform, and never will. */
   | 'unsupported-platform'
   | 'canary-gated'
@@ -258,7 +284,12 @@ const hold = (machine: WaveMachine, reason: WaveExclusion): WaveHold => ({
  */
 function ineligibility(
   machine: WaveMachine,
-  ctx: { targetVersion: string; deliveries?: readonly string[]; platforms?: readonly string[] },
+  ctx: {
+    targetVersion: string
+    deliveries?: readonly string[]
+    platforms?: readonly string[]
+    trust?: UpdateTrustRoot
+  },
 ): WaveExclusion | undefined {
   if (!isPackagedRolloutTarget(machine)) return 'source-checkout'
   if (machine.version === ctx.targetVersion) return 'already-current'
@@ -268,6 +299,7 @@ function ineligibility(
   // Never hand a machine an update it has already told us it cannot take,
   // applying the same predicate to canary selection and every later wave.
   if (!machineCanTakeDelivery(machine, ctx.deliveries)) return 'unsupported-delivery'
+  if (!machineCanUseTargetTrust(machine, ctx.trust)) return 'legacy-instance-trust'
   // …and never one built before this machine existed. Delivery first because it
   // is the coarser fact: a machine that can take no delivery at all is not made
   // any more eligible by the release happening to carry its platform.
@@ -284,6 +316,8 @@ export function decideWave(ctx: {
   deliveries?: readonly string[]
   /** Which platforms the target carries bytes for; omitted means "do not filter". */
   platforms?: readonly string[]
+  /** Which key the target requires; absent means the baked release key. */
+  trust?: UpdateTrustRoot
 }): WaveDecision {
   const gate = ctx.canaryHealthy ? 'widen' : 'canary'
   const inFlight = ctx.machines.filter((machine) => IN_FLIGHT.has(machine.state)).length
@@ -323,6 +357,7 @@ export function planWave(ctx: {
   canaryHealthy: boolean
   deliveries?: readonly string[]
   platforms?: readonly string[]
+  trust?: UpdateTrustRoot
 }): string[] {
   return decideWave(ctx).selected
 }

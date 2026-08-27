@@ -522,6 +522,43 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred?.[0]).toMatchObject({ id: 'src', reason: 'cannot-take-delivery' })
   })
 
+  it('defers a legacy verifier without pretending another pack can repair it', () => {
+    const target = { ...packedTarget(), trust: 'instance' as const }
+    const legacy = machine({
+      id: 'flatblock',
+      deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+    })
+    const plan = planUpdateOperation(planInput({ target, fleet: [legacy] }))
+
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_PREPARE)
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
+    expect(plan.deferred).toEqual([
+      { id: 'flatblock', name: 'flatblock', reason: 'legacy-instance-trust' },
+    ])
+  })
+
+  it('names the permanent verifier mismatch when it is the only pending work', () => {
+    const target = { ...packedTarget(), trust: 'instance' as const }
+    const verdict = updateStartability(
+      planInput({
+        target,
+        appVersion: target.version,
+        servedWebDigest: target.artifacts.web?.digest,
+        fleet: [
+          machine({
+            id: 'flatblock',
+            deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+          }),
+        ],
+      }),
+    )
+    expect(verdict).toMatchObject({ startable: false })
+    expect(verdict).toHaveProperty(
+      'reason',
+      expect.stringMatching(/baked release key.*pinned instance key/i),
+    )
+  })
+
   /** The all-in-one host is the first ordinary member of its own fleet. */
   it('plans an all-in-one payload through the machine step without a desktop ask', () => {
     const plan = planUpdateOperation(

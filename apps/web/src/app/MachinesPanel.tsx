@@ -1468,6 +1468,15 @@ export function describeApplyOutcome(
         tone: 'progress',
         message: `${machineName} is already updating. Wait for it to finish.`,
       }
+    case 'legacy-instance-trust':
+      return {
+        tone: 'error',
+        message:
+          `${machineName} predates channel-keyed update trust. It can receive this development ` +
+          'feed, but its updater will verify it with the baked release key instead of the pinned ' +
+          'instance key. Changing or rotating that key cannot make this build use its pin; use ' +
+          'the supported host-local stranded-machine repair.',
+      }
     /**
      * THE ROW THAT CANNOT BE FIXED BY PRESSING IT AGAIN (POD-2783).
      *

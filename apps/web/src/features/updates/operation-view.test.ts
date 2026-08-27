@@ -109,6 +109,40 @@ describe('operationView — the seven states', () => {
     expect(result.indicatorLabel).toBe('Podium 0.4.3 is available')
   })
 
+  it('renders a permanent legacy verifier blocker without an update action', () => {
+    const result = operationView({
+      operation: null,
+      offer: {
+        state: 'blocked',
+        version: '0.4.3',
+        blockedNote:
+          'flatblock needs host-local repair before it can verify instance-signed development updates.',
+      },
+      local: NOT_BEHIND,
+      surface: 'web',
+      now: NOW,
+    })
+
+    expect(result.state).toBe('offer')
+    expect(result.title).toBe('Host-local repair required')
+    expect(result.subtitle).toMatch(/flatblock needs host-local repair/i)
+    expect(result.primary).toBeUndefined()
+    expect(result.indicator).toBe('attention')
+  })
+
+  it('keeps host-local repair visible while offering grantable places', () => {
+    const result = operationView({
+      operation: null,
+      offer: { ...OFFER, blockedNote: 'flatblock needs host-local repair.' },
+      local: NOT_BEHIND,
+      surface: 'web',
+      now: NOW,
+    })
+
+    expect(result.primary).toMatchObject({ kind: 'start' })
+    expect(result.deferredNote).toBe('flatblock needs host-local repair.')
+  })
+
   /**
    * THE UNREAD OPERATION, WITH AN OFFER ALREADY IN HAND (POD-2307).
    *
@@ -403,6 +437,22 @@ describe('operationView — the seven states', () => {
     expect(result.title).toBe('Podium is on 0.4.3 everywhere')
     expect(result.deferredNote).toBe('macbook, laptop will update when they reconnect.')
     expect(result.indicator).toBe('idle-dot')
+  })
+
+  it('does not claim everywhere or reconnect for a permanent legacy trust deferment', () => {
+    const payload = operationPayload({
+      state: 'done',
+      finishedAt: NOW,
+      steps: [{ id: 'machines', title: 'Updating your machines', state: 'done' }],
+      deferred: [{ id: 'm_legacy', name: 'flatblock', reason: 'legacy-instance-trust' }],
+    })
+    const result = view(payload)
+    expect(result.state).toBe('done')
+    expect(result.title).toBe('Podium 0.4.3 was applied where supported')
+    expect(result.deferredNote).toMatch(/flatblock needs host-local repair/i)
+    expect(result.deferredNote).toMatch(/reconnecting will not clear/i)
+    expect(result.indicatorLabel).toBe('Host-local repair still required')
+    expect(JSON.stringify(result)).not.toMatch(/everywhere/)
   })
 
   it('keeps asking a straggler tab to reload after the operation itself finished', () => {

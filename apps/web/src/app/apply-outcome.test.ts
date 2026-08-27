@@ -33,6 +33,20 @@ describe('describeApplyOutcome', () => {
     expect(said.message).not.toMatch(/next update|will include/i)
   })
 
+  it('distinguishes a legacy verifier from a wrong or rotated key', () => {
+    const said = describeApplyOutcome(
+      { result: 'legacy-instance-trust', version: '0.1.1-dev.3+2595a90' },
+      'flatblock',
+    )
+    expect(said.tone).toBe('error')
+    expect(said.message).toContain('flatblock')
+    expect(said.message).toMatch(/predates channel-keyed update trust/i)
+    expect(said.message).toMatch(/baked release key/i)
+    expect(said.message).toMatch(/pinned instance key/i)
+    expect(said.message).toMatch(/changing or rotating.*cannot/i)
+    expect(said.message).toMatch(/host-local.*repair/i)
+  })
+
   /** The arms that were already right stay right. */
   it('still names an offline machine as offline', () => {
     expect(describeApplyOutcome({ result: 'offline' }, 'mini').tone).toBe('error')

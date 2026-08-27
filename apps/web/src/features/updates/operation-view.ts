@@ -143,7 +143,7 @@ export interface UpdatePanelView {
   note?: string
   /** Asks this surface cannot act on, rendered honestly (P5). */
   awaitingElsewhere: string[]
-  /** "2 machines will update when they reconnect" (§3.6). */
+  /** Deferred-place truth: transient reconnects and permanent host-local repair blockers. */
   deferredNote?: string
   indicator: IndicatorState
   indicatorLabel: string
@@ -400,15 +400,37 @@ function elsewhereAsks(operation: Operation, surface: UpdateSurface): string[] {
     .map(askLine)
 }
 
+function deferredSubject(deferred: readonly { name?: string }[]): string {
+  const names = deferred.flatMap((place) => (place.name ? [place.name] : []))
+  if (names.length > 0 && names.length <= 3) return names.join(', ')
+  return deferred.length + ' machine' + (deferred.length === 1 ? '' : 's')
+}
+
 function deferredNote(operation: Operation): string | undefined {
   const deferred = operation.deferred ?? []
   if (deferred.length === 0) return undefined
-  const names = deferred.flatMap((place) => (place.name ? [place.name] : []))
-  const subject =
-    names.length > 0 && names.length <= 3
-      ? names.join(', ')
-      : `${deferred.length} machine${deferred.length === 1 ? '' : 's'}`
-  return `${subject} will update when ${deferred.length === 1 && names.length === 1 ? 'it reconnects' : 'they reconnect'}.`
+  const legacy = deferred.filter((place) => place.reason === 'legacy-instance-trust')
+  const reconnecting = deferred.filter((place) => place.reason !== 'legacy-instance-trust')
+  const notes: string[] = []
+  if (legacy.length > 0) {
+    const subject = deferredSubject(legacy)
+    notes.push(
+      subject +
+        (legacy.length === 1 ? ' needs' : ' need') +
+        ' host-local repair before ' +
+        (legacy.length === 1 ? 'it can verify' : 'they can verify') +
+        ' instance-signed development updates. Reconnecting will not clear this blocker.',
+    )
+  }
+  if (reconnecting.length > 0) {
+    const subject = deferredSubject(reconnecting)
+    notes.push(
+      subject +
+        ' will update when ' +
+        (reconnecting.length === 1 ? 'it reconnects.' : 'they reconnect.'),
+    )
+  }
+  return notes.join(' ')
 }
 
 /**
@@ -652,6 +674,18 @@ function offerView(input: OperationViewInput): UpdatePanelView {
       version: offer.version,
     }
   }
+  if (offer.state === 'blocked') {
+    return {
+      state: 'offer',
+      title: 'Host-local repair required',
+      subtitle: offer.blockedNote,
+      version: offer.version,
+      steps: [],
+      awaitingElsewhere: [],
+      indicator: 'attention',
+      indicatorLabel: 'Host-local repair required',
+    }
+  }
   if (offer.state === 'local-stale') {
     const primary = localAction(input)
     return {
@@ -683,6 +717,7 @@ function offerView(input: OperationViewInput): UpdatePanelView {
     ...(offer.notes ? { notes: offer.notes } : {}),
     restartNote: offer.restartNote,
     ...(offer.reason ? { reason: offer.reason } : {}),
+    ...(offer.blockedNote ? { deferredNote: offer.blockedNote } : {}),
     primary,
     awaitingElsewhere: [],
     indicator: offer.state === 'required' ? 'attention' : 'idle-dot',
@@ -832,13 +867,26 @@ function computeView(input: OperationViewInput): UpdatePanelView {
           primary?.kind === 'install-desktop' ? 'Restart to finish' : 'Reload to finish',
       }
     }
+    const permanentlyDeferred = (operation.deferred ?? []).some(
+      (place) => place.reason === 'legacy-instance-trust',
+    )
     return {
       ...base,
       state: 'done',
-      title: version ? `Podium is on ${version} everywhere` : 'Podium is up to date everywhere',
+      title: permanentlyDeferred
+        ? version
+          ? 'Podium ' + version + ' was applied where supported'
+          : 'Podium was updated where supported'
+        : version
+          ? 'Podium is on ' + version + ' everywhere'
+          : 'Podium is up to date everywhere',
       ...(deferred ? { subtitle: deferred } : {}),
-      indicator: 'idle-dot',
-      indicatorLabel: version ? `Podium is on ${version}` : 'Podium is up to date',
+      indicator: permanentlyDeferred ? 'attention' : 'idle-dot',
+      indicatorLabel: permanentlyDeferred
+        ? 'Host-local repair still required'
+        : version
+          ? 'Podium is on ' + version
+          : 'Podium is up to date',
     }
   }
 
