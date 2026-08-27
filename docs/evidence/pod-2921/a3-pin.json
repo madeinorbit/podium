@@ -1,8 +1,8 @@
 {
   "cell": "A3",
-  "at": "2026-08-27T05:34:51.689Z",
+  "at": "2026-08-27T06:33:08.086Z",
   "instance": "default",
-  "sourceRoot": "/tmp/pod-2921/pinned-main",
+  "sourceRoot": "/tmp/pod-2921-a3/pinned-main",
   "checkoutSha": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
   "serverSha": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
   "daemonSha": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
@@ -14,10 +14,14 @@
     "sourceSha": "0bd9009",
     "bundleVersion": "bundle+4at1Mnjp"
   },
-  "serverPid": "1208350",
-  "daemonPid": "1208406",
+  "serverPid": "1307698",
+  "daemonPid": "1308324",
   "serverAliveAtPin": true,
   "daemonAliveAtPin": true,
+  "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2921-main-baseline-for-three-claude-cells",
+  "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2921-main-baseline-for-three-claude-cells",
+  "probeCheckout": "9f2c5ff3b80e099b570e140936aaafd8799a4459",
+  "probeRigCommit": "8ba46c6fd2e98c0bba21c3ac3aad446e1772da84",
   "forbiddenOverrides": {
     "PODIUM_STATE_DIR": null,
     "PODIUM_AGENT_HOME": null,
