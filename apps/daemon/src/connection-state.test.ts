@@ -46,6 +46,7 @@ function localOptions(
           reply: ok,
           machineId: MACHINE_ID,
           deliver: vi.fn(),
+          deliverOutput: vi.fn(),
           close: vi.fn(),
         }
       },
@@ -172,6 +173,7 @@ describe('daemon connection credential state machine', () => {
         reply: { ...ok, updatePubkey: 'server-key-1' },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
@@ -188,6 +190,7 @@ describe('daemon connection credential state machine', () => {
         reply: { ...ok, updatePubkey: 'server-key-2' },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
@@ -210,6 +213,7 @@ describe('daemon connection credential state machine', () => {
         },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
@@ -242,6 +246,7 @@ describe('daemon connection credential state machine', () => {
         reply: { ...ok, updatePubkey: 'server-key-1' },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
@@ -265,6 +270,7 @@ describe('daemon connection credential state machine', () => {
         reply: { ...ok, issuedToken: 'token-1', updatePubkey: original.publicKey },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
@@ -285,6 +291,7 @@ describe('daemon connection credential state machine', () => {
         },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
@@ -309,6 +316,7 @@ describe('daemon connection credential state machine', () => {
         },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
@@ -324,6 +332,7 @@ describe('daemon connection credential state machine', () => {
         reply: { ...ok, updatePubkey: 'server-key-2' },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
@@ -441,8 +450,9 @@ it('converts remote typed output to one legacy payload without changing JSON sen
   await h.state.close()
 })
 
-it('converts local typed output to the same legacy payload and source-frame count', async () => {
+it('delivers local typed output by reference without changing JSON sends', async () => {
   const deliver = vi.fn()
+  const deliverOutput = vi.fn()
   const options = localOptions(() => {}, { bootstrapToken: 'local-secret' })
   options.localLink = {
     attach: () => ({
@@ -450,22 +460,35 @@ it('converts local typed output to the same legacy payload and source-frame coun
       reply: ok,
       machineId: MACHINE_ID,
       deliver,
+      deliverOutput,
       close: vi.fn(),
     }),
   }
   const state = connection(options)
   await state.start()
 
-  state.sendOutput({
+  const bytes = Uint8Array.from([0x00, 0xff, 0x80])
+  const batch = {
     sessionId: asSessionId('session-local'),
     sourceFrames: 2,
-    bytes: Uint8Array.from([0x00, 0xff, 0x80]),
-  })
-  expect(deliver).toHaveBeenCalledWith({
-    type: 'agentFrameBatch',
-    sessionId: 'session-local',
-    frames: ['AP+A', ''],
-  })
+    bytes,
+  }
+  state.sendOutput(batch)
+  expect(deliverOutput).toHaveBeenCalledWith(batch)
+  expect(deliverOutput.mock.calls[0]![0]).toBe(batch)
+  expect(deliverOutput.mock.calls[0]![0].bytes).toBe(bytes)
+  expect(deliver).not.toHaveBeenCalled()
+
+  const diagnostic = {
+    type: 'machineDiagnostic',
+    code: 'local-json',
+    title: 'Local JSON',
+    body: 'The ordinary local sender stays unchanged.',
+  } as const
+  state.send(diagnostic)
+  expect(deliver).toHaveBeenCalledWith(diagnostic)
+  expect(deliver.mock.calls[0]![0]).toBe(diagnostic)
+  expect(deliverOutput).toHaveBeenCalledTimes(1)
   await state.close()
 })
 

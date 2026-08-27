@@ -96,12 +96,15 @@ export interface DaemonConnection {
   close(): Promise<void>
 }
 
-const legacyOutputMessage = (
-  batch: DaemonPtyOutputBatch,
-): Extract<DaemonMessage, { type: 'agentFrameBatch' }> => {
+const assertOutputBatch = (batch: DaemonPtyOutputBatch): void => {
   if (!Number.isInteger(batch.sourceFrames) || batch.sourceFrames < 1) {
     throw new RangeError('daemon PTY output batches require a positive sourceFrames count')
   }
+}
+
+const legacyOutputMessage = (
+  batch: DaemonPtyOutputBatch,
+): Extract<DaemonMessage, { type: 'agentFrameBatch' }> => {
   return {
     type: 'agentFrameBatch',
     sessionId: batch.sessionId,
@@ -504,11 +507,12 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     },
     sendOutput(batch) {
       if (state !== 'connected') return
-      const message = legacyOutputMessage(batch)
+      assertOutputBatch(batch)
       if (localAttachment) {
-        localAttachment.deliver(message)
+        localAttachment.deliverOutput(batch)
         return
       }
+      const message = legacyOutputMessage(batch)
       deps.sendApplicationFrame(socket, message)
     },
     send(msg) {

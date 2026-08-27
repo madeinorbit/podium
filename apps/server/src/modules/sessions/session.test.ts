@@ -506,6 +506,28 @@ describe('Session', () => {
     expect(s.terminal.outputCount).toBe(2)
   })
 
+  it('accepts arbitrary raw bytes as one sequence with source-frame accounting', () => {
+    const s = makeSession()
+    const a = makeClient('raw')
+    s.terminal.attachClient(a)
+    const source = [
+      Uint8Array.from([0x00, 0xff, 0xe2]),
+      Uint8Array.from([0x82]),
+      Uint8Array.from([0xac, 0x1b, 0x5b, 0x32, 0x4a]),
+    ]
+    const bytes = Buffer.concat(source)
+    s.terminal.acceptOutput(bytes, source.length)
+
+    const frames = a.sent.filter((message) => message.type === 'outputFrame')
+    expect(frames).toHaveLength(1)
+    expect(frames[0]).toMatchObject({ seq: 0, epoch: 0 })
+    if (frames[0]?.type !== 'outputFrame') throw new Error('raw output missing')
+    expect(Array.from(Buffer.from(frames[0].data, 'base64'))).toEqual(Array.from(bytes))
+    expect(s.terminal.outputCount).toBe(3)
+    expect(s.terminal.lastOutputAtMs).toBeGreaterThan(0)
+    expect(s.terminal.activityDirty).toBe(true)
+  })
+
   it('fans identical live and replay bytes to binary and legacy clients', () => {
     const s = makeSession()
     const legacy = makeClient('legacy')

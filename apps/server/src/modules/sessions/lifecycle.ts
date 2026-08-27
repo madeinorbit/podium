@@ -42,7 +42,7 @@ export interface SessionRoutingFacts {
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { computePriorities, FIRST_ADMIN_USER_ID } from '@podium/model'
-import type { MachinePrincipal, Principal } from '@podium/protocol'
+import type { DaemonPtyOutputBatch, MachinePrincipal, Principal } from '@podium/protocol'
 import {
   type AgentInstruction,
   AUTO_ARCHIVE_READ_WINDOW_MS,
@@ -649,6 +649,9 @@ export class SessionLifecycle {
   }
   onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): void {
     this.daemonLifecycle.handle(principal, msg)
+  }
+  onSessionDaemonOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void {
+    this.daemonLifecycle.handleOutput(principal, batch)
   }
   transcriptFor(...args: any[]): any {
     return (this.sessionMetaOps as any).transcriptFor(...args)

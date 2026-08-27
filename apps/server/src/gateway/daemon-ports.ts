@@ -21,7 +21,7 @@
  */
 
 import type { ConversationDiagnosticWire, ConversationSummaryWire, MachineId } from '@podium/model'
-import type { MachinePrincipal } from '@podium/protocol'
+import type { DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { RpcDaemonFrame, SessionsDaemonFrame } from './daemon-frame-routing'
 
@@ -56,6 +56,8 @@ export interface SessionsDaemonPort {
   onMachineDetached(principal: MachinePrincipal): void
   /** One session-owned frame, attributed to the machine that sent it. */
   onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): void
+  /** One raw PTY-output batch, attributed to the machine that sent it. */
+  onSessionDaemonOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void
 }
 
 /** MACHINES. Socket bookkeeping plus the machine's own reported inventory. */

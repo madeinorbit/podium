@@ -491,7 +491,7 @@ export class SessionTerminal {
   }
 
   onFrame(data: string): void {
-    this.acceptFrames(Buffer.from(data, 'base64'), 1)
+    this.acceptOutput(Buffer.from(data, 'base64'), 1)
   }
 
   /** Preserve the daemon's scheduling batch through the client websocket.
@@ -505,16 +505,22 @@ export class SessionTerminal {
       return
     }
     const bytes = Buffer.concat(frames.map((data) => Buffer.from(data, 'base64')))
-    this.acceptFrames(bytes, frames.length)
+    this.acceptOutput(bytes, frames.length)
   }
 
-  private acceptFrames(bytes: Buffer, count: number): void {
+  acceptOutput(bytes: Uint8Array, sourceFrames: number): void {
+    if (!Number.isInteger(sourceFrames) || sourceFrames < 1)
+      throw new RangeError('terminal output requires a positive sourceFrames count')
+    const normalized = Buffer.isBuffer(bytes)
+      ? bytes
+      : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     const seq = this.nextSeq++
-    this.bufferFrame(seq, bytes)
+    this.bufferFrame(seq, normalized)
     const fanout: OutputFanout = {}
-    for (const client of this.clients.values()) this.sendOutput(client, seq, bytes, true, fanout)
+    for (const client of this.clients.values())
+      this.sendOutput(client, seq, normalized, true, fanout)
     this.outputAtMs_ = Date.now()
-    this.outputCount_ += count
+    this.outputCount_ += sourceFrames
     this.activityDirty_ = true
     if (this.init.agentKind === 'shell' && this.shellCommandRunning) this.markShellBusy()
   }

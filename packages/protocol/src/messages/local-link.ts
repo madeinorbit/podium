@@ -10,6 +10,7 @@ export type LocalDaemonAttachment =
       readonly reply: PeerHelloReply
       readonly machineId: MachineId
       deliver(msg: DaemonMessage): void
+      deliverOutput(batch: DaemonPtyOutputBatch): void
       close(): void
     }
 
@@ -36,6 +37,7 @@ export type LocalDaemonAttachment =
 export interface DaemonPtyOutputBatch {
   readonly sessionId: SessionId
   readonly sourceFrames: number
+  /** Immutable after delivery: local routing and terminal replay may retain this exact view. */
   readonly bytes: Uint8Array
 }
 

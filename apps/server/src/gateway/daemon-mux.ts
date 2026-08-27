@@ -50,7 +50,7 @@
 
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
-import type { MachinePrincipal } from '@podium/protocol'
+import type { DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import {
@@ -297,6 +297,11 @@ export class DaemonMux {
     this.deps.bus.emit('machine.disconnected', { machineId })
     sessions.onMachineDetached(principal)
     machines.broadcastMachines()
+  }
+
+  routeDaemonOutput(peer: DaemonPeer, batch: DaemonPtyOutputBatch): void {
+    const principal = principalOf(peer)
+    this.deps.ports.sessions.onSessionDaemonOutput(principal, batch)
   }
 
   /**

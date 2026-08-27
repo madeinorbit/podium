@@ -2,9 +2,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FLEET_CONTRACTS } from '@podium/commands'
-import { asMachineId } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
+import { createHandshakeDialer, type DaemonPtyOutputBatch } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { resolveServerRole } from './roles'
 import type { AppRouter } from './router'
 import { startServer } from './server'
@@ -183,6 +184,36 @@ describe('startServer with the hub role disabled (node shape)', () => {
       hostname: 'same-host',
     })
     expect(auth.ok).toBe(true)
+  })
+
+  it('local raw output stays asynchronous and preserves batch references', async () => {
+    const dialer = createHandshakeDialer({
+      peerRole: 'machine',
+      credential: { kind: 'daemonSecret', secret: handle.bootstrapToken },
+      claims: { machineId: handle.registry.modules.machines.hostMachineId, hostname: 'same-host' },
+    })
+    const attachment = handle.localDaemonLink.attach({ hello: dialer.hello(), deliver: vi.fn() })
+    expect(attachment.established).toBe(true)
+    if (!attachment.established) throw new Error('local daemon handshake failed')
+
+    const route = vi.spyOn(handle.registry.gateway, 'routeDaemonOutput')
+    const bytes = Uint8Array.from([0x00, 0xff, 0x80])
+    const batch: DaemonPtyOutputBatch = {
+      sessionId: asSessionId('missing-session'),
+      sourceFrames: 2,
+      bytes,
+    }
+    try {
+      attachment.deliverOutput(batch)
+      expect(route).not.toHaveBeenCalled()
+      await Promise.resolve()
+      expect(route).toHaveBeenCalledTimes(1)
+      expect(route.mock.calls[0]![1]).toBe(batch)
+      expect(route.mock.calls[0]![1].bytes).toBe(bytes)
+    } finally {
+      route.mockRestore()
+      attachment.close()
+    }
   })
 })
 

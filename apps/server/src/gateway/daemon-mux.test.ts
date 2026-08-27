@@ -11,6 +11,7 @@ import {
   DAEMON_PLANE_CLASS,
   edgeOf,
   HOST_EDGE_FRAMES,
+  type DaemonPtyOutputBatch,
   type MachinePrincipal,
 } from '@podium/protocol'
 import { type DaemonMessage } from '@podium/protocol/daemon'
@@ -122,6 +123,22 @@ describe('the routing table', () => {
         `frame '${type}' reached the wrong ports`,
       ).toEqual([...DAEMON_FRAME_PORTS[type]])
     }
+  })
+
+  it('routes typed output with the authenticated principal and exact batch reference', () => {
+    const { ports, calls } = fakePorts()
+    const bytes = Uint8Array.from([0x00, 0xff])
+    const batch: DaemonPtyOutputBatch = {
+      sessionId: asSessionId('s1'),
+      sourceFrames: 2,
+      bytes,
+    }
+    muxWith(ports).routeDaemonOutput(PRINCIPAL, batch)
+
+    expect(calls[0]?.method).toBe('onSessionDaemonOutput')
+    expect(calls[0]?.args[0]).toBe(PRINCIPAL)
+    expect(calls[0]?.args[1]).toBe(batch)
+    expect((calls[0]?.args[1] as DaemonPtyOutputBatch).bytes).toBe(bytes)
   })
 })
 

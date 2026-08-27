@@ -1405,6 +1405,8 @@ export async function startServer(
           // sites; it is a row in the gateway's routing table now, so this
           // link routes the WHOLE daemon union through one seam.
           deliver: (msg) => queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg)),
+          deliverOutput: (batch) =>
+            queueMicrotask(() => registry.gateway.routeDaemonOutput(principal, batch)),
           close: () => registry.gateway.detachDaemon(principal, send),
         }
       },
