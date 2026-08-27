@@ -1,0 +1,91 @@
+{
+  "cell": "A9",
+  "arm": "headless",
+  "harness": "opencode",
+  "verdict": "FAIL",
+  "summary": "kill left a session orphan or damaged infrastructure",
+  "evidence": [
+    "marker=A9-O91X32",
+    "replyControl=true",
+    "before=2",
+    "after15s=1",
+    "after300s=1",
+    "instanceRowsAfter=1",
+    "infraAlive=2/2",
+    "attribution=environment/PODIUM_INSTANCE+session-id, cwd map includes tmp and worktree"
+  ],
+  "data": {
+    "before": [
+      {
+        "pid": 847955,
+        "ppid": 1055,
+        "cwd": "/tmp/pod-2919/probes/headless-a7a",
+        "location": "tmp-state-or-probe"
+      },
+      {
+        "pid": 874540,
+        "ppid": 872474,
+        "cwd": "/tmp/pod-2919/probes/headless-a9",
+        "location": "tmp-state-or-probe"
+      }
+    ],
+    "immediate": 1,
+    "orphans": 1,
+    "infraAlive": 2
+  },
+  "requestedCwd": "/tmp/pod-2919/probes/headless-a9",
+  "cwdFromSpawn": null,
+  "instance": "oc2919",
+  "codePin": "1f531c6cc7efc022db1b90e175c4640906ba97f6",
+  "pin": {
+    "codeSha": "1f531c6cc7efc022db1b90e175c4640906ba97f6",
+    "codeShort": "1f531c6",
+    "server": {
+      "pid": 872266,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
+      "sha": "1f531c6cc7efc022db1b90e175c4640906ba97f6"
+    },
+    "daemon": {
+      "pid": 872474,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
+      "sha": "1f531c6cc7efc022db1b90e175c4640906ba97f6"
+    },
+    "bundleSourceSha": "1f531c6",
+    "expectedDriver": "opencode-server",
+    "expectedFamily": "server",
+    "actualRuntimeDriver": "",
+    "contract": "1",
+    "streaming": "1"
+  },
+  "host": {
+    "load": [
+      "10.25",
+      "11.13",
+      "11.60"
+    ],
+    "memAvailableKb": 4028948,
+    "swapFreeKb": 36836576,
+    "diskFreeKb": 14046416
+  },
+  "at": "2026-08-27T02:44:47.712Z",
+  "error": "",
+  "log": [
+    "PIN PINJSON {\"codeSha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\",\"codeShort\":\"1f531c6\",\"server\":{\"pid\":872266,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\"},\"daemon\":{\"pid\":872474,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\"},\"bundleSourceSha\":\"1f531c6\",\"expectedDriver\":\"opencode-server\",\"expectedFamily\":\"server\",\"actualRuntimeDriver\":\"\",\"contract\":\"1\",\"streaming\":\"1\"}",
+    "PIN server pid=872266 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=1f531c6cc7ef",
+    "PIN daemon pid=872474 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=1f531c6cc7ef",
+    "PIN bundle sourceSha=1f531c6 expected=1f531c6",
+    "PIN daemon runtime driver=unset expected=opencode-server family=server",
+    "HOST {\"load\":[\"7.56\",\"8.84\",\"11.41\"],\"memAvailableKb\":4339920,\"swapFreeKb\":36820168,\"diskFreeKb\":15039956}",
+    "SESSION sid=ba236ba6-b0de-4266-ad7d-88368dbc9050",
+    "CWD requested=/tmp/pod-2919/probes/headless-a9",
+    "CWD spawn-observed=/tmp/pod-2919/probes/headless-a9",
+    "CWD query=/tmp/pod-2919/probes/headless-a9 match=true",
+    "DRIVER bound=opencode-server family=server status=live",
+    "CONTROL pre-kill session processes=2",
+    "PRE pid=847955 ppid=1055 cwd=/tmp/pod-2919/probes/headless-a7a location=tmp-state-or-probe cmd=/home/mgw/.opencode/bin/opencode serve --port 37087 --hostname 127.0.0.1",
+    "PRE pid=874540 ppid=872474 cwd=/tmp/pod-2919/probes/headless-a9 location=tmp-state-or-probe cmd=/home/mgw/.local/state/podium/oc2919/agent-home/.opencode/bin/opencode serve --port 43663 --hostname 127.0.0.1",
+    "after15s survivors=1",
+    "after300s orphans=1 instanceRows=1 infrastructure=2/2",
+    "ORPHAN pid=847955 ppid=1055 cwd=/tmp/pod-2919/probes/headless-a7a location=tmp-state-or-probe cmd=/home/mgw/.opencode/bin/opencode serve --port 37087 --hostname 127.0.0.1"
+  ]
+}
