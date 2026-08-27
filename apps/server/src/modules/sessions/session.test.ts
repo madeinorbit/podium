@@ -670,6 +670,27 @@ describe('Session', () => {
     s.terminal.attachClient(client)
     expect(client.sent.filter((message) => message.type === 'outputFrame')).toHaveLength(2)
   })
+  it('owns replay payload bytes independently of the received websocket envelope', () => {
+    const s = makeSession()
+    const backing = Buffer.alloc(1024)
+    backing.set(Buffer.from('abc'), 512)
+    const payload = backing.subarray(512, 515)
+    s.terminal.acceptOutput(payload, 1)
+    payload.fill(0)
+    const client = makeClient('owned-replay')
+    s.terminal.attachClient(client)
+    const replay = client.sent.filter((message) => message.type === 'outputFrame')
+    expect(Buffer.from(replay[0]!.data, 'base64').toString()).toBe('abc')
+  })
+
+  it('caps empty replay entries and rejects unsafe source-frame counts', () => {
+    const s = makeSession()
+    expect(() => s.terminal.acceptOutput(new Uint8Array(), Number.MAX_SAFE_INTEGER)).toThrow()
+    for (let i = 0; i < 4097; i += 1) s.terminal.acceptOutput(new Uint8Array(), 1)
+    const client = makeClient('empty-replay-budget')
+    s.terminal.attachClient(client)
+    expect(client.sent.filter((message) => message.type === 'outputFrame')).toHaveLength(4096)
+  })
 
   it('scans reset sequences on canonical bytes and discards older replay', () => {
     const s = makeSession()

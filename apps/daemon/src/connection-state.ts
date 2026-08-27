@@ -3,6 +3,7 @@ import { hostname } from 'node:os'
 import type { MachineId } from '@podium/model'
 import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
   createHandshakeDialer,
   encodeBinaryEnvelope,
   type DaemonPtyOutputBatch,
@@ -99,8 +100,14 @@ export interface DaemonConnection {
 }
 
 const assertOutputBatch = (batch: DaemonPtyOutputBatch): void => {
-  if (!Number.isInteger(batch.sourceFrames) || batch.sourceFrames < 1) {
-    throw new RangeError('daemon PTY output batches require a positive sourceFrames count')
+  if (
+    !Number.isSafeInteger(batch.sourceFrames) ||
+    batch.sourceFrames < 1 ||
+    batch.sourceFrames > DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES
+  ) {
+    throw new RangeError(
+      `daemon PTY output batches require sourceFrames in 1..${DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES}`,
+    )
   }
 }
 

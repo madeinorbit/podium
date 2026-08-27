@@ -30,6 +30,7 @@ import {
   type DaemonHandshakeReply,
   DaemonPtyOutputMetadata,
   decodeBinaryEnvelope,
+  type DaemonPtyOutputBatch,
   type MachinePrincipal,
   type PeerHelloReply,
 } from '@podium/protocol'
@@ -86,18 +87,28 @@ const terminateBinaryProtocolFailure = (
   ws.terminate()
 }
 
-const legacyOutputByteLength = (message: ReturnType<typeof parseDaemonMessage>): number | null => {
-  if (message.type === 'agentFrame') return Buffer.from(message.data, 'base64').byteLength
-  if (message.type === 'agentFrameBatch')
-    return message.frames.reduce(
-      (total, frame) => total + Buffer.from(frame, 'base64').byteLength,
-      0,
-    )
+const decodeLegacyOutput = (
+  message: ReturnType<typeof parseDaemonMessage>,
+): DaemonPtyOutputBatch | null => {
+  if (message.type === 'agentFrame')
+    return {
+      sessionId: message.sessionId,
+      sourceFrames: 1,
+      bytes: Buffer.from(message.data, 'base64'),
+    }
+  if (message.type === 'agentFrameBatch') {
+    if (message.frames.length === 0) return null
+    const decoded = message.frames.map((frame) => Buffer.from(frame, 'base64'))
+    return {
+      sessionId: message.sessionId,
+      sourceFrames: decoded.length,
+      bytes: decoded.length === 1 ? decoded[0]! : Buffer.concat(decoded),
+    }
+  }
   return null
 }
 
-const decodeDaemonOutputFrame = (raw: Buffer) =>
-  decodeBinaryEnvelope(raw, DaemonPtyOutputMetadata)
+const decodeDaemonOutputFrame = (raw: Buffer) => decodeBinaryEnvelope(raw, DaemonPtyOutputMetadata)
 
 /**
  * Per-daemon-socket lifecycle: hold the connection unauthenticated until the
@@ -126,6 +137,16 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   // The send fn registered for THIS socket — the identity `close` detaches against.
   let acceptedCaps = new Set<string>()
   let send: ((msg: ControlMessage) => void) | undefined
+  let failed = false
+  const failBinary = (
+    failure: BinaryProtocolFailure,
+    byteLength: number,
+    error?: unknown,
+  ): void => {
+    if (failed) return
+    failed = true
+    terminateBinaryProtocolFailure(ws, failure, byteLength, error)
+  }
   // Reply helper. The reply `type` literals (helloOk/paired/…) collide with members
   // of other encode() unions, so annotate the value as a DaemonHandshakeReply to
   // pin it to the handshake schema.
@@ -140,20 +161,21 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     connectionId: `daemon-${nextDaemonConnectionId()}`,
   })
   ws.on('message', (raw) => {
+    if (failed) return
     if (typeof raw !== 'string') {
       if (principal === undefined) {
-        terminateBinaryProtocolFailure(ws, 'preAuth', raw.byteLength)
+        failBinary('preAuth', raw.byteLength)
         return
       }
       if (!acceptedCaps.has(CAP_TERMINAL_OUTPUT_BINARY_V1)) {
-        terminateBinaryProtocolFailure(ws, 'unnegotiated', raw.byteLength)
+        failBinary('unnegotiated', raw.byteLength)
         return
       }
       let decoded: ReturnType<typeof decodeDaemonOutputFrame>
       try {
         decoded = decodeDaemonOutputFrame(raw)
       } catch (error) {
-        terminateBinaryProtocolFailure(ws, 'malformed', raw.byteLength, error)
+        failBinary('malformed', raw.byteLength, error)
         return
       }
       perf.record(
@@ -258,15 +280,17 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // is no such field today, and an injected one is inert) can never become
       // the routing identity.
       const message = parseDaemonMessage(raw)
-      const outputByteLength = legacyOutputByteLength(message)
-      if (outputByteLength !== null) {
+      const output = decodeLegacyOutput(message)
+      if (output !== null) {
         perf.record(
           'phase',
           'terminal.output.daemon.base64',
           0,
           DEPLOYMENT,
-          outputByteLength,
+          output.bytes.byteLength,
         )
+        registry.gateway.routeDaemonOutput(principal, output)
+        return
       }
       registry.gateway.routeDaemonFrame(principal, message)
     } catch (err) {

@@ -101,6 +101,17 @@ describe('binary envelope v1', () => {
         DaemonPtyOutputMetadata,
       ),
     ).toThrow()
+    expect(() =>
+      decodeEnvelope(
+        jsonEnvelope({
+          v: 1,
+          type: 'ptyOutput',
+          sessionId: asSessionId('session-1'),
+          sourceFrames: Number.MAX_SAFE_INTEGER,
+        }),
+        DaemonPtyOutputMetadata,
+      ),
+    ).toThrow()
   })
   it('retains additive daemon output metadata fields', () => {
     const daemonMetadata = {

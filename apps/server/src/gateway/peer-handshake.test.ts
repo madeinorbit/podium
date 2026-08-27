@@ -171,10 +171,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
       sourceFrames: 3,
     }
     const encoded = encodeBinaryEnvelope(metadata, payload)
-    ws.emit(
-      'message',
-      Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength),
-    )
+    ws.emit('message', Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength))
     expect(route).toHaveBeenCalledOnce()
     const batch = route.mock.calls[0]![1]
     expect(batch).toMatchObject({ sessionId: 'binary-session', sourceFrames: 3 })
@@ -206,18 +203,18 @@ describe('the daemon socket speaks the permanent envelope', () => {
   })
 
   it('terminates binary output after a handshake that did not negotiate it', () => {
-    const { ws } = authenticatedSocket([])
+    const { reg, ws } = authenticatedSocket([])
+    const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
     const binary = binaryFrame({ v: 1, type: 'ptyOutput', sessionId: 's1', sourceFrames: 1 })
     ws.emit('message', binary)
+    ws.emit('message', frame({ type: 'agentExit', sessionId: 'session-1', code: 0 }))
     expect(ws.terminate).toHaveBeenCalledOnce()
+    expect(route).not.toHaveBeenCalled()
   })
 
   it.each([
     ['truncated', Buffer.from([0, 0, 0])],
-    [
-      'wrong plane',
-      binaryFrame({ v: 1, type: 'ptyOutput', sessionId: 's1', seq: 1, epoch: 0 }),
-    ],
+    ['wrong plane', binaryFrame({ v: 1, type: 'ptyOutput', sessionId: 's1', seq: 1, epoch: 0 })],
     [
       'unsupported version',
       binaryFrame({ v: 2, type: 'ptyOutput', sessionId: 's1', sourceFrames: 1 }),
@@ -226,6 +223,15 @@ describe('the daemon socket speaks the permanent envelope', () => {
       'nonpositive source frames',
       binaryFrame({ v: 1, type: 'ptyOutput', sessionId: 's1', sourceFrames: 0 }),
     ],
+    [
+      'unsafe source frames',
+      binaryFrame({
+        v: 1,
+        type: 'ptyOutput',
+        sessionId: 's1',
+        sourceFrames: Number.MAX_SAFE_INTEGER,
+      }),
+    ],
     ['oversized', Buffer.allocUnsafe(BINARY_ENVELOPE_MAX_MESSAGE_BYTES + 1)],
   ])('terminates negotiated %s binary output', (_name, binary) => {
     const { ws } = authenticatedSocket([CAP_TERMINAL_OUTPUT_BINARY_V1])
@@ -233,17 +239,19 @@ describe('the daemon socket speaks the permanent envelope', () => {
     expect(ws.terminate).toHaveBeenCalledOnce()
   })
 
-  it('keeps an old daemon on the legacy JSON output path', () => {
+  it('keeps an old daemon on one canonical legacy decode', () => {
     const { reg, ws } = authenticatedSocket([])
-    const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
+    const routeOutput = vi.spyOn(reg.gateway, 'routeDaemonOutput').mockImplementation(() => {})
+    const routeFrame = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
     ws.emit(
       'message',
       frame({ type: 'agentFrameBatch', sessionId: 'legacy', frames: ['AP8=', ''] }),
     )
-    expect(route).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'machine', machine: 'm1' }),
-      { type: 'agentFrameBatch', sessionId: 'legacy', frames: ['AP8=', ''] },
-    )
+    expect(routeOutput).toHaveBeenCalledOnce()
+    const batch = routeOutput.mock.calls[0]![1]
+    expect(batch).toMatchObject({ sessionId: 'legacy', sourceFrames: 2 })
+    expect(batch.bytes).toEqual(Uint8Array.of(0x00, 0xff))
+    expect(routeFrame).not.toHaveBeenCalled()
     expect(ws.terminate).not.toHaveBeenCalled()
   })
 

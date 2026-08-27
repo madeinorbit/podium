@@ -1,6 +1,10 @@
 import type { AgentKind, Attribution, Geometry, SessionId, TranscriptItem } from '@podium/model'
 import type { ObservationInputOrigin, PresenceIdentity, ServerMessage } from '@podium/protocol'
-import { CAP_TERMINAL_OUTPUT_BINARY_V1, encodeBinaryEnvelope } from '@podium/protocol'
+import {
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
+  encodeBinaryEnvelope,
+} from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../gateway/client-registry'
 import { feedPrincipalOf } from '../../gateway/client-principal'
@@ -10,6 +14,7 @@ import type { Send } from './session'
 import { controlSubjectFromClient, identityOf } from './session-control-policy'
 
 const MAX_REPLAY_BYTES = 256 * 1024
+const MAX_REPLAY_FRAMES = 4096
 const MAX_TRANSCRIPT_ITEMS = 12_000
 const SHELL_BUSY_WINDOW_MS = 4000
 
@@ -509,8 +514,14 @@ export class SessionTerminal {
   }
 
   acceptOutput(bytes: Uint8Array, sourceFrames: number): void {
-    if (!Number.isInteger(sourceFrames) || sourceFrames < 1)
-      throw new RangeError('terminal output requires a positive sourceFrames count')
+    if (
+      !Number.isSafeInteger(sourceFrames) ||
+      sourceFrames < 1 ||
+      sourceFrames > DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES
+    )
+      throw new RangeError(
+        `terminal output requires sourceFrames in 1..${DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES}`,
+      )
     const normalized = Buffer.isBuffer(bytes)
       ? bytes
       : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
@@ -624,9 +635,15 @@ export class SessionTerminal {
       this.outputLog.length = 0
       this.outputLogBytes = 0
     }
-    this.outputLog.push({ seq, bytes })
-    this.outputLogBytes += bytes.byteLength
-    while (this.outputLogBytes > MAX_REPLAY_BYTES && this.outputLog.length > 1) {
+    // Own only the payload bytes. Binary envelope decoding returns a zero-copy
+    // view, so retaining that view would pin the entire websocket frame.
+    const retained = Buffer.from(bytes)
+    this.outputLog.push({ seq, bytes: retained })
+    this.outputLogBytes += retained.byteLength
+    while (
+      (this.outputLogBytes > MAX_REPLAY_BYTES || this.outputLog.length > MAX_REPLAY_FRAMES) &&
+      this.outputLog.length > 1
+    ) {
       const dropped = this.outputLog.shift()
       if (dropped) this.outputLogBytes -= dropped.bytes.byteLength
     }

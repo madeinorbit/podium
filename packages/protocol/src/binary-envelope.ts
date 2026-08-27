@@ -12,6 +12,8 @@ import { z } from 'zod'
 export const BINARY_ENVELOPE_HEADER_BYTES = 4
 export const BINARY_ENVELOPE_MAX_METADATA_BYTES = 16 * 1024
 export const BINARY_ENVELOPE_MAX_MESSAGE_BYTES = 64 * 1024 * 1024
+/** A scheduler batch cannot legitimately contain more one-byte PTY reads than this. */
+export const DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES = 64 * 1024
 
 /** V1 server-to-browser PTY output metadata. Unknown additive fields survive. */
 export const PtyOutputBinaryMetadata = z
@@ -31,7 +33,7 @@ export const DaemonPtyOutputMetadata = z
     v: z.literal(1),
     type: z.literal('ptyOutput'),
     sessionId: SessionIdField,
-    sourceFrames: z.number().int().positive(),
+    sourceFrames: z.number().int().positive().safe().max(DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES),
   })
   .passthrough()
 export type DaemonPtyOutputMetadata = z.infer<typeof DaemonPtyOutputMetadata>

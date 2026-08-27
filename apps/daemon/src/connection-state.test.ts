@@ -424,15 +424,11 @@ it('converts remote typed output to one legacy payload without changing JSON sen
     sourceFrames: 3,
     bytes: outputBytes,
   })
-  expect(h.sendApplicationFrame).toHaveBeenNthCalledWith(
-    1,
-    h.socket,
-    {
-      type: 'agentFrameBatch',
-      sessionId: 'session-a',
-      frames: ['AP+A', '', ''],
-    },
-  )
+  expect(h.sendApplicationFrame).toHaveBeenNthCalledWith(1, h.socket, {
+    type: 'agentFrameBatch',
+    sessionId: 'session-a',
+    frames: ['AP+A', '', ''],
+  })
 
   const diagnostic = {
     type: 'machineDiagnostic',
@@ -441,11 +437,7 @@ it('converts remote typed output to one legacy payload without changing JSON sen
     body: 'The ordinary sender stays unchanged.',
   } as const
   h.state.send(diagnostic)
-  expect(h.sendApplicationFrame).toHaveBeenNthCalledWith(
-    2,
-    h.socket,
-    diagnostic,
-  )
+  expect(h.sendApplicationFrame).toHaveBeenNthCalledWith(2, h.socket, diagnostic)
   expect(h.sendApplicationFrame.mock.calls[1]![1]).toBe(diagnostic)
 
   expect(() =>
@@ -454,7 +446,14 @@ it('converts remote typed output to one legacy payload without changing JSON sen
       sourceFrames: 0,
       bytes: new Uint8Array(),
     }),
-  ).toThrow(/positive sourceFrames/)
+  ).toThrow(/sourceFrames in/)
+  expect(() =>
+    h.state.sendOutput({
+      sessionId: asSessionId('session-a'),
+      sourceFrames: Number.MAX_SAFE_INTEGER,
+      bytes: new Uint8Array(),
+    }),
+  ).toThrow(/sourceFrames in/)
   await h.state.close()
 })
 
@@ -534,14 +533,11 @@ it('clears accepted binary selection before a reconnect handshake', async () => 
     sourceFrames: 2,
     bytes: Uint8Array.of(0x00, 0xff),
   })
-  expect(sendApplicationFrame).toHaveBeenCalledWith(
-    sockets[1],
-    {
-      type: 'agentFrameBatch',
-      sessionId: 'after-reconnect',
-      frames: ['AP8=', ''],
-    },
-  )
+  expect(sendApplicationFrame).toHaveBeenCalledWith(sockets[1], {
+    type: 'agentFrameBatch',
+    sessionId: 'after-reconnect',
+    frames: ['AP8=', ''],
+  })
   expect(sockets[1]!.sent).toHaveLength(1)
   await state.close()
 })
