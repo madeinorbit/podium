@@ -3,10 +3,14 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 <<<<<<< HEAD
+<<<<<<< HEAD
 REPO="$(cd "$HERE/../../.." && pwd)"
 =======
 REPO="$(cd "$HERE/../.." && pwd)"
 >>>>>>> fd5cc091a (docs(evidence): add opencode ten-cell drive)
+=======
+REPO="$(cd "$HERE/../../.." && pwd)"
+>>>>>>> 1f531c6cc (docs(evidence): fix opencode rig root path)
 source "$HERE/drive-env.sh"
 
 : "${P2919_CODE_PIN:?P2919_CODE_PIN must name the committed rig code}"

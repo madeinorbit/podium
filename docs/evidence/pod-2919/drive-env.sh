@@ -5,10 +5,14 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 <<<<<<< HEAD
+<<<<<<< HEAD
 REPO="$(cd "$HERE/../../.." && pwd)"
 =======
 REPO="$(cd "$HERE/../.." && pwd)"
 >>>>>>> fd5cc091a (docs(evidence): add opencode ten-cell drive)
+=======
+REPO="$(cd "$HERE/../../.." && pwd)"
+>>>>>>> 1f531c6cc (docs(evidence): fix opencode rig root path)
 export P2777_INSTANCE="${P2919_INSTANCE:-oc2919}"
 export P2777_BASE="${P2919_BASE:-/tmp/pod-2919}"
 export P2777_PORT="${P2919_PORT:-19857}"

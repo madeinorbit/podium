@@ -2,12 +2,16 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 <<<<<<< HEAD
+<<<<<<< HEAD
 REPO="$(cd "$HERE/../../.." && pwd)"
 cell="${1:?cell id, e.g. A1a}"
 arm="${2:-headless}"
 export PODIUM_DRIVE_BASE="${PODIUM_DRIVE_BASE:-${P2919_BASE:-/tmp/pod-2919}}"
 =======
 REPO="$(cd "$HERE/../.." && pwd)"
+=======
+REPO="$(cd "$HERE/../../.." && pwd)"
+>>>>>>> 1f531c6cc (docs(evidence): fix opencode rig root path)
 cell="${1:?cell id, e.g. A1a}"
 arm="${2:-headless}"
 >>>>>>> fd5cc091a (docs(evidence): add opencode ten-cell drive)
