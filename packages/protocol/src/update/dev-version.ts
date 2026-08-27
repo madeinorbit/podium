@@ -9,12 +9,10 @@
  *
  * Spec: updater-convergence §1, disposition 23, decision 13 (POD-2502).
  *
- * EVERY checkout is minted on the NEXT PATCH cycle (`X.Y.(Z+1)-dev.N+sha`),
- * bare `X.Y.Z` and prerelease alike: a development build is working PAST the cut
- * it was taken from, so it is a prerelease of the version that cut leads to, not
- * of the one already made. The shared version ordering additionally places a
- * cycle's `-dev.N` labels above its `-edge.N` labels, which is what keeps a mint
- * above the edge cut its own base anticipates (POD-2737).
+ * Stable cuts: a bare `X.Y.Z` checkout is minted on the NEXT PATCH cycle
+ * (`X.Y.(Z+1)-dev.N+sha`) so the mint sorts above the release it builds on.
+ * Edge/prerelease checkouts use their own `X.Y.Z` core, and the shared version
+ * ordering deliberately places that cycle's `-dev.N` labels above `-edge.N`.
  *
  * Source checkouts still report `dev+<sha>` for log / process identity
  * ({@link ../product-version.ts}); published targets (bundle or identity) carry
@@ -26,16 +24,8 @@ import { compareVersions, isProvablyNewer } from './version-order'
 /** Monotonic minting state owned by one publisher instance. */
 export interface DevPublisherVersionState {
   /**
-   * Mint cycle base — the next-patch lineage the checkout points at (`0.1.2`
-   * from either a `0.1.1` or a `0.1.1-edge.2` checkout). Already bumped:
-   * never the checkout's own core, and never carries a prerelease.
-   *
-   * State persisted before POD-2737 may still hold an un-bumped core, or a
-   * legacy `0.1.0-edge.20`. Both are read as-is and left to the mint gate in
-   * {@link mintDevVersion}, which moves off them on the first mint that
-   * provably clears the last one. A stored base is NEVER re-run through
-   * {@link effectiveMintBase} — that would walk the lineage forward on every
-   * read (see `dev-publisher-state.ts`).
+   * Mint cycle base (e.g. `0.1.0`, or `0.1.2` after a stable `0.1.1` cut
+   * bumped to the next patch). Never a bare stable that still needs bumping.
    */
   base: string
   /** Counter on {@link base}; increments on every mint at that base. */
@@ -59,18 +49,10 @@ export function shortCommitSha(sha: string): string {
 }
 
 /**
- * Map a checkout release version onto the mint cycle base: ALWAYS `X.Y.(Z+1)`.
+ * Map a checkout release version onto the mint cycle base.
  *
- * The prerelease, if any, is dropped rather than consulted. `0.1.1` and
- * `0.1.1-edge.2` are both the 0.1.1 cycle, and a development build taken from
- * either is working toward what comes NEXT, so both mint `0.1.2-dev.N`.
- *
- * This used to collapse a prerelease onto its own core — `0.1.1-edge.2` minted
- * `0.1.1-dev.N`, a prerelease of the very cut the build was already past. That
- * still sorted above `0.1.1-edge.2`, but only through the `dev` > `edge` tier
- * deviation in `version-order.ts`; now the core carries it, and the tier
- * deviation is left holding the case it exists for — a mint against the edge cut
- * of its OWN base, `0.1.2-dev.N` vs the `0.1.2-edge.1` that lands later.
+ * Edge/prerelease checkouts collapse to their `X.Y.Z` cycle. A bare `X.Y.Z`
+ * becomes `X.Y.(Z+1)` so `-dev.N` mints sort above that release.
  */
 export function effectiveMintBase(checkoutBase: string): string {
   const trimmed = checkoutBase.trim()
@@ -80,6 +62,7 @@ export function effectiveMintBase(checkoutBase: string): string {
   const major = parsed[1] as string
   const minor = parsed[2] as string
   const patch = Number(parsed[3])
+  if (parsed[4] !== undefined) return `${major}.${minor}.${patch}`
   return `${major}.${minor}.${patch + 1}`
 }
 

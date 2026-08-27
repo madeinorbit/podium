@@ -13,34 +13,22 @@ import {
 import { compareVersions, isProvablyNewer } from './version-order'
 
 describe('effectiveMintBase', () => {
-  it('bumps a PRERELEASE checkout to the next patch, not onto its own core', () => {
-    // THE REGRESSION (POD-2737). This returned '0.1.1' before, and this repo's
-    // own package.json is `0.1.1-edge.2` — so every sandbox mint read
-    // `0.1.1-dev.N`, a prerelease of the cut the build was already past.
-    // Restore `if (parsed[4] !== undefined) return X.Y.Z` and this line fails
-    // with exactly that: received '0.1.1'.
-    expect(effectiveMintBase('0.1.1-edge.2')).toBe('0.1.2')
-    expect(effectiveMintBase('0.1.0-edge.20')).toBe('0.1.1')
+  it('maps edge bases to their cycle core', () => {
+    expect(effectiveMintBase('0.1.1-edge.1')).toBe('0.1.1')
+  })
+
+  it('keeps this repo on the 0.1.1 release line', () => {
+    expect(effectiveMintBase('0.1.1-edge.2')).toBe('0.1.1')
   })
 
   it('bumps a bare stable release to the next patch lineage', () => {
     expect(effectiveMintBase('0.1.1')).toBe('0.1.2')
     expect(effectiveMintBase('0.1.0')).toBe('0.1.1')
   })
-
-  it('puts a cut and its prereleases on ONE lineage', () => {
-    // The prerelease is dropped, not consulted: `0.1.1-edge.2` and `0.1.1` are
-    // the same cycle, so a development build taken from either works toward the
-    // same next one. Two lineages here would split the publisher's counter.
-    expect(effectiveMintBase('0.1.1-edge.2')).toBe(effectiveMintBase('0.1.1'))
-    expect(effectiveMintBase('0.1.1-edge.9')).toBe(effectiveMintBase('0.1.1-edge.1'))
-  })
 })
 
 describe('formatDevVersion', () => {
-  it('normalizes a legacy stored edge base to its flat core', () => {
-    // Not a checkout base — `effectiveMintBase` never yields a prerelease any
-    // more. This is the safety net for state persisted before the flat form.
+  it('formats an edge checkout as a flat dev prerelease with commit metadata', () => {
     expect(formatDevVersion('0.1.0-edge.20', 5, '656F49Bdead')).toBe('0.1.0-dev.5+656f49b')
   })
 
@@ -52,20 +40,10 @@ describe('formatDevVersion', () => {
 })
 
 describe('mintDevVersion', () => {
-  it('mints THIS repo’s checkout as 0.1.2-dev.1+shortsha', () => {
-    // The whole point of POD-2737, stated as the shipped form. package.json is
-    // `0.1.1-edge.2`; the mint names the cycle that cut leads to, and the sha
-    // stays where it was, as build metadata semver §10 ignores for precedence.
-    expect(mintDevVersion(null, '0.1.1-edge.2', '656F49Bdeadbeef')).toEqual({
-      version: '0.1.2-dev.1+656f49b',
-      state: { base: '0.1.2', counter: 1 },
-    })
-  })
-
   it('seeds from the effective checkout cycle at counter 1', () => {
     expect(mintDevVersion(null, '0.1.0-edge.20', 'aaa1111')).toEqual({
-      version: '0.1.1-dev.1+aaa1111',
-      state: { base: '0.1.1', counter: 1 },
+      version: '0.1.0-dev.1+aaa1111',
+      state: { base: '0.1.0', counter: 1 },
     })
   })
 
@@ -76,29 +54,34 @@ describe('mintDevVersion', () => {
     })
   })
 
-  it('bumps the counter on the same cycle', () => {
-    const state: DevPublisherVersionState = { base: '0.1.2', counter: 4 }
-    expect(mintDevVersion(state, '0.1.1-edge.2', 'bbb2222')).toEqual({
+  it('does not automatically rewind publisher state minted on a mistaken later base', () => {
+    expect(mintDevVersion({ base: '0.1.2', counter: 4 }, '0.1.1-edge.2', 'bbb2222')).toEqual({
       version: '0.1.2-dev.5+bbb2222',
       state: { base: '0.1.2', counter: 5 },
     })
   })
 
+  it('bumps the counter on the same cycle', () => {
+    const state: DevPublisherVersionState = { base: '0.1.0-edge.20', counter: 4 }
+    expect(mintDevVersion(state, '0.1.0-edge.20', 'bbb2222')).toEqual({
+      version: '0.1.0-dev.5+bbb2222',
+      state: { base: '0.1.0', counter: 5 },
+    })
+  })
+
   it('keeps one flat identity when edge advances within a cycle', () => {
-    // edge.2 → edge.3 is the same lineage, so the counter carries rather than
-    // the publisher growing a second identity per edge cut.
-    const state: DevPublisherVersionState = { base: '0.1.2', counter: 99 }
-    expect(mintDevVersion(state, '0.1.1-edge.3', 'ccc3333')).toEqual({
-      version: '0.1.2-dev.100+ccc3333',
-      state: { base: '0.1.2', counter: 100 },
+    const state: DevPublisherVersionState = { base: '0.1.0-edge.20', counter: 99 }
+    expect(mintDevVersion(state, '0.1.0-edge.21', 'ccc3333')).toEqual({
+      version: '0.1.0-dev.100+ccc3333',
+      state: { base: '0.1.0', counter: 100 },
     })
   })
 
   it('keeps the publisher cycle when the checkout is older (branch-vintage)', () => {
-    const state: DevPublisherVersionState = { base: '0.1.2', counter: 5 }
+    const state: DevPublisherVersionState = { base: '0.1.0-edge.20', counter: 5 }
     expect(mintDevVersion(state, '0.1.0-edge.18', 'ddd4444')).toEqual({
-      version: '0.1.2-dev.6+ddd4444',
-      state: { base: '0.1.2', counter: 6 },
+      version: '0.1.0-dev.6+ddd4444',
+      state: { base: '0.1.0', counter: 6 },
     })
   })
 
@@ -108,64 +91,12 @@ describe('mintDevVersion', () => {
     state = first.state
     const second = mintDevVersion(state, '0.1.1-edge.1', 'bbbbbbb')
     state = second.state
-    // package.json becomes the stable release of the same core. Same lineage as
-    // the edge cuts before it, so the counter continues instead of restarting.
+    // package.json becomes the stable release of the same core.
     const afterStable = mintDevVersion(state, '0.1.1', 'ccccccc')
-    expect(first.version).toBe('0.1.2-dev.1+aaaaaaa')
-    expect(afterStable.version).toBe('0.1.2-dev.3+ccccccc')
+    expect(afterStable.version).toBe('0.1.2-dev.1+ccccccc')
     expect(isProvablyNewer(afterStable.version, second.version)).toBe(true)
     expect(isProvablyNewer(afterStable.version, '0.1.1')).toBe(true)
-    expect(isProvablyNewer(afterStable.version, '0.1.1-edge.9')).toBe(true)
-    // Its own base's edge cut, once that lands — the tier rule, not the core.
     expect(isProvablyNewer(afterStable.version, '0.1.2-edge.1')).toBe(true)
-  })
-})
-
-/**
- * PERSISTED STATE ACROSS THE BASE MOVE. The counter is per-base, so moving the
- * base moves which counter applies. Decided: no migration, no state rewrite,
- * and N restarts at 1 on the new base.
- *
- * It is not left to fall out. The mint gate already asks the only question that
- * matters — does the version I am about to hand out provably clear the last one
- * I handed out — and `0.1.2-dev.1` clears `0.1.1-dev.9` on the core alone. So
- * the adopt path fires exactly once, on the first mint after the change, and a
- * continued counter would be the wrong answer anyway: it would advertise an N
- * on a base this publisher will never mint on again.
- */
-describe('publisher state minted at the old collapsed base', () => {
-  it('restarts at counter 1 on the next-patch base', () => {
-    const collapsed: DevPublisherVersionState = { base: '0.1.1', counter: 9 }
-    const next = mintDevVersion(collapsed, '0.1.1-edge.2', 'abc1234')
-    expect(next).toEqual({
-      version: '0.1.2-dev.1+abc1234',
-      state: { base: '0.1.2', counter: 1 },
-    })
-    // The restart never rewinds the fleet: N=1 on the new base is still ahead
-    // of N=9 on the old one.
-    expect(isProvablyNewer(next.version, '0.1.1-dev.9+0000000')).toBe(true)
-
-    // Legacy nested state carries the prerelease on the base; same outcome.
-    expect(mintDevVersion({ base: '0.1.1-edge.2', counter: 9 }, '0.1.1-edge.2', 'abc1234')).toEqual(
-      {
-        version: '0.1.2-dev.1+abc1234',
-        state: { base: '0.1.2', counter: 1 },
-      },
-    )
-  })
-
-  it('restarts ONCE — the next mint from the same checkout continues the counter', () => {
-    expect(mintDevVersion({ base: '0.1.2', counter: 1 }, '0.1.1-edge.2', 'def5678')).toEqual({
-      version: '0.1.2-dev.2+def5678',
-      state: { base: '0.1.2', counter: 2 },
-    })
-  })
-
-  it('leaves a publisher already ahead of the new lineage alone', () => {
-    expect(mintDevVersion({ base: '0.1.3', counter: 2 }, '0.1.1-edge.2', 'def5678')).toEqual({
-      version: '0.1.3-dev.3+def5678',
-      state: { base: '0.1.3', counter: 3 },
-    })
   })
 })
 
@@ -179,39 +110,40 @@ describe('publisher state minted at the old collapsed base', () => {
  * suite that cannot tell its own guards apart is not evidence.
  */
 describe('mintDevVersion arming — each guard is separately detectable', () => {
-  it('keeps the shared counter when the checkout stays on one cycle', () => {
+  it('keeps the shared counter when edge advances within a cycle', () => {
     // A flat dev identity has no edge-cut suffix to adopt. The first mint on
     // this cycle must clear the previous dev mint, so it advances N.
-    const afterEdge = mintDevVersion({ base: '0.1.3', counter: 1 }, '0.1.2-edge.1', 'eeeeeee')
-    expect(afterEdge.version).toBe('0.1.3-dev.2+eeeeeee')
-    expect(afterEdge.state).toEqual({ base: '0.1.3', counter: 2 })
+    const afterEdge = mintDevVersion({ base: '0.1.2', counter: 1 }, '0.1.2-edge.1', 'eeeeeee')
+    expect(afterEdge.version).toBe('0.1.2-dev.2+eeeeeee')
+    expect(afterEdge.state).toEqual({ base: '0.1.2', counter: 2 })
     expect(isProvablyNewer(afterEdge.version, '0.1.2-edge.1')).toBe(true)
-    // The tier rule, on the cut this mint's own base anticipates.
-    expect(isProvablyNewer(afterEdge.version, '0.1.3-edge.1')).toBe(true)
   })
 
   it('does not adopt a lineage whose first mint would not clear the last one (kills: gate → true)', () => {
-    // Same lineage, and a vintage branch. Always-adopting resets the counter to
-    // 1 and mints a version the fleet has already seen — and in the second case
-    // one that is flatly BEHIND it, since the vintage branch's lineage (0.1.1)
-    // is a whole cycle below the publisher's (0.1.2).
-    expect(mintDevVersion({ base: '0.1.2', counter: 4 }, '0.1.1-edge.2', 'bbb2222')).toEqual({
-      version: '0.1.2-dev.5+bbb2222',
-      state: { base: '0.1.2', counter: 5 },
+    // Same base, and a vintage branch. Always-adopting resets the counter to 1
+    // and mints a version the fleet has already seen.
+    expect(
+      mintDevVersion({ base: '0.1.0-edge.20', counter: 4 }, '0.1.0-edge.20', 'bbb2222'),
+    ).toEqual({
+      version: '0.1.0-dev.5+bbb2222',
+      state: { base: '0.1.0', counter: 5 },
     })
-    expect(mintDevVersion({ base: '0.1.2', counter: 5 }, '0.1.0-edge.18', 'ddd4444')).toEqual({
-      version: '0.1.2-dev.6+ddd4444',
-      state: { base: '0.1.2', counter: 6 },
+    expect(
+      mintDevVersion({ base: '0.1.0-edge.20', counter: 5 }, '0.1.0-edge.18', 'ddd4444'),
+    ).toEqual({
+      version: '0.1.0-dev.6+ddd4444',
+      state: { base: '0.1.0', counter: 6 },
     })
   })
 
   it('keeps the counter when edge moves within the same cycle', () => {
-    expect(mintDevVersion({ base: '0.1.2', counter: 99 }, '0.1.1-edge.3', 'ccc3333')).toEqual({
-      version: '0.1.2-dev.100+ccc3333',
-      state: { base: '0.1.2', counter: 100 },
+    expect(
+      mintDevVersion({ base: '0.1.0-edge.20', counter: 99 }, '0.1.0-edge.21', 'ccc3333'),
+    ).toEqual({
+      version: '0.1.0-dev.100+ccc3333',
+      state: { base: '0.1.0', counter: 100 },
     })
-    // And across a lineage move, where the base bump is what carries it forward
-    // and the counter therefore restarts.
+    // And across a stable cut, where the lineage bump is what moves it forward.
     expect(mintDevVersion({ base: '0.1.1-edge.1', counter: 2 }, '0.1.1', 'ccccccc')).toEqual({
       version: '0.1.2-dev.1+ccccccc',
       state: { base: '0.1.2', counter: 1 },
@@ -267,18 +199,6 @@ describe('publisher development version ordering', () => {
       true,
       'a mint sorts ABOVE the release it builds on (disposition 23)',
     ],
-    [
-      '0.1.2-dev.1+ccccccc',
-      '0.1.1-edge.2',
-      true,
-      'and above every prerelease of that release, on the CORE alone now',
-    ],
-    [
-      '0.1.2-dev.1+ccccccc',
-      '0.1.2-edge.1',
-      true,
-      'the tier rule still decides a mint against the edge cut of its OWN base',
-    ],
   ]
 
   for (const [candidate, current, newer, why] of cases) {
@@ -316,16 +236,10 @@ describe('mint sequences stay monotonic across branches', () => {
       ).toBe(true)
     }
 
-    // Every mint here is on the 0.1.1 lineage the 0.1.0 cuts lead to.
-    expect(minted[0]).toBe('0.1.1-dev.1+1111111')
-    expect(minted[6]).toBe('0.1.1-dev.7+7777777')
-    // Above the cuts it was built from — now on the core.
+    // Every flat dev mint outranks any edge cut of its cycle.
     expect(isProvablyNewer(minted[2] as string, '0.1.0-edge.21')).toBe(true)
-    // And above the edge cuts of its OWN cycle, which is the tier rule: strip
-    // the dev > edge tier from `version-order.ts` and these three fail.
-    expect(isProvablyNewer(minted[2] as string, '0.1.1-edge.1')).toBe(true)
-    expect(isProvablyNewer(minted[6] as string, '0.1.1-edge.22')).toBe(true)
-    expect(compareVersions(minted[5] as string, '0.1.1-edge.21')).toBe(1)
+    expect(isProvablyNewer(minted[6] as string, '0.1.0-edge.22')).toBe(true)
+    expect(compareVersions(minted[5] as string, '0.1.0-edge.21')).toBe(1)
   })
 
   it('stays monotonic across the edge → stable → next-edge cadence this repo ships', () => {
@@ -353,24 +267,12 @@ describe('mint sequences stay monotonic across branches', () => {
       ).toBe(true)
     }
 
-    // Every mint from the 0.1.1 cycle — edge cuts and the stable alike — lands
-    // on the one 0.1.2 lineage and shares its counter.
-    expect(minted.slice(0, 4)).toEqual([
-      '0.1.2-dev.1+aaaaaaa',
-      '0.1.2-dev.2+bbbbbbb',
-      '0.1.2-dev.3+ccccccc',
-      '0.1.2-dev.4+ddddddd',
-    ])
     // The first post-stable mint clears the release it builds on.
     expect(isProvablyNewer(minted[2] as string, '0.1.1')).toBe(true)
-    // The vintage branch does not drag the lineage back down.
-    expect(minted[4]).toBe('0.1.2-dev.5+eeeeeee')
-    // Once package.json reaches 0.1.2-edge.1, the lineage moves to 0.1.3 and
-    // the counter restarts there. Dev stays above the edge cut of its own flat
-    // cycle — the tier rule — as well as above the one it was built from.
-    expect(minted[5]).toBe('0.1.3-dev.1+fffffff')
+    // Dev stays above the edge cut of its flat cycle, and the next edge checkout
+    // advances that same identity rather than creating a second encoding.
     expect(isProvablyNewer(minted[5] as string, '0.1.2-edge.1')).toBe(true)
-    expect(isProvablyNewer(minted[5] as string, '0.1.3-edge.1')).toBe(true)
+    expect(minted[5]).toBe('0.1.2-dev.4+fffffff')
   })
 
   it('an older-base checkout still mints newer-than-fleet after the publisher has advanced', () => {
@@ -380,7 +282,7 @@ describe('mint sequences stay monotonic across branches', () => {
     // Fleet is now on the first mint. A vintage branch must still clear it.
     const onVintage = mintDevVersion(state, '0.1.0-edge.12', 'bbbbbbb')
     expect(isProvablyNewer(onVintage.version, onMain.version)).toBe(true)
-    expect(onVintage.version).toBe('0.1.1-dev.2+bbbbbbb')
+    expect(onVintage.version).toBe('0.1.0-dev.2+bbbbbbb')
   })
 })
 

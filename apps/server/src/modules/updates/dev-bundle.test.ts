@@ -38,14 +38,6 @@ import { classifyMachineFailure, describeUpdateOperationFailure } from './operat
 import { type DesktopFeedChannel, desktopManifestFeedChannel } from './release-target'
 
 const CHECKOUT_BASE = '0.1.0-edge.20'
-/**
- * What the publisher mints from {@link CHECKOUT_BASE}: the NEXT patch cycle, not
- * the cut's own core (POD-2737). Named rather than inlined so the coupling
- * between the fixture checkout and every version this file expects is stated in
- * one place — and so restoring the old collapse fails here as `0.1.0`, not as a
- * scatter of unrelated-looking string mismatches.
- */
-const MINT_BASE = '0.1.1'
 const publisherDirs: string[] = []
 
 function publisherDir(): string {
@@ -376,7 +368,7 @@ function published(input: {
   /** Defaults to this host's own — the platform a restore requires to be present. */
   platform?: string
 }) {
-  const version = input.version ?? `${MINT_BASE}-dev.${input.counter ?? 1}+${input.sha}`
+  const version = input.version ?? `0.1.0-dev.${input.counter ?? 1}+${input.sha}`
   const platform = input.platform ?? developmentPlatformTarget()
   const path =
     (input.root ?? '/repo/podium') +
@@ -876,15 +868,14 @@ describe('buildDevBundle', () => {
       },
     })
 
-    // A 0.1.0-edge.20 checkout mints on the cycle that cut leads to, 0.1.1.
-    expect(built.version).toBe('0.1.1-dev.1+1234567')
+    expect(built.version).toBe('0.1.0-dev.1+1234567')
     // The version a daemon sees is the publisher mint; the FILE also names the build.
     expect(built.path).toBe(
-      '/repo/podium/dist-bun/podium-headless-0.1.1-dev.1+1234567-linux-x86_64-20260812T182015Z.tar.gz',
+      '/repo/podium/dist-bun/podium-headless-0.1.0-dev.1+1234567-linux-x86_64-20260812T182015Z.tar.gz',
     )
     expect(built.size).toBe(bytes.length)
     expect(built.digest).toBe(digestOf(bytes))
-    expect(events).toEqual(['acquire', 'build:0.1.1-dev.1+1234567', 'release'])
+    expect(events).toEqual(['acquire', 'build:0.1.0-dev.1+1234567', 'release'])
     const target = devTarget(built, {
       platform: 'linux-x86_64',
       artifactUrl: (platform) =>
@@ -997,10 +988,10 @@ describe('buildDevBundle', () => {
     expect(built[0]).toContain('dev.1+aaaaaaa-linux-x86_64-20260812T182015Z')
     expect(built[1]).toContain('dev.1+aaaaaaa-linux-x86_64-20260812T193045Z')
     expect(store.names()).toContain(
-      `podium-headless-${MINT_BASE}-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz`,
+      'podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz',
     )
     expect(store.names()).toContain(
-      `podium-headless-${MINT_BASE}-dev.1+aaaaaaa-linux-x86_64-20260812T193045Z.tar.gz`,
+      'podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T193045Z.tar.gz',
     )
   })
 
@@ -1022,7 +1013,7 @@ describe('buildDevBundle', () => {
     })
 
     expect(JSON.parse(store.text.get(built.path + '.meta.json') as string)).toEqual({
-      version: `${MINT_BASE}-dev.1+aaaaaaa`,
+      version: '0.1.0-dev.1+aaaaaaa',
       // WHICH platform, so a restore can tell one build's files apart without
       // re-deriving it from the file name.
       platform: 'linux-x86_64',
@@ -1067,7 +1058,7 @@ describe('buildDevBundle', () => {
     expect(tarNames).toHaveLength(2)
     expect(tarNames.some((n) => n.includes('dev.5+5555555-linux-x86_64'))).toBe(true)
     expect(tarNames.some((n) => n.includes('dev.6+6666666-linux-x86_64'))).toBe(true)
-    expect((await publisher.target())?.version).toBe(`${MINT_BASE}-dev.6+6666666`)
+    expect((await publisher.target())?.version).toBe('0.1.0-dev.6+6666666')
   })
 
   it('mints a bundle per fleet platform, each from the platform’s own compile', async () => {
@@ -1153,10 +1144,10 @@ describe('buildDevBundle', () => {
     // platforms each — not "the newest two files", which would have kept only the last
     // build and left a Mac pointed at a tarball the sweep had removed.
     expect(tarballs.sort()).toEqual([
-      `podium-headless-${MINT_BASE}-dev.2+2222222-darwin-aarch64-20260812T182000Z.tar.gz`,
-      `podium-headless-${MINT_BASE}-dev.2+2222222-linux-x86_64-20260812T182000Z.tar.gz`,
-      `podium-headless-${MINT_BASE}-dev.3+3333333-darwin-aarch64-20260812T183000Z.tar.gz`,
-      `podium-headless-${MINT_BASE}-dev.3+3333333-linux-x86_64-20260812T183000Z.tar.gz`,
+      'podium-headless-0.1.0-dev.2+2222222-darwin-aarch64-20260812T182000Z.tar.gz',
+      'podium-headless-0.1.0-dev.2+2222222-linux-x86_64-20260812T182000Z.tar.gz',
+      'podium-headless-0.1.0-dev.3+3333333-darwin-aarch64-20260812T183000Z.tar.gz',
+      'podium-headless-0.1.0-dev.3+3333333-linux-x86_64-20260812T183000Z.tar.gz',
     ])
   })
 
@@ -1276,9 +1267,9 @@ describe('buildDevBundle', () => {
       [
         'podium-headless-dev+3333333-20260812T180000Z.tar.gz',
         'podium-headless-dev+3333333-20260812T180000Z.tar.gz.sig',
-        `podium-headless-${MINT_BASE}-dev.1+aaaaaaa-linux-x86_64-20260812T190000Z.tar.gz`,
-        `podium-headless-${MINT_BASE}-dev.1+aaaaaaa-linux-x86_64-20260812T190000Z.tar.gz.meta.json`,
-        `podium-headless-${MINT_BASE}-dev.1+aaaaaaa-linux-x86_64-20260812T190000Z.tar.gz.sig`,
+        'podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T190000Z.tar.gz',
+        'podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T190000Z.tar.gz.meta.json',
+        'podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T190000Z.tar.gz.sig',
       ].sort(),
     )
   })
@@ -1330,12 +1321,12 @@ describe('buildDevBundle', () => {
 
     expect(builds).toBe(0)
     expect(restored).toMatchObject({
-      version: `${MINT_BASE}-dev.1+aaaaaaa`,
-      path: `/repo/podium/dist-bun/podium-headless-${MINT_BASE}-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz`,
+      version: '0.1.0-dev.1+aaaaaaa',
+      path: '/repo/podium/dist-bun/podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz',
       signature,
     })
     expect(restored?.digest).toBe(digestOf(bytes))
-    expect((await publisher.target())?.version).toBe(`${MINT_BASE}-dev.1+aaaaaaa`)
+    expect((await publisher.target())?.version).toBe('0.1.0-dev.1+aaaaaaa')
   })
 
   it('rebuilds rather than restore an artifact this server did not publish', async () => {
@@ -1352,7 +1343,7 @@ describe('buildDevBundle', () => {
             signingKey,
           })
           store.text.delete(
-            `/repo/podium/dist-bun/podium-headless-${MINT_BASE}-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz.meta.json`,
+            '/repo/podium/dist-bun/podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz.meta.json',
           )
           return store
         })(),
@@ -1378,7 +1369,7 @@ describe('buildDevBundle', () => {
             signingKey,
           })
           store.blobs.set(
-            `/repo/podium/dist-bun/podium-headless-${MINT_BASE}-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz`,
+            '/repo/podium/dist-bun/podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz',
             bytes.slice(0, 2),
           )
           return store
@@ -1432,13 +1423,13 @@ describe('buildDevBundle', () => {
     })
 
     await publisher.requestBuild(true)
-    expect((await publisher.target())?.version).toBe(`${MINT_BASE}-dev.1+aaaaaaa`)
+    expect((await publisher.target())?.version).toBe('0.1.0-dev.1+aaaaaaa')
     head = 'bbbbbbb'
     await expect(publisher.requestBuild(true)).rejects.toThrow('second compile failed')
     // The signed bytes for the old commit survive — a later request at that sha
     // can still restore them — but they are no longer offered as the target,
     // because they are not what this server is running.
-    expect(publisher.current()?.version).toBe(`${MINT_BASE}-dev.1+aaaaaaa`)
+    expect(publisher.current()?.version).toBe('0.1.0-dev.1+aaaaaaa')
     expect((await publisher.target())?.version?.endsWith('+bbbbbbb')).toBe(true)
     expect((await publisher.target())?.version?.startsWith('dev+')).toBe(false)
     expect((await publisher.target())?.artifacts.web).toEqual({
@@ -1584,7 +1575,7 @@ describe('buildDevBundle', () => {
     expect(publisher.unavailable()).toContain('apps/server/src/server.ts')
     // And nothing was reclaimed: a refusal is not a licence to touch the disk.
     expect(store.names()).toContain(
-      `podium-headless-${MINT_BASE}-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz`,
+      'podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz',
     )
   })
 
@@ -1630,7 +1621,7 @@ describe('buildDevBundle', () => {
     porcelain = ''
     await publisher.requestBuild(true)
 
-    expect(publisher.current()?.version).toBe(`${MINT_BASE}-dev.1+aaaaaaa`)
+    expect(publisher.current()?.version).toBe('0.1.0-dev.1+aaaaaaa')
     expect(publisher.unavailable()).toBeUndefined()
   })
 
@@ -1727,9 +1718,9 @@ describe('development bundle readiness', () => {
     expect(await publisher.readiness()).toEqual({
       state: 'ready',
       headSha: 'aaaaaaa',
-      version: `${MINT_BASE}-dev.1+aaaaaaa`,
+      version: '0.1.0-dev.1+aaaaaaa',
     })
-    expect((await publisher.target())?.version).toBe(`${MINT_BASE}-dev.1+aaaaaaa`)
+    expect((await publisher.target())?.version).toBe('0.1.0-dev.1+aaaaaaa')
   })
 
   it('withdraws the old target the moment HEAD advances', async () => {
@@ -1739,7 +1730,7 @@ describe('development bundle readiness', () => {
 
     // The bundle still exists and is still dev+aaaaaaa; it is simply not the
     // target for the commit this server is now running.
-    expect(publisher.current()?.version).toBe(`${MINT_BASE}-dev.1+aaaaaaa`)
+    expect(publisher.current()?.version).toBe('0.1.0-dev.1+aaaaaaa')
     expect((await publisher.target())?.version?.endsWith('+bbbbbbb')).toBe(true)
     expect((await publisher.target())?.version?.startsWith('dev+')).toBe(false)
     expect((await publisher.target())?.artifacts.web).toEqual({
@@ -2403,14 +2394,14 @@ describe('the dev feed manifest the publisher writes', () => {
     // A commit lands and receives its own reserved version while the approved
     // commit is still preparing. Neither identity may replace the other.
     head = 'bbbbbbb'
-    expect((await publisher.proposal())?.version).toBe(`${MINT_BASE}-dev.2+bbbbbbb`)
+    expect((await publisher.proposal())?.version).toBe('0.1.0-dev.2+bbbbbbb')
     finishPreparation()
     await building
     expect(await publisher.publishFeed()).toBe(true)
     const published = UpdateTarget.parse(
       JSON.parse(await store.fs.readText(publisher.feedManifestPath())),
     )
-    expect(published.version).toBe(`${MINT_BASE}-dev.1+aaaaaaa`)
+    expect(published.version).toBe('0.1.0-dev.1+aaaaaaa')
     expect((await publisher.proposal())?.headSha).toBe('bbbbbbb')
   })
 
