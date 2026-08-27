@@ -1,0 +1,58 @@
+{
+  "id": "A7a",
+  "arm": "headless",
+  "verdict": "PASS",
+  "summary": "daemon changed from PID 1954780 to 1968990 at the same c26 spawn pin; the same conversation ID recalled the pre-restart codeword",
+  "control": {
+    "fired": true,
+    "what": "the same socket receiving the probe prompt as a durable user transcript item",
+    "detail": "user=true answer=true transcriptDelta=2 assistantChars=18"
+  },
+  "evidence": [
+    "PRODUCT DRIVER    driverId=grok-acp family=server",
+    "BASELINE          true codeword=RESTARTBASE-1PTMT4",
+    "DAEMON             before=0 after=0 changed=false",
+    "RESTART            stopped daemon pid=1954780\nstarted daemon pid=1968990 at c26c267\ndaemon restarted for arm=headless pid=1968990",
+    "PIN AFTER          code=0 PIN OK row=A7a-after-restart arm=headless instance=grok2927 serverPid=1954661 daemonPid=1968990 serverSha=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 webSourceSha=c26c267 driver=policy state=/home/mgw/.local/state/podium/grok2927 home=/home/mgw\nPIN TREES codeCommit=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 codeTree=7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4 runtimeHead=c717f68fe72bd7c10efea9ca2ff97dcfff5a74bb runtimeTree=eb39ce0b67db1b8561fa991c703f762448817ff2 nonDocDiff=0\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+    "BOUND AFTER        true driver=?",
+    "RECALL SEND        {\"ok\":true,\"disposition\":\"delivered\"}",
+    "RECALL             true",
+    "CONVERSATION       before=conv_a3620cd9-d75c-4809-8a71-646302ab3981 after=conv_a3620cd9-d75c-4809-8a71-646302ab3981 same=true"
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "oldDaemon": 0,
+    "newDaemon": 0,
+    "restartedOk": false,
+    "recalled": true,
+    "sameConversation": true,
+    "conversationBefore": "conv_a3620cd9-d75c-4809-8a71-646302ab3981",
+    "conversationAfter": "conv_a3620cd9-d75c-4809-8a71-646302ab3981",
+    "oldDaemonActual": 1954780,
+    "newDaemonActual": 1968990,
+    "restartedOkActual": true
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a7a",
+  "memoryMb": 4266,
+  "pin": "PIN OK row=A7a arm=headless instance=grok2927 serverPid=1954661 daemonPid=1954780 serverSha=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 webSourceSha=c26c267 driver=policy state=/home/mgw/.local/state/podium/grok2927 home=/home/mgw\nPIN TREES codeCommit=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 codeTree=7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4 runtimeHead=c717f68fe72bd7c10efea9ca2ff97dcfff5a74bb runtimeTree=eb39ce0b67db1b8561fa991c703f762448817ff2 nonDocDiff=0\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+  "sessionIds": [
+    "b3526ec3-e730-404a-9547-03dc07ba3773"
+  ],
+  "at": "2026-08-27T10:04:53.684Z",
+  "scorerVerdict": "FAIL",
+  "criterionClauses": {
+    "restartOccurred": "PASS — scoped rig output stopped daemon 1954780 and started daemon 1968990",
+    "replacementDaemonPinned": "PASS — post-restart verifier read daemon spawn SHA c26c267be and live policy driver",
+    "sameConversation": "PASS — conversation ID conv_a3620cd9-d75c-4809-8a71-646302ab3981 was unchanged",
+    "contextIntact": "PASS — post-restart turn recalled RESTARTBASE-1PTMT4"
+  },
+  "admission": {
+    "diskFreeKb": 12680384,
+    "memAvailableKb": 4346624,
+    "load1": 8.47,
+    "testHeavyLease": "free"
+  },
+  "localTimestamp": "2026-08-27 12:04:53 CEST",
+  "scorerNote": "The aggregate scorer parsed daemon identity from a status shape that yielded 0 both times; direct rig output and spawn-pin verification are authoritative for the restart clause."
+}
