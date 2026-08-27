@@ -1128,6 +1128,25 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
      * ten-minute hang into the immediate refusal the caller should have had.
      */
     wakeIdle(session)
+    /**
+     * THE HANDLE IS GONE BEFORE THE PROCESS FINISHES GOING AWAY (POD-2942).
+     *
+     * A park flips the server row before this driver's asynchronous `stop()`
+     * has finished waiting for Grok's child. Resurrection can therefore arrive
+     * during that wait. Leaving this disposed handle indexed made the daemon
+     * mistake the resurrection for a duplicate live spawn instead of loading
+     * the journalled native session. The old `stop()` then deleted by session id
+     * after its await, which could erase the replacement handle too.
+     *
+     * Unregister at the synchronous disposal boundary, and only when THIS
+     * session is still the indexed owner. `registerSession` also ends a
+     * displaced object; the identity guard prevents that old object from ever
+     * deleting the replacement installed after it.
+     */
+    if (sessions.get(session.sessionId) === session) {
+      sessions.delete(session.sessionId)
+      handles.delete(session.sessionId)
+    }
   }
 
   /**
@@ -1204,8 +1223,6 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         endSession(session)
         session.client.close()
         await session.endpoint.stop()
-        sessions.delete(session.sessionId)
-        handles.delete(session.sessionId)
         wakeIdle(session)
       },
 
@@ -1214,8 +1231,6 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         endSession(session)
         session.client.close()
         await session.endpoint.stop()
-        sessions.delete(session.sessionId)
-        handles.delete(session.sessionId)
         wakeIdle(session)
         return { ok: true as const }
       },
@@ -1225,8 +1240,6 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         session.client.close()
         await session.endpoint.kill()
         host.journal.clear(session.sessionId)
-        sessions.delete(session.sessionId)
-        handles.delete(session.sessionId)
         wakeIdle(session)
       },
 
@@ -1773,8 +1786,6 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       const session = sessions.get(sessionId)
       if (!session) return
       endSession(session)
-      sessions.delete(sessionId)
-      handles.delete(sessionId)
       wakeIdle(session)
     },
     dispose() {

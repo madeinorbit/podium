@@ -11,9 +11,10 @@ import { availableDriverIds } from './registry'
 
 afterEach(() => resetGrokAcpVersionProbe())
 
-function adoptionWorld() {
+function adoptionWorld(options: { deferStop?: boolean } = {}) {
   const entries = new Map<SessionId, GrokAcpJournalEntry>()
   const requests: Array<{ method?: string; params?: Record<string, unknown> }> = []
+  const stopWaiters: Array<() => void> = []
   let launches = 0
 
   const host: GrokAcpRuntimeHost = {
@@ -52,7 +53,9 @@ function adoptionWorld() {
       return {
         transport,
         process: { key: grokAcpProcessKey(input.sessionId), pid: 10_000 + launches },
-        stop: async () => {},
+        stop: options.deferStop
+          ? () => new Promise<void>((resolve) => void stopWaiters.push(resolve))
+          : async () => {},
         kill: async () => {},
         resources: () => undefined,
         alive: () => true,
@@ -60,7 +63,13 @@ function adoptionWorld() {
     },
   }
   const runtime = createDaemonGrokRuntime({ send: () => {}, host })
-  return { entries, requests, runtime, launches: () => launches }
+  return {
+    entries,
+    requests,
+    runtime,
+    launches: () => launches,
+    releaseStops: () => stopWaiters.splice(0).forEach((resolve) => resolve()),
+  }
 }
 
 function journalEntry(
@@ -133,6 +142,43 @@ describe('Grok ACP daemon restart adoption', () => {
     await handle?.kill()
     expect(world.runtime.has(sessionId)).toBe(false)
     expect(world.runtime.handleFor(sessionId)).toBeUndefined()
+    world.runtime.dispose()
+  })
+
+  it('a resurrection can load the journal while the hibernated child is still stopping', async () => {
+    const world = adoptionWorld({ deferStop: true })
+    const sessionId = 'grok-resurrecting' as SessionId
+    world.entries.set(sessionId, journalEntry(sessionId))
+
+    const parked = await world.runtime.adoptFromJournal(sessionId)
+    expect(parked).toBeDefined()
+
+    // The server parks its row before daemon teardown settles. The replacement
+    // spawn can arrive in this exact window, so the disposed handle must already
+    // be absent from the runtime's live ownership index.
+    const stopping = parked?.stop()
+    expect(world.runtime.has(sessionId)).toBe(false)
+
+    const resurrected = await world.runtime.adoptFromJournal(sessionId)
+    expect(resurrected).toBeDefined()
+    expect(resurrected?.binding).toMatchObject({
+      sessionId,
+      resume: { kind: 'grok-session', value: `native-${sessionId}` },
+      bindingVersion: 3,
+    })
+
+    // Finishing the old stop must not delete the replacement registered under
+    // the same Podium session id.
+    world.releaseStops()
+    await stopping
+    expect(world.runtime.handleFor(sessionId)).toBe(resurrected)
+    expect(world.runtime.has(sessionId)).toBe(true)
+    expect(
+      world.requests.filter(
+        (request) =>
+          request.method === 'session/load' && request.params?.sessionId === `native-${sessionId}`,
+      ),
+    ).toHaveLength(2)
     world.runtime.dispose()
   })
 })
