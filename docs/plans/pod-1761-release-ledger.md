@@ -4855,3 +4855,31 @@ A3 is therefore the FIRST real measurement rather than a re-drive, that load is 
 the best conditions the cell has had — and to copy POD-2905's control shape, which is what lets a
 non-result be trustworthy: checking `user`, `working`, `screenBytes` and `phase` BEFORE calling
 interrupt distinguishes *"interrupt did not stop the turn"* from *"there was no turn."*
+
+### "Inherited apps/web errors" is not true — measured (2026-08-27 04:16 CEST)
+
+POD-2691's gate report said the whole-graph typecheck was *"blocked only by inherited apps/web
+errors."* **I ran it rather than accepting it:** `tsgo --noEmit -p tsconfig.json` in `apps/web` at
+tip `60f22d8d9` — **exit 0, zero lines of output.**
+
+**apps/web is clean on this branch.** I checked the exit code AND the log length, because a
+zero-length log with a zero exit is the shape a command that never ran also produces — that trap
+cost me a false green earlier tonight when `bun` was not on PATH and a wrapper reported success
+for a suite that never started.
+
+**I did not chase the cause and said so.** The consistent story is a stale-base artifact — it ran
+that check 37 commits behind, on a tree predating POD-2871, and apps/web consumes `RefusalReason`
+in two files. But **the actionable part does not depend on the cause**, so I stopped: it has since
+rebased, and re-running the check on the current tree answers the question directly.
+
+**What matters is that the direction of the test has flipped.** Before, "the tip is red too" would
+have exonerated its change. Now the tip is GREEN, so **if apps/web is still red on its rebased tree,
+those errors are its own.** The one-sided test cannot clear it here — it can only convict. Told it
+exactly that.
+
+**This is the third gate claim tonight that dissolved on measurement**: 80 "baseline-red" server
+tests that turned out genuinely inherited (Decision 18, and that one held), a "nobody has driven
+shell" that turned out to be 21 unrecorded cells, and now "inherited apps/web errors" that are not
+there at all. **Two of the three were stale rather than wrong** — the claim was true when made and
+false when repeated — which is the failure mode a fast-moving branch produces and the reason the
+staleness rule exists.
