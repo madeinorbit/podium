@@ -6,7 +6,7 @@
  */
 
 import { ISSUE_EVENTS_DEFAULT_LIMIT } from '@podium/protocol'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import type { Subscription } from './types'
 
 export interface PodiumEventRecord {
@@ -258,6 +258,33 @@ export class EventsRepository {
     this.db
       .prepare('INSERT OR REPLACE INTO steward_state (key, value) VALUES (?, ?)')
       .run(key, value)
+  }
+
+  /**
+   * Claim the janitor-owned steward cadence once, seeding it at the event-log
+   * head in the same transaction.
+   *
+   * Source-run deployments retired the server timer before they gained the
+   * supervisor-owned janitor. Their old cursor can therefore be weeks behind
+   * even though the steward was intentionally dark. Replaying that history on
+   * the first installed boot violates the existing first-enable contract and,
+   * on a mature database, can monopolize the server loop for tens of seconds.
+   *
+   * Returns the seeded head only for the caller that made the claim. A crash
+   * cannot leave a new cursor without its ownership watermark (or vice versa).
+   */
+  activateJanitorSteward(): number | undefined {
+    return transaction(this.db, () => {
+      const ownershipKey = 'janitor-ownership-v1'
+      const owned = this.db
+        .prepare('SELECT 1 FROM steward_state WHERE key = ?')
+        .get(ownershipKey)
+      if (owned) return undefined
+      const head = this.maxEventId()
+      this.setStewardState('cursor', String(head))
+      this.setStewardState(ownershipKey, String(head))
+      return head
+    })
   }
 
   // ---- event subscriptions (event-subscriptions design, Phase B) ----

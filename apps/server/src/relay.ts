@@ -156,7 +156,7 @@ import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/releas
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
-import { StewardService } from './steward'
+import { JANITOR_STEWARD_EVENT_LIMIT, StewardService } from './steward'
 import { SessionStore } from './store'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
@@ -2663,8 +2663,10 @@ export class SessionRegistry {
     this.steward.dispose()
   }
 
-  /** Fenced janitor entry: one steward poll with deliveries-before-cursor-advance. */
+  /** Fenced janitor entry: one bounded steward poll with
+   * deliveries-before-cursor-advance. First ownership seeds past the source
+   * topology's intentionally dark history. */
   runStewardTick(): Promise<void> {
-    return this.steward.tick()
+    return this.steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
   }
 }

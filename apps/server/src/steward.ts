@@ -292,6 +292,7 @@ export interface StewardDeps {
     | 'maxEventId'
     | 'listEnabledSubscriptions'
     | 'markDelivered'
+    | 'activateJanitorSteward'
   >
   facts: SessionStore['notificationFacts']
   /** Ledger read for the "already-communicated" suppression [POD-913, design
@@ -334,7 +335,16 @@ export interface StewardDeps {
 }
 
 const CURSOR_KEY = 'cursor'
+/** A janitor tick is background work: bound one request tightly enough that the
+ * coordinating server can keep serving while a genuinely interrupted janitor
+ * catches up. The first ownership claim skips dark-run history entirely. */
+export const JANITOR_STEWARD_EVENT_LIMIT = 10
 const COMPLETION_NOTE_TAG = '[completion-note]'
+
+export interface StewardTickOptions {
+  owner?: 'janitor'
+  limit?: number
+}
 
 /** The closed issue's latest completion-note comment body (tag stripped), else its
  *  title. `comments` is the issue's thread, fetched by the caller via
@@ -462,12 +472,24 @@ export class StewardService {
 
   /** One poll: read past the cursor, coalesce, handle, then advance. Public so
    *  tests drive it directly instead of waiting on real timers. */
-  async tick(): Promise<void> {
+  async tick(options: StewardTickOptions = {}): Promise<void> {
     if (!this.deps.getSettings().steward?.enabled) return
+    if (options.owner === 'janitor') {
+      const seededAt = this.deps.store.activateJanitorSteward()
+      if (seededAt !== undefined) {
+        log.info('janitor steward ownership activated — seeded to current event head', {
+          cursor: seededAt,
+        })
+        return
+      }
+    }
     // Cheap housekeeping even on an otherwise empty tick [spec:SP-ba61].
     this.arbiter.retireExpired(this.now())
     const cursor = this.resolveCursor()
-    const events = this.deps.store.listEventsSince(cursor)
+    const events = this.deps.store.listEventsSince(
+      cursor,
+      options.limit === undefined ? undefined : { limit: options.limit },
+    )
     if (events.length === 0) return
     // Coalesce: all events for the same key form one batch this poll.
     const batches = new Map<string, StewardEvent[]>()

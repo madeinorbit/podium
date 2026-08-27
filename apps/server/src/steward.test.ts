@@ -13,6 +13,7 @@ import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import {
   isAcceptedLiveTerminalEvent,
   type StewardDeps,
+  JANITOR_STEWARD_EVENT_LIMIT,
   StewardService,
   subscriptionEventKinds,
   TRIGGER_RULES,
@@ -356,6 +357,56 @@ describe('StewardService cursor', () => {
     expect(store.events.getStewardState('cursor')).toBe(String(max))
     expect(stewardComments(issues, b.id)).toEqual([])
     expect(sendTextWhenReady).not.toHaveBeenCalled()
+  })
+
+  it('first janitor ownership skips the source topology dark-run history once', async () => {
+    const { store, issues, steward, sendTextWhenReady } = harness()
+    const blocker = issues.create({ repoPath: '/r', title: 'Blocker', startNow: false })
+    const dependent = issues.create({ repoPath: '/r', title: 'Dependent', startNow: false })
+    issues.addDep(dependent.id, blocker.id, 'blocks')
+    issues.close(blocker.id)
+    const darkHead = store.events.maxEventId()
+
+    await steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
+
+    expect(store.events.getStewardState('cursor')).toBe(String(darkHead))
+    expect(store.events.getStewardState('janitor-ownership-v1')).toBe(String(darkHead))
+    expect(stewardComments(issues, dependent.id)).toEqual([])
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
+
+    const liveEvent = store.events.appendEvent({
+      ts: 't',
+      kind: 'issue.created',
+      subject: 'iss_live',
+      repoPath: '/r',
+    })
+    await steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
+    expect(store.events.getStewardState('cursor')).toBe(String(liveEvent))
+  })
+
+  it('bounds later janitor catch-up without changing ordinary steward polls', async () => {
+    const { store, steward } = harness()
+    // Establish ownership at an empty head, then create a genuine post-activation
+    // backlog. The first bounded pass must not consume beyond its budget.
+    await steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
+    const ids = Array.from({ length: JANITOR_STEWARD_EVENT_LIMIT + 2 }, (_, index) =>
+      store.events.appendEvent({
+        ts: 't',
+        kind: 'test.unmatched',
+        subject: 'subject-' + index,
+        repoPath: '/r',
+      }),
+    )
+    const listSpy = vi.spyOn(store.events, 'listEventsSince')
+
+    await steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
+
+    expect(listSpy).toHaveBeenLastCalledWith(0, { limit: JANITOR_STEWARD_EVENT_LIMIT })
+    expect(store.events.getStewardState('cursor')).toBe(
+      String(ids[JANITOR_STEWARD_EVENT_LIMIT - 1]),
+    )
+    await steward.tick()
+    expect(store.events.getStewardState('cursor')).toBe(String(ids.at(-1)))
   })
 
   it('a corrupt cursor re-seeds to the log head instead of wedging', async () => {
