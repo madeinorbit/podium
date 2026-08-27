@@ -4883,3 +4883,32 @@ shell" that turned out to be 21 unrecorded cells, and now "inherited apps/web er
 there at all. **Two of the three were stale rather than wrong** — the claim was true when made and
 false when repeated — which is the failure mode a fast-moving branch produces and the reason the
 staleness rule exists.
+
+### Granted the default instance, with a lock rather than a promise (2026-08-27 04:30 CEST)
+
+POD-2915 **asked before taking a shared resource** instead of taking it and telling me. Granted
+exclusively, and told it to take `podium lock acquire instance:default` so the grant is a fact
+other sessions can check rather than something they were told once.
+
+**A lock beats my broadcast for a reason I learned the hard way tonight:** a message can cross with
+a session that already started. My hold at 01:47 and my lift at 02:02 arrived out of order and a
+session sat idle for six minutes acting on the older one. **A lock is queryable at the moment of
+use; a message is only as current as its delivery.** Fenced the other four sessions with the
+reason attached, not just the rule.
+
+**The reason is worth propagating** and I sent it to all of them: two of POD-2915's parent arms died
+at `create-session: File name too long` before their controls fired, and both pins predate
+`ab9d698ab`. **A commit older than that fix cannot start a NAMED instance at all** — ~113 bytes of
+`sun_path` against a 108-byte limit — while `default` fits at 71. Any session pinning an old
+parent arm will hit this, so all four now know the shape and know to ask.
+
+**I also told POD-2915 what would make this a finding rather than a failure:** if a parent arm still
+will not start on `default`, that means the pre-fix code cannot support the rig on ANY instance,
+which is worth recording as UNOBTAINABLE with the reason. **Not something to push through.**
+
+And a caution it needed: **`default` is not a fresh rig.** It is the instance things have been
+using all night, so leftover sessions or stores are exactly the contamination its unique markers
+exist to catch — keep the markers, re-pin all three parts, and say which instance each reading came
+from.
+
+Its five audit rows and six evidence records are committed at `2acf726ca`.
