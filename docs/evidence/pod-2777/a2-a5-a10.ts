@@ -209,8 +209,10 @@ if (toolItems.length === 0) {
    * false (2 call(s))" for a transcript that was correct — one call, correctly
    * paired, counted twice and judged by the wrong rule.
    *
-   * So the unit is the toolUseId, not the item: every distinct id must have a
-   * result somewhere among the items that carry it. That is what "paired" means
+   * So the unit is the toolUseId, not the item: every distinct id must have an
+   * explicit toolInput call and a result somewhere among the items that carry it.
+   * toolName is not a call discriminator: result-only OpenCode items carry it too.
+   * That is what "paired" means
    * and it is the same question for both shapes. An item with no toolUseId at
    * all is reported separately — a result with nothing to tie it to a call
    * satisfies "a result is present" while pairing nothing.
@@ -225,7 +227,7 @@ if (toolItems.length === 0) {
       continue
     }
     const got = typeof it.toolResult === 'string' && it.toolResult.length > 0
-    const call = typeof it.toolInput === 'string' || typeof it.toolName === 'string'
+    const call = typeof it.toolInput === 'string'
     const prev = byUse.get(id)
     byUse.set(id, {
       name: it.toolName ?? prev?.name ?? it.role,
@@ -274,7 +276,7 @@ if (toolItems.length === 0) {
     }
     const previous = reloadByUse.get(item.toolUseId)
     reloadByUse.set(item.toolUseId, {
-      hasCall: (previous?.hasCall ?? false) || typeof item.toolInput === 'string' || typeof item.toolName === 'string',
+      hasCall: (previous?.hasCall ?? false) || typeof item.toolInput === 'string',
       hasResult: (previous?.hasResult ?? false) || (typeof item.toolResult === 'string' && item.toolResult.length > 0),
     })
   }
