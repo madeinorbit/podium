@@ -24,9 +24,8 @@
  * zero before anyone kills anything. A run that cannot name the processes it
  * expects to see die reports REFUSED.
  *
- * Processes are attributed by /proc/<pid>/environ: the target must carry this
- * daemon's instance UUID and exact session stamp, while rebound censuses include
- * every PID carrying the current daemon UUID plus any session stamp. Other
+ * Processes are attributed by /proc/<pid>/environ: every original and rebound
+ * target must carry the exact named-instance UUID and exact target session ID. Other
  * instances on this box run identically-named binaries, and a `pkill -f codex`
  * would take the operator's own sessions down while reporting a clean sweep.
  */
@@ -101,18 +100,19 @@ const identityOf = (row: Proc): ProcessIdentity => ({
 })
 const identityKey = (identity: ProcessIdentity) => `${identity.pid}:${identity.startTimeTicks}`
 
-function daemonStamp(daemonPid: number): { uuid: string; source: string } {
-  const fromEnvironment = environOf(daemonPid).PODIUM_INSTANCE_UUID ?? ''
-  if (fromEnvironment) {
-    return { uuid: fromEnvironment, source: `daemon /proc/${daemonPid}/environ` }
-  }
+function daemonStamp(): { uuid: string; source: string } {
   const stateRoot = process.env.PODIUM_RIG_STATE_ROOT ?? ''
   if (stateRoot) {
     try {
       const marker = JSON.parse(readFileSync(`${stateRoot}/instance.json`, 'utf8')) as {
+        instanceId?: unknown
         instanceUuid?: unknown
       }
-      if (typeof marker.instanceUuid === 'string' && marker.instanceUuid) {
+      if (
+        marker.instanceId === INSTANCE &&
+        typeof marker.instanceUuid === 'string' &&
+        marker.instanceUuid
+      ) {
         return { uuid: marker.instanceUuid, source: `${stateRoot}/instance.json` }
       }
     } catch {}
@@ -121,25 +121,29 @@ function daemonStamp(daemonPid: number): { uuid: string; source: string } {
 }
 
 /**
- * Every process this rig owns, and why it is attributed to it.
+ * Processes belonging to one exact runtime instance and session.
  *
- * Two independent attributions, both from the environment rather than the
- * command line: the instance id the product itself exports, and the session id
- * where a child carries one. The daemon and server are excluded by pid — they
- * are the rig, not the session, and killing a session must not touch them.
+ * Command names and working directories are recorded only for diagnostics;
+ * neither is accepted as attribution evidence.
  */
-function rigProcesses(sid?: string, excludePids: number[] = []): Proc[] {
+function exactStampedProcesses(
+  instanceUuid: string,
+  sid: string,
+  excludePids: number[] = [],
+): Proc[] {
   const found: Proc[] = []
+  if (!instanceUuid || !sid) return found
   for (const name of readdirSync('/proc')) {
     if (!/^\d+$/.test(name)) continue
     const pid = Number(name)
     if (pid === process.pid || excludePids.includes(pid)) continue
     const env = environOf(pid)
-    if (Object.keys(env).length === 0) continue
-    const reasons: string[] = []
-    if (env.PODIUM_INSTANCE === INSTANCE) reasons.push('PODIUM_INSTANCE')
-    if (sid && Object.values(env).some((v) => v.includes(sid))) reasons.push('session id in env')
-    if (reasons.length === 0) continue
+    if (
+      env.PODIUM_INSTANCE_UUID !== instanceUuid ||
+      env.PODIUM_SESSION_ID !== sid
+    ) {
+      continue
+    }
     let cmd = ''
     let cwd = ''
     let rssKb = 0
@@ -161,7 +165,7 @@ function rigProcesses(sid?: string, excludePids: number[] = []): Proc[] {
       cwd,
       env,
       rssKb,
-      why: reasons.join('+'),
+      why: 'exact PODIUM_INSTANCE_UUID+PODIUM_SESSION_ID',
     })
   }
   return found
@@ -181,20 +185,11 @@ const serverPid = Number(
   readFileSync(`${process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-2777'}/server.pid`, 'utf8').trim(),
 )
 const infra = [daemonPid, serverPid]
-const stamp = daemonStamp(daemonPid)
-const isStamped = (row: Proc) =>
-  row.env.PODIUM_INSTANCE_UUID === stamp.uuid && Boolean(row.env.PODIUM_SESSION_ID)
-const inTargetScope = (row: Proc, sid: string) =>
-  row.cwd === REPO || row.env.PODIUM_SESSION_ID === sid
+const stamp = daemonStamp()
 log(
   `rig infrastructure (excluded, and checked alive at the end): server ${serverPid}, daemon ${daemonPid}`,
 )
 log(`target stamp       uuid=${stamp.uuid || '(missing)'} source=${stamp.source}`)
-
-const baseline = rigProcesses(undefined, infra).filter(isStamped)
-log(
-  `baseline           ${baseline.length} current-daemon stamped process(es) before this session exists`,
-)
 
 const created = await mutate('sessions.create', { cwd: REPO, agentKind })
 const sid = created.result?.data?.sessionId as string | undefined
@@ -234,31 +229,16 @@ const replied = await (async () => {
 log(`turn before kill   ${replied ? `replied with ${word}` : 'NO REPLY'}`)
 
 // --- the control: what is there to kill, and is it exactly stamped? --------
-const attributable = rigProcesses(sid, infra)
-const inScope = attributable.filter((row) => inTargetScope(row, sid))
-const unstampedInScope = inScope.filter((row) => !isStamped(row))
-const before = attributable.filter(isStamped)
-const exactTarget = before.filter((row) => row.env.PODIUM_SESSION_ID === sid)
-const stampProven =
-  stamp.uuid.length > 0 &&
-  baseline.length === 0 &&
-  exactTarget.length > 0 &&
-  unstampedInScope.length === 0
+const before = exactStampedProcesses(stamp.uuid, sid, infra)
+const stampProven = stamp.uuid.length > 0 && before.length > 0
 const controlFired = replied && stampProven
 log('')
-log(
-  `CONTROL            reply=${replied} targetStamped=${exactTarget.length} totalStamped=${before.length}`,
-)
-log(
-  `STAMP PROOF        ${stampProven} baseline=${baseline.length} unstampedInScope=${unstampedInScope.length}`,
-)
+log(`CONTROL            reply=${replied} exactStamped=${before.length}`)
+log(`STAMP PROOF        ${stampProven} exact UUID+session attribution only`)
 for (const row of before) {
   log(
     `PRE                 pid=${row.pid} start=${row.startTimeTicks} rss=${row.rssKb}kB session=${row.env.PODIUM_SESSION_ID} cwd=${row.cwd} cmd=${row.cmd}`,
   )
-}
-for (const row of unstampedInScope) {
-  log(`UNSTAMPED           pid=${row.pid} cwd=${row.cwd} cmd=${row.cmd}`)
 }
 
 if (!controlFired) {
@@ -267,9 +247,7 @@ if (!controlFired) {
   log('  control watched: an answered turn plus at least one exact target PID')
   log('                   carrying this daemon UUID and target session stamp.')
   log(`  control saw:     reply=${replied}; daemonUuid=${stamp.uuid || '(missing)'}`)
-  log(
-    `                   targetStamped=${exactTarget.length}; baseline=${baseline.length}; unstamped=${unstampedInScope.length}`,
-  )
+  log(`                   exactStamped=${before.length}`)
   log(
     `                   session status ${row0?.status ?? '?'}; spawnFailure ${(row0 as Record<string, unknown> | undefined)?.spawnFailure ?? '(none)'}`,
   )
@@ -297,7 +275,7 @@ const originalProcessesAlive = () =>
       return false
     }
   })
-const targetSample = () => rigProcesses(sid, infra).filter(isStamped)
+const targetSample = () => exactStampedProcesses(stamp.uuid, sid, infra)
 const reboundRows = (rows: Proc[]) =>
   rows.filter((row) => !originalKeys.has(identityKey(identityOf(row))))
 

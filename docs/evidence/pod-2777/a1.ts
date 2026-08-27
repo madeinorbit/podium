@@ -72,18 +72,19 @@ function processEnvironment(pid: number): Record<string, string> {
 }
 
 function daemonStamp(): { uuid: string; source: string } {
-  const daemonPid = Number(readFileSync(`${DRIVE_BASE}/daemon.pid`, 'utf8').trim())
-  const fromEnvironment = processEnvironment(daemonPid).PODIUM_INSTANCE_UUID ?? ''
-  if (fromEnvironment) {
-    return { uuid: fromEnvironment, source: `daemon /proc/${daemonPid}/environ` }
-  }
   const stateRoot = process.env.PODIUM_RIG_STATE_ROOT ?? ''
   if (stateRoot) {
     try {
       const marker = JSON.parse(readFileSync(`${stateRoot}/instance.json`, 'utf8')) as {
+        instanceId?: unknown
         instanceUuid?: unknown
       }
-      if (typeof marker.instanceUuid === 'string' && marker.instanceUuid) {
+      const expectedInstance = process.env.PODIUM_INSTANCE ?? ''
+      if (
+        marker.instanceId === expectedInstance &&
+        typeof marker.instanceUuid === 'string' &&
+        marker.instanceUuid
+      ) {
         return { uuid: marker.instanceUuid, source: `${stateRoot}/instance.json` }
       }
     } catch {}
@@ -315,27 +316,11 @@ if (requestedRow !== 'a1b') {
           `                     pid=${target.pid} cwd=${target.cwd} cmd=${target.cmd.slice(0, 140)}`,
         )
       }
-      const harnessPattern =
-        harness === 'claude'
-          ? /claude(?:-code)?(?:\s|$|\/)/i
-          : harness === 'codex'
-            ? /codex(?:\s|$|\/)|app-server/i
-            : harness === 'opencode'
-              ? /opencode(?:\s|$|\/)/i
-              : /(?:^|\/|\s)(?:bash|sh|zsh)(?:\s|$)/i
-      const namedTargets = targetBeforeKill.filter((target) => harnessPattern.test(target.cmd))
-      const targetAgent =
-        namedTargets.length === 1
-          ? namedTargets[0]
-          : targetBeforeKill.length === 1
-            ? targetBeforeKill[0]
-            : undefined
+      const targetAgent = targetBeforeKill.length === 1 ? targetBeforeKill[0] : undefined
 
       if (!stamp.uuid || !targetAgent) {
         log('  REFUSED — exact stamped agent child attribution was ambiguous.')
-        log(
-          `  matching targets ${namedTargets.length}; all stamped targets ${targetBeforeKill.length}`,
-        )
+        log(`  exact stamped targets ${targetBeforeKill.length}`)
         a1cVerdict = 'REFUSED'
       } else {
         let killSent = false
