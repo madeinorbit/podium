@@ -92,10 +92,10 @@ export function StatusPerformanceStats({ trpc }: { trpc: Trpc }): JSX.Element {
   const rate = rollingBurnRate(feed.scans)
   const burnValue =
     feed.buckets === null
-      ? '— API eq.'
+      ? '— token burn'
       : rate
-        ? `${money(rate.perHour)}/h API eq. · ${rate.windowMinutes}m avg`
-        : 'measuring API eq.'
+        ? `${money(rate.perHour)}/h token burn`
+        : 'measuring token burn'
   const burnShare = rate ? shareTokenBurn(rate.perHour, rate.windowMinutes) : undefined
 
   return (

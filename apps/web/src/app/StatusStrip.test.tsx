@@ -271,9 +271,9 @@ describe('StatusStrip token burn', () => {
   it('waits for a real rolling window instead of annualizing the first scan', async () => {
     render(<StatusStrip />)
 
-    expect(screen.getByTestId('status-strip-burn').textContent).toBe('— API eq.')
+    expect(screen.getByTestId('status-strip-burn').textContent).toBe('— token burn')
     await waitFor(() =>
-      expect(screen.getByTestId('status-strip-burn').textContent).toBe('measuring API eq.'),
+      expect(screen.getByTestId('status-strip-burn').textContent).toBe('measuring token burn'),
     )
     expect(
       screen.getByTestId('token-burn-history').querySelectorAll('.status-strip-history-stack'),
