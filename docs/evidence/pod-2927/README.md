@@ -3,11 +3,12 @@
 | Pin | Commit time | Driven |
 | --- | --- | --- |
 | `c26c267be1c4b2f8cc6ccc2e66ea675e84024587` | `2026-08-27 10:54:36 +0200` | Original Grok server-driver column on named instance `grok2927` |
-| `961a6992480ad279776af4354fcd2935f6bed0e8` | `2026-08-27 12:32:58 +0200` | A1b and A3 fix arms after POD-2920 and POD-2940 landed |
+| `961a6992480ad279776af4354fcd2935f6bed0e8` | `2026-08-27 12:32:58 +0200` | A3 fix arm and the now-rejected first A1b fix reading |
+| `5a01098aae2cea4bbc4d7a7e893c1b70a15b137a` | `2026-08-27 13:55:45 +0200` | Superseding A1b proof and landed POD-2942 A7b fix arm |
 
-The original runtime used code tree `7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4`, served web source `c26c267`, and bundle `bundle+CFj5AUJr`. The fix-arm runtime used code tree `34eda83b25464e236425ecb479fa4879ebed6eab`, served web source `961a699`, bundle `bundle+k9dcbf_p`, and schema `986ebf5e8e57820c`. Server/full and daemon spawn pins are captured in every reading. Each cell used a unique directory under `/tmp/pod-2927-grok/cells/` and required the product to report `grok-acp` / `server`; no generic-pty reading was accepted.
+The original runtime used code tree `7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4`, served web source `c26c267`, and bundle `bundle+CFj5AUJr`. The 961 fix-arm runtime used code tree `34eda83b25464e236425ecb479fa4879ebed6eab`, served web source `961a699`, bundle `bundle+k9dcbf_p`, and schema `986ebf5e8e57820c`. The current fix-arm runtime uses code tree `a55459ebebced6da2c55771fd358c6f68e14a0e2`, served web source `5a01098`, bundle `bundle+D0-MLqzq`, and the same schema. Server/full and daemon spawn pins are captured in every reading. Each cell used a unique directory under `/tmp/pod-2927-grok/cells/` and required the product to report `grok-acp` / `server`; no generic-pty reading was accepted.
 
-The fourteen-cell column is complete. The later A6a PASS supersedes its initial instrumentation BLOCKED row; the A3 fix PASS supersedes its parent PARTIAL row. A1b was intentionally measured only after the queue-position fix landed. Subsequent epic commit `44c73cecfeb4fd8b02803e9e740f462df5debdc4` changes only test-configuration assertions and does not stale these runtime readings.
+The fourteen-cell column remains complete. The later A6a PASS supersedes its initial instrumentation BLOCKED row; the A3 fix PASS supersedes its parent PARTIAL row. The 961 A1b reading is rejected because it observed no durable position after reload; the 5a reading supersedes it with the same ledger message ID, body, and numeric queue position before and after re-login. A7b remains a parent FAIL until its landed fix arm is freshly driven on 5a.
 
 ## Results
 
@@ -27,5 +28,6 @@ The fourteen-cell column is complete. The later A6a PASS supersedes its initial 
 | A6a | PASS | Authoritative delayed attach: `grok-acp/server`; echo, 3432B resize repaint, and second-viewer marker all passed | `readings/a6a-authoritative.json` |
 | A1c | BLOCKED | Product driver `grok-acp/server`; live send passed, but missing stamp and zero exact child PIDs prevented a safe dead-session control | `readings/a1c.json` |
 | A9 | BLOCKED | Product driver `grok-acp/server`; live reply passed, but real target PID was unstamped, so kill/15s/300s/rebound clauses were unmeasurable | `readings/a9.json` |
-| A1b `[fix]` | PASS | `grok-acp/server`; queued position 1 reached caller, survived socket reload, and delivered after busy turn | `readings/a1b-fix.json` |
+| A1b `[fix rejected; superseded]` | PASS (rejected) | Immediate position and eventual delivery were observed, but no durable position survived reload | `readings/a1b-fix.json` |
+| A1b `[fix supersedes rejected 961 reading]` | PASS | `grok-acp/server`; the same durable ledger row remained queued at numeric position 1 across re-login, then delivered with the exact reply | `readings/grok-a1b-superseding.json` |
 | A3 `[fix]` | PASS | `grok-acp/server`; working + previews control, stopped in 90ms, durable interrupt marker present | `readings/a3-fix.json` |
