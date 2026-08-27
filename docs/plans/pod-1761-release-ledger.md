@@ -4592,3 +4592,37 @@ readings at all, and they are precisely where an unnoticed regression would live
 within hours.** After that the estimate means something.
 
 **Product fixes landed: 28.**
+
+### The shell column is coming back CLEAN — 5 of 6, current pin (2026-08-27 03:33 CEST)
+
+Read from POD-2917's working tree at pin `40c198eae`, its own current base:
+
+    A1a  send while idle         PASS   three unique shell sends echoed while idle
+    A1c  send to a dead session  PASS   typed dead_letter refusal
+    A2b  status at boot          PASS   fresh session reported idle
+    A6a  terminal attach + type  PASS   keystrokes echoed, resize refit, second viewer same screen
+    A7a  daemon restart          PASS   same live session and codeword retained
+    A9   kill session            still running
+
+**This is the first CURRENT reading in that column since the runtime was rewritten underneath it**,
+and it is the answer the column exists to give: the untouched path stayed untouched. Each cell
+names its own control.
+
+**A9 is last and that is the right order**, because it is the one with a live reason to fail:
+POD-2691 is a confirmed FAIL on *"no orphan servers after 5 min"* for agent sessions, with live
+processes found in worktrees **and** in `/tmp` state roots. POD-2874 scored shell A9 PASS at the
+old pin. **Either answer is valuable** — a leak is a regression in the path nobody watched; no leak
+**bounds POD-2691 to agent sessions rather than all sessions**, which its implementer needs before
+it decides what its reaper attributes.
+
+**Told it to commit first.** Five driven cells were sitting in 15 uncommitted files with zero
+commits on the branch — the shape most likely to lose work here, and tonight has precedent both
+ways: a session died mid-turn with its tracker still reading `working`, and another was
+resurrected by queued mail after a stop. Evidence that exists only in a working tree is one process
+death from never having happened.
+
+**Also raised the evidence-directory point I had been holding.** It is writing pins and readings
+into `docs/evidence/pod-2874/` rather than its own. Defensible for co-location with the readings
+it supersedes, and not worth redoing — but `pod-2874/` is precisely the directory I had to mine
+tonight to discover that 21 driven cells existed at all, and mixed ownership makes that worse. **I
+held it until I had something substantive to send with it**, per the no-round-for-a-nitpick rule.
