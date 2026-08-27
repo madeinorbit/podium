@@ -30,5 +30,6 @@ Built and runtime code tree: `7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4`. Served 
 
 | A6a | PASS | Authoritative delayed attach: `grok-acp/server`; echo, 3432B resize repaint, and second-viewer marker all passed | `readings/a6a-authoritative.json` |
 | A1c | BLOCKED | Product driver `grok-acp/server`; live send passed, but missing stamp and zero exact child PIDs prevented a safe dead-session control | `readings/a1c.json` |
-
 | A9 | BLOCKED | Product driver `grok-acp/server`; live reply passed, but real target PID was unstamped, so kill/15s/300s/rebound clauses were unmeasurable | `readings/a9.json` |
+
+| A1b `[fix]` | PASS | `grok-acp/server`; queued position 1 reached caller, survived socket reload, and delivered after busy turn | `readings/a1b-fix.json` |
