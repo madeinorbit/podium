@@ -81,11 +81,14 @@ The previous one was `9140772c`; it will not survive.
 
 ## Reds
 
-**Zero confirmed regressions.** Every red is an instrument or a behaviour main shares:
+**ONE CONFIRMED REGRESSION — A3 — AND IT BLOCKS THE RELEASE.** (Established 2026-08-27 08:47,
+after the body of this file was written. See Decision 24.) The others are instruments or
+behaviours main shares:
 
     A1b  claude  FAIL      INHERITED — fails identically on main (POD-2921 measured it)
     A1c  claude  FAIL      INHERITED — fails identically on main
-    A3   claude  FAIL      MAIN BASELINE UNDRIVEN — the only cell that could still be a regression
+    A3   claude  FAIL      *** REGRESSION *** main PASSES it — stopped and transcript-marked.
+                            THE SOLE RELEASE BLOCKER. Fixable, needs an owner. Decision 24.
     A3   codex   REFUSED   control never produced an in-flight turn
     A4a  codex   BLOCKED   STALE — see POD-2923
     A4a  claude  BLOCKED   claude-code 2.1.231 rewrites permissions.defaultMode; real instrument limit
@@ -130,8 +133,11 @@ session), POD-2922 (rig teardown leaves credentials behind).
 # 5. WHAT TO DO NEXT, IN PRIORITY ORDER
 
 1. **Recreate the cron** (see §1). Without it you get no ticks.
-2. **A3 main baseline (POD-2921).** It is the only cell that could still be a regression. The
-   credential refreshed at 07:49 and is good until **15:49**. If it stalls, the cell is one drive.
+2. **FIX A3 ON CLAUDE — THIS IS THE RELEASE BLOCKER.** The baseline is DONE: main PASSES, the epic
+   FAILS, so it is a genuine regression. The epic-side symptom is *"interrupt returned without a
+   stopping record"* — the call succeeds and the turn keeps running. **Both arms already exist as
+   controls**, so whoever fixes it has a pre-fix reading on the epic and a passing reference on
+   main. Staff this before grok.
 3. **Grok at 11:03 CEST — 14 cells unblock at once**, the largest single coverage jump left. Nobody
    is staffed. File a subissue and start it then. Grok has protocol-level turn receipts and is
    predicted to score BETTER than the others. **POD-2877's earlier grok pass bound `generic-pty`
@@ -362,4 +368,7 @@ main*. That distinction has decided three separate questions overnight, and it i
 baseline matters more than any amount of further driving on the epic branch.
 
 **A cell failing on the epic means nothing until you know what main does.** Two of the three claude
-reds turned out to be behaviours main shares. The third is undriven, not failing.
+reds turned out to be behaviours main shares — and **the third, A3, turned out to be a real
+regression once main was finally measured.** That baseline took four attempts across two days and
+three of them were rig failures rather than readings. **It was worth every one of them: without it,
+this epic would have shipped with a broken interrupt believing it had none.**
