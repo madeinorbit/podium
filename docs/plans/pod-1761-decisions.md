@@ -818,3 +818,36 @@ control that already exists on both sides, and a drive.**
 
 **THE NEXT COORDINATOR SHOULD MAKE THIS THE FIRST THING THEY STAFF**, ahead of grok's fourteen
 cells. Grok adds coverage; this decides whether the epic ships.
+
+## Decision 25 — A3 PASSES ON THE CURRENT TIP; DECISION 24 NO LONGER BLOCKS (2026-08-27 10:22 CEST)
+
+**The required current-tip reproduction did not reproduce Decision 24's blocker.** POD-2924 drove
+Claude A3 on exact product tip `a010e6b88198bc8672e1c3292de554b35edcdcba` and obtained a PASS on
+both acted-on clauses:
+
+    load 8.66 — below the strict load1 < 12 ceiling
+    durable user marker fired
+    PTY grew 7,029 -> 11,569 bytes with visible line 1 before interrupt
+    sessions.interrupt returned {ok:true, requested:"keystroke"}
+    one residual 529-byte sample, then 19 consecutive zero-growth samples
+    visible count did not advance after interrupt
+    transcript contained "[Request interrupted by user]"
+    typed refusal false — the turn stopped and the marker was present
+
+The server and daemon spawn pins were both the full current SHA. The reused web bundle retained its
+real `sourceSha=fb67ef2`; its `apps/web` tree was byte-identical to the runtime pin and the served
+stamp matched the HTTP response. The named rig was isolated, `/` had 14 GB free, and its credential
+copy and processes were removed after the reading. Evidence is committed and landed at
+`c84ecdc7f`; the operator Claude credential mtime remained `2026-08-27 07:49:09.743996798 +0200`.
+
+**This supersedes Decision 24's CURRENT blocker classification, not its historical measurement.**
+The earlier epic FAIL at `40c198eae` remains a valid reading for that older pin, and main's PASS at
+`0bd90092c` remains valid. Product code changed between `40c198eae` and `a010e6b88`, including
+daemon/session lifecycle paths, so the older FAIL is stale for the current product tree. The issue
+brief explicitly required the owner to stop if the pre-fix failure did not reproduce; no speculative
+fix and no artificial second arm were made.
+
+**Release consequence:** there is no current confirmed worse-than-main Tier-A cell. Coverage stays
+56/69 because this replaces an older A3 reading rather than adding a cell. Decision 22 still limits
+the supported claim to the clauses actually scored, and the queue-position, A1c/A9 scorer, and Grok
+work still must finish before the final release decision.

@@ -1573,3 +1573,21 @@ always does.
 eaten from a mail body and an escape written as literal `\t` instead of a tab. **Every one produced
 silent loss rather than an error**, and every one was found by reading back rather than by the tool
 complaining. **Shell prose is not data until you have read it back.**
+
+### A blocker belongs to its pin — reproduce it on the current product tip before fixing (2026-08-27 10:22 CEST)
+
+Claude A3 was a confirmed regression at epic pin `40c198eae`: main stopped and marked the turn,
+while that epic pin did not. It was correctly promoted to the sole release blocker. Before changing
+product code, the assigned owner obeyed the pre-fix-control rule and drove the exact current product
+tip `a010e6b88`. The current tip passed with an independent live-turn proof, one residual growth
+sample followed by 19 zero-growth samples, and the transcript interrupt marker.
+
+**Both readings remain true for their pins.** Non-doc product code changed between them, including
+daemon and session-lifecycle paths. Calling the old reading false would erase evidence; calling it a
+current blocker would ignore staleness. The correct action is to append the current PASS, supersede
+the blocker decision, and stop without inventing a fix arm.
+
+**Rule:** before editing code for a release blocker, reproduce its failing arm on the exact current
+product tip under the original admission controls. If it does not reproduce, record the complete
+current reading, preserve the older row, and do not make a speculative repair. A confirmed defect is
+not timeless; its source pin is part of the claim.

@@ -12,6 +12,28 @@ coordinator ran from 2026-08-26 morning through 2026-08-27 08:40 CEST and is out
 Your worktree is `/home/mgw/src/podium/.worktrees/issue-1761-agent-runtime` on branch
 `issue/1761-agent-runtime`.
 
+## CURRENT TAKEOVER UPDATE — 2026-08-27 10:22 CEST
+
+This section supersedes the older live-state and priority sections below; keep those sections as
+the historical handover that explains how the present state was reached.
+
+- **56 of 69 cells have current readings.** Claude, OpenCode, Shell, and Codex now have current
+  complete columns; Grok remains 2/16 until quota returns at 11:03 CEST.
+- **There is no current confirmed release regression.** POD-2924 re-drove Claude A3 on exact
+  current product tip `a010e6b88` at load 8.66. Independent PTY motion proved the turn was live;
+  interrupt produced one residual sample followed by 19 zero-growth samples, and the transcript
+  recorded `[Request interrupted by user]`. The earlier FAIL at `40c198eae` remains valid for that
+  older pin, but product code changed between the pins and Decision 24's blocker classification is
+  superseded by Decision 25. Current evidence landed as `c84ecdc7f`.
+- **Codex's last three checks are landed.** A8 passes; A4a and A4b are honest instrument blocks
+  because `approvals_reviewer=auto_review` prevents an approval from reaching either surface.
+  Evidence landed through `2839badd0`.
+- **Live required work:** POD-2920 is repairing durable/reload queue-position reporting and its
+  evidence; POD-2929 is tightening only A1c's delayed lost-message outcome and A9's stamped rebound
+  detection. POD-2927 is prepared for the 11:03 Grok quota window and must start Sol/high.
+- **29 product fixes have landed.** No additional fix-and-retest round is currently predicted
+  unless the queue/scorer/Grok work finds a distinct regression.
+
 ---
 
 # 1. THE CRON PROMPT — VERBATIM
