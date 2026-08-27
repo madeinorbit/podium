@@ -391,7 +391,7 @@ async function runA9(): Promise<ProbeOutcome> {
   const eligible = (row: Proc) =>
     row.env.PODIUM_INSTANCE_UUID === daemonInstanceUuid && Boolean(row.env.PODIUM_SESSION_ID)
   const touchesSession = (row: Proc) =>
-    log(`STAMP daemonUuid=${daemonInstanceUuid || '(missing)'} uuidSource=${uuidSource} attributable=${attributable.length} eligible=${before.length} unstampedInScope=${unstamped.length} foreignExcluded=${foreign.length}`)
+    row.cwd === requestedCwd || Object.values(row.env).some((value) => value.includes(s.sid))
   try {
     const marker = nonce('A9')
     const control = await answer(s.chat, s.sid, `Reply with exactly this word and nothing else: ${marker}. Do not use tools.`, 90_000)
@@ -400,11 +400,10 @@ async function runA9(): Promise<ProbeOutcome> {
     const foreign = attributable.filter((row) => !touchesSession(row) && !eligible(row))
     const before = attributable.filter(eligible)
     log(`CONTROL pre-kill session processes=${before.length}`)
-    log(`STAMP daemonUuid=${daemonInstanceUuid || '(missing)'} attributable=${attributable.length} eligible=${before.length} unstampedInScope=${unstamped.length} foreignExcluded=${foreign.length}`)
+    log(`STAMP daemonUuid=${daemonInstanceUuid || '(missing)'} uuidSource=${uuidSource} attributable=${attributable.length} eligible=${before.length} unstampedInScope=${unstamped.length} foreignExcluded=${foreign.length}`)
     for (const row of before) log(`PRE pid=${row.pid} ppid=${row.ppid} cwd=${row.cwd} location=${row.location} session=${row.env.PODIUM_SESSION_ID} cmd=${row.cmd}`)
     for (const row of foreign) log(`FOREIGN_EXCLUDED pid=${row.pid} ppid=${row.ppid} cwd=${row.cwd} location=${row.location} instanceUuid=${row.env.PODIUM_INSTANCE_UUID || '(missing)'} session=${row.env.PODIUM_SESSION_ID || '(missing)'} cmd=${row.cmd}`)
-          `daemonInstanceUuid=${daemonInstanceUuid || '(missing)'}`,
-          `uuidSource=${uuidSource}`,
+    if (!daemonInstanceUuid || unstamped.length > 0 || before.length === 0) {
       const reason = !daemonInstanceUuid
         ? 'daemon had no instance stamp to establish eligibility'
         : unstamped.length > 0
@@ -416,13 +415,14 @@ async function runA9(): Promise<ProbeOutcome> {
         evidence: [
           `replyControl=${control.got.ok}`,
           `daemonInstanceUuid=${daemonInstanceUuid || '(missing)'}`,
+          `uuidSource=${uuidSource}`,
           `attributable=${attributable.length}`,
           `eligible=${before.length}`,
           `unstampedInScope=${unstamped.length}`,
           `foreignExcluded=${foreign.length}`,
           'only current-daemon PODIUM_INSTANCE_UUID + any PODIUM_SESSION_ID rows are eligible',
         ],
-        data: { control: false, daemonInstanceUuid, attributable: attributable.length, eligible: before.length, unstampedInScope: unstamped.length, foreignExcluded: foreign.length },
+        data: { control: false, daemonInstanceUuid, uuidSource, attributable: attributable.length, eligible: before.length, unstampedInScope: unstamped.length, foreignExcluded: foreign.length },
       }
     }
     await mutate('sessions.kill', { sessionId: s.sid })
@@ -449,11 +449,11 @@ async function runA9(): Promise<ProbeOutcome> {
     return {
       verdict: pass ? 'PASS' : 'FAIL',
       summary: pass ? 'kill removed all current-daemon stamped session processes and left infrastructure intact' : 'kill left a current-daemon stamped session orphan, rebound process, or damaged infrastructure',
-        `daemonInstanceUuid=${daemonInstanceUuid}`,
-        `uuidSource=${uuidSource}`,
+      evidence: [
         `marker=${marker}`,
         `replyControl=${control.got.ok}`,
         `daemonInstanceUuid=${daemonInstanceUuid}`,
+        `uuidSource=${uuidSource}`,
         `sessionId=${s.sid}`,
         `beforeEligible=${before.length}`,
         `after15s=${immediate.length}`,
