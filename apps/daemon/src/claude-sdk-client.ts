@@ -36,6 +36,12 @@ const INTERRUPT_GRACE_MS = 15_000
 export interface ClaudeSdkChildOptions {
   /** Injected in tests so the framing can be exercised without a real SDK. */
   spawnHost?: () => ChildProcess
+  onPermission?: (request: {
+    id: string
+    toolName: string
+    input?: unknown
+    suggestions?: readonly unknown[]
+  }) => void
 }
 
 /**
@@ -125,6 +131,14 @@ export function runClaudeSdkChildTurn(
       case 'event':
         emit(frame.event)
         break
+      case 'permission':
+        opts.onPermission?.({
+          id: frame.interactionId,
+          toolName: frame.toolName,
+          ...(frame.input !== undefined ? { input: frame.input } : {}),
+          ...(frame.suggestions ? { suggestions: frame.suggestions } : {}),
+        })
+        break
       case 'done':
         harnessSessionId = frame.harnessSessionId
         // A TIMED-OUT TURN IS NEVER A SUCCESS, however gracefully it ended.
@@ -176,6 +190,19 @@ export function runClaudeSdkChildTurn(
     interrupt: () => {
       send({ t: 'interrupt' })
       killAfterGrace()
+    },
+    answerPermission: (interactionId, answer) => {
+      send({
+        t: 'answer',
+        interactionId,
+        decision: answer.decision,
+        ...(answer.feedback ? { feedback: answer.feedback } : {}),
+      })
+    },
+    dispose: () => {
+      if (settled) return
+      send({ t: 'interrupt' })
+      child.kill('SIGKILL')
     },
   }
 }

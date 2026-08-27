@@ -20,6 +20,7 @@ import {
 import type { AgentKind, SessionId } from '@podium/model'
 import type { RuntimeContractRequest } from '@podium/protocol'
 import type { DaemonMessage, RuntimeWatchLevel } from '@podium/protocol/daemon'
+import type { DaemonClaudeSdkRuntime } from './claude-sdk-driver'
 import type { DaemonCodexRuntime } from './codex-driver'
 import type { DaemonGrokRuntime } from './grok-driver'
 import type { DaemonOpencodeRuntime } from './opencode-driver'
@@ -97,6 +98,7 @@ export interface DaemonMachineRuntime extends MachineAgentRuntime {
 
 export function createDaemonMachineRuntime(input: {
   terminal: TerminalRuntime
+  claude: DaemonClaudeSdkRuntime
   opencode: DaemonOpencodeRuntime
   codex: DaemonCodexRuntime
   grok: DaemonGrokRuntime
@@ -179,6 +181,25 @@ export function createDaemonMachineRuntime(input: {
     },
   })
 
+  const embeddedSource: AgentRuntimeDriverSource = {
+    driverFor(harness, driver) {
+      return input.claude.driver.harness === harness && input.claude.driver.id === driver
+        ? input.claude.driver
+        : undefined
+    },
+    handleFor: (sessionId) => input.claude.handleFor(sessionId),
+    bindings: () => input.claude.bindings(),
+    async createWithId(sessionId, spec) {
+      await input.claude.launch(serverLaunchFor(sessionId, spec))
+      const handle = input.claude.handleFor(sessionId)
+      if (!handle) throw new Error(`embedded runtime did not index session '${sessionId}'`)
+      return handle
+    },
+    adopt(binding) {
+      return input.claude.driver.adopt(binding)
+    },
+  }
+
   const serverSources: readonly AgentRuntimeDriverSource[] = [
     serverSource(input.opencode, (sessionId, spec) =>
       input.opencode.launch(serverLaunchFor(sessionId, spec)),
@@ -193,7 +214,7 @@ export function createDaemonMachineRuntime(input: {
 
   let runtime!: MachineAgentRuntime
   runtime = createAgentRuntime({
-    sources: () => [terminalSource, ...serverSources],
+    sources: () => [terminalSource, embeddedSource, ...serverSources],
     primitiveSupport: {
       import: {
         supported: false,
@@ -308,6 +329,7 @@ export function createDaemonMachineRuntime(input: {
       // broadcast — each `reportOomKill` returns immediately for a session it
       // does not have.
       input.terminal.reportOomKill(sessionId, scopeUnit)
+      input.claude.processEvent(sessionId, { ev: 'oomKilled', ...(scopeUnit ? { scopeUnit } : {}) })
       for (const server of servers) server.reportOomKill(sessionId, scopeUnit)
     },
     resolveDriver(selection) {
@@ -400,6 +422,7 @@ export function createDaemonMachineRuntime(input: {
     dispose() {
       watches.dispose()
       input.terminal.dispose()
+      input.claude.dispose()
       input.opencode.dispose()
       input.codex.dispose()
       input.grok.dispose()

@@ -279,4 +279,62 @@ describe('a Claude turn in a child process', () => {
     })
     await expect(handle.done).rejects.toThrow(/claude sdk host could not start|exited/)
   })
+
+  it('round-trips a structured permission answer to the exact host callback', async () => {
+    let handle: ReturnType<typeof runClaudeSdkChildTurn>
+    let observed: { id: string; toolName: string } | undefined
+    handle = runClaudeSdkChildTurn({ ...spec, structuredPermissions: true }, () => {}, {
+      spawnHost: fakeHost(`
+          let buf = ''
+          let asked = false
+          process.stdin.on('data', (d) => {
+            buf += d
+            const lines = buf.split('\\n')
+            buf = lines.pop() || ''
+            for (const line of lines) {
+              if (!line) continue
+              const cmd = JSON.parse(line)
+              if (cmd.t === 'turn' && !asked) {
+                asked = true
+                process.stdout.write(JSON.stringify({
+                  t: 'permission', interactionId: 'perm-1', toolName: 'Bash',
+                  input: { command: 'git status' }, suggestions: [{ type: 'addRules' }],
+                }) + '\\n')
+              } else if (cmd.t === 'answer') {
+                process.stdout.write(JSON.stringify({
+                  t: 'done', harnessSessionId: 'sess-perm', output: JSON.stringify(cmd),
+                }) + '\\n')
+                process.exit(0)
+              }
+            }
+          })
+        `),
+      onPermission: (request) => {
+        observed = { id: request.id, toolName: request.toolName }
+        handle.answerPermission?.(request.id, { decision: 'deny', feedback: 'not this command' })
+      },
+    })
+    const result = await handle.done
+    expect(observed).toEqual({ id: 'perm-1', toolName: 'Bash' })
+    expect(JSON.parse(result.output)).toMatchObject({
+      t: 'answer',
+      interactionId: 'perm-1',
+      decision: 'deny',
+      feedback: 'not this command',
+    })
+  })
+
+  it('disposes a wedged host immediately when the owning runtime ends', async () => {
+    let child: ChildProcess | undefined
+    const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      spawnHost: () => {
+        child = fakeHost(emitsThenHangs(''))()
+        return child
+      },
+    })
+
+    handle.dispose?.()
+    await expect(handle.done).rejects.toThrow('Claude model host process exited')
+    expect(child?.signalCode).toBe('SIGKILL')
+  })
 })

@@ -45,7 +45,9 @@ import { opencodeVersionProbe } from '../runtime/opencode-server'
 import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
 import {
   availableDriverIds,
+  claudeSdkTosAcceptedByEnv,
   droppedDriverPreference,
+  isEmbeddedDriver,
   isServerDriver,
   isServerDriverId,
   runtimeDriverIntentForSpawn,
@@ -1258,6 +1260,7 @@ export async function launchServerDriverSession(
     // Only the preferred server is probed and admitted. An explicit terminal
     // request therefore avoids every server probe.
     available: availableDriverIds({
+      claudeSdkTosAccepted: claudeSdkTosAcceptedByEnv(),
       grokDrivable: preferredServer === 'grok-acp' && preferredProbe?.drivable === true,
       opencodeDrivable: preferredServer === 'opencode-server' && preferredProbe?.drivable === true,
       codexDrivable: preferredServer === 'codex-app-server' && preferredProbe?.drivable === true,
@@ -1270,7 +1273,8 @@ export async function launchServerDriverSession(
     return { handled: true }
   }
   if (
-    isServerDriver(msg.agentKind, resolution.driverId) &&
+    (isServerDriver(msg.agentKind, resolution.driverId) ||
+      isEmbeddedDriver(msg.agentKind, resolution.driverId)) &&
     resolution.capabilities.placement !== 'dedicated'
   ) {
     ctx.send({
@@ -1333,7 +1337,10 @@ export async function launchServerDriverSession(
    * though it did.
    */
   announceDriverSelection(ctx, msg.sessionId, resolution.driverId)
-  if (!isServerDriver(msg.agentKind, resolution.driverId)) {
+  if (
+    !isServerDriver(msg.agentKind, resolution.driverId) &&
+    !isEmbeddedDriver(msg.agentKind, resolution.driverId)
+  ) {
     /**
      * THE DEGRADE THAT SURVIVES, SAID OUT LOUD.
      *
@@ -1390,7 +1397,9 @@ export async function launchServerDriverSession(
    * {@link resumeJournalledServerSession} for why the create below cannot serve
    * it and what the journal entry is for.
    */
-  if (await resumeJournalledServerSession(ctx, msg)) return { handled: true }
+  if (isServerDriver(msg.agentKind, resolution.driverId)) {
+    if (await resumeJournalledServerSession(ctx, msg)) return { handled: true }
+  }
   try {
     const spec: SessionSpec = {
       harness: msg.agentKind,

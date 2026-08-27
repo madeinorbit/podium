@@ -169,7 +169,12 @@ describe('the permitted-failures table', () => {
     for (const family of ['server', 'embedded', 'terminal'] as const) {
       expect(permits(family, 'no-native-steer')).toBe(true)
     }
-    expect([...NO_NATIVE_STEER_DRIVERS]).toEqual(['generic-pty', 'opencode-server', 'grok-acp'])
+    expect([...NO_NATIVE_STEER_DRIVERS]).toEqual([
+      'generic-pty',
+      'claude-sdk',
+      'opencode-server',
+      'grok-acp',
+    ])
     // The absence with a date on it: W6's driver has `turn/steer` in its own
     // protocol, so a codex-server declining steer is a bug in the driver, not a
     // weakness of its harness.
@@ -210,16 +215,17 @@ describe('the corpus has teeth', () => {
     // of `send.native` and inherits the family's permission in silence. Its
     // app-server has `turn/steer`, so the corpus must not let it.
     expect(() => assertNoNativeSteerEntitled('server', 'codex-app-server')).toThrow()
-    // And the embedded family, whose row carries the permission with no measured
-    // driver behind it at all.
-    expect(() => assertNoNativeSteerEntitled('embedded', 'claude-sdk')).toThrow()
+    // The embedded family still has to name the exact measured driver; the
+    // family-level exemption is not permission for future adapters.
+    expect(() => assertNoNativeSteerEntitled('embedded', 'fake-embedded')).toThrow()
   })
 
-  it('ACCEPTS the two drivers somebody actually measured', () => {
+  it('ACCEPTS the drivers somebody actually measured', () => {
     // opencode 1.18.16 has no steer verb and a TUI has no way to append into an
     // open turn. Both arguments are in `../../permitted-failures.ts`.
     expect(() => assertNoNativeSteerEntitled('server', 'opencode-server')).not.toThrow()
     expect(() => assertNoNativeSteerEntitled('terminal', 'generic-pty')).not.toThrow()
+    expect(() => assertNoNativeSteerEntitled('embedded', 'claude-sdk')).not.toThrow()
   })
 
   /**

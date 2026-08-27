@@ -12,6 +12,7 @@
 // a rewrite: same options, same event mapping, same "carry the session id out of
 // a failure" rule. The transport underneath them is what changed.
 
+import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import {
   type McpServerConfig,
@@ -67,7 +68,10 @@ function sdkMcpServers(mcpConfig: string | undefined): Record<string, McpServerC
  * long-lived process. First turn mints the session id via `sessionId` (must be
  * a UUID) so the thread ↔ transcript binding is deterministic.
  */
-export function buildClaudeSdkOptions(spec: HeadlessTurnSpec): Options {
+export function buildClaudeSdkOptions(
+  spec: HeadlessTurnSpec,
+  canUseTool?: NonNullable<Options['canUseTool']>,
+): Options {
   const mode: PermissionMode =
     spec.permissionMode && PERMISSION_MODES.has(spec.permissionMode)
       ? (spec.permissionMode as PermissionMode)
@@ -112,6 +116,7 @@ export function buildClaudeSdkOptions(spec: HeadlessTurnSpec): Options {
       : spec.sessionUuid
         ? { sessionId: spec.sessionUuid }
         : {}),
+    ...(canUseTool ? { canUseTool } : {}),
   }
   const mcpServers = sdkMcpServers(spec.mcpConfig)
   if (mcpServers && spec.toolPolicy !== 'none') options.mcpServers = mcpServers
@@ -136,6 +141,27 @@ export interface ClaudeSdkHostIo {
 export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
   let spec: HeadlessTurnSpec | undefined
   let interrupt: (() => void) | undefined
+  type CanUseTool = NonNullable<Options['canUseTool']>
+  type PermissionResult = Awaited<ReturnType<CanUseTool>>
+  type PermissionSuggestions = Parameters<CanUseTool>[2]['suggestions']
+  const pendingPermissions = new Map<
+    string,
+    {
+      input: Record<string, unknown>
+      suggestions?: PermissionSuggestions
+      resolve(result: PermissionResult): void
+    }
+  >()
+  const denyPendingPermissions = (): void => {
+    for (const [id, pending] of pendingPermissions) {
+      pending.resolve({
+        behavior: 'deny',
+        message: 'SDK host stopped before permission was answered',
+        interrupt: true,
+      })
+      pendingPermissions.delete(id)
+    }
+  }
   let pendingInterrupt = false
   let finish: () => void = () => {}
   // Resolves when the turn settles — NOT when stdin closes. The daemon keeps the
@@ -163,6 +189,26 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
       } else if (cmd.t === 'interrupt') {
         if (interrupt) interrupt()
         else pendingInterrupt = true
+      } else if (cmd.t === 'answer') {
+        const pending = pendingPermissions.get(cmd.interactionId)
+        if (!pending) continue
+        pendingPermissions.delete(cmd.interactionId)
+        if (cmd.decision === 'deny') {
+          pending.resolve({
+            behavior: 'deny',
+            message: cmd.feedback?.trim() || 'Denied by the Podium operator',
+            interrupt: false,
+          })
+        } else {
+          pending.resolve({
+            behavior: 'allow',
+            // Required by the SDK version shipped here even when unchanged.
+            updatedInput: pending.input,
+            ...(cmd.decision === 'allow-always' && pending.suggestions?.length
+              ? { updatedPermissions: pending.suggestions }
+              : {}),
+          })
+        }
       }
     }
     // STDIN ENDED: the daemon is gone. Nothing upstream is listening, so this
@@ -178,6 +224,7 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
       return
     }
     if (interrupt) interrupt()
+    denyPendingPermissions()
     // Give the SDK a moment to end the turn cleanly, then go regardless: a host
     // that refuses to die on its parent's death is the orphan we are avoiding.
     const grace = setTimeout(finish, ORPHAN_GRACE_MS)
@@ -198,7 +245,30 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
       if (sessionId) io.send({ t: 'session', harnessSessionId: sessionId })
       io.send({ t: 'event', event: { kind: 'status', status: 'starting' } })
 
-      const q = query({ prompt: turnSpec.prompt, options: buildClaudeSdkOptions(turnSpec) })
+      const canUseTool: NonNullable<Options['canUseTool']> = async (toolName, input, context) =>
+        new Promise<PermissionResult>((resolve) => {
+          const interactionId = randomUUID()
+          const suggestions = context.suggestions
+          pendingPermissions.set(interactionId, {
+            input,
+            ...(suggestions ? { suggestions } : {}),
+            resolve,
+          })
+          io.send({
+            t: 'permission',
+            interactionId,
+            toolName,
+            input,
+            ...(suggestions?.length ? { suggestions } : {}),
+          })
+        })
+      const q = query({
+        prompt: turnSpec.prompt,
+        options: buildClaudeSdkOptions(
+          turnSpec,
+          turnSpec.structuredPermissions ? canUseTool : undefined,
+        ),
+      })
       interrupt = () => {
         void q.interrupt().catch(() => {})
       }
@@ -268,7 +338,10 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
         return
       }
       io.send({ t: 'done', harnessSessionId: sessionId, output })
-    })().finally(finish)
+    })().finally(() => {
+      denyPendingPermissions()
+      finish()
+    })
   }
 
   await settled

@@ -75,6 +75,10 @@ import { DaemonHarnessRuntime } from './harness-runtime'
 import { createReattachGates } from './reattach-gates'
 import { createCodexHost } from './runtime/codex-app-server'
 import { stageRuntimeAttachment } from './runtime/attachment-staging'
+import {
+  createDaemonClaudeSdkRuntime,
+  type DaemonClaudeSdkRuntime,
+} from './runtime/claude-sdk-driver'
 import { createDaemonCodexRuntime, type DaemonCodexRuntime } from './runtime/codex-driver'
 import { runtimeContractEnabledByEnv } from './runtime/flag'
 import { createGrokAcpHost } from './runtime/grok-acp-server'
@@ -214,6 +218,7 @@ export async function createDaemonHostRuntime(args: {
    * driver's event source rather than a set of new observer callbacks.
    */
   let terminalRuntime: TerminalRuntime | undefined
+  let claudeRuntime: DaemonClaudeSdkRuntime | undefined
   let opencodeRuntime: DaemonOpencodeRuntime | undefined
   let codexRuntime: DaemonCodexRuntime | undefined
   let grokRuntime: DaemonGrokRuntime | undefined
@@ -745,7 +750,9 @@ export async function createDaemonHostRuntime(args: {
   // Built AFTER the context because the driver hosts need that context. The
   // single assignment at the end closes the wiring cycle: handlers reach every
   // family through `ctx.agentRuntime`, which reaches the daemon through `ctx`.
-  terminalRuntime = createTerminalRuntime(daemonRuntimeHost(ctx, send, stageAttachment))
+  const contractHost = daemonRuntimeHost(ctx, send, stageAttachment)
+  terminalRuntime = createTerminalRuntime(contractHost)
+  claudeRuntime = createDaemonClaudeSdkRuntime({ send, host: contractHost })
   /**
    * THE SERVER-FAMILY RUNTIME (POD-1761 W5), built the same way and for the same
    * reason: its host port is this context.
@@ -839,6 +846,7 @@ export async function createDaemonHostRuntime(args: {
   })
   agentRuntime = createDaemonMachineRuntime({
     terminal: terminalRuntime,
+    claude: claudeRuntime,
     opencode: opencodeRuntime,
     codex: codexRuntime,
     grok: grokRuntime,

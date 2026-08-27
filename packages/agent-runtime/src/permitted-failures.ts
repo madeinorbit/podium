@@ -130,16 +130,19 @@ export const permits = (family: DriverFamily, failure: PermittedFailure): boolea
  *                       becomes a SECOND turn that runs afterwards. See the
  *                       `no-native-steer` doc comment above.
  *
- * ABSENT ON PURPOSE, and each absence is the point rather than an oversight:
- * `codex-app-server` has `turn/steer` and must declare it; `claude-sdk` has the
- * SDK's own interrupt-and-resend and nobody has measured it; `claude-pty` almost
- * certainly belongs here on the same argument as `generic-pty`, but no target
- * runs it under the corpus today and a driver id nobody has watched go green is
- * a claim, not a measurement. Adding one is a one-line edit — the requirement is
- * only that it be a DELIBERATE one, made next to the argument it has to join.
+ * MEASURED HERE: `claude-sdk` exposes `interrupt()` and resumable turns, but no
+ * in-flight steer verb; its conformance target therefore reports a visible queue
+ * downgrade. ABSENT ON PURPOSE: `codex-app-server` has `turn/steer` and must
+ * declare it; `claude-pty` almost certainly belongs here on the same argument as
+ * `generic-pty`, but no target runs it under the corpus today and a driver id
+ * nobody has watched go green is a claim, not a measurement. Adding one is a
+ * one-line edit — the requirement is only that it be a DELIBERATE one, made next
+ * to the argument it has to join.
  */
 export const NO_NATIVE_STEER_DRIVERS = [
   'generic-pty',
+  // The Agent SDK exposes interrupt-and-resend/queueing, not an in-flight steer verb.
+  'claude-sdk',
   'opencode-server',
   // ACP exposes prompt queueing and cancel, but no in-flight steer method.
   'grok-acp',

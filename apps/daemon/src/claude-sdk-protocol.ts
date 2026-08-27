@@ -32,6 +32,12 @@ export type ClaudeSdkHostCommand =
   | { t: 'turn'; spec: HeadlessTurnSpec }
   /** Ask the SDK to wind the turn down gracefully (timeout, or a user interrupt). */
   | { t: 'interrupt' }
+  | {
+      t: 'answer'
+      interactionId: string
+      decision: 'allow-once' | 'allow-always' | 'deny'
+      feedback?: string
+    }
 
 /** host -> daemon, one JSON object per line on the child's stdout. */
 export type ClaudeSdkHostFrame =
@@ -45,6 +51,13 @@ export type ClaudeSdkHostFrame =
    * transcript binding, and the next turn silently starts a new conversation.
    */
   | { t: 'session'; harnessSessionId: string }
+  | {
+      t: 'permission'
+      interactionId: string
+      toolName: string
+      input?: unknown
+      suggestions?: readonly unknown[]
+    }
   | { t: 'done'; harnessSessionId: string; output: string }
   | { t: 'error'; message: string; harnessSessionId?: string }
 

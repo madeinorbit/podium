@@ -43,6 +43,8 @@ export interface HeadlessTurnSpec {
   durableLabel?: string
   /** Absolute executable captured from the current generation. */
   executablePath?: string
+  /** Route SDK tool authorization through structured RuntimeDriver interactions. */
+  structuredPermissions?: true
 }
 
 export interface HeadlessTurnOutcome {
@@ -80,6 +82,14 @@ export interface HeadlessTurnHandle {
   interrupt(): void
   /** Detach local resources without killing a durable master. */
   dispose?(): void
+  /** Claude SDK only: answer the exact canUseTool callback that opened this ask. */
+  answerPermission?(
+    interactionId: string,
+    answer: {
+      decision: 'allow-once' | 'allow-always' | 'deny'
+      feedback?: string
+    },
+  ): void
 }
 
 export interface HeadlessTurnIdentity {

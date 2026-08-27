@@ -111,8 +111,11 @@ export function availableDriverIds(probe: {
    * that degrades to terminal.
    */
   codexDrivable?: boolean
+  /** Explicit operator acknowledgement for the non-default Claude SDK path. */
+  claudeSdkTosAccepted?: boolean
 }): readonly DriverId[] {
   const ids: DriverId[] = ['claude-pty', 'generic-pty']
+  if (probe.claudeSdkTosAccepted) ids.push('claude-sdk')
   if (probe.opencodeDrivable) ids.push('opencode-server')
   if (probe.grokDrivable) ids.push('grok-acp')
   if (probe.codexDrivable) ids.push('codex-app-server')
@@ -125,6 +128,7 @@ export function availableDriverIds(probe: {
  *  session would look like the override did not work. */
 const IMPLEMENTED: ReadonlySet<string> = new Set<DriverId>([
   'claude-pty',
+  'claude-sdk',
   'generic-pty',
   'grok-acp',
   'opencode-server',
@@ -145,6 +149,11 @@ export function selectionAuthForLogin(
   state: 'in' | 'out' | 'unknown' | undefined,
 ): SelectionContext['auth'] {
   return harnessLoginNeedsInteractive(agentKind, state) ? 'logged-out' : 'unknown'
+}
+
+export const CLAUDE_SDK_TOS_ENV = 'PODIUM_CLAUDE_SDK_TOS_ACCEPTED'
+export function claudeSdkTosAcceptedByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env[CLAUDE_SDK_TOS_ENV] === '1'
 }
 
 /**
@@ -179,6 +188,25 @@ export function resolveRuntimeDriver(input: {
   if (preference !== undefined && !IMPLEMENTED.has(preference)) {
     return { ok: false, reason: `unknown runtime driver '${preference}'` }
   }
+  // The embedded SDK is an operator experiment, never a policy/default choice.
+  // Requiring the per-spawn spelling here prevents a machine-wide env default
+  // from silently moving every Claude session off the interactive PTY path.
+  if (input.requested === 'claude-sdk') {
+    const embedded = declaredValue(manifest.runtime.embedded)
+    if (!embedded || embedded.driverId !== 'claude-sdk') {
+      return {
+        ok: false,
+        reason: `harness '${input.agentKind}' does not declare runtime driver 'claude-sdk'`,
+      }
+    }
+    if (!input.available.includes('claude-sdk')) {
+      return {
+        ok: false,
+        reason: `runtime driver 'claude-sdk' requires explicit ${CLAUDE_SDK_TOS_ENV}=1 operator acknowledgement`,
+      }
+    }
+    return { ok: true, driverId: 'claude-sdk' }
+  }
   const ctx: SelectionContext = {
     auth: input.auth ?? 'unknown',
     platform: input.platform,
@@ -208,6 +236,12 @@ export function runtimeDriverIntentForSpawn(input: {
 export function isServerDriver(agentKind: AgentKind, driverId: DriverId): boolean {
   const server = manifestFor(agentKind)?.runtime.server
   return server !== undefined && declaredValue(server)?.driverId === driverId
+}
+
+/** Is this the harness's declared embedded driver? */
+export function isEmbeddedDriver(agentKind: AgentKind, driverId: DriverId): boolean {
+  const embedded = manifestFor(agentKind)?.runtime.embedded
+  return embedded !== undefined && declaredValue(embedded)?.driverId === driverId
 }
 
 /**

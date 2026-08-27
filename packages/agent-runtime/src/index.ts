@@ -72,6 +72,9 @@ export * from './driver.js'
  *  lives in `apps/daemon/src/runtime/codex-app-server.ts`, reached through
  *  `CodexRuntimeHost`. */
 export * from './drivers/codex/index.js'
+/** Claude's process-per-turn Agent SDK driver. The daemon supplies the child
+ * process and native-transcript host ports; contract semantics stay here. */
+export * from './drivers/claude-sdk/index.js'
 /** Grok's ACP stdio driver. Process ownership and its durable binding journal
  * stay in the daemon; the live protocol, receipts, permissions and reducer
  * integration live in this package. */

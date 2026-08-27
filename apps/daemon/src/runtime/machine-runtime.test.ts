@@ -54,7 +54,25 @@ function server(
       clear: vi.fn(),
     },
     launch,
+
     adoptFromJournal,
+    dispose: vi.fn(),
+  }
+}
+
+function claude() {
+  return {
+    driver: {
+      id: 'claude-sdk',
+      harness: 'claude-code',
+      family: 'embedded',
+      capabilities: () => ({ placement: 'dedicated' }),
+      adopt: vi.fn(),
+    } as unknown as RuntimeDriver,
+    handleFor: () => undefined,
+    bindings: () => [],
+    launch: vi.fn(),
+    processEvent: vi.fn(),
     dispose: vi.fn(),
   }
 }
@@ -99,6 +117,7 @@ describe('daemon machine runtime composition', () => {
 
     const runtime = createDaemonMachineRuntime({
       terminal,
+      claude: claude(),
       opencode,
       codex,
       grok,
@@ -205,6 +224,7 @@ describe('daemon machine runtime composition', () => {
     }
     const runtime = createDaemonMachineRuntime({
       terminal,
+      claude: claude(),
       opencode,
       codex,
       grok,
