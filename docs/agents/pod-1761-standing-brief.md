@@ -1325,3 +1325,35 @@ dead rig all at once, because none of those can fake an API reply.
   from "nothing is being written anywhere".
 - **When a probe cannot distinguish two explanations, that is a finding about the PROBE**, and
   fixing the probe is the work. It is not a delay before the work.
+
+### A pre-fix parent arm may need the DEFAULT instance, not a named one (2026-08-27 04:21 CEST)
+
+**The rig rule "always run as a NAMED instance" inverts on commits that predate the socket fix**,
+and it cost two cells tonight before anyone noticed.
+
+POD-2915's parent arms both died with `create-session: File name too long` **before the control
+fired**. Not a rig fault — a property of the commits pinned:
+
+    6c6689046  predates ab9d698ab (named-instance socket fix)  -> cannot start a named instance
+    a841ade74  predates ab9d698ab                              -> cannot start a named instance
+
+A named instance needs about **113 bytes** of `sun_path` against a **108-byte** kernel limit. The
+**default** instance fits at **71** — which is exactly why the defect went a week unnoticed.
+
+**So: pre-socket-fix parent arm -> DEFAULT instance. Everything else -> named. Say which you used
+in the row.**
+
+**The named-instance rule is about not colliding with other sessions; it is not a correctness
+requirement**, and treating it as one turns an obtainable baseline into an UNOBTAINABLE. I made
+exactly this mistake myself and spent six hours believing the claude column needed the operator,
+because my own rule blocked a baseline that the default instance could have taken.
+
+**But the default instance is a SHARED resource — there is one.** If you need it, say so to the
+coordinator first so the other sessions can be held off. **If that coordination costs more than the
+cells are worth, leave them NO_MEASUREMENT with the structural reason written down.** A recorded
+"this arm is unobtainable at this pin, and here is why" is a complete answer; a contested rig
+produces a number nobody can attribute.
+
+**The general shape: when a baseline will not start, ask whether the OLD CODE can support your rig
+at all before blaming the rig.** A pre-fix commit is pre-fix in every respect, including the parts
+your harness depends on.
