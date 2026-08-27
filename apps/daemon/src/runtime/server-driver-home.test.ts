@@ -54,6 +54,8 @@ interface Landing {
   MANAGED: string | undefined
   CODEX_HOME: string | undefined
   GROK_HOME: string | undefined
+  PODIUM_INSTANCE_UUID: string | undefined
+  PODIUM_SESSION_ID: string | undefined
 }
 let previousRuntimeDir: string | undefined
 let previousInstance: string | undefined
@@ -90,6 +92,8 @@ fs.writeFileSync(process.env.PODIUM_TEST_LANDING, JSON.stringify({
   MANAGED: process.env.PODIUM_TEST_MANAGED,
   CODEX_HOME: process.env.CODEX_HOME,
   GROK_HOME: process.env.GROK_HOME,
+  PODIUM_INSTANCE_UUID: process.env.PODIUM_INSTANCE_UUID,
+  PODIUM_SESSION_ID: process.env.PODIUM_SESSION_ID,
 }))
 if (process.argv.includes('--rig-check')) process.exit(0)
 const portIx = process.argv.indexOf('--port')
@@ -265,18 +269,23 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     }
   }, 30_000)
 
-  it('grok agent stdio: the child itself reports the instance HOME — the live find', async () => {
+  it('grok agent stdio: the child reports instance HOME and exact lifecycle stamps', async () => {
     resetGrokAcpVersionProbe()
     expect((await grokAcpVersionProbe(() => ({ output: '0.2.23', ok: true }))).drivable).toBe(true)
 
     const landing = join(root, 'landing-grok.json')
-    const host = createGrokAcpHost({ resources, homeDir: instanceHome })
+    const instanceUuid = '11111111-2222-4333-8444-555555555555'
+    const sessionId = asSessionId('grok-stamped-child')
+    const host = createGrokAcpHost({ resources, homeDir: instanceHome, instanceUuid })
     const endpoint = await host.launch({
-      sessionId: asSessionId(crypto.randomUUID()),
+      sessionId,
       workdir,
       env: {
         PODIUM_TEST_LANDING: landing,
         PODIUM_TEST_MANAGED: 'rides-through',
+        // Daemon-owned attribution must win over anything carried by the spawn frame.
+        PODIUM_INSTANCE_UUID: 'spoofed-instance',
+        PODIUM_SESSION_ID: 'spoofed-session',
       },
     })
     try {
@@ -286,6 +295,8 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       expect(seen.MANAGED).toBe('rides-through')
       expect(seen.GROK_HOME).toBe(join(instanceHome, '.grok'))
       expect(seen.GROK_HOME).not.toBe('/daemon/operator/.grok')
+      expect(seen.PODIUM_INSTANCE_UUID).toBe(instanceUuid)
+      expect(seen.PODIUM_SESSION_ID).toBe(sessionId)
     } finally {
       await endpoint.kill()
     }
