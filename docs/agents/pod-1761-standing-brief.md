@@ -1162,3 +1162,25 @@ screened-in issue as a cleared one.
 check tuned to catch a specific failure cheaply tells you a great deal when it fires and almost
 nothing when it does not. Asymmetric evidence is still evidence; it is just evidence in one
 direction, and the direction has to be said out loud every time.
+
+### A hold and its lift can cross — state the numbers, not the verdict (2026-08-27 02:10 CEST)
+
+I sent a hold at 01:47 ("root is at 100%, stop reading") and a lift at 02:02 ("hold lifted, 20GB
+free"). A session **acknowledged the hold at 02:08** — six minutes after the lift — and stopped
+work it could have been doing.
+
+**A message phrased relative to another message assumes an ordering the queue does not
+guarantee.** "The hold is lifted" is meaningless to a reader that has not yet processed the hold,
+and worse, it is *ambiguous* to one that processes them out of order: it cannot tell which is
+current from the words alone.
+
+**So state the absolute condition, always, with its timestamp:** *"root has 15GB free at 93%,
+load 12.1, swap-out zero, as of 02:14 — that is admissible."* A reader holding two such messages
+picks the later timestamp and is right without knowing anything about the first.
+
+**Same rule applies to anything you send me.** "Still blocked" tells me nothing if I do not know
+what you were blocked on or when; "root at 1.6GB and I did not take the reading, 02:06" tells me
+everything and survives arriving out of order.
+
+**And the corollary for the sender: never assume your correction landed before the thing it
+corrects.** If a message matters, put the fact in it rather than a pointer to a fact.
