@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asSessionId } from '@podium/model'
 import {
+  CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   DaemonPtyOutputMetadata,
   decodeBinaryEnvelope,
+  encodeBinaryEnvelope,
   type PeerHello,
   type PeerHelloReply,
   WIRE_VERSION,
@@ -381,23 +383,29 @@ class FakeSocket extends EventEmitter {
   message(value: PeerHelloReply): void {
     this.emit('message', Buffer.from(JSON.stringify(value)) as RawData)
   }
+  binary(data: Uint8Array): void {
+    this.emit('message', data as RawData, true)
+  }
 }
 
 function remoteHarness() {
   const socket = new FakeSocket()
   const sendApplicationFrame = vi.fn()
+  const receiveApplicationFrame = vi.fn()
+  const receiveBinaryInput = vi.fn()
   const state = createDaemonConnection({
     options: { serverUrl: 'ws://server', identityDir: temp() },
     build: buildReport(process.env, undefined),
     machineId: MACHINE_ID,
     identity: { token: 'token' },
-    receiveApplicationFrame: vi.fn(),
+    receiveApplicationFrame,
+    receiveBinaryInput,
     sendApplicationFrame,
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
     openSocket: () => socket,
   })
-  return { socket, sendApplicationFrame, state }
+  return { socket, sendApplicationFrame, receiveApplicationFrame, receiveBinaryInput, state }
 }
 
 it('drops typed output while the daemon connection is disconnected', async () => {
@@ -485,7 +493,60 @@ it('sends exact binary output only when the remote handshake accepts it', async 
   expect(h.sendApplicationFrame).not.toHaveBeenCalled()
   await h.state.close()
 })
+it('receives exact binary PTY input only when the remote handshake accepts it', async () => {
+  const h = remoteHarness()
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message({
+    ...ok,
+    caps: [CAP_TERMINAL_INPUT_BINARY_V1],
+  })
+  await started
 
+  const bytes = Uint8Array.of(0x00, 0xff, 0xc3, 0x28, 0x1b)
+  const frame = encodeBinaryEnvelope(
+    { v: 1, type: 'ptyInput', sessionId: asSessionId('session-binary'), inputOrigin: 'human' },
+    bytes,
+  )
+  h.socket.binary(frame)
+
+  expect(h.receiveBinaryInput).toHaveBeenCalledTimes(1)
+  expect(h.receiveBinaryInput.mock.calls[0]?.[0]).toMatchObject({
+    sessionId: 'session-binary',
+    inputOrigin: 'human',
+  })
+  expect(h.receiveBinaryInput.mock.calls[0]?.[1]).toEqual(bytes)
+  await h.state.close()
+})
+
+it('closes only the connection for unnegotiated binary PTY input', async () => {
+  const h = remoteHarness()
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message({ ...ok, caps: [] })
+  await started
+  const frame = encodeBinaryEnvelope(
+    { v: 1, type: 'ptyInput', sessionId: asSessionId('session-binary'), inputOrigin: 'human' },
+    Uint8Array.of(0x61),
+  )
+  h.socket.binary(frame)
+  expect(h.socket.readyState).toBe(3)
+  expect(h.receiveBinaryInput).not.toHaveBeenCalled()
+})
+
+it('closes only the connection for malformed negotiated binary PTY input', async () => {
+  const h = remoteHarness()
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message({
+    ...ok,
+    caps: [CAP_TERMINAL_INPUT_BINARY_V1],
+  })
+  await started
+  h.socket.binary(Uint8Array.of(0, 0, 0))
+  expect(h.socket.readyState).toBe(3)
+  expect(h.receiveBinaryInput).not.toHaveBeenCalled()
+})
 it('clears accepted binary selection before a reconnect handshake', async () => {
   const sockets = [new FakeSocket(), new FakeSocket()]
   let socketIndex = 0

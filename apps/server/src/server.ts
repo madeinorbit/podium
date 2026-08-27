@@ -7,7 +7,9 @@ import { trpcServer } from '@hono/trpc-server'
 import { createLogger } from '@podium/logger'
 import { asMachineId, controlPlaneAvailable, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
+  CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  type DaemonPtyInputBatch,
   type LocalDaemonLink,
   MIN_SUPPORTED_VERSION,
   type MobileWebIdentity,
@@ -54,7 +56,7 @@ import {
 import { captureServerBuildVersion, serverBuildSourceDigest } from './build-version'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
-import { openEnrollmentLedger, hasEnrollmentHistory } from './enrollment-ledger'
+import { hasEnrollmentHistory, openEnrollmentLedger } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import {
@@ -81,12 +83,12 @@ import {
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT, fleetHeadlessPlatforms } from './modules/updates/dev-bundle'
-import { resolveDevelopmentRuntime } from './modules/updates/development-runtime'
 import {
-  selectRemoteUpdateConsumers,
   isRemoteUpdateConsumer,
+  selectRemoteUpdateConsumers,
   wireDevBundlePublisher,
 } from './modules/updates/dev-publisher-wiring'
+import { resolveDevelopmentRuntime } from './modules/updates/development-runtime'
 import {
   createInstalledCoordinatorRestart,
   createInstalledCoordinatorUpdate,
@@ -1377,7 +1379,7 @@ export async function startServer(
     // other's call stack (the ordering the WS transport implied).
     const localDaemonLink: LocalDaemonLink = {
       attachPortableState: (control) => registry.attachLocalDaemonPortableState(control),
-      attach: ({ hello, deliver }) => {
+      attach: ({ hello, deliver, deliverInput }) => {
         const acceptor = createDaemonAcceptor({
           machines: registry.modules.machines,
           connectionId: `local-daemon-${randomUUID()}`,
@@ -1399,13 +1401,51 @@ export async function startServer(
           0,
           DEPLOYMENT,
         )
+        perf.record(
+          'phase',
+          outcome.acceptedCaps.includes(CAP_TERMINAL_INPUT_BINARY_V1)
+            ? 'terminal.input.daemon.capability.binary'
+            : 'terminal.input.daemon.capability.base64',
+          0,
+          DEPLOYMENT,
+        )
         recordHelloBuild(registry.modules.machines, outcome.machineId, {
           build: outcome.build,
           caps: outcome.offeredCaps,
           at: new Date().toISOString(),
         })
         const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
-        registry.gateway.attachDaemon(principal, send)
+        const transport = {
+          send,
+          sendInput: (input: DaemonPtyInputBatch): void => {
+            if (deliverInput && outcome.acceptedCaps.includes(CAP_TERMINAL_INPUT_BINARY_V1)) {
+              perf.record(
+                'phase',
+                'terminal.input.daemon.direct',
+                0,
+                DEPLOYMENT,
+                input.bytes.byteLength,
+              )
+              queueMicrotask(() => deliverInput(input))
+              return
+            }
+            perf.record(
+              'phase',
+              'terminal.input.daemon.base64',
+              0,
+              DEPLOYMENT,
+              input.bytes.byteLength,
+            )
+            send({
+              type: 'input',
+              sessionId: input.sessionId,
+              inputOrigin: input.inputOrigin,
+              data: Buffer.from(input.bytes).toString('base64'),
+              ...(input.attribution ? { attribution: input.attribution } : {}),
+            })
+          },
+        }
+        registry.gateway.attachDaemon(principal, transport)
         return {
           established: true as const,
           reply: PeerHelloReply.parse(outcome.reply),
@@ -1424,7 +1464,7 @@ export async function startServer(
             )
             queueMicrotask(() => registry.gateway.routeDaemonOutput(principal, batch))
           },
-          close: () => registry.gateway.detachDaemon(principal, send),
+          close: () => registry.gateway.detachDaemon(principal, transport),
         }
       },
     }

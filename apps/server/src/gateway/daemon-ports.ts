@@ -21,7 +21,7 @@
  */
 
 import type { ConversationDiagnosticWire, ConversationSummaryWire, MachineId } from '@podium/model'
-import type { DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
+import type { DaemonPtyInputBatch, DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { RpcDaemonFrame, SessionsDaemonFrame } from './daemon-frame-routing'
 
@@ -30,6 +30,13 @@ export type DaemonFrame<T extends DaemonMessage['type']> = Extract<DaemonMessage
 
 /** Outbound control-message sink for one daemon socket (`Send<ControlMessage>`). */
 export type ControlSend = (msg: ControlMessage) => void
+
+/** One daemon connection's reliable control and canonical PTY-input sinks. */
+export interface DaemonControlTransport {
+  send: ControlSend
+  sendInput(input: DaemonPtyInputBatch): void
+}
+export type DaemonControlPeer = ControlSend | DaemonControlTransport
 
 /**
  * Outbound session-inbox leg of the daemon gateway.
@@ -41,7 +48,7 @@ export type ControlSend = (msg: ControlMessage) => void
  * D8/D16; POD-394).
  */
 export interface SessionInputGatewayPort {
-  sendInput(machineId: MachineId, message: Extract<ControlMessage, { type: 'input' }>): void
+  sendInput(machineId: MachineId, input: DaemonPtyInputBatch): void
 }
 
 /**
@@ -62,8 +69,8 @@ export interface SessionsDaemonPort {
 
 /** MACHINES. Socket bookkeeping plus the machine's own reported inventory. */
 export interface MachinesDaemonPort {
-  attach(machineId: MachineId, send: ControlSend): void
-  detach(machineId: MachineId, send?: ControlSend): boolean
+  attach(machineId: MachineId, transport: DaemonControlPeer): void
+  detach(machineId: MachineId, transport?: DaemonControlPeer): boolean
   flushQueued(machineId: MachineId): void
   broadcastMachines(): void
   recordInventory(

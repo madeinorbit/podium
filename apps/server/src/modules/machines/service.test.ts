@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Inventory, UserId } from '@podium/model'
-import { asUserId, asAccountId, asMachineId, asSessionId } from '@podium/model'
+import { asAccountId, asMachineId, asSessionId, asUserId } from '@podium/model'
+import type { DaemonPtyInputBatch } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, test } from 'vitest'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
@@ -114,6 +115,47 @@ describe('MachinesService daemon socket identity', () => {
     expect(daemon.got).toEqual([keystroke])
     expect(local).toEqual([grant])
     expect(() => svc.attachUpdateParticipant(MACHINE, () => {})).toThrow(/already has/i)
+  })
+
+  test('flushes queued control and canonical input in FIFO order without re-encoding', () => {
+    const svc = makeService()
+    const events: string[] = []
+    const input: DaemonPtyInputBatch = {
+      sessionId: asSessionId('s1'),
+      inputOrigin: 'human',
+      bytes: Uint8Array.of(0, 0xff, 0x1b),
+    }
+    svc.toMachine(MACHINE, keystroke)
+    svc.toPtyInput(MACHINE, input)
+    svc.attach(MACHINE, {
+      send: () => events.push('control'),
+      sendInput: (received) => {
+        expect(received.bytes).toEqual(input.bytes)
+        events.push('input')
+      },
+    })
+    svc.flushQueued(MACHINE)
+    expect(events).toEqual(['control', 'input'])
+  })
+
+  test('adapts canonical input to legacy base64 only at a function transport', () => {
+    const svc = makeService()
+    const sent: ControlMessage[] = []
+    const input: DaemonPtyInputBatch = {
+      sessionId: asSessionId('s1'),
+      inputOrigin: 'human',
+      bytes: Uint8Array.of(0, 0xff, 0x1b),
+    }
+    svc.attach(MACHINE, (message) => sent.push(message))
+    svc.toPtyInput(MACHINE, input)
+    expect(sent).toEqual([
+      {
+        type: 'input',
+        sessionId: asSessionId('s1'),
+        inputOrigin: 'human',
+        data: Buffer.from(input.bytes).toString('base64'),
+      },
+    ])
   })
 })
 

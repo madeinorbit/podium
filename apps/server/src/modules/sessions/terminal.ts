@@ -1,13 +1,18 @@
 import type { AgentKind, Attribution, Geometry, SessionId, TranscriptItem } from '@podium/model'
-import type { ObservationInputOrigin, PresenceIdentity, ServerMessage } from '@podium/protocol'
+import type {
+  DaemonPtyInputBatch,
+  ObservationInputOrigin,
+  PresenceIdentity,
+  ServerMessage,
+} from '@podium/protocol'
 import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
   encodeBinaryEnvelope,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import type { ClientConn } from '../../gateway/client-registry'
 import { feedPrincipalOf } from '../../gateway/client-principal'
+import type { ClientConn } from '../../gateway/client-registry'
 import { perfPrincipal } from '../perf/principal'
 import { perf } from '../perf/registry'
 import type { Send } from './session'
@@ -18,8 +23,7 @@ const MAX_REPLAY_FRAMES = 4096
 const MAX_TRANSCRIPT_ITEMS = 12_000
 const SHELL_BUSY_WINDOW_MS = 4000
 
-function submitsCommandLine(base64: string): boolean {
-  const bytes = Buffer.from(base64, 'base64')
+function submitsCommandLine(bytes: Uint8Array): boolean {
   return bytes.includes(0x0d) || bytes.includes(0x0a)
 }
 
@@ -44,6 +48,7 @@ export interface SessionTerminalInit {
   agentKind: AgentKind
   geometry: Geometry
   toDaemon: Send<ControlMessage>
+  sendInput?: Send<DaemonPtyInputBatch>
   inputCount?: number
   outputCount?: number
   activityCount?: number
@@ -331,8 +336,13 @@ export class SessionTerminal {
   }
 
   handleInput(clientId: string, data: string, attribution?: Attribution): void {
+    this.handleInputBytes(clientId, Buffer.from(data, 'base64'), attribution)
+  }
+
+  handleInputBytes(clientId: string, bytes: Uint8Array, attribution?: Attribution): void {
+    if (bytes.byteLength === 0) return
     if (clientId !== this.controllerId) return
-    if (this.init.agentKind === 'shell' && submitsCommandLine(data)) {
+    if (this.init.agentKind === 'shell' && submitsCommandLine(bytes)) {
       this.shellCommandRunning = true
       this.markShellBusy()
     }
@@ -340,12 +350,22 @@ export class SessionTerminal {
     // Live-only keystroke attribution (POD-1081 §2). Durable retention is the
     // inbox/chat path, not the per-keystroke PTY stream.
     if (attribution) this.lastInputAttribution = attribution
+    const input: DaemonPtyInputBatch = {
+      sessionId: this.init.sessionId,
+      inputOrigin: 'human',
+      bytes,
+      ...(attribution ? { attribution } : {}),
+    }
+    if (this.init.sendInput) {
+      this.init.sendInput(input)
+      return
+    }
     this.init.toDaemon({
       type: 'input',
-      sessionId: this.init.sessionId,
-      data,
-      inputOrigin: 'human',
-      ...(attribution ? { attribution } : {}),
+      sessionId: input.sessionId,
+      data: Buffer.from(input.bytes).toString('base64'),
+      inputOrigin: input.inputOrigin,
+      ...(input.attribution ? { attribution: input.attribution } : {}),
     })
   }
 

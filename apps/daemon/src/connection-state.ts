@@ -1,32 +1,35 @@
 import { spawn } from 'node:child_process'
 import { hostname } from 'node:os'
+import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import {
+  CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
-  DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
   createHandshakeDialer,
-  encodeBinaryEnvelope,
+  DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
+  DaemonPtyInputMetadata,
   type DaemonPtyOutputBatch,
+  decodeBinaryEnvelope,
+  encodeBinaryEnvelope,
   type LocalDaemonAttachment,
   type PeerBuild,
   type PeerCredential,
   type PeerHelloRejected,
 } from '@podium/protocol'
-import { type DaemonMessage } from '@podium/protocol/daemon'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { consumePairCode } from '@podium/runtime/setup'
 import {
   acceptsUpdateKeyRotation,
-  updateKeyFingerprint,
   type UpdateKeyRotation,
+  updateKeyFingerprint,
 } from '@podium/runtime/update-key-trust'
 import WebSocket, { type RawData } from 'ws'
 import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
-import { createLogger } from '@podium/logger'
 
 const log = createLogger('daemon:connection')
 
@@ -67,7 +70,7 @@ interface SocketLike {
   send(data: string | Uint8Array): void
   close(): void
   once(event: 'open' | 'close', listener: () => void): this
-  on(event: 'message', listener: (raw: RawData) => void): this
+  on(event: 'message', listener: (raw: RawData, isBinary?: boolean) => void): this
   on(event: 'close', listener: () => void): this
   on(event: 'error', listener: (error: unknown) => void): this
   on(
@@ -84,6 +87,7 @@ export interface DaemonConnectionDeps {
   readonly machineId: MachineId
   readonly identity: { token?: string; updatePubkey?: string }
   readonly receiveApplicationFrame: (raw: RawData) => void
+  readonly receiveBinaryInput?: (metadata: DaemonPtyInputMetadata, payload: Uint8Array) => void
   readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => void
   readonly onConnected: () => { convergedVersion?: string } | void
   readonly onTerminal: () => void | Promise<void>
@@ -122,6 +126,13 @@ const legacyOutputMessage = (
       ...Array.from({ length: batch.sourceFrames - 1 }, () => ''),
     ],
   }
+}
+
+/** Normalize every ws RawData variant without changing any byte values. */
+export function normalizeRawData(raw: RawData): Buffer {
+  if (Buffer.isBuffer(raw)) return raw
+  if (Array.isArray(raw)) return Buffer.concat(raw)
+  return Buffer.from(raw)
 }
 
 /**
@@ -376,12 +387,51 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     child.once('close', (code) => settle(code))
   }
 
+  const closeForInvalidBinary = (
+    active: SocketLike | undefined,
+    reason: 'unnegotiated' | 'malformed',
+    error: unknown,
+  ): void => {
+    const detail = error instanceof Error ? error.message : String(error)
+    lastSocketError = detail
+    log.warn('closing daemon connection for invalid binary PTY input', {
+      reason,
+      err: error,
+    })
+    if (active) {
+      active.close()
+      return
+    }
+    localAttachment?.close()
+    localAttachment = undefined
+    state = 'closed'
+  }
   const receiveReply = (
     dialer: ReturnType<typeof createHandshakeDialer>,
     raw: RawData,
     active: SocketLike | undefined,
+    isBinary = false,
   ): void => {
-    const step = dialer.receive(raw.toString())
+    if (isBinary) {
+      if (dialer.state !== 'established' || !acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)) {
+        closeForInvalidBinary(
+          active,
+          'unnegotiated',
+          new Error('binary PTY input arrived before capability negotiation'),
+        )
+        return
+      }
+      let decoded: { metadata: DaemonPtyInputMetadata; payload: Uint8Array }
+      try {
+        decoded = decodeBinaryEnvelope(normalizeRawData(raw), DaemonPtyInputMetadata)
+      } catch (error) {
+        closeForInvalidBinary(active, 'malformed', error)
+        return
+      }
+      deps.receiveBinaryInput?.(decoded.metadata, decoded.payload)
+      return
+    }
+    const step = dialer.receive(normalizeRawData(raw).toString())
     if (step.action === 'deliver') {
       deps.receiveApplicationFrame(Buffer.from(step.raw))
       return
@@ -439,6 +489,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
           (cap) => reportUpdateIdentity || cap !== 'update.delivery.feed',
         ),
         CAP_TERMINAL_OUTPUT_BINARY_V1,
+        CAP_TERMINAL_INPUT_BINARY_V1,
       ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {
@@ -468,6 +519,26 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     const attachment = localLink.attach({
       hello: dialer.hello(),
       deliver: (msg) => deps.receiveApplicationFrame(Buffer.from(JSON.stringify(msg))),
+      deliverInput: (input) => {
+        if (!acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)) {
+          closeForInvalidBinary(
+            undefined,
+            'unnegotiated',
+            new Error('local binary PTY input arrived before capability negotiation'),
+          )
+          return
+        }
+        deps.receiveBinaryInput?.(
+          {
+            v: 1,
+            type: 'ptyInput',
+            sessionId: input.sessionId,
+            inputOrigin: input.inputOrigin,
+            ...(input.attribution === undefined ? {} : { attribution: input.attribution }),
+          },
+          input.bytes,
+        )
+      },
     })
     if (attachment.established) localAttachment = attachment
     receiveReply(dialer, Buffer.from(JSON.stringify(attachment.reply)), undefined)
@@ -489,12 +560,20 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         terminal('blocked', 'configuration', String(error), active)
       }
     })
-    active.on('message', (raw) => {
+    active.on('message', (raw, isBinary) => {
+      if (!dialer && isBinary) {
+        closeForInvalidBinary(
+          active,
+          'unnegotiated',
+          new Error('binary PTY input arrived before the daemon handshake'),
+        )
+        return
+      }
       if (!dialer) {
         terminal('blocked', 'handshake-protocol', 'reply-before-hello', active)
         return
       }
-      receiveReply(dialer, raw, active)
+      receiveReply(dialer, raw, active, isBinary === true)
     })
     if (!process.versions.bun) {
       active.on('unexpected-response', (_req, response) => {

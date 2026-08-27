@@ -23,12 +23,12 @@
 
 import { createLogger } from '@podium/logger'
 import type { UserId, UserRole } from '@podium/model'
-import { parseClientMessage } from '@podium/protocol'
+import { ClientPtyInputMetadata, decodeBinaryEnvelope, parseClientMessage } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
-import type { SessionRegistry } from '../relay'
-import { feedPrincipalOf } from './client-principal'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
+import type { SessionRegistry } from '../relay'
+import { feedPrincipalOf } from './client-principal'
 import { CLIENT_PLANE_LIVENESS } from './plane-liveness'
 import { type GatewaySocket, warnDroppedFrame } from './ws-send'
 
@@ -76,21 +76,58 @@ export function wireClientSocket(
     userId: auth.userId,
     userRole: auth.userRole,
   })
+  let failed = false
   ws.on('message', (raw) => {
+    if (failed) return
     try {
       if (typeof raw !== 'string') {
         const principal = registry.clientGateway.principalOf(id)
-        if (principal) {
-          perf.record(
-            'phase',
-            'terminal.output.protocol.unnegotiatedBinary',
-            0,
-            perfPrincipal(feedPrincipalOf(principal)),
-            raw.byteLength,
-          )
+        if (!registry.clientGateway.acceptsClientInputBinary(id)) {
+          if (principal) {
+            perf.record(
+              'phase',
+              'terminal.input.client.protocol.unnegotiatedBinary',
+              0,
+              perfPrincipal(feedPrincipalOf(principal)),
+              raw.byteLength,
+            )
+          }
+          failed = true
+          warnDroppedFrame('client', new Error('unnegotiated binary client input'))
+          ws.terminate()
+          return
         }
-        warnDroppedFrame('client', new Error('unnegotiated binary client frame'))
-        ws.terminate()
+        try {
+          const decoded = decodeBinaryEnvelope(raw, ClientPtyInputMetadata)
+          if (decoded.payload.byteLength === 0) return
+          if (principal) {
+            perf.record(
+              'phase',
+              'terminal.input.client.binary',
+              0,
+              perfPrincipal(feedPrincipalOf(principal)),
+              decoded.payload.byteLength,
+            )
+          }
+          registry.clientGateway.routeClientInputBytes(
+            id,
+            decoded.metadata.sessionId,
+            Uint8Array.from(decoded.payload),
+          )
+        } catch (error) {
+          if (principal) {
+            perf.record(
+              'phase',
+              'terminal.input.client.protocol.malformedBinary',
+              0,
+              perfPrincipal(feedPrincipalOf(principal)),
+              raw.byteLength,
+            )
+          }
+          failed = true
+          warnDroppedFrame('client', error)
+          ws.terminate()
+        }
         return
       }
       // The frame is parsed here and CLASSIFIED in the mux. The connection id

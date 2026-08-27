@@ -26,11 +26,14 @@
 
 import { createLogger } from '@podium/logger'
 import {
+  CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   type DaemonHandshakeReply,
+  type DaemonPtyInputBatch,
+  type DaemonPtyOutputBatch,
   DaemonPtyOutputMetadata,
   decodeBinaryEnvelope,
-  type DaemonPtyOutputBatch,
+  encodeBinaryEnvelope,
   type MachinePrincipal,
   type PeerHelloReply,
 } from '@podium/protocol'
@@ -42,6 +45,7 @@ import {
 import type { PairingGrant } from '../modules/machines/service'
 import { DEPLOYMENT, perf } from '../modules/perf/registry'
 import type { SessionRegistry } from '../relay'
+import type { DaemonControlTransport } from './daemon-ports'
 import { createDaemonAcceptor, receiveDaemonFrame, recordHelloBuild } from './peer-handshake'
 import { DAEMON_PLANE_LIVENESS } from './plane-liveness'
 import { type GatewaySocket, warnDroppedFrame } from './ws-send'
@@ -138,6 +142,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   let acceptedCaps = new Set<string>()
   let send: ((msg: ControlMessage) => void) | undefined
   let failed = false
+  let transport: DaemonControlTransport | undefined
   const failBinary = (
     failure: BinaryProtocolFailure,
     byteLength: number,
@@ -216,6 +221,14 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         0,
         DEPLOYMENT,
       )
+      perf.record(
+        'phase',
+        acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)
+          ? 'terminal.input.daemon.capability.binary'
+          : 'terminal.input.daemon.capability.base64',
+        0,
+        DEPLOYMENT,
+      )
       recordHelloBuild(registry.modules.machines, outcome.machineId, {
         build: outcome.build,
         caps: outcome.offeredCaps,
@@ -234,8 +247,49 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // failure — `traffic-before-ack` in the shared dialer — instead of looping.)
       // The plane applies its own budget (POD-391): this file never names a byte
       // count, so it cannot name the client plane's.
-      send = DAEMON_PLANE_LIVENESS.sink(ws).send
-      registry.gateway.attachDaemon(principal, send)
+      const sink = DAEMON_PLANE_LIVENESS.sink(ws)
+      send = sink.send
+      transport = {
+        send,
+        sendInput: (input: DaemonPtyInputBatch) => {
+          if (acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)) {
+            const framed = encodeBinaryEnvelope(
+              {
+                v: 1,
+                type: 'ptyInput',
+                sessionId: input.sessionId,
+                inputOrigin: input.inputOrigin,
+                ...(input.attribution ? { attribution: input.attribution } : {}),
+              },
+              input.bytes,
+            )
+            perf.record(
+              'phase',
+              'terminal.input.daemon.binary',
+              0,
+              DEPLOYMENT,
+              input.bytes.byteLength,
+            )
+            sink.sendBinary(framed)
+            return
+          }
+          perf.record(
+            'phase',
+            'terminal.input.daemon.base64',
+            0,
+            DEPLOYMENT,
+            input.bytes.byteLength,
+          )
+          send?.({
+            type: 'input',
+            sessionId: input.sessionId,
+            inputOrigin: input.inputOrigin,
+            data: Buffer.from(input.bytes).toString('base64'),
+            ...(input.attribution ? { attribution: input.attribution } : {}),
+          })
+        },
+      }
+      registry.gateway.attachDaemon(principal, transport)
       // A machine that just paired reports an EMPTY agent list: `install.sh` pairs
       // FIRST and installs Codex/Claude/Grok after, while the daemon's own inventory
       // loop only re-reports once a minute. Everything that gates on capability reads
@@ -303,6 +357,6 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     acceptedCaps.clear()
     // Pass THIS socket's send fn: if the daemon already reconnected, the registry
     // holds the new socket and this close must not evict it.
-    if (principal && send) registry.gateway.detachDaemon(principal, send)
+    if (principal && transport) registry.gateway.detachDaemon(principal, transport)
   })
 }

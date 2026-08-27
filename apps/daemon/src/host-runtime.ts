@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { agentLaunchCommand, declaredValue } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
-import type { DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
+import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
 import {
@@ -41,8 +41,8 @@ import {
   MAX_CONVERGENCE_ATTEMPTS,
   refuseConvergence,
   releaseCarriesNewMigrations,
-  restartAfterGrant,
   resolveOnBoot,
+  restartAfterGrant,
   shouldClearPendingGrantOnBoot,
 } from './convergence'
 import type { DaemonOptions } from './daemon-options'
@@ -92,6 +92,7 @@ export interface DaemonHostRuntime {
   readonly portableState: PortableStateControl
   connected(): { convergedVersion?: string }
   receive(raw: RawData): void
+  receiveBinaryInput(metadata: DaemonPtyInputMetadata, payload: Uint8Array): void
   close(opts?: { reapSessions?: boolean }): Promise<void>
 }
 
@@ -679,6 +680,7 @@ export async function createDaemonHostRuntime(args: {
     portableState: portableStateFence,
     connected,
     receive: (raw) => frameGuard.receive(raw),
+    receiveBinaryInput: (metadata, payload) => frameGuard.receiveBinaryInput(metadata, payload),
     close,
   }
 }

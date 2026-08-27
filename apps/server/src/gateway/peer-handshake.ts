@@ -13,8 +13,9 @@
 import type { MachineId, UserId } from '@podium/model'
 import {
   type AcceptorStep,
-  type CapabilityRef,
+  CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  type CapabilityRef,
   createDefaultAuthRegistry,
   createHandshakeAcceptor,
   type DaemonHandshake,
@@ -73,7 +74,7 @@ export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): HandshakeAccepto
       machines: createMachineDirectory(deps.machines),
       mint: gatewayCapabilityMinter,
     }),
-    supportedCaps: [CAP_TERMINAL_OUTPUT_BINARY_V1],
+    supportedCaps: [CAP_TERMINAL_OUTPUT_BINARY_V1, CAP_TERMINAL_INPUT_BINARY_V1],
     transport: {
       endpoint: '/daemon',
       connectionId: deps.connectionId,

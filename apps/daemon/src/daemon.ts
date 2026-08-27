@@ -119,6 +119,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     machineId: asMachineId(host.machineId),
     identity: host.identity,
     receiveApplicationFrame: host.receive,
+    receiveBinaryInput: host.receiveBinaryInput,
     sendApplicationFrame: (socket, message) =>
       host.frameGuard.send(socket as never, message as DaemonMessage),
     onConnected: host.connected,

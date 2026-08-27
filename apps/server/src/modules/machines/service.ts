@@ -25,10 +25,10 @@ import {
 } from '@podium/model'
 import type {
   DaemonHandshake,
+  DaemonPtyInputBatch,
   LiveServerMessage,
   MachineVerb,
   PeerBuild,
-  Principal,
   ServerMessage,
   UpdateKeyRotation,
 } from '@podium/protocol'
@@ -36,6 +36,7 @@ import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
 import { type EnrollmentLedger, newLedgerTxnId } from '../../enrollment-ledger'
 import type { ClientPrincipal } from '../../gateway/client-principal'
+import type { DaemonControlPeer } from '../../gateway/daemon-ports'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { EventBus } from '../bus'
 import type { Send } from '../sessions/session'
@@ -53,6 +54,29 @@ export { sha256 } from './enrollment'
  * this service stays principal-free and only carries the answer.
  */
 export type MachineUseResolver = (machineId: MachineId) => MachineUseDecision
+
+type PendingDaemonDelivery =
+  | { readonly kind: 'control'; readonly message: ControlMessage }
+  | { readonly kind: 'input'; readonly input: DaemonPtyInputBatch }
+
+const sendControl = (transport: DaemonControlPeer, message: ControlMessage): void => {
+  if (typeof transport === 'function') transport(message)
+  else transport.send(message)
+}
+
+const sendPtyInput = (transport: DaemonControlPeer, input: DaemonPtyInputBatch): void => {
+  if (typeof transport !== 'function') {
+    transport.sendInput(input)
+    return
+  }
+  transport({
+    type: 'input',
+    sessionId: input.sessionId,
+    inputOrigin: input.inputOrigin,
+    data: Buffer.from(input.bytes).toString('base64'),
+    ...(input.attribution ? { attribution: input.attribution } : {}),
+  })
+}
 
 /**
  * One principal's OWNERSHIP answer, per machine (POD-1495) — "are you this
@@ -191,7 +215,7 @@ export class MachinesService {
   // machineId -> control-message sender for that daemon. Replaces the single
   // socket: each connected machine has its own send, so a session's control
   // messages route to the daemon that actually runs it.
-  private readonly daemons = new Map<string, Send<ControlMessage>>()
+  private readonly daemons = new Map<string, DaemonControlPeer>()
   /** One local parent-backed update participant; separate from agent daemon routing. */
   private readonly updateParticipants = new Map<
     string,
@@ -206,7 +230,7 @@ export class MachinesService {
   // Nothing here is waiting for an answer — a queued message may be a fire-and-
   // forget spawn — and it is the layer BELOW the broker, which sends through
   // `toMachine` and never learns whether a message went out or was parked.
-  private readonly pendingByMachine = new Map<string, ControlMessage[]>()
+  private readonly pendingByMachine = new Map<string, PendingDaemonDelivery[]>()
   /**
    * In-memory mirror of the machines table. listSessions() resolves machineName
    * PER SESSION (and allWire() transitively per issue), so an uncached lookup is
@@ -261,8 +285,8 @@ export class MachinesService {
 
   /** Register a machine's daemon socket (the bookkeeping half of attachDaemon —
    *  the registry orchestrates adoption/flush/reattach around this). */
-  attach(machineId: MachineId, send: Send<ControlMessage>): void {
-    this.daemons.set(machineId, send)
+  attach(machineId: MachineId, transport: DaemonControlPeer): void {
+    this.daemons.set(machineId, transport)
     // The daemon may have (re-)registered/touched its machine row on the way in
     // (pair/hello, or a test upserting directly before attaching) — drop the cache.
     this.invalidateMachineCache()
@@ -316,12 +340,15 @@ export class MachinesService {
    *  session's spawn produced before the host daemon's ws connected). Every queue is
    *  keyed by a real machine id, so there is nothing to carry over on attach. */
   flushQueued(machineId: MachineId): void {
-    const send = this.daemons.get(machineId)
-    if (!send) return
+    const transport = this.daemons.get(machineId)
+    if (!transport) return
     const pending = this.pendingByMachine.get(machineId)
     if (pending && pending.length > 0) {
       this.pendingByMachine.delete(machineId)
-      for (const m of pending) send(m)
+      for (const delivery of pending) {
+        if (delivery.kind === 'control') sendControl(transport, delivery.message)
+        else sendPtyInput(transport, delivery.input)
+      }
     }
   }
 
@@ -336,8 +363,8 @@ export class MachinesService {
    *  the 35s "no daemon answered" timeout.
    *
    *  Returns false when the closing socket is already superseded (nothing to do). */
-  detach(machineId: MachineId, send?: Send<ControlMessage>): boolean {
-    if (send !== undefined && this.daemons.get(machineId) !== send) return false
+  detach(machineId: MachineId, transport?: DaemonControlPeer): boolean {
+    if (transport !== undefined && this.daemons.get(machineId) !== transport) return false
     this.daemons.delete(machineId)
     this.invalidateMachineCache()
     return true
@@ -358,14 +385,29 @@ export class MachinesService {
         return
       }
     }
-    const send = this.daemons.get(machineId)
-    if (send) {
-      send(msg)
+    const transport = this.daemons.get(machineId)
+    if (transport) {
+      sendControl(transport, msg)
       return
     }
     const q = this.pendingByMachine.get(machineId)
-    if (q) q.push(msg)
-    else this.pendingByMachine.set(machineId, [msg])
+    const delivery = { kind: 'control' as const, message: msg }
+    if (q) q.push(delivery)
+    else this.pendingByMachine.set(machineId, [delivery])
+  }
+
+  /** Route canonical PTY bytes without re-encoding on a capable daemon transport. */
+  readonly toPtyInput = (machineId: MachineId, input: DaemonPtyInputBatch): void => {
+    if (input.bytes.byteLength === 0) return
+    const transport = this.daemons.get(machineId)
+    if (transport) {
+      sendPtyInput(transport, input)
+      return
+    }
+    const q = this.pendingByMachine.get(machineId)
+    const delivery = { kind: 'input' as const, input }
+    if (q) q.push(delivery)
+    else this.pendingByMachine.set(machineId, [delivery])
   }
 
   // ---- machine admin + daemon pairing/auth ----

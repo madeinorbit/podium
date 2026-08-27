@@ -949,6 +949,16 @@ export class SessionInbox {
     sessionId: SessionId,
     data: string,
   ): void {
+    this.handleControllerInputBytes(principal, client, sessionId, Buffer.from(data, 'base64'))
+  }
+
+  handleControllerInputBytes(
+    principal: ClientPrincipal,
+    client: ClientConn,
+    sessionId: SessionId,
+    bytes: Uint8Array,
+  ): void {
+    if (bytes.byteLength === 0) return
     const session = this.deps.getSession(sessionId)
     if (!session) return
     // Live re-auth at apply: a revoked human (or their agent) loses control here
@@ -957,7 +967,11 @@ export class SessionInbox {
       if (session.terminal.controllerId === client.id) session.terminal.revokeController()
       return
     }
-    session.terminal.handleInput(client.id, data, inboxPrincipalFromClient(principal).attribution)
+    session.terminal.handleInputBytes(
+      client.id,
+      bytes,
+      inboxPrincipalFromClient(principal).attribution,
+    )
   }
 
   /**
@@ -1097,10 +1111,9 @@ export class SessionInbox {
     // of intentional sends remains the queue row, not this field.
     session.terminal.noteInputAttribution(attribution)
     this.deps.daemon.sendInput(session.machineId, {
-      type: 'input',
+      bytes: Buffer.from(data),
       sessionId: session.sessionId,
       inputOrigin,
-      data: Buffer.from(data).toString('base64'),
       attribution,
     })
   }

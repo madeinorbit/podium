@@ -1,7 +1,10 @@
 import { addSink } from '@podium/logger'
 import { asMachineId, asSessionId } from '@podium/model'
 import {
+  CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  ClientPtyInputMetadata,
+  decodeBinaryEnvelope,
   encode,
   encodeBinaryEnvelope,
   type ServerMessage,
@@ -50,6 +53,14 @@ class BrowserSocket extends FakeSocket {
   }
 }
 
+class BinaryInputSocket extends FakeSocket {
+  binaryType: 'blob' | 'arraybuffer' = 'blob'
+  binarySent: Uint8Array[] = []
+  sendBinary(data: Uint8Array): void {
+    this.binarySent.push(data.slice())
+  }
+}
+
 class NonBinarySocket extends FakeSocket {
   closeCalls = 0
   override close(): void {
@@ -95,7 +106,7 @@ describe('SocketHub', () => {
     expect(sock.binaryType).toBe('arraybuffer')
     sock.open()
     expect(sock.parsed().find((message) => message.type === 'hello')).toMatchObject({
-      caps: [CAP_TERMINAL_OUTPUT_BINARY_V1],
+      caps: expect.arrayContaining([CAP_TERMINAL_OUTPUT_BINARY_V1, CAP_TERMINAL_INPUT_BINARY_V1]),
     })
 
     const payload = Uint8Array.of(0x00, 0xff, 0xe2, 0x82)
@@ -108,6 +119,69 @@ describe('SocketHub', () => {
     expect(frames).toEqual([payload])
     expect(hub.attach(asSessionId('s1')).state()).toMatchObject({ lastSeq: 4, epoch: 2 })
     expect(sock.closeCalls).toBe(0)
+  })
+
+  it('advertises binary input and sends exact UTF-8 bytes after welcome acknowledgement', () => {
+    const sock = new BinaryInputSocket()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => sock,
+    })
+    const conn = hub.attach(asSessionId('s1'))
+    hub.connect()
+    sock.open()
+    expect(sock.parsed().find((message) => message.type === 'hello')).toMatchObject({
+      caps: expect.arrayContaining([CAP_TERMINAL_INPUT_BINARY_V1]),
+    })
+
+    const beforeAck = '\u001b[200~é'
+    conn.sendInput(beforeAck)
+    expect(sock.binarySent).toHaveLength(0)
+    expect(sock.parsed()).toContainEqual({
+      type: 'input',
+      sessionId: 's1',
+      data: b64Bytes(...utf8(beforeAck)),
+    })
+
+    // Input acknowledgement is independent of output: this welcome grants only
+    // input, yet the client must switch the input path to the binary envelope.
+    sock.recv({ type: 'welcome', clientId: 'c0', caps: [CAP_TERMINAL_INPUT_BINARY_V1] })
+    const inputs = ['\u0000\u001b[200~é💩', 'paste\nblock', '\r']
+    for (const input of inputs) conn.sendInput(input)
+
+    expect(sock.binarySent).toHaveLength(inputs.length)
+    const decoded = sock.binarySent.map((frame) =>
+      decodeBinaryEnvelope(frame, ClientPtyInputMetadata),
+    )
+    expect(decoded.map(({ metadata }) => metadata)).toEqual(
+      inputs.map(() => ({ v: 1, type: 'ptyInput', sessionId: 's1' })),
+    )
+    expect(decoded.map(({ payload }) => Array.from(payload))).toEqual(
+      inputs.map((input) => Array.from(utf8(input))),
+    )
+  })
+
+  it('keeps JSON/base64 input when an old server omits the welcome caps', () => {
+    const sock = new BinaryInputSocket()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => sock,
+    })
+    const conn = hub.attach(asSessionId('s1'))
+    hub.connect()
+    sock.open()
+    sock.recv({ type: 'welcome', clientId: 'c0' })
+
+    const input = '\u001b[1;5Dé'
+    conn.sendInput(input)
+    expect(sock.binarySent).toHaveLength(0)
+    expect(sock.parsed()).toContainEqual({
+      type: 'input',
+      sessionId: 's1',
+      data: b64Bytes(...utf8(input)),
+    })
   })
 
   it('drops a valid binary frame for a detached session without closing', () => {
@@ -1255,6 +1329,46 @@ describe('resume + offline input queue', () => {
       { type: 'input', sessionId: 's1', data: b64('a') },
       { type: 'input', sessionId: 's1', data: b64('b') },
     ])
+  })
+
+  it('downgrades input on reconnect until the new welcome acknowledges it', () => {
+    vi.useFakeTimers()
+    const sockets: BinaryInputSocket[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => {
+        const socket = new BinaryInputSocket()
+        sockets.push(socket)
+        return socket
+      },
+    })
+    hub.connect()
+    sockets[0]?.open()
+    const conn = hub.attach(asSessionId('s1'))
+    sockets[0]?.recv({ type: 'welcome', clientId: 'c0', caps: [CAP_TERMINAL_INPUT_BINARY_V1] })
+    conn.sendInput('first')
+    expect(sockets[0]?.binarySent).toHaveLength(1)
+
+    sockets[0]?.close()
+    conn.sendInput('paste')
+    conn.sendInput('\r')
+    vi.advanceTimersByTime(30_000)
+    sockets[1]?.open()
+    expect(sockets[1]?.binarySent).toHaveLength(0)
+    expect(sockets[1]?.parsed().filter((message) => message.type === 'input')).toEqual([
+      { type: 'input', sessionId: 's1', data: b64('paste') },
+      { type: 'input', sessionId: 's1', data: b64('\r') },
+    ])
+
+    sockets[1]?.recv({ type: 'welcome', clientId: 'c1', caps: [] })
+    conn.sendInput('after-downgrade')
+    expect(sockets[1]?.binarySent).toHaveLength(0)
+    expect(sockets[1]?.parsed()).toContainEqual({
+      type: 'input',
+      sessionId: 's1',
+      data: b64('after-downgrade'),
+    })
   })
 
   it('does not replay queued input after an intentional dispose', () => {

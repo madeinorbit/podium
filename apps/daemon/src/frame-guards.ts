@@ -1,9 +1,11 @@
 import { createLogger } from '@podium/logger'
+import type { DaemonPtyInputMetadata } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { encodeDaemonMessage, parseControlMessage } from '@podium/protocol/daemon'
 import type { RawData, WebSocket } from 'ws'
 import type { DaemonContext } from './control/context'
 import { dispatchControlMessage } from './control/registry'
+import { dispatchInputBytes } from './control/session'
 import { beginControlTurn, timeTask } from './loop-attribution'
 
 const log = createLogger('daemon:frames')
@@ -107,6 +109,7 @@ function describeUnreadableApprovalOp(op: unknown): string | undefined {
 }
 
 export interface FrameGuard {
+  receiveBinaryInput(metadata: DaemonPtyInputMetadata, payload: Uint8Array): void
   receive(raw: RawData): void
   send(socket: Pick<WebSocket, 'readyState' | 'send'> | undefined, msg: DaemonMessage): void
 }
@@ -127,7 +130,8 @@ export function createFrameGuard(
   } = {},
 ): FrameGuard {
   const now = deps.now ?? Date.now
-  const warn = deps.warn ?? ((msg: string, fields?: Record<string, unknown>) => log.warn(msg, fields))
+  const warn =
+    deps.warn ?? ((msg: string, fields?: Record<string, unknown>) => log.warn(msg, fields))
   let lastWarnAt = Number.NEGATIVE_INFINITY
   const warnDropped = (err: unknown, direction: 'inbound' | 'outbound'): void => {
     const at = now()
@@ -165,6 +169,15 @@ export function createFrameGuard(
         timeTask(`controlDispatch(${msg.type})`, () => dispatchControlMessage(ctx, msg))
       } finally {
         finish(msg.type)
+      }
+    },
+    receiveBinaryInput(metadata, payload) {
+      if (payload.byteLength === 0) return
+      const finish = beginControlTurn()
+      try {
+        timeTask('controlDispatch(input)', () => dispatchInputBytes(ctx, metadata, payload))
+      } finally {
+        finish('input')
       }
     },
     send(socket, msg) {

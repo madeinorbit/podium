@@ -59,7 +59,11 @@ import {
   type SessionMeta,
   type UserId,
 } from '@podium/model'
-import type { AgentInstruction, SessionBindingSpawnInstruction } from '@podium/protocol'
+import type {
+  AgentInstruction,
+  DaemonPtyInputBatch,
+  SessionBindingSpawnInstruction,
+} from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import { harnessSupportsInitialPrompt } from '../../harness-manifest'
@@ -135,6 +139,7 @@ export interface SessionStartPorts {
     ownerUserId: UserId
   }): void
   toMachine(machineId: MachineId, message: ControlMessage): void
+  toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
   soleOwnerForCwd(cwd: string): IssueId | undefined
@@ -398,6 +403,11 @@ export class SessionStart {
       // reassignment), falling back to the birth machine before the row exists.
       toDaemon: (msg) =>
         this.ports.toMachine(asMachineId(this.ports.sessionMachineId(sessionId) ?? machineId), msg),
+      sendInput: (input) =>
+        this.ports.toPtyInput(
+          asMachineId(this.ports.sessionMachineId(sessionId) ?? machineId),
+          input,
+        ),
       onActivity: () => {
         // Shell busy transitions advance lastActiveAt (their only activity
         // signal); persist so recency is durable across a restart, then

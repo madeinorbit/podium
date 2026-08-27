@@ -7,11 +7,14 @@
  */
 
 import { createHash } from 'node:crypto'
-import { asUserId, asMachineId, asSessionId } from '@podium/model'
+import { asMachineId, asSessionId, asUserId } from '@podium/model'
 import {
-  CAP_TERMINAL_OUTPUT_BINARY_V1,
   BINARY_ENVELOPE_MAX_MESSAGE_BYTES,
-  DaemonPtyOutputMetadata,
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  DaemonPtyInputMetadata,
+  type DaemonPtyOutputMetadata,
+  decodeBinaryEnvelope,
   encodeBinaryEnvelope,
   machineUseAllowed,
   WIRE_VERSION,
@@ -27,12 +30,15 @@ import { createDaemonAcceptor, receiveDaemonFrame } from './peer-handshake'
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
 function fakeWs() {
+  const binarySent: Uint8Array[] = []
   const sent: string[] = []
   const handlers: Record<string, Array<(...a: unknown[]) => void>> = {}
   return {
+    binarySent,
     sent,
     readyState: 1,
     bufferedAmount: 0,
+    sendBinary: (bytes: Uint8Array) => binarySent.push(bytes.slice()),
     send: (s: string) => sent.push(s),
     terminate: vi.fn(),
     on: (ev: string, cb: (...a: unknown[]) => void) => {
@@ -141,7 +147,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     )
     expect(attach).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),
-      expect.any(Function),
+      expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
     )
     // The envelope peer gets the envelope reply, and it names the id the SERVER
     // resolved rather than anything the peer claimed.
@@ -177,6 +183,38 @@ describe('the daemon socket speaks the permanent envelope', () => {
     expect(batch).toMatchObject({ sessionId: 'binary-session', sourceFrames: 3 })
     expect(batch.bytes).toEqual(payload)
     expect(ws.terminate).not.toHaveBeenCalled()
+  })
+
+  it('serves exact binary PTY input only after the daemon negotiates it', () => {
+    const reg = registryWithMachine()
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
+    const ws = fakeWs()
+    wireDaemonSocket(ws as never, reg)
+    ws.emit(
+      'message',
+      frame({
+        type: 'peerHello',
+        v: WIRE_VERSION,
+        caps: [CAP_TERMINAL_INPUT_BINARY_V1],
+        credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
+      }),
+    )
+    const transport = attach.mock.calls[0]?.[1] as {
+      sendInput(input: import('@podium/protocol').DaemonPtyInputBatch): void
+    }
+    const payload = Uint8Array.of(0, 0xff, 0x1b, 0x0d)
+    transport.sendInput({ sessionId: asSessionId('s1'), inputOrigin: 'human', bytes: payload })
+    expect(ws.binarySent).toHaveLength(1)
+    const framed = ws.binarySent[0]
+    expect(framed).toBeDefined()
+    if (!framed) throw new Error('expected one binary PTY input frame')
+    const decoded = decodeBinaryEnvelope(framed, DaemonPtyInputMetadata)
+    expect(decoded.metadata).toMatchObject({
+      sessionId: 's1',
+      inputOrigin: 'human',
+    })
+    expect(decoded.payload).toEqual(payload)
+    expect(ws.sent.filter((value) => value.includes('"type":"input"'))).toHaveLength(0)
   })
 
   it('terminates pre-auth binary locally while another daemon remains routable', () => {
@@ -313,7 +351,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     // Attached as an ordinary machine; no elevation, and no accepted caps.
     expect(attach).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),
-      expect.any(Function),
+      expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
     )
     expect(JSON.parse(ws.sent[0] ?? '{}')).toMatchObject({ type: 'peerHelloOk', caps: [] })
   })

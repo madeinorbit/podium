@@ -229,6 +229,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     observationLeases: bag.observationLeases,
     autoContinue: () => bag.autoContinue,
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
+    toPtyInput: (machineId, input) => bag.toPtyInput(machineId, input),
     broadcastSessions: () => bag.broadcastSessions(),
     flushBroadcasts: () => bag.broadcasts.flush(),
     runScheduledBroadcast: () => bag.broadcasts.runScheduled(),
@@ -266,6 +267,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.machines.resolveMachineForAgent(requested, cwd, agentKind, use),
     onSpawnTargetLogin: (input) => bag.deps.onSpawnTargetLogin?.(input),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
+    toPtyInput: (machineId, input) => bag.toPtyInput(machineId, input),
     broadcastSessions: () => bag.broadcastSessions(),
     soleOwnerForCwd: (cwd) => bag.deps.issueAccess.soleOwnerForCwd(cwd) ?? undefined,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
@@ -329,7 +331,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       delete: (id) => bag.store.sync.deleteQueuedMessage(id),
     },
     daemon: {
-      sendInput: (machineId, message) => bag.toMachine(machineId, message),
+      sendInput: (machineId, input) => bag.toPtyInput(machineId, input),
     },
     authorization: {
       authorizeAtDrain: (input) => bag.authorizeQueuedInputAtApply(input),

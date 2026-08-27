@@ -1,7 +1,7 @@
 import { StringDecoder } from 'node:string_decoder'
+import type { Geometry } from '@podium/model'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
-import type { Geometry } from '@podium/model'
 import { createTitleScanner } from './osc-title.js'
 
 const CTRL_L = Uint8Array.of(0x0c)
@@ -27,8 +27,10 @@ export interface AgentSession {
   /** Live terminal title (OSC 0/1/2) the agent set, emitted on each change. */
   onTitle(cb: (title: string) => void): () => void
   onExit(cb: (code: number) => void): () => void
-  /** base64 of input bytes to inject into the PTY */
+  /** Legacy base64 adapter for input bytes; new callers should use writeBytes. */
   write(dataBase64: string): void
+  /** Canonical PTY input boundary: write the exact bytes without text conversion. */
+  writeBytes(data: Uint8Array): void
   resize(cols: number, rows: number): void
   /**
    * Force a real repaint even when geometry is unchanged. `hard` additionally
@@ -132,6 +134,10 @@ export function wrapPty(proc: PtyProcess, init: { cols: number; rows: number }):
     onExit(cb) {
       exitCbs.add(cb)
       return () => exitCbs.delete(cb)
+    },
+    writeBytes(data) {
+      if (disposed) return
+      proc.write(data)
     },
     write(dataBase64) {
       if (disposed) return

@@ -2,13 +2,15 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import {
-  bindHarnessLaunch,
   agentStateProviderFor,
+  bindHarnessLaunch,
   declaredValue,
   harnessCapabilitiesFor,
   type LaunchFile,
   manifestFor,
 } from '@podium/harness'
+import { createLogger } from '@podium/logger'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { type AgentKind, asMachineId, type Geometry, type SessionId } from '@podium/model'
 import {
   type AgentSession,
@@ -32,7 +34,6 @@ import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
 import { sourceForRead } from './transcripts'
-import { createLogger } from '@podium/logger'
 
 const log = createLogger('daemon:session')
 
@@ -753,6 +754,30 @@ async function reapDurableHost(
     })
   }
 }
+type CanonicalInputMetadata = Pick<
+  Extract<ControlMessage, { type: 'input' }>,
+  'sessionId' | 'inputOrigin'
+>
+
+/**
+ * Deliver already-converged PTY input bytes. Legacy base64 frames and negotiated
+ * binary envelopes enter here before origin accounting, composer activity, or PTY I/O.
+ */
+export function dispatchInputBytes(
+  ctx: DaemonContext,
+  metadata: CanonicalInputMetadata,
+  bytes: Uint8Array,
+): void {
+  if (bytes.byteLength === 0) return
+  if (bytes.includes(0x0d) || bytes.includes(0x0a)) {
+    ctx.observers.recordInputOrigin(metadata.sessionId, metadata.inputOrigin)
+  }
+  ctx.bridges.get(metadata.sessionId)?.writeBytes(bytes)
+  // Input-byte tap (POD-859 §3): a client typing into the PTY means the native
+  // replica is hot, so the engine defers injection. No-op for unflagged sessions.
+  ctx.composerEngine.onInputByte(metadata.sessionId)
+}
+
 export const sessionHandlers: Pick<
   ControlHandlers,
   | 'spawn'
@@ -812,16 +837,12 @@ export const sessionHandlers: Pick<
       })
       .catch((err) => log.warn('could not record the native identity conflict', { err }))
   },
-  input: (ctx, msg) => {
-    const input = Buffer.from(msg.data, 'base64').toString('utf8')
-    if (input.includes('\r') || input.includes('\n')) {
-      ctx.observers.recordInputOrigin(msg.sessionId, msg.inputOrigin)
-    }
-    ctx.bridges.get(msg.sessionId)?.write(msg.data)
-    // Input-byte tap (POD-859 §3): a client typing into the PTY means the native
-    // replica is hot, so the engine defers injection. No-op for unflagged sessions.
-    ctx.composerEngine.onInputByte(msg.sessionId)
-  },
+  input: (ctx, msg) =>
+    dispatchInputBytes(
+      ctx,
+      { sessionId: msg.sessionId, inputOrigin: msg.inputOrigin ?? 'unknown' },
+      Buffer.from(msg.data, 'base64'),
+    ),
   resize: (ctx, msg) => {
     const bridge = ctx.bridges.get(msg.sessionId)
     // No bridge yet = the spawn this resize belongs to is still in flight. Hold the
