@@ -204,15 +204,39 @@ describe('SocketHub', () => {
 
   it('closes only the receiving connection for malformed or unnegotiated binary', () => {
     const malformed = new BrowserSocket()
+    const replacement = new BrowserSocket()
+    let socketIndex = 0
+    const tasks: Array<() => void> = []
+    const feedFrames: unknown[] = []
     const malformedHub = new SocketHub({
       url: 'ws://x',
       viewport: { cols: 80, rows: 24, dpr: 1 },
-      makeSocket: () => malformed,
+      makeSocket: () => (socketIndex++ === 0 ? malformed : replacement),
+      feed: {
+        helloFields: () => null,
+        connected: () => {},
+        disconnected: () => {},
+        frame: (frame) => feedFrames.push(frame),
+      },
+      scheduleFeedTask: (task) => tasks.push(task),
     })
     const frames: Uint8Array[] = []
-    malformedHub.attach(asSessionId('s1'), { onFrame: (bytes) => frames.push(bytes) })
+    const conn = malformedHub.attach(asSessionId('s1'), {
+      onFrame: (bytes) => frames.push(bytes),
+    })
     malformedHub.connect()
     malformed.open()
+    malformed.recv({
+      type: 'feedBootstrap',
+      feedId: 'invalid-feed',
+      epoch: 'invalid-epoch',
+      fromSeq: 0,
+      seq: 0,
+      minAvailableSeq: 0,
+      changes: [],
+      last: true,
+    })
+    expect(tasks).toHaveLength(1)
     malformed.recvBinary(Uint8Array.of(0, 1))
     expect(malformed.closeCalls).toBe(1)
     expect(malformedHub.wireSkew()?.refusedFrames).toBe(1)
@@ -233,6 +257,14 @@ describe('SocketHub', () => {
     })
     expect(frames).toEqual([])
     expect(malformed.closeCalls).toBe(1)
+    tasks.shift()?.()
+    expect(feedFrames).toEqual([])
+    expect(malformedHub.feedBudget().tasks).toBe(0)
+    conn.requestControl()
+    malformed.onclose?.({})
+    malformedHub.connectNow()
+    replacement.open()
+    expect(replacement.parsed()).toContainEqual({ type: 'requestControl', sessionId: 's1' })
 
     const unnegotiated = new NonBinarySocket()
     const legacyHub = new SocketHub({

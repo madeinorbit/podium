@@ -1788,7 +1788,7 @@ export class SocketHub {
     if (entry === undefined) return
     if (entry.kind === 'feedDelta') this.feedDeltaQueueDepth -= 1
 
-    if (this.socket === entry.socket) {
+    if (this.socket === entry.socket && !this.invalidSockets.has(entry.socket)) {
       const startedAt = interactionNow()
       try {
         this.route(entry.raw)
@@ -2265,7 +2265,11 @@ export class SocketHub {
 
   private sendRaw(msg: Parameters<typeof encode>[0] | Uint8Array): void {
     const currentSocket = this.socket
-    if (currentSocket !== undefined && this.invalidSockets.has(currentSocket)) return
+    if (currentSocket !== undefined && this.invalidSockets.has(currentSocket)) {
+      if (!(msg instanceof Uint8Array) && this.preOpenQueue.length < INPUT_QUEUE_CAP)
+        this.preOpenQueue.push(msg)
+      return
+    }
     if (msg instanceof Uint8Array) {
       const socket = currentSocket
       if (!this.connectedFlag || socket === undefined) return
