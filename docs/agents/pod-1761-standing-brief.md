@@ -1481,7 +1481,7 @@ somebody their work is broken.
 argued with it; it went and found why the two trees disagreed. **That is the response that turns a
 wrong confident conclusion into a solved problem in one round.**
 
-### Score against every clause of the criterion, not the first one (2026-08-27 05:18 CEST)
+### Score against every clause of the criterion, not the first one — BUT READ THE CODE FIRST (2026-08-27 05:18 CEST)
 
 A session reported **A3 PASS** and, to its great credit, added: *"the shared scorer reports PASS,
 but the reading explicitly says no `event:'interrupt'` transcript marker."*
@@ -1507,3 +1507,31 @@ epic's most expensive defects have all been instruments that answer confidently 
 **And when your own reading contradicts your scorer, the reading wins.** That session's caveat is
 the only reason a wrong PASS did not enter the matrix. **Say the contradiction out loud even when
 the tool is the one you were told to use.**
+
+### CORRECTION to the section above, 2026-08-27 05:20 CEST — I applied a rule to a sentence I had not checked
+
+**I told a session its A3 PASS was really a PARTIAL because the criterion's second clause was
+unmet, and I was wrong.** I read the matrix wording and did not read the scorer.
+
+    docs/evidence/pod-2874/drive.ts:456
+    const pass = after.ok && (hasMarker || typedRefusal)
+
+**That is not a scorer skipping a clause — it implements the criterion's actual structure.** *"turn
+stops; transcript shows interrupt; refused interrupt says why"* reads as *if it worked the
+transcript shows it, and if it was refused the refusal says why*. **Marker-OR-typed-refusal is
+fair.** My correction would have put a wrong PARTIAL into the matrix on my authority alone.
+
+**The clause-by-clause principle above still stands. What I got wrong was applying it without
+reading the implementation** — the exact failure this brief warns about in three other places, and
+I committed it while writing the warning.
+
+**AND THE SESSION'S INSTINCT WAS STILL RIGHT, FOR A BETTER REASON THAN EITHER OF US GAVE.** If there
+was no marker then `typedRefusal` must have been true — which means **the interrupt may have
+declined to act rather than stopped anything**, and the turn ending in 632ms could simply be a short
+turn finishing. **`after.ok` waits for `phase !== working`; it cannot distinguish "stopped
+because of the interrupt" from "ended while the interrupt was refused."** That is a real weakness in
+the probe, and it is the finding — not the clause count I invented.
+
+**THE TRANSFERABLE RULE: when you think a scorer is wrong, read the scorer.** Disagreeing with a
+verdict from the criterion alone is a hypothesis; reading the twelve lines that produce it is an
+answer, and it takes about a minute.
