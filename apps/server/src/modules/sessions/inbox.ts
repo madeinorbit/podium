@@ -642,7 +642,11 @@ export class SessionInbox {
     return undefined
   }
 
-  sendText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
+  sendText(input: InboxSendInput): {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  } {
     const session = this.deps.getSession(input.sessionId)
     const blockedReason = session
       ? sessionSendRefusalReason(session, input.allowErrored === true)
@@ -856,6 +860,16 @@ export class SessionInbox {
     if (parked) this.deps.resurrect(input.sessionId, principal)
     this.drain(input.sessionId)
     return { ok: true, queued: true }
+  }
+
+  /** Current FIFO position for a message-ledger row already handed to the
+   * SessionInbox queue. The lookup is intentionally live so a drained head
+   * immediately moves the remaining row to its honest new ordinal. */
+  queuedMessagePosition(sessionId: SessionId, sourceMessageId: string): number | undefined {
+    const position = this.deps.queue
+      .list(sessionId)
+      .findIndex((row) => row.sourceMessageId === sourceMessageId)
+    return position >= 0 ? position + 1 : undefined
   }
 
   /** Remove every still-pending PTY row backed by one message-ledger intent. */

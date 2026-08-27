@@ -57,6 +57,7 @@ describe('status + delivery line', () => {
   })
   it('tells the delivery story', () => {
     expect(deliveryLine(base)).toBe('queued')
+    expect(deliveryLine({ ...base, queuePosition: 2 })).toBe('queued · queue position 2')
     // An abandoned drain is TERMINAL, and the chip says which way it ended
     // [POD-2132, POD-2202] — "still queued" described a wait nobody was serving.
     expect(

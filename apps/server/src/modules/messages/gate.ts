@@ -142,6 +142,8 @@ export interface MessageWire {
   body: string
   createdAt: string
   status: string
+  /** Current 1-based position in the recipient session FIFO, read at projection time. */
+  queuePosition?: number
   ackedBy: string | null
   // Delivery-ledger fields (#237) [spec:SP-34d7 web] — additive, so the CLI
   // renderers ignore them; the web ledger view answers "what happened to my

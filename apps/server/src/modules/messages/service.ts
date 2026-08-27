@@ -191,6 +191,9 @@ export interface MessageDeliveryDeps {
     sessionById?(sessionId: SessionId): SessionMeta | undefined
     listSessionsForIssue?(worktreePath: string | null, issueId: IssueId): SessionMeta[]
     sessionRoutingFacts?(): SessionRoutingFacts[]
+    /** Live position in the SessionInbox FIFO for a ledger row already handed
+     * to it by a receipt/queue delivery. */
+    queuedMessagePosition?(sessionId: SessionId, sourceMessageId: string): number | undefined
     sendText(input: InboxDeliveryInput): {
       ok: boolean
       queued?: boolean
@@ -999,8 +1002,21 @@ export class MessageDeliveryService {
     }
 
     const outcome = this.attemptDelivery(message)
+    // A busy-turn row can remain in the message ledger without entering the
+    // SessionInbox FIFO. Conversely, a wake/boot push may already be in that
+    // FIFO and have an exact driver-facing position. Fill the common result
+    // boundary from a live read in either case; never freeze the enqueue ordinal
+    // into the message row.
+    const position =
+      outcome.position ??
+      (outcome.queued ? this.queuePositionForMessage(message) : undefined)
     this.scheduleQueuedWakeRetry(message)
-    return { message: this.deps.messages.getMessage(id) ?? message, ...outcome, legacy }
+    return {
+      message: this.deps.messages.getMessage(id) ?? message,
+      ...outcome,
+      ...(position !== undefined ? { position } : {}),
+      legacy,
+    }
   }
 
   // ---- delivery resolution (state × axis table) ----
@@ -1790,12 +1806,34 @@ export class MessageDeliveryService {
 
   /** Message lookup for the read surfaces (gate/CLI). */
   message(id: string): MessageRow | null {
-    return this.mailbox.message(id)
+    const message = this.mailbox.message(id)
+    return message ? this.withQueuePosition(message) : null
   }
 
   /** The per-issue / per-session delivery ledger (#237) — a pure read. */
   ledger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): MessageRow[] {
-    return this.mailbox.ledger(q)
+    return this.mailbox.ledger(q).map((message) => this.withQueuePosition(message))
+  }
+
+  private withQueuePosition(message: MessageRow): MessageRow {
+    const position = this.queuePositionForMessage(message)
+    return position === undefined ? message : { ...message, queuePosition: position }
+  }
+
+  /** Resolve a queued row's current ordinal at the boundary that serves both
+   * send receipts and ledger reloads. Physical queued rows win because they
+   * include boot prompts and other non-ledger work; busy-turn rows fall back to
+   * the message table's session-scoped FIFO.
+   */
+  private queuePositionForMessage(message: MessageRow): number | undefined {
+    if (message.status !== 'queued') return undefined
+    if (message.injectedAt != null) return undefined
+    const sessionId =
+      message.deliveredTo ??
+      (message.toKind === 'session' && message.toId ? asSessionId(message.toId) : undefined)
+    if (!sessionId) return undefined
+    const physical = this.deps.sessions.queuedMessagePosition?.(sessionId, message.id)
+    return physical ?? this.deps.messages.queuedPositionForSession(sessionId, message.id)
   }
 
   /** Bounded wait for a message's ack [spec:SP-34d7 read-toolkit tier 4]. */

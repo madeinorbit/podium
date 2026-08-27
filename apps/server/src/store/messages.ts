@@ -244,6 +244,36 @@ export class MessagesRepository {
     return rows.map(mapMessage)
   }
 
+  /**
+   * The current 1-based position of a queued message for one concrete session.
+   * This is deliberately a read-time count, not a stored ordinal: earlier rows
+   * leave the queue as soon as they are confirmed, so a receipt's enqueue-time
+   * position is not an honest reload-time position.
+   *
+   * Rows can be waiting in either form used by the delivery service: addressed
+   * directly to the session, or already injected toward it (`delivered_to`).
+   * The SQL ordering is the same `(created_at, id)` ordering used by the ledger
+   * and its high-water cursors.
+   */
+  queuedPositionForSession(sessionId: SessionId, messageId: string): number | undefined {
+    const target = "((to_kind = 'session' AND to_id = ?) OR delivered_to = ?)"
+    const row = this.db
+      .prepare(
+        `SELECT created_at, id FROM messages
+           WHERE id = ? AND status = 'queued' AND injected_at IS NULL AND ${target}`,
+      )
+      .get(messageId, sessionId, sessionId) as { created_at?: string; id?: string } | undefined
+    if (!row?.created_at || !row.id) return undefined
+    const count = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM messages
+           WHERE status = 'queued' AND injected_at IS NULL AND ${target}
+             AND (created_at < ? OR (created_at = ? AND id <= ?))`,
+      )
+      .get(sessionId, sessionId, row.created_at, row.created_at, row.id) as { n: number }
+    return Number(count.n)
+  }
+
   /** One bounded keyset page of queued rows for a principal. */
   pendingForPage(
     to: MessagePrincipalRef,

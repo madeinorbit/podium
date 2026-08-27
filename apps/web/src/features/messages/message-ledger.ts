@@ -19,6 +19,8 @@ export interface LedgerMessage {
   body: string
   createdAt: string
   status: string
+  /** Current 1-based position in the recipient session FIFO at read time. */
+  queuePosition?: number
   ackedBy: string | null
   deliveredAt: string | null
   deliveredTo: string | null
@@ -89,7 +91,13 @@ export function deliveryLine(m: LedgerMessage): string {
     const to = m.deliveredTo ? ` by ${m.deliveredTo}` : ''
     return `read${to}${m.ackedBy ? ` · acked by ${m.ackedBy}` : ''}`
   }
-  if (m.status === 'queued') return m.expiresAt ? `queued · expires ${m.expiresAt}` : 'queued'
+  if (m.status === 'queued') {
+    const position =
+      Number.isInteger(m.queuePosition) && m.queuePosition > 0
+        ? ` · queue position ${m.queuePosition}`
+        : ''
+    return `${m.expiresAt ? `queued · expires ${m.expiresAt}` : 'queued'}${position}`
+  }
   // A dead letter says WHY when the daemon told us why [POD-2132, POD-2202]: the
   // drain gave up, so this row is terminal rather than waiting on anything.
   if (m.status === 'dead_letter') return deadLetterDeliveryLine(m.deliveryDeferredReason)

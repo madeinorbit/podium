@@ -481,6 +481,7 @@ export function TranscriptFeed({
         })}
         {pending.map((p) => {
           const durable = p.durable
+          const queuePosition = durable ? durable.queuePosition : p.queuePosition
           const handedOver =
             durable?.injectedAt != null && !sessionWaking(session) && !queueIsBlocked(session)
           return (
@@ -545,7 +546,7 @@ export function TranscriptFeed({
             {durable && !handedOver ? (
               <div className="msg-foot" data-side="right">
                 <span className="transcript-delivery">
-                  {queuedDeliveryLabel(session, p.queuePosition)}
+                  {queuedDeliveryLabel(session, queuePosition)}
                 </span>
                 <button
                   data-pressable
@@ -563,8 +564,8 @@ export function TranscriptFeed({
                 {p.state === 'queued' && (
                   <span className="transcript-delivery">
                     {queueIsBlocked(session)
-                      ? queuedDeliveryLabel(session, p.queuePosition)
-                      : `pending${queuePositionSuffix(p.queuePosition)}`}
+                      ? queuedDeliveryLabel(session, queuePosition)
+                      : `pending${queuePositionSuffix(queuePosition)}`}
                   </span>
                 )}
                 {p.state === 'failed' && (
@@ -629,7 +630,7 @@ export function TranscriptFeed({
               {!handedOver && (
                 <div className="msg-foot" data-side="right">
                   <span className="transcript-delivery">
-                    {queuedDeliveryLabel(session)}
+                    {queuedDeliveryLabel(session, message.queuePosition)}
                   </span>
                   <button
                     data-pressable

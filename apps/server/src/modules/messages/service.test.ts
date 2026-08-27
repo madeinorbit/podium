@@ -433,6 +433,29 @@ describe('MessageDeliveryService.send', () => {
     expect(r.legacy).toMatchObject({ fromAuthor: `issue:#${SENDER_ISSUE.seq}`, status: 'unread' })
   })
 
+  it('returns and reloads a current queue position for a busy session', () => {
+    const { svc, store } = harness([
+      session({ sessionId: asSessionId('s1'), agentState: WORKING }),
+    ])
+    const first = svc.send({ kind: 'operator' }, {
+      to: { kind: 'session', id: asSessionId('s1') },
+      body: 'first queued turn',
+    })
+    const second = svc.send({ kind: 'operator' }, {
+      to: { kind: 'session', id: asSessionId('s1') },
+      body: 'second queued turn',
+    })
+    expect(first).toMatchObject({ queued: true, position: 1, disposition: 'queued' })
+    expect(second).toMatchObject({ queued: true, position: 2, disposition: 'queued' })
+    expect(svc.message(second.message.id)).toMatchObject({ queuePosition: 2 })
+
+    expect(store.messages.markDelivered(first.message.id, asSessionId('s1'), 't-delivered')).toBe(true)
+    expect(svc.message(second.message.id)).toMatchObject({ queuePosition: 1 })
+    expect(
+      svc.ledger({ sessionId: asSessionId('s1') }).find((row) => row.id === second.message.id),
+    ).toMatchObject({ queuePosition: 1 })
+  })
+
   it('senderFromCapability: subtree → agent principal, all → operator', () => {
     expect(
       senderFromCapability({

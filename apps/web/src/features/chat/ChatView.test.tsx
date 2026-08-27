@@ -556,6 +556,7 @@ describe('ChatView composer', () => {
         body: 'please do this next',
         createdAt: '2026-06-03T00:00:01.000Z',
         status: 'queued',
+        queuePosition: 2,
       },
     ])
     act(() => {
@@ -567,6 +568,7 @@ describe('ChatView composer', () => {
     expect(queued?.textContent).toContain('please do this next')
     // One noun for every not-yet-delivered bubble, whatever parked it.
     expect(queued?.textContent).toContain('pending · sends after this turn')
+    expect(queued?.textContent).toContain('pending · sends after this turn · queue position 2')
     expect(queued?.querySelector('.msg-action--retract')).not.toBeNull()
     // The bubble IS the queue notice now: the composer no longer repeats the
     // count above the field.

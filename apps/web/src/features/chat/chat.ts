@@ -375,6 +375,8 @@ export interface QueuedChatMessage {
   id: string
   text: string
   at: number
+  /** Current 1-based position in the recipient session FIFO at reload time. */
+  queuePosition?: number
   /** THE CLI HAS IT (POD-1242). The ledger stamps this when the bytes cross into
    * the harness, which is BEFORE the agent takes them: a busy Claude Code parks
    * typed input in its own composer queue until the running turn ends, and shows
@@ -403,6 +405,16 @@ export interface ProjectedPendingItem extends PendingItem {
 const QUEUE_CLOCK_SKEW_MS = 5_000
 const QUEUE_ACK_WINDOW_MS = 60_000
 
+function attachDurableQueueRow(
+  item: PendingItem,
+  durable: QueuedChatMessage,
+): ProjectedPendingItem {
+  const projected: ProjectedPendingItem = { ...item, durable }
+  if (durable.queuePosition === undefined) delete projected.queuePosition
+  else projected.queuePosition = durable.queuePosition
+  return projected
+}
+
 /** Pair local bubbles with ledger rows once, using content plus the send-time
  * window. An older identical queued prompt is not the durable identity of a new
  * send and must remain independently retractable. */
@@ -417,7 +429,7 @@ export function pairPendingWithQueued(
       const exactIndex = unmatched.findIndex((message) => message.id === item.deliveryId)
       if (exactIndex === -1) return item
       const [durable] = unmatched.splice(exactIndex, 1)
-      return durable ? { ...item, durable } : item
+      return durable ? attachDurableQueueRow(item, durable) : item
     }
     let bestIndex = -1
     let bestDistance = Number.POSITIVE_INFINITY
@@ -433,7 +445,7 @@ export function pairPendingWithQueued(
     }
     if (bestIndex === -1) return item
     const [durable] = unmatched.splice(bestIndex, 1)
-    return durable ? { ...item, durable } : item
+    return durable ? attachDurableQueueRow(item, durable) : item
   })
   return { pending: projected, queued: unmatched }
 }
@@ -455,6 +467,9 @@ export function queuedOperatorMessages(rows: unknown, sessionId: SessionId): Que
       id: row.id as string,
       text: row.body as string,
       at: Date.parse(row.createdAt as string) || 0,
+      ...(typeof row.queuePosition === 'number'
+        ? { queuePosition: row.queuePosition }
+        : {}),
       injectedAt: typeof row.injectedAt === 'string' ? Date.parse(row.injectedAt) || null : null,
     }))
     .sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))

@@ -241,6 +241,7 @@ export class SessionLifecycle {
   readonly queueText!: SessionInbox['queueText']
   readonly cancelQueuedMessage!: SessionInbox['cancelQueuedMessage']
   readonly hasQueuedMessage!: SessionInbox['hasQueuedMessage']
+  readonly queuedMessagePosition!: SessionInbox['queuedMessagePosition']
   readonly resumeAndSend!: SessionInbox['resumeAndSend']
   readonly answerAskUserQuestion!: (input: {
     sessionId: SessionId

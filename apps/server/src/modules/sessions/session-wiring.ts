@@ -492,6 +492,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     bag.inbox.cancelQueuedMessage(sessionId, sourceMessageId)
   bag.hasQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
     bag.inbox.hasQueuedMessage(sessionId, sourceMessageId)
+  bag.queuedMessagePosition = (sessionId: SessionId, sourceMessageId: string) =>
+    bag.inbox.queuedMessagePosition(sessionId, sourceMessageId)
   bag.resumeAndSend = (input: any) => bag.inbox.resumeAndSend(input)
   bag.answerAskUserQuestion = (input: any) =>
     bag.inbox.answerAskUserQuestion({

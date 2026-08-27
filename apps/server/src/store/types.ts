@@ -592,6 +592,8 @@ export interface MessageRow {
   expiresAt: string | null
   createdAt: string
   status: MessageStatus
+  /** Current 1-based position while queued. Derived for read projections; never persisted. */
+  queuePosition?: number
   /** When status reached `delivered` — the transcript echo, NOT the enqueue. */
   deliveredAt: string | null
   /** The session that actually received it (set on inject; confirmed at delivered). */

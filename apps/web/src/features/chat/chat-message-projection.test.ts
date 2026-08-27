@@ -48,6 +48,16 @@ describe('queued message projection', () => {
     })
   })
 
+  it('replaces a stale local ordinal with the durable reload position', () => {
+    const at = Date.parse('2026-08-19T10:00:00.000Z')
+    const p = { ...pending('p1', 'hello', at), deliveryId: 'q1', queuePosition: 4 }
+    const q = { ...queued('q1', 'hello', at), injectedAt: null, queuePosition: 1 }
+    expect(pairPendingWithQueued([p], [q])).toEqual({
+      pending: [{ ...p, queuePosition: 1, durable: q }],
+      queued: [],
+    })
+  })
+
   it('consumes identical logical messages FIFO without hiding a distinct send', () => {
     const at = Date.parse('2026-08-19T10:00:00.000Z')
     const p1 = pending('p1', 'again', at)

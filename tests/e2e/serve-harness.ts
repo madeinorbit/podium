@@ -394,6 +394,86 @@ const daemonOptions: Parameters<typeof startDaemon>[0] = {
   workerClient: inlineWorkerClient(),
 }
 let daemon = await startDaemon(daemonOptions)
+const QUEUE_POSITION_ISSUE_TITLE = 'POD-2920 A1b production queue'
+if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: QUEUE_POSITION_ISSUE_TITLE,
+    startNow: false,
+  })
+  server.registry.modules.issues.update(issue.id, { stage: 'in_progress' })
+  const principal = inProcessMachinePrincipal(hostMachineId())
+  const subjects: Array<{ agentKind: AgentKind; label: string; idleAfterMs: number }> = [
+    { agentKind: 'codex', label: 'POD-2920 A1b codex-headless', idleAfterMs: 40_000 },
+    { agentKind: 'claude-code', label: 'POD-2920 A1b claude-pty', idleAfterMs: 100_000 },
+  ]
+  const fixtureSessions: Array<{ sessionId: string; agentKind: AgentKind; label: string }> = []
+  for (const subject of subjects) {
+    let sessionId: string | undefined
+    let lastError: unknown
+    for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
+      try {
+        sessionId = server.registry.modules.sessions.createSession({
+          agentKind: subject.agentKind,
+          cwd: REPO_ROOT,
+          issueId: issue.id,
+          title: subject.label,
+          machineId: hostMachineId(),
+        }).sessionId
+      } catch (err) {
+        lastError = err
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+    }
+    if (sessionId === undefined) {
+      throw new Error(
+        `PODIUM_E2E_QUEUE_POSITION: ${subject.agentKind} inventory never arrived — ${String(lastError)}`,
+      )
+    }
+    server.registry.modules.sessions.renameSession({ sessionId, name: subject.label })
+    let live = false
+    for (let attempt = 0; attempt < 80 && !live; attempt++) {
+      live =
+        server.registry.modules.sessions
+          .listSessions()
+          .find((session) => session.sessionId === sessionId)?.status === 'live'
+      if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    if (!live) {
+      throw new Error(`PODIUM_E2E_QUEUE_POSITION: ${subject.label} never became live`)
+    }
+    server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'working',
+        since: new Date().toISOString(),
+        nativeSubagentCount: 0,
+      },
+    })
+    setTimeout(() => {
+      const current = server.registry.modules.sessions
+        .listSessions()
+        .find((session) => session.sessionId === sessionId)
+      if (!current || current.status !== 'live') return
+      server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+        type: 'agentState',
+        sessionId,
+        state: {
+          phase: 'idle',
+          idle: { kind: 'done' },
+          since: new Date().toISOString(),
+          nativeSubagentCount: 0,
+        },
+      })
+    }, subject.idleAfterMs).unref?.()
+    fixtureSessions.push({ sessionId, agentKind: subject.agentKind, label: subject.label })
+  }
+  writeFileSync(
+    join(stateDir, 'pod-2920-queue-position.json'),
+    JSON.stringify({ issueId: issue.id, issueTitle: QUEUE_POSITION_ISSUE_TITLE, sessions: fixtureSessions }),
+  )
+}
 // POD-408: one LIVE, RESUMABLE agent session, so a spec can drive the panel's
 // lifecycle arbitration in both directions with real clicks — Hibernate from the
 // header overflow (live → parked), Resume from the banner (parked → live).
