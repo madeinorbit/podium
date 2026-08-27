@@ -4502,3 +4502,45 @@ and this is one. I will raise it with something substantive when its results lan
   drivers. POD-2911 (mail unreadable) is the one costing me real time every tick.
 - **A4a/A4b on claude** — genuinely blocked by the 2.1.231 wizard rewriting
   `permissions.defaultMode`. An instrument limit, measured twice, not a question.
+
+### THE NINE UNKNOWNS — corrected tally, and I had been overstating it (2026-08-27 03:26 CEST)
+
+**POD-2408 is driven PASS at the real boundary.** Parent `5979159e3`: `stageAttachment` threw
+`Error: codex-app-server does not stage attachments`. Fix `10d5af58a`: returned
+`{reason: unsupported, detail: ...}`. Both pins recorded, the fake app-server control fired on
+each arm with a distinct thread id so cross-arm contamination would be visible. It followed the
+mislabelled marker to the real commit exactly as told.
+
+**The state of all nine, derived from the results file rather than from memory:**
+
+| issue | driven? | verdict |
+| --- | --- | --- |
+| POD-2298 | yes | **PASS** — fix corrects the receipt to dead_letter |
+| POD-2408 | yes | **PASS** — typed refusal replaces a raw throw |
+| POD-2622 | yes | **was FAIL**, three of nine call sites — fixed by POD-2914 |
+| POD-2691 | yes | **FAIL** — an entire module no production code imports |
+| POD-2602 | no | landed, never driven |
+| POD-2604 | no | landed, never driven |
+| POD-2637 | no | landed, never driven |
+| POD-2761 | no | undriven, was gated on a build |
+| POD-2773 | half | opencode driven, grok blocked until 11:03 |
+
+**FOUR DRIVEN: TWO WERE REAL DEFECTS (POD-2622, POD-2691), TWO WERE ALREADY FINE (POD-2298,
+POD-2408).**
+
+**I have been reporting "three broken, one genuinely fixed" and that was wrong.** I counted
+POD-2914 — which is the *repair* for POD-2622 — as if it were a separate unknown, inflating both
+the numerator and the failure rate. **The true rate is 50%, not 75%**, and the honest version is
+still a strong argument for the exercise: half the issues that read as finished were not.
+
+**AND THE DERIVATION THAT CAUGHT IT HAD ITS OWN BUG.** My first pass took each issue's LATEST row
+and reported POD-2298 as FAIL — because its parent-arm row was appended after its fix-arm row, and
+**in a two-arm A/B the parent arm is SUPPOSED to fail.** "Latest row wins" is correct for a cell
+re-driven after a fix and wrong for a cell with a control; the fix arm is the verdict and the
+parent arm is the evidence that the probe works. Anything reading this file has to distinguish
+them, and the rows do not currently say which arm they are in except in prose.
+
+**That is now the second time tonight a derivation over results.tsv was wrong in a way that
+flattered or distorted the answer** — the first took the first verdict per cell instead of the
+latest and reported a fixed cell as failing. **A file this load-bearing needs its queries checked
+as carefully as its rows.**
