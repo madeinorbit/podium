@@ -1,0 +1,69 @@
+{
+  "cell": "A10",
+  "arm": "terminal",
+  "harness": "opencode",
+  "verdict": "PASS",
+  "summary": "identity reported generic-pty/terminal",
+  "evidence": [
+    "arm=terminal",
+    "driverId=generic-pty",
+    "driverFamily=terminal",
+    "control=true",
+    "expected=generic-pty/terminal"
+  ],
+  "data": {
+    "driverId": "generic-pty",
+    "driverFamily": "terminal",
+    "control": true
+  },
+  "requestedCwd": "/tmp/pod-2919/probes/terminal-a10",
+  "cwdFromSpawn": null,
+  "instance": "oc2919",
+  "codePin": "1f531c6cc7efc022db1b90e175c4640906ba97f6",
+  "pin": {
+    "codeSha": "1f531c6cc7efc022db1b90e175c4640906ba97f6",
+    "codeShort": "1f531c6",
+    "server": {
+      "pid": 856239,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
+      "sha": "1f531c6cc7efc022db1b90e175c4640906ba97f6"
+    },
+    "daemon": {
+      "pid": 856666,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
+      "sha": "1f531c6cc7efc022db1b90e175c4640906ba97f6"
+    },
+    "bundleSourceSha": "1f531c6",
+    "expectedDriver": "generic-pty",
+    "expectedFamily": "terminal",
+    "actualRuntimeDriver": "generic-pty",
+    "contract": "1",
+    "streaming": "1"
+  },
+  "host": {
+    "load": [
+      "12.42",
+      "10.18",
+      "12.17"
+    ],
+    "memAvailableKb": 3959224,
+    "swapFreeKb": 36798804,
+    "diskFreeKb": 15177612
+  },
+  "at": "2026-08-27T02:36:23.146Z",
+  "error": "",
+  "log": [
+    "PIN PINJSON {\"codeSha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\",\"codeShort\":\"1f531c6\",\"server\":{\"pid\":856239,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\"},\"daemon\":{\"pid\":856666,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\"},\"bundleSourceSha\":\"1f531c6\",\"expectedDriver\":\"generic-pty\",\"expectedFamily\":\"terminal\",\"actualRuntimeDriver\":\"generic-pty\",\"contract\":\"1\",\"streaming\":\"1\"}",
+    "PIN server pid=856239 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=1f531c6cc7ef",
+    "PIN daemon pid=856666 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=1f531c6cc7ef",
+    "PIN bundle sourceSha=1f531c6 expected=1f531c6",
+    "PIN daemon runtime driver=generic-pty expected=generic-pty family=terminal",
+    "HOST {\"load\":[\"12.42\",\"10.18\",\"12.17\"],\"memAvailableKb\":4184784,\"swapFreeKb\":36795124,\"diskFreeKb\":15198504}",
+    "SESSION sid=e09817c3-12b8-47f3-a8ee-8d1ef9db1787",
+    "CWD requested=/tmp/pod-2919/probes/terminal-a10",
+    "CWD spawn-observed=/",
+    "CWD query=/tmp/pod-2919/probes/terminal-a10 match=false",
+    "DRIVER bound=generic-pty family=terminal status=live",
+    "CONTROL identity=generic-pty/terminal attachOrBound=true"
+  ]
+}
