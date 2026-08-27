@@ -574,3 +574,53 @@ session and look for the needle.
 matrix was written before several of tonight's fixes. **A cell can now fail because the product
 improved past its criterion.** A1c is the first clear instance; there may be others. **When a cell
 and the product disagree, one of them is out of date, and it is not automatically the product.**
+
+## Decision 22 — what the coverage number actually supports (2026-08-27 05:38 CEST)
+
+**I have been reporting "38 of 69 cells current, 28 PASS" as though a PASS meant the criterion was
+met. After POD-2919's scorer audit, that is not what it means, and the operator should have the
+honest version before any release decision.**
+
+**WHAT THE SCORERS DO CHECK, consistently and well:** the gross failure modes. Did the message
+arrive at all. Did the session die. Did the badge move. Did the process tree survive a kill. Did
+the conversation come back after a restart. **Every scorer audited has a real positive control and
+refuses when it does not fire** — five sessions declined to record readings tonight rather than
+report through a bad rig, and one withdrew a result it had already taken.
+
+**WHAT THEY DO NOT CHECK, per cell, is now written down** in the SCORER AUDIT section of the ledger.
+The pattern is that **the coarse clause is tested and the fine clause is not**:
+
+    A1a  "reply arrives"          tested        "never silent-settles"        NOT tested
+    A1b  "queued with position"   tested        "position visible after reload" NOT tested
+    A1c  "not silently accepted"  tested        "never a lost message"        NOT tested
+    A3   "phase stopped"          tested        "transcript shows interrupt"  IGNORED
+    A6a  "bytes echoed"           tested        "resize refits, screens equal" NOT tested
+    A9   "original PIDs gone"     tested        "no rebound, stamp proof"     NOT tested
+
+**SO THE HONEST CLAIM IS: "no gross regression has been found in 38 of 69 cells."** It is NOT
+"38 cells fully meet their criteria." **Those are different statements and only the first is
+supported.**
+
+**THIS DOES NOT INVALIDATE THE RELEASE BAR, and I want to be precise about why.** The bar is *every
+driver at least as good as it is on today's main*. **A gross regression is exactly what that bar is
+about**, and the scorers do detect those — the one product FAIL found tonight (opencode A9, an
+orphaned process) was found by a scorer, and the claude A1a scare was correctly resolved to a
+startup race. **The coarse clauses are the ones that carry the bar.** The fine clauses are the
+difference between "as good as main" and "meets the acceptance criterion in full", which is a
+higher standard the epic set for itself.
+
+**THE DECISION FOR THE OPERATOR, when the columns finish:**
+
+1. **Ship on "no gross regression", accept the fine clauses as untested, and record which.** Fast,
+   honest if stated, and leaves a known gap list. **This is what the current evidence actually
+   supports.**
+2. **Tighten the scorers and re-drive.** POD-2919 is already doing this for A9 and it cost it
+   under an hour for one cell. Across ~10 cells and 4 columns that is a session-day or two, and it
+   would convert "no gross regression" into "criteria met".
+3. **Tighten only where a fine clause protects something the operator cares about** — A1c's "never
+   a lost message" and A9's rebound detection are the two I would pick, because both are silent
+   failures a user would meet and neither is currently tested.
+
+**My recommendation is 3, then 1.** The two clauses I named are the ones where the coarse test
+passes and a user still loses something. Everything else on the list is a fidelity improvement
+rather than a safety one, and can be recorded as a known gap without blocking.
