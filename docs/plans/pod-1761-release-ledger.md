@@ -5077,6 +5077,7 @@ A9 FAIL, the most important reading in the column, was invisible to the coverage
 it by hand.** And the cherry-pick replay re-applied the original commits over my earlier repair,
 **so fixing it downstream does not hold** — it has to stop at the source. Told it again with the
 one-line verification.
+
 ### POD-2691 consumer decision (2026-08-27 03:36:37 CEST)
 
 The server is the reaper authority. A durable `issue.closed` transition starts the canonical no-force
@@ -5117,3 +5118,19 @@ no live process with a cwd under any controlled `pod-2691-real-root-*` path; the
 had all exited. No controlled-process rebound was observed, so the immediate zero did not refill during the settle
 window. The host still had 17 GB available (92% used), and the result is recorded in
 `docs/plans/pod-1761-results.tsv` rather than being inferred from an absence of test output.
+
+### POD-2691 post-rebase verification (recorded 2026-08-27 04:17:32 CEST)
+
+The branch was rebased onto the local `issue/1761-agent-runtime` tip `99c9cb25e`; the rebased issue tip is
+`031e0fed0` before this documentation update. The full `git range-diff` showed documentation-context changes in
+the two evidence commits and exact mappings for the server fix and settle record. Re-running the range-diff over
+`apps` and `packages` maps the reaper commit exactly (`ee0c7bc75 = 8d391dbc1`) and the server fix exactly
+(`ea449555a = de0fd6875`); the `instance-process-reaper.ts` and `instance-guard.ts` blobs are byte-identical.
+The reaper identity checks therefore did not change during rebase, and the 03:44 production drive remains valid.
+
+The required `bun run typecheck` on the rebased tree completed with 23 successful of 25 Turbo tasks; only
+`@podium/web#typecheck` failed. Its actual errors are cross-package shape mismatches for `stopReason: 'oom'`,
+nullable inventory `installed`/probe errors, missing `harness-probe-timed-out` and `inventory-unavailable`
+`HandoffRejection` members plus `agentProbeTimeoutDescription`, daemon-wire transcript message fields, and
+`SessionStatusResult` driver fields. No reaper or identity-check error appeared. The failure is recorded as the
+rebased-tree result here without claiming a baseline verdict from the pre-rebase tree.
