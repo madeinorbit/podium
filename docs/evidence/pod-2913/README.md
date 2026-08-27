@@ -26,6 +26,9 @@ The POD-2691 process/tracker cell has no product runtime to start; its measured 
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 562620c41 (docs: refresh POD-2298 parent drive evidence)
 =======
 >>>>>>> 562620c41 (docs: refresh POD-2298 parent drive evidence)
 The parent arm was retaken after the earlier disk-full-window reading was
@@ -42,6 +45,7 @@ marker 'P2298_LATE_REFUSAL_PARENT_DRIVEN_T5L9TK'. 'messages.send' returned
 optimistic 'delivered'; the persisted transitions then showed
 'message.receipt' with 'outcome=refused, refusedFor=not_running', while the
 ledger row remained 'status=delivered'. This is the pre-fix symptom.
+<<<<<<< HEAD
 <<<<<<< HEAD
 =======
 =======
@@ -62,6 +66,8 @@ persisted transitions then showed 'message.receipt' with
 >>>>>>> 562620c41 (docs: refresh POD-2298 parent drive evidence)
 =======
 >>>>>>> 314ea0caa (docs: record POD-2298 drive result)
+=======
+>>>>>>> 562620c41 (docs: refresh POD-2298 parent drive evidence)
 
 The fix arm used fresh named instance 'p2913-2298tip' with server and daemon
 both pinned to 'b5c53918c5d6af54d28bafcd5ae607a30940bc6e'; both spawn-time pin
@@ -325,5 +331,9 @@ children (POD-2408, POD-2602, POD-2604, and POD-2637) were not touched in this
 interval and have no result claimed here. POD-2622 is handed to POD-2914;
 this report does not claim a drive for it.
 
+<<<<<<< HEAD
 Last evidence update: '2026-08-27 01:54:27 CEST'.
 >>>>>>> 314ea0caa (docs: record POD-2298 drive result)
+=======
+Last evidence update: '2026-08-27 02:39:16 CEST'.
+>>>>>>> 562620c41 (docs: refresh POD-2298 parent drive evidence)
