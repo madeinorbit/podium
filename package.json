@@ -71,6 +71,7 @@
     "test:perf:sync": "bun run --cwd packages/sync test:perf:apply-scaling",
     "test:rearch": "bun run audit:rearch && bun run --cwd scripts test:rearch",
     "perf:typing": "bun tests/e2e/typing-latency-bench.ts",
+    "test:perf:pty-transport": "bun scripts/validation-admission.ts heavy --label test:perf:pty-transport -- bun --conditions=@podium/source scripts/pty-transport-benchmark.ts",
     "test:supervisor": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.integration.config.ts --maxWorkers=1 scripts/parent-supervised-stack.integration.test.ts -t 'discovers every supervised role'",
     "test:integration": "bun run build && bun scripts/test-heavy.ts -- bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.integration.config.ts --maxWorkers=1 && bun run test:acceptance",
     "test:acceptance": "bun scripts/test-heavy.ts -- bun --bun node_modules/vitest/vitest.mjs run --config vitest.acceptance.config.ts",
