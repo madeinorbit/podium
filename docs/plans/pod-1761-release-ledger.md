@@ -5512,3 +5512,38 @@ and export are the migration path the operator cares most about ("any old sessio
 working"), and POD-2871's landed fix deliberately leaves pre-cutover sessions on the legacy store.
 **If that corpus says anything about resuming sessions created before this epic, it bears on
 migration and nothing else on the board covers it.**
+
+## FOREST — coordinator current-tip audit (2026-08-28 01:03 CEST)
+
+The epic branch is clean at `3cb35a8f14fd6bd44460e25d6f3480f35cf20ee0`, with
+`3cb35a8f1` landed fast-forward-only after Claude SDK resume repair at
+`0de7de085`. The operator sandbox is stopped. The Grok A1c re-drive was run
+against that exact tip, with server, daemon, and served bundle pinned to it;
+its evidence is `docs/evidence/pod-2927/readings/a1c-current-0de7de0.json`.
+
+### Acceptance columns (69 cells total)
+
+| column | cells | PASS | FAIL | other / qualification |
+|---|---:|---:|---:|---|
+| codex | 16 | 13 | 0 | A3 REFUSED; A4a/A4b BLOCKED by the approval instrument; A6b scrollback clause unmeasured |
+| opencode | 16 | 12 | 0 | A3/A8 PARTIAL; A4a/A4b are stale because the interaction/relay paths moved; A6b scrollback clause unmeasured |
+| grok | 16 | 12 | 2 | A1c FAIL at current tip (accepted dead send lost); A5 FAIL is pre-`0ef9722a0` and must be re-driven; A4a/A4b BLOCKED |
+| claude | 15 | 11 | 1 | A1c FAIL is also observed on main; A4a/A4b/A8 BLOCKED by the Claude CLI instrument; A6b scrollback clause unmeasured |
+| shell | 6 | 6 | 0 | all six current shell checks PASS |
+
+This is **69 cells with a recorded row**, not 69 fully current criteria: the
+opencode permission rows and Grok A5 are stale or await a post-fix drive, and
+several A6b rows deliberately leave the scrollback-corruption clause
+UNMEASURED because the byte-buffer instrument cannot distinguish repaint from
+corruption. The current Grok A1c FAIL is a genuine product reading, not a rig
+refusal: its live control fired, the exact stamped child was killed, the send
+was accepted at queue position 1, and no typed refusal, resume offer, or
+assistant nonce arrived in 120 seconds. It is handed back to POD-2980, whose
+landed `c30fe4186` repair is therefore not yet sufficient.
+
+The Grok A5 FAIL at `c26c267be` predates the landed `0ef9722a0` tool-result
+repair and is not a current verdict; it remains an explicit re-drive gap. The
+only Claude FAIL relevant to the release comparison (A1c) was reproduced on
+main, while current-tip Claude A3 passed at its then-current pin. Accordingly
+the table establishes no confirmed worse-than-main result for the measured
+rows, but it does not claim that every fine acceptance clause is satisfied.
